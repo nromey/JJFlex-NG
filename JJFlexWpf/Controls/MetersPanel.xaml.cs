@@ -45,6 +45,17 @@ public partial class MetersPanel : UserControl
     public Action? ReturnFocusToFreqOut { get; set; }
 
     /// <summary>
+    /// The live audio config while a radio is open, or null with none. Set in
+    /// MainWindow beside <see cref="Dialogs.AudioWorkshopDialog.AudioConfigSave"/>
+    /// and resolved per call, because the config is replaced at every connect.
+    /// </summary>
+    public static Func<AudioOutputConfig?>? AudioConfigSource { get; set; }
+
+    /// <summary>Writes the live audio config to disk. Set beside
+    /// <see cref="AudioConfigSource"/>.</summary>
+    public static Action? AudioConfigSave { get; set; }
+
+    /// <summary>
     /// True while the code is pushing engine state INTO the controls, so the
     /// change handlers know not to push it straight back out again. Without it,
     /// selecting a different meter writes the previous meter's settings onto
@@ -294,6 +305,9 @@ public partial class MetersPanel : UserControl
             AddSlotButton.IsEnabled = slots.Count < MeterToneEngine.MaxSlots;
             DeleteButton.IsEnabled = slots.Count > 1;
             SetSlotControlsEnabled(slots.Count > 0);
+            // The count is said as "in use", never "N of M": a reader heard
+            // "4 of 8" as the selected item's position on every selection.
+            // DRAFT wording for Noel's review.
             AutomationProperties.SetName(SlotCombo,
                 Lexicon.Get("audio.meters.panel.slot_combo_name",
                     ("count", slots.Count), ("max", MeterToneEngine.MaxSlots)));
@@ -876,6 +890,7 @@ public partial class MetersPanel : UserControl
         // The slot's NAME changed, so the selector that lists slots by name is
         // now out of date. Same signal, one path.
         MeterToneEngine.NotifySlotContentChanged();
+        PersistMeterChoices();
     }
 
     private void UpdateSourceDetail(SourceChoice? choice)
@@ -976,7 +991,10 @@ public partial class MetersPanel : UserControl
         if (_loading) return;
         MeterSlot? slot = SelectedSlot;
         if (slot != null && VoiceCombo.SelectedItem is string voiceName)
+        {
             slot.VoiceName = voiceName;
+            PersistMeterChoices();
+        }
     }
 
     private void ActivationCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -985,7 +1003,10 @@ public partial class MetersPanel : UserControl
         MeterSlot? slot = SelectedSlot;
         int i = ActivationCombo.SelectedIndex;
         if (slot != null && i >= 0 && i < ActivationChoices.Length)
+        {
             slot.Definition.Activation = ActivationChoices[i].Value;
+            PersistMeterChoices();
+        }
     }
 
     private void PanSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -994,7 +1015,11 @@ public partial class MetersPanel : UserControl
         PanText.Text = DescribePan(pan);
         if (_loading) return;
         MeterSlot? slot = SelectedSlot;
-        if (slot != null) slot.Pan = pan;
+        if (slot != null)
+        {
+            slot.Pan = pan;
+            PersistMeterChoices();
+        }
     }
 
     private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -1003,7 +1028,11 @@ public partial class MetersPanel : UserControl
             ("percent", ((int)Math.Round(e.NewValue)).ToString(CultureInfo.CurrentCulture)));
         if (_loading) return;
         MeterSlot? slot = SelectedSlot;
-        if (slot != null) slot.Volume = (float)(e.NewValue / 100.0);
+        if (slot != null)
+        {
+            slot.Volume = (float)(e.NewValue / 100.0);
+            PersistMeterChoices();
+        }
     }
 
     private void PitchLowBox_LostFocus(object sender, RoutedEventArgs e)
@@ -1013,7 +1042,11 @@ public partial class MetersPanel : UserControl
         if (int.TryParse(PitchLowBox.Text, out int hz))
         {
             hz = Math.Clamp(hz, 100, 2000);
-            slot.Definition.PitchLowHz = hz;
+            if ((int)slot.Definition.PitchLowHz != hz)
+            {
+                slot.Definition.PitchLowHz = hz;
+                PersistMeterChoices();
+            }
         }
         PitchLowBox.Text = ((int)slot.Definition.PitchLowHz).ToString(CultureInfo.CurrentCulture);
     }
@@ -1025,7 +1058,11 @@ public partial class MetersPanel : UserControl
         if (int.TryParse(PitchHighBox.Text, out int hz))
         {
             hz = Math.Clamp(hz, 100, 4000);
-            slot.Definition.PitchHighHz = hz;
+            if ((int)slot.Definition.PitchHighHz != hz)
+            {
+                slot.Definition.PitchHighHz = hz;
+                PersistMeterChoices();
+            }
         }
         PitchHighBox.Text = ((int)slot.Definition.PitchHighHz).ToString(CultureInfo.CurrentCulture);
     }
@@ -1048,6 +1085,7 @@ public partial class MetersPanel : UserControl
 
         // The selector lists each meter with its state, so it has to follow.
         MeterToneEngine.NotifySlotContentChanged();
+        PersistMeterChoices();
     }
 
     private void AddSlotButton_Click(object sender, RoutedEventArgs e)
@@ -1063,6 +1101,7 @@ public partial class MetersPanel : UserControl
         // list has already rebuilt itself by the time this runs.
         _selectedSlotId = slot.Definition.Id;
         RefreshSlotList();
+        PersistMeterChoices();
         ScreenReaderOutput.Speak(
             Lexicon.Get("audio.meters.panel.slot_added", ("number", MeterToneEngine.Slots.Count)),
             VerbosityLevel.Terse);
@@ -1125,6 +1164,7 @@ public partial class MetersPanel : UserControl
         int next = Math.Min(index, remaining.Count - 1);
         _selectedSlotId = next >= 0 ? remaining[next].Definition.Id : "";
         RefreshSlotList();
+        PersistMeterChoices();
 
         ScreenReaderOutput.Speak(
             Lexicon.Get("audio.meters.panel.slot_deleted",
@@ -1246,6 +1286,7 @@ public partial class MetersPanel : UserControl
             SpeechIntervalBox.Text = val.ToString(CultureInfo.CurrentCulture);
             MeterToneEngine.SpeechIntervalSeconds = val;
             MeterToneEngine.UpdateSpeechTimerInterval();
+            PersistMeterChoices();
         }
     }
 
@@ -1281,29 +1322,97 @@ public partial class MetersPanel : UserControl
         SpeechIntervalBox.Text = MeterToneEngine.SpeechIntervalSeconds.ToString(CultureInfo.CurrentCulture);
         PeakWatcherCheck.IsChecked = MeterToneEngine.PeakWatcherEnabled;
 
-        AutoTuneCheck.Checked += (s, e) => MeterToneEngine.AutoEnableOnTune = true;
-        AutoTuneCheck.Unchecked += (s, e) => MeterToneEngine.AutoEnableOnTune = false;
+        AutoTuneCheck.Checked += (s, e) => { MeterToneEngine.AutoEnableOnTune = true; PersistMeterChoices(); };
+        AutoTuneCheck.Unchecked += (s, e) => { MeterToneEngine.AutoEnableOnTune = false; PersistMeterChoices(); };
 
-        SpeechTimerCheck.Checked += (s, e) => MeterToneEngine.SpeechTimerActive = true;
-        SpeechTimerCheck.Unchecked += (s, e) => MeterToneEngine.SpeechTimerActive = false;
+        SpeechTimerCheck.Checked += (s, e) => { MeterToneEngine.SpeechTimerActive = true; PersistMeterChoices(); };
+        SpeechTimerCheck.Unchecked += (s, e) => { MeterToneEngine.SpeechTimerActive = false; PersistMeterChoices(); };
 
-        PeakWatcherCheck.Checked += (s, e) => MeterToneEngine.PeakWatcherEnabled = true;
-        PeakWatcherCheck.Unchecked += (s, e) => MeterToneEngine.PeakWatcherEnabled = false;
+        PeakWatcherCheck.Checked += (s, e) => { MeterToneEngine.PeakWatcherEnabled = true; PersistMeterChoices(); };
+        PeakWatcherCheck.Unchecked += (s, e) => { MeterToneEngine.PeakWatcherEnabled = false; PersistMeterChoices(); };
     }
 
     /// <summary>
-    /// Save current panel state to the AudioOutputConfig.
-    /// Called when persisting settings.
+    /// Write what this panel edits into an audio config: the meters and the
+    /// panel's own four settings. The ONE route the panel saves by, through
+    /// <see cref="PersistMeterChoices()"/>.
     /// </summary>
+    /// <remarks>
+    /// <para>Deliberately NOT <see cref="AudioOutputConfig.MeterTonesEnabled"/>,
+    /// which this method wrote while it had no caller. The panel has no control
+    /// for it, and Ctrl+M switches the tones on to open the panel, so saving it
+    /// here would make every later launch start with meter tones sounding.
+    /// Settings and the meter keys own it.</para>
+    /// </remarks>
     public void SaveToConfig(AudioOutputConfig config)
     {
         config.AutoEnableOnTune = MeterToneEngine.AutoEnableOnTune;
         config.MeterSpeechTimerActive = MeterToneEngine.SpeechTimerActive;
         config.MeterSpeechIntervalSeconds = MeterToneEngine.SpeechIntervalSeconds;
         config.PeakWatcherEnabled = MeterToneEngine.PeakWatcherEnabled;
-        config.MeterTonesEnabled = MeterToneEngine.Enabled;
         config.Meters = MeterToneEngine.ExportDefinitions();
         config.MeterConfigVersion = MeterConfigMigration.CurrentVersion;
+    }
+
+    /// <summary>
+    /// Save after the operator changes a meter here. Until this was wired,
+    /// nothing called <see cref="SaveToConfig"/>, so a meter added, deleted
+    /// or edited in this panel reached disk only if a Settings OK or a
+    /// verbosity change happened to follow, and was otherwise gone at the next
+    /// start.
+    /// </summary>
+    private void PersistMeterChoices()
+    {
+        if (_loading) return;
+        PersistMeterChoices(AudioConfigSource, AudioConfigSave, RadioConfig.AppDataRoot, SaveToConfig);
+    }
+
+    /// <summary>
+    /// The save itself, apart from the panel so a test can run it.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>One store.</b> There is one audioConfig.xml, at the settings
+    /// root (<c>AudioOutputConfig.CanonicalDir</c> folds the radio folder onto
+    /// it), so the meters are kept there whichever radio is open. They
+    /// describe what the operator listens for; a meter a radio does not report
+    /// is shown as such and kept as it was left.</para>
+    /// <para><b>With a radio open</b> the change goes into the live config and
+    /// that is saved, so the config the app holds and the file agree, and a
+    /// later save of the live config cannot write the old meters back.</para>
+    /// <para><b>With no radio open</b> the live save has nowhere to write (it
+    /// needs the open radio's paths), so the file at the root is read, the
+    /// change written into it and saved, leaving every other setting in it as
+    /// it was. The next connect loads that file.</para>
+    /// </remarks>
+    /// <returns>True when the change reached a save.</returns>
+    internal static bool PersistMeterChoices(
+        Func<AudioOutputConfig?>? liveSource, Action? liveSave, string? rootDir,
+        Action<AudioOutputConfig> writeInto)
+    {
+        try
+        {
+            AudioOutputConfig? live = liveSource?.Invoke();
+            if (live != null && liveSave != null)
+            {
+                writeInto(live);
+                liveSave();
+                return true;
+            }
+            if (string.IsNullOrWhiteSpace(rootDir))
+            {
+                System.Diagnostics.Trace.WriteLine("MetersPanel: no radio open and no settings folder; the meter change was not saved");
+                return false;
+            }
+            AudioOutputConfig onDisk = AudioOutputConfig.Load(rootDir!);
+            writeInto(onDisk);
+            onDisk.Save(rootDir!);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine("MetersPanel: saving the meters failed: " + ex.Message);
+            return false;
+        }
     }
 
     #endregion

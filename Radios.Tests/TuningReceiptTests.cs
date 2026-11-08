@@ -2471,8 +2471,13 @@ namespace Radios.Tests
             Assert.Equal(0, Corrections(b));
         }
 
+        /// <summary>
+        /// J33, ruled by Noel 2026-11-07: a typed tune waits 3 seconds after its
+        /// write, not the echo guard's 1.2 that the arrow keys keep. This test
+        /// pinned the guard's bound until then; the ruling changed it.
+        /// </summary>
         [Fact]
-        public void A_typed_tune_with_no_answer_says_so_at_the_guards_own_bound_and_a_late_answer_still_arrives()
+        public void A_typed_tune_with_no_answer_says_so_at_its_own_bound_and_a_late_answer_still_arrives()
         {
             Bench b = Connected();
             Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
@@ -2480,9 +2485,11 @@ namespace Radios.Tests
             answers.Park(b.Rig);
             TypedTune(b, 14_200_000, answers);
             Drain(b.Rig);
-            Assert.Contains(FrequencyEchoGuard.GiveUpMs, answers.Asked);   // 1.2 s after the write
+            Assert.Equal(3000, FlexBase.TypedTuneNoAnswerMs);
+            Assert.Contains(FlexBase.TypedTuneNoAnswerMs, answers.Asked);  // 3 s after the write
+            Assert.DoesNotContain(FrequencyEchoGuard.GiveUpMs, answers.Asked);   // not the arrow keys' 1.2 s
             Assert.Contains(FrequencyEchoGuard.UnsentGiveUpMs, answers.Asked);   // 10 s if it never goes out
-            answers.Elapse(FrequencyEchoGuard.GiveUpMs);
+            answers.Elapse(FlexBase.TypedTuneNoAnswerMs);
             Assert.Equal(new[] { "NoAnswerYet" }, answers.Now);
             answers.Elapse(FrequencyEchoGuard.UnsentGiveUpMs);
             Assert.Equal(new[] { "NoAnswerYet" }, answers.Now);            // said once

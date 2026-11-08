@@ -82,7 +82,9 @@ public sealed class ModeCycleSettingsTests
             Assert.Contains("RTTY", rows);
             string note = ((TextBlock)Field(dialog, "ModeCycleMenuNote")).Text;
             Assert.DoesNotContain("DSB", note);     // not offered as a cycle-only route on this radio
-            Assert.Contains("RTTY", note);
+            // Since #994 the Mode menu is built from the radio's own list, so
+            // RTTY, which the old fixed table lacked, is in it too.
+            Assert.Equal(Lexicon.Get("settings.mode_cycle.menu_note_radio_all"), note);
 
             // An unrelated change, then OK: DSB is still in the operator's file.
             Select(list, "DIGU");
@@ -98,6 +100,9 @@ public sealed class ModeCycleSettingsTests
     /// radio", the note said "Every mode here except RTTY is also in the
     /// Slice menu", which took in DSB. On a radio that reported its list the
     /// note speaks of that radio's modes only; with no radio, the old wording.
+    /// Since #994 (2026-11-07) the Mode menu is built from the radio's own
+    /// list, so DSB with no radio, and RTTY on the 8600, are in it: this test
+    /// pinned the old fixed table's gaps and changed with it.
     /// </summary>
     [Fact]
     public void With_a_saved_mode_this_radio_lacks_the_note_speaks_only_of_this_radios_modes()
@@ -106,13 +111,27 @@ public sealed class ModeCycleSettingsTests
         {
             var (dialog, _, _, _, _) = Section();
             var note = (TextBlock)Field(dialog, "ModeCycleMenuNote");
-            Assert.StartsWith("Every mode here except DSB", note.Text);   // no radio: DSB really is offered
+            Assert.Equal(Lexicon.Get("settings.mode_cycle.menu_note_all"), note.Text);   // no radio: DSB is offered and in the menu
 
             InvokeWith(dialog, "ApplyRadioModes", (IReadOnlyList<string>)Radio8600);
-            Assert.Equal("Every mode this radio has, except RTTY, is also in the Slice menu, under Mode. "
-                         + "For RTTY, the cycle is the only way to choose it.", note.Text);
+            Assert.Equal(Lexicon.Get("settings.mode_cycle.menu_note_radio_all"), note.Text);
             Assert.DoesNotContain("DSB", note.Text);
             Assert.DoesNotContain("Every mode here", note.Text);
+        });
+    }
+
+    /// <summary>
+    /// The except form still has work: a saved mode no list knows (RTTY, with
+    /// no radio reporting) is offered and is in no menu, and the note names it.
+    /// </summary>
+    [Fact]
+    public void A_saved_mode_no_list_knows_is_named_as_cycle_only()
+    {
+        WithOperatorConfig(new[] { "USB", "RTTY" }, () =>
+        {
+            var (dialog, _, _, _, _) = Section();
+            var note = (TextBlock)Field(dialog, "ModeCycleMenuNote");
+            Assert.StartsWith("Every mode here except RTTY", note.Text);
         });
     }
 
@@ -136,10 +155,12 @@ public sealed class ModeCycleSettingsTests
     public void The_page_promises_only_the_routes_that_exist()
     {
         // Codex B2 on 908aa3da: the page said a mode left out "is still there
-        // in the Mode menu and on its own key". DSB is offered and is in
-        // neither, and only seven modes have a key. The note now names every
+        // in the Mode menu and on its own key". DSB was offered and was in
+        // neither, and only seven modes have a key. The note names every
         // offered mode the Mode menu does not list, worked out from the list
-        // the menu is built from, and nothing promises a key.
+        // the menu is built from, and nothing promises a key. Since #994
+        // (2026-11-07) the menu is built from ModeCycle.KnownModes, so with no
+        // radio every offered mode, DSB among them, is in it.
         WithOperatorConfig(null, () =>
         {
             var (dialog, list, _, _, _) = Section();
@@ -147,10 +168,11 @@ public sealed class ModeCycleSettingsTests
             string note = ((TextBlock)Field(dialog, "ModeCycleMenuNote")).Text;
 
             Assert.DoesNotContain("own key", intro + " " + note);
-            Assert.Contains("DSB", note);
+            Assert.DoesNotContain("DSB", note);
+            Assert.True(ModeCycle.Contains(ModeCycle.KnownModes(null), "DSB"));   // positive control: DSB is offered, and in the menu
             foreach (string mode in Rows(list))
             {
-                bool inMenu = RigCaps.ModeTable.Contains(mode, StringComparer.OrdinalIgnoreCase);
+                bool inMenu = ModeCycle.Contains(ModeCycle.KnownModes(null), mode);
                 Assert.True(inMenu || note.Contains(mode),
                     mode + " is not in the Mode menu and the note does not say so");
                 if (inMenu) Assert.DoesNotContain(" " + mode + " ", " " + note.Replace(",", " ").Replace(".", " ") + " ");

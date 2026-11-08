@@ -24,18 +24,17 @@ namespace Radios
     /// writes to the radio or changes a slice. A slice sitting in a mode that
     /// is not in the cycle is an ordinary state: the next press moves to the
     /// nearest mode that is. The other routes to a mode are the Mode menu,
-    /// built from <see cref="RigCaps.ModeTable"/>, and seven direct keys;
-    /// DSB is in neither yet, so for DSB the cycle is the only route, and the
-    /// settings page says so rather than promising otherwise.
+    /// built from <see cref="KnownModes"/> too, and seven direct keys,
+    /// which refuse a mode it does not hold; DSB has no key of its own.
     /// </para>
     /// <para>
     /// <b>One definition of the mode list</b> (<see cref="KnownModes"/>): the
     /// modes the radio itself reports for the slice, or, with no radio,
     /// FlexLib's documented set. The cycle used to walk a third hardcoded copy
     /// that left out SAM and DSB, and a slice already in SAM jumped to an end
-    /// of it. The Mode menu and the direct mode keys still read
-    /// <see cref="RigCaps.ModeTable"/>; moving them onto this list is
-    /// follow-up work.
+    /// of it. The Mode menu and the direct mode keys read this list as well
+    /// (2026-11-07); the classic Mode combo and the Memories window still
+    /// read <see cref="RigCaps.ModeTable"/>.
     /// </para>
     /// </remarks>
     public static class ModeCycle

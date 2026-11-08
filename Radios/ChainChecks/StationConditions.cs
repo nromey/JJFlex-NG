@@ -184,19 +184,11 @@ namespace Radios.ChainChecks
         /// never heard of — saying it back verbatim is honest, and saying
         /// nothing is not.
         /// </para>
+        /// <para>The words live in <see cref="ModeWords.InWords"/>, beside the
+        /// short spoken forms every other mode announcement uses, so there is
+        /// one source of mode words.</para>
         /// </remarks>
-        public static string ModeInWords(string mode)
-        {
-            switch ((mode ?? "").Trim().ToUpperInvariant())
-            {
-                case "USB":  return "upper sideband";
-                case "LSB":  return "lower sideband";
-                case "DIGU": return "digital upper sideband";
-                case "DIGL": return "digital lower sideband";
-                case "":     return "";
-                default:     return (mode ?? "").Trim();
-            }
-        }
+        public static string ModeInWords(string mode) => ModeWords.InWords(mode);
 
         // ── The confirmation vocabulary, said in as few words as it takes ──
         //

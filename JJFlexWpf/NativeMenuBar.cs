@@ -617,6 +617,25 @@ public class NativeMenuBar : IDisposable
     /// were not, and acting now would be acting on an answer given after the
     /// fact.
     /// </summary>
+    /// <summary>
+    /// Why "Use My Transmit Audio Here" cannot be armed yet, as a label
+    /// suffix, or null when it can (#680, defect 3). It needs a chosen
+    /// transmit-audio profile that is STILL SAVED: until repair one any
+    /// saved name enabled it, so a chosen profile deleted in the Audio
+    /// Workshop left the row armable, promising a profile that no longer
+    /// existed (Codex's blocker), even with none saved at all. Matched as the
+    /// checkmarks below and the connect planner match it, ignoring case.
+    /// DRAFT labels.
+    /// </summary>
+    internal static string? UseMyTransmitAudioNotYet(string? chosen, IReadOnlyCollection<string> presetNames)
+    {
+        if (presetNames.Count == 0) return ", no transmit audio profiles saved yet";
+        if (string.IsNullOrEmpty(chosen)) return ", choose one under Which Transmit Audio first";
+        foreach (var name in presetNames)
+            if (string.Equals(name, chosen, System.StringComparison.OrdinalIgnoreCase)) return null;
+        return ", " + chosen + " is no longer saved, choose one under Which Transmit Audio";
+    }
+
     private void SetGuestProfileIntent(Radios.ProfileGuestIntent intent)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
@@ -627,14 +646,17 @@ public class NativeMenuBar : IDisposable
         {
             case Radios.ProfileGuestIntent.UseMyTransmitAudio:
                 var chosen = Rig.LocalTransmitAudioProfileChoice;
-                if (string.IsNullOrEmpty(chosen))
+                var saved = Rig.LocalTransmitAudioProfileNames();
+                if (UseMyTransmitAudioNotYet(chosen, saved) != null)
                 {
-                    // No profile chosen yet: send them straight to the picker
-                    // rather than leaving a dead intent.
-                    SpeakAfterMenuClose(Radios.Lexicon.Get(
-                        Rig.LocalTransmitAudioProfileNames().Count == 0
-                            ? "settings.profile_guest.no_presets"
-                            : "settings.profile_guest.why.no_local_profile"));
+                    // No usable profile chosen: send them straight to the
+                    // picker rather than leaving a dead intent, and never
+                    // promise a profile that is no longer saved (repair one).
+                    SpeakAfterMenuClose(saved.Count == 0
+                        ? Radios.Lexicon.Get("settings.profile_guest.no_presets")
+                        : string.IsNullOrEmpty(chosen)
+                            ? Radios.Lexicon.Get("settings.profile_guest.why.no_local_profile")
+                            : Radios.Lexicon.Get("settings.profile_guest.why.local_profile_missing", ("preset", chosen)));
                 }
                 else
                 {
@@ -660,14 +682,55 @@ public class NativeMenuBar : IDisposable
     /// this radio, and switch the intent to "use my transmit audio" so the
     /// choice is not left inert. Takes effect at the next connect.
     /// </summary>
+    /// <remarks>
+    /// The name arrives captured in a Which Transmit Audio row built while
+    /// that profile existed, and the row can outlive it: delete the profile
+    /// in the Audio Workshop and the row is still there to choose (#680,
+    /// defect 3, repair two). So the name is checked against the profiles
+    /// saved NOW, through <see cref="ChooseTransmitAudioProfile"/>, before
+    /// anything is recorded or promised.
+    /// </remarks>
     private void SetGuestTransmitAudioProfile(string presetName)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
-        Rig.SetLocalTransmitAudioChoice(presetName);
-        EarconPlayer.ToggleTone(true);
-        SpeakAfterMenuClose(Radios.Lexicon.Get(
-            "settings.profile_guest.live_audio_chosen", ("preset", presetName)));
+        var rig = Rig;
+        string receipt = ChooseTransmitAudioProfile(presetName,
+            rig.LocalTransmitAudioProfileNames, rig.SetLocalTransmitAudioChoice, out bool stillSaved);
+        if (stillSaved) EarconPlayer.ToggleTone(true);
+        SpeakAfterMenuClose(receipt);
         RebuildCurrentMenu();
+    }
+
+    /// <summary>
+    /// What choosing <paramref name="picked"/> under Which Transmit Audio
+    /// does and says (#680, defect 3, repair two). The saved names are READ
+    /// at the moment of choosing, never taken from when the row was built: a
+    /// row for a profile since deleted records nothing new and says why,
+    /// with the sentences "Use My Transmit Audio Here" already uses for the
+    /// same two states. Until this repair it recorded the missing name and
+    /// promised to put it on the radio at the next connect, which the
+    /// connect then skipped (Codex's re-check). Matched ignoring case, as
+    /// the checkmarks and the connect planner match.
+    /// </summary>
+    /// <param name="savedNow">Reads the operator's saved profile names.</param>
+    /// <param name="record">Records the choice; called only when it is still saved.</param>
+    /// <param name="stillSaved">True when the profile was found and recorded.</param>
+    internal static string ChooseTransmitAudioProfile(string picked,
+        Func<IReadOnlyCollection<string>> savedNow, Func<string, bool> record, out bool stillSaved)
+    {
+        var saved = savedNow();
+        string? found = null;
+        foreach (var name in saved)
+            if (string.Equals(name, picked, System.StringComparison.OrdinalIgnoreCase)) { found = name; break; }
+
+        stillSaved = found != null;
+        if (found == null)
+            return saved.Count == 0
+                ? Radios.Lexicon.Get("settings.profile_guest.no_presets")
+                : Radios.Lexicon.Get("settings.profile_guest.why.local_profile_missing", ("preset", picked));
+
+        record(found);
+        return Radios.Lexicon.Get("settings.profile_guest.live_audio_chosen", ("preset", found));
     }
 
     /// <summary>
@@ -2155,9 +2218,20 @@ public class NativeMenuBar : IDisposable
             // what makes that true (#680): AddChecked appended ": On" and
             // ": Off", so the reader called these three toggles, and a
             // toggle that will not toggle off.
-            AddRadioChecked(profilesSub, "Use My Transmit Audio Here",
+            //
+            // "Use My Transmit Audio Here" needs a transmit-audio profile
+            // chosen, so it is greyed until one is, with the reason in its
+            // label, the treatment the empty "Which Transmit Audio" list
+            // below already gets (#680, defect 3). It could be armed with
+            // nothing chosen, and then said "you have not chosen a profile"
+            // after the fact. Choosing one under Which Transmit Audio arms it.
+            // DRAFT labels.
+            var presetNames = Rig.LocalTransmitAudioProfileNames();
+            string? useMineNotYet = UseMyTransmitAudioNotYet(Rig.LocalTransmitAudioProfileChoice, presetNames);
+            AddRadioChecked(profilesSub, "Use My Transmit Audio Here" + (useMineNotYet ?? ""),
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.UseMyTransmitAudio),
-                () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.UseMyTransmitAudio);
+                () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.UseMyTransmitAudio,
+                enabled: useMineNotYet == null);
             AddRadioChecked(profilesSub, "Load All My Profiles Here",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LoadMineAndPutBack),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LoadMineAndPutBack);
@@ -2167,7 +2241,6 @@ public class NativeMenuBar : IDisposable
 
             // Which of the operator's transmit-audio profiles to use.
             var whichSub = AddSubmenu(profilesSub, "Which Transmit Audio");
-            var presetNames = Rig.LocalTransmitAudioProfileNames();
             if (presetNames.Count == 0)
             {
                 AddWired(whichSub, "No transmit audio profiles saved yet", () =>
@@ -2462,9 +2535,13 @@ public class NativeMenuBar : IDisposable
                     () => Rig?.HasTransmitSlice == false);
             }
 
-            // Mode
+            // Mode. The radio's own list (ModeCycle.KnownModes, the one
+            // definition the cycle and the direct keys use), so the menu
+            // offers DSB where the radio has it and nothing it does not;
+            // with no list reported yet, FlexLib's documented set. Rebuilt
+            // with the rest of the menu on connect and on a slice change.
             var modeSub = AddSubmenu(slice, "Mode");
-            foreach (string modeName in RigCaps.ModeTable)
+            foreach (string modeName in Radios.ModeCycle.KnownModes(Rig?.RadioModeList))
             {
                 string m = modeName;
                 // Add accelerator hints for modes with hotkeys
@@ -2488,7 +2565,7 @@ public class NativeMenuBar : IDisposable
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     Rig.Mode = m;
-                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)));
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", Radios.ModeWords.Spoken(m))));
                 },
                 () => string.Equals(Rig?.Mode, m, StringComparison.OrdinalIgnoreCase));
             }
@@ -2704,7 +2781,7 @@ public class NativeMenuBar : IDisposable
         // A submenu that grows costs nobody a relearn; an item that becomes a
         // submenu later costs everybody one.
         var fixSub = AddSubmenu(tools, "Fix");
-        AddWired(fixSub, "Transmit problems...", () =>
+        AddWired(fixSub, "Transmission problems...", () =>
             // MainWindow is a UserControl hosted in WinForms, not a Window, so
             // the owner is resolved the same way every other dialog here does
             // it. It can legitimately come back null; JJFlexDialog owns itself
@@ -3086,8 +3163,8 @@ public class NativeMenuBar : IDisposable
         AddWired(tools, "Import Profiles", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            bool success = Rig.ImportProfileDatabase();
-            if (!success)
+            // Refused by the change-nothing hold is already spoken (#477).
+            if (Rig.ImportProfileDatabase() == Radios.GuardedOutcome.Failed)
                 SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.import_failed"));
         });
         AddSep(tools);
@@ -3381,7 +3458,20 @@ public class NativeMenuBar : IDisposable
         // today and would silently mark the wrong row the day id allocation
         // changes — and a wrong row here is a mode that announces itself
         // "checked" when it is not.
-        _radioGroupItems.Add(_checkItems[^1].id);
+        int id = _checkItems[^1].id;
+        _radioGroupItems.Add(id);
+        // A greyed member of a group still says whether it is the answer:
+        // the popup refresh skips greyed rows (a greyed toggle has no state),
+        // but one answer of three greyed and unmarked would leave the group
+        // with no answer at all (#680, defect 3).
+        if (!enabled)
+        {
+            try
+            {
+                if (stateGetter()) CheckMenuItem(popup, (uint)id, MF_BYCOMMAND | MF_CHECKED);
+            }
+            catch { /* a state read must not stop the menu being built */ }
+        }
     }
 
     // ── Verbs that are not there yet, and how they should say so ──

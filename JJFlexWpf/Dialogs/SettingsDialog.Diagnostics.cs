@@ -37,10 +37,23 @@ namespace JJFlexWpf.Dialogs
                 // that was true when the tab was drawn is exactly the kind of
                 // cached fiction the retired trace dialog shipped.
                 ProblemLog.Changed += OnDiagnosticStateChanged;
+                // A crash report answered while this tab is open (a send
+                // from the list succeeding, on the upload's own thread)
+                // leaves the list then, not at the next visit (#181 repair
+                // one). Dispatched like every other state change.
+                Radios.CrashReportStore.VerdictRecorded += OnCrashVerdictRecorded;
+                DiagPendingCrashList.LostKeyboardFocus += (_, ev) =>
+                {
+                    if (!ReferenceEquals(ev.OriginalSource, DiagPendingCrashList) || !_crashListNameOwed) return;
+                    _crashListNameOwed = false;
+                    System.Windows.Automation.AutomationProperties.SetName(DiagPendingCrashList,
+                        Radios.CrashReportStore.ListName(_pendingCrashes.Count));
+                };
                 Closed += (_, _) =>
                 {
                     DiagnosticsBridge.StateChanged -= OnDiagnosticStateChanged;
                     ProblemLog.Changed -= OnDiagnosticStateChanged;
+                    Radios.CrashReportStore.VerdictRecorded -= OnCrashVerdictRecorded;
                 };
                 _diagWired = true;
             }
@@ -64,11 +77,17 @@ namespace JJFlexWpf.Dialogs
                 // and "2 problems recorded this session" answers that before the
                 // log's own state does.
                 string spoken = DiagnosticsBridge.State();
+                // A crash report nobody has answered is said on arrival too
+                // (#181), so it is discoverable rather than something to go
+                // looking for.
+                if (_pendingCrashes.Count > 0) spoken = Radios.CrashReportStore.ListName(_pendingCrashes.Count) + ". " + spoken;
                 if (ProblemLog.Count > 0) spoken = ProblemLog.Summary() + ". " + spoken;
                 DiagnosticsBridge.Speak?.Invoke(spoken);
             }
             catch { }
         }
+
+        private void OnCrashVerdictRecorded() => OnDiagnosticStateChanged(null, EventArgs.Empty);
 
         private void OnDiagnosticStateChanged(object? sender, EventArgs e)
         {
@@ -137,6 +156,11 @@ namespace JJFlexWpf.Dialogs
 
                 UpdateProblemCount();
                 UpdateCaptureButton();
+                RefreshPendingCrashes();
+                int retention = 0;
+                try { retention = DiagnosticsBridge.CrashRetention?.Invoke() ?? 0; } catch { }
+                DiagCrashRetentionCombo.SelectedIndex = (int)Radios.CrashReportStore.PolicyFrom(retention);
+                ShowRetentionSentences(Radios.CrashReportStore.PolicyFrom(retention));
             }
             finally
             {
@@ -426,6 +450,31 @@ namespace JJFlexWpf.Dialogs
 
         // ── Disk space group ─────────────────────────────────────────────
 
+        /// <summary>True once Measure now has filled the crash report sentence.</summary>
+        private bool _crashTextMeasured;
+
+        /// <summary>
+        /// Every sentence on this tab that says what happens to an older
+        /// unanswered crash report follows the retention setting (#181 repair
+        /// one, Codex B2): the Disk space group's standing note, and the
+        /// measured crash report sentence once there is one, quietly. Until
+        /// then both promised such a report is never deleted, beside a
+        /// setting that deletes it.
+        /// </summary>
+        private void ShowRetentionSentences(Radios.UnresolvedCrashRetention policy)
+        {
+            if (DiagDiskNoteText != null) DiagDiskNoteText.Text = Radios.CrashReportStore.DiskNote(policy);
+            if (_crashTextMeasured && DiagCrashText != null)
+            {
+                string crashes = SafeCall(DiagnosticsBridge.DescribeCrashReports);
+                if (!string.IsNullOrEmpty(crashes))
+                {
+                    DiagCrashText.Text = crashes;
+                    DiagCrashText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, crashes);
+                }
+            }
+        }
+
         private void DiagMeasureButton_Click(object sender, RoutedEventArgs e)
         {
             DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.measuring"));
@@ -441,6 +490,7 @@ namespace JJFlexWpf.Dialogs
             {
                 DiagCrashText.Text = crashes;
                 DiagCrashText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, crashes);
+                _crashTextMeasured = true;
             }
             DiagnosticsBridge.Speak?.Invoke(storage + " " + crashes);
         }
@@ -479,6 +529,107 @@ namespace JJFlexWpf.Dialogs
                 DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.loose_logs_delete_failed"));
             }
             DiagMeasureButton_Click(sender, e);
+        }
+
+        // ── Crash reports waiting for an answer (#181) ───────────────────
+
+        /// <summary>The rows the list shows, in its order.</summary>
+        private System.Collections.Generic.IReadOnlyList<Radios.CrashReportRow> _pendingCrashes =
+            System.Array.Empty<Radios.CrashReportRow>();
+
+        /// <summary>
+        /// Read the folder and rebuild the list, keeping the selection on the
+        /// same report where it is still there. The list's name carries the
+        /// count, said "on this computer" so it cannot be heard as a position;
+        /// it is renamed only while the list is not focused.
+        /// </summary>
+        private void RefreshPendingCrashes()
+        {
+            if (DiagPendingCrashList == null) return;
+            string? keep = DiagPendingCrashList.SelectedIndex >= 0 && DiagPendingCrashList.SelectedIndex < _pendingCrashes.Count
+                ? _pendingCrashes[DiagPendingCrashList.SelectedIndex].Path : null;
+            _pendingCrashes = Radios.CrashReportStore.Pending(SafeCall(DiagnosticsBridge.CrashReportFolder));
+            DiagPendingCrashList.Items.Clear();
+            int select = 0;
+            for (int i = 0; i < _pendingCrashes.Count; i++)
+            {
+                DiagPendingCrashList.Items.Add(Radios.CrashReportStore.RowSentence(_pendingCrashes[i], DescribeBytes));
+                if (keep != null && string.Equals(_pendingCrashes[i].Path, keep, StringComparison.OrdinalIgnoreCase)) select = i;
+            }
+            if (_pendingCrashes.Count > 0) DiagPendingCrashList.SelectedIndex = select;
+            // The count in the name stays true (#181 repair one): renamed at
+            // once unless the list element itself holds focus with rows, the
+            // one state a reader speaks a rename in; then owed, and paid when
+            // that focus moves. The old rule skipped the rename whenever focus
+            // was anywhere inside, so a report sent from the list left its
+            // row and kept its count.
+            if (ListNaming.RenameNow(DiagPendingCrashList.IsKeyboardFocused, false, _pendingCrashes.Count))
+            {
+                _crashListNameOwed = false;
+                System.Windows.Automation.AutomationProperties.SetName(DiagPendingCrashList,
+                    Radios.CrashReportStore.ListName(_pendingCrashes.Count));
+            }
+            else _crashListNameOwed = true;
+            UpdatePendingCrashButtons();
+        }
+
+        private bool _crashListNameOwed;
+
+        private void UpdatePendingCrashButtons()
+        {
+            bool any = DiagPendingCrashList.SelectedIndex >= 0 && DiagPendingCrashList.SelectedIndex < _pendingCrashes.Count;
+            DiagSendCrashButton.IsEnabled = any && DiagnosticsBridge.OfferToSendCrashReport != null;
+            DiagDismissCrashButton.IsEnabled = any;
+        }
+
+        private void DiagPendingCrashList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+            => UpdatePendingCrashButtons();
+
+        private Radios.CrashReportRow? SelectedPendingCrash() =>
+            DiagPendingCrashList.SelectedIndex >= 0 && DiagPendingCrashList.SelectedIndex < _pendingCrashes.Count
+                ? _pendingCrashes[DiagPendingCrashList.SelectedIndex] : null;
+
+        /// <summary>
+        /// Ask, for the selected report, the question the crash asks, and send
+        /// only on Yes. The crash reporter owns both; nothing is sent from here.
+        /// </summary>
+        private void DiagSendCrashButton_Click(object sender, RoutedEventArgs e)
+        {
+            var row = SelectedPendingCrash();
+            if (row == null) return;
+            if (DiagnosticsBridge.OfferToSendCrashReport == null)
+            {
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.not_available"));
+                return;
+            }
+            try { DiagnosticsBridge.OfferToSendCrashReport.Invoke(row.Path); }
+            catch { DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("logging.crash.prompt_failed")); }
+            RefreshPendingCrashes();
+            ListNaming.FocusRow(DiagPendingCrashList, DiagPendingCrashList.SelectedIndex);
+        }
+
+        private void DiagDismissCrashButton_Click(object sender, RoutedEventArgs e)
+        {
+            var row = SelectedPendingCrash();
+            if (row == null) return;
+            bool done = Radios.CrashReportStore.Dismiss(row.Path);
+            DiagnosticsBridge.Speak?.Invoke(done
+                ? Radios.Lexicon.Get("logging.crash.dismissed_from_list")
+                : Radios.Lexicon.Get("settings.diagnostics.setting_not_saved"));
+            RefreshPendingCrashes();
+            ListNaming.FocusRow(DiagPendingCrashList, DiagPendingCrashList.SelectedIndex);
+        }
+
+        private void DiagCrashRetentionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_diagSuppressEvents) return;
+            int chosen = DiagCrashRetentionCombo.SelectedIndex;
+            if (chosen < 0) return;
+            try { DiagnosticsBridge.ApplyCrashRetention?.Invoke(chosen); }
+            catch { DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.setting_not_saved")); }
+            int stored = chosen;
+            try { stored = DiagnosticsBridge.CrashRetention?.Invoke() ?? chosen; } catch { }
+            ShowRetentionSentences(Radios.CrashReportStore.PolicyFrom(stored));
         }
 
         private void DiagDeleteSentCrashButton_Click(object sender, RoutedEventArgs e)

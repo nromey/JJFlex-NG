@@ -541,7 +541,7 @@ namespace Radios
                         ("used", used), ("total", total)));
                     if (haveActive)
                         spoken += Lexicon.Get("settings.slice.census_active_suffix",
-                            ("letter", letter), ("mode", mode));
+                            ("letter", letter), ("mode", ModeWords.Spoken(mode)));
                 }
                 else
                 {
@@ -1160,7 +1160,7 @@ namespace Radios
             ScreenReaderOutput.Speak(
                 Lexicon.Get("connect.last_place",
                     ("freq", mhz.ToString("0.000###")),
-                    ("mode", _lastPlaceStashMode)),
+                    ("mode", ModeWords.Spoken(_lastPlaceStashMode))),
                 Speech.SpeechIntent.Queue,
                 VerbosityLevel.Terse);
         }

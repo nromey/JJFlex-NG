@@ -41,7 +41,7 @@ namespace Radios
         public static string Compose(string arrival, SixtyMeterChannels.ModeCorrection correction,
             ModeRequestOutcome outcome)
         {
-            var args = new (string, object?)[] { ("mode", correction.RequiredMode), ("segment", correction.SegmentLabel) };
+            var args = new (string, object?)[] { ("mode", ModeWords.Spoken(correction.RequiredMode)), ("segment", correction.SegmentLabel) };
             string key = outcome switch
             {
                 ModeRequestOutcome.Sent => "settings.band.mode_switching",

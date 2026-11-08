@@ -31,14 +31,24 @@ namespace Radios
     /// at that limit when the sentence is composed, and a waiting refusal is
     /// dropped once another door has moved the filter. The outcome callback
     /// takes only this class's own gate.</para>
-    /// <para><b>Owed until the reader says it finished.</b> An edge is owed
-    /// when its newest result has not been said, when its value differs from
-    /// the last value a sentence stated and the reader reported COMPLETED, or
-    /// when an end stop on it is waiting. A refusal is owed until said. Only a
-    /// Completed outcome for the exact text that stated something pays it;
-    /// Cancelled, Unknown, refused, untracked and never-handed-over all leave
-    /// it owed, so the next sentence on the key covers it. Elapsed time is no
-    /// evidence of hearing and is not used.</para>
+    /// <para><b>Owed until heard, or until the next sentence is handed over
+    /// (J35, option (b), ruled by Noel 2026-11-07).</b> An edge is owed when
+    /// its newest result has not been said, when its value differs from the
+    /// last value a sentence is counted as having stated, or when an end stop
+    /// on it is waiting. A refusal is owed until said. A sentence is paid,
+    /// crediting only what its text stated and only the obligations it
+    /// carried, in one of two ways: the reader reports it Completed, or the
+    /// NEXT sentence on these fields is handed over. The next sentence is
+    /// composed BEFORE the one ahead of it is paid, so whatever that one
+    /// stated and is still owed (cut off, refused, or simply not reported) is
+    /// said again in the next sentence, once, and is then counted heard. Only
+    /// NVDA reports Completed; before this, on JAWS every later sentence
+    /// stated both edges until the surface closed. Elapsed time is no evidence
+    /// of hearing and is not used.</para>
+    /// <para><b>The outcome callback acts only on Completed</b>, and only for
+    /// a sentence not yet paid: the arbiter can deliver it late or out of
+    /// order on a timer thread (#916), so the hand-over, which runs in order
+    /// under the arbiter's lock, does the paying that matters.</para>
     /// <para><b>Request identity.</b> A completion is recorded only if it
     /// answers that field's newest request, in the same epoch, on the same
     /// rig, Radio and command connection, with the surface open; a window
@@ -70,6 +80,17 @@ namespace Radios
         private long _endStopSeq;                // an unsaid end stop
         private bool _endStopLow, _endStopAtMinimum;
         private int _endStopShown;
+        private Spoken? _handedOver;             // the last sentence handed over and not yet paid
+
+        /// <summary>What one handed-over sentence stated and which obligations
+        /// it carried; paid once, by Completed or by the next hand-over.</summary>
+        private sealed class Spoken
+        {
+            public long Epoch;
+            public int? StatedLow, StatedHigh;
+            public long PaidLow, PaidHigh, PaidEnd, PaidRefusal;
+            public bool Paid;
+        }
 
         private Radio? _watchedRadio;
 
@@ -115,6 +136,7 @@ namespace Radios
 
         private void ClearOwedLocked()
         {
+            _handedOver = null;
             _heardLow = _heardHigh = null;
             _lowAsked = _highAsked = _notWritten = _endStopSeq = 0;
             _lowLimitAt = _highLimitAt = null;
@@ -304,27 +326,56 @@ namespace Radios
                 }
                 long paidRefusal = _notWritten;
                 if (paidRefusal != 0) clauses.Add(Lexicon.Get("audio.tx_filter.not_written"));
+
+                // J35 (b): this sentence is being handed over, so the one
+                // before it now counts as heard. Paid AFTER this sentence was
+                // composed, so anything of it still owed has just been said
+                // again above.
+                if (_handedOver != null) PayLocked(_handedOver);
+                _handedOver = null;
                 if (clauses.Count == 0) return null;
 
                 string text = string.Join(Lexicon.Get("audio.tx_filter.clause_joiner"), clauses);
-                long epoch = _epoch;
+                var spoken = new Spoken
+                {
+                    Epoch = _epoch,
+                    StatedLow = statedLow,
+                    StatedHigh = statedHigh,
+                    PaidLow = paidLow,
+                    PaidHigh = paidHigh,
+                    PaidEnd = paidEnd,
+                    PaidRefusal = paidRefusal,
+                };
+                _handedOver = spoken;
                 return new SpeechComposition(text, outcome =>
                 {
-                    if (outcome.Kind != SpeechOutcomeKind.Completed) return;   // still owed
+                    // Completed only (#916: this can arrive late or out of
+                    // order); anything else waits for the next hand-over.
+                    if (outcome.Kind != SpeechOutcomeKind.Completed) return;
                     lock (_gate)
                     {
-                        if (epoch != _epoch) return;
-                        // Credit only what this text stated, and pay only the
-                        // obligations it carried, not newer ones raised since.
-                        if (statedLow.HasValue) _heardLow = statedLow;
-                        if (statedHigh.HasValue) _heardHigh = statedHigh;
-                        if (paidLow != 0 && _lowAsked == paidLow) _lowAsked = 0;
-                        if (paidHigh != 0 && _highAsked == paidHigh) _highAsked = 0;
-                        if (paidEnd != 0 && _endStopSeq == paidEnd) _endStopSeq = 0;
-                        if (paidRefusal != 0 && _notWritten == paidRefusal) _notWritten = 0;
+                        PayLocked(spoken);
+                        if (ReferenceEquals(_handedOver, spoken)) _handedOver = null;
                     }
                 });
             }
+        }
+
+        /// <summary>
+        /// Count one sentence as heard: credit only what its text stated, and
+        /// pay only the obligations it carried, not newer ones raised since.
+        /// Once per sentence, and not across an invalidation.
+        /// </summary>
+        private void PayLocked(Spoken spoken)
+        {
+            if (spoken.Paid || spoken.Epoch != _epoch) return;
+            spoken.Paid = true;
+            if (spoken.StatedLow.HasValue) _heardLow = spoken.StatedLow;
+            if (spoken.StatedHigh.HasValue) _heardHigh = spoken.StatedHigh;
+            if (spoken.PaidLow != 0 && _lowAsked == spoken.PaidLow) _lowAsked = 0;
+            if (spoken.PaidHigh != 0 && _highAsked == spoken.PaidHigh) _highAsked = 0;
+            if (spoken.PaidEnd != 0 && _endStopSeq == spoken.PaidEnd) _endStopSeq = 0;
+            if (spoken.PaidRefusal != 0 && _notWritten == spoken.PaidRefusal) _notWritten = 0;
         }
 
         private static string Clause(string label, int value, bool atLimit)

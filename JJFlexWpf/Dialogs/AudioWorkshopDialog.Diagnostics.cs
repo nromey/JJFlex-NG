@@ -131,7 +131,7 @@ public partial class AudioWorkshopDialog
         // The Fix tool, from here too (Noel 2026-10-28 21:43: "it should be
         // linked to workshop somehow as well"; confirmed 21:46, both windows).
         // Straight under the paragraph that names it, by the same route as
-        // Tools, Fix, "Transmit problems...". Short label; Ctrl+F1 explains.
+        // Tools, Fix, "Transmission problems...". Short label; Ctrl+F1 explains.
         var fixTool = new Button
         {
             Content = Lexicon.Get("audio.fix_tool.label"),
@@ -284,7 +284,7 @@ public partial class AudioWorkshopDialog
 
     /// <summary>
     /// Open the Fix tool from the Diagnostics page, the way Tools, Fix,
-    /// "Transmit problems..." does. Not while a check in Check your audio or
+    /// "Transmission problems..." does. Not while a check in Check your audio or
     /// this page's diagnostic take is running: the Fix tool keys the radio for
     /// tests of its own.
     /// </summary>

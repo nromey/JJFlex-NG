@@ -193,7 +193,13 @@ public partial class MainWindow : UserControl
         Dialogs.AudioWorkshopDialog.SavePresetsCallback = presets =>
         {
             if (OpenParms == null || presets == null) return false;
-            return presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+            bool landed = presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+            // The Radio menu's Which Transmit Audio rows are built from these
+            // names, so a saved change rebuilds it: a deleted profile must not
+            // stay on offer there (#680, defect 3, repair two). The rebuild is
+            // queued and coalesced, and speaks nothing.
+            if (landed) RebuildMenuCallback?.Invoke();
+            return landed;
         };
 
         // Microphone profiles (Track F) — operator-scoped like the presets
@@ -5901,6 +5907,20 @@ public partial class MainWindow : UserControl
                     CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
             };
 
+            // The meters panel saves a meter the moment the operator changes it,
+            // into the same live config by the same route (#945). With no radio
+            // powered on the source is null and the panel saves straight into
+            // the root file instead: OpenParms and CurrentAudioConfig outlive a
+            // disconnect, and saving that older object whole would put back
+            // anything Settings changed since.
+            Controls.MetersPanel.AudioConfigSource = () =>
+                _radioPowerOn && OpenParms != null ? CurrentAudioConfig : null;
+            Controls.MetersPanel.AudioConfigSave = () =>
+            {
+                if (CurrentAudioConfig != null && OpenParms != null)
+                    CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
+            };
+
             // DSP controls track (2026-08-11): the noise-capture narrator
             // remembers each completed capture in the config (same store,
             // same immediate-save discipline as the workshop hooks above)...
@@ -6761,42 +6781,45 @@ public partial class MainWindow : UserControl
 
         var dialog = new Dialogs.TXControlsDialog();
 
+        // Each setter answers whether the radio took the write: false when
+        // the change-nothing hold refused it (already spoken), so the dialog
+        // puts the control back and plays no success tone (#477).
         // TX request inputs
         dialog.GetTXReqRCAEnabled = () => rig.TXReqRCAEnabled;
-        dialog.SetTXReqRCAEnabled = v => rig.TXReqRCAEnabled = v;
+        dialog.SetTXReqRCAEnabled = v => rig.SetTXReqRCAEnabled(v);
         dialog.GetTXReqRCAPolarity = () => rig.TXReqRCAPolarity;
-        dialog.SetTXReqRCAPolarity = v => rig.TXReqRCAPolarity = v;
+        dialog.SetTXReqRCAPolarity = v => rig.SetTXReqRCAPolarity(v);
         dialog.GetTXReqACCEnabled = () => rig.TXReqACCEnabled;
-        dialog.SetTXReqACCEnabled = v => rig.TXReqACCEnabled = v;
+        dialog.SetTXReqACCEnabled = v => rig.SetTXReqACCEnabled(v);
         dialog.GetTXReqACCPolarity = () => rig.TXReqACCPolarity;
-        dialog.SetTXReqACCPolarity = v => rig.TXReqACCPolarity = v;
+        dialog.SetTXReqACCPolarity = v => rig.SetTXReqACCPolarity(v);
 
         // TX outputs, enable plus delay
         dialog.GetTX1Enabled = () => rig.TX1Enabled;
-        dialog.SetTX1Enabled = v => rig.TX1Enabled = v;
+        dialog.SetTX1Enabled = v => rig.SetTX1Enabled(v);
         dialog.GetTX1Delay = () => rig.TX1Delay;
-        dialog.SetTX1Delay = v => rig.TX1Delay = v;
+        dialog.SetTX1Delay = v => rig.SetTX1Delay(v);
 
         dialog.GetTX2Enabled = () => rig.TX2Enabled;
-        dialog.SetTX2Enabled = v => rig.TX2Enabled = v;
+        dialog.SetTX2Enabled = v => rig.SetTX2Enabled(v);
         dialog.GetTX2Delay = () => rig.TX2Delay;
-        dialog.SetTX2Delay = v => rig.TX2Delay = v;
+        dialog.SetTX2Delay = v => rig.SetTX2Delay(v);
 
         dialog.GetTX3Enabled = () => rig.TX3Enabled;
-        dialog.SetTX3Enabled = v => rig.TX3Enabled = v;
+        dialog.SetTX3Enabled = v => rig.SetTX3Enabled(v);
         dialog.GetTX3Delay = () => rig.TX3Delay;
-        dialog.SetTX3Delay = v => rig.TX3Delay = v;
+        dialog.SetTX3Delay = v => rig.SetTX3Delay(v);
 
         dialog.GetTXACCEnabled = () => rig.TXACCEnabled;
-        dialog.SetTXACCEnabled = v => rig.TXACCEnabled = v;
+        dialog.SetTXACCEnabled = v => rig.SetTXACCEnabled(v);
         dialog.GetTXACCDelay = () => rig.TXACCDelay;
-        dialog.SetTXACCDelay = v => rig.TXACCDelay = v;
+        dialog.SetTXACCDelay = v => rig.SetTXACCDelay(v);
 
         // Hardware ALC and remote-on
         dialog.GetHWAlcEnabled = () => rig.HWAlcEnabled;
-        dialog.SetHWAlcEnabled = v => rig.HWAlcEnabled = v;
+        dialog.SetHWAlcEnabled = v => rig.SetHWAlcEnabled(v);
         dialog.GetRemoteOnEnabled = () => rig.RemoteOnEnabled;
-        dialog.SetRemoteOnEnabled = v => rig.RemoteOnEnabled = v;
+        dialog.SetRemoteOnEnabled = v => rig.SetRemoteOnEnabled(v);
 
         dialog.ShowDialog();
     }
@@ -7780,34 +7803,52 @@ public partial class MainWindow : UserControl
         {
             // DRAFT PROSE: one mode in the cycle, and the slice is already in it.
             Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get(Radios.ModeCycle.OnlyOneSentenceKey(saved, cycle), ("mode", newMode)),
+                Radios.Lexicon.Get(Radios.ModeCycle.OnlyOneSentenceKey(saved, cycle), ("mode", Radios.ModeWords.Spoken(newMode))),
                 Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
                 subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
             return;
         }
 
         RigControl.Mode = newMode;
-        Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.ModeWords.Spoken(newMode), VerbosityLevel.Terse, true);
     }
 
     /// <summary>
     /// Jump directly to a specific mode.
     /// Called from KeyCommands direct mode handlers (Alt+U, Alt+L, Alt+C).
     /// </summary>
+    /// <remarks>
+    /// The mode is checked against the radio's own list
+    /// (<see cref="Radios.ModeCycle.KnownModes"/>, the one definition the
+    /// cycle and the Mode menu use). A mode the radio has not listed is
+    /// refused and said so, never written:
+    /// the 8600 lists no DSB, and a DSB written anyway was answered with
+    /// another mode while the app named the one it asked for.
+    /// </remarks>
     public void SetMode(string mode)
     {
         if (RigControl == null || !_radioPowerOn) return;
+
+        if (!Radios.ModeCycle.Contains(Radios.ModeCycle.KnownModes(RigControl.RadioModeList), mode))
+        {
+            // DRAFT PROSE.
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("settings.mode.not_on_radio", ("mode", Radios.ModeWords.Spoken(mode))),
+                Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
+            return;
+        }
 
         string currentMode = RigControl.Mode ?? "";
         if (string.Equals(currentMode, mode, StringComparison.OrdinalIgnoreCase))
         {
             Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("connect.home.already_in_mode", ("mode", mode)),
+                Radios.Lexicon.Get("connect.home.already_in_mode", ("mode", Radios.ModeWords.Spoken(mode))),
                 VerbosityLevel.Terse, true);
             return;
         }
         RigControl.Mode = mode;
-        Radios.ScreenReaderOutput.Speak(mode, VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.ModeWords.Spoken(mode), VerbosityLevel.Terse, true);
     }
 
     #endregion

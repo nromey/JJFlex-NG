@@ -14,7 +14,7 @@ namespace JJFlexWpf.Controls;
 /// Shows "Label: Value" text, adjustable via Up/Down arrow keys.
 /// NVDA reads AutomationProperties.Name on focus; Speak() announces value changes.
 /// </summary>
-public partial class ValueFieldControl : UserControl
+public partial class ValueFieldControl : UserControl, ValueFieldControl.ReaderAway.IStaleName
 {
     private string _label = "";
     private int _value;
@@ -70,7 +70,13 @@ public partial class ValueFieldControl : UserControl
             // While unfocused: rename freely. Nobody is listening to this
             // control, and leaving the name stale would mean the next focus
             // landing announced an out-of-date value.
-            if (IsKeyboardFocusWithin) UpdateVisual();
+            //
+            // And while a native menu holds the reader (#980): WPF keyboard
+            // focus never leaves this field when the menu bar or a native
+            // popup menu opens, so OnGotFocus does not run when the menu
+            // closes, yet the reader reads this field again then. See
+            // ReaderAway.
+            if (IsKeyboardFocusWithin && !ReaderAway.RenameWhileFocused) UpdateVisual();
             else UpdateDisplay();
         }
     }
@@ -214,6 +220,7 @@ public partial class ValueFieldControl : UserControl
             ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
         DisplayText.Text = text;
         AutomationProperties.SetName(this, text);
+        ReaderAway.Fresh(this);
     }
 
     /// <summary>
@@ -224,6 +231,167 @@ public partial class ValueFieldControl : UserControl
     {
         DisplayText.Text = Lexicon.Get("audio.field.display",
             ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
+        // The name now trails the number; it is brought up to date the next
+        // time it is safe to rename (focus entry, or a native menu, below).
+        ReaderAway.Stale(this);
+    }
+
+    /// <summary>Bring a trailing name up to date. Not during typed entry,
+    /// whose name is the digits being typed.</summary>
+    void ReaderAway.IStaleName.RefreshStaleName()
+    {
+        if (_numberEntryMode) return;
+        UpdateDisplay();
+    }
+
+    /// <summary>
+    /// The shell calls this when a native menu loop starts (the menu bar, or a
+    /// native popup menu): <c>WM_ENTERMENULOOP</c> in BridgeForm.
+    /// </summary>
+    public static void NativeMenuLoopStarted()
+    {
+        ReaderAway.MenuStarted();
+        s_settle ??= CreateSettleTimer();
+        s_settle.Stop();
+        s_settle.Start();
+    }
+
+    /// <summary>The shell calls this when the native menu loop ends
+    /// (<c>WM_EXITMENULOOP</c>).</summary>
+    public static void NativeMenuLoopEnded()
+    {
+        s_settle?.Stop();
+        ReaderAway.MenuEnded();
+    }
+
+    private static System.Windows.Threading.DispatcherTimer? s_settle;
+
+    private static System.Windows.Threading.DispatcherTimer CreateSettleTimer()
+    {
+        // The native menu loop dispatches posted and timer messages, which is
+        // how the radio's values keep arriving while a menu is open, so this
+        // ticks inside the loop too.
+        var timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(ReaderAway.SettleMs),
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            ReaderAway.Settled();
+        };
+        return timer;
+    }
+
+    /// <summary>
+    /// #980: when the reader is somewhere else while WPF keyboard focus stays
+    /// on a field, so the field's name can be brought up to date silently.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The hole.</b> A focused field updates only its visible text as
+    /// values arrive (an arrow press, or the radio's echo), because renaming a
+    /// focused control makes the reader speak it unprompted. The name is
+    /// refreshed on focus entry. But a native menu does not move WPF keyboard
+    /// focus: the field stays focused throughout, <see cref="OnGotFocus"/>
+    /// never runs, and when the menu closes the reader reads the field's
+    /// name again, still carrying the old number.</para>
+    /// <para><b>The fix, ruled shape (b), Noel 2026-11-07:</b> the name stays
+    /// "label: number" and is current when focus comes back from the menu. It
+    /// is brought up to date WHILE the menu holds the reader, once the reader
+    /// has had <see cref="SettleMs"/> to move into it, and any value arriving
+    /// after that renames at once. A menu closed before it settled (a quick
+    /// open and cancel) is brought up to date as its loop ends, in the
+    /// shell's exit message and before focus is given back, while the reader
+    /// is still in the menu (<see cref="MenuEnded"/>, repair one). Renaming
+    /// later than that, once the reader is back on the field, is what would
+    /// be heard twice. A value that arrives after the menu has closed still
+    /// waits for the next safe moment, as it did before.</para>
+    /// <para><b>Switching to shape (a)</b> (the label as the name, the number
+    /// as a UIA value) would change <see cref="UpdateDisplay"/> to set the
+    /// label alone, give <c>LeafControlAutomationPeer</c> a value provider and
+    /// raise its value-changed event, and retire this class and the two calls
+    /// in BridgeForm's menu-loop handling.</para>
+    /// <para>Every member runs on the UI thread: the value setter, the
+    /// WinForms window procedure and the dispatcher timer share it.</para>
+    /// </remarks>
+    internal static class ReaderAway
+    {
+        /// <summary>How long after a menu opens the reader is taken to be in
+        /// it. A menu item's focus event follows the loop's start within a
+        /// frame or two; this is generous so the rename is never heard.</summary>
+        internal const int SettleMs = 250;
+
+        internal interface IStaleName
+        {
+            void RefreshStaleName();
+        }
+
+        private static WeakReference<IStaleName>? s_stale;
+        private static bool s_inMenu;
+        private static bool s_settled;
+
+        /// <summary>A focused field may rename now: a menu holds the reader.</summary>
+        internal static bool RenameWhileFocused => s_inMenu && s_settled;
+
+        internal static void Stale(IStaleName field) => s_stale = new WeakReference<IStaleName>(field);
+
+        internal static void Fresh(IStaleName field)
+        {
+            if (s_stale != null && s_stale.TryGetTarget(out IStaleName? held) && ReferenceEquals(held, field))
+                s_stale = null;
+        }
+
+        internal static void MenuStarted()
+        {
+            s_inMenu = true;
+            s_settled = false;
+        }
+
+        internal static void Settled()
+        {
+            if (!s_inMenu) return;
+            s_settled = true;
+            if (s_stale != null && s_stale.TryGetTarget(out IStaleName? field))
+            {
+                s_stale = null;
+                field.RefreshStaleName();
+            }
+        }
+
+        /// <summary>
+        /// The menu loop ended. A name still trailing here belongs to a menu
+        /// closed before it settled, and is brought up to date NOW (#980
+        /// repair one, Codex's blocker): a quick open and cancel otherwise
+        /// left the old number for the reader to read on its way back.
+        /// </summary>
+        /// <remarks>
+        /// This runs in the shell's <c>WM_EXITMENULOOP</c>, before the shell
+        /// hands the message on and before it gives focus back, so the reader
+        /// is still in the menu: it reads the field only once the menu's end
+        /// reaches it, and that read cannot be answered until this has
+        /// returned, so it reads the current number. A settled menu leaves
+        /// nothing trailing (values arriving after the settle rename at once),
+        /// so this renames only after a short menu.
+        /// </remarks>
+        internal static void MenuEnded()
+        {
+            bool wasInMenu = s_inMenu;
+            s_inMenu = false;
+            s_settled = false;
+            if (wasInMenu && s_stale != null && s_stale.TryGetTarget(out IStaleName? field))
+            {
+                s_stale = null;
+                field.RefreshStaleName();
+            }
+        }
+
+        /// <summary>For tests: forget everything.</summary>
+        internal static void Reset()
+        {
+            s_stale = null;
+            s_inMenu = false;
+            s_settled = false;
+        }
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)

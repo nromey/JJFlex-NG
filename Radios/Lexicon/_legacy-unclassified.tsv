@@ -679,7 +679,6 @@ audio.meters.panel.short_name_on_slice	b2f03cb5041d7ba8
 audio.meters.panel.showing_all	d8c1942fbd3bb814
 audio.meters.panel.showing_common	5b2f3297d6c5d90e
 audio.meters.panel.slot_added	734f410eaf6b0e87
-audio.meters.panel.slot_combo_name	32e5844456e7b116
 audio.meters.panel.slot_deleted	2a8ac0a5d668eeeb
 audio.meters.panel.slot_item_silent	5efae6a043e5e375
 audio.meters.panel.slot_item_sounding	5ccfd9c5ff948473
@@ -1919,8 +1918,6 @@ logging.crash.reports_head_many	170f53582697ef2b
 logging.crash.reports_head_one	1e584260f7ce1c25
 logging.crash.reports_none	b1f227b633739d18
 logging.crash.reports_tail	4a253bc07437108a
-logging.crash.reports_unresolved_many	c72ad3a6f2eab2e9
-logging.crash.reports_unresolved_one	6bc21cd425855659
 logging.crash.saved_speech	1f293e7cd3909b28
 logging.crash.size_unknown	c20381a071707a55
 logging.crash.truncate_notice	30c78dbf606d384b
@@ -2265,8 +2262,6 @@ settings.diagnostics.problems_summary	5a6e406e90a60703
 settings.diagnostics.saved_logs_open_failed	0104534d29aac4c2
 settings.diagnostics.saved_logs_unavailable	94ed8d150fdfc6a7
 settings.diagnostics.setting_not_saved	99be6b94c1f74a37
-settings.diagnostics.transcript_off	4b4cbd790d45e694
-settings.diagnostics.transcript_on	28b49866465bbf25
 settings.diagnostics.word_file	c37a02e42f23dab0
 settings.diagnostics.word_files	d7741cd31b8ccaec
 settings.diagnostics.word_report	841f738cb57e56ab

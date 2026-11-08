@@ -373,7 +373,7 @@ namespace Radios
             if (!slice.AutoPan) command += " autopan=0";
             // Marked before the write, so the reply cannot come back ahead of it.
             guard.Sending(id);
-            NoAnswerAfter(slice, id, FrequencyEchoGuard.GiveUpMs);   // J28: the guard's own bound
+            NoAnswerAfter(slice, id, TypedTuneNoAnswerMs);   // J33: a typed tune's own bound
             // No lock of ours is held across this write (repair round 7).
             ulong hz = LibFreqtoLong(mhz);
             string refusal = SendRadioCommandWithReply(slice.Radio, command, reply => TuneReplied(slice, id, hz, reply));
@@ -626,12 +626,23 @@ namespace Radios
             /// <summary>The radio refused it, or it could not be sent: the slice stays where it was.</summary>
             Refused,
             /// <summary>
-            /// No answer within the guard's own bound (<see cref="FrequencyEchoGuard.GiveUpMs"/>
-            /// after the write, or <see cref="FrequencyEchoGuard.UnsentGiveUpMs"/> if it is never
-            /// written). Said once; the real answer is still handed over if it comes.
+            /// No answer within <see cref="TypedTuneNoAnswerMs"/> after the write, or
+            /// <see cref="FrequencyEchoGuard.UnsentGiveUpMs"/> if it is never written. Said
+            /// once; the real answer is still handed over if it comes.
             /// </summary>
             NoAnswerYet,
         }
+
+        /// <summary>
+        /// How long a TYPED frequency waits after its write before "No answer
+        /// from the radio yet" (J33, ruled by Noel 2026-11-07: "yep give it
+        /// time"). Its own bound, longer than the echo guard's
+        /// <see cref="FrequencyEchoGuard.GiveUpMs"/>, which the arrow keys keep:
+        /// a typed entry is one deliberate request whose answer is spoken, and
+        /// a connected radio that takes several seconds to answer one has other
+        /// problems.
+        /// </summary>
+        internal const int TypedTuneNoAnswerMs = 3000;
 
         /// <summary>
         /// One typed tune, and everything its answer is about (round five,

@@ -2012,6 +2012,22 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The OPERATOR's write of something the radio keeps, as one step with
+        /// the hold (#976): <paramref name="write"/> runs only if the hold is
+        /// not armed, and the hold cannot be armed between the check and the
+        /// write. Refused, it says so outside the lock, naming the action, and
+        /// returns false. <paramref name="write"/> must be the final
+        /// synchronous radio command and nothing more: never a dialog, an
+        /// upload, a wait, speech or a queued write.
+        /// </summary>
+        private bool OperatorWriteUnlessHeld(string actionKey, Action write)
+        {
+            if (WriteUnlessHeld(() => { write(); return true; })) return true;
+            SayTheHoldRefused(actionKey);
+            return false;
+        }
+
         /// <summary>The refusal, traced and spoken, naming the action.</summary>
         private void SayTheHoldRefused(string actionKey)
         {
@@ -2049,10 +2065,11 @@ namespace Radios
         {
             var radio = theRadio;
             if (radio == null || string.IsNullOrWhiteSpace(newName)) return false;
-            if (GuardRefuses("settings.guard.action.rename")) return false;
 
-            Tracing.TraceLine($"RenameRadio: '{radio.Nickname}' -> '{newName}'", TraceLevel.Info);
-            radio.Nickname = newName.Trim();
+            string was = radio.Nickname;
+            if (!OperatorWriteUnlessHeld("settings.guard.action.rename", () => radio.Nickname = newName.Trim()))
+                return false;
+            Tracing.TraceLine($"RenameRadio: '{was}' -> '{newName}'", TraceLevel.Info);
 
             // A rename through JJ Flex is a deliberate choice: record it in
             // both the observation mirror AND the choice field, so it keeps
@@ -2295,17 +2312,27 @@ namespace Radios
         public bool RemoteOnEnabled
         {
             get => theRadio?.RemoteOnEnabled ?? false;
-            set
+            set => SetRemoteOnEnabled(value);
+        }
+
+        /// <summary>
+        /// Write <see cref="RemoteOnEnabled"/>, as one step with the
+        /// change-nothing hold. False when there is no radio or the hold
+        /// refused it (and said so), so a control can go back to the radio's
+        /// value and play no success tone.
+        /// </summary>
+        public bool SetRemoteOnEnabled(bool value)
+        {
+            var radio = theRadio;
+            if (radio == null)
             {
-                if (theRadio == null)
-                {
-                    Tracing.TraceLine("RemoteOnEnabled set: no radio connected", TraceLevel.Warning);
-                    return;
-                }
-                if (GuardRefuses("settings.guard.action.rem_on")) return;
-                theRadio.RemoteOnEnabled = value;
-                Tracing.TraceLine($"RemoteOnEnabled set: {value}", TraceLevel.Info);
+                Tracing.TraceLine("RemoteOnEnabled set: no radio connected", TraceLevel.Warning);
+                return false;
             }
+            if (!OperatorWriteUnlessHeld("settings.guard.action.rem_on", () => radio.RemoteOnEnabled = value))
+                return false;
+            Tracing.TraceLine($"RemoteOnEnabled set: {value}", TraceLevel.Info);
+            return true;
         }
 
         /// <summary>
@@ -10328,8 +10355,7 @@ namespace Radios
                     return;
                 }
                 if (r.Callsign == value) return;
-                if (GuardRefuses("settings.guard.action.callsign")) return;
-                r.Callsign = value;
+                OperatorWriteUnlessHeld("settings.guard.action.callsign", () => r.Callsign = value);
             }
         }
 
@@ -10638,11 +10664,48 @@ namespace Radios
         /// Import radio profiles from a user-selected file.
         /// Sprint 20: Wraps FlexDB.Import() for external callers (Modern menu).
         /// </summary>
-        public bool ImportProfileDatabase()
+        /// <remarks>
+        /// The import replaces the radio's whole profile database, so the
+        /// change-nothing hold refuses it (#477). It cannot be one step with
+        /// the hold: a file dialog, an archive rebuilt on disk and a queued
+        /// upload sit between the press and the write. So it is refused up
+        /// front, before the file dialog, and asked again when the queued
+        /// import runs (<see cref="ImportProfile"/>). Refused returns
+        /// <see cref="GuardedOutcome.Refused"/>, already spoken; the caller
+        /// must not add a failure sentence.
+        /// <para>
+        /// Refused outright on a SmartLink (remote) connection, as export
+        /// already is (ruled by Noel 2026-11-08: <i>"Refuse it over
+        /// SmartLink"</i>). The upload connects to the radio's own upload
+        /// port, which SmartLink does not carry, so over SmartLink the import
+        /// could only fail, and fail after the radio's power-off notice and
+        /// after PC audio had been stopped. It is refused here, before the
+        /// file dialog and before anything is queued. No second check is added
+        /// at the upload: the connection does not change from LAN to SmartLink
+        /// in between, and Noel ruled the hold's own gap there left as it is.
+        /// </para>
+        /// </remarks>
+        public GuardedOutcome ImportProfileDatabase()
         {
+            if (RemoteRig)
+            {
+                Tracing.TraceLine("Flex import refused: remote/SmartLink connection", TraceLevel.Warning);
+                if (!SuppressSpeech)
+                    ScreenReaderOutput.Speak(Lexicon.Get("settings.flexdb.import_only_lan"),
+                        VerbosityLevel.Critical, true);
+                return GuardedOutcome.Refused;
+            }
+            if (GuardRefuses("settings.guard.action.profile_import")) return GuardedOutcome.Refused;
             var db = new FlexDB(this);
-            return db.Import();
+            return (ProfileImportRunner ?? db.Import)() ? GuardedOutcome.Done : GuardedOutcome.Failed;
         }
+
+        /// <summary>
+        /// Stands in for <see cref="FlexDB.Import"/>, the file dialog and the
+        /// archive it rebuilds, so a test can reach the import's decisions
+        /// without a window. Null in the product.
+        /// </summary>
+        internal Func<bool> ProfileImportRunner { get; set; }
 
         /// <summary>
         /// Returns a snapshot of all meters currently known to the radio.

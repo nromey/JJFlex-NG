@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 
@@ -81,8 +82,68 @@ public partial class TNFDialog : JJFlexDialog
         InitializeComponent();
         // Delete on the list presses this button (#774).
         DeleteKeyRemoves.SetButton(TNFList, RemoveButton);
+        // The list's name carries the count; it is brought up to date on the
+        // way in, where a rename cannot be heard as a second announcement,
+        // and a name owed while the list itself held focus is paid the
+        // moment that focus moves on (#941 repair one).
+        TNFList.GotKeyboardFocus += (_, _) =>
+        {
+            _namingOnFocus = true;
+            try { NameTheList(); }
+            finally { _namingOnFocus = false; }
+        };
+        TNFList.LostKeyboardFocus += (_, e) =>
+        {
+            if (!ReferenceEquals(e.OriginalSource, TNFList) || !_nameOwed) return;
+            _nameOwed = false;
+            AutomationProperties.SetName(TNFList, ListName(TNFList.Items.Count));
+        };
         Loaded += TNFDialog_Loaded;
     }
+
+    /// <summary>
+    /// The list says what it holds and how many (#941): "Tracking notches by
+    /// frequency, 3 on this radio", or "none on this radio". Said as "on this
+    /// radio", never "3 of 5", so it cannot be heard as a list position (the
+    /// meters panel's lesson, #946). DRAFT wording.
+    /// </summary>
+    internal static string ListName(int count) => count <= 0
+        ? Radios.Lexicon.Get("settings.tnf.list_name_none")
+        : Radios.Lexicon.Get("settings.tnf.list_name_count", ("count", count));
+
+    /// <summary>
+    /// Keep the list's name true after every rebuild (#941 repair one, Codex
+    /// B1). Until then the list was not renamed at all while focus was
+    /// anywhere inside it, so Add or Delete from the list left the old count
+    /// in its name until focus next came in from outside.
+    /// </summary>
+    /// <remarks>
+    /// <para>A screen reader speaks a rename of the object it is focused ON,
+    /// and that is the one case held back: the list element itself has
+    /// keyboard focus while it has rows, a passing state that Add and Remove
+    /// end by putting focus on a row. The name is then owed, and paid when
+    /// the list's own focus moves (to its row, or away). When focus is on a
+    /// row, the list is the row's container and the rename is made at once:
+    /// the reader is on the row, not the list.</para>
+    /// <para>An EMPTY list holding focus is renamed at once: "none on this
+    /// radio" is the news after the last notch goes, said once.</para>
+    /// </remarks>
+    private void NameTheList()
+    {
+        if (!ListNaming.RenameNow(TNFList.IsKeyboardFocused, _namingOnFocus, TNFList.Items.Count))
+        {
+            _nameOwed = true;
+            return;
+        }
+        _nameOwed = false;
+        AutomationProperties.SetName(TNFList, ListName(TNFList.Items.Count));
+    }
+
+    private bool _namingOnFocus;
+    private bool _nameOwed;
+
+    /// <summary>Focus a row (<see cref="ListNaming.FocusRow"/>).</summary>
+    private void FocusRow(int index) => ListNaming.FocusRow(TNFList, index);
 
     private void TNFDialog_Loaded(object sender, RoutedEventArgs e)
     {
@@ -160,6 +221,7 @@ public partial class TNFDialog : JJFlexDialog
         {
             _suppressEvents = false;
         }
+        NameTheList();
         UpdateTNFProperties();
     }
 
@@ -262,7 +324,9 @@ public partial class TNFDialog : JJFlexDialog
         int newVal = Math.Max(WidthMin, Math.Min(WidthMax, current + delta));
         SetTNFWidth?.Invoke(idx, newVal);
         WidthBox.Text = newVal.ToString();
-        SpeakValue(WidthLabel, newVal.ToString());
+        // Through the one width formatter, as every filter width is (#983):
+        // "2.75 k" at Terse from 1 kHz up, the whole number otherwise.
+        SpeakValue(WidthLabel, Radios.HertzSpeech.Width(newVal, Radios.HertzUnitStyle.Bare));
     }
 
     private void DepthBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -342,12 +406,18 @@ public partial class TNFDialog : JJFlexDialog
     private void AddButton_Click(object sender, RoutedEventArgs e)
     {
         string? display = AddTNF?.Invoke();
-        TNFList.Focus();
-        if (display == null) return;
+        if (display == null)
+        {
+            TNFList.Focus();
+            return;
+        }
 
+        // Rebuilt and renamed BEFORE focus goes in, so the way in hears the
+        // new count (#941 repair one); focus then lands on the new row.
         RefreshList();
         if (TNFList.Items.Count > 0)
             TNFList.SelectedIndex = TNFList.Items.Count - 1;
+        FocusRow(TNFList.SelectedIndex);
     }
 
     /// <summary>
@@ -372,7 +442,7 @@ public partial class TNFDialog : JJFlexDialog
             TNFList.SelectedIndex = Math.Min(idx, TNFList.Items.Count - 1);
         else
             UpdateTNFProperties();
-        TNFList.Focus();
+        FocusRow(TNFList.SelectedIndex);
     }
 
     private void DoneButton_Click(object sender, RoutedEventArgs e)

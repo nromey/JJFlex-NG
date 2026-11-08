@@ -1077,6 +1077,91 @@ namespace Radios.Tests
                 "settings.meter_category.audio",
                 "settings.meter_category.other",
 
+                // Junk box #944 (2026-11-07, third batch): the spoken
+                // transcript has one name everywhere (Noel, 2026-11-07
+                // 05:58). Rewording a frozen key takes it off the manifest,
+                // so both are classified here. delivery: null - TextOnly -
+                // because each is spoken only in answer to the operator's own
+                // tick of the Diagnostics checkbox. DRAFT PROSE.
+                "settings.diagnostics.transcript_on",
+                "settings.diagnostics.transcript_off",
+
+                // Junk box #946 (2026-11-07, third batch): the meter slot
+                // combo's accessible name says the count as "in use" so a
+                // reader cannot hear it as a list position. A control name,
+                // read only when the operator lands on the combo: TextOnly.
+                // DRAFT PROSE.
+                "audio.meters.panel.slot_combo_name",
+
+                // Junk box #942 and #994 (2026-11-07, third batch): how an
+                // announcement says a mode a synthesizer mangles (J41), the
+                // station check's mode words moved from code unchanged, and
+                // the refusal a direct mode key gives for a mode the radio
+                // does not list. Fragments, or a sentence spoken only in
+                // answer to the operator's own press: TextOnly. DRAFT PROSE
+                // except Digital upper and lower, Noel's option (c).
+                "settings.mode.spoken.digu",
+                "settings.mode.spoken.digl",
+                "settings.mode.spoken.sam",
+                "settings.mode.spoken.dfm",
+                "settings.mode.spoken.nfm",
+                "settings.mode.words.usb",
+                "settings.mode.words.lsb",
+                "settings.mode.words.digu",
+                "settings.mode.words.digl",
+                "settings.mode.not_on_radio",
+
+                // Junk box #477 (2026-11-07, third batch): the actions the
+                // change-nothing hold refuses in the TX Controls window and
+                // Import Profiles. Fragments of settings.guard.refused, so
+                // TextOnly (the #777 reasoning). DRAFT PROSE.
+                "settings.guard.action.tx_controls",
+                "settings.guard.action.profile_import",
+
+                // Junk box #941 (2026-11-07, third batch): the tracking notch
+                // list's accessible name, with its count. A control name:
+                // TextOnly. DRAFT PROSE.
+                "settings.tnf.list_name_none",
+                "settings.tnf.list_name_count",
+
+                // Junk box #181 (2026-11-07, third batch): the crash reports
+                // waiting for an answer, the dump-removed marker, the spoken
+                // transcript's label in a bundle, and what a crash that ends
+                // the app says. Control names, row text, file text and
+                // sentences said only in answer to the operator or at the
+                // crash itself: TextOnly. DRAFT PROSE.
+                "logging.crash.pending_list_none",
+                "logging.crash.pending_list_count",
+                "logging.crash.row_with_dump",
+                "logging.crash.row_no_dump",
+                "logging.crash.row_dump_removed",
+                "logging.crash.dump_removed_note",
+                "logging.crash.label_transcript",
+                "logging.crash.dismissed_from_list",
+                "logging.crash.saved_send_later",
+
+                // Junk box #181 repair one (2026-11-08): what Measure now and
+                // the Disk space note say about an older unanswered report,
+                // one sentence per retention setting, and the two count
+                // sentences reworded off the freeze list. Shown text, and
+                // said only in answer to Measure now: TextOnly. DRAFT PROSE.
+                "logging.crash.reports_tail_strip_dump",
+                "logging.crash.reports_tail_delete",
+                // Junk box #181 repair two (2026-11-08): the send question's
+                // opening sentence for a report sent from the Diagnostics
+                // list. Shown text: TextOnly. DRAFT PROSE.
+                "logging.crash.prompt_intro_existing",
+                "logging.crash.reports_unresolved_one",
+                "logging.crash.reports_unresolved_many",
+                "settings.diagnostics.disk_note_keep",
+                "settings.diagnostics.disk_note_strip_dump",
+                "settings.diagnostics.disk_note_delete",
+
+                // Junk box #477 rulings (2026-11-08): profile import refused
+                // over SmartLink. Said only in answer to the operator's
+                // press: TextOnly. DRAFT PROSE.
+                "settings.flexdb.import_only_lan",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than
@@ -2608,7 +2693,15 @@ namespace Radios.Tests
             // 3094: Unified takes round three reworded audio.reference.finished.
             // 3093: part 7n-1 retired audio.check.still_transmitting (task 903).
             // 3068 at the merge of Unified takes onto main: main's 3070 less takes' two.
-            Assert.Equal(3068, unclassified);
+            // Combined at the 2026-11-08 merge of the third 2026-11-07 junk box batch:
+            // takes' two (3070 to 3068) plus the batch's five below, 3063.
+            // Two fewer (3070 to 3068): junk box #944 (2026-11-07, third batch)
+            // reworded and classified settings.diagnostics.transcript_on and _off.
+            // One fewer (3068 to 3067): junk box #946 reworded and classified
+            // audio.meters.panel.slot_combo_name.
+            // Two fewer (3067 to 3065): junk box #181 repair one reworded and
+            // classified logging.crash.reports_unresolved_one and _many.
+            Assert.Equal(3063, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

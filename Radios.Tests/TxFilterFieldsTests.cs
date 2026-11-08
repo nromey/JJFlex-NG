@@ -51,6 +51,8 @@ namespace Radios.Tests
         private readonly List<(long Ticket, string Text)> _outstanding = new();
         private readonly List<(long Ticket, string Text, SpeechOutcome Outcome)> _toReport = new();
         private bool _refuse;
+        /// <summary>A reader that never reports an outcome (JAWS, or any reader but NVDA).</summary>
+        private bool _untracked;
 
         private const string SurfaceKey = "value-field:TX filter (test surface)";
 
@@ -69,6 +71,7 @@ namespace Radios.Tests
         {
             _heard.Add(text);
             if (_refuse) return SpeechHandoff.NotReached;
+            if (_untracked) return SpeechHandoff.Untracked;
             if (interrupt)
             {
                 foreach (var (ticket, cut) in _outstanding)
@@ -730,6 +733,63 @@ namespace Radios.Tests
             Finish();                                  // the first finishes
             Settle();
             Assert.Equal(2, _heard.Count(h => h == "TX Filter Low 2750, at limit"));
+        }
+
+        // ------------------------------------------------------------------
+        // J35 (b), ruled by Noel 2026-11-07: a sentence counts as heard once
+        // the next sentence on these fields is handed over
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// A reader that never reports (JAWS). Low 150 may have been cut, so
+        /// the next sentence says it again, once; after that it counts as
+        /// heard and High 2900 is said alone. Before, every later sentence
+        /// stated both edges until the surface closed.
+        /// </summary>
+        [Fact]
+        public void With_a_reader_that_never_reports_a_sentence_counts_once_the_next_is_handed_over()
+        {
+            _untracked = true;
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            _clock.Advance(5000);
+            _fields.Write(lowField: false, 2850);
+            Drain();
+            Assert.Equal("TX Filter Low 150. TX Filter High 2850", _heard.Last());
+            _clock.Advance(5000);
+            _fields.Write(lowField: false, 2900);
+            Drain();
+            _clock.Advance(5000);
+            Assert.Equal("TX Filter High 2900", _heard.Last());
+        }
+
+        /// <summary>
+        /// The outcome callback can arrive late and out of order (#916). Low
+        /// 150 was counted heard when the next sentence was handed over, and
+        /// that sentence said Low 300; Low 150's own report arriving after it
+        /// must not put 150 back as the last low heard.
+        /// </summary>
+        [Fact]
+        public void A_late_completion_for_a_sentence_already_counted_changes_nothing()
+        {
+            Tx(100, 2800);
+            _fields.Write(lowField: true, 150);
+            Drain();
+            var (t1, s1) = _outstanding.Last();
+            _outstanding.Clear();                      // its report is held back
+            _clock.Advance(5000);
+            WriteTx(300);                              // another door moves the low edge
+            _fields.Write(lowField: false, 2850);
+            Drain();
+            Assert.Equal("TX Filter Low 300. TX Filter High 2850", _heard.Last());
+            Finish();                                  // that sentence is heard
+            _arbiter.OnOutcome(t1, s1, SpeechOutcome.Completed(Words(s1), Words(s1), 100));
+            _clock.Advance(5000);
+            _fields.Write(lowField: false, 2900);
+            Drain();
+            Settle();
+            Assert.Equal("TX Filter High 2900", _heard.Last());
         }
 
         // ------------------------------------------------------------------

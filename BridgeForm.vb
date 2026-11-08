@@ -376,11 +376,16 @@ Public Class ShellForm
         If m.Msg = WM_ENTERMENULOOP Then
             _inNativeMenuLoop = True
             JJTrace.Tracing.TraceLine("KEYROUTE shell.WM_ENTERMENULOOP")
+            ' A native menu keeps WPF keyboard focus on the Home field it
+            ' opened over, so the field brings its name up to date while
+            ' the menu holds the reader (ValueFieldControl.ReaderAway).
+            JJFlexWpf.Controls.ValueFieldControl.NativeMenuLoopStarted()
         End If
 
         If m.Msg = WM_EXITMENULOOP AndAlso _inNativeMenuLoop Then
             JJTrace.Tracing.TraceLine("KEYROUTE shell.WM_EXITMENULOOP")
             _inNativeMenuLoop = False
+            JJFlexWpf.Controls.ValueFieldControl.NativeMenuLoopEnded()
             MyBase.WndProc(m)
             ' Defer focus restore so it doesn't re-enter during WndProc processing
             BeginInvoke(Sub() _elementHost?.Focus())

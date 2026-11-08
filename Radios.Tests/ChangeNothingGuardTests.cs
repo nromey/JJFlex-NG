@@ -148,7 +148,7 @@ namespace Radios.Tests
             // one up.
             var storeKeys = StoreKeys();
             var named = new List<string>();
-            foreach (Match m in Regex.Matches(Read(FlexBase), "GuardRefuses\\(\"([^\"]+)\"\\)"))
+            foreach (Match m in Regex.Matches(Read(FlexBase), "(?:GuardRefuses|OperatorWriteUnlessHeld)\\(\"([^\"]+)\""))
             {
                 named.Add(m.Groups[1].Value);
             }
@@ -208,16 +208,19 @@ namespace Radios.Tests
         /// the opening of the method that owns the write.
         /// </summary>
         [Theory]
-        [InlineData("public bool RenameRadio(", "GuardRefuses(\"settings.guard.action.rename\")", 700)]
+        // #976 (2026-11-07): rename, remote power, the oscillator and the
+        // callsign are one step with the hold now: OperatorWriteUnlessHeld
+        // rather than GuardRefuses and then the write.
+        [InlineData("public bool RenameRadio(", "OperatorWriteUnlessHeld(\"settings.guard.action.rename\"", 700)]
         [InlineData("public bool SetSmartLinkPortForwarding(", "GuardRefuses(\"settings.guard.action.ports\")", 900)]
-        [InlineData("public bool RemoteOnEnabled", "GuardRefuses(\"settings.guard.action.rem_on\")", 900)]
+        [InlineData("public bool SetRemoteOnEnabled(", "OperatorWriteUnlessHeld(\"settings.guard.action.rem_on\"", 900)]
         [InlineData("public bool EnforcePrivateIPConnections", "GuardRefuses(\"settings.guard.action.private_ip\")", 900)]
         [InlineData("public bool ApplyStaticIp(", "GuardRefuses(\"settings.guard.action.network\")", 500)]
         [InlineData("public bool RevertToDhcp(", "GuardRefuses(\"settings.guard.action.network\")", 500)]
         [InlineData("private bool SendRegistrationCommand(", "GuardRefuses(\"settings.guard.action.registration\")", 900)]
-        [InlineData("public bool SetSelectedOscillator(", "GuardRefuses(\"settings.guard.action.oscillator\")", 500)]
+        [InlineData("public bool SetSelectedOscillator(", "OperatorWriteUnlessHeld(\"settings.guard.action.oscillator\"", 900)]
         [InlineData("public bool BeginFirmwareUpdate(", "GuardRefuses(\"settings.guard.action.firmware\")", 900)]
-        [InlineData("public string RadioCallsign", "GuardRefuses(\"settings.guard.action.callsign\")", 1000)]
+        [InlineData("public string RadioCallsign", "OperatorWriteUnlessHeld(\"settings.guard.action.callsign\"", 1000)]
         [InlineData("public string FrontPanelDisplayMode", "GuardRefuses(\"settings.guard.action.front_panel\")", 1400)]
         [InlineData("public GuardedOutcome SelectProfileGuarded(", "GuardRefuses(\"settings.guard.action.profile_load\")", 1000)]
         [InlineData("public bool SelectMicProfileIfPresent(", "GuardRefuses(\"settings.guard.action.profile_load\")", 900)]

@@ -447,7 +447,7 @@
   "audio.meters.panel.showing_all": "Showing all {count} meters",
   "audio.meters.panel.showing_common": "Showing {count} common meters",
   "audio.meters.panel.slot_added": "Meter {number} added",
-  "audio.meters.panel.slot_combo_name": "Meter to configure, {count} of {max}",
+  "audio.meters.panel.slot_combo_name": { "text": "Meter to configure, {count} in use, up to {max}", "delivery": null },
   "audio.meters.panel.slot_deleted": "{name} deleted, {remaining} meters remaining",
   "audio.meters.panel.slot_item_silent": "{number}. {name} (silent)",
   "audio.meters.panel.slot_item_sounding": "{number}. {name} (sounding)",

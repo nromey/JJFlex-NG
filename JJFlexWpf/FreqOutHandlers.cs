@@ -1394,7 +1394,7 @@ public class FreqOutHandlers
                 ? Lexicon.Get("settings.slice.owner_suffix", ("owner", owner))
                 : "";
             string freqSuffix = freqMhz > 0
-                ? Lexicon.Get("settings.slice.freq_suffix", ("freq", freqMhz.ToString("F3")), ("mode", mode))
+                ? Lexicon.Get("settings.slice.freq_suffix", ("freq", freqMhz.ToString("F3")), ("mode", Radios.ModeWords.Spoken(mode)))
                 : "";
             Radios.ScreenReaderOutput.Speak(
                 Lexicon.Get("settings.slice.with_detail",

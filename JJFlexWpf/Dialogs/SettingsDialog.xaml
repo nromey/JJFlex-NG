@@ -2236,9 +2236,9 @@
                                  evidence when the complaint is about what the
                                  app said. Cheap to keep and cheap to send. -->
                             <CheckBox x:Name="DiagTranscriptCheck"
-                                      Content="Record what the app says (for reporting a problem)"
+                                      Content="Record a spoken transcript (for reporting a problem)"
                                       Margin="0,4,0,4"
-                                      AutomationProperties.Name="Record what the app says, for reporting a problem"
+                                      AutomationProperties.Name="Record a spoken transcript, for reporting a problem"
                    local:JJFlexHelp.Text="Writes down every message the app speaks, every sound it plays and every C W notification it sends, alongside the diagnostic log. The log says what the program did; this says what you heard, which is the part that matters when the problem is something it said, or did not say. It only writes things down — it never changes what you hear. Small enough to include in a problem report."
                                       Checked="DiagTranscriptCheck_Changed"
                                       Unchecked="DiagTranscriptCheck_Changed"/>
@@ -2314,6 +2314,44 @@
                         </StackPanel>
                     </GroupBox>
 
+                    <!-- Crash reports nobody has sent or dismissed (#181). A missed
+                         crash prompt used to leave a report with no route to be
+                         sent; this list is that route. Prose rows, one sentence
+                         each, never a table. Labels DRAFT; the Ctrl+F1 texts are
+                         placeholders for the help writer. -->
+                    <GroupBox Header="Crash reports waiting for an answer" Margin="0,0,0,8"
+                              AutomationProperties.Name="Crash reports waiting for an answer">
+                        <StackPanel Margin="4">
+                            <ListBox x:Name="DiagPendingCrashList" Height="90" Margin="0,4,0,6"
+                                     AutomationProperties.Name="Crash reports waiting for an answer"
+                                     local:JJFlexHelp.Text="PLACEHOLDER: every saved crash report not yet sent or dismissed, newest first; each row says when, how big, and whether its memory dump is still in it; Send asks first and sends only on Yes; Dismiss keeps it on this computer and stops it waiting."
+                                     SelectionChanged="DiagPendingCrashList_SelectionChanged"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <Button x:Name="DiagSendCrashButton"
+                                        Content="Send..."
+                                        Padding="12,4" Margin="0,0,6,0"
+                                        AutomationProperties.Name="Send the selected crash report"
+                   local:JJFlexHelp.Text="PLACEHOLDER: shows what the selected report holds and where it would go, and sends it only if you answer Yes; No leaves it waiting."
+                                        Click="DiagSendCrashButton_Click"/>
+                                <Button x:Name="DiagDismissCrashButton"
+                                        Content="Dismiss"
+                                        Padding="12,4"
+                                        AutomationProperties.Name="Dismiss the selected crash report"
+                   local:JJFlexHelp.Text="PLACEHOLDER: marks the selected report as answered without sending it; it stays on this computer, and retention may remove it later."
+                                        Click="DiagDismissCrashButton_Click"/>
+                            </StackPanel>
+                            <TextBlock Text="Older reports nobody has answered" Margin="0,0,0,2"/>
+                            <ComboBox x:Name="DiagCrashRetentionCombo" HorizontalAlignment="Left" Margin="0,0,0,6"
+                                      AutomationProperties.Name="Older crash reports nobody has answered"
+                   local:JJFlexHelp.Text="PLACEHOLDER: what happens to a crash report older than your newest few once it has waited 7 days unanswered; the default removes only its large memory dump and keeps the report and traces so it can still be sent."
+                                      SelectionChanged="DiagCrashRetentionCombo_SelectionChanged">
+                                <ComboBoxItem Content="Remove the memory dump after 7 days, keep the report"/>
+                                <ComboBoxItem Content="Keep the whole report until I answer"/>
+                                <ComboBoxItem Content="Delete the whole report after 7 days"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </GroupBox>
+
                     <GroupBox Header="Disk space" Margin="0,0,0,8"
                               AutomationProperties.Name="Disk space used by diagnostics">
                         <StackPanel Margin="4">
@@ -2343,8 +2381,7 @@
                                     AutomationProperties.Name="Delete crash reports I have sent or dismissed"
                    local:JJFlexHelp.Text="Removes only the crash reports you have already sent or dismissed. A report you have never dealt with is kept, because its whole value is being there when support asks."
                                     Click="DiagDeleteSentCrashButton_Click"/>
-                            <TextBlock TextWrapping="Wrap"
-                                       Text="Deleting loose log text does not touch the compressed sessions in Saved Diagnostic Logs, so nothing is lost. A crash report you have never sent or dismissed is never deleted automatically."/>
+                            <TextBlock x:Name="DiagDiskNoteText" TextWrapping="Wrap"/>
                         </StackPanel>
                     </GroupBox>
                 </StackPanel>
