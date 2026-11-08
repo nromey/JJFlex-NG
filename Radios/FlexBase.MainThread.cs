@@ -898,6 +898,7 @@ namespace Radios
 
         internal void ImportProfile(string name)
         {
+            if (GuardRefuses("settings.guard.action.profile_import")) return;   // #477: asked again at the run
             // Save the import temp directory.
             importDir = name.Substring(0, name.LastIndexOf('\\'));
             System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 1);

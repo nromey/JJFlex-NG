@@ -1103,6 +1103,13 @@ namespace Radios.Tests
                 "settings.mode.words.digl",
                 "settings.mode.not_on_radio",
 
+                // Junk box #477 (2026-11-07, third batch): the actions the
+                // change-nothing hold refuses in the TX Controls window and
+                // Import Profiles. Fragments of settings.guard.refused, so
+                // TextOnly (the #777 reasoning). DRAFT PROSE.
+                "settings.guard.action.tx_controls",
+                "settings.guard.action.profile_import",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than

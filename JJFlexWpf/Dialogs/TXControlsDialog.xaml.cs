@@ -27,43 +27,43 @@ public partial class TXControlsDialog : JJFlexDialog
 
     // TX Request
     public Func<bool>? GetTXReqRCAEnabled { get; set; }
-    public Action<bool>? SetTXReqRCAEnabled { get; set; }
+    public Func<bool, bool>? SetTXReqRCAEnabled { get; set; }
     public Func<bool>? GetTXReqRCAPolarity { get; set; }
-    public Action<bool>? SetTXReqRCAPolarity { get; set; }
+    public Func<bool, bool>? SetTXReqRCAPolarity { get; set; }
     public Func<bool>? GetTXReqACCEnabled { get; set; }
-    public Action<bool>? SetTXReqACCEnabled { get; set; }
+    public Func<bool, bool>? SetTXReqACCEnabled { get; set; }
     public Func<bool>? GetTXReqACCPolarity { get; set; }
-    public Action<bool>? SetTXReqACCPolarity { get; set; }
+    public Func<bool, bool>? SetTXReqACCPolarity { get; set; }
 
     // TX1
     public Func<bool>? GetTX1Enabled { get; set; }
-    public Action<bool>? SetTX1Enabled { get; set; }
+    public Func<bool, bool>? SetTX1Enabled { get; set; }
     public Func<int>? GetTX1Delay { get; set; }
-    public Action<int>? SetTX1Delay { get; set; }
+    public Func<int, bool>? SetTX1Delay { get; set; }
 
     // TX2
     public Func<bool>? GetTX2Enabled { get; set; }
-    public Action<bool>? SetTX2Enabled { get; set; }
+    public Func<bool, bool>? SetTX2Enabled { get; set; }
     public Func<int>? GetTX2Delay { get; set; }
-    public Action<int>? SetTX2Delay { get; set; }
+    public Func<int, bool>? SetTX2Delay { get; set; }
 
     // TX3
     public Func<bool>? GetTX3Enabled { get; set; }
-    public Action<bool>? SetTX3Enabled { get; set; }
+    public Func<bool, bool>? SetTX3Enabled { get; set; }
     public Func<int>? GetTX3Delay { get; set; }
-    public Action<int>? SetTX3Delay { get; set; }
+    public Func<int, bool>? SetTX3Delay { get; set; }
 
     // TX ACC
     public Func<bool>? GetTXACCEnabled { get; set; }
-    public Action<bool>? SetTXACCEnabled { get; set; }
+    public Func<bool, bool>? SetTXACCEnabled { get; set; }
     public Func<int>? GetTXACCDelay { get; set; }
-    public Action<int>? SetTXACCDelay { get; set; }
+    public Func<int, bool>? SetTXACCDelay { get; set; }
 
     // ALC and Remote On
     public Func<bool>? GetHWAlcEnabled { get; set; }
-    public Action<bool>? SetHWAlcEnabled { get; set; }
+    public Func<bool, bool>? SetHWAlcEnabled { get; set; }
     public Func<bool>? GetRemoteOnEnabled { get; set; }
-    public Action<bool>? SetRemoteOnEnabled { get; set; }
+    public Func<bool, bool>? SetRemoteOnEnabled { get; set; }
 
     #endregion
 
@@ -114,59 +114,78 @@ public partial class TXControlsDialog : JJFlexDialog
     /// completely silent — no tone, no speech — while every DSP toggle on the
     /// Home panel answered back, so a flip here read as the command failing.
     /// One helper so a checkbox added later cannot be silent by omission.
-    /// The tone sounds the REQUEST: these are write-only delegates with no
-    /// read-back to consult, the same contract the menu bar's ToggleDSP uses.
+    /// The tone sounds the REQUEST the radio was handed: the setter answers
+    /// false when it was not (no radio, or the change-nothing hold refused it
+    /// and said so), and then the box goes back to the radio's value and no
+    /// tone plays, because a success tone over a refusal is a contradiction
+    /// (#477).
     /// </summary>
-    private void ApplyToggle(Action<bool>? setter, bool on)
+    private void ApplyToggle(CheckBox box, Func<bool>? getter, Func<bool, bool>? setter)
     {
         if (_loading) return;
-        setter?.Invoke(on);
-        EarconPlayer.ToggleTone(on);
+        bool on = box.IsChecked == true;
+        if (setter?.Invoke(on) == true)
+        {
+            EarconPlayer.ToggleTone(on);
+            return;
+        }
+        PutBack(() => box.IsChecked = getter?.Invoke() ?? false);
+    }
+
+    /// <summary>Show the radio's value again after a refused write, without
+    /// the change handlers writing it back.</summary>
+    private void PutBack(Action restore)
+    {
+        bool was = _loading;
+        _loading = true;
+        try { restore(); }
+        finally { _loading = was; }
+    }
+
+    private void ApplyPolarity(ComboBox combo, Func<bool>? getter, Func<bool, bool>? setter)
+    {
+        if (_loading) return;
+        if (setter?.Invoke(combo.SelectedIndex == 1) == true) return;
+        PutBack(() => combo.SelectedIndex = (getter?.Invoke() ?? false) ? 1 : 0);
     }
 
     private void TXReqRCACheck_Changed(object sender, RoutedEventArgs e)
-        => ApplyToggle(SetTXReqRCAEnabled, TXReqRCACheck.IsChecked == true);
+        => ApplyToggle(TXReqRCACheck, GetTXReqRCAEnabled, SetTXReqRCAEnabled);
 
     private void TXReqRCAPolarityCombo_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_loading) return;
-        SetTXReqRCAPolarity?.Invoke(TXReqRCAPolarityCombo.SelectedIndex == 1);
-    }
+        => ApplyPolarity(TXReqRCAPolarityCombo, GetTXReqRCAPolarity, SetTXReqRCAPolarity);
 
     private void TXReqACCCheck_Changed(object sender, RoutedEventArgs e)
-        => ApplyToggle(SetTXReqACCEnabled, TXReqACCCheck.IsChecked == true);
+        => ApplyToggle(TXReqACCCheck, GetTXReqACCEnabled, SetTXReqACCEnabled);
 
     private void TXReqACCPolarityCombo_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_loading) return;
-        SetTXReqACCPolarity?.Invoke(TXReqACCPolarityCombo.SelectedIndex == 1);
-    }
+        => ApplyPolarity(TXReqACCPolarityCombo, GetTXReqACCPolarity, SetTXReqACCPolarity);
 
     #endregion
 
     #region TX Output Handlers
 
     private void TX1RCACheck_Changed(object sender, RoutedEventArgs e)
-        => ApplyToggle(SetTX1Enabled, TX1RCACheck.IsChecked == true);
+        => ApplyToggle(TX1RCACheck, GetTX1Enabled, SetTX1Enabled);
 
     private void TX2RCACheck_Changed(object sender, RoutedEventArgs e)
-        => ApplyToggle(SetTX2Enabled, TX2RCACheck.IsChecked == true);
+        => ApplyToggle(TX2RCACheck, GetTX2Enabled, SetTX2Enabled);
 
     private void TX3RCACheck_Changed(object sender, RoutedEventArgs e)
-        => ApplyToggle(SetTX3Enabled, TX3RCACheck.IsChecked == true);
+        => ApplyToggle(TX3RCACheck, GetTX3Enabled, SetTX3Enabled);
 
     private void TXACCCheck_Changed(object sender, RoutedEventArgs e)
-        => ApplyToggle(SetTXACCEnabled, TXACCCheck.IsChecked == true);
+        => ApplyToggle(TXACCCheck, GetTXACCEnabled, SetTXACCEnabled);
 
     #endregion
 
     #region Other Controls Handlers
 
     private void ALCCheck_Changed(object sender, RoutedEventArgs e)
-        => ApplyToggle(SetHWAlcEnabled, ALCCheck.IsChecked == true);
+        => ApplyToggle(ALCCheck, GetHWAlcEnabled, SetHWAlcEnabled);
 
     private void RemoteOnCheck_Changed(object sender, RoutedEventArgs e)
-        => ApplyToggle(SetRemoteOnEnabled, RemoteOnCheck.IsChecked == true);
+        => ApplyToggle(RemoteOnCheck, GetRemoteOnEnabled, SetRemoteOnEnabled);
 
     #endregion
 
@@ -195,33 +214,41 @@ public partial class TXControlsDialog : JJFlexDialog
     }
 
     private void TX1DelayBox_LostFocus(object sender, RoutedEventArgs e) =>
-        ApplyDelayFromBox(TX1DelayBox, SetTX1Delay);
+        ApplyDelayFromBox(TX1DelayBox);
 
     private void TX2DelayBox_LostFocus(object sender, RoutedEventArgs e) =>
-        ApplyDelayFromBox(TX2DelayBox, SetTX2Delay);
+        ApplyDelayFromBox(TX2DelayBox);
 
     private void TX3DelayBox_LostFocus(object sender, RoutedEventArgs e) =>
-        ApplyDelayFromBox(TX3DelayBox, SetTX3Delay);
+        ApplyDelayFromBox(TX3DelayBox);
 
     private void TXACCDelayBox_LostFocus(object sender, RoutedEventArgs e) =>
-        ApplyDelayFromBox(TXACCDelayBox, SetTXACCDelay);
+        ApplyDelayFromBox(TXACCDelayBox);
 
-    private void ApplyDelayFromBox(TextBox box, Action<int>? setter)
+    private void ApplyDelayFromBox(TextBox box)
     {
         if (int.TryParse(box.Text, out int value))
         {
             value = Math.Clamp(value, DelayMin, DelayMax);
             box.Text = value.ToString();
-            setter?.Invoke(value);
+            ApplyDelay(box, value);
         }
     }
 
+    /// <summary>
+    /// Write a delay; refused (no radio, or the change-nothing hold), the box
+    /// goes back to the radio's value (#477).
+    /// </summary>
     private void ApplyDelay(TextBox box, int value)
     {
-        if (box == TX1DelayBox) SetTX1Delay?.Invoke(value);
-        else if (box == TX2DelayBox) SetTX2Delay?.Invoke(value);
-        else if (box == TX3DelayBox) SetTX3Delay?.Invoke(value);
-        else if (box == TXACCDelayBox) SetTXACCDelay?.Invoke(value);
+        (Func<int>? get, Func<int, bool>? set) =
+            box == TX1DelayBox ? (GetTX1Delay, SetTX1Delay)
+            : box == TX2DelayBox ? (GetTX2Delay, SetTX2Delay)
+            : box == TX3DelayBox ? (GetTX3Delay, SetTX3Delay)
+            : box == TXACCDelayBox ? (GetTXACCDelay, SetTXACCDelay)
+            : (null, null);
+        if (set?.Invoke(value) == true) return;
+        box.Text = (get?.Invoke() ?? 0).ToString();
     }
 
     #endregion

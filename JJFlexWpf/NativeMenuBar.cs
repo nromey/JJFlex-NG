@@ -3104,8 +3104,8 @@ public class NativeMenuBar : IDisposable
         AddWired(tools, "Import Profiles", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            bool success = Rig.ImportProfileDatabase();
-            if (!success)
+            // Refused by the change-nothing hold is already spoken (#477).
+            if (Rig.ImportProfileDatabase() == Radios.GuardedOutcome.Failed)
                 SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.import_failed"));
         });
         AddSep(tools);

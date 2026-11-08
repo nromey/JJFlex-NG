@@ -284,8 +284,8 @@ namespace Radios
         /// </summary>
         public bool SetSelectedOscillator(string value)
         {
-            if (theRadio == null || !IsConnected) return false;
-            if (GuardRefuses("settings.guard.action.oscillator")) return false;
+            var radio = theRadio;
+            if (radio == null || !IsConnected) return false;
             try
             {
                 if (!Enum.TryParse<Oscillator>(value, ignoreCase: true, out var osc))
@@ -293,7 +293,8 @@ namespace Radios
                     Tracing.TraceLine($"SetSelectedOscillator: unknown value '{value}'", TraceLevel.Error);
                     return false;
                 }
-                theRadio.SelectedOscillator = osc;
+                if (!OperatorWriteUnlessHeld("settings.guard.action.oscillator", () => radio.SelectedOscillator = osc))
+                    return false;
                 Tracing.TraceLine($"SetSelectedOscillator: set to {osc}", TraceLevel.Info);
                 return true;
             }

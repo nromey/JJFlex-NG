@@ -6629,42 +6629,45 @@ public partial class MainWindow : UserControl
 
         var dialog = new Dialogs.TXControlsDialog();
 
+        // Each setter answers whether the radio took the write: false when
+        // the change-nothing hold refused it (already spoken), so the dialog
+        // puts the control back and plays no success tone (#477).
         // TX request inputs
         dialog.GetTXReqRCAEnabled = () => rig.TXReqRCAEnabled;
-        dialog.SetTXReqRCAEnabled = v => rig.TXReqRCAEnabled = v;
+        dialog.SetTXReqRCAEnabled = v => rig.SetTXReqRCAEnabled(v);
         dialog.GetTXReqRCAPolarity = () => rig.TXReqRCAPolarity;
-        dialog.SetTXReqRCAPolarity = v => rig.TXReqRCAPolarity = v;
+        dialog.SetTXReqRCAPolarity = v => rig.SetTXReqRCAPolarity(v);
         dialog.GetTXReqACCEnabled = () => rig.TXReqACCEnabled;
-        dialog.SetTXReqACCEnabled = v => rig.TXReqACCEnabled = v;
+        dialog.SetTXReqACCEnabled = v => rig.SetTXReqACCEnabled(v);
         dialog.GetTXReqACCPolarity = () => rig.TXReqACCPolarity;
-        dialog.SetTXReqACCPolarity = v => rig.TXReqACCPolarity = v;
+        dialog.SetTXReqACCPolarity = v => rig.SetTXReqACCPolarity(v);
 
         // TX outputs, enable plus delay
         dialog.GetTX1Enabled = () => rig.TX1Enabled;
-        dialog.SetTX1Enabled = v => rig.TX1Enabled = v;
+        dialog.SetTX1Enabled = v => rig.SetTX1Enabled(v);
         dialog.GetTX1Delay = () => rig.TX1Delay;
-        dialog.SetTX1Delay = v => rig.TX1Delay = v;
+        dialog.SetTX1Delay = v => rig.SetTX1Delay(v);
 
         dialog.GetTX2Enabled = () => rig.TX2Enabled;
-        dialog.SetTX2Enabled = v => rig.TX2Enabled = v;
+        dialog.SetTX2Enabled = v => rig.SetTX2Enabled(v);
         dialog.GetTX2Delay = () => rig.TX2Delay;
-        dialog.SetTX2Delay = v => rig.TX2Delay = v;
+        dialog.SetTX2Delay = v => rig.SetTX2Delay(v);
 
         dialog.GetTX3Enabled = () => rig.TX3Enabled;
-        dialog.SetTX3Enabled = v => rig.TX3Enabled = v;
+        dialog.SetTX3Enabled = v => rig.SetTX3Enabled(v);
         dialog.GetTX3Delay = () => rig.TX3Delay;
-        dialog.SetTX3Delay = v => rig.TX3Delay = v;
+        dialog.SetTX3Delay = v => rig.SetTX3Delay(v);
 
         dialog.GetTXACCEnabled = () => rig.TXACCEnabled;
-        dialog.SetTXACCEnabled = v => rig.TXACCEnabled = v;
+        dialog.SetTXACCEnabled = v => rig.SetTXACCEnabled(v);
         dialog.GetTXACCDelay = () => rig.TXACCDelay;
-        dialog.SetTXACCDelay = v => rig.TXACCDelay = v;
+        dialog.SetTXACCDelay = v => rig.SetTXACCDelay(v);
 
         // Hardware ALC and remote-on
         dialog.GetHWAlcEnabled = () => rig.HWAlcEnabled;
-        dialog.SetHWAlcEnabled = v => rig.HWAlcEnabled = v;
+        dialog.SetHWAlcEnabled = v => rig.SetHWAlcEnabled(v);
         dialog.GetRemoteOnEnabled = () => rig.RemoteOnEnabled;
-        dialog.SetRemoteOnEnabled = v => rig.RemoteOnEnabled = v;
+        dialog.SetRemoteOnEnabled = v => rig.SetRemoteOnEnabled(v);
 
         dialog.ShowDialog();
     }
