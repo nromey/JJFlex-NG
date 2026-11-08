@@ -50,7 +50,8 @@ public static class TakeKind
     /// The radio played the recording and this computer captured the playback.
     /// Only an explicit Back up makes one; no playback makes one by itself
     /// (ruled S2, 2026-11-07 20:51). Received audio, never compared with the
-    /// transmit kinds.
+    /// transmit kinds; two of them may be compared with each other (ruled C2,
+    /// 2026-11-08).
     /// </summary>
     public const string SliceRecording = "slice-recording";
     /// <summary>An IQ take whose header names no kind this build knows.</summary>

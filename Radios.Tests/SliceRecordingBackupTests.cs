@@ -320,10 +320,10 @@ public sealed class SliceRecordingBackupTests : IDisposable
         Assert.False(outcome.BackedUp);
     }
 
-    // ── Comparison: refused beside any other kind, and with itself ──
+    // ── Comparison: refused beside any other kind; two backups may be compared (C2) ──
 
     [Fact]
-    public async Task A_slice_recording_take_is_never_compared()
+    public async Task A_slice_recording_take_is_compared_only_with_another()
     {
         using var c = WithRecording();
         var first = await BackUpWhole(c);
@@ -333,9 +333,12 @@ public sealed class SliceRecordingBackupTests : IDisposable
         var second = await BackUpWhole(c);
         Assert.True(second.Directory != null);
 
+        // Two backups made by the real backup path pass every gate (ruled C2,
+        // 2026-11-08) and are measured; SliceRecordingComparisonTests says what.
         var withItself = TakeAnalysis.CompareTakes(first.Directory!, second.Directory!);
-        Assert.False(withItself.Comparable);
-        Assert.Equal("unlike-takes:slice-recording", withItself.Reason);
+        Assert.True(withItself.Comparable, withItself.Reason);
+        Assert.Equal(TakeKind.SliceRecording, withItself.FirstKind);
+        Assert.Equal(TakeKind.SliceRecording, withItself.SecondKind);
 
         // A Radio recording take, through the check's own run.
         var run = PlaybackTakeRun.Admit(c.F.Rig, TakeKind.RadioRecording, SliceRecorderTarget.TransmitSlice, new TakeSeriesContext());
