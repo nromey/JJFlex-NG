@@ -30,7 +30,7 @@ namespace JJFlexWpf
             WriteRadioIntents("connect");
             _zeroRestore = null;
             ClearListening();
-            OnModeChanged(mode);
+            EnterGroup(mode, attaching: true);
         }
 
         /// <summary>
@@ -103,7 +103,9 @@ namespace JJFlexWpf
         /// that group's starting point, and says so. NNR's model and NR2's
         /// noise tracking follow CW.
         /// </summary>
-        public void OnModeChanged(string mode)
+        public void OnModeChanged(string mode) => EnterGroup(mode, attaching: false);
+
+        private void EnterGroup(string mode, bool attaching)
         {
             var g = NoiseModeRules.GroupOf(mode);
             var old = _group;
@@ -113,14 +115,30 @@ namespace JJFlexWpf
             var p = _pipeline();
             if (mem == null || p == null) return;
 
-            if (old != null || g == NoiseModeGroup.Cw) SwapNr2Tracking(old, g, mem, p);
+            // At connect nothing has been entered in this session, but the
+            // slots hold what was saved, in the group the memory names (B6).
+            // Coming back to that group is not a change of group: CW's own
+            // NR2 tracking, saved as the current setting, stays CW's and is
+            // never written over the voice one. A config from before the
+            // group was recorded falls back to treating connect as no group.
+            NoiseModeGroup? from = old ?? (attaching ? StoredGroup(mem) : null);
+            if (from != null || g == NoiseModeGroup.Cw) SwapNr2Tracking(from, g, mem, p);
             var gm = mem.For(g);
             if (gm.Known) RestoreGroup(g, gm, p);
             else if (p.SpectralSlot.Enabled || p.NeuralSlot.Enabled) ApplyStartingPoint(g, "mode change", onlyNeural: false);
             if (g == NoiseModeGroup.Cw) EnsureCwModel(speak: true);
-            else if (old == NoiseModeGroup.Cw) GiveBackVoiceModel(speak: true);
+            else if (from == NoiseModeGroup.Cw) GiveBackVoiceModel(speak: true);
+            mem.LastGroup = GroupWord(g);
             _persist();
         }
+
+        private static NoiseModeGroup? StoredGroup(NoiseModeMemoryConfig mem) => mem.LastGroup switch
+        {
+            "voice" => NoiseModeGroup.Voice,
+            "cw" => NoiseModeGroup.Cw,
+            "digital" => NoiseModeGroup.Digital,
+            _ => null,
+        };
 
         private void RestoreGroup(NoiseModeGroup g, NoiseGroupMemory gm, RxAudioPipeline p)
         {

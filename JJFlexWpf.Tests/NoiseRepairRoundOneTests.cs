@@ -152,6 +152,39 @@ public sealed class NoiseRepairRoundOneTests
         Assert.False(f.Pipeline.NeuralSlot.Enabled);
     }
 
+    // ── B6: connecting again in CW keeps NR2's voice tracking ──
+
+    [Fact]
+    public void B6_reconnecting_in_CW_does_not_write_CWs_NR2_tracking_over_the_voice_one()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        string voice = f.Pipeline.SpectralSlot.GetSetting("nr2", "noise_estimator").Choice!;
+        f.Noise.OnModeChanged("CW");
+        Assert.Equal(voice, f.Config.NoiseModeMemory.Nr2OtherTracking);
+        Assert.Equal(NoiseModeRules.Nr2CwTrackingDefault, f.Pipeline.SpectralSlot.GetSetting("nr2", "noise_estimator").Choice);
+        f.Noise.Detach();
+        f.Noise.Attach("CW");                                    // back where the settings were saved
+        Assert.Equal(voice, f.Config.NoiseModeMemory.Nr2OtherTracking);
+        Assert.Equal(NoiseModeRules.Nr2CwTrackingDefault, f.Pipeline.SpectralSlot.GetSetting("nr2", "noise_estimator").Choice);
+        f.Noise.OnModeChanged("USB");
+        Assert.Equal(voice, f.Pipeline.SpectralSlot.GetSetting("nr2", "noise_estimator").Choice);
+    }
+
+    [Fact]
+    public void B6_connecting_in_voice_after_the_settings_were_saved_in_CW_puts_the_voice_tracking_back()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        string voice = f.Pipeline.SpectralSlot.GetSetting("nr2", "noise_estimator").Choice!;
+        f.Noise.OnModeChanged("CW");
+        f.Noise.Detach();
+        f.Noise.Attach("USB");                                   // a real change of group, across the connect
+        Assert.Equal(voice, f.Pipeline.SpectralSlot.GetSetting("nr2", "noise_estimator").Choice);
+        Assert.Equal(NoiseModeRules.Nr2CwTrackingDefault, f.Config.NoiseModeMemory.Nr2CwTracking);
+        Assert.Equal("voice", f.Config.NoiseModeMemory.LastGroup);
+    }
+
     private sealed class MemoryPresets : INoisePresetStore
     {
         public AudioChainPresets Data = new() { BalancedCaptureOffered = true };

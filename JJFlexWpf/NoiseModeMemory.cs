@@ -64,6 +64,16 @@ namespace JJFlexWpf
         /// <summary>The voice NNR model in force when CW was entered, given back on leaving CW; empty when none is owed.</summary>
         public string NnrVoiceModelOwed { get; set; } = "";
 
+        /// <summary>
+        /// The mode group the stored settings were last in ("voice", "cw" or
+        /// "digital"; empty in a config written before this existed). At
+        /// connect it tells "back in the group the settings were saved in"
+        /// from a real change of group, so CW's own NR2 tracking, saved as the
+        /// current setting, is never mistaken for the voice one and written
+        /// over it (Sprint 49 Track E repair round 1, B6).
+        /// </summary>
+        public string LastGroup { get; set; } = "";
+
         public NoiseGroupMemory For(NoiseModeGroup group) => group switch
         {
             NoiseModeGroup.Cw => Cw,
