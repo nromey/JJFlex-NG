@@ -728,7 +728,7 @@
   "settings.profile.rem_on_turn_off": "REM ON will be turned off when you connect.",
   "settings.profile.rem_on_turn_on": "REM ON will be turned on when you connect. It only works if the RCA jack is wired to a relay.",
   "settings.profile.remote_admin_not_allowed": "{what} not allowed. ",
-  "settings.profile.remote_firmware_allowed_warning": "Remote firmware updates allowed for this radio. There is no at-the-radio check for firmware yet, so this records your answer rather than unlocking anything today. When that check arrives, this is what will let an update start with nobody there. An interrupted firmware update is the one thing that can leave a radio needing a service visit — and nobody will be there. Leave this off unless it is truly your only option. Press Apply or OK to keep it.",
+  "settings.profile.remote_firmware_allowed_warning": "Leave this off unless it is your only option: an update that fails far from the radio can mean a service visit. There is no check at the radio yet, so this only records your answer. Press Apply or OK to keep it.",
   "settings.profile.remote_firmware_updates_label": "Remote firmware updates",
   "settings.profile.remote_port_allowed_warning": "Remote port changes allowed. Anyone who connects to this radio through its SmartLink account will be able to change its port settings from anywhere. If a change goes wrong while nobody is at the radio, hole punch remains the way back in. Press Apply or OK to keep it.",
   "settings.profile.remote_port_changes_label": "Remote port changes",
