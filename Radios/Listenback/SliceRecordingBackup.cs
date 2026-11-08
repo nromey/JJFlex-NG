@@ -84,9 +84,21 @@ public sealed record SliceBackupOutcome(SliceBackupResult Result, string Letter,
 /// </remarks>
 public sealed class SliceRecordingBackup
 {
-    /// <summary>How much shorter than the radio's length a capture may be and still count (the boundary is unverified).</summary>
-    /// <remarks>A GUESS until the bench measures the playback boundary (design section 5); recorded in the #999 report.</remarks>
-    public const double ShortfallAllowedSeconds = 1.5;
+    /// <summary>
+    /// UNMEASURED: the share of the radio's length a whole capture may still
+    /// fall short by, for the playback boundary nobody has measured (Unified
+    /// takes design section 5). Proportionate, so a short recording is allowed
+    /// almost nothing. Replace with the bench's figure.
+    /// </summary>
+    public const double UnmeasuredShortfallFraction = 0.05;
+
+    /// <summary>UNMEASURED: the most any capture may fall short by, however long the recording.</summary>
+    public const double UnmeasuredShortfallCapSeconds = 0.5;
+
+    /// <summary>How much shorter than <paramref name="seconds"/> a whole capture may be. Unmeasured; see the two constants.</summary>
+    public static double AllowedShortfall(double seconds) =>
+        double.IsFinite(seconds) && seconds > 0
+            ? Math.Min(seconds * UnmeasuredShortfallFraction, UnmeasuredShortfallCapSeconds) : 0;
 
     /// <summary>How long past the recording's own length the capture may run before it is ended as incomplete.</summary>
     public static readonly TimeSpan Overrun = TimeSpan.FromSeconds(10);
@@ -187,7 +199,7 @@ public sealed class SliceRecordingBackup
 
         string? folder = run.DirectoryPath;
         if (!run.Finished.Result || folder == null) return Ended(SliceBackupResult.NotSaved, folder);
-        var whole = CapturedWhole(folder, Seconds);
+        var whole = CapturedWhole(folder, Seconds, rig.SlicePlaybackEndedOnItsOwn(slice));
         if (whole != null) return Ended(whole.Value, folder);
         // The recording must still be the one that played: another client could
         // have recorded over the slice while it did.
@@ -204,18 +216,38 @@ public sealed class SliceRecordingBackup
     }
 
     /// <summary>
-    /// Null when the take in <paramref name="folder"/> is a clean capture of a
-    /// recording <paramref name="seconds"/> long (within
-    /// <see cref="ShortfallAllowedSeconds"/>); otherwise why it is not.
+    /// Null only when the take in <paramref name="folder"/> is the WHOLE
+    /// recording; otherwise why it is not (#999, repair round 1). When in doubt,
+    /// it is not: the slot stays unprotected.
     /// </summary>
-    public static SliceBackupResult? CapturedWhole(string folder, double seconds)
+    /// <remarks>
+    /// Whole means all of these: the playback reached its natural end, the
+    /// radio's own stop with no stop asked for by this app or anyone it knows of
+    /// (<paramref name="endedOnItsOwn"/>, and no stop request, no keying and an
+    /// observed stop in the take's own header); the take is readable and clean;
+    /// and its length fits the radio's within <see cref="AllowedShortfall"/>, a
+    /// proportionate and UNMEASURED tolerance. A clean take only means its
+    /// boundary was observed cleanly, not that the recording played to its end.
+    /// </remarks>
+    public static SliceBackupResult? CapturedWhole(string folder, double seconds, bool endedOnItsOwn)
     {
-        var take = TakeReader.Inspect(folder);
+        if (!double.IsFinite(seconds) || seconds <= 0) return SliceBackupResult.Incomplete;
+        TakeInspection take;
+        try { take = TakeReader.Inspect(folder); }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.IO.InvalidDataException)
+        {
+            Trace("take unreadable: " + ex.Message);
+            return SliceBackupResult.Incomplete;
+        }
         double captured = take.CanPlay ? TakeFacts.Seconds(take) : 0;
-        if (take.State == "clean" && captured >= seconds - ShortfallAllowedSeconds) return null;
+        bool interrupted = !endedOnItsOwn || take.Get("stop-requested") != null || take.Get("keyed-during-playback") != null
+            || take.Get(AudioTakeFields.EndReason) != "observed-stop";
+        bool complete = take.State == "clean" && take.CanPlay && captured >= seconds - AllowedShortfall(seconds);
+        if (!interrupted && complete) return null;
         Trace("captured " + captured.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
-            + " s of " + seconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + ", state " + take.State);
-        return take.State == "clean" ? SliceBackupResult.Stopped : SliceBackupResult.Incomplete;
+            + " s of " + seconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + ", state " + take.State
+            + ", ended on its own " + endedOnItsOwn + ", end " + (take.Get(AudioTakeFields.EndReason) ?? "none"));
+        return interrupted ? SliceBackupResult.Stopped : SliceBackupResult.Incomplete;
     }
 
     /// <summary>
@@ -230,7 +262,7 @@ public sealed class SliceRecordingBackup
         if (rig == null || string.IsNullOrEmpty(folder)) return false;
         var facts = rig.SliceOverwriteFactsFor(target);
         if (facts == null || !facts.HasRecording || facts.RadioSeconds is not double seconds) return false;
-        if (CapturedWhole(folder, seconds) != null) return false;
+        if (CapturedWhole(folder, seconds, rig.SlicePlaybackEndedOnItsOwn(target)) != null) return false;
         bool noted = RadioConfig.RecordSliceTakeBackup(facts.Serial, facts.Letter, seconds, folder);
         Trace("saved playback of slice " + facts.Letter + (noted ? " counts as its backup" : " could not be noted as its backup"));
         return noted;

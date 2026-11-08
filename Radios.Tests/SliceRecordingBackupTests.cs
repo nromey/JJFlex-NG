@@ -68,12 +68,24 @@ public sealed class SliceRecordingBackupTests : IDisposable
     private static string? Header(string folder, string key) =>
         TakeHeader.Read(Path.Combine(folder, "take.txt")).LastOrDefault(f => f.Key == key).Value;
 
-    private async Task<SliceBackupOutcome> BackUpWhole(RadioCase c)
+    /// <summary>
+    /// The radio plays <paramref name="packets"/> hundredths of a second and then
+    /// finishes ON ITS OWN: it reports the stop, which reaches the app's slice
+    /// state and the capture, with no stop asked for by anyone.
+    /// </summary>
+    private static void PlaysToItsNaturalEnd(RadioCase c, Sink sink, int packets = 200)
+    {
+        sink.Plays(1, packets: packets, stop: false);
+        c.F.Vendor.Status("slice 1 play=0");
+        sink.Capture!.Observe(UnifiedTakesRunTests.Edge(1, false));
+    }
+
+    private async Task<SliceBackupOutcome> BackUpWhole(RadioCase c, int packets = 200)
     {
         var sink = new Sink();
         var backup = SliceRecordingBackup.RunAsync(c.F.Rig, SliceRecorderTarget.ActiveSlice, _root, sink.Start);
         Assert.True(await PlayRequested(c));
-        sink.Plays(1);
+        PlaysToItsNaturalEnd(c, sink, packets);
         return await Within(c, backup);
     }
 
@@ -170,7 +182,7 @@ public sealed class SliceRecordingBackupTests : IDisposable
         var backup = SliceRecordingBackup.RunAsync(c.F.Rig, SliceRecorderTarget.ActiveSlice, _root, sink.Start);
         Assert.True(await PlayRequested(c));
         c.F.Vendor.Status("slice 1 record_time=9.0");
-        sink.Plays(1);
+        PlaysToItsNaturalEnd(c, sink);
         var outcome = await Within(c, backup);
         Assert.Equal(SliceBackupResult.RecordingChanged, outcome.Result);
         Assert.Null(RadioConfig.LoadForRadio(Serial).TrustedSliceTakeStamp("A", 9.0));
@@ -200,15 +212,31 @@ public sealed class SliceRecordingBackupTests : IDisposable
 
     // ── A saved Radio recording playback counts as a backup (ruled 17:57) ──
 
-    private async Task<string> SavedCheckPlayback(RadioCase c, int packets)
+    /// <summary>The check's saved playback: armed, played through the radio, ended on its own or by a stop this app sends.</summary>
+    private async Task<string> SavedCheckPlayback(RadioCase c, int packets, bool stoppedByAnotherDoor = false)
     {
         var run = PlaybackTakeRun.Admit(c.F.Rig, TakeKind.RadioRecording, SliceRecorderTarget.ActiveSlice, new TakeSeriesContext());
         run.NoteKeyed();
         var sink = new Sink();
         Assert.True(await Within(c, run.ArmAsync(_root, sink.Start, muteOthers: true)), run.NotSavedReason);
-        sink.Plays(1, packets: packets);
+        Assert.True((await Within(c, c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        if (stoppedByAnotherDoor)
+        {
+            sink.Plays(1, packets: packets, stop: false);
+            Assert.True((await Within(c, c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+            sink.Capture!.Observe(UnifiedTakesRunTests.Edge(1, false));
+        }
+        else PlaysToItsNaturalEnd(c, sink, packets);
         Assert.True(await Within(c, run.Finished));
         return run.DirectoryPath!;
+    }
+
+    [Fact]
+    public async Task A_saved_check_playback_stopped_by_another_door_is_not_a_backup_even_when_nearly_whole()
+    {
+        using var c = WithRecording();
+        string folder = await SavedCheckPlayback(c, packets: 198, stoppedByAnotherDoor: true);
+        Assert.False(SliceRecordingBackup.NoteSavedPlaybackAsBackup(c.F.Rig, SliceRecorderTarget.ActiveSlice, folder));
     }
 
     [Fact]
@@ -230,6 +258,66 @@ public sealed class SliceRecordingBackupTests : IDisposable
         string folder = await SavedCheckPlayback(c, packets: 40);
         Assert.False(SliceRecordingBackup.NoteSavedPlaybackAsBackup(c.F.Rig, SliceRecorderTarget.ActiveSlice, folder));
         Assert.Empty(RadioConfig.LoadForRadio(Serial).SliceTakeStamps);
+    }
+
+    // ── Repair round 1: only the whole recording, played to its natural end ──
+
+    [Theory]
+    [InlineData(2.0, 60)]    // 0.6 s of 2.0 s: Codex's probe, inside the old 1.5 s allowance
+    [InlineData(2.0, 180)]   // 1.8 s of 2.0 s
+    [InlineData(1.0, 90)]    // a short recording, 0.9 s of 1.0 s
+    [InlineData(0.5, 40)]    // a very short one
+    public async Task A_capture_short_of_the_recording_is_not_a_backup_even_when_the_radio_ended_it(double seconds, int packets)
+    {
+        using var c = WithRecording(seconds);
+        var outcome = await BackUpWhole(c, packets);
+        Assert.False(outcome.BackedUp);
+        Assert.Equal(SliceBackupResult.Incomplete, outcome.Result);
+        Assert.Equal("", RadioConfig.LoadForRadio(Serial).TrustedSliceTakeStamp("A", seconds)?.BackupTakeDirectory ?? "");
+    }
+
+    [Theory]
+    [InlineData(2.0, 196)]   // within 5 percent of 2.0 s
+    [InlineData(1.0, 100)]
+    public async Task A_capture_within_the_proportionate_tolerance_and_ended_by_the_radio_is_a_backup(double seconds, int packets)
+    {
+        using var c = WithRecording(seconds);
+        Assert.True((await BackUpWhole(c, packets)).BackedUp);
+    }
+
+    [Fact]
+    public async Task A_playback_stopped_by_another_door_is_not_a_backup_even_when_nearly_whole()
+    {
+        using var c = WithRecording();
+        var sink = new Sink();
+        var backup = SliceRecordingBackup.RunAsync(c.F.Rig, SliceRecorderTarget.ActiveSlice, _root, sink.Start);
+        Assert.True(await PlayRequested(c));
+        sink.Plays(1, packets: 198, stop: false);
+        // Home, the Slice menu or a key stops it: play=0 goes out, the radio reports the stop.
+        Assert.True((await Within(c, c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        sink.Capture!.Observe(UnifiedTakesRunTests.Edge(1, false));
+        var outcome = await Within(c, backup);
+        Assert.False(outcome.BackedUp);
+        Assert.Equal(SliceBackupResult.Stopped, outcome.Result);
+    }
+
+    [Theory]
+    [InlineData(2.0, 0.1)]
+    [InlineData(1.0, 0.05)]
+    [InlineData(120.0, 0.5)]
+    [InlineData(double.NaN, 0)]
+    [InlineData(0, 0)]
+    public void The_unmeasured_tolerance_is_proportionate_and_capped(double seconds, double allowed) =>
+        Assert.Equal(allowed, SliceRecordingBackup.AllowedShortfall(seconds), 6);
+
+    [Fact]
+    public async Task Back_up_first_does_not_go_on_to_record_after_a_partial_capture()
+    {
+        // The warning's Back up first proceeds only when the outcome is BackedUp
+        // (RecorderControls.ConfirmOverwriteAsync); a partial capture is not.
+        using var c = WithRecording();
+        var outcome = await BackUpWhole(c, packets: 60);
+        Assert.False(outcome.BackedUp);
     }
 
     // ── Comparison: refused beside any other kind, and with itself ──

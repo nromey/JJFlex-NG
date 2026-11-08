@@ -166,6 +166,11 @@ public partial class FlexBase
         internal string TakeMode = "";
         internal string TakeSource = SliceTakeSource.F11;
         internal bool PlayStopRequested;
+        // #999 repair round 1: whether this app asked the radio to stop the
+        // slice's current or last playback, from any door, since it started.
+        // A playback that ended with none asked for reached its natural end.
+        internal bool PlayStopCommanded;
+        internal bool PlayStartedOnce;
         internal bool RecordRefusedUnderTune;
     }
 
@@ -480,6 +485,21 @@ public partial class FlexBase
         return slice.PlayOn;
     }
 
+    /// <summary>
+    /// True when the target slice's last playback has ended because the radio
+    /// reported it finished, with no stop asked for by this app, from any door,
+    /// since it started (#999, repair round 1). A stop sent by another client is
+    /// not visible here; the length check beside this catches what it can.
+    /// </summary>
+    public bool SlicePlaybackEndedOnItsOwn(SliceRecorderTarget target)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice)) return false;
+        lock (_sliceRecorders)
+            return _sliceRecorders.TryGetValue(slice, out var state) && StateIsLive(state) && state.PlayStartedOnce
+                && !state.PlayStopCommanded && !state.Playing && !slice.PlayOn;
+    }
+
     /// <summary>True when the radio reports a playable recording on the target slice.</summary>
     public bool SliceHasRecording(SliceRecorderTarget target)
     {
@@ -726,7 +746,7 @@ public partial class FlexBase
 
     private async Task<bool> SendSafelyAsync(SliceRecorderState state, string property, bool enabled)
     {
-        if (property == "play" && !enabled) state.PlayStopRequested = true;
+        if (property == "play" && !enabled) { state.PlayStopRequested = true; state.PlayStopCommanded = true; }
         try { return await SliceRecorderCommandAsync(state, property, enabled).ConfigureAwait(false); }
         catch (Exception ex)
         {
@@ -1059,7 +1079,9 @@ public partial class FlexBase
             // syllable is heard.
             if (intent.OnAir && state.PlaybackMonitor == null)
                 state.PlaybackMonitor = HoldMonitorForSend("slice " + letter + "'s recording on the air");
+            state.PlayStopCommanded = false;
             bool started = await SendSafelyAsync(state, "play", true).ConfigureAwait(false);
+            if (started) state.PlayStartedOnce = true;
             if (!started)
             {
                 if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
