@@ -1139,6 +1139,10 @@ namespace Radios.Tests
                 // said only in answer to Measure now: TextOnly. DRAFT PROSE.
                 "logging.crash.reports_tail_strip_dump",
                 "logging.crash.reports_tail_delete",
+                // Junk box #181 repair two (2026-11-08): the send question's
+                // opening sentence for a report sent from the Diagnostics
+                // list. Shown text: TextOnly. DRAFT PROSE.
+                "logging.crash.prompt_intro_existing",
                 "logging.crash.reports_unresolved_one",
                 "logging.crash.reports_unresolved_many",
                 "settings.diagnostics.disk_note_keep",

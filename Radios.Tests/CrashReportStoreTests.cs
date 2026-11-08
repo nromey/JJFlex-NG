@@ -244,6 +244,74 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // Repair two: sending from the list does not announce a new error,
+        // and the dump-removed note's time agrees with its marker
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Sending_from_the_list_opens_with_the_reports_own_date_and_never_says_a_new_error_happened()
+        {
+            var saved = new DateTime(2026, 11, 1, 9, 15, 0, DateTimeKind.Local);
+            string[] included = { "JJFlexError-20261101-091500.txt (2 KB)", "trace-current-part.txt (40 KB)" };
+            string fromList = CrashReportStore.SendQuestionText(@"C:\x\JJFlexError-20261101-091500.zip", "42 KB",
+                included, Array.Empty<string>(), oversize: false, "https://example.invalid/crashes", saved);
+
+            Assert.DoesNotContain(Lexicon.Get("logging.crash.prompt_intro"), fromList);
+            Assert.DoesNotContain("unexpected error", fromList);
+            Assert.StartsWith(Lexicon.Get("logging.crash.prompt_intro_existing",
+                ("when", saved.ToString("f", System.Globalization.CultureInfo.CurrentCulture))), fromList);
+            // Everything else the question says is still said.
+            Assert.Contains(included[0], fromList);
+            Assert.Contains(Lexicon.Get("logging.crash.prompt_send_question"), fromList);
+            Assert.Contains("https://example.invalid/crashes", fromList);
+
+            // The control: at the crash itself the window still opens with the error.
+            string atCrash = CrashReportStore.SendQuestionText(@"C:\x\a.zip", "42 KB",
+                included, new[] { "held back" }, oversize: true, "https://example.invalid/crashes", null);
+            Assert.StartsWith(Lexicon.Get("logging.crash.prompt_intro"), atCrash);
+            Assert.Contains(Lexicon.Get("logging.crash.prompt_not_included"), atCrash);
+            Assert.Contains("held back", atCrash);
+        }
+
+        [Fact]
+        public void The_send_window_takes_its_words_from_that_builder_with_the_reports_date_only_from_the_list()
+        {
+            string src = Reporter();
+            int prompt = src.IndexOf("Private Sub PromptToUploadCrashBundle(", StringComparison.Ordinal);
+            string body = src.Substring(prompt, src.IndexOf("End Sub", prompt, StringComparison.Ordinal) - prompt);
+            Assert.Contains("Radios.CrashReportStore.SendQuestionText(", body);
+            Assert.Contains("If(noMeansDismiss, CType(Nothing, DateTime?), File.GetLastWriteTime(zipPath))", body);
+            Assert.DoesNotContain("\"logging.crash.prompt_intro\"", src);   // only the builder opens the window
+            Assert.Contains("MessageBoxButtons.YesNo, MessageBoxIcon.Question))", body);   // the list asks; no error sound
+        }
+
+        private static string RemovedNote(string zipPath)
+        {
+            using var zip = ZipFile.OpenRead(zipPath);
+            using var r = new StreamReader(zip.GetEntry(CrashReportStore.DumpRemovedEntry)!.Open());
+            return r.ReadToEnd();
+        }
+
+        [Fact]
+        public void The_dump_removed_note_writes_local_time_with_its_offset_and_never_a_UTC_marker_on_it()
+        {
+            var local = new DateTime(2026, 11, 7, 20, 30, 0, DateTimeKind.Local);
+            string path = Bundle("20261001-120000", withDump: true, DateTime.UtcNow.AddDays(-30));
+            Assert.True(CrashReportStore.StripDump(path, local) > 0);
+
+            string note = RemovedNote(path);
+            TimeSpan offset = TimeZoneInfo.Local.GetUtcOffset(local);
+            string sign = offset < TimeSpan.Zero ? "-" : "+";
+            string expected = "2026-11-07 20:30:00 " + sign + offset.Duration().ToString(@"hh\:mm");
+            Assert.Contains(expected, note);
+            Assert.DoesNotContain("20:30:00Z", note);
+
+            // A UTC time says so with +00:00, at its own clock reading.
+            var utc = new DateTime(2026, 11, 8, 2, 30, 0, DateTimeKind.Utc);
+            Assert.Equal("2026-11-08 02:30:00 +00:00", CrashReportStore.RemovedStamp(utc));
+        }
+
+        // ------------------------------------------------------------------
         // Repair one: an answer leaves the list when it is recorded, and
         // every retention sentence follows the setting
         // ------------------------------------------------------------------

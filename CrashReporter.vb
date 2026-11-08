@@ -771,42 +771,25 @@ Module CrashReporter
             Dim localBytes As Long = SafeLength(zipPath)
             Dim oversize As Boolean = localBytes > UploadMaxBytes
 
-            Dim sb As New StringBuilder()
-            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_intro"))
-            sb.AppendLine()
-            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_saved_to"))
-            sb.AppendLine(zipPath)
-            sb.AppendLine()
-            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_contains", ("size", FormatSize(zipPath))))
-            For Each item As String In bundle.Included
-                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_bullet", ("item", item)))
-            Next
-            If bundle.Withheld.Count > 0 Then
-                sb.AppendLine()
-                sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_not_included"))
-                For Each item As String In bundle.Withheld
-                    sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_bullet", ("item", item)))
-                Next
-            End If
-            sb.AppendLine()
-            If oversize Then
-                ' Honest, and stated before the user chooses — not after a
-                ' failed POST comes back with a raw server error.
-                sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_oversize", ("newline", Environment.NewLine)))
-                sb.AppendLine()
-            End If
-            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_send_question"))
-            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_endpoint", ("endpoint", CrashEndpoint)))
+            ' The words are built in Radios so they can be tested without a
+            ' window (#181 repair two). At the crash the window opens with the
+            ' error; from the list it opens with the report's own date, since an
+            ' old report sent on purpose is not a new error. The list's window
+            ' asks a question, so it carries the question icon rather than the
+            ' error one and its sound.
+            Dim text As String = Radios.CrashReportStore.SendQuestionText(
+                zipPath, FormatSize(zipPath), bundle.Included, bundle.Withheld, oversize, CrashEndpoint,
+                If(noMeansDismiss, CType(Nothing, DateTime?), File.GetLastWriteTime(zipPath)))
 
             ' From the list the Settings window is in front, so the question
             ' takes the active window as its owner rather than the shell.
             Dim choice = If(noMeansDismiss,
-                MessageBox.Show(AppShellForm, sb.ToString(),
+                MessageBox.Show(AppShellForm, text,
                     Radios.Lexicon.Get("logging.crash.prompt_title"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Error),
-                MessageBox.Show(sb.ToString(),
+                MessageBox.Show(text,
                     Radios.Lexicon.Get("logging.crash.prompt_title"),
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Error))
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question))
 
             If choice = DialogResult.Yes Then
                 ' Report text and trace tail ALWAYS upload. The memory dump only

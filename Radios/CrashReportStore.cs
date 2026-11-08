@@ -258,6 +258,67 @@ namespace Radios
             : Lexicon.Get("logging.crash.pending_list_count", ("count", count));
 
         /// <summary>
+        /// When a memory dump was removed, as the note inside the bundle says
+        /// it: the operator's own clock with its offset from UTC, for example
+        /// "2026-11-07 20:30:00 -06:00" (#181 repair two). The note used the
+        /// "u" format, which appends a literal Z, the UTC marker, to whatever
+        /// clock it is given; retention passes local time, so every note was
+        /// a UTC claim on a local time, off by the whole offset. Local and not
+        /// UTC because the note sits beside the crash report's own "When:"
+        /// line, which is local with an offset for the same reason, and the
+        /// person reading either compares it with their own clock; the offset
+        /// keeps it exact for support. A UTC time is written with +00:00.
+        /// </summary>
+        public static string RemovedStamp(DateTime when) =>
+            new DateTimeOffset(when).ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// The text of the window that asks whether to send a crash report:
+        /// what it holds, what will be left out, and where it goes (#181
+        /// repair two). <paramref name="savedOn"/> is null at the crash
+        /// itself, which opens with "hit an unexpected error"; from the
+        /// Diagnostics list it is the report's own date, and the window opens
+        /// with that instead. An old report sent on purpose is not a new
+        /// error, and saying it was told the operator something had just gone
+        /// wrong. DRAFT wording for the list's opening sentence.
+        /// </summary>
+        public static string SendQuestionText(string zipPath, string sizeText,
+            IEnumerable<string> included, IReadOnlyCollection<string> withheld,
+            bool oversize, string endpoint, DateTime? savedOn)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(savedOn is DateTime saved
+                ? Lexicon.Get("logging.crash.prompt_intro_existing",
+                    ("when", saved.ToString("f", CultureInfo.CurrentCulture)))
+                : Lexicon.Get("logging.crash.prompt_intro"));
+            sb.AppendLine();
+            sb.AppendLine(Lexicon.Get("logging.crash.prompt_saved_to"));
+            sb.AppendLine(zipPath);
+            sb.AppendLine();
+            sb.AppendLine(Lexicon.Get("logging.crash.prompt_contains", ("size", sizeText)));
+            foreach (string item in included)
+                sb.AppendLine(Lexicon.Get("logging.crash.manifest_bullet", ("item", item)));
+            if (withheld.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine(Lexicon.Get("logging.crash.prompt_not_included"));
+                foreach (string item in withheld)
+                    sb.AppendLine(Lexicon.Get("logging.crash.manifest_bullet", ("item", item)));
+            }
+            sb.AppendLine();
+            if (oversize)
+            {
+                // Honest, and stated before the user chooses, not after a
+                // failed POST comes back with a raw server error.
+                sb.AppendLine(Lexicon.Get("logging.crash.prompt_oversize", ("newline", Environment.NewLine)));
+                sb.AppendLine();
+            }
+            sb.AppendLine(Lexicon.Get("logging.crash.prompt_send_question"));
+            sb.AppendLine(Lexicon.Get("logging.crash.prompt_endpoint", ("endpoint", endpoint)));
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// Remove the memory dump from a bundle, keeping every other entry,
         /// and leave <see cref="DumpRemovedEntry"/> in its place. Safe: the new
         /// zip is written beside the old one and then swapped in, so a failure
@@ -297,7 +358,7 @@ namespace Radios
                     marker.LastWriteTime = new DateTimeOffset(now);
                     using var w = new StreamWriter(marker.Open(), new UTF8Encoding(false));
                     w.WriteLine(Lexicon.Get("logging.crash.dump_removed_note",
-                        ("date", now.ToString("u", CultureInfo.InvariantCulture))));
+                        ("date", RemovedStamp(now))));
                 }
 
                 File.Replace(temp, zipPath, null);

@@ -147,6 +147,8 @@
   "_note_181_repair_one": "Junk box #181 repair one (2026-11-08) added reports_tail_strip_dump and reports_tail_delete, so what Measure now says about older unanswered reports follows the retention setting, and reworded reports_unresolved_one and _many so they no longer promise the report is kept whatever the setting. ALL FOUR ARE DRAFTS FOR NOEL'S REVIEW.",
   "logging.crash.reports_tail_strip_dump": { "text": " The newest {keepNewest} are always kept whole. An older report you have never sent or dismissed is kept, but once it is {graceDays} days old its memory dump is removed, and it can still be sent without it.", "delivery": null },
   "logging.crash.reports_tail_delete": { "text": " The newest {keepNewest} are always kept. An older report you have never sent or dismissed is deleted once it is {graceDays} days old.", "delivery": null },
+  "_note_181_repair_two": "Junk box #181 repair two (2026-11-08) added prompt_intro_existing: the opening sentence of the send question when a report is sent from the Diagnostics list, which used to say the app had just hit an unexpected error. A DRAFT FOR NOEL'S REVIEW.",
+  "logging.crash.prompt_intro_existing": { "text": "This crash report was saved on {when} and has not been sent yet.", "delivery": null },
   "logging.crash.reports_count_failed": "The crash reports on this computer could not be counted.",
   "logging.crash.reports_head_many": "{count} crash reports saved, about {size}.",
   "logging.crash.reports_head_one": "{count} crash report saved, about {size}.",
