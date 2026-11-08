@@ -191,7 +191,15 @@ public partial class FlexBase
     /// line holding the radio keyed would otherwise carry the same play=1 into a
     /// real transmission (#860).
     /// </param>
-    private sealed record PlaybackIntent(bool OnAir, long Generation, Radio Radio, Slice Transmitter, bool UnderTune);
+    /// <param name="ListenOnly">
+    /// A listen that must never reach the air (#999: Play takes and the slice
+    /// recording backup). Every admission condition is read again where the
+    /// play command leaves, not just at the press: the radio's transmitting
+    /// interlock, which FlexLib publishes BEFORE its Mox cache, a hardware key,
+    /// and a tune that began after the press (repair round 2).
+    /// </param>
+    private sealed record PlaybackIntent(bool OnAir, long Generation, Radio Radio, Slice Transmitter, bool UnderTune,
+        bool ListenOnly = false);
 
     private PlaybackIntent CapturePlaybackIntent()
     {
@@ -215,6 +223,7 @@ public partial class FlexBase
             !ReferenceEquals(intent.Radio, theRadio) || theRadio?.Connected != true) return false;
         if (intent.UnderTune && !TuningNow) return false;
         bool keyed = Transmit || theRadio.Mox;
+        if (intent.ListenOnly && (keyed || RadioInterlockReportsTransmit || TuningNow)) return false;
         if (!intent.OnAir) return !keyed && (!requireLocalVoxOff || LocalPlaybackVoxOff(theRadio));
         if (!keyed || !CanTransmit || intent.Transmitter == null ||
             !ReferenceEquals(intent.Transmitter, theRadio.TransmitSlice) ||
@@ -981,11 +990,16 @@ public partial class FlexBase
     /// </remarks>
     public Task<RecorderOutcome> StartSliceListenAsync(SliceRecorderTarget target, object owner = null)
     {
-        var intent = CapturePlaybackIntent();
-        if (intent.OnAir || intent.UnderTune || RadioInterlockReportsTransmit)
-            return Task.FromResult(ListenRefusedWhileTransmitting(target));
+        var intent = ListenIntent();
+        if (ListenRefused(intent)) return Task.FromResult(ListenRefusedWhileTransmitting(target));
         return WithRecorderAsync(target, state => StartPlayLockedAsync(state, target, intent, owner));
     }
+
+    /// <summary>A local-only intent, fixed at the press, re-checked at the play command (repair round 2).</summary>
+    private PlaybackIntent ListenIntent() => CapturePlaybackIntent() with { ListenOnly = true };
+
+    /// <summary>The admission conditions a listen is refused on, at the press and again where the command leaves.</summary>
+    private bool ListenRefused(PlaybackIntent intent) => intent.OnAir || intent.UnderTune || RadioInterlockReportsTransmit;
 
     /// <summary>
     /// <see cref="StartSliceListenAsync"/>, or stop the playback running on the

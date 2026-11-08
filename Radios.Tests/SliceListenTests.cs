@@ -91,6 +91,64 @@ public sealed class SliceListenTests : IDisposable
         Assert.False(PlayCommandSent(c));
     }
 
+    /// <summary>
+    /// Repair round 2 (Codex's re-verification): FlexLib's InterlockState setter
+    /// raises InterlockState BEFORE it updates Mox. A queued listen run in that
+    /// gap saw Transmitting with Mox and Transmit still false, and wrote play=1.
+    /// The app's queue is drained exactly there, at the interlock notification.
+    /// </summary>
+    [Fact]
+    public async Task A_transmitting_interlock_published_before_Mox_refuses_the_queued_listen()
+    {
+        using var c = OurPermittedTransmissionWithARecording();
+        var pending = c.F.Rig.StartSliceListenAsync(SliceRecorderTarget.ActiveSlice);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (c.F.Rig.q.Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(5);
+        Assert.True(c.F.Rig.q.Count > 0, "the play command was never queued, so the order below would prove nothing");
+        bool drainedAtInterlock = false, moxStillFalse = false;
+        System.ComponentModel.PropertyChangedEventHandler atInterlock = (_, e) =>
+        {
+            if (e.PropertyName != "InterlockState" || drainedAtInterlock) return;
+            drainedAtInterlock = true;
+            moxStillFalse = !c.F.Vendor.Radio.Mox;
+            while (c.F.Rig.q.Count > 0) if (c.F.Rig.q.Dequeue().Item is FlexBase.FunctionDel action) action();
+        };
+        c.F.Vendor.Radio.PropertyChanged += atInterlock;
+        try { Property(c.F.Vendor.Radio, "InterlockState", Flex.Smoothlake.FlexLib.InterlockState.Transmitting); }
+        finally { c.F.Vendor.Radio.PropertyChanged -= atInterlock; }
+        var outcome = await c.Pump(pending);
+        Assert.True(drainedAtInterlock);
+        Assert.True(moxStillFalse, "the queue must run while Mox is still unpublished, or this tests the Mox path instead");
+        Assert.False(outcome.Success);
+        Assert.False(PlayCommandSent(c));
+    }
+
+    [Fact]
+    public async Task A_tune_that_began_after_the_press_refuses_the_queued_listen()
+    {
+        using var c = OurPermittedTransmissionWithARecording();
+        var pending = c.F.Rig.StartSliceListenAsync(SliceRecorderTarget.ActiveSlice);
+        // As FlexBase.TxTune's setter notes a tune it asked for, ahead of the queued write.
+        typeof(FlexBase).GetField("_tuneRequested", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(c.F.Rig, true);
+        typeof(FlexBase).GetField("_tuneRequestedAtMs", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(c.F.Rig, Environment.TickCount64);
+        typeof(FlexBase).GetField("_tuneOnQueued", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(c.F.Rig, true);
+        Assert.True(c.F.Rig.TuningNow);
+        var outcome = await c.Pump(pending);
+        Assert.False(outcome.Success);
+        Assert.False(PlayCommandSent(c));
+    }
+
+    [Fact]
+    public async Task Positive_control_an_ordinary_on_air_play_is_unchanged_by_the_interlock_check()
+    {
+        using var c = OurPermittedTransmissionWithARecording();
+        Key(c, true);
+        Property(c.F.Vendor.Radio, "InterlockState", Flex.Smoothlake.FlexLib.InterlockState.Transmitting);
+        var played = await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.True(played.Success, played.Message);
+        Assert.True(PlayCommandSent(c));
+    }
+
     [Fact]
     public async Task Listen_plays_locally_when_the_radio_is_not_keyed()
     {
