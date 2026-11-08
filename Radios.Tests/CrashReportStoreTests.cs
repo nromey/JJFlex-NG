@@ -240,6 +240,138 @@ namespace Radios.Tests
             Assert.Contains("ElseIf Not noMeansDismiss Then", src);
         }
 
+        // ------------------------------------------------------------------
+        // Repair one: an answer leaves the list when it is recorded, and
+        // every retention sentence follows the setting
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void A_send_that_succeeds_later_takes_the_report_off_the_list_and_says_so_when_it_does()
+        {
+            var now = DateTime.UtcNow;
+            string zip = Bundle("20261101-100000", withDump: true, now.AddDays(-1));
+            Assert.Single(CrashReportStore.Pending(_dir));
+
+            int heard = 0;
+            int pendingWhenHeard = -1;
+            void Listener() { heard++; pendingWhenHeard = CrashReportStore.Pending(_dir).Count; }
+            CrashReportStore.VerdictRecorded += Listener;
+            try
+            {
+                // The upload's own thread, some time after the press (the
+                // tab's immediate refresh has long since run).
+                var send = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    await System.Threading.Tasks.Task.Delay(50);
+                    return CrashReportStore.RecordVerdict(zip, "sent");
+                });
+                Assert.True(send.Wait(5000) && send.Result);
+            }
+            finally { CrashReportStore.VerdictRecorded -= Listener; }
+
+            Assert.True(heard >= 1, "nothing told the Diagnostics tab the report was answered");
+            Assert.Equal(0, pendingWhenHeard);                 // by the time it is told, the list has it gone
+            Assert.StartsWith("sent ", File.ReadAllText(zip + CrashReportStore.VerdictSuffix));
+        }
+
+        [Fact]
+        public void A_failed_send_or_a_not_now_records_nothing_and_the_report_stays_waiting()
+        {
+            string zip = Bundle("20261101-110000", withDump: true, DateTime.UtcNow.AddDays(-1));
+            int heard = 0;
+            void Listener() => heard++;
+            CrashReportStore.VerdictRecorded += Listener;
+            try
+            {
+                // No verdict is written on a failure or a "not now"; the one
+                // writer is the only road to the event.
+                Assert.False(CrashReportStore.RecordVerdict("", "sent"));
+            }
+            finally { CrashReportStore.VerdictRecorded -= Listener; }
+            Assert.Equal(0, heard);
+            Assert.Single(CrashReportStore.Pending(_dir));
+            Assert.False(CrashReportStore.IsAnswered(zip));
+        }
+
+        [Fact]
+        public void A_dismiss_is_heard_the_same_way()
+        {
+            string zip = Bundle("20261101-120000", withDump: false, DateTime.UtcNow.AddDays(-1));
+            int heard = 0;
+            void Listener() => heard++;
+            CrashReportStore.VerdictRecorded += Listener;
+            try { Assert.True(CrashReportStore.Dismiss(zip)); }
+            finally { CrashReportStore.VerdictRecorded -= Listener; }
+            Assert.True(heard >= 1);
+            Assert.Empty(CrashReportStore.Pending(_dir));
+        }
+
+        private static string Describe(UnresolvedCrashRetention policy, int unresolved = 2) =>
+            CrashReportStore.DescribeReports(bundles: 5, totalBytes: 1_500_000_000, unresolved: unresolved, keepNewest: 3,
+                policy, b => b + " bytes");
+
+        [Fact]
+        public void Measure_now_says_what_retention_does_under_each_setting_and_never_contradicts_it()
+        {
+            string keep = Describe(UnresolvedCrashRetention.KeepWhole);
+            string strip = Describe(UnresolvedCrashRetention.StripDumpAfterGrace);
+            string delete = Describe(UnresolvedCrashRetention.DeleteAfterGrace);
+
+            foreach (string s in new[] { keep, strip, delete })
+            {
+                Assert.StartsWith(Lexicon.Get("logging.crash.reports_head_many", ("count", 5), ("size", "1500000000 bytes")), s);
+                Assert.Contains("2 have not been sent or dismissed", s);
+                Assert.Contains("newest 3", s);
+                Assert.DoesNotContain("{", s);
+            }
+            Assert.Contains("never removed automatically", keep);
+            Assert.Contains("memory dump", strip);
+            Assert.Contains(CrashReportStore.UnresolvedGraceDays + " days", strip);
+            Assert.Contains("deleted", delete);
+            Assert.Contains(CrashReportStore.UnresolvedGraceDays + " days", delete);
+            // The contradiction Codex found: under the two settings that act
+            // on an older unanswered report, nothing may say it is never removed.
+            Assert.DoesNotContain("never removed", strip);
+            Assert.DoesNotContain("never removed", delete);
+            Assert.DoesNotContain("kept for you", delete);
+            Assert.Equal(3, new[] { keep, strip, delete }.Distinct().Count());
+
+            Assert.Contains("1 has not been sent or dismissed", Describe(UnresolvedCrashRetention.DeleteAfterGrace, unresolved: 1));
+            Assert.Equal(Lexicon.Get("logging.crash.reports_none"),
+                CrashReportStore.DescribeReports(0, 0, 0, 3, UnresolvedCrashRetention.DeleteAfterGrace, b => ""));
+        }
+
+        [Fact]
+        public void The_disk_space_note_follows_the_setting_too()
+        {
+            string keep = CrashReportStore.DiskNote(UnresolvedCrashRetention.KeepWhole);
+            string strip = CrashReportStore.DiskNote(UnresolvedCrashRetention.StripDumpAfterGrace);
+            string delete = CrashReportStore.DiskNote(UnresolvedCrashRetention.DeleteAfterGrace);
+            Assert.Contains("never deleted automatically", keep);
+            Assert.Contains("memory dump", strip);
+            Assert.DoesNotContain("never deleted", strip);
+            Assert.Contains("deleted once it is " + CrashReportStore.UnresolvedGraceDays + " days old", delete);
+            Assert.DoesNotContain("never deleted", delete);
+            foreach (string s in new[] { keep, strip, delete })
+                Assert.StartsWith("Deleting loose log text does not touch", s);
+        }
+
+        [Fact]
+        public void The_crash_reporter_records_through_the_one_writer_and_describes_through_the_tested_sentence()
+        {
+            string src = Reporter();
+            int rec = src.IndexOf("Private Sub RecordCrashVerdict(", StringComparison.Ordinal);
+            string body = src.Substring(rec, src.IndexOf("End Sub", rec, StringComparison.Ordinal) - rec);
+            Assert.Contains("Radios.CrashReportStore.RecordVerdict(zipPath, verdict)", body);
+            Assert.DoesNotContain("File.WriteAllText", body);
+            int describe = src.IndexOf("Friend Function DescribeCrashReports()", StringComparison.Ordinal);
+            string d = src.Substring(describe, src.IndexOf("End Function", describe, StringComparison.Ordinal) - describe);
+            Assert.Contains("Radios.CrashReportStore.PolicyFrom(DiagnosticsSettings.UnresolvedCrashRetention)", d);
+            Assert.Contains("Radios.CrashReportStore.DescribeReports(", d);
+            Assert.DoesNotContain("\"logging.crash.reports_tail\"", d);
+            Assert.Contains("Private Const UnresolvedCrashGraceDays As Integer = Radios.CrashReportStore.UnresolvedGraceDays", src);
+        }
+
         [Fact]
         public void The_bundle_carries_the_spoken_transcript_when_one_is_being_written()
         {

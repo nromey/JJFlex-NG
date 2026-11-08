@@ -70,6 +70,42 @@ namespace Radios
         public const string BundlePattern = "JJFlexError-*.zip";
 
         /// <summary>
+        /// How long an older report nobody has sent or dismissed waits before
+        /// the retention setting acts on it. One number for the pruner and
+        /// every sentence that describes it.
+        /// </summary>
+        public const int UnresolvedGraceDays = 7;
+
+        /// <summary>
+        /// Raised, on whatever thread recorded it, when a report is answered:
+        /// sent (when the receiver took it) or dismissed. The Diagnostics tab
+        /// re-reads its list on it, so a report sent from the list leaves the
+        /// list when the send succeeds, not at the next visit (#181 repair
+        /// one, Codex B1). A failed send or a "not now" records nothing and
+        /// raises nothing: the report stays waiting.
+        /// </summary>
+        public static event Action? VerdictRecorded;
+
+        /// <summary>
+        /// Write the operator's answer beside the bundle ("sent" or
+        /// "dismissed"), then raise <see cref="VerdictRecorded"/>. False when
+        /// it could not be written; then nothing is raised.
+        /// </summary>
+        public static bool RecordVerdict(string zipPath, string verdict)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(zipPath)) return false;
+                File.WriteAllText(zipPath + VerdictSuffix,
+                    verdict + " " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture) + Environment.NewLine);
+            }
+            catch { return false; }   // not recording a verdict costs disk space, never evidence
+            try { VerdictRecorded?.Invoke(); }
+            catch { /* a listener's failure is not the verdict's */ }
+            return true;
+        }
+
+        /// <summary>
         /// The retention decision for one bundle, newest first.
         /// </summary>
         /// <param name="newestIndex">1 for the newest bundle.</param>
@@ -113,11 +149,9 @@ namespace Radios
             try
             {
                 if (string.IsNullOrEmpty(zipPath) || !File.Exists(zipPath)) return false;
-                File.WriteAllText(zipPath + VerdictSuffix,
-                    "dismissed " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture) + Environment.NewLine);
-                return true;
             }
             catch { return false; }
+            return RecordVerdict(zipPath, "dismissed");
         }
 
         /// <summary>
@@ -175,6 +209,48 @@ namespace Radios
             return Lexicon.Get(row.HasDump ? "logging.crash.row_with_dump" : "logging.crash.row_no_dump",
                 ("when", when), ("size", size));
         }
+
+        /// <summary>
+        /// What the saved crash reports come to, as Measure now says it: how
+        /// many and how big, how many wait for an answer, and what retention
+        /// does with them under the operator's setting. Every policy has its
+        /// own closing sentence (#181 repair one, Codex B2): the one sentence
+        /// there was promised that an unanswered report is never removed,
+        /// which "Delete the whole report after 7 days" made untrue. DRAFT
+        /// wording for the two new policies and the reworded counts.
+        /// </summary>
+        public static string DescribeReports(int bundles, long totalBytes, int unresolved, int keepNewest,
+            UnresolvedCrashRetention policy, Func<long, string> describeBytes)
+        {
+            if (bundles <= 0) return Lexicon.Get("logging.crash.reports_none");
+            string size = describeBytes(totalBytes);
+            string head = Lexicon.Get(bundles == 1 ? "logging.crash.reports_head_one" : "logging.crash.reports_head_many",
+                ("count", bundles), ("size", size));
+            string tail = policy switch
+            {
+                UnresolvedCrashRetention.KeepWhole => Lexicon.Get("logging.crash.reports_tail", ("keepNewest", keepNewest)),
+                UnresolvedCrashRetention.DeleteAfterGrace => Lexicon.Get("logging.crash.reports_tail_delete",
+                    ("keepNewest", keepNewest), ("graceDays", UnresolvedGraceDays)),
+                _ => Lexicon.Get("logging.crash.reports_tail_strip_dump",
+                    ("keepNewest", keepNewest), ("graceDays", UnresolvedGraceDays)),
+            };
+            if (unresolved > 0)
+                tail = Lexicon.Get(unresolved == 1 ? "logging.crash.reports_unresolved_one" : "logging.crash.reports_unresolved_many",
+                    ("count", unresolved), ("tail", tail));
+            return head + tail;
+        }
+
+        /// <summary>
+        /// The Disk space group's standing note, under the operator's setting:
+        /// what deleting loose logs leaves alone, and what happens to an older
+        /// report nobody has answered. DRAFT for the two new policies.
+        /// </summary>
+        public static string DiskNote(UnresolvedCrashRetention policy) => policy switch
+        {
+            UnresolvedCrashRetention.KeepWhole => Lexicon.Get("settings.diagnostics.disk_note_keep"),
+            UnresolvedCrashRetention.DeleteAfterGrace => Lexicon.Get("settings.diagnostics.disk_note_delete", ("graceDays", UnresolvedGraceDays)),
+            _ => Lexicon.Get("settings.diagnostics.disk_note_strip_dump", ("graceDays", UnresolvedGraceDays)),
+        };
 
         /// <summary>The list's own name, with the count said so it cannot be heard as a position. DRAFT.</summary>
         public static string ListName(int count) => count <= 0

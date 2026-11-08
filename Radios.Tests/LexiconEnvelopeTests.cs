@@ -1132,6 +1132,19 @@ namespace Radios.Tests
                 "logging.crash.dismissed_from_list",
                 "logging.crash.saved_send_later",
 
+                // Junk box #181 repair one (2026-11-08): what Measure now and
+                // the Disk space note say about an older unanswered report,
+                // one sentence per retention setting, and the two count
+                // sentences reworded off the freeze list. Shown text, and
+                // said only in answer to Measure now: TextOnly. DRAFT PROSE.
+                "logging.crash.reports_tail_strip_dump",
+                "logging.crash.reports_tail_delete",
+                "logging.crash.reports_unresolved_one",
+                "logging.crash.reports_unresolved_many",
+                "settings.diagnostics.disk_note_keep",
+                "settings.diagnostics.disk_note_strip_dump",
+                "settings.diagnostics.disk_note_delete",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than
@@ -2480,7 +2493,9 @@ namespace Radios.Tests
             // reworded and classified settings.diagnostics.transcript_on and _off.
             // One fewer (3068 to 3067): junk box #946 reworded and classified
             // audio.meters.panel.slot_combo_name.
-            Assert.Equal(3067, unclassified);
+            // Two fewer (3067 to 3065): junk box #181 repair one reworded and
+            // classified logging.crash.reports_unresolved_one and _many.
+            Assert.Equal(3065, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

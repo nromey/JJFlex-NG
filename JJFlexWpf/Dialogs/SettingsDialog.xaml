@@ -2381,8 +2381,7 @@
                                     AutomationProperties.Name="Delete crash reports I have sent or dismissed"
                    local:JJFlexHelp.Text="Removes only the crash reports you have already sent or dismissed. A report you have never dealt with is kept, because its whole value is being there when support asks."
                                     Click="DiagDeleteSentCrashButton_Click"/>
-                            <TextBlock TextWrapping="Wrap"
-                                       Text="Deleting loose log text does not touch the compressed sessions in Saved Diagnostic Logs, so nothing is lost. A crash report you have never sent or dismissed is never deleted automatically."/>
+                            <TextBlock x:Name="DiagDiskNoteText" TextWrapping="Wrap"/>
                         </StackPanel>
                     </GroupBox>
                 </StackPanel>

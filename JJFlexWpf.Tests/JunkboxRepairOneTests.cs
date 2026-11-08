@@ -108,7 +108,7 @@ public sealed class JunkboxRepairOneTests
         bool listItselfFocused, bool namingOnFocus, int rows, bool now)
     {
         NoiseReductionPerChannelTests.AssertWindowless();
-        Assert.Equal(now, TNFDialog.RenameNow(listItselfFocused, namingOnFocus, rows));
+        Assert.Equal(now, ListNaming.RenameNow(listItselfFocused, namingOnFocus, rows));
     }
 
     [Fact]
@@ -226,11 +226,63 @@ public sealed class JunkboxRepairOneTests
         Assert.Contains("settings.profile_guest.why.local_profile_missing", handler);
     }
 
+    // ------------------------------------------------------------------
+    // Diagnostics: an answered crash report leaves the list when it is
+    // answered, and the tab's retention sentences follow the setting
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void The_diagnostics_tab_rereads_its_list_when_a_report_is_answered_and_lets_go_on_close()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string src = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "SettingsDialog.Diagnostics.cs"));
+        string loaded = Body(src, "private void DiagnosticsPanel_Loaded(");
+        int sub = loaded.IndexOf("Radios.CrashReportStore.VerdictRecorded += OnCrashVerdictRecorded;", StringComparison.Ordinal);
+        int unsub = loaded.IndexOf("Radios.CrashReportStore.VerdictRecorded -= OnCrashVerdictRecorded;", StringComparison.Ordinal);
+        Assert.True(sub > 0 && unsub > sub, "the tab must hear an answer while open, and stop when it closes");
+        Assert.Contains("private void OnCrashVerdictRecorded() => OnDiagnosticStateChanged(null, EventArgs.Empty);", src);
+        // The safe dispatch the other state changes already use (an upload
+        // completes on its own thread); RefreshDiagnosticsTab rebuilds the list.
+        string changed = Body(src, "private void OnDiagnosticStateChanged(");
+        Assert.Contains("else Dispatcher.BeginInvoke(RefreshDiagnosticsTab);", changed);
+        Assert.Contains("RefreshPendingCrashes();", Body(src, "private void RefreshDiagnosticsTab()"));
+        // And its count stays true with focus in the list.
+        string refresh = Body(src, "private void RefreshPendingCrashes()");
+        Assert.Contains("ListNaming.RenameNow(DiagPendingCrashList.IsKeyboardFocused, false, _pendingCrashes.Count)", refresh);
+        Assert.DoesNotContain("IsKeyboardFocusWithin", refresh);
+    }
+
+    [Fact]
+    public void The_retention_sentences_on_the_tab_follow_the_setting_when_it_changes_and_when_the_tab_fills()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string src = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "SettingsDialog.Diagnostics.cs"));
+        Assert.Contains("ShowRetentionSentences(Radios.CrashReportStore.PolicyFrom(stored));",
+            Body(src, "private void DiagCrashRetentionCombo_SelectionChanged("));
+        Assert.Contains("ShowRetentionSentences(Radios.CrashReportStore.PolicyFrom(retention));",
+            Body(src, "private void RefreshDiagnosticsTab()"));
+        string show = Body(src, "private void ShowRetentionSentences(");
+        Assert.Contains("DiagDiskNoteText.Text = Radios.CrashReportStore.DiskNote(policy);", show);
+        Assert.Contains("DescribeCrashReports", show);
+
+        string xaml = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "SettingsDialog.xaml"));
+        Assert.Contains("x:Name=\"DiagDiskNoteText\"", xaml);
+        Assert.DoesNotContain("is never deleted automatically", xaml);   // the fixed promise is gone from the window
+    }
+
+    /// <summary>A method's body, by brace matching from its signature.</summary>
     private static string Body(string src, string signature)
     {
         int at = src.IndexOf(signature, StringComparison.Ordinal);
         Assert.True(at >= 0, "not found: " + signature);
-        return src.Substring(at, src.IndexOf("\n    }", at, StringComparison.Ordinal) - at);
+        int open = src.IndexOf('{', at);
+        int depth = 0;
+        for (int i = open; i < src.Length; i++)
+        {
+            if (src[i] == '{') depth++;
+            else if (src[i] == '}' && --depth == 0) return src.Substring(at, i - at + 1);
+        }
+        throw new InvalidOperationException("unbalanced braces after " + signature);
     }
 
     private static string Repo()

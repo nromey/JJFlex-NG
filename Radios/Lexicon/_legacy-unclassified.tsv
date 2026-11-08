@@ -1920,8 +1920,6 @@ logging.crash.reports_head_many	170f53582697ef2b
 logging.crash.reports_head_one	1e584260f7ce1c25
 logging.crash.reports_none	b1f227b633739d18
 logging.crash.reports_tail	4a253bc07437108a
-logging.crash.reports_unresolved_many	c72ad3a6f2eab2e9
-logging.crash.reports_unresolved_one	6bc21cd425855659
 logging.crash.saved_speech	1f293e7cd3909b28
 logging.crash.size_unknown	c20381a071707a55
 logging.crash.truncate_notice	30c78dbf606d384b

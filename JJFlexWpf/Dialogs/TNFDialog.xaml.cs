@@ -130,7 +130,7 @@ public partial class TNFDialog : JJFlexDialog
     /// </remarks>
     private void NameTheList()
     {
-        if (!RenameNow(TNFList.IsKeyboardFocused, _namingOnFocus, TNFList.Items.Count))
+        if (!ListNaming.RenameNow(TNFList.IsKeyboardFocused, _namingOnFocus, TNFList.Items.Count))
         {
             _nameOwed = true;
             return;
@@ -139,31 +139,11 @@ public partial class TNFDialog : JJFlexDialog
         AutomationProperties.SetName(TNFList, ListName(TNFList.Items.Count));
     }
 
-    /// <summary>
-    /// Whether the list may be renamed now: always, except while the list
-    /// element itself (not one of its rows) holds keyboard focus with rows in
-    /// it, outside the way in.
-    /// </summary>
-    internal static bool RenameNow(bool listItselfFocused, bool namingOnFocus, int rows)
-        => !listItselfFocused || namingOnFocus || rows == 0;
-
     private bool _namingOnFocus;
     private bool _nameOwed;
 
-    /// <summary>
-    /// Put focus on a row, so the reader lands on it and the list itself does
-    /// not keep focus with a name owed; the list when there is no row.
-    /// </summary>
-    private void FocusRow(int index)
-    {
-        if (index >= 0 && index < TNFList.Items.Count)
-        {
-            TNFList.UpdateLayout();
-            if (TNFList.ItemContainerGenerator.ContainerFromIndex(index) is ListBoxItem row && row.Focus())
-                return;
-        }
-        TNFList.Focus();
-    }
+    /// <summary>Focus a row (<see cref="ListNaming.FocusRow"/>).</summary>
+    private void FocusRow(int index) => ListNaming.FocusRow(TNFList, index);
 
     private void TNFDialog_Loaded(object sender, RoutedEventArgs e)
     {

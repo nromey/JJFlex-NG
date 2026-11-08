@@ -107,7 +107,7 @@ Module CrashReporter
     ''' At 200-700 MB per dump, a week of that is the difference between a
     ''' folder you never notice and one that eats a laptop's free space.
     ''' </summary>
-    Private Const UnresolvedCrashGraceDays As Integer = 7
+    Private Const UnresolvedCrashGraceDays As Integer = Radios.CrashReportStore.UnresolvedGraceDays
 
     ''' <summary>
     ''' Suffix of the sidecar that records what the operator decided about a
@@ -449,13 +449,11 @@ Module CrashReporter
     ''' bundle stays protected, which is the safe direction to fail in.
     ''' </summary>
     Private Sub RecordCrashVerdict(zipPath As String, verdict As String)
-        Try
-            If String.IsNullOrEmpty(zipPath) Then Return
-            File.WriteAllText(zipPath & VerdictSuffix,
-                $"{verdict} {DateTime.Now:yyyy-MM-dd HH:mm:ss zzz}{Environment.NewLine}")
-        Catch
-            ' Not recording a verdict costs disk space, never evidence.
-        End Try
+        ' One writer for the answer, so the Diagnostics tab hears it: a report
+        ' sent from its list leaves the list when the receiver takes it, not
+        ' at the next visit (#181 repair one). Not recording a verdict costs
+        ' disk space, never evidence.
+        Radios.CrashReportStore.RecordVerdict(zipPath, verdict)
     End Sub
 
     ''' <summary>True when the operator has sent or dismissed this bundle.</summary>
@@ -647,18 +645,14 @@ Module CrashReporter
 
             Dim keepNewest As Integer = 3
             Try : keepNewest = Math.Max(1, DiagnosticsSettings.KeepCrashReports) : Catch : End Try
+            Dim policy As Radios.UnresolvedCrashRetention = Radios.UnresolvedCrashRetention.StripDumpAfterGrace
+            Try : policy = Radios.CrashReportStore.PolicyFrom(DiagnosticsSettings.UnresolvedCrashRetention) : Catch : End Try
 
-            Dim sizeText As String = DescribeBytes(total)
-            Dim head As String = If(bundles.Length = 1, Radios.Lexicon.Get("logging.crash.reports_head_one",
-                ("count", bundles.Length), ("size", sizeText)), Radios.Lexicon.Get("logging.crash.reports_head_many",
-                ("count", bundles.Length), ("size", sizeText)))
-            Dim tail As String = Radios.Lexicon.Get("logging.crash.reports_tail", ("keepNewest", keepNewest))
-            If unresolved > 0 Then
-                tail = If(unresolved = 1, Radios.Lexicon.Get("logging.crash.reports_unresolved_one",
-                    ("count", unresolved), ("tail", tail)), Radios.Lexicon.Get("logging.crash.reports_unresolved_many",
-                    ("count", unresolved), ("tail", tail)))
-            End If
-            Return head & tail
+            ' What retention does is said under the operator's setting (#181
+            ' repair one): the old closing sentence promised an unanswered
+            ' report is never removed whatever the setting said.
+            Return Radios.CrashReportStore.DescribeReports(bundles.Length, total, unresolved, keepNewest, policy,
+                Function(b As Long) DescribeBytes(b))
         Catch
             Return Radios.Lexicon.Get("logging.crash.reports_count_failed")
         End Try
