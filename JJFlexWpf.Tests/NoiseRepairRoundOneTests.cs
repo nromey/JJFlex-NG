@@ -185,6 +185,24 @@ public sealed class NoiseRepairRoundOneTests
         Assert.Equal("voice", f.Config.NoiseModeMemory.LastGroup);
     }
 
+    // ── B7: the four held levels' write path ──
+
+    [Fact]
+    public void B7_every_level_the_radio_never_reports_is_written_through_the_held_path_and_no_other()
+    {
+        var catalog = new DenoiseEngineCatalog();
+        var held = catalog.Entries.Where(e => e.Level != null && !e.Level.ReportedBack)
+            .ToDictionary(e => e.Id, e => e.Level!.Held);
+        Assert.Equal(new Dictionary<string, HeldNoiseLevel?>
+        {
+            ["radio_nrl"] = HeldNoiseLevel.LegacyNoiseReduction,
+            ["radio_nrs"] = HeldNoiseLevel.SpectralNoiseReduction,
+            ["radio_nrf"] = HeldNoiseLevel.NoiseReductionFilter,
+            ["radio_anfl"] = HeldNoiseLevel.LegacyAutoNotch,
+        }, held);
+        Assert.All(catalog.Entries.Where(e => e.Level is { ReportedBack: true }), e => Assert.Null(e.Level!.Held));
+    }
+
     private sealed class MemoryPresets : INoisePresetStore
     {
         public AudioChainPresets Data = new() { BalancedCaptureOffered = true };
