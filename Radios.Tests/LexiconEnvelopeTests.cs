@@ -1079,6 +1079,13 @@ namespace Radios.Tests
                 "settings.diagnostics.transcript_on",
                 "settings.diagnostics.transcript_off",
 
+                // Junk box #946 (2026-11-07, third batch): the meter slot
+                // combo's accessible name says the count as "in use" so a
+                // reader cannot hear it as a list position. A control name,
+                // read only when the operator lands on the combo: TextOnly.
+                // DRAFT PROSE.
+                "audio.meters.panel.slot_combo_name",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than
@@ -2425,7 +2432,9 @@ namespace Radios.Tests
             // logging.capture.dropped.* keys.
             // Two fewer (3070 to 3068): junk box #944 (2026-11-07, third batch)
             // reworded and classified settings.diagnostics.transcript_on and _off.
-            Assert.Equal(3068, unclassified);
+            // One fewer (3068 to 3067): junk box #946 reworded and classified
+            // audio.meters.panel.slot_combo_name.
+            Assert.Equal(3067, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

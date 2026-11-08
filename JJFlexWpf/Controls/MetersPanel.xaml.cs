@@ -294,6 +294,9 @@ public partial class MetersPanel : UserControl
             AddSlotButton.IsEnabled = slots.Count < MeterToneEngine.MaxSlots;
             DeleteButton.IsEnabled = slots.Count > 1;
             SetSlotControlsEnabled(slots.Count > 0);
+            // The count is said as "in use", never "N of M": a reader heard
+            // "4 of 8" as the selected item's position on every selection.
+            // DRAFT wording for Noel's review.
             AutomationProperties.SetName(SlotCombo,
                 Lexicon.Get("audio.meters.panel.slot_combo_name",
                     ("count", slots.Count), ("max", MeterToneEngine.MaxSlots)));
