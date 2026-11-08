@@ -17,8 +17,16 @@ namespace JJFlexWpf.Tests;
 /// its static core with config objects and a temporary folder, and the wiring
 /// is read from source. No panel is constructed.
 /// </remarks>
-public sealed class MetersPanelSaveTests
+public sealed class MetersPanelSaveTests : IDisposable
 {
+    // These run the save as it is after a connect has applied the saved
+    // config. Before that, the save refuses (AudioConfigBeforeLoadTests).
+    private readonly bool _wasLoaded = AudioOutputConfig.EngineHoldsSavedConfig;
+
+    public MetersPanelSaveTests() => AudioOutputConfig.EngineHoldsSavedConfig = true;
+
+    public void Dispose() => AudioOutputConfig.EngineHoldsSavedConfig = _wasLoaded;
+
     private static string TempDir()
     {
         string dir = Path.Combine(Path.GetTempPath(), "jjflex-meterssave-" + Guid.NewGuid().ToString("N"));

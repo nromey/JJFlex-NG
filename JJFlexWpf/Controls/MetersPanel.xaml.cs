@@ -1452,6 +1452,13 @@ public partial class MetersPanel : UserControl
         Func<AudioOutputConfig?>? liveSource, Action? liveSave, string? rootDir,
         Action<AudioOutputConfig> writeInto)
     {
+        // Before the saved config has reached the engine, the engine holds no
+        // meters, and saving it would write an empty list over the operator's.
+        if (!AudioOutputConfig.EngineHoldsSavedConfig)
+        {
+            System.Diagnostics.Trace.WriteLine("MetersPanel: the saved meters are not loaded yet; the change was not saved");
+            return false;
+        }
         try
         {
             AudioOutputConfig? live = liveSource?.Invoke();

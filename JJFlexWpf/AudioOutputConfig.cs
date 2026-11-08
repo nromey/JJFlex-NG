@@ -1014,12 +1014,44 @@ namespace JJFlexWpf
                 MeterToneEngine.LoadDefinitions(Meters);
             else
                 MeterToneEngine.ApplyPreset(MeterPreset ?? "RX Monitor");
+
+            EngineHoldsSavedConfig = true;
         }
 
+        /// <summary>
+        /// True once a saved audio config has been applied to the engines this
+        /// session (<see cref="Apply"/>: the first power-on, or a Settings OK).
+        /// Until then the meter engine holds its start-time defaults and no
+        /// meter slots, which are not the operator's.
+        /// </summary>
+        /// <remarks>
+        /// The verbosity key works with no radio, and its save ran a full
+        /// <see cref="CaptureFromEngine"/> into the root file. Changing verbosity
+        /// once before the first connect therefore wrote an empty meter list
+        /// and the default meter settings over the saved ones, and the next
+        /// connect fell back to the preset. Anything that writes engine state
+        /// into a saved config asks this first.
+        /// </remarks>
+        public static bool EngineHoldsSavedConfig { get; internal set; }
+
         /// <summary>Capture current state from the engine into this config.</summary>
+        /// <remarks>
+        /// Before the saved config has reached the engine
+        /// (<see cref="EngineHoldsSavedConfig"/> false), only the speech
+        /// verbosity is captured: it is live from launch, and it is what the one
+        /// caller that can run then (the verbosity key's save) is saving. Every
+        /// other field is left as loaded, because the engine's value is a
+        /// default, not a choice.
+        /// </remarks>
         public void CaptureFromEngine()
         {
             SpeechVerbosity = (int)Radios.ScreenReaderOutput.CurrentVerbosity;
+            if (!EngineHoldsSavedConfig)
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    "AudioOutputConfig: saved config not yet in the engine; captured verbosity only");
+                return;
+            }
             PcOutputVolumeDb = Radios.FlexBase.PcOutputVolumeDbSetting;
             OpusTxSampleRate = (int)Radios.FlexBase.OpusTxSampleRateSetting;
             MeterTonesEnabled = MeterToneEngine.Enabled;

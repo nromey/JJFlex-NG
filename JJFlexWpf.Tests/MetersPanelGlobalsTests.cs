@@ -164,6 +164,7 @@ public sealed class MetersPanelGlobalsTests
             bool oldTimer = MeterToneEngine.SpeechTimerActive;
             var oldSource = MetersPanel.AudioConfigSource;
             var oldSave = MetersPanel.AudioConfigSave;
+            bool oldLoaded = AudioOutputConfig.EngineHoldsSavedConfig;
             MetersPanel? panel = null;
             try
             {
@@ -174,6 +175,7 @@ public sealed class MetersPanelGlobalsTests
                 MeterToneEngine.QuietStateRestore = false;
                 ApplySaved(interval: 3, peakWatcher: true, autoTune: false);
 
+                AudioOutputConfig.EngineHoldsSavedConfig = true;   // a connect has applied the saved config
                 var live = new AudioOutputConfig();
                 int saves = 0;
                 MetersPanel.AudioConfigSource = () => live;
@@ -196,6 +198,7 @@ public sealed class MetersPanelGlobalsTests
                         .Invoke(panel, null);
                 MetersPanel.AudioConfigSource = oldSource;
                 MetersPanel.AudioConfigSave = oldSave;
+                AudioOutputConfig.EngineHoldsSavedConfig = oldLoaded;
                 MeterToneEngine.QuietStateRestore = true;
                 MeterToneEngine.SpeechIntervalSeconds = oldInterval;
                 MeterToneEngine.PeakWatcherEnabled = oldPeak;
