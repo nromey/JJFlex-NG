@@ -265,6 +265,8 @@ public partial class FlexBase
         // status arrives, so on its own it would warn about an empty slice.
         bool has = slice.PlayEnabled && seconds != null;
         if (string.IsNullOrEmpty(serial)) return new(serial, letter, has, seconds, null, true);
+        // A choice made in Settings before any radio was known is applied now.
+        RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(serial);
         var config = RadioConfig.LoadForRadio(serial);
         var stamp = config.SliceTakeStamps?.LastOrDefault(s =>
             string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));

@@ -642,6 +642,35 @@ namespace Radios
         public static bool RecordWarnBeforeSliceRecordingOverwritten(string radioId, bool warn) =>
             Update(radioId, cfg => { cfg.WarnBeforeSliceRecordingOverwritten = warn; });
 
+        private static readonly object PendingWarnGate = new();
+        private static bool? _pendingWarnBeforeSliceRecordingOverwritten;
+
+        /// <summary>
+        /// The overwrite warning's setting, chosen in Settings before this
+        /// install had ever used a radio (#999, repair round 1: settings are
+        /// intents, queued and applied). Held until a radio is known, then saved
+        /// to that radio's config by <see cref="ApplyPendingWarnBeforeSliceRecordingOverwritten"/>.
+        /// Lives as long as the program; a restart before any radio forgets it.
+        /// </summary>
+        public static bool? PendingWarnBeforeSliceRecordingOverwritten
+        {
+            get { lock (PendingWarnGate) return _pendingWarnBeforeSliceRecordingOverwritten; }
+            set { lock (PendingWarnGate) _pendingWarnBeforeSliceRecordingOverwritten = value; }
+        }
+
+        /// <summary>Save a pending choice to this radio, once. True when one was applied.</summary>
+        public static bool ApplyPendingWarnBeforeSliceRecordingOverwritten(string radioId)
+        {
+            if (string.IsNullOrWhiteSpace(radioId)) return false;
+            bool? pending;
+            lock (PendingWarnGate) { pending = _pendingWarnBeforeSliceRecordingOverwritten; }
+            if (pending is not bool warn) return false;
+            if (!RecordWarnBeforeSliceRecordingOverwritten(radioId, warn)) return false;
+            lock (PendingWarnGate)
+                if (_pendingWarnBeforeSliceRecordingOverwritten == pending) _pendingWarnBeforeSliceRecordingOverwritten = null;
+            return true;
+        }
+
         /// <summary>
         /// A take on this computer now holds a copy of the recording in this
         /// slice's buffer (#999). When the stamp still describes that recording

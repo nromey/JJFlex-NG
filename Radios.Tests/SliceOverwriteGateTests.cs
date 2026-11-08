@@ -129,6 +129,22 @@ public sealed class SliceOverwriteGateTests : IDisposable
     }
 
     [Fact]
+    public void A_choice_made_before_any_radio_is_applied_to_the_first_one_once()
+    {
+        try
+        {
+            RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = false;
+            Assert.True(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(Serial));
+            Assert.False(RadioConfig.LoadForRadio(Serial).WarnBeforeSliceRecordingOverwritten);
+            Assert.Null(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
+            // Spent: a second radio keeps its own default.
+            Assert.False(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten("1234-5678-8600-0990"));
+            Assert.True(RadioConfig.LoadForRadio("1234-5678-8600-0990").WarnBeforeSliceRecordingOverwritten);
+        }
+        finally { RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = null; }
+    }
+
+    [Fact]
     public void A_config_written_before_the_setting_reads_it_as_on()
     {
         Assert.True(RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(Serial, false));

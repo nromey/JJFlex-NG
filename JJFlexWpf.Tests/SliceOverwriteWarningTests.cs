@@ -298,10 +298,82 @@ public sealed class SliceOverwriteWarningTests : IDisposable
         Assert.True(group > 0 && panel > group && panel - group < 600);
         string part = Source("JJFlexWpf", "Dialogs", "SettingsDialog.SliceOverwrite.cs");
         Assert.Contains("RecorderPanel.Children.Insert(", part);
-        Assert.Contains("RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(_warnOverwriteSerial, warn)", part);
+        Assert.Contains("RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(serial, warn)", part);
         string settings = Source("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs");
         Assert.Contains("InitializeSliceOverwriteSetting();", settings);
         Assert.Contains("CommitSliceOverwriteSetting();", settings);
+    }
+
+    // ── The setting is an intent: never hidden, kept across a disconnect (repair round 1) ──
+
+    [Fact]
+    public void An_edit_survives_a_disconnect_and_is_saved_to_its_radio()
+    {
+        var edits = new SliceOverwriteSettingEdits();
+        var saved = new Dictionary<string, bool>();
+        Assert.True(edits.Show("A-SERIAL", _ => true, null));        // connected to A
+        edits.Edit(false);
+        // Disconnected: the box still shows A, the radio last connected, with the edit.
+        Assert.False(edits.Show("A-SERIAL", _ => true, null));
+        edits.Commit((serial, warn) => { saved[serial] = warn; return true; }, _ => throw new InvalidOperationException());
+        Assert.Equal(new Dictionary<string, bool> { ["A-SERIAL"] = false }, saved);
+        Assert.Empty(edits.Pending);
+    }
+
+    [Fact]
+    public void With_no_radio_ever_used_the_box_shows_on_and_a_choice_waits_for_the_next_radio()
+    {
+        var edits = new SliceOverwriteSettingEdits();
+        Assert.True(edits.Show("", _ => throw new InvalidOperationException(), null));
+        edits.Edit(false);
+        bool? held = null;
+        edits.Commit((_, _) => throw new InvalidOperationException(), warn => held = warn);
+        Assert.False(held);
+        // Opened again before any radio: it shows the choice held for the next one.
+        Assert.False(new SliceOverwriteSettingEdits().Show("", _ => true, held));
+    }
+
+    [Fact]
+    public void An_edit_made_before_any_radio_moves_to_the_first_radio_known()
+    {
+        var edits = new SliceOverwriteSettingEdits();
+        edits.Show("", _ => true, null);
+        edits.Edit(false);
+        Assert.False(edits.Show("B-SERIAL", _ => true, null));
+        var saved = new Dictionary<string, bool>();
+        edits.Commit((serial, warn) => { saved[serial] = warn; return true; }, _ => throw new InvalidOperationException());
+        Assert.Equal(new Dictionary<string, bool> { ["B-SERIAL"] = false }, saved);
+    }
+
+    [Fact]
+    public void An_edit_stays_with_the_radio_it_was_made_for_when_the_target_changes()
+    {
+        var edits = new SliceOverwriteSettingEdits();
+        edits.Show("A-SERIAL", _ => true, null);
+        edits.Edit(false);
+        Assert.True(edits.Show("B-SERIAL", _ => true, null));        // B shows its own saved value
+        var saved = new Dictionary<string, bool>();
+        edits.Commit((serial, warn) => { saved[serial] = warn; return true; }, _ => { });
+        Assert.Equal(new Dictionary<string, bool> { ["A-SERIAL"] = false }, saved);
+    }
+
+    [Fact]
+    public void An_edit_that_could_not_be_saved_stays_pending()
+    {
+        var edits = new SliceOverwriteSettingEdits();
+        edits.Show("A-SERIAL", _ => true, null);
+        edits.Edit(false);
+        edits.Commit((_, _) => false, _ => { });
+        Assert.False(edits.Pending["A-SERIAL"]);
+    }
+
+    [Fact]
+    public void The_setting_box_is_never_hidden()
+    {
+        string part = Source("JJFlexWpf", "Dialogs", "SettingsDialog.SliceOverwrite.cs");
+        Assert.DoesNotContain("Visibility.Collapsed", part);
+        Assert.DoesNotContain("Visibility.Hidden", part);
+        Assert.Contains("audio.recorder.overwrite.setting_applies_next", part);
     }
 
     [Fact]

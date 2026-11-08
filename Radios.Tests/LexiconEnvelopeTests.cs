@@ -2622,6 +2622,8 @@ namespace Radios.Tests
                 "audio.recorder.listen_refused_transmitting",
                 "audio.recorder.overwrite.setting",
                 "audio.recorder.overwrite.setting_help",
+                "audio.recorder.overwrite.setting_applies_to",
+                "audio.recorder.overwrite.setting_applies_next",
                 "audio.takes.slice_row",
                 "audio.takes.slice_made",
                 "audio.takes.slice_made_at",

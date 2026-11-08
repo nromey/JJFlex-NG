@@ -1174,6 +1174,8 @@
   "audio.recorder.listen_refused_transmitting": {"text": "Not while transmitting. Slice {letter} recording not played.", "delivery": null},
   "audio.recorder.overwrite.setting": {"text": "Warn before a recording on the radio is overwritten", "delivery": null},
   "audio.recorder.overwrite.setting_help": {"text": "When a slice already holds a recording, recording on it asks first. Saved for this radio.", "delivery": null},
+  "audio.recorder.overwrite.setting_applies_to": {"text": "Applies to {radio}.", "delivery": null},
+  "audio.recorder.overwrite.setting_applies_next": {"text": "Applies to the next radio you connect to.", "delivery": null},
   "audio.takes.slice_row": {"text": "Slice {letter} recording on the radio, {seconds} seconds, {made}. {backup}", "delivery": null},
   "audio.takes.slice_made": {"text": "made {when}", "delivery": null},
   "audio.takes.slice_made_at": {"text": "made {when} on {frequency} megahertz {mode}", "delivery": null},
