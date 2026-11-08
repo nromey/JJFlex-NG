@@ -1162,6 +1162,11 @@ namespace Radios.Tests
                 // press: TextOnly. DRAFT PROSE.
                 "settings.flexdb.import_only_lan",
 
+                // Junk box 2026-11-08 (#709): the remote firmware warning,
+                // replaced with Noel's approved text and classified. Shown in
+                // the profile tab's status line as well as spoken: TextOnly.
+                "settings.profile.remote_firmware_allowed_warning",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than
@@ -2701,7 +2706,9 @@ namespace Radios.Tests
             // audio.meters.panel.slot_combo_name.
             // Two fewer (3067 to 3065): junk box #181 repair one reworded and
             // classified logging.crash.reports_unresolved_one and _many.
-            Assert.Equal(3063, unclassified);
+            // One fewer (3063 to 3062): junk box 2026-11-08 (#709) replaced and
+            // classified settings.profile.remote_firmware_allowed_warning.
+            Assert.Equal(3062, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
