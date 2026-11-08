@@ -8,6 +8,7 @@ namespace Radios.Tests
     /// in use. Said as "4 of 8", a screen reader heard it as the selected
     /// item's list position on every selection, whichever meter was picked.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public class MeterSlotComboNameTests
     {
         [Theory]

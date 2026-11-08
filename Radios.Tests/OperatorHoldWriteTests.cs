@@ -128,12 +128,12 @@ namespace Radios.Tests
             var rig = Rig();
             string before = rig.Rig.RadioCallsign;
             rig.Rig.SetChangeNothingActive(true);
-            rig.Rig.RadioCallsign = "W1AW";
+            rig.Rig.RadioCallsign = "K0ABC";
             Assert.Equal(before, rig.Rig.RadioCallsign);
 
             rig.Rig.SetChangeNothingActive(false);
-            rig.Rig.RadioCallsign = "W1AW";                      // control
-            Assert.Equal("W1AW", rig.Rig.RadioCallsign);
+            rig.Rig.RadioCallsign = "K0ABC";                      // control
+            Assert.Equal("K0ABC", rig.Rig.RadioCallsign);
         }
 
         // ------------------------------------------------------------------
