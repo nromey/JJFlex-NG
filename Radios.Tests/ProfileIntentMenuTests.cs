@@ -56,6 +56,49 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// #680, defect 3: "Use My Transmit Audio Here" could be armed with no
+        /// transmit-audio profile chosen. It is greyed whenever none is chosen,
+        /// including when none exists, with the reason in its label, and stays
+        /// in the radio group.
+        /// </summary>
+        [Fact]
+        public void Use_my_transmit_audio_is_greyed_with_its_reason_until_a_profile_is_chosen()
+        {
+            string src = MenuSource();
+            int at = src.IndexOf("AddRadioChecked(profilesSub, \"Use My Transmit Audio Here\"", StringComparison.Ordinal);
+            Assert.True(at >= 0, "the Use My Transmit Audio row has moved");
+            int end = src.IndexOf(");", at, StringComparison.Ordinal);
+            string call = src.Substring(at, end - at);
+            Assert.Contains("enabled: useMineNotYet == null", call);
+            Assert.Contains("(useMineNotYet ?? \"\")", call);   // the reason is in the label
+
+            int decl = src.LastIndexOf("string? useMineNotYet", at, StringComparison.Ordinal);
+            Assert.True(decl >= 0, "the reason is no longer worked out before the row");
+            string why = src.Substring(decl, at - decl);
+            Assert.Contains("string.IsNullOrEmpty(Rig.LocalTransmitAudioProfileChoice)", why);
+            Assert.Contains("presetNames.Count == 0", why);   // none saved has its own reason
+        }
+
+        /// <summary>
+        /// A greyed member of a radio group is still marked when it is the
+        /// answer: the popup refresh skips greyed rows, so the mark is set when
+        /// the row is built.
+        /// </summary>
+        [Fact]
+        public void A_greyed_group_member_still_carries_its_mark()
+        {
+            string src = MenuSource();
+            int at = src.IndexOf("private void AddRadioChecked(", StringComparison.Ordinal);
+            Assert.True(at >= 0);
+            int end = src.IndexOf("// ── Verbs that are not there yet", at, StringComparison.Ordinal);
+            Assert.True(end > at, "the code after AddRadioChecked has moved; re-point this read");
+            string body = src.Substring(at, end - at);
+            Assert.Contains("if (!enabled)", body);
+            Assert.Contains("if (stateGetter()) CheckMenuItem(popup, (uint)id, MF_BYCOMMAND | MF_CHECKED);", body);
+            Assert.Matches(@"if \(!enabled\) continue;", src);   // positive control: the refresh does skip greyed rows
+        }
+
+        /// <summary>
         /// The control: the helper the intents must use really is the one
         /// whose rows the suffix rewrite skips, so the pin above is pinning
         /// the behaviour and not just a name.

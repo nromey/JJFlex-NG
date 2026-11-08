@@ -2155,9 +2155,24 @@ public class NativeMenuBar : IDisposable
             // what makes that true (#680): AddChecked appended ": On" and
             // ": Off", so the reader called these three toggles, and a
             // toggle that will not toggle off.
-            AddRadioChecked(profilesSub, "Use My Transmit Audio Here",
+            //
+            // "Use My Transmit Audio Here" needs a transmit-audio profile
+            // chosen, so it is greyed until one is, with the reason in its
+            // label, the treatment the empty "Which Transmit Audio" list
+            // below already gets (#680, defect 3). It could be armed with
+            // nothing chosen, and then said "you have not chosen a profile"
+            // after the fact. Choosing one under Which Transmit Audio arms it.
+            // DRAFT labels.
+            var presetNames = Rig.LocalTransmitAudioProfileNames();
+            string? useMineNotYet = string.IsNullOrEmpty(Rig.LocalTransmitAudioProfileChoice)
+                ? (presetNames.Count == 0
+                    ? ", no transmit audio profiles saved yet"
+                    : ", choose one under Which Transmit Audio first")
+                : null;
+            AddRadioChecked(profilesSub, "Use My Transmit Audio Here" + (useMineNotYet ?? ""),
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.UseMyTransmitAudio),
-                () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.UseMyTransmitAudio);
+                () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.UseMyTransmitAudio,
+                enabled: useMineNotYet == null);
             AddRadioChecked(profilesSub, "Load All My Profiles Here",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LoadMineAndPutBack),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LoadMineAndPutBack);
@@ -2167,7 +2182,6 @@ public class NativeMenuBar : IDisposable
 
             // Which of the operator's transmit-audio profiles to use.
             var whichSub = AddSubmenu(profilesSub, "Which Transmit Audio");
-            var presetNames = Rig.LocalTransmitAudioProfileNames();
             if (presetNames.Count == 0)
             {
                 AddWired(whichSub, "No transmit audio profiles saved yet", () =>
@@ -3385,7 +3399,20 @@ public class NativeMenuBar : IDisposable
         // today and would silently mark the wrong row the day id allocation
         // changes — and a wrong row here is a mode that announces itself
         // "checked" when it is not.
-        _radioGroupItems.Add(_checkItems[^1].id);
+        int id = _checkItems[^1].id;
+        _radioGroupItems.Add(id);
+        // A greyed member of a group still says whether it is the answer:
+        // the popup refresh skips greyed rows (a greyed toggle has no state),
+        // but one answer of three greyed and unmarked would leave the group
+        // with no answer at all (#680, defect 3).
+        if (!enabled)
+        {
+            try
+            {
+                if (stateGetter()) CheckMenuItem(popup, (uint)id, MF_BYCOMMAND | MF_CHECKED);
+            }
+            catch { /* a state read must not stop the menu being built */ }
+        }
     }
 
     // ── Verbs that are not there yet, and how they should say so ──
