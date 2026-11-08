@@ -299,11 +299,13 @@ public partial class ValueFieldControl : UserControl, ValueFieldControl.ReaderAw
     /// "label: number" and is current when focus comes back from the menu. It
     /// is brought up to date WHILE the menu holds the reader, once the reader
     /// has had <see cref="SettleMs"/> to move into it, and any value arriving
-    /// after that renames at once. Renaming at the moment the menu closes
-    /// instead would race the reader's own read of the field and be heard
-    /// twice, the speech the visual-only rule exists to prevent. A value that
-    /// arrives after the menu has closed still waits for the next safe moment,
-    /// as it did before.</para>
+    /// after that renames at once. A menu closed before it settled (a quick
+    /// open and cancel) is brought up to date as its loop ends, in the
+    /// shell's exit message and before focus is given back, while the reader
+    /// is still in the menu (<see cref="MenuEnded"/>, repair one). Renaming
+    /// later than that, once the reader is back on the field, is what would
+    /// be heard twice. A value that arrives after the menu has closed still
+    /// waits for the next safe moment, as it did before.</para>
     /// <para><b>Switching to shape (a)</b> (the label as the name, the number
     /// as a UIA value) would change <see cref="UpdateDisplay"/> to set the
     /// label alone, give <c>LeafControlAutomationPeer</c> a value provider and
@@ -356,10 +358,31 @@ public partial class ValueFieldControl : UserControl, ValueFieldControl.ReaderAw
             }
         }
 
+        /// <summary>
+        /// The menu loop ended. A name still trailing here belongs to a menu
+        /// closed before it settled, and is brought up to date NOW (#980
+        /// repair one, Codex's blocker): a quick open and cancel otherwise
+        /// left the old number for the reader to read on its way back.
+        /// </summary>
+        /// <remarks>
+        /// This runs in the shell's <c>WM_EXITMENULOOP</c>, before the shell
+        /// hands the message on and before it gives focus back, so the reader
+        /// is still in the menu: it reads the field only once the menu's end
+        /// reaches it, and that read cannot be answered until this has
+        /// returned, so it reads the current number. A settled menu leaves
+        /// nothing trailing (values arriving after the settle rename at once),
+        /// so this renames only after a short menu.
+        /// </remarks>
         internal static void MenuEnded()
         {
+            bool wasInMenu = s_inMenu;
             s_inMenu = false;
             s_settled = false;
+            if (wasInMenu && s_stale != null && s_stale.TryGetTarget(out IStaleName? field))
+            {
+                s_stale = null;
+                field.RefreshStaleName();
+            }
         }
 
         /// <summary>For tests: forget everything.</summary>

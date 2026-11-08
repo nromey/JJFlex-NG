@@ -77,18 +77,75 @@ public sealed class ValueFieldReaderAwayTests : IDisposable
     }
 
     [Fact]
-    public void A_late_settle_after_the_menu_closed_renames_nothing()
+    public void A_short_menu_brings_the_name_up_to_date_as_it_ends_and_a_late_settle_renames_nothing_more()
     {
+        // Until repair one this asserted no refresh at all after a short menu,
+        // which pinned the stale name Codex found as the desired behaviour.
         NoiseReductionPerChannelTests.AssertWindowless();
         var field = new Field();
         ValueFieldControl.ReaderAway.Stale(field);
         ValueFieldControl.ReaderAway.MenuStarted();
         ValueFieldControl.ReaderAway.MenuEnded();
+        Assert.Equal(1, field.Refreshes);   // at the loop's end, while the reader is still in the menu
 
         // The reader is back on the field: a rename now would be spoken.
         ValueFieldControl.ReaderAway.Settled();
-        Assert.Equal(0, field.Refreshes);
+        Assert.Equal(1, field.Refreshes);
         Assert.False(ValueFieldControl.ReaderAway.RenameWhileFocused);
+    }
+
+    [Fact]
+    public void With_no_menu_open_a_menus_end_renames_nothing()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var field = new Field();
+        ValueFieldControl.ReaderAway.Stale(field);
+        ValueFieldControl.ReaderAway.MenuEnded();
+        Assert.Equal(0, field.Refreshes);
+    }
+
+    /// <summary>
+    /// A focused Home field as the control runs it: visual only while focused
+    /// unless a menu holds the reader; the name otherwise; and a trailing
+    /// name refreshed when ReaderAway says so.
+    /// </summary>
+    private sealed class FocusedField : ValueFieldControl.ReaderAway.IStaleName
+    {
+        public int Value;
+        public string Name;
+        public FocusedField(int value) { Value = value; Name = "Volume " + value; }
+        public void Set(int value)
+        {
+            Value = value;
+            if (!ValueFieldControl.ReaderAway.RenameWhileFocused) ValueFieldControl.ReaderAway.Stale(this);   // UpdateVisual
+            else { Name = "Volume " + value; ValueFieldControl.ReaderAway.Fresh(this); }                     // UpdateDisplay
+        }
+        public void RefreshStaleName() { Name = "Volume " + Value; ValueFieldControl.ReaderAway.Fresh(this); }
+    }
+
+    [Fact]
+    public void After_a_quick_open_and_cancel_the_name_carries_the_current_number()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var field = new FocusedField(50);
+        field.Set(55);                                       // an arrow step, or the radio's echo
+        Assert.Equal("Volume 50", field.Name);               // trailing, as designed
+        ValueFieldControl.ReaderAway.MenuStarted();
+        ValueFieldControl.ReaderAway.MenuEnded();            // cancelled before the settle
+        Assert.Equal("Volume " + field.Value, field.Name);
+    }
+
+    [Fact]
+    public void After_a_menu_held_past_the_settle_the_name_carries_the_current_number()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var field = new FocusedField(50);
+        field.Set(55);
+        ValueFieldControl.ReaderAway.MenuStarted();
+        ValueFieldControl.ReaderAway.Settled();
+        field.Set(60);                                       // a value arriving while the menu is open
+        ValueFieldControl.ReaderAway.MenuEnded();
+        Assert.Equal("Volume " + field.Value, field.Name);
     }
 
     [Fact]
@@ -111,7 +168,23 @@ public sealed class ValueFieldReaderAwayTests : IDisposable
         Assert.True(enter >= 0 && exit > enter, "the shell's menu-loop handling was not found");
         Assert.Contains("ValueFieldControl.NativeMenuLoopStarted()", shell.Substring(enter, exit - enter));
         int exitEnd = shell.IndexOf("End If", exit, StringComparison.Ordinal);
-        Assert.Contains("ValueFieldControl.NativeMenuLoopEnded()", shell.Substring(exit, exitEnd - exit));
+        string exitBlock = shell.Substring(exit, exitEnd - exit);
+        Assert.Contains("ValueFieldControl.NativeMenuLoopEnded()", exitBlock);
+        // The short menu's refresh must land before the shell hands the exit
+        // on and gives focus back, while the reader is still in the menu.
+        int ended = exitBlock.IndexOf("NativeMenuLoopEnded()", StringComparison.Ordinal);
+        Assert.True(ended < exitBlock.IndexOf("MyBase.WndProc(m)", StringComparison.Ordinal)
+            && ended < exitBlock.IndexOf("_elementHost?.Focus()", StringComparison.Ordinal),
+            "the menu's end must be reported before the shell passes it on and restores focus");
+    }
+
+    [Fact]
+    public void The_settle_timer_is_started_by_the_menus_start_and_its_tick_settles()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string src = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
+        Assert.Contains("s_settle.Start();", MethodBody(src, "public static void NativeMenuLoopStarted("));
+        Assert.Contains("ReaderAway.Settled();", MethodBody(src, "private static System.Windows.Threading.DispatcherTimer CreateSettleTimer("));
     }
 
     private static string MethodBody(string source, string signature)
