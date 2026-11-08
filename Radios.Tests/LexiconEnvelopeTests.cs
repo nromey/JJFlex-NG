@@ -1116,6 +1116,22 @@ namespace Radios.Tests
                 "settings.tnf.list_name_none",
                 "settings.tnf.list_name_count",
 
+                // Junk box #181 (2026-11-07, third batch): the crash reports
+                // waiting for an answer, the dump-removed marker, the spoken
+                // transcript's label in a bundle, and what a crash that ends
+                // the app says. Control names, row text, file text and
+                // sentences said only in answer to the operator or at the
+                // crash itself: TextOnly. DRAFT PROSE.
+                "logging.crash.pending_list_none",
+                "logging.crash.pending_list_count",
+                "logging.crash.row_with_dump",
+                "logging.crash.row_no_dump",
+                "logging.crash.row_dump_removed",
+                "logging.crash.dump_removed_note",
+                "logging.crash.label_transcript",
+                "logging.crash.dismissed_from_list",
+                "logging.crash.saved_send_later",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than

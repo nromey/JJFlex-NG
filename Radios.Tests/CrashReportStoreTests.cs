@@ -1,0 +1,251 @@
+using System;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Text;
+using Xunit;
+
+namespace Radios.Tests
+{
+    /// <summary>
+    /// #181: crash reports nobody has answered wait in a list, and retention
+    /// follows the operator's setting, whose default (Noel, 2026-11-07 20:24)
+    /// removes only the memory dump from an older unanswered report. Run in a
+    /// temporary folder with made-up bundles: no crash, no network, never the
+    /// operator's settings.
+    /// </summary>
+    public sealed class CrashReportStoreTests : IDisposable
+    {
+        private readonly string _dir = Path.Combine(Path.GetTempPath(), "jjflex-crashstore-" + Guid.NewGuid().ToString("N"));
+
+        public CrashReportStoreTests() => Directory.CreateDirectory(_dir);
+
+        public void Dispose()
+        {
+            try { Directory.Delete(_dir, true); } catch { }
+        }
+
+        private string Bundle(string stamp, bool withDump, DateTime writtenUtc)
+        {
+            string path = Path.Combine(_dir, "JJFlexError-" + stamp + ".zip");
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                Add(zip, "JJFlexError-" + stamp + ".txt", "the report");
+                if (withDump) Add(zip, "JJFlexError-" + stamp + ".dmp", new string('d', 200_000));
+                Add(zip, "trace-current-part.txt", "the trace");
+                Add(zip, "traces/older.zip", "archived");
+                Add(zip, "bundle-manifest.txt", "manifest");
+            }
+            File.SetLastWriteTimeUtc(path, writtenUtc);
+            return path;
+        }
+
+        private static void Add(ZipArchive zip, string name, string text)
+        {
+            using var w = new StreamWriter(zip.CreateEntry(name).Open(), Encoding.UTF8);
+            w.Write(text);
+        }
+
+        private static string[] Entries(string path)
+        {
+            using var zip = ZipFile.OpenRead(path);
+            return zip.Entries.Select(e => e.FullName).OrderBy(n => n).ToArray();
+        }
+
+        // ------------------------------------------------------------------
+        // The decision
+        // ------------------------------------------------------------------
+
+        [Theory]
+        [InlineData(UnresolvedCrashRetention.StripDumpAfterGrace, true, CrashRetentionAction.StripDump)]
+        [InlineData(UnresolvedCrashRetention.StripDumpAfterGrace, false, CrashRetentionAction.Keep)]
+        [InlineData(UnresolvedCrashRetention.KeepWhole, true, CrashRetentionAction.Keep)]
+        [InlineData(UnresolvedCrashRetention.DeleteAfterGrace, true, CrashRetentionAction.Delete)]
+        public void An_older_unanswered_report_past_its_grace_follows_the_setting(
+            UnresolvedCrashRetention policy, bool hasDump, CrashRetentionAction expected)
+        {
+            Assert.Equal(expected, CrashReportStore.Decide(newestIndex: 4, keepNewest: 3, answered: false,
+                tooOld: true, overCap: true, pastGrace: true, hasDump: hasDump, policy));
+        }
+
+        [Fact]
+        public void The_newest_stay_whole_and_the_unanswered_are_kept_inside_their_grace()
+        {
+            foreach (UnresolvedCrashRetention policy in Enum.GetValues(typeof(UnresolvedCrashRetention)))
+            {
+                Assert.Equal(CrashRetentionAction.Keep, CrashReportStore.Decide(3, 3, false, true, true, true, true, policy));
+                Assert.Equal(CrashRetentionAction.Keep, CrashReportStore.Decide(9, 3, false, true, true, false, true, policy));
+            }
+        }
+
+        [Fact]
+        public void An_answered_report_goes_past_the_age_window_or_the_cap_as_before()
+        {
+            Assert.Equal(CrashRetentionAction.Delete, CrashReportStore.Decide(4, 3, true, true, false, true, true, default));
+            Assert.Equal(CrashRetentionAction.Delete, CrashReportStore.Decide(4, 3, true, false, true, false, true, default));
+            Assert.Equal(CrashRetentionAction.Keep, CrashReportStore.Decide(4, 3, true, false, false, true, true, default));
+        }
+
+        [Fact]
+        public void The_default_setting_is_the_ruled_one_and_an_unknown_value_falls_back_to_it()
+        {
+            Assert.Equal(UnresolvedCrashRetention.StripDumpAfterGrace, (UnresolvedCrashRetention)new DiagnosticsConfig().UnresolvedCrashRetention);
+            Assert.Equal(UnresolvedCrashRetention.StripDumpAfterGrace, CrashReportStore.PolicyFrom(7));
+            Assert.Equal(UnresolvedCrashRetention.KeepWhole, CrashReportStore.PolicyFrom(1));
+        }
+
+        // ------------------------------------------------------------------
+        // Removing the dump, safely
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Stripping_removes_only_the_dump_marks_it_and_keeps_the_bundles_date()
+        {
+            var written = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
+            string path = Bundle("20261001-120000", withDump: true, written);
+            long before = new FileInfo(path).Length;
+
+            long freed = CrashReportStore.StripDump(path, new DateTime(2026, 11, 7, 20, 30, 0));
+
+            Assert.True(freed > 0);
+            Assert.True(new FileInfo(path).Length < before);
+            var names = Entries(path);
+            Assert.DoesNotContain(names, n => n.EndsWith(".dmp", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("JJFlexError-20261001-120000.txt", names);
+            Assert.Contains("trace-current-part.txt", names);
+            Assert.Contains("traces/older.zip", names);
+            Assert.Contains(CrashReportStore.DumpRemovedEntry, names);
+            Assert.Equal(written, File.GetLastWriteTimeUtc(path));
+            Assert.False(File.Exists(path + ".stripping"));
+
+            var (hasDump, removed) = CrashReportStore.ReadDumpState(path);
+            Assert.False(hasDump);
+            Assert.Equal(new DateTime(2026, 11, 7), removed!.Value.Date);
+        }
+
+        [Fact]
+        public void A_bundle_with_no_dump_is_left_exactly_as_it_was()
+        {
+            string path = Bundle("20261002-120000", withDump: false, new DateTime(2026, 10, 2, 12, 0, 0, DateTimeKind.Utc));
+            byte[] before = File.ReadAllBytes(path);
+            Assert.Equal(-1, CrashReportStore.StripDump(path, DateTime.Now));
+            Assert.Equal(before, File.ReadAllBytes(path));
+            Assert.False(File.Exists(path + ".stripping"));
+        }
+
+        [Fact]
+        public void A_bundle_that_cannot_be_read_is_never_left_half_written()
+        {
+            string path = Path.Combine(_dir, "JJFlexError-20261003-120000.zip");
+            File.WriteAllBytes(path, Encoding.ASCII.GetBytes("not a zip at all"));
+            byte[] before = File.ReadAllBytes(path);
+            Assert.Equal(-1, CrashReportStore.StripDump(path, DateTime.Now));
+            Assert.Equal(before, File.ReadAllBytes(path));
+            Assert.False(File.Exists(path + ".stripping"));
+        }
+
+        // ------------------------------------------------------------------
+        // The list
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void The_list_holds_the_unanswered_reports_newest_first_and_no_upload_copies()
+        {
+            string older = Bundle("20261001-120000", true, new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc));
+            string newer = Bundle("20261005-120000", true, new DateTime(2026, 10, 5, 12, 0, 0, DateTimeKind.Utc));
+            string answered = Bundle("20261006-120000", true, new DateTime(2026, 10, 6, 12, 0, 0, DateTimeKind.Utc));
+            Assert.True(CrashReportStore.Dismiss(answered));
+            File.WriteAllText(Path.Combine(_dir, "JJFlexError-20261005-120000-upload.zip"), "leftover");
+            CrashReportStore.StripDump(older, DateTime.Now);
+
+            var rows = CrashReportStore.Pending(_dir);
+
+            Assert.Equal(new[] { newer, older }, rows.Select(r => r.Path).ToArray());
+            Assert.True(rows[0].HasDump);
+            Assert.Null(rows[0].DumpRemoved);
+            Assert.False(rows[1].HasDump);
+            Assert.NotNull(rows[1].DumpRemoved);
+            Assert.True(CrashReportStore.IsAnswered(answered));
+        }
+
+        [Fact]
+        public void Each_row_is_one_sentence_that_says_whether_the_dump_is_still_there()
+        {
+            var when = new DateTime(2026, 10, 5, 12, 0, 0);
+            string with = CrashReportStore.RowSentence(new CrashReportRow("p", when, 500, true, null), b => b + " bytes");
+            string gone = CrashReportStore.RowSentence(new CrashReportRow("p", when, 500, false, new DateTime(2026, 11, 7)), b => b + " bytes");
+            Assert.Contains("500 bytes", with);
+            Assert.Contains("memory dump", with);
+            Assert.Contains("removed", gone);
+            Assert.NotEqual(with, gone);
+            Assert.DoesNotContain("{", with + gone);   // every slot filled
+        }
+
+        [Fact]
+        public void The_lists_name_says_how_many_and_never_as_a_position()
+        {
+            Assert.Contains("none", CrashReportStore.ListName(0), StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("2", CrashReportStore.ListName(2));
+            Assert.DoesNotMatch(@"\b\d+\s+of\s+\d+\b", CrashReportStore.ListName(2));
+        }
+
+        [Fact]
+        public void An_empty_or_missing_folder_lists_nothing()
+        {
+            Assert.Empty(CrashReportStore.Pending(Path.Combine(_dir, "nope")));
+            Assert.Empty(CrashReportStore.Pending(null));
+        }
+
+        // ------------------------------------------------------------------
+        // The crash reporter's side, from source (it is VB in the app)
+        // ------------------------------------------------------------------
+
+        private static string Reporter() =>
+            File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "CrashReporter.vb"));
+
+        [Fact]
+        public void A_crash_that_ends_the_app_saves_its_report_and_asks_nothing()
+        {
+            string src = Reporter();
+            int save = src.IndexOf("Private Sub SaveCrash(", StringComparison.Ordinal);
+            int gate = src.IndexOf("If isTerminating Then", save, StringComparison.Ordinal);
+            int prompt = src.IndexOf("PromptToUploadCrashBundle(zipPath, bundle)", save, StringComparison.Ordinal);
+            Assert.True(gate > save && prompt > gate, "the terminating gate must come before the question");
+            string between = src.Substring(gate, prompt - gate);
+            Assert.Contains("\"logging.crash.saved_send_later\"", between);
+            Assert.Contains("Return", between);
+        }
+
+        [Fact]
+        public void Retention_uses_the_tested_decision_and_names_a_removed_dump_in_the_log()
+        {
+            string src = Reporter();
+            int prune = src.IndexOf("Friend Sub PruneCrashReports()", StringComparison.Ordinal);
+            string body = src.Substring(prune, src.IndexOf("End Sub", prune, StringComparison.Ordinal) - prune);
+            Assert.Contains("Radios.CrashReportStore.Decide(", body);
+            Assert.Contains("Radios.CrashReportStore.StripDump(fi.FullName", body);
+            Assert.Contains("removed the memory dump from UNRESOLVED crash report {fi.Name}", body);
+            Assert.Contains("removed UNRESOLVED crash report {fi.Name}", body);   // positive control: the old log line stays
+        }
+
+        [Fact]
+        public void Sending_from_the_list_asks_first_and_a_no_there_answers_nothing()
+        {
+            string src = Reporter();
+            int offer = src.IndexOf("Friend Sub OfferToSendCrashReport(", StringComparison.Ordinal);
+            Assert.True(offer >= 0);
+            string body = src.Substring(offer, src.IndexOf("End Sub", offer, StringComparison.Ordinal) - offer);
+            Assert.Contains("PromptToUploadCrashBundle(zipPath, bundle, noMeansDismiss:=False)", body);
+            Assert.DoesNotContain("UploadCrashBundleAsync", body);   // the upload only ever follows the Yes
+            Assert.Contains("ElseIf Not noMeansDismiss Then", src);
+        }
+
+        [Fact]
+        public void The_bundle_carries_the_spoken_transcript_when_one_is_being_written()
+        {
+            string src = Reporter();
+            Assert.Contains("Radios.OutputChannelRecorder.TranscriptPath", src);
+            Assert.Contains("\"spoken-transcript.jsonl\"", src);
+        }
+    }
+}

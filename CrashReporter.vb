@@ -217,6 +217,17 @@ Module CrashReporter
                                          LocalTraceAttachMaxBytes, bundle, Radios.Lexicon.Get("logging.crash.label_previous_trace"))
                     End If
 
+                    ' The spoken transcript, when one is being written (#181): the
+                    ' trace says what the program did, this says what the operator
+                    ' heard, which is the evidence when the problem is something
+                    ' the app said. Shared read, because it is open for writing.
+                    Dim transcriptPath As String = Nothing
+                    Try : transcriptPath = Radios.OutputChannelRecorder.TranscriptPath : Catch : End Try
+                    If Not String.IsNullOrEmpty(transcriptPath) AndAlso File.Exists(transcriptPath) Then
+                        AddTraceToBundle(zip, transcriptPath, "spoken-transcript.jsonl",
+                                         LocalTraceAttachMaxBytes, bundle, Radios.Lexicon.Get("logging.crash.label_transcript"))
+                    End If
+
                     For Each tracePath As String In recentTraces
                         Try
                             If File.Exists(tracePath) Then
@@ -248,6 +259,18 @@ Module CrashReporter
             ' fill the disk until the next restart. Newest-first, so the bundle
             ' just written always survives.
             PruneCrashReports()
+
+            ' A crash that ends the process does not get the question (#181): a
+            ' prompt put in front of a dying process may never render, or be
+            ' killed mid-display, and a question that cannot be answered looks
+            ' like the app asked. The report waits in Settings, Diagnostics,
+            ' where the list of reports waiting for an answer offers it.
+            If isTerminating Then
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("logging.crash.saved_send_later"),
+                    Radios.VerbosityLevel.Critical, True)
+                Return
+            End If
 
             Radios.ScreenReaderOutput.Speak(
                 Radios.Lexicon.Get("logging.crash.saved_speech"),
@@ -481,6 +504,11 @@ Module CrashReporter
                 ' DiagnosticsSettings is populated in GetConfigInfo; a crash
                 ' before that still gets the sane default.
             End Try
+            Dim policy As Radios.UnresolvedCrashRetention = Radios.UnresolvedCrashRetention.StripDumpAfterGrace
+            Try
+                policy = Radios.CrashReportStore.PolicyFrom(DiagnosticsSettings.UnresolvedCrashRetention)
+            Catch
+            End Try
 
             Dim removed As Integer = 0
             Dim reclaimed As Long = 0
@@ -489,6 +517,7 @@ Module CrashReporter
 
             ' --- Bundles: the artifacts worth protecting. ---
             Dim bundles = Directory.GetFiles(baseDir, "JJFlexError-*.zip") _
+                .Where(Function(p) Not p.EndsWith("-upload.zip", StringComparison.OrdinalIgnoreCase)) _
                 .Select(Function(p) New FileInfo(p)) _
                 .OrderByDescending(Function(fi) fi.LastWriteTimeUtc) _
                 .ToList()
@@ -500,18 +529,40 @@ Module CrashReporter
                 Dim resolved As Boolean = HasCrashVerdict(fi.FullName)
                 Dim overCap As Boolean = (keptBytes + fi.Length) > CrashFolderMaxBytes
                 Dim tooOld As Boolean = fi.LastWriteTimeUtc < cutoffUtc
+                Dim pastGrace As Boolean = fi.LastWriteTimeUtc < unresolvedCutoffUtc
+                ' Only an older unanswered report past its grace needs the zip
+                ' opened to learn whether a dump is still in it.
+                Dim hasDump As Boolean = False
+                If index > keepNewest AndAlso Not resolved AndAlso pastGrace Then
+                    hasDump = Radios.CrashReportStore.ReadDumpState(fi.FullName).HasDump
+                End If
 
-                Dim remove As Boolean = False
+                ' The decision lives in Radios.CrashReportStore so it can be
+                ' tested (#181): the newest N stay whole; an answered one goes
+                ' past the age window or the cap; an unanswered one past its
+                ' grace follows the operator's setting, whose default removes
+                ' only its memory dump (Noel, 2026-11-07 20:24).
+                Dim action = Radios.CrashReportStore.Decide(index, keepNewest, resolved, tooOld, overCap,
+                                                              pastGrace, hasDump, policy)
+
+                If action = Radios.CrashRetentionAction.StripDump Then
+                    Dim freed As Long = Radios.CrashReportStore.StripDump(fi.FullName, DateTime.Now)
+                    If freed >= 0 Then
+                        reclaimed += freed
+                        ' Removing part of unresolved evidence must never be quiet either.
+                        Tracing.TraceLine(
+                            $"PruneCrashReports: removed the memory dump from UNRESOLVED crash report {fi.Name} (never sent and never dismissed, and older than {UnresolvedCrashGraceDays} days); the report and traces are kept",
+                            TraceLevel.Warning)
+                    End If
+                    keptBytes += SafeLength(fi.FullName)
+                    Continue For
+                End If
+
+                Dim remove As Boolean = action = Radios.CrashRetentionAction.Delete
                 Dim why As String = ""
-                If index <= keepNewest Then
-                    ' Rule 1 — the recent ones stay no matter what.
-                    remove = False
-                ElseIf resolved AndAlso (tooOld OrElse overCap) Then
-                    remove = True
-                    why = If(tooOld, "past the age window", "over the folder cap")
-                ElseIf Not resolved AndAlso fi.LastWriteTimeUtc < unresolvedCutoffUtc Then
-                    remove = True
-                    why = $"never sent and never dismissed, and older than {UnresolvedCrashGraceDays} days"
+                If remove Then
+                    why = If(resolved, If(tooOld, "past the age window", "over the folder cap"),
+                             $"never sent and never dismissed, and older than {UnresolvedCrashGraceDays} days")
                 End If
 
                 If remove Then
@@ -683,11 +734,44 @@ Module CrashReporter
     End Function
 
     ''' <summary>
+    ''' The Send button on Settings, Diagnostics, for one report waiting for
+    ''' an answer (#181): the same question the crash itself asks, with what the
+    ''' bundle holds read back from the zip, and the same send on Yes. A No here
+    ''' leaves the report waiting; the list's Dismiss is how it is answered no.
+    ''' Nothing is sent without that Yes.
+    ''' </summary>
+    Friend Sub OfferToSendCrashReport(zipPath As String)
+        Try
+            If String.IsNullOrEmpty(zipPath) OrElse Not File.Exists(zipPath) Then Return
+            Dim bundle As New BundleContents()
+            Using zip = ZipFile.OpenRead(zipPath)
+                For Each entry As ZipArchiveEntry In zip.Entries
+                    If entry.FullName.EndsWith(".dmp", StringComparison.OrdinalIgnoreCase) Then
+                        bundle.DumpIncludedLocally = True
+                    End If
+                    If String.Equals(entry.FullName, "bundle-manifest.txt", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    bundle.Included.Add(entry.FullName & " (" & FormatBytes(entry.Length) & ")")
+                Next
+            End Using
+            PromptToUploadCrashBundle(zipPath, bundle, noMeansDismiss:=False)
+        Catch offerEx As Exception
+            Tracing.ErrTraceOnly(offerEx)
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("logging.crash.prompt_failed"),
+                Radios.VerbosityLevel.Critical, True)
+        End Try
+    End Sub
+
+    ''' <summary>
     ''' Show the user what's in the crash bundle and offer to upload it. Only
     ''' POSTs to the receiver if they choose Yes. Honors the no-silent-phone-home
     ''' principle: nothing leaves the user's machine without explicit consent.
     ''' </summary>
-    Private Sub PromptToUploadCrashBundle(zipPath As String, bundle As BundleContents)
+    ''' <param name="noMeansDismiss">At the crash, No is the operator's answer and
+    ''' is recorded as dismissed; from the list's Send button it only means
+    ''' "not now".</param>
+    Private Sub PromptToUploadCrashBundle(zipPath As String, bundle As BundleContents,
+                                          Optional noMeansDismiss As Boolean = True)
         Try
             bundle.LocalBundlePath = zipPath
             Dim localBytes As Long = SafeLength(zipPath)
@@ -720,9 +804,15 @@ Module CrashReporter
             sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_send_question"))
             sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_endpoint", ("endpoint", CrashEndpoint)))
 
-            Dim choice = MessageBox.Show(AppShellForm, sb.ToString(),
-                Radios.Lexicon.Get("logging.crash.prompt_title"),
-                MessageBoxButtons.YesNo, MessageBoxIcon.Error)
+            ' From the list the Settings window is in front, so the question
+            ' takes the active window as its owner rather than the shell.
+            Dim choice = If(noMeansDismiss,
+                MessageBox.Show(AppShellForm, sb.ToString(),
+                    Radios.Lexicon.Get("logging.crash.prompt_title"),
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Error),
+                MessageBox.Show(sb.ToString(),
+                    Radios.Lexicon.Get("logging.crash.prompt_title"),
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Error))
 
             If choice = DialogResult.Yes Then
                 ' Report text and trace tail ALWAYS upload. The memory dump only
@@ -752,6 +842,9 @@ Module CrashReporter
                 ' would only add a redundant thread-pool bounce.
                 Dim _ignored = UploadCrashBundleAsync(uploadPath, reduced, zipPath) _
                     .ContinueWith(Sub(t) DiscardUploadCopy(uploadPath, zipPath))
+            ElseIf Not noMeansDismiss Then
+                ' From the list: "not now". It stays waiting for an answer.
+                Return
             Else
                 ' An explicit "no" is a verdict: the operator has decided about
                 ' this report, so retention may eventually reclaim it. Saying no
@@ -833,6 +926,16 @@ Module CrashReporter
                                 CopyTraceTail(srcZip, destZip, reduced, "trace-previous-part.txt")
                             ElseIf srcZip.GetEntry("trace-previous-part.txt") IsNot Nothing Then
                                 reduced.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_previous_no_room"))
+                            End If
+
+                            ' The spoken transcript, small next to a trace, while it fits (#181).
+                            Dim transcript As ZipArchiveEntry = srcZip.GetEntry("spoken-transcript.jsonl")
+                            If transcript IsNot Nothing Then
+                                If destStream.Position + transcript.CompressedLength <= budget Then
+                                    CopyEntry(transcript, destZip, reduced, Radios.Lexicon.Get("logging.crash.label_transcript"))
+                                Else
+                                    reduced.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_archived_no_room", ("name", transcript.Name)))
+                                End If
                             End If
 
                             For Each srcEntry As ZipArchiveEntry In srcZip.Entries

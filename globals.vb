@@ -560,6 +560,13 @@ Module globals
                 Function() If(LastCaptureArchivePath, String.Empty)
             JJFlexWpf.DiagnosticsBridge.DescribeStorage = Function() DescribeDiagnosticStorage()
             JJFlexWpf.DiagnosticsBridge.DescribeCrashReports = Function() CrashReporter.DescribeCrashReports()
+            ' #181: the list of reports waiting for an answer reads the folder
+            ' itself (Radios.CrashReportStore); only sending needs the crash
+            ' reporter, behind the same question the crash asks.
+            JJFlexWpf.DiagnosticsBridge.CrashReportFolder = Function() CrashReporter.CrashReportDir
+            JJFlexWpf.DiagnosticsBridge.OfferToSendCrashReport = Sub(path) CrashReporter.OfferToSendCrashReport(path)
+            JJFlexWpf.DiagnosticsBridge.CrashRetention = Function() DiagnosticsSettings.UnresolvedCrashRetention
+            JJFlexWpf.DiagnosticsBridge.ApplyCrashRetention = Sub(value) ApplyCrashRetentionSetting(value)
             JJFlexWpf.DiagnosticsBridge.DeleteLooseLogs = Function() DeleteLoosePlainTextTraces()
             JJFlexWpf.DiagnosticsBridge.DeleteResolvedCrashReports =
                 Function() CrashReporter.DeleteResolvedCrashReports()
@@ -1369,6 +1376,23 @@ Module globals
     ''' waiting — which is the whole point, and the opposite of asking somebody
     ''' to restart before they can capture what just happened.
     ''' </remarks>
+    ''' <summary>
+    ''' Settings, Diagnostics: what happens to an older crash report nobody has
+    ''' sent or dismissed (#181). Saved at once, like the other switches on the
+    ''' tab; the next retention pass follows it.
+    ''' </summary>
+    Friend Sub ApplyCrashRetentionSetting(value As Integer)
+        DiagnosticsSettings.UnresolvedCrashRetention = CInt(Radios.CrashReportStore.PolicyFrom(value))
+        If Not DiagnosticsSettings.Save(BaseConfigDir) Then
+            Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
+                "Your crash report setting could not be saved",
+                "The change is in effect right now, but it will not be there the next time you start JJ Flexible Radio Access. " &
+                "Something stopped the settings file from being written.")
+        End If
+        Tracing.TraceLine("CrashRetention: unresolved reports past their grace = " &
+                          CType(DiagnosticsSettings.UnresolvedCrashRetention, Radios.UnresolvedCrashRetention).ToString())
+    End Sub
+
     Friend Sub ApplySpokenTranscriptSetting(record As Boolean)
         DiagnosticsSettings.RecordSpokenOutput = record
         ' Render is left exactly as it is: this switch decides whether output is

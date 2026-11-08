@@ -117,6 +117,15 @@ namespace Radios
         public int KeepCrashReports { get; set; } = 3;
 
         /// <summary>
+        /// What happens to an older crash report nobody has sent or dismissed,
+        /// once it is past the grace window (<see cref="Radios.UnresolvedCrashRetention"/>,
+        /// stored as an int). The default, 0, removes its memory dump and keeps
+        /// the report and traces until it is answered (ruled by Noel
+        /// 2026-11-07). Absent from an older file, it reads as that default.
+        /// </summary>
+        public int UnresolvedCrashRetention { get; set; } = 0;
+
+        /// <summary>
         /// Delete downloaded firmware images older than this many days. Zero or
         /// less disables the sweep. Firmware images are a pure cache — the
         /// radio's own update flow re-downloads them on demand — so ageing them
@@ -219,6 +228,7 @@ namespace Radios
             if (cfg.KeepCrashReports < 1) cfg.KeepCrashReports = 1;
             if (cfg.KeepCrashReports > 50) cfg.KeepCrashReports = 50;
             if (cfg.FirmwareCacheDays < 0) cfg.FirmwareCacheDays = 0;
+            cfg.UnresolvedCrashRetention = (int)CrashReportStore.PolicyFrom(cfg.UnresolvedCrashRetention);
             return cfg;
         }
     }

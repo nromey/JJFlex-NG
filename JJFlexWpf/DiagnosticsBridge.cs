@@ -96,6 +96,22 @@ namespace JJFlexWpf
         /// <summary>Delete crash reports already sent or dismissed. Returns (files, bytes).</summary>
         public static Func<(int Files, long Bytes)>? DeleteResolvedCrashReports { get; set; }
 
+        /// <summary>The folder crash reports are kept in (#181). The list reads it through Radios.CrashReportStore.</summary>
+        public static Func<string>? CrashReportFolder { get; set; }
+
+        /// <summary>
+        /// Ask whether to send one crash report, the question the crash itself
+        /// asks, and send only on Yes (#181). Never sends without the operator's
+        /// press and that answer.
+        /// </summary>
+        public static Action<string>? OfferToSendCrashReport { get; set; }
+
+        /// <summary>The stored <see cref="Radios.UnresolvedCrashRetention"/>, as an int (#181).</summary>
+        public static Func<int>? CrashRetention { get; set; }
+
+        /// <summary>Change and save <see cref="CrashRetention"/>.</summary>
+        public static Action<int>? ApplyCrashRetention { get; set; }
+
         /// <summary>Human size, shared so labels and speech cannot disagree.</summary>
         public static Func<long, string>? DescribeBytes { get; set; }
 
