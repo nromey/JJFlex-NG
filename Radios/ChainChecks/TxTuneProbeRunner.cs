@@ -126,6 +126,7 @@ namespace Radios.ChainChecks
             double lastComputedSwr = double.NaN;
             bool stoppedEarly = false;
             bool everKeyed = false;
+            PaTemperatureSpan paTemperature = null;
 
             Tracing.TraceLine("TxTuneProbeRunner: keying tune carrier, power "
                 + tunePower.ToString(CultureInfo.InvariantCulture)
@@ -153,6 +154,11 @@ namespace Radios.ChainChecks
                     // is itself the finding, not a reason to keep waiting.
                     everKeyed = WaitForKeyUp(rig, cancel);
                     if (everKeyed) Witness(onKeyConfirmed, "onKeyConfirmed");
+                    // PA temperature at key-down (#236): read, reported and
+                    // traced, judged by nothing.
+                    if (everKeyed)
+                        paTemperature = PaTemperatureSpan.Begin("the transmitter check",
+                            () => PaTemperatureSpan.ReadFrom(rig));
                     if (!everKeyed)
                     {
                         Tracing.TraceLine("TxTuneProbeRunner: radio never reported transmitting "
@@ -206,7 +212,10 @@ namespace Radios.ChainChecks
                 finally
                 {
                     // Every path out lands here, including the throw above and the
-                    // early returns inside the loop. Unkey, then confirm it took.
+                    // early returns inside the loop. The PA temperature's second
+                    // reading first, while still keyed (it never throws); then
+                    // unkey, and confirm it took.
+                    paTemperature?.End(() => PaTemperatureSpan.ReadFrom(rig));
                     Unkey(rig);
 
                     // The witness is told AFTER the carrier is down, never before:
@@ -232,7 +241,8 @@ namespace Radios.ChainChecks
                                                 // now goes through (#399).
                                                 StationConditions.Frequency(rig),
                                                 StationConditions.Mode(rig),
-                                                StationConditions.Antenna(rig));
+                                                StationConditions.Antenna(rig),
+                                                paTemperature);
 
             Tracing.TraceLine("TxTuneProbeRunner: " + verdict
                 + (stoppedEarly ? " (stopped early)" : "")
@@ -367,9 +377,18 @@ namespace Radios.ChainChecks
             return double.NaN;
         }
 
-        private static bool HasAnyReading(IReadOnlyList<TxTuneProbe.Reading> meters)
+        /// <summary>
+        /// Did any TRANSMIT meter read? The PA temperature is left out: the
+        /// radio reports it keyed or not, so counting it would turn "the radio
+        /// never transmitted and nothing read" into a verdict (#236: a PA
+        /// temperature reading, present or missing, decides nothing).
+        /// </summary>
+        internal static bool HasAnyReading(IReadOnlyList<TxTuneProbe.Reading> meters)
         {
-            for (int i = 0; i < meters.Count; i++) if (meters[i].Reported) return true;
+            for (int i = 0; i < meters.Count; i++)
+                if (meters[i].Reported
+                    && !string.Equals(meters[i].Name, PaTemperatureSpan.Meter, StringComparison.OrdinalIgnoreCase))
+                    return true;
             return false;
         }
 

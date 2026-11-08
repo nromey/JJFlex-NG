@@ -60,10 +60,19 @@ namespace Radios.ChainChecks
         /// reading that did not happen stays distinguishable from a reading of
         /// zero. Same rule as <see cref="TxDifferential.Watched"/>.
         /// </para>
+        /// <para>
+        /// <b>PATEMP is sampled and reported, never judged</b> (#236, ruled
+        /// 2026-08-26: read it, report it, trace it, and invent no threshold).
+        /// Nothing that decides a verdict looks at it: <see cref="Assess"/>
+        /// reads FWDPWR and REFPWR by name, and the runner's "did anything
+        /// read" test leaves it out, because the radio reports its PA
+        /// temperature whether or not it is transmitting. Its start and end
+        /// across the carrier are in <see cref="Result.PaTemperature"/>.
+        /// </para>
         /// </remarks>
         public static readonly string[] Watched =
         {
-            "FWDPWR", "REFPWR", "SWR", "ALC",
+            "FWDPWR", "REFPWR", "SWR", "ALC", PaTemperatureSpan.Meter,
         };
 
         /// <summary>How long to hold the carrier. Long enough for the transmit
@@ -274,13 +283,21 @@ namespace Radios.ChainChecks
             /// </remarks>
             public string SkipDetail { get; }
 
+            /// <summary>
+            /// The PA temperature at key-down and just before the carrier
+            /// dropped. Reported in the evidence and traced; it decides
+            /// nothing (#236). Null when the tune never keyed.
+            /// </summary>
+            public PaTemperatureSpan PaTemperature { get; }
+
             private Result(Verdict verdict, SkipReason skipped, DateTime atUtc,
                            IReadOnlyList<Reading> meters, int tunePower, double computedSwr,
                            bool stoppedEarly,
                            string frequency, string mode, string antenna,
-                           string skipDetail = null)
+                           string skipDetail = null, PaTemperatureSpan paTemperature = null)
             {
                 SkipDetail = skipDetail ?? "";
+                PaTemperature = paTemperature;
                 Verdict = verdict; Skipped = skipped; AtUtc = atUtc;
                 Meters = meters ?? Array.Empty<Reading>();
                 TunePowerSetting = tunePower; ComputedSwr = computedSwr;
@@ -302,9 +319,11 @@ namespace Radios.ChainChecks
             public static Result Ran(Verdict verdict, DateTime atUtc,
                                      IReadOnlyList<Reading> meters, int tunePower,
                                      double computedSwr, bool stoppedEarly,
-                                     string frequency, string mode, string antenna)
+                                     string frequency, string mode, string antenna,
+                                     PaTemperatureSpan paTemperature = null)
                 => new Result(verdict, SkipReason.None, atUtc, meters, tunePower,
-                              computedSwr, stoppedEarly, frequency, mode, antenna);
+                              computedSwr, stoppedEarly, frequency, mode, antenna,
+                              paTemperature: paTemperature);
 
             /// <summary>
             /// True when the audio-chain tests have standing to run and to be
@@ -633,6 +652,7 @@ namespace Radios.ChainChecks
 
             sb.AppendLine("Readings:");
             foreach (Reading m in r.Meters) sb.AppendLine("  " + m);
+            sb.Append(PaTemperatureSpan.EvidenceLines(r.PaTemperature));
             sb.AppendLine();
 
             sb.AppendLine("What JJ Flexible made of the above (our interpretation, not a measurement):");

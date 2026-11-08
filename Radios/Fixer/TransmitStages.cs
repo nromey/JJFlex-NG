@@ -69,6 +69,10 @@ namespace Radios.Fixer
         /// a run that fails afterwards still says so: see
         /// <see cref="SpokenTransmitFacts.Keyed"/>.</summary>
         public bool Keyed { get; set; }
+
+        /// <summary>The PA temperature at key-down and just before the carrier
+        /// dropped (#236). Reported, never judged. Null when nothing keyed.</summary>
+        public PaTemperatureSpan PaTemperature { get; set; }
     }
 
     /// <summary>Stage 4's facts: the operator spoke; did it reach the radio?</summary>
@@ -106,6 +110,10 @@ namespace Radios.Fixer
         public string Conditions { get; set; } = "";
 
         public string Detail { get; set; } = "";
+
+        /// <summary>The PA temperature at key-down and just before the carrier
+        /// dropped (#236). Reported, never judged. Null when nothing keyed.</summary>
+        public PaTemperatureSpan PaTemperature { get; set; }
     }
 
     /// <summary>
@@ -353,6 +361,7 @@ namespace Radios.Fixer
                 : facts.ConditioningActive.Value ? "on" : "off"));
             if (facts.Detail.Length > 0) sb.AppendLine(facts.Detail.TrimEnd());
             sb.Append(ConditionsLines(facts.Conditions));
+            sb.Append(PaTemperatureSpan.EvidenceLines(facts.PaTemperature));
             sb.Append(LoadLine(loadDeclaration));
 
             // The boundary hands over its probes only at the end of a keyed
@@ -457,6 +466,7 @@ namespace Radios.Fixer
                     : "attempted, but nothing was measured"));
             if (facts.Detail.Length > 0) sb.AppendLine(facts.Detail.TrimEnd());
             sb.Append(ConditionsLines(facts.Conditions));
+            sb.Append(PaTemperatureSpan.EvidenceLines(facts.PaTemperature));
             sb.Append(LoadLine(loadDeclaration));
 
             var findings = new List<FixerFinding>();
