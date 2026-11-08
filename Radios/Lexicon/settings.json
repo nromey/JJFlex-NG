@@ -277,6 +277,8 @@
   "settings.flexdb.exported": "Export complete",
   "settings.flexdb.import_failed": "import didn't complete",
   "settings.flexdb.import_file_title": "Import File",
+  "_note_477_rulings": "Junk box #477 rulings (Noel, 2026-11-08) added settings.flexdb.import_only_lan below: import is refused over SmartLink, as export is. A DRAFT FOR NOEL'S REVIEW.",
+  "settings.flexdb.import_only_lan": { "text": "Profile import requires a LAN connection. Over a SmartLink (remote) connection the radio's upload port cannot be reached, so the import file cannot be sent to it.", "delivery": null },
   "settings.flexdb.imported": "Import complete",
   "settings.flexdb.imported_station_unconfirmed": "Import complete. Your station could not be confirmed afterwards; whatever the radio set up is kept, and nothing was changed on top of it.",
   "settings.flexdb.no_import_file": "no import file found.",

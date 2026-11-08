@@ -10667,13 +10667,39 @@ namespace Radios
         /// import runs (<see cref="ImportProfile"/>). Refused returns
         /// <see cref="GuardedOutcome.Refused"/>, already spoken; the caller
         /// must not add a failure sentence.
+        /// <para>
+        /// Refused outright on a SmartLink (remote) connection, as export
+        /// already is (ruled by Noel 2026-11-08: <i>"Refuse it over
+        /// SmartLink"</i>). The upload connects to the radio's own upload
+        /// port, which SmartLink does not carry, so over SmartLink the import
+        /// could only fail, and fail after the radio's power-off notice and
+        /// after PC audio had been stopped. It is refused here, before the
+        /// file dialog and before anything is queued. No second check is added
+        /// at the upload: the connection does not change from LAN to SmartLink
+        /// in between, and Noel ruled the hold's own gap there left as it is.
+        /// </para>
         /// </remarks>
         public GuardedOutcome ImportProfileDatabase()
         {
+            if (RemoteRig)
+            {
+                Tracing.TraceLine("Flex import refused: remote/SmartLink connection", TraceLevel.Warning);
+                if (!SuppressSpeech)
+                    ScreenReaderOutput.Speak(Lexicon.Get("settings.flexdb.import_only_lan"),
+                        VerbosityLevel.Critical, true);
+                return GuardedOutcome.Refused;
+            }
             if (GuardRefuses("settings.guard.action.profile_import")) return GuardedOutcome.Refused;
             var db = new FlexDB(this);
-            return db.Import() ? GuardedOutcome.Done : GuardedOutcome.Failed;
+            return (ProfileImportRunner ?? db.Import)() ? GuardedOutcome.Done : GuardedOutcome.Failed;
         }
+
+        /// <summary>
+        /// Stands in for <see cref="FlexDB.Import"/>, the file dialog and the
+        /// archive it rebuilds, so a test can reach the import's decisions
+        /// without a window. Null in the product.
+        /// </summary>
+        internal Func<bool> ProfileImportRunner { get; set; }
 
         /// <summary>
         /// Returns a snapshot of all meters currently known to the radio.

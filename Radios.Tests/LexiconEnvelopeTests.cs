@@ -1149,6 +1149,11 @@ namespace Radios.Tests
                 "settings.diagnostics.disk_note_strip_dump",
                 "settings.diagnostics.disk_note_delete",
 
+                // Junk box #477 rulings (2026-11-08): profile import refused
+                // over SmartLink. Said only in answer to the operator's
+                // press: TextOnly. DRAFT PROSE.
+                "settings.flexdb.import_only_lan",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than

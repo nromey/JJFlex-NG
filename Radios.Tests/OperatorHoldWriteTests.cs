@@ -328,7 +328,10 @@ namespace Radios.Tests
             string fb = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
             int at = fb.IndexOf("public GuardedOutcome ImportProfileDatabase()", StringComparison.Ordinal);
             Assert.True(at >= 0, "ImportProfileDatabase no longer reports a refusal apart from a failure");
-            string body = fb.Substring(at, 400);
+            // To the method's end, not a fixed 400 characters: the SmartLink
+            // refusal ruled 2026-11-08 sits ahead of the hold and pushed the
+            // file step past a fixed window, with the ordering unchanged.
+            string body = fb.Substring(at, fb.IndexOf("\n        }", at, StringComparison.Ordinal) - at);
             int guard = body.IndexOf("GuardRefuses(\"settings.guard.action.profile_import\")", StringComparison.Ordinal);
             int dialog = body.IndexOf("new FlexDB(this)", StringComparison.Ordinal);
             Assert.True(guard > 0 && dialog > guard, "the refusal must come before the file dialog");
