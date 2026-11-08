@@ -453,6 +453,42 @@ namespace JJFlexWpf
             EngineId = pair.Key, Direction = Direction, Strength = pair.Value.Strength,
             Values = pair.Value.Values.Select(v => new DenoiseNamedValue { Name = v.Key, Number = v.Value.Number, Choice = v.Value.Choice }).ToList()
         }).ToArray();
+        /// <summary>
+        /// Put back stored settings (a preset, Escape) and choose
+        /// <paramref name="id"/>, building at most once (Sprint 49 Track E
+        /// repair round 1, B3). Another engine builds from the restored values,
+        /// as any choice does. The engine already chosen rebuilds, under the
+        /// warm-up cross-fade, when a setting only a new instance can take
+        /// (<see cref="EngineSettingDescriptor.NeedsRebuild"/>: NNR's model,
+        /// NR4's estimator, a new delay) now differs from what was stored
+        /// before, as <see cref="TrySetSetting"/> does for one setting; without
+        /// that, the stored value and the engine you hear disagree, because
+        /// <see cref="ApplyParameters"/> deliberately never pushes a rebuild
+        /// setting into a running instance. Returns true when the chosen engine
+        /// changed.
+        /// </summary>
+        internal bool RestoreAndSelect(IEnumerable<DenoiseEngineSettings> records, string id)
+        {
+            string chosen = ChosenEngineId;
+            var before = RebuildValues(chosen);
+            RestoreSettings(records);
+            if (id.Length > 0 && id != chosen)
+            {
+                Select(id, out _);
+                return true;
+            }
+            if (chosen.Length == 0 || before.SequenceEqual(RebuildValues(chosen))) return false;
+            // A rebuild unless the running instance was built with exactly
+            // these values already (Escape put back what is playing): then the
+            // new choice only retires a warming build of the value undone.
+            Select(chosen, out _, force: !(RunningEngineId == chosen && RunningLatencyCurrent(chosen)));
+            return false;
+        }
+
+        private List<string> RebuildValues(string id) => SettingsFor(id).Where(d => d.NeedsRebuild)
+            .Select(d => { var v = GetSetting(id, d.Name); return d.Name + "=" + (v.Choice ?? v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture)); })
+            .ToList();
+
         internal void RestoreSettings(IEnumerable<DenoiseEngineSettings> records)
         {
             foreach (var record in records)

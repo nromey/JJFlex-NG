@@ -310,9 +310,68 @@ namespace JJFlexWpf
                 mem.NnrVoiceModelOwed = ""; // an operator's own choice outside CW is not owed back
         }
 
+        /// <summary>
+        /// A model arriving by any road (a favourite, the brackets, a preset,
+        /// Escape), set under the mode's rule (repair round 1, B4).
+        /// </summary>
         private void SetModelQuietly(DenoiseEngineEntry e, PcDenoiseSlot slot, string model)
         {
-            if (e.Settings.Any(d => d.Name == "model")) slot.TrySetSetting(e.Id, "model", new EngineSettingValue(0, model));
+            if (!e.Settings.Any(d => d.Name == "model")) return;
+            string admitted = AdmitModel(e, model);
+            // The model is a rebuild setting: setting the one already held
+            // would rebuild the engine for nothing.
+            if (slot.GetSetting(e.Id, "model").Choice != admitted)
+                slot.TrySetSetting(e.Id, "model", new EngineSettingValue(0, admitted));
+        }
+
+        /// <summary>
+        /// The model an engine may take in the current mode. In CW, NNR offers
+        /// only its CW models (ruled 2026-11-04 20:23), so a voice model
+        /// becomes the CW model the measured rule picks, and the voice model is
+        /// owed back on leaving CW, exactly as entering CW does. Every road a
+        /// model enters by asks this, before anything is built (B4): the
+        /// favourite stays in the list, and in CW it lands on the CW model.
+        /// </summary>
+        private string AdmitModel(DenoiseEngineEntry e, string model)
+        {
+            if (e.Id != "nnr" || CurrentGroup != NoiseModeGroup.Cw || NoiseModeRules.IsCwModel(model)) return model;
+            string cw = NoiseModeRules.ChooseCwModel(_cwCost).Model;
+            if (Memory is { } mem) mem.NnrVoiceModelOwed = model;
+            NoiseSettingsJournal.Record(NoiseJournalKind.Model, "mode change", e.Id, "model", model, cw, byJjFlexible: true);
+            return cw;
+        }
+
+        /// <summary>
+        /// Settings about to be put back on a slot (a preset, Escape), under
+        /// the mode's rule, BEFORE the slot builds anything (B4). When NNR is
+        /// the engine the slot will run in CW, a voice model in its record, or
+        /// one it holds now with no record to replace it, becomes the CW model.
+        /// The records themselves are never changed: a preset keeps the voice
+        /// model it was saved with, for the next time it is applied in voice.
+        /// </summary>
+        private IReadOnlyList<Radios.DenoiseEngineSettings> AdmitForMode(PcDenoiseSlot slot, IReadOnlyList<Radios.DenoiseEngineSettings> records, string target)
+        {
+            if (target != "nnr" || CurrentGroup != NoiseModeGroup.Cw || _catalog.Find("nnr") is not { } e || e.Family != slot.Family
+                || e.Settings.FirstOrDefault(d => d.Name == "model") is not { } modelSetting) return records;
+            var record = records.LastOrDefault(r => r.EngineId == "nnr");
+            if (record == null)
+            {
+                string now = slot.GetSetting("nnr", "model").Choice ?? "";
+                string admitted = AdmitModel(e, now);
+                if (admitted != now) slot.TrySetSetting("nnr", "model", new EngineSettingValue(0, admitted));
+                return records;
+            }
+            string stored = record.Values.LastOrDefault(v => v.Name == "model")?.Choice ?? modelSetting.Default.Choice ?? "";
+            string model = AdmitModel(e, stored);
+            if (model == stored) return records;
+            var copy = new Radios.DenoiseEngineSettings
+            {
+                EngineId = record.EngineId, Direction = record.Direction, Strength = record.Strength,
+                Values = record.Values.Where(v => v.Name != "model")
+                    .Select(v => new Radios.DenoiseNamedValue { Name = v.Name, Number = v.Number, Choice = v.Choice })
+                    .Append(new Radios.DenoiseNamedValue { Name = "model", Choice = model }).ToList(),
+            };
+            return records.Select(r => ReferenceEquals(r, record) ? copy : r).ToList();
         }
 
         /// <summary>Choosing an engine applies the mode's rules first: NNR in CW takes a CW model.</summary>

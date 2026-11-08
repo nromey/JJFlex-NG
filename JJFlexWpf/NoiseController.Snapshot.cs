@@ -131,11 +131,8 @@ namespace JJFlexWpf
                     changed = true;
                 }
             }
-            if (_pipeline() is { } p)
-            {
-                changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings);
-                changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings);
-            }
+            // Memory first, so a model the mode's rule swaps while the slots
+            // are put back is owed back on leaving CW (B4) and not undone.
             if (_config() is { } c)
             {
                 if (!c.NoiseFavourites.Select(f => (f.EngineId, f.Model, f.Name)).SequenceEqual(snap.Favourites.Select(f => (f.EngineId, f.Model, f.Name))))
@@ -143,8 +140,19 @@ namespace JJFlexWpf
                     c.NoiseFavourites = snap.Favourites.ToList();
                     changed = true;
                 }
-                if (snap.MemoryXml.Length > 0 && SerializeMemory(c.NoiseModeMemory) != snap.MemoryXml)
-                    c.NoiseModeMemory = DeserializeMemory(snap.MemoryXml) ?? c.NoiseModeMemory;
+                if (snap.MemoryXml.Length > 0 && SerializeMemory(c.NoiseModeMemory) != snap.MemoryXml
+                    && DeserializeMemory(snap.MemoryXml) is { } memory)
+                {
+                    // The group the live settings are in is where the radio is
+                    // now, not where it was when the layer opened (B6).
+                    memory.LastGroup = c.NoiseModeMemory.LastGroup;
+                    c.NoiseModeMemory = memory;
+                }
+            }
+            if (_pipeline() is { } p)
+            {
+                changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings);
+                changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings);
             }
             ClearListening();
             ForgetZero();
@@ -152,21 +160,24 @@ namespace JJFlexWpf
             return changed;
         }
 
-        private static bool RestoreSlot(PcDenoiseSlot slot, (bool On, string Engine) want, Radios.DenoiseEngineSettings[] settings)
+        private bool RestoreSlot(PcDenoiseSlot slot, (bool On, string Engine) want, Radios.DenoiseEngineSettings[] settings)
         {
             bool changed = false;
             var now = slot.ExportSettings();
+            var back = new List<Radios.DenoiseEngineSettings>();
             if (Describe(now) != Describe(settings))
             {
                 // An engine first touched inside the layer has no entry in the
                 // snapshot: it goes back to its defaults (strength and no values).
-                var back = settings.ToList();
+                back.AddRange(settings);
                 foreach (var extra in now.Where(n => settings.All(s => s.EngineId != n.EngineId)))
                     back.Add(new Radios.DenoiseEngineSettings { EngineId = extra.EngineId, Direction = extra.Direction, Strength = DefaultStrength(extra.EngineId) });
-                slot.RestoreSettings(back);
                 changed = true;
             }
-            if (want.Engine.Length > 0 && slot.ChosenEngineId != want.Engine) { slot.Select(want.Engine, out _); changed = true; }
+            string target = want.Engine.Length > 0 ? want.Engine : slot.ChosenEngineId;
+            // The mode's rule (B4), then the settings and the choice; an engine
+            // still chosen rebuilds when a model or estimator went back (B3).
+            if (slot.RestoreAndSelect(AdmitForMode(slot, back, target), target)) changed = true;
             if (slot.Enabled != want.On) { slot.Enabled = want.On; changed = true; }
             return changed;
         }

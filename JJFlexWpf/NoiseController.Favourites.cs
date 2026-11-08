@@ -129,14 +129,15 @@ namespace JJFlexWpf
 
             if (from != null && from.EngineId == to.EngineId)
             {
-                // The same engine in another model: changed in place.
+                // The same engine in another model: changed in place, under
+                // the mode's rule (B4), so a voice model in CW lands on CW's.
                 if (to.Model != null && e.Side == DenoiseSide.Pc && SlotFor(e) is { } slot)
                 {
-                    slot.TrySetSetting(e.Id, "model", new EngineSettingValue(0, to.Model));
+                    SetModelQuietly(e, slot, to.Model);
                     if (!IsOn(e.Id)) TurnComputerOn(e, source, speak: false, model: to.Model);
                 }
                 else if (!IsOn(e.Id)) TurnOn(e, to.Model, source);
-                Say(L("audio.noise_surface.on", ("engine", FavouriteName(to))), SpeechSubject.NoiseEngineSwitch);
+                Say(L("audio.noise_surface.on", ("engine", SteppedName(to))) + CwModelClause(to), SpeechSubject.NoiseEngineSwitch);
                 return;
             }
 
@@ -145,10 +146,22 @@ namespace JJFlexWpf
             string? replaced = TurnOn(e, to.Model, source);
             if (turnOffFrom && fromEntry!.Id != replaced) TurnOff(fromEntry, source);
             string? offName = turnOffFrom ? FavouriteName(from!) : replaced != null ? NameOf(replaced) : null;
-            Say(offName == null ? L("audio.noise_surface.on", ("engine", FavouriteName(to)))
-                                : L("audio.noise_surface.on_replacing", ("engine", FavouriteName(to)), ("other", offName)),
+            Say((offName == null ? L("audio.noise_surface.on", ("engine", SteppedName(to)))
+                                 : L("audio.noise_surface.on_replacing", ("engine", SteppedName(to)), ("other", offName))) + CwModelClause(to),
                 SpeechSubject.NoiseEngineSwitch);
         }
+
+        /// <summary>Whether a favourite's model was not the one it landed on (in CW, a voice model lands on CW's, B4).</summary>
+        private bool LandedElsewhere(NoiseFavourite f) =>
+            f.Model is { Length: > 0 } wanted && CurrentModel(f.EngineId) is string landed && landed != wanted;
+
+        /// <summary>The name a stepped-to favourite is spoken by: the model it actually landed on, when the mode's rule chose another.</summary>
+        private string SteppedName(NoiseFavourite f) =>
+            LandedElsewhere(f) ? NameOf(f.EngineId) + " " + ModelName(CurrentModel(f.EngineId)!) : FavouriteName(f);
+
+        /// <summary>At Chatty, why the model differs from the favourite's (the CW rule), said after the switch.</summary>
+        private string CwModelClause(NoiseFavourite f) =>
+            LandedElsewhere(f) && Chatty ? " " + L("audio.noise_surface.cw_model", ("model", ModelName(CurrentModel(f.EngineId)!))) : "";
 
         /// <summary>Turn an engine on without speaking; returns the computer engine it replaced in its slot, if any.</summary>
         private string? TurnOn(DenoiseEngineEntry e, string? model, string source)

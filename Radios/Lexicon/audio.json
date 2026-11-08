@@ -1520,6 +1520,7 @@
   "audio.noise_surface.radio_turned_off": {"text": {"critical": "{engine} off.", "terse": "{engine} off.", "chatty": "The radio turned {engine} off."}, "delivery": null},
   "audio.noise_surface.phrase_on": {"text": "{engine} on", "delivery": null},
   "audio.noise_surface.phrase_off": {"text": "{engine} off", "delivery": null},
+  "audio.noise_surface.phrase_setting": {"text": "{engine} {lever}, {value}", "delivery": null},
   "audio.noise_surface.and": {"text": "and", "delivery": null},
   "audio.noise_surface.refused_radio": {"text": {"critical": "{engine}, {short}.", "terse": "{engine}, {short}.", "chatty": "{engine}: {reason}."}, "delivery": null},
   "audio.noise_surface.cw_only": {"text": {"critical": "{engine}, CW only.", "terse": "{engine}, CW only.", "chatty": "{engine} works in CW only. Change to a CW mode to use it."}, "delivery": null},

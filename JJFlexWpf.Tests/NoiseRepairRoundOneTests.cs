@@ -135,6 +135,171 @@ public sealed class NoiseRepairRoundOneTests
         Assert.Equal(new[] { "radio_nb=off" }, f.Radio.Writes);
     }
 
+    // ── B3: presets and Escape rebuild what only a new instance can take ──
+
+    [Fact]
+    public void B3_a_preset_with_another_NNR_model_rebuilds_the_running_engine_and_says_so()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.PresetStore = new MemoryPresets();
+        f.Noise.Toggle("nnr", "test");
+        PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "standard");
+        Assert.NotNull(f.Noise.SavePreset("Standard", includeNoise: true, includeChain: false, PresetCollision.Ask, "test"));
+        var model = f.Noise.Levers("nnr", false).Single(l => l.Key == "model");
+        f.Noise.Set(model, null, "premium", "test");
+        // The positive control inside the test: the ordinary lever reaches the running engine.
+        PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "premium");
+        Assert.Equal("premium", Running(f.Pipeline.NeuralSlot, "model"));
+
+        f.Noise.ApplyPreset("Standard", "test");
+        PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "standard");
+        Assert.Equal("standard", f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice);
+        Assert.Equal("standard", Running(f.Pipeline.NeuralSlot, "model"));
+        Assert.Equal("Standard preset: NNR model, Standard voice.", f.Spoken.Last);
+    }
+
+    [Fact]
+    public void B3_Escape_after_a_model_change_rebuilds_the_running_engine_on_the_model_put_back()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("nnr", "test");
+        PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "standard");
+        var snap = f.Noise.TakeSnapshot();
+        var model = f.Noise.Levers("nnr", false).Single(l => l.Key == "model");
+        f.Noise.Set(model, null, "premium_cw", "test");
+        PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "premium_cw");
+        Assert.Equal("premium_cw", Running(f.Pipeline.NeuralSlot, "model"));
+
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
+        PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "standard");
+        Assert.Equal("standard", f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice);
+        Assert.Equal("standard", Running(f.Pipeline.NeuralSlot, "model"));
+    }
+
+    [Fact]
+    public void B3_Escape_after_an_NR4_estimator_change_rebuilds_NR4_on_the_estimator_put_back()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("nr4", "test");
+        string start = f.Pipeline.SpectralSlot.GetSetting("nr4", "noise_estimator").Choice!;
+        PumpUntil(f, () => Running(f.Pipeline.SpectralSlot, "noise_estimator") == start);
+        var snap = f.Noise.TakeSnapshot();
+        var estimator = f.Noise.Levers("nr4", true).Single(l => l.Key == "noise_estimator");
+        string other = f.Noise.OptionsFor(estimator).Select(o => o.Name).First(n => n != start);
+        f.Noise.Set(estimator, null, other, "test");
+        PumpUntil(f, () => Running(f.Pipeline.SpectralSlot, "noise_estimator") == other);
+        Assert.Equal(other, Running(f.Pipeline.SpectralSlot, "noise_estimator"));
+
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
+        PumpUntil(f, () => Running(f.Pipeline.SpectralSlot, "noise_estimator") == start);
+        Assert.Equal(start, Running(f.Pipeline.SpectralSlot, "noise_estimator"));
+    }
+
+    [Fact]
+    public void B3_a_preset_that_changes_only_settings_says_what_changed_and_journals_it()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.PresetStore = new MemoryPresets();
+        f.Noise.Toggle("rnnoise", "test");
+        Assert.NotNull(f.Noise.SavePreset("Gentle", true, false, PresetCollision.Ask, "test"));   // strength 80
+        var strength = f.Noise.Levers("rnnoise", false)[0];
+        f.Noise.Set(strength, 50, null, "test");
+
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try { f.Noise.ApplyPreset("Gentle", "test"); }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+
+        Assert.Equal(0.8f, f.Pipeline.NeuralSlot.GetStrength("rnnoise"), 3);
+        Assert.Equal("Gentle preset: RNNoise strength, 80 percent.", f.Spoken.Last);
+        Assert.DoesNotContain("nothing to change", f.Spoken.Last);
+        lock (entries)
+        {
+            var applied = Assert.Single(entries, e => e.Kind == NoiseJournalKind.PresetApplied && e.Source == "test");
+            Assert.Contains(applied.Changes, c => c.EngineId == "rnnoise" && c.Setting == "strength" && c.OldValue == "50" && c.NewValue == "80");
+        }
+    }
+
+    [Fact]
+    public void B3_a_preset_identical_to_what_is_running_still_says_nothing_to_change_and_rebuilds_nothing()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.PresetStore = new MemoryPresets();
+        f.Noise.Toggle("nnr", "test");
+        PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "standard");
+        Assert.NotNull(f.Noise.SavePreset("Same", true, false, PresetCollision.Ask, "test"));
+        int built = f.Built.Count(id => id == "nnr");
+        f.Noise.ApplyPreset("Same", "test");
+        Pump(f);
+        Assert.Equal(built, f.Built.Count(id => id == "nnr"));
+        Assert.Equal("Same preset: nothing to change.", f.Spoken.Last);
+    }
+
+    // ── B4: the CW model rule on every road a model enters by ──
+
+    [Fact]
+    public void B4_a_voice_model_favourite_stepped_to_in_CW_lands_on_the_CW_model_and_says_so()
+    {
+        // Codex's probe: NNR Standard voice marked in voice, CW entered,
+        // the brackets step to it with NNR already on.
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("nnr", "test");
+        f.Noise.ToggleFavourite("nnr", "test");                  // NNR Standard voice
+        f.Noise.OnModeChanged("CW");                             // CW's starting point: Premium CW
+        f.Noise.BeginSession();
+        f.Noise.Step(+1, "test");
+        Assert.Equal("premium_cw", f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice);
+        PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "premium_cw");
+        Assert.Equal("premium_cw", Running(f.Pipeline.NeuralSlot, "model"));
+        Assert.Equal("NNR Premium CW on. NNR switched to Premium CW for CW; the voice model comes back when you leave CW.", f.Spoken.Last);
+        Assert.Single(f.Noise.Favourites);                       // the favourite stays in the list
+        Assert.Equal("standard", f.Config.NoiseModeMemory.NnrVoiceModelOwed);
+    }
+
+    [Fact]
+    public void B4_stepping_between_two_voice_model_favourites_of_NNR_in_CW_never_leaves_a_CW_model()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("nnr", "test");
+        f.Noise.ToggleFavourite("nnr", "test");                  // Standard voice
+        f.Noise.Set(f.Noise.Levers("nnr", false).Single(l => l.Key == "model"), null, "premium", "test");
+        f.Noise.ToggleFavourite("nnr", "test");                  // Premium voice
+        f.Noise.OnModeChanged("CW");
+        f.Noise.BeginSession();
+        f.Noise.Step(+1, "test");
+        Assert.True(NoiseModeRules.IsCwModel(f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice));
+        f.Noise.Step(+1, "test");                                // the same-engine branch
+        Assert.True(NoiseModeRules.IsCwModel(f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice));
+        Assert.True(f.Noise.IsOn("nnr"));
+        PumpUntil(f, () => NoiseModeRules.IsCwModel(Running(f.Pipeline.NeuralSlot, "model")));
+        Assert.True(NoiseModeRules.IsCwModel(Running(f.Pipeline.NeuralSlot, "model")));
+    }
+
+    [Fact]
+    public void B4_a_preset_bringing_NNR_back_in_CW_lands_on_the_CW_model_and_keeps_its_own_voice_model()
+    {
+        using var f = new NoiseFixture();
+        var store = new MemoryPresets();
+        f.Noise.PresetStore = store;
+        f.Noise.Toggle("nnr", "test");
+        Assert.NotNull(f.Noise.SavePreset("Voice NNR", true, false, PresetCollision.Ask, "test"));
+        f.Noise.Toggle("rnnoise", "test");                       // NNR replaced
+        f.Noise.OnModeChanged("CW");
+        f.Noise.Toggle("rnnoise", "test");                       // whatever CW started on, RNNoise now
+        if (!f.Noise.IsOn("rnnoise")) f.Noise.Toggle("rnnoise", "test");
+        Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.ChosenEngineId);
+
+        f.Noise.ApplyPreset("Voice NNR", "test");
+        Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.True(NoiseModeRules.IsCwModel(f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice));
+        PumpUntil(f, () => f.Pipeline.NeuralSlot.RunningEngineId == "nnr" && NoiseModeRules.IsCwModel(Running(f.Pipeline.NeuralSlot, "model")));
+        Assert.True(NoiseModeRules.IsCwModel(Running(f.Pipeline.NeuralSlot, "model")));
+        // The preset itself still holds the voice model, for voice.
+        var held = store.Data.NoisePresets.Single(p => p.Name == "Voice NNR").ReceiveNoise!.Neural.Settings!;
+        Assert.DoesNotContain(held.Values, v => v.Name == "model" && NoiseModeRules.IsCwModel(v.Choice));
+    }
+
     // ── B5: a choice made with the slot off is remembered per mode ──
 
     [Fact]

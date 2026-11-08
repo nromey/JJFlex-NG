@@ -144,22 +144,60 @@ namespace JJFlexWpf
 
         private void ApplySlot(PcDenoiseSlot slot, NoisePresetSlot want, List<NoiseJournalChange> changes, List<string> phrases)
         {
-            if (want.Settings != null) slot.RestoreSettings(new[] { want.Settings });
             bool wasOn = slot.Enabled; string wasId = slot.ChosenEngineId;
-            if (want.EngineId.Length > 0 && _catalog.Find(want.EngineId) is { Factory: not null } && slot.ChosenEngineId != want.EngineId)
-                slot.Select(want.EngineId, out _);
+            string target = want.EngineId.Length > 0 && _catalog.Find(want.EngineId) is { Factory: not null } ? want.EngineId : wasId;
+            var records = want.Settings != null ? new[] { want.Settings } : Array.Empty<DenoiseEngineSettings>();
+            var before = records.Select(r => (r.EngineId, Values: SettingValues(slot, r.EngineId))).ToList();
+            // The mode's rule first (B4), then the settings and the choice,
+            // rebuilding an engine already chosen when a rebuild setting
+            // changed (B3), so what you hear is what the preset holds.
+            slot.RestoreAndSelect(AdmitForMode(slot, records, target), target);
             slot.Enabled = want.On;
-            if (wasOn == slot.Enabled && (!slot.Enabled || wasId == slot.ChosenEngineId)) return;
-            if (slot.Enabled)
+            if (!(wasOn == slot.Enabled && (!slot.Enabled || wasId == slot.ChosenEngineId)))
             {
-                changes.Add(new(slot.ChosenEngineId, "", "off", "on"));
-                phrases.Add(L("audio.noise_surface.phrase_on", ("engine", NameOf(slot.ChosenEngineId))));
+                if (slot.Enabled)
+                {
+                    changes.Add(new(slot.ChosenEngineId, "", "off", "on"));
+                    phrases.Add(L("audio.noise_surface.phrase_on", ("engine", NameOf(slot.ChosenEngineId))));
+                }
+                else
+                {
+                    changes.Add(new(wasId, "", "on", "off"));
+                    phrases.Add(L("audio.noise_surface.phrase_off", ("engine", NameOf(wasId))));
+                }
             }
-            else
-            {
-                changes.Add(new(wasId, "", "on", "off"));
-                phrases.Add(L("audio.noise_surface.phrase_off", ("engine", NameOf(wasId))));
-            }
+            // A preset that changes only settings changes something, and says
+            // what (B3): one journal change and one phrase per setting moved.
+            foreach (var (engineId, was) in before)
+                foreach (var (name, now) in SettingValues(slot, engineId))
+                {
+                    if (was.TryGetValue(name, out string? old) && old == now) continue;
+                    changes.Add(new(engineId, name, old ?? "", now));
+                    if (SettingPhrase(slot, engineId, name) is string phrase) phrases.Add(phrase);
+                }
+        }
+
+        /// <summary>An engine's Strength and every setting as words, for the before-and-after of a preset.</summary>
+        private Dictionary<string, string> SettingValues(PcDenoiseSlot slot, string engineId)
+        {
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (_catalog.Find(engineId) is not { Side: DenoiseSide.Pc } e || e.Family != slot.Family) return values;
+            values["strength"] = Pct(slot.GetStrength(engineId));
+            foreach (var d in slot.SettingsFor(engineId))
+                values[d.Name] = Describe(slot.GetSetting(engineId, d.Name));
+            return values;
+        }
+
+        /// <summary>One moved setting as the preset summary says it: "NNR model, Standard voice".</summary>
+        private string? SettingPhrase(PcDenoiseSlot slot, string engineId, string name)
+        {
+            if (_catalog.Find(engineId) is not { } e) return null;
+            var lever = name == "strength"
+                ? new NoiseLever(engineId, "strength", "audio.noise_surface.lever.strength", NoiseLeverKind.Strength)
+                : e.Settings.FirstOrDefault(d => d.Name == name) is { } d ? new NoiseLever(engineId, d.Name, d.LabelKey, NoiseLeverKind.Setting, d) : null;
+            if (lever == null) return null;
+            return L("audio.noise_surface.phrase_setting", ("engine", Lexicon.Get(e.LabelKey)),
+                ("lever", LeverName(lever).ToLowerInvariant()), ("value", ValueText(lever)));
         }
 
         /// <summary>What a save of the current settings would hold.</summary>

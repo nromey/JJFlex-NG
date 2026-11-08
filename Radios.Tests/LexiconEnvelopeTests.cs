@@ -2171,6 +2171,9 @@ namespace Radios.Tests
                 "audio.noise_surface.radio_turned_off",
                 "audio.noise_surface.phrase_on",
                 "audio.noise_surface.phrase_off",
+                // Sprint 49 Track E repair round 1 (B3): one moved setting in a
+                // preset's spoken summary. TextOnly, as the two above.
+                "audio.noise_surface.phrase_setting",
                 "audio.noise_surface.and",
                 "audio.noise_surface.refused_radio",
                 "audio.noise_surface.refused_radio_named",
