@@ -1034,6 +1034,54 @@ namespace JJFlexWpf
         /// </remarks>
         public static bool EngineHoldsSavedConfig { get; internal set; }
 
+        private static readonly object ChoiceBeforeLoadGate = new();
+
+        /// <summary>
+        /// Keep a choice the operator made before the saved config reached the
+        /// engine: load the root file, set only that choice, save. Does nothing
+        /// once the config is loaded, when the choice lives in the engine and
+        /// the ordinary saves carry it.
+        /// </summary>
+        /// <remarks>
+        /// <para>The meter tones switch, Peak Watcher and the VOX send box all
+        /// work with no radio, and none of them saved itself: before the first
+        /// connect a choice reached disk only if a verbosity change happened to
+        /// follow, through that save's whole capture of the engine, which also
+        /// wrote every unloaded default over the operator's file. With the
+        /// capture limited to verbosity before load, the choice is written here
+        /// instead, alone, so the next load applies it.</para>
+        /// <para>The root file is the one the first power-on loads
+        /// (<c>CanonicalDir</c> folds the radio folder onto it).</para>
+        /// </remarks>
+        /// <returns>True when the choice was written.</returns>
+        public static bool KeepChoiceBeforeLoad(System.Action<AudioOutputConfig> choose) =>
+            KeepChoiceBeforeLoad(choose, Radios.RadioConfig.AppDataRoot);
+
+        internal static bool KeepChoiceBeforeLoad(System.Action<AudioOutputConfig> choose, string? rootDir)
+        {
+            if (EngineHoldsSavedConfig) return false;
+            if (string.IsNullOrWhiteSpace(rootDir))
+            {
+                Trace.WriteLine("AudioOutputConfig: no settings folder; a choice made before the first connect was not saved");
+                return false;
+            }
+            try
+            {
+                lock (ChoiceBeforeLoadGate)
+                {
+                    var onDisk = Load(rootDir!);
+                    choose(onDisk);
+                    onDisk.Save(rootDir!);
+                }
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                Trace.WriteLine("AudioOutputConfig: saving a choice made before the first connect failed: " + ex.Message);
+                return false;
+            }
+        }
+
         /// <summary>Capture current state from the engine into this config.</summary>
         /// <remarks>
         /// Before the saved config has reached the engine

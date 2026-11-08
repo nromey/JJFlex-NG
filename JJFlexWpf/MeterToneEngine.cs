@@ -95,6 +95,8 @@ namespace JJFlexWpf
         public static void ToggleEnabled()
         {
             Enabled = !Enabled;
+            bool on = Enabled;
+            AudioOutputConfig.KeepChoiceBeforeLoad(c => c.MeterTonesEnabled = on);
             // Two whole utterances rather than a template plus a bare "on" /
             // "off": the state word alone is not a string anybody can review,
             // and a shared on/off key would be edited from six directions.
@@ -114,6 +116,7 @@ namespace JJFlexWpf
                 if (_speechIntervalSeconds == value) return;
                 _speechIntervalSeconds = value;
                 RaisePanelSettingsChanged();
+                KeepOperatorChoiceBeforeLoad(c => c.MeterSpeechIntervalSeconds = value);
             }
         }
         private static int _speechIntervalSeconds = 3;
@@ -136,6 +139,18 @@ namespace JJFlexWpf
 
         private static void RaisePanelSettingsChanged() =>
             PanelSettingsChanged?.Invoke(null, EventArgs.Empty);
+
+        /// <summary>
+        /// An operator road changed one of the saved settings before the saved
+        /// config reached the engine: keep it in the root file
+        /// (<see cref="AudioOutputConfig.KeepChoiceBeforeLoad(Action{AudioOutputConfig})"/>).
+        /// A restore (<see cref="QuietStateRestore"/>) is not a choice.
+        /// </summary>
+        private static void KeepOperatorChoiceBeforeLoad(Action<AudioOutputConfig> choose)
+        {
+            if (QuietStateRestore) return;
+            AudioOutputConfig.KeepChoiceBeforeLoad(choose);
+        }
 
         /// <summary>
         /// #128: config restore must not chime. The three operator booleans
@@ -171,6 +186,7 @@ namespace JJFlexWpf
                 // #128: every operator road answers back; see QuietStateRestore.
                 if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
                 RaisePanelSettingsChanged();
+                KeepOperatorChoiceBeforeLoad(c => c.MeterSpeechTimerActive = value);
             }
         }
         private static bool _speechTimerActive;
@@ -187,6 +203,7 @@ namespace JJFlexWpf
                 // #128: every operator road answers back; see QuietStateRestore.
                 if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
                 RaisePanelSettingsChanged();
+                KeepOperatorChoiceBeforeLoad(c => c.AutoEnableOnTune = value);
             }
         }
         private static bool _autoEnableOnTune;
@@ -254,6 +271,7 @@ namespace JJFlexWpf
                 _peakWatcherEnabled = value;
                 if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
                 RaisePanelSettingsChanged();
+                KeepOperatorChoiceBeforeLoad(c => c.PeakWatcherEnabled = value);
             }
         }
         private static bool _peakWatcherEnabled = true;
@@ -418,6 +436,10 @@ namespace JJFlexWpf
         {
             _presetIndex = (_presetIndex + 1) % PresetNames.Length;
             ApplyPreset(PresetNames[_presetIndex]);
+            // Before the first connect the engine has no slots, so the preset
+            // is only a name here: keep the name, never the empty slot list.
+            string preset = CurrentPreset;
+            AudioOutputConfig.KeepChoiceBeforeLoad(c => c.MeterPreset = preset);
         }
 
         private static void ConfigureSlot(int index, string sourceKey, bool enabled,
