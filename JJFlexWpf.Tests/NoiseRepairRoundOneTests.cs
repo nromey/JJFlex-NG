@@ -203,6 +203,32 @@ public sealed class NoiseRepairRoundOneTests
         Assert.All(catalog.Entries.Where(e => e.Level is { ReportedBack: true }), e => Assert.Null(e.Level!.Held));
     }
 
+    // ── B8: Home's Audio Peak Filter checkbox ──
+
+    [Fact]
+    public void B8_Homes_Audio_Peak_Filter_checkbox_goes_through_the_controller_and_is_refused_outside_CW()
+    {
+        // A source pin, said as one: the checkbox lives on a control that
+        // needs a window. The behaviour it now reaches is the controller's,
+        // driven below.
+        string panel = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs");
+        string noise = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.Noise.cs");
+        Assert.DoesNotMatch(@"_rig\.APF\s*=(?!=)", panel);   // no write; the poll's read stays
+        Assert.Contains("_apfCheck.Checked += (s, e) => SetApfThroughController(true);", panel);
+        Assert.Contains("_apfCheck.Unchecked += (s, e) => SetApfThroughController(false);", panel);
+        Assert.Contains("noise.SetOn(\"radio_apf\", on, NoiseSource);", noise);
+
+        using var f = new NoiseFixture();
+        f.Radio.Mode = "USB";
+        f.Noise.SetOn("radio_apf", true, "home");
+        Assert.Empty(f.Radio.Writes);
+        Assert.False(f.Noise.IsOn("radio_apf"));
+        Assert.Equal("Audio Peak Filter works in CW only. Change to a CW mode to use it.", f.Spoken.Last);
+        f.Radio.Mode = "CW";
+        f.Noise.SetOn("radio_apf", true, "home");
+        Assert.Equal(new[] { "radio_apf=on" }, f.Radio.Writes);
+    }
+
     private sealed class MemoryPresets : INoisePresetStore
     {
         public AudioChainPresets Data = new() { BalancedCaptureOffered = true };

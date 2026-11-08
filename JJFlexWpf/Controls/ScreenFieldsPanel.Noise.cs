@@ -427,6 +427,21 @@ public partial class ScreenFieldsPanel
         }
     }
 
+    /// <summary>
+    /// Home's Audio Peak Filter checkbox (repair round 1, B8): the controller
+    /// decides and speaks, refusing outside CW, and the box then shows what
+    /// the radio holds, so it never sits ticked over a refused write.
+    /// </summary>
+    private void SetApfThroughController(bool on)
+    {
+        if (_polling || NoiseCtl is not { } noise) return;
+        noise.SetOn("radio_apf", on, NoiseSource);
+        bool wasPolling = _polling;
+        _polling = true;
+        try { _apfCheck.IsChecked = noise.IsOn("radio_apf"); }
+        finally { _polling = wasPolling; }
+    }
+
     private void PollRadioNoiseExtras()
     {
         if (NoiseCtl is not { } noise) return;

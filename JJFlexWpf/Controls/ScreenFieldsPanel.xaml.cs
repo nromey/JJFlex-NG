@@ -368,9 +368,13 @@ public partial class ScreenFieldsPanel : UserControl
         _radioNoiseExtras = new StackPanel();
         DspContent.Children.Add(_radioNoiseExtras);
 
+        // Through the noise controller like its level and every other road
+        // (Sprint 49 Track E repair round 1, B8): it is shown in every mode
+        // now, so outside CW the controller's CW-only refusal must answer,
+        // and the box goes back to what the radio holds.
         _apfCheck = MakeToggle(Lexicon.Get("audio.fields.apf"));
-        _apfCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.apf_spoken"), v => { if (_rig != null) _rig.APF = v; }, true);
-        _apfCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.apf_spoken"), v => { if (_rig != null) _rig.APF = v; }, false);
+        _apfCheck.Checked += (s, e) => SetApfThroughController(true);
+        _apfCheck.Unchecked += (s, e) => SetApfThroughController(false);
         DspContent.Children.Add(_apfCheck);
         _apfLevelHolder = new StackPanel();
         DspContent.Children.Add(_apfLevelHolder);
