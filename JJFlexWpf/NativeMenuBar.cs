@@ -2239,7 +2239,10 @@ public class NativeMenuBar : IDisposable
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LeaveAlone),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LeaveAlone);
 
-            // Which of the operator's transmit-audio profiles to use.
+            // Which of the operator's transmit-audio profiles to use: one
+            // answer out of the list, so a radio group, checkmark only, the
+            // same as the three answers above (#680). Through AddChecked each
+            // name was spoken with ": On" or ": Off", a toggle in words.
             var whichSub = AddSubmenu(profilesSub, "Which Transmit Audio");
             if (presetNames.Count == 0)
             {
@@ -2252,7 +2255,7 @@ public class NativeMenuBar : IDisposable
                 foreach (var name in presetNames)
                 {
                     var n = name; // capture per iteration
-                    AddChecked(whichSub, n, () => SetGuestTransmitAudioProfile(n),
+                    AddRadioChecked(whichSub, n, () => SetGuestTransmitAudioProfile(n),
                         () => string.Equals(Rig?.LocalTransmitAudioProfileChoice, n,
                                             System.StringComparison.OrdinalIgnoreCase));
                 }

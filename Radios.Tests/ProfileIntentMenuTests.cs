@@ -56,6 +56,22 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// The profile names under Which Transmit Audio are one choice out of
+        /// the list, so they are a radio group too: through AddChecked each
+        /// was spoken with ": On" or ": Off".
+        /// </summary>
+        [Fact]
+        public void The_transmit_audio_profile_names_are_a_radio_group()
+        {
+            string src = MenuSource();
+            var calls = Regex.Matches(src, @"(\w+)\(\s*whichSub\s*,\s*n\s*,\s*\(\)\s*=>\s*SetGuestTransmitAudioProfile\(n\)");
+            Assert.True(calls.Count == 1,
+                $"Expected one row per profile name under Which Transmit Audio; found {calls.Count} calls. "
+                + "The pin is not reading the menu it was written for.");
+            Assert.Equal("AddRadioChecked", calls[0].Groups[1].Value);
+        }
+
+        /// <summary>
         /// #680, defect 3: "Use My Transmit Audio Here" could be armed with no
         /// transmit-audio profile chosen. It is greyed whenever none is chosen,
         /// including when none exists, with the reason in its label, and stays
