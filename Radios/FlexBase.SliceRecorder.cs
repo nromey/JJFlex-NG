@@ -254,8 +254,11 @@ public partial class FlexBase
         if (!SliceRecorderTargetIsOurs(slice)) return null;
         string serial = theRadio?.Serial ?? "";
         string letter = LetterOf(slice);
-        bool has = slice.PlayEnabled;
         double? seconds = ReportedSliceRecordingSeconds(slice);
+        // A recording is there only when the radio has REPORTED one: play
+        // enabled AND a length. FlexLib's PlayEnabled starts true before any
+        // status arrives, so on its own it would warn about an empty slice.
+        bool has = slice.PlayEnabled && seconds != null;
         if (string.IsNullOrEmpty(serial)) return new(serial, letter, has, seconds, null, true);
         var config = RadioConfig.LoadForRadio(serial);
         var stamp = config.SliceTakeStamps?.LastOrDefault(s =>

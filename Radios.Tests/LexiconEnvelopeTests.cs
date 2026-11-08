@@ -2605,6 +2605,20 @@ namespace Radios.Tests
                 "audio.takes.backup.changed",
                 "audio.takes.backup.needs_computer_audio",
                 "audio.takes.backup.failed",
+                "audio.recorder.overwrite.title",
+                "audio.recorder.overwrite.opening_not_backed_up",
+                "audio.recorder.overwrite.opening_backed_up",
+                "audio.recorder.overwrite.detail_not_backed_up",
+                "audio.recorder.overwrite.detail_backed_up",
+                "audio.recorder.overwrite.record",
+                "audio.recorder.overwrite.back_up_first",
+                "audio.recorder.overwrite.cancel",
+                "audio.recorder.overwrite.dont_show",
+                "audio.recorder.overwrite.help.record",
+                "audio.recorder.overwrite.help.back_up_first",
+                "audio.recorder.overwrite.help.cancel",
+                "audio.recorder.overwrite.help.dont_show",
+                "audio.recorder.overwrite.cancelled",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
