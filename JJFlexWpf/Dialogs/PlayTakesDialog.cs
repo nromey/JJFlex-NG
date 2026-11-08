@@ -269,10 +269,13 @@ public sealed class PlayTakesDialog : JJFlexDialog
             _note.Visibility = Visibility.Collapsed;
             _testName.Visibility = Visibility.Collapsed;
             _details.Text = "";
+            // Ctrl+F1 on Play says the radio plays this one.
+            JJFlexHelp.SetText(_play, Lexicon.Get("audio.takes.help.slice_play"));
             SyncBackUpLabel();
             return;
         }
         Shown(_backUp, false);
+        JJFlexHelp.SetText(_play, Lexicon.Get("audio.takes.help.play"));
         var row = Current;
         bool any = row != null;
         bool readable = any && row!.Entry.HeaderReadable && row.Kind != TakeKind.Damaged;
