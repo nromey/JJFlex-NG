@@ -87,6 +87,30 @@ public sealed class MetersPanelGlobalsTests
         });
 
     [Fact]
+    public void A_saved_speak_periodically_shows_checked_and_is_not_written_back()
+        => Run((panel, saves) =>
+        {
+            // The engine starts with periodic speech off; the operator saved it on.
+            Assert.False(MeterToneEngine.SpeechTimerActive);
+            Assert.False(Check(panel, "SpeechTimerCheck").IsChecked);
+
+            MeterToneEngine.QuietStateRestore = true;
+            try { MeterToneEngine.SpeechTimerActive = true; }   // as Apply restores it
+            finally { MeterToneEngine.QuietStateRestore = false; }
+
+            panel.ShowPanel();
+            Assert.True(Check(panel, "SpeechTimerCheck").IsChecked);
+            TabPast(Box(panel));
+            Assert.True(MeterToneEngine.SpeechTimerActive);
+            Assert.Equal(0, saves());
+
+            // Positive control: unticking it is a change, saved once.
+            Check(panel, "SpeechTimerCheck").IsChecked = false;
+            Assert.False(MeterToneEngine.SpeechTimerActive);
+            Assert.Equal(1, saves());
+        });
+
+    [Fact]
     public void A_changed_interval_is_saved_once_and_garbage_is_put_back()
         => Run((panel, saves) =>
         {
