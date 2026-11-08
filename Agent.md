@@ -9,6 +9,46 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-08 (COVERS 2026-11-07 07:16 TO 2026-11-08 07:39, MEASURED FROM `788b59fc`) — FOUR JUNK BOX BATCHES AND TAKES ON MAIN, THE THIRD NIGHT MODE: TRACK E CODEX-CLEAN INTO INTEGRATION, #999 CODEX-CLEAN, THE 8600 OFF THE LAN, A MEMORY STOP
+
+*Covers the 2026-11-07 day session, nap and evening (07:16 to 21:20) and the third night mode (21:20 to 07:39; Noel said "Morning" at 07:39 in the junk box window, which woke the other two; both replied wrapped up). Three windows: junk box, Check your audio, sound processing. No build was published; the nightly promote (step 1) was SKIPPED by Noel's word, 2026-11-07 10:18 ("I'd wait on the nightly until tomorrow's work"), and because the third junk box batch is built but unverified.*
+
+**Main (13 first-parent commits, 287 commits reachable, +61,079/-2,742 across 448 files, all unpushed):** at Noel's word, the 2026-11-02 batch (`76175a60`, 07:35), the changelog fold (`4e2c846f`, 10:23), the 2026-11-06 batch (`bb677154`), the first and second 2026-11-07 batches (`f3870e8e`, `915c2d6a`), each with full Radios.Tests and the windowless WPF filter green; CLAUDE.md's merge filter grew to fifty-five classes (`6996ddb1`, `2c84062d`, `1ee383af`); the operator's email address left the drop window before its merge (`d18e3c75`, J37). Unified takes (#864) fast-forwarded onto main at 20:19 (`cf2f3dd6`, `372a330b` alignments, `42b0b1c7` Alt+Shift+T and #927 Delete lands on the next take), then two take-backs at Noel's 17:12-17:16 ruling (`eebc7fe7`, `b0424d9b`): Claude-written help and changelog lines for Alt+Shift+T removed; Codex writes them with the Play takes help.
+
+**Noel's ruling, 17:12 to 17:44: Claude never writes help or any public-facing text** (help, website, release notes, READMEs, every NEW changelog bullet); Codex writes, Claude supplies and checks facts, Noel's edit is final. App labels and spoken wording stay with the implementation agent; Ctrl+F1 lines go in as placeholders for Codex (memory `feedback_claude_never_writes_help_text.md`, style guide `agile/help-style-guide.md`). The changelog fold was written by a Fable agent before the ruling; its lines stay, and a Codex cleanup (`for-codex/2026-11-07-changelog-cleanup.md`: fold the remaining fragments, thirteen verified corrections) waits on Noel's word.
+
+**Junk box, third 2026-11-07 batch (`junkbox/2026-11-07-batch-3`, 13 commits, tip `9f93af9e`, worktree `C:\dev\jjflex-jb1107-3`).** Twelve of thirteen built on Opus (#943, #944, #946, #945, #980, #978, #950, #942/#994, #680, #477/#976, #941/#983, #181); #992 not built, its premise false (closed at this seal, below). Report `for-claude/2026-11-07-junkbox-batch-3-report.md`; twelve per-fix Codex briefs written. **At 21:39 Claude Code stopped the window's test run and all three Codex lanes (`jjflex-cx1107e/f/g`) for critically low memory** (about 5.5 GB free of 32, dozens of leftover dotnet build-server processes from every window). Not restarted; waits on Noel's word, one lane at a time. Noel had the build servers shut down at 07:40 (21 GB free after).
+
+**Check your audio, #999 (`slices/999-recordings`, 14 commits, tip `40559f5f`).** The radio's slice recordings in Play takes with Play and Back up, F11's overwrite warning, the setting. Codex found three blockers (slice Play could join a transmission; a partial backup counted as complete; the setting hid with no radio); repair round 1 closed two; round 2 closed the interlock-before-Mox race at the command boundary (memory `project_flexlib_interlock_before_mox.md`) and a quick-toggle regression; Codex CLEAN at 22:35. **Waits on Noel's word to merge; wording still placeholders (C4).** Both 8600 bench scripts (muting, restart) written and dry-run; never run.
+
+**Sound processing, Sprint 49 Track E (`sprint49/track-e`, 14 commits).** The receive noise reduction surface on Opus, every brief question ruled at 20:42-21:19. Codex found eight real defects the 1,021 green tests passed; four repair rounds, each fix shown red without it; Codex CLEAN at 00:59 (five runs, 1,110,757 tokens). Merged into `sprint49/integration` at `7cf3b5b2` (NOT main), eleven new test classes into the integration branch's filter (`876b91d5`); a harness walk on the real desktop with throwaway settings and no radio passed the Audio menu, Settings noise group and Advanced tab, and its two readout fixes merged (`7c251cc6`). Codex wrote the 49 Ctrl+F1 drafts on `sprint49/track-e-ctrlf1` (`049feb0c`, not merged, for Noel's edit). #1000 to #1006 filed.
+
+**The 8600 has not answered on the LAN since about 20:53.** No radio check ran all night in any window (C1, S1). Nothing was sent to it, and the approved restart is unused.
+
+**Rulings recorded 2026-11-07:** #477 amplifier operate and standby are operating, not settings; #195 the drive curve across operators; #980 shape (b), label and number together (confirmed 20:26); #181 strip the dump from older unanswered reports, keep the report (corrected premise, 20:24); #826 Noel edits the whole changelog at the real release; #999 S1 to S4; Track E's six brief questions; #768 the NVIDIA card stays off, card-off becomes a Feature Availability case.
+
+**Recommended to Noel (open):** build agents and Codex briefs build with `--disable-build-servers` (or `-nodeReuse:false`) so build servers do not pile up across windows. This seal's own test run used it.
+
+**Seal checks:**
+- Step 1 nightly promote: SKIPPED (above).
+- No dependency advisories (every project "no vulnerable packages").
+- Memory drift: neither memory entry written since the last seal flags; 96 path and 54 symbol candidates, the standing set.
+- Codex instruction tests 5 of 5; Codex loads AGENTS.md; sandbox healthy (no `setup_error.json`).
+- NVDA logs archived to JJFlex-private as `2026-11-08-*` (live log 21 MB at speech level, 17,391 Speaking lines; the old log is the INFO-level one already taken on 11-07).
+- Backups: memory (10 projects), Claude state (972 MB zip from 3,529 MB raw, 3,237 files), the dev mirror, AppData (49 files), private docs after the AAR.
+- MEMORY.md 18.1 KB, still over the 12 KB threshold; the banner sweep found nothing new to archive. The trim pass is still owed.
+- Codex evaluation log: every run tonight logged by its window; the three stopped junk box lanes added at this seal.
+
+**Junk box intake (3c-ter):** 58 entries opened since the last seal (#949 to #1006); every one already carried a target and every JUNKBOX one a priority when the seal looked, so none changed. #992 closed (premise false: `JJFlexWpf/AudioOutputConfig.cs` keeps one canonical `audioConfig.xml` via `CanonicalDir`, so a connect has no per-radio copy to load over the operator's choices). Regenerated: 535 open, 261 in the junk box, 0 unprioritized.
+
+**Cross-surface:** 73 commits on all refs since the last seal; per branch beyond main: Track E 14 (integration +17 incl. merges), its Ctrl+F1 branch 1 (the only Codex-trailer commit), #999 14 (+3,175/-21), junk box batch 3 13 (+2,737/-400). JJFlex-private: 28 commits (Track E brief rulings, #999 design and questions, register, help style guide). Codex: 26 report and log files for #999 and Track E, plus the Ctrl+F1 drafts; thirteen briefs still in `for-codex/` from tonight (twelve verify3, the changelog cleanup). Freight Fate still holds 16 unpushed commits (Noel's call); Civ VI Access none; no other sibling repo moved.
+
+**Waiting on Noel:** the push (main is 287 commits ahead of origin, plus this seal); C1 and S1 (the 8600); restarting the batch 3 checks; #999's merge and C2 to C5; the 13 blanker questions and his edit of the 49 Ctrl+F1 lines; the changelog cleanup's launch; the eight junk box afternoon questions; #1006; the build-server recommendation.
+
+### Rigmeter snapshot — end of 2026-11-08
+
+Main, `rigmeter from 2026-11-07` (calendar span, so it also counts the last seal itself): 69 commits; work done +66,932/-8,768 (net +58,164); size change net +58,171 across 442 files; C# +65,763/-8,419 in 345 files, markdown +568/-222. `today` (since midnight 2026-11-08): 0 commits, everything tonight is on branches. Snapshot `historical\stats\2026-11-07-b0424d9b.json`.
+
 ## END-OF-DAY SEAL — 2026-11-07 (COVERS 2026-11-06 08:39 TO 2026-11-07 07:20, MEASURED FROM `1bc44703`) — THE SECOND NIGHT MODE: FOUR JUNK BOX BATCHES CLEAN UNDER NOEL'S NEW BAR, JJPROBE PRESSES AGAIN, BENCHES STOP CONNECTING AS NOEL
 
 *Covers nap mode 2 (19:01 to 23:07), the second night mode (23:08 to 05:59; Noel said good morning at 05:59 in the junk box window, which woke the other windows; all wrapped up by 06:00), and the morning question session (06:05 to 07:09). No build was published.*
