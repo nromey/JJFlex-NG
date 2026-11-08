@@ -105,12 +105,45 @@ namespace Radios
         ComputerMic = 5,
     }
 
-    /// <summary>The last take this app made in one of the radio's slice buffers.</summary>
+    /// <summary>
+    /// What this app knows about one of the radio's slice recordings (#999):
+    /// the last take it made in that slice's buffer, or, for a recording it did
+    /// not make, the backup it took of one. Trusted only while the radio reports
+    /// the same length (<see cref="RadioConfig.TrustedSliceTakeStamp"/>).
+    /// </summary>
+    /// <remarks>
+    /// The fields after <see cref="RecordedSeconds"/> arrived with #999. A config
+    /// written before them reads them as 0 and empty, which is honest: those
+    /// recordings were never backed up, and nobody wrote down where they were made.
+    /// </remarks>
     public sealed class SliceTakeStamp
     {
         public string Letter { get; set; } = "";
+        /// <summary>When the recording was made. Unknown (not UTC) for one made outside this app.</summary>
         public DateTime MadeUtc { get; set; }
         public double RecordedSeconds { get; set; }
+        /// <summary>The slice's frequency when the recording started, in MHz; 0 when unknown.</summary>
+        public double FrequencyMHz { get; set; }
+        /// <summary>The slice's mode when the recording started; empty when unknown.</summary>
+        public string Mode { get; set; } = "";
+        /// <summary>Where the recording came from: one of <see cref="SliceTakeSource"/>'s tokens, or empty for an older stamp.</summary>
+        public string Source { get; set; } = "";
+        /// <summary>The take folder holding this recording's copy on this computer, or empty.</summary>
+        public string BackupTakeDirectory { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Where a slice recording came from (#999). Schema tokens written into the
+    /// radio's config; never spoken.
+    /// </summary>
+    public static class SliceTakeSource
+    {
+        /// <summary>The operator's own recording: F11, the JJ key, Home, the Slice menu or the Audio Workshop.</summary>
+        public const string F11 = "f11";
+        /// <summary>A Radio recording audio check method take, from Check your audio.</summary>
+        public const string AudioCheck = "audio-check";
+        /// <summary>A recording this app did not make, stamped when it was backed up.</summary>
+        public const string Outside = "outside";
     }
 
     /// <summary>
@@ -551,15 +584,35 @@ namespace Radios
 
         public DateTime? TrustedSliceTakeTime(string letter, double? radioSeconds)
         {
+            var stamp = TrustedSliceTakeStamp(letter, radioSeconds);
+            return stamp != null && stamp.MadeUtc.Kind == DateTimeKind.Utc ? stamp.MadeUtc : null;
+        }
+
+        /// <summary>How close the radio's reported length must be to a stamp's for the stamp to describe it.</summary>
+        public const double SliceTakeLengthTolerance = 0.1;
+
+        /// <summary>
+        /// The stamp for this slice letter, only while the radio reports the same
+        /// recorded length (within <see cref="SliceTakeLengthTolerance"/>). Another
+        /// client, or a Radio recording audio check, can replace the recording; the
+        /// length then differs and the stamp no longer describes what the radio holds.
+        /// </summary>
+        public SliceTakeStamp? TrustedSliceTakeStamp(string letter, double? radioSeconds)
+        {
             if (radioSeconds is not double seconds || !double.IsFinite(seconds) || seconds <= 0)
                 return null;
             var stamp = SliceTakeStamps?.LastOrDefault(s =>
                 string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
-            return stamp != null && stamp.MadeUtc.Kind == DateTimeKind.Utc &&
-                Math.Abs(stamp.RecordedSeconds - seconds) <= 0.1 ? stamp.MadeUtc : null;
+            return stamp != null && Math.Abs(stamp.RecordedSeconds - seconds) <= SliceTakeLengthTolerance ? stamp : null;
         }
 
-        public static bool RecordSliceTake(string radioId, string letter, double seconds, DateTime madeUtc)
+        /// <summary>
+        /// Save the stamp of a take this app just made in a slice's buffer,
+        /// replacing whatever that letter held: a new recording is a new
+        /// recording, and any backup of the old one no longer describes it.
+        /// </summary>
+        public static bool RecordSliceTake(string radioId, string letter, double seconds, DateTime madeUtc,
+            double frequencyMHz = 0, string mode = "", string source = "")
         {
             if (string.IsNullOrWhiteSpace(letter) || !double.IsFinite(seconds) || seconds <= 0 ||
                 madeUtc.Kind != DateTimeKind.Utc) return false;
@@ -568,7 +621,42 @@ namespace Radios
                 cfg.SliceTakeStamps ??= new List<SliceTakeStamp>();
                 cfg.SliceTakeStamps.RemoveAll(s => string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
                 cfg.SliceTakeStamps.Add(new SliceTakeStamp
-                    { Letter = letter.ToUpperInvariant(), RecordedSeconds = seconds, MadeUtc = madeUtc });
+                {
+                    Letter = letter.ToUpperInvariant(), RecordedSeconds = seconds, MadeUtc = madeUtc,
+                    FrequencyMHz = double.IsFinite(frequencyMHz) && frequencyMHz > 0 ? frequencyMHz : 0,
+                    Mode = mode ?? "", Source = source ?? "",
+                });
+            });
+        }
+
+        /// <summary>
+        /// A take on this computer now holds a copy of the recording in this
+        /// slice's buffer (#999). When the stamp still describes that recording
+        /// (the radio reports its length), the take folder is written into it.
+        /// When there is no such stamp, the recording was not made by this app,
+        /// or was replaced since: a new stamp says so (source
+        /// <see cref="SliceTakeSource.Outside"/>, the length the radio reports, no
+        /// time), so the backed-up test can pass for it afterwards (ruled S1).
+        /// </summary>
+        public static bool RecordSliceTakeBackup(string radioId, string letter, double radioSeconds, string takeDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(letter) || !double.IsFinite(radioSeconds) || radioSeconds <= 0 ||
+                string.IsNullOrWhiteSpace(takeDirectory)) return false;
+            return Update(radioId, cfg =>
+            {
+                cfg.SliceTakeStamps ??= new List<SliceTakeStamp>();
+                var stamp = cfg.TrustedSliceTakeStamp(letter, radioSeconds);
+                if (stamp == null)
+                {
+                    cfg.SliceTakeStamps.RemoveAll(s => string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
+                    stamp = new SliceTakeStamp
+                    {
+                        Letter = letter.ToUpperInvariant(), RecordedSeconds = radioSeconds,
+                        Source = SliceTakeSource.Outside,
+                    };
+                    cfg.SliceTakeStamps.Add(stamp);
+                }
+                stamp.BackupTakeDirectory = takeDirectory;
             });
         }
 

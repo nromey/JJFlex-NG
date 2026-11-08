@@ -258,6 +258,9 @@ public partial class CheckYourAudioDialog
         /// </summary>
         private void AdmitTake(FlexBase rig)
         {
+            // #999: this recording is the check's, not the operator's own, and
+            // its stamp says so when the recorder stops.
+            rig.MarkSliceTakeSource(_recorderTarget, SliceTakeSource.AudioCheck);
             if (!_owner.SavesPlaybackTake(_method))
             {
                 // This check's own take lives only in the radio's slot, which is now the newer one.

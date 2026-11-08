@@ -160,6 +160,11 @@ public partial class FlexBase
         internal int TakeGeneration;
         internal DateTime? AppTakeAt;
         internal double? AppTakeSeconds;
+        // What the stamp of this app's take records besides its time and
+        // length (#999): read when the recording starts, written when it stops.
+        internal double TakeFrequencyMHz;
+        internal string TakeMode = "";
+        internal string TakeSource = SliceTakeSource.F11;
         internal bool PlayStopRequested;
         internal bool RecordRefusedUnderTune;
     }
@@ -222,6 +227,22 @@ public partial class FlexBase
         foreach (var state in playing) _ = StopPlayingForTransmitAsync(state, generation);
     }
 
+    /// <summary>
+    /// Say where the recording this target slice is making came from (#999),
+    /// for the stamp written when it stops. Check your audio calls it once its
+    /// recorder has armed, so a Radio recording audio check method take is
+    /// stamped <see cref="SliceTakeSource.AudioCheck"/> rather than as the
+    /// operator's own. Does nothing unless this app is recording on that slice.
+    /// </summary>
+    public void MarkSliceTakeSource(SliceRecorderTarget target, string source)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice) || string.IsNullOrEmpty(source)) return;
+        lock (_sliceRecorders)
+            if (_sliceRecorders.TryGetValue(slice, out var state) && StateIsLive(state) && state.AppRecording)
+                state.TakeSource = source;
+    }
+
     /// <summary>The radio's recorded duration, with local timing as fallback.</summary>
     public double? SliceRecordingSeconds(SliceRecorderTarget target)
     {
@@ -265,6 +286,8 @@ public partial class FlexBase
         string letter = LetterOf(state.Slice);
         string serial = state.Radio.Serial;
         DateTime madeUtc = DateTime.UtcNow;
+        double frequency = state.TakeFrequencyMHz;
+        string mode = state.TakeMode, source = state.TakeSource;
         _ = Task.Run(async () =>
         {
             // record_time and play-enabled can follow the record=0 status.
@@ -279,7 +302,7 @@ public partial class FlexBase
                         state.AppTakeAt = madeUtc;
                         state.AppTakeSeconds = seconds;
                     }
-                    if (!RadioConfig.RecordSliceTake(serial, letter, seconds, madeUtc))
+                    if (!RadioConfig.RecordSliceTake(serial, letter, seconds, madeUtc, frequency, mode, source))
                         Tracing.TraceLine($"Slice {letter} take time not saved for {serial}", TraceLevel.Warning);
                     return;
                 }
@@ -837,6 +860,12 @@ public partial class FlexBase
         state.AppRecording = true;
         state.AppTakeAt = null;
         state.AppTakeSeconds = null;
+        // #999: where and how it was made. Every door is the operator's own
+        // recording; Check your audio says otherwise once its recorder is armed
+        // (MarkSliceTakeSource).
+        state.TakeFrequencyMHz = double.IsFinite(slice.Freq) ? slice.Freq : 0;
+        state.TakeMode = slice.DemodMode ?? "";
+        state.TakeSource = SliceTakeSource.F11;
         lock (_sliceRecorders)
             if (StateIsLive(state)) ArmCapWarning(state);
         // DRAFT PROSE (#787): awaiting Noel
