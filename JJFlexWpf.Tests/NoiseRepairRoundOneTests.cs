@@ -429,6 +429,70 @@ public sealed class NoiseRepairRoundOneTests
         Assert.Contains("private CheckBox MakeListenCheck(NoiseController noise, NoiseLever lever)", noise);
     }
 
+    // ── Follow-up round 5: two Track E surfaces from the no-radio harness walk ──
+
+    [Fact]
+    public void FollowUp5_Measured_delays_list_every_computer_engine_with_no_radio_and_each_row_is_one_phrase()
+    {
+        // The walk heard "Connect a radio to see the delays" with the guard
+        // off and seven delays with no radio once it was on, and a row read
+        // "NR2: Delay: about 105 milliseconds". The figures are the
+        // computer's, so no radio is needed, and the guard locks editing,
+        // not reading: the rows depend on nothing else.
+        using var f = new NoiseFixture();
+        f.RadioPresent = false;
+        var rows = JJFlexWpf.Dialogs.SettingsDialog.MeasuredDelayRows(f.Noise);
+        var computer = f.Noise.Engines().Where(e => e.Side == DenoiseSide.Pc).ToList();
+        Assert.Equal(computer.Count, rows.Count);
+        Assert.Equal(computer.Select(e => f.Noise.NameOf(e.Id) + ":"), rows.Select(r => r[..(r.IndexOf(':') + 1)]));
+        Assert.Contains("NR2: about 105 milliseconds", rows);
+        Assert.Contains("DeepFilterNet3: measured once it is running", rows);
+        Assert.All(rows, r => Assert.DoesNotContain("Delay", r));
+        Assert.All(rows, r => Assert.DoesNotContain("radio", r));
+        // Home's own readout still says what it is.
+        Assert.Equal("Delay: about 105 milliseconds", f.Noise.DelayText("nr2"));
+        // Only with no controller at all is there a line saying so, and it claims no reason.
+        Assert.Equal(new[] { "No delays to show" }, JJFlexWpf.Dialogs.SettingsDialog.MeasuredDelayRows(null));
+    }
+
+    [Fact]
+    public void FollowUp5_assigning_the_controller_to_Settings_refills_the_delays_and_the_guard_never_touches_them()
+    {
+        // A source pin, said as one: Settings is a window. The controller is
+        // assigned after the constructor built the tab, which is why the list
+        // held the no-controller line until a focus event replaced it.
+        string noise = Source("JJFlexWpf", "Dialogs", "SettingsDialog.Noise.cs");
+        Assert.Contains("set { _noise = value; FillMeasuredDelays(); }", noise);
+        int gate = noise.IndexOf("void Gate()", StringComparison.Ordinal);
+        Assert.True(gate > 0);
+        string gateBody = noise.Substring(gate, noise.IndexOf("Gate();", gate + 12, StringComparison.Ordinal) - gate);
+        Assert.DoesNotContain("_advancedDelays", gateBody);
+        Assert.Contains("foreach (string row in MeasuredDelayRows(Noise)) _advancedDelays.Items.Add(row);", noise);
+    }
+
+    [Theory]
+    [InlineData("Neural NR")]
+    [InlineData("FFT Auto-Notch")]
+    public void FollowUp5_a_switch_only_engines_favourite_row_carries_no_needs_a_radio_marker(string name)
+    {
+        // The walk read "Neural NR favourite - connect a radio: Off" beside
+        // every other engine's "Favourite: Off". A favourite needs no radio;
+        // the marker belongs on the engine's own row, before the tab, once.
+        Assert.Equal(name + " favourite", NativeMenuBar.SwitchOnlyFavouriteLabel(name));
+
+        // And the builder uses it unmarked, while the engine row above keeps
+        // its marker (DspOnAudioMenuTests pins that one). A source pin: the
+        // menu builder needs a window.
+        string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
+        int body = menu.IndexOf("private void BuildNoiseItems(IntPtr parent, DenoiseGroup group)", StringComparison.Ordinal);
+        Assert.True(body > 0);
+        string switchOnly = menu.Substring(body, menu.IndexOf("continue;", body, StringComparison.Ordinal) - body);
+        Assert.Contains("AddChecked(parent, R(named + chord),", switchOnly);
+        Assert.Contains("AddChecked(parent, SwitchOnlyFavouriteLabel(name),", switchOnly);
+        Assert.DoesNotContain("R(SwitchOnlyFavouriteLabel", switchOnly);
+        Assert.DoesNotContain("engine_favourite", switchOnly);
+    }
+
     private sealed class MemoryPresets : INoisePresetStore
     {
         public AudioChainPresets Data = new() { BalancedCaptureOffered = true };

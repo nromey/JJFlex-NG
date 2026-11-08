@@ -196,9 +196,28 @@ namespace JJFlexWpf
         /// </summary>
         public string DelayText(string id)
         {
+            if (!HasDelay(id, out int? ms)) return "";
+            return ms == null ? Lexicon.Get("audio.noise_surface.delay_unknown") : Lexicon.Get("audio.noise_surface.delay", ("ms", ms.Value));
+        }
+
+        /// <summary>
+        /// The same figure without the word "Delay", for a row that already
+        /// names what it is a delay of (Settings, Advanced, Measured delays:
+        /// "NR2: about 105 milliseconds", follow-up round 5); empty for a
+        /// radio engine.
+        /// </summary>
+        public string DelayFigure(string id)
+        {
+            if (!HasDelay(id, out int? ms)) return "";
+            return ms == null ? Lexicon.Get("audio.noise_surface.delay_figure_unknown") : Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ms.Value));
+        }
+
+        /// <summary>Whether an engine has a delay to show, and the figure in milliseconds when one is known.</summary>
+        private bool HasDelay(string id, out int? ms)
+        {
+            ms = null;
             var e = _catalog.Find(id);
-            if (e == null || e.Side == DenoiseSide.Radio) return "";
-            int? ms = null;
+            if (e == null || e.Side == DenoiseSide.Radio) return false;
             if (SlotFor(e) is { } slot && slot.RunningEngineId == id && slot.RunningLatencySamples > 0)
                 ms = (int)Math.Round(slot.RunningLatencySamples / 48.0);
             else
@@ -206,7 +225,7 @@ namespace JJFlexWpf
                 string? model = e.Settings.Any(d => d.Name == "model") ? SlotFor(e)?.GetSetting(id, "model").Choice : null;
                 ms = DenoiseEngineCatalog.ExpectedHelperDelayMs(id, model);
             }
-            return ms == null ? Lexicon.Get("audio.noise_surface.delay_unknown") : Lexicon.Get("audio.noise_surface.delay", ("ms", ms.Value));
+            return true;
         }
 
         /// <summary>
