@@ -18,7 +18,12 @@ namespace JJFlexWpf
         Corrected,
     }
 
-    /// <summary>Xiph RNNoise v0.1.1, a mono 48 kHz engine, loaded by absolute path.</summary>
+    /// <summary>
+    /// Xiph RNNoise, a mono 48 kHz engine, loaded by absolute path. Since Sprint 49
+    /// Track R (#873) the library is the 0.2-line model pinned at upstream commit
+    /// 70f1d256 (runtimes/win-x64/native/README.md); it was v0.1.1 before. The C API
+    /// this class binds is the same in both.
+    /// </summary>
     public sealed class RnnoiseEngine : IDenoiseEngine
     {
         public const int Frame = 480;
@@ -43,8 +48,13 @@ namespace JJFlexWpf
         public int SampleRate => 48000;
         public int FrameLength => Frame;
         public bool IsAvailable => _state != IntPtr.Zero;
-        /// <summary>The 20 ms analysis window overhangs its hop by 480 samples.</summary>
-        public int LatencySamples => Frame;
+        /// <summary>
+        /// Two frames: the 20 ms analysis window overhangs its hop by 480 samples, and
+        /// the 0.2-line model adds one frame of look-ahead (upstream 84fe83b, "Adding one
+        /// extra frame of delay"), applying its gains to the previous frame. v0.1.1 was
+        /// 480. EngineLatencyTests measures it on real speech.
+        /// </summary>
+        public int LatencySamples => 2 * Frame;
         public RnnoiseScaling Scaling { get; }
         public Unavailability Unavailability { get; private set; }
         public string UnavailabilityDetail { get; private set; } = "";
@@ -114,7 +124,7 @@ namespace JJFlexWpf
         public static string DefaultLibraryPath() => Path.Combine(AppContext.BaseDirectory, "runtimes",
             Environment.Is64BitProcess ? "win-x64" : "win-x86", "native", LibraryFileName);
 
-        /// <summary>Header at v0.1.1: plain C, cdecl even on x86. Blittable arrays are pinned.</summary>
+        /// <summary>Header at v0.1.1 and at 70f1d256 alike: plain C, cdecl even on x86. Blittable arrays are pinned.</summary>
         private sealed class Api
         {
             [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

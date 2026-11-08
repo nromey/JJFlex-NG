@@ -160,13 +160,13 @@ public sealed class RnnoiseBindingTests
             Assert.Equal(0, readDelay()); // disabled by default
             provider.Enabled = true;
             stage(buffer, buffer.Length, 48000);
-            Assert.Equal(480, readDelay());
+            Assert.Equal(960, readDelay()); // RNNoise 0.2 line: two frames
             provider.Enabled = false;
             stage(buffer, buffer.Length, 48000);
             Assert.Equal(0, readDelay());
             provider.Enabled = true;
             stage(buffer, buffer.Length, 48000);
-            Assert.Equal(480, readDelay());
+            Assert.Equal(960, readDelay()); // RNNoise 0.2 line: two frames
             stage(buffer, buffer.Length, 44100);
             Assert.Equal(0, readDelay());
         }
