@@ -44,15 +44,24 @@ public static class TakeKind
     public const string RadioRecording = "radio-recording";
     /// <summary>Looped back: the signal out the transverter port and back through the radio's receiver and recorder, as the radio played it back.</summary>
     public const string LoopedBack = "looped-back";
+    /// <summary>
+    /// Slice recording (#999): a copy of one of the radio's slice recordings,
+    /// made by Play takes' Back up, or by the overwrite warning's Back up first.
+    /// The radio played the recording and this computer captured the playback.
+    /// Only an explicit Back up makes one; no playback makes one by itself
+    /// (ruled S2, 2026-11-07 20:51). Received audio, never compared with the
+    /// transmit kinds.
+    /// </summary>
+    public const string SliceRecording = "slice-recording";
     /// <summary>An IQ take whose header names no kind this build knows.</summary>
     public const string UnknownLegacy = "unknown-legacy";
     /// <summary>A folder whose header cannot be read, or whose format or kind is invalid.</summary>
     public const string Damaged = "damaged";
 
     /// <summary>The kinds a header may name, in the order the Show selector lists them.</summary>
-    public static IReadOnlyList<string> Known { get; } = new[] { OffAir, RadioRecording, LoopedBack, Diagnostic };
+    public static IReadOnlyList<string> Known { get; } = new[] { OffAir, RadioRecording, LoopedBack, Diagnostic, SliceRecording };
 
-    public static bool IsAudio(string kind) => kind is RadioRecording or LoopedBack;
+    public static bool IsAudio(string kind) => kind is RadioRecording or LoopedBack or SliceRecording;
     public static bool IsIq(string kind) => kind is OffAir or Diagnostic or UnknownLegacy;
 
     /// <summary>

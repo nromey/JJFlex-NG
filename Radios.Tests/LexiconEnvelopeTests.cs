@@ -2587,6 +2587,24 @@ namespace Radios.Tests
                 // replace Track A fix round 2's draft, audio.check.escape_radio_still_transmitting.
                 "audio.check.radio_still_transmitting",
                 "audio.ptt.radio_still_transmitting",
+                // #999: the radio's slice recordings, shown, warned about and backed up.
+                // Every one is a PLACEHOLDER: Codex writes (Noel's ruling 2026-11-07,
+                // Claude writes no user-facing wording). The not-backed-up warning's
+                // opening line is Noel's own draft, verbatim, still for Codex and Noel.
+                "audio.takes.kind.slice_recording",
+                "audio.takes.phrase.slice_recording",
+                "audio.takes.refused_slice_recording",
+                "audio.takes.backup.started",
+                "audio.takes.backup.done",
+                "audio.takes.backup.nothing",
+                "audio.takes.backup.transmitting",
+                "audio.takes.backup.busy",
+                "audio.takes.backup.slice_busy",
+                "audio.takes.backup.stopped",
+                "audio.takes.backup.incomplete",
+                "audio.takes.backup.changed",
+                "audio.takes.backup.needs_computer_audio",
+                "audio.takes.backup.failed",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

@@ -101,6 +101,12 @@ public static partial class TakeAnalysis
             new(false, reason, SetupChanges: changes, Road: "audio", FirstKind: ka, SecondKind: kb, LevelCompared: false);
 
         if (!a.CanMeasure || !b.CanMeasure) return Refuse("corrupt-take");
+        // A slice recording's backup is whatever the slice heard (#999): no
+        // source, no transmit chain, nothing a comparison could hold fair. It
+        // is refused beside any other kind as every cross-kind pair is, and
+        // two of them are refused too.
+        if (ka == TakeKind.SliceRecording || kb == TakeKind.SliceRecording)
+            return Refuse(ka == kb ? "unlike-takes:slice-recording" : "unlike-takes:kind");
         // A diagnostic take recorded no transmission of this source; an older
         // take of unrecorded kind cannot evidence its source (design section 3).
         if (ka is TakeKind.Diagnostic or TakeKind.UnknownLegacy or TakeKind.Damaged ||

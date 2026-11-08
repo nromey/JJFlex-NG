@@ -104,6 +104,11 @@ public partial class FlexBase
             Add("recorded-slice-index", slice.Index.ToString(CultureInfo.InvariantCulture));
             Add("recorded-slice-letter", LetterOf(slice));
         }
+        if (kind == TakeKind.SliceRecording)
+        {
+            AddSliceRecordingFacts(facts, slice);
+            return facts;
+        }
         Add("mode", tx?.DemodMode);
         if (tx != null) Add("tx-frequency-mhz", Number(tx.Freq));
         Add("tx-antenna", tx?.TXAnt);
@@ -138,5 +143,43 @@ public partial class FlexBase
         Add(AudioTakeFields.BoundaryBasis, "status-arrival");
         Add(AudioTakeFields.BoundaryQuality, AudioTakeFields.Unverified);
         return facts;
+    }
+
+    /// <summary>
+    /// A slice recording's backup (#999): what the slice's stamp knows about the
+    /// recording (where, how and when it was made, and where it came from), the
+    /// slice as it is now, and the provenance. No transmit chain: the recording is
+    /// whatever the slice heard, and nothing here says what fed a transmitter.
+    /// </summary>
+    private void AddSliceRecordingFacts(List<KeyValuePair<string, string>> facts, Slice slice)
+    {
+        void Add(string key, string value) { if (!string.IsNullOrEmpty(value)) facts.Add(new(key, value)); }
+        string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+        if (slice != null)
+        {
+            Add("receive-antenna", slice.RXAnt);
+            Add("slice-audio-gain", slice.AudioGain.ToString(CultureInfo.InvariantCulture));
+            double? seconds = ReportedSliceRecordingSeconds(slice);
+            if (seconds is double length) Add(SliceRecordingFields.RadioSeconds, Number(length));
+            string serial = theRadio?.Serial;
+            var stamp = string.IsNullOrEmpty(serial) ? null
+                : RadioConfig.LoadForRadio(serial).TrustedSliceTakeStamp(LetterOf(slice), seconds);
+            Add(SliceRecordingFields.Source, stamp == null ? SliceTakeSource.Outside
+                : string.IsNullOrEmpty(stamp.Source) ? SliceTakeSource.F11 : stamp.Source);
+            if (stamp != null)
+            {
+                if (stamp.MadeUtc.Kind == DateTimeKind.Utc)
+                    Add(SliceRecordingFields.MadeUtc, stamp.MadeUtc.ToString("O", CultureInfo.InvariantCulture));
+                if (stamp.FrequencyMHz > 0) Add(SliceRecordingFields.FrequencyMHz, Number(stamp.FrequencyMHz));
+                // "mode" is the header's own word; the stamp's mode is the recording's.
+                Add("mode", stamp.Mode);
+            }
+        }
+        Add(AudioTakeFields.CaptureTap, "pre-pc-output-processing");
+        Add(AudioTakeFields.WireCodec, "opus");
+        Add(AudioTakeFields.Provenance, "radio-playback-after-network-codec");
+        Add(AudioTakeFields.CaptureScope, "radio-receive-mix");
+        Add(AudioTakeFields.BoundaryBasis, "status-arrival");
+        Add(AudioTakeFields.BoundaryQuality, AudioTakeFields.Unverified);
     }
 }

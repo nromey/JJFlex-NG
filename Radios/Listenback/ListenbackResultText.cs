@@ -184,6 +184,8 @@ public static class ListenbackResultText
             string refusal = difference.Reason switch
             {
                 "unlike-takes:kind" => "audio.takes.refused_kind",
+                // PLACEHOLDER: Codex writes (#999).
+                "unlike-takes:slice-recording" => "audio.takes.refused_slice_recording",
                 "unlike-takes:contaminated" => "audio.takes.refused_contaminated",
                 "unlike-takes:source-unknown" => "audio.takes.refused_source_unknown",
                 "unlike-takes:mode" => "audio.takes.refused_mode",

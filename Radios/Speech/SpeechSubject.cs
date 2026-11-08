@@ -600,6 +600,18 @@ namespace Radios.Speech
         /// </summary>
         public const string PlaybackTake = "playback-take";
         /// <summary>
+        /// A slice recording's backup (#999): started, and how it ended. One
+        /// subject, because only one backup runs at a time and its ending
+        /// replaces an unheard "backing up".
+        /// </summary>
+        public const string SliceRecordingBackup = "slice-recording-backup";
+        /// <summary>
+        /// The warning before a slice recording is overwritten (#999): its
+        /// opening line, said as it opens, and what Cancel left alone. One
+        /// subject, because only one warning is open at a time.
+        /// </summary>
+        public const string SliceOverwriteWarning = "slice-overwrite-warning";
+        /// <summary>
         /// Check your audio's Play refusing while something transmits (task
         /// 903): wait for the check to complete, or for the radio to stop. One
         /// of them is true at a time, and the next refused press replaces an
