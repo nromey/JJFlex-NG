@@ -362,9 +362,17 @@ namespace JJFlexWpf
             var before = _catalog.Entries.Where(x => x.Side == DenoiseSide.Radio && x.Id != turnedOn.Id && x.Group == turnedOn.Group && IsOn(x.Id))
                 .Select(x => x.Id).ToList();
             if (before.Count == 0) return;
+            // The observation belongs to the slice it was taken on (repair
+            // round 4): the adapter's reads follow whatever slice is active
+            // when the check fires, so after a jump it would compare this
+            // slice's "before" with another slice's "after" and announce a
+            // change the radio never made. Taken after IsOn above, which has
+            // already reconciled the radio's actual slice.
+            object? observedSlice = r.SliceIdentity;
             _scheduler.After(TimeSpan.FromMilliseconds(SiblingCheckMs), () =>
             {
                 if (_radio() != r) return;
+                if (!ReferenceEquals(r.SliceIdentity, observedSlice)) return; // another slice now: discarded, silently
                 foreach (string id in before)
                 {
                     var e = _catalog.Find(id)!;

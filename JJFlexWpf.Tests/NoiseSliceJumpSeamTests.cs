@@ -235,4 +235,83 @@ public sealed class NoiseSliceJumpSeamTests
         Assert.Contains("slice set 1 nb_level=42", b.Wire.Commands);
         Assert.DoesNotContain(b.Wire.Commands, c => c.StartsWith("slice set 0 ", StringComparison.Ordinal));
     }
+
+    // ── Round 4: the radio sibling check belongs to the slice it watched ──
+    //
+    // Turning a radio engine on starts a 1.5 second check: if the radio
+    // itself switched off another engine in the same group, say so (open
+    // fact 1). The adapter reads whatever slice is active when the check
+    // fires, so a jump inside that window compared A's "before" with B's
+    // "after" and announced a change nobody made (Codex's round 3 check).
+
+    private const string StandardNrTurnedOff = "The radio turned Standard NR off.";
+
+    private static bool AnySiblingSentence(Bench b) =>
+        b.F.Spoken.Said.Any(s => s.Text.StartsWith("The radio turned", StringComparison.Ordinal));
+
+    [Theory]
+    [InlineData(false)]          // Codex's row, no poll
+    [InlineData(true)]           // and with the poll: it did not close the window either
+    public void Turning_Legacy_NR_on_then_jumping_to_a_slice_where_Standard_NR_is_off_says_nothing(bool poll)
+    {
+        using var b = new Bench();
+        Set(b.A, "_nr_on", true);                         // Standard NR on on A, off on B
+        b.Noise.Toggle("radio_nrl", "test");              // Legacy NR on, on A: the sibling check starts
+        b.Drain();
+        Assert.True(b.A.NRLOn);
+        b.Jump();
+        b.Activate();
+        if (poll) b.Noise.NoteActiveSlice(b.Rig.RXVFO);
+        b.Wire.Commands.Clear();
+        b.F.Clock.RunAll();                               // the 1.5 second check fires, on B
+        Assert.False(AnySiblingSentence(b));              // round 3 said "The radio turned Standard NR off."
+        Assert.True(b.A.NROn);
+        Assert.False(b.B.NROn);
+        Assert.Empty(b.Wire.Commands);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Turning_Standard_Auto_Notch_on_then_jumping_to_a_slice_where_the_Noise_Blanker_is_off_says_nothing(bool poll)
+    {
+        using var b = new Bench();
+        Set(b.A, "_nb_on", true);                         // Noise Blanker on on A, off on B
+        b.Noise.Toggle("radio_anf", "test");              // Standard Auto-Notch on, on A
+        b.Drain();
+        Assert.True(b.A.ANFOn);
+        b.Jump();
+        b.Activate();
+        if (poll) b.Noise.NoteActiveSlice(b.Rig.RXVFO);
+        b.F.Clock.RunAll();
+        Assert.False(AnySiblingSentence(b));              // round 3 said "The radio turned Noise Blanker off."
+        Assert.True(b.A.NBOn);
+        Assert.False(b.B.NBOn);
+    }
+
+    [Fact]
+    public void Control_on_one_slice_an_unchanged_sibling_says_nothing()
+    {
+        using var b = new Bench();
+        Set(b.A, "_nr_on", true);
+        b.Noise.Toggle("radio_nrl", "test");
+        b.Drain();
+        b.F.Clock.RunAll();
+        Assert.False(AnySiblingSentence(b));
+        Assert.True(b.A.NROn);
+    }
+
+    [Fact]
+    public void Control_on_one_slice_a_sibling_the_radio_really_turned_off_is_still_said()
+    {
+        // The observer and the speaker are reached: the repair silences only
+        // a check that fires on a different slice.
+        using var b = new Bench();
+        Set(b.A, "_nr_on", true);
+        b.Noise.Toggle("radio_nrl", "test");
+        b.Drain();
+        Set(b.A, "_nr_on", false);                        // the radio's own status: Standard NR off
+        b.F.Clock.RunAll();
+        Assert.Equal(StandardNrTurnedOff, b.F.Spoken.Last);
+    }
 }
