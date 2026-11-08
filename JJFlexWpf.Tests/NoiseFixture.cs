@@ -21,6 +21,8 @@ internal sealed class NoiseFixture : IDisposable
     {
         public string Serial { get; set; } = "1234-5678";
         public string Mode { get; set; } = "USB";
+        /// <summary>The slice the fake reads; a test switches it, with the values, to model the radio activating another slice.</summary>
+        public object? SliceIdentity { get; set; } = "slice A";
         public bool PcAudioOn { get; set; } = true;
         public Dictionary<string, bool> Switches { get; } = new();
         public Dictionary<string, int> Levels { get; } = new();

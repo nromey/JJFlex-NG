@@ -16,14 +16,18 @@ namespace JJFlexWpf
         internal Dictionary<string, bool> RadioSwitches { get; } = new();
         internal Dictionary<string, int> RadioLevels { get; } = new();
         /// <summary>
-        /// The slice the radio part was read on (repair round 1, B1). The
-        /// radio's switches and levels are per slice: the radio part belongs
+        /// The slice the radio part was actually read from (B1): the radio's
+        /// own slice object, as <see cref="INoiseRadio.SliceIdentity"/> gives
+        /// it, never the requested VFO number. Repair round 2: a slice jump
+        /// changes the VFO number at once but makes the new slice active only
+        /// when the queued command runs, so a number would label the OLD
+        /// slice's values with the new slice's name. The radio part belongs
         /// to this slice and is never written to another one.
         /// </summary>
-        internal int? Slice { get; set; }
+        internal object? SliceIdentity { get; set; }
         /// <summary>
         /// The radio switches and levels the layer itself wrote on
-        /// <see cref="Slice"/> since the radio part was read. Escape puts back
+        /// <see cref="SliceIdentity"/> since the radio part was read. Escape puts back
         /// only these: a value that merely differs from the picture (another
         /// slice, another program, the radio itself) is not this layer's to
         /// undo.
@@ -68,10 +72,11 @@ namespace JJFlexWpf
         private NoiseSnapshot? _live;
 
         /// <summary>
-        /// Read the radio part of a snapshot afresh, on the active slice, with
-        /// nothing touched yet: at the layer's entry, and when the active slice
-        /// changes under it (B1: leaving a slice confirms that slice's work,
-        /// LayerSliceJump's documented rule, so the new slice starts clean).
+        /// Read the radio part of a snapshot afresh, from the slice the radio
+        /// is reading now, with nothing touched yet: at the layer's entry, and
+        /// once the radio's active slice really has changed under it (B1:
+        /// leaving a slice confirms that slice's work, LayerSliceJump's
+        /// documented rule, so the new slice starts clean).
         /// </summary>
         private void ReadRadioPart(NoiseSnapshot snap)
         {
@@ -79,8 +84,10 @@ namespace JJFlexWpf
             snap.RadioLevels.Clear();
             snap.TouchedSwitches.Clear();
             snap.TouchedLevels.Clear();
-            snap.Slice = _activeSlice;
-            if (_radio() is null) return;
+            var r = _radio();
+            snap.SliceIdentity = r?.SliceIdentity;
+            _readingSlice = snap.SliceIdentity;
+            if (r is null) return;
             foreach (var e in Engines().Where(e => e.Side == DenoiseSide.Radio))
             {
                 snap.RadioSwitches[e.Id] = IsOn(e.Id);
@@ -91,8 +98,31 @@ namespace JJFlexWpf
         /// <summary>A radio write the controller made: marked on the live snapshot, so Escape knows the layer made it.</summary>
         private void NoteRadioTouched(string id, bool level)
         {
-            if (_live is not { } snap || snap.Slice != _activeSlice) return;
+            if (_live is not { } snap || _radio() is not { } r || !ReferenceEquals(r.SliceIdentity, snap.SliceIdentity)) return;
             (level ? snap.TouchedLevels : snap.TouchedSwitches).Add(id);
+        }
+
+        /// <summary>The slice the controller's shadows and the live snapshot belong to.</summary>
+        private object? _readingSlice;
+
+        /// <summary>
+        /// Notice that the slice the radio is reading has changed (repair
+        /// round 2, B1). Called on every report of the active slice, and
+        /// BEFORE every radio write, so an edit made before the next poll
+        /// still finds a picture of the slice it is about to change. On a
+        /// change: the write shadows belong to the slice they were written on
+        /// and are forgotten, and the open layer's picture is read again from
+        /// the new slice, nothing touched.
+        /// </summary>
+        private void FollowActiveSlice()
+        {
+            if (_radio() is not { } r) return;
+            object? now = r.SliceIdentity;
+            if (ReferenceEquals(now, _readingSlice)) return;
+            _readingSlice = now;
+            _switchShadow.Clear();
+            _levelShadow.Clear();
+            if (_live is { } snap && !ReferenceEquals(now, snap.SliceIdentity)) ReadRadioPart(snap);
         }
 
         /// <summary>The layer closed: nothing is live to put back any more.</summary>
@@ -111,7 +141,7 @@ namespace JJFlexWpf
         {
             bool changed = false;
             if (ReferenceEquals(_live, snap)) _live = null;
-            if (_radio() is { } r && snap.Slice == _activeSlice)
+            if (_radio() is { } r && ReferenceEquals(r.SliceIdentity, snap.SliceIdentity))
             {
                 foreach (var (id, on) in snap.RadioSwitches)
                 {

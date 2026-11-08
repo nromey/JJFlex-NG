@@ -368,6 +368,7 @@ namespace JJFlexWpf
                 case NoiseLeverKind.RadioLevel:
                 {
                     var r = _radio()!;
+                    FollowActiveSlice();
                     int v = Math.Clamp((int)Math.Round(value.Number), e.Level!.Min, e.Level.Max);
                     int? was = ReadRadioLevel(e);
                     r.WriteLevel(e, v);

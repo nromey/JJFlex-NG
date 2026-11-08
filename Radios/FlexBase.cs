@@ -8328,6 +8328,16 @@ namespace Radios
         }
 
         /// <summary>
+        /// The slice the active-slice properties read and write right now, as
+        /// an opaque identity to compare by reference; null with none. Not
+        /// <see cref="RXVFO"/>: setting RXVFO changes the number at once but
+        /// only QUEUES the slice's activation, so for a moment the number names
+        /// the new slice while every read still reaches the old one (Sprint 49
+        /// Track E repair round 2, B1).
+        /// </summary>
+        public object? ActiveSliceIdentity => theRadio?.ActiveSlice;
+
+        /// <summary>
         /// Letter of the active (RX) slice, e.g. "A". Empty if no active slice.
         /// </summary>
         public string ActiveSliceLetter => theRadio?.ActiveSlice?.Letter ?? "";

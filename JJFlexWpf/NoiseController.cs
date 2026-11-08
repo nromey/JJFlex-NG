@@ -316,6 +316,7 @@ namespace JJFlexWpf
 
         private void WriteRadioSwitch(DenoiseEngineEntry e, INoiseRadio r, bool on, string source, bool byApp)
         {
+            FollowActiveSlice();
             bool was = IsOn(e.Id);
             r.WriteSwitch(e, on);
             _switchShadow[e.Id] = (on, _clock() + ShadowMs);

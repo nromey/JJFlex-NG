@@ -14,6 +14,12 @@ namespace JJFlexWpf
         /// <summary>The radio's serial, the key per-radio intents are kept under; empty when unknown.</summary>
         string Serial { get; }
         string Mode { get; }
+        /// <summary>
+        /// The slice every read and write here acts on right now: an opaque
+        /// identity, compared by reference, never a number (repair round 2,
+        /// B1). Null when no slice is active.
+        /// </summary>
+        object? SliceIdentity { get; }
         /// <summary>Whether the radio's audio is playing through this computer, so the computer's engines have audio to work on.</summary>
         bool PcAudioOn { get; }
         bool ReadSwitch(DenoiseEngineEntry engine);
@@ -50,6 +56,7 @@ namespace JJFlexWpf
         public FlexNoiseRadio(FlexBase rig) => _rig = rig ?? throw new ArgumentNullException(nameof(rig));
         public string Serial => _rig.SelectedRadioSerial ?? "";
         public string Mode => _rig.Mode ?? "";
+        public object? SliceIdentity => _rig.ActiveSliceIdentity;
         public bool PcAudioOn => _rig.PCAudio;
         public bool ReadSwitch(DenoiseEngineEntry engine) => engine.ReadRadio?.Invoke(_rig) == FlexBase.OffOnValues.on;
         public void WriteSwitch(DenoiseEngineEntry engine, bool on) => engine.WriteRadio?.Invoke(_rig, on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);

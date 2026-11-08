@@ -58,34 +58,30 @@ namespace JJFlexWpf
 
         /// <summary>
         /// The active slice, reported by the surfaces' poll and by the layer's
-        /// slice jump (LayerSliceJump, the moment it happens). A change writes
-        /// the held intents to the new slice, forgets what was believed about
-        /// the old slice's switches and levels, and, while the noise layer is
-        /// open, reads the radio part of its Escape picture afresh on the new
-        /// slice (repair round 1, B1): leaving a slice confirms that slice's
-        /// work, so Escape never writes the old slice's settings onto this one.
+        /// slice jump (LayerSliceJump, the moment it is asked for). A change of
+        /// number writes the held intents to the new slice. Every report also
+        /// asks whether the slice the radio READS has changed
+        /// (<see cref="FollowActiveSlice"/>): a jump's number changes at once,
+        /// but the radio reads the new slice only after the queued activation
+        /// has run, and it is that moment, at the poll or at the next write,
+        /// that the Escape picture is read again (repair round 2, B1).
         /// </summary>
         public void NoteActiveSlice(int slice)
         {
-            if (_activeSlice == slice) return;
-            bool first = _activeSlice == null;
-            _activeSlice = slice;
-            if (first)
+            if (_activeSlice != slice)
             {
-                if (_live is { Slice: null } unread) unread.Slice = slice;
-                return;
+                bool first = _activeSlice == null;
+                _activeSlice = slice;
+                if (!first) WriteRadioIntents("the active slice changed");
             }
-            // A shadow is a value written on the slice that was active then.
-            _switchShadow.Clear();
-            _levelShadow.Clear();
-            WriteRadioIntents("the active slice changed");
-            if (_live is { } snap) ReadRadioPart(snap);
+            FollowActiveSlice();
         }
 
         public void Detach()
         {
             _activeSlice = null;
             _live = null;
+            _readingSlice = null;
             _group = null;
             _zeroRestore = null;
             foreach (var pending in _settling.Values) pending.Dispose();

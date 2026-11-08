@@ -74,6 +74,7 @@ public sealed class NoiseRepairRoundOneTests
         var snap = f.Noise.TakeSnapshot();
         f.Radio.Switches["radio_nb"] = true;            // slice B's own settings
         f.Radio.Levels["radio_nb"] = 42;
+        f.Radio.SliceIdentity = "slice B";             // the radio now reads B (round 2: by identity)
         f.Noise.NoteActiveSlice(1);                     // the jump, as LayerSliceJump reports it
         f.Radio.Writes.Clear();
         Assert.False(f.Noise.RestoreSnapshot(snap, "test"));
@@ -96,6 +97,7 @@ public sealed class NoiseRepairRoundOneTests
         f.Noise.Toggle("radio_nb", "test");             // on, on slice A
         f.Radio.Switches["radio_nb"] = false;           // slice B has it off
         f.Radio.Levels["radio_nb"] = 10;
+        f.Radio.SliceIdentity = "slice B";             // the radio now reads B (round 2: by identity)
         f.Noise.NoteActiveSlice(1);
         f.Radio.Writes.Clear();
         Assert.False(f.Noise.RestoreSnapshot(snap, "test"));
@@ -111,6 +113,7 @@ public sealed class NoiseRepairRoundOneTests
         var snap = f.Noise.TakeSnapshot();              // A: Noise Blanker off, level 0
         f.Radio.Switches["radio_nb"] = true;            // B: on, level 42
         f.Radio.Levels["radio_nb"] = 42;
+        f.Radio.SliceIdentity = "slice B";             // the radio now reads B (round 2: by identity)
         f.Noise.NoteActiveSlice(1);
         f.Noise.Adjust(f.Noise.Levers("radio_nb", false)[0], +1, "test");   // 45, on B
         Assert.Equal(45, f.Radio.Levels["radio_nb"]);
