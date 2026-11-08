@@ -728,14 +728,36 @@ namespace Radios
                 // connects through these. Also drop handles for radios that left
                 // the list — those serials are dual-homed no longer. Same scope
                 // rule as the ghost sweep: only this account's handles.
+                var bankGone = new List<(string Serial, string Name)>();
                 lock (_wanRadiosLock)
                 {
                     foreach (var stale in _wanRadiosBySerial
                         .Where(kv => !freshSerials.Contains(kv.Key)
                             && (string.IsNullOrEmpty(kv.Value.AccountId)
                                 || string.Equals(kv.Value.AccountId, accountId, StringComparison.OrdinalIgnoreCase)))
-                        .Select(kv => kv.Key).ToList())
-                        _wanRadiosBySerial.Remove(stale);
+                        .Select(kv => (kv.Key, kv.Value.Radio?.Nickname ?? "")).ToList())
+                    {
+                        _wanRadiosBySerial.Remove(stale.Key);
+                        bankGone.Add((stale.Key, stale.Item2));
+                    }
+                }
+
+                // A radio this list dropped whose row the sweep above could not
+                // see: the dual-homed radio, held in myRadioList as its LAN
+                // object (not IsWan), or kept on SmartLink alone by the bank
+                // after its LAN half left. Its SmartLink half was the bank
+                // entry just removed, and nothing told the picker, so after a
+                // cable pull the row read "on SmartLink, online" for minutes
+                // after the server had said the radio was gone (#1008). Raise
+                // the same removal the sweep raises; the picker re-asks the
+                // radio's paths at its own decision, so a radio still on the
+                // local network keeps its row and loses only the SmartLink half.
+                var sweptSerials = new HashSet<string>(gone.Select(g => g.Serial), StringComparer.OrdinalIgnoreCase);
+                foreach (var (serial, name) in bankGone)
+                {
+                    if (sweptSerials.Contains(serial)) continue;
+                    Tracing.TraceLine($"wanRadioListReceivedHandler: {serial} ({name}) absent from {accountId}'s fresh list — its SmartLink half is gone; telling the list", TraceLevel.Info);
+                    RaiseRadioRemoved(this, serial, name);
                 }
                 foreach (Radio w in lst) RememberWanRadio(w, accountId, provenance);
 

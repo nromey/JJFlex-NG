@@ -279,6 +279,65 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // #1008: a list that drops a radio whose row the sweep cannot see
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The cable pull of 2026-11-08: the radio's local half left the list,
+        /// the server then pushed an empty list, and the row kept "on SmartLink,
+        /// online" for minutes. The ghost sweep removes only WAN objects in the
+        /// rig's own list; a dual-homed radio is held there as its LAN object,
+        /// and once that has gone the row's SmartLink half lives on in the WAN
+        /// bank alone. The bank entry was pruned and nobody told the picker.
+        /// Now the removal is raised for it, the same event the sweep raises.
+        /// </summary>
+        /// <remarks>
+        /// The first case is the positive control: a radio the rig holds as a
+        /// WAN object is removed by the sweep, as it always was. The second
+        /// takes the WAN object out of the rig's list (its row now lives on the
+        /// bank alone, as after the LAN half leaves) and pushes the same empty
+        /// list; before the fix nothing was raised.
+        /// </remarks>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void An_empty_push_tells_the_list_its_SmartLink_half_is_gone_whoever_holds_the_row(bool rowIsAWanObject)
+        {
+            var (owner, wan) = NewSession();
+            var removed = new List<string>();
+            FlexBase.RadioRemovedDel onRemoved = (_, serial, __) => { lock (removed) removed.Add(serial); };
+            FlexBase.RadioRemoved += onRemoved;
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+                Assert.Equal(new[] { Listed }, RadiosOf(rig));
+                Assert.True(rig.RadioAvailability(Listed).wan, "the bank never took the radio, so this proves nothing");
+
+                if (!rowIsAWanObject)
+                {
+                    var list = (List<Radio>)MyRadioListField!.GetValue(rig)!;
+                    list.RemoveAll(r => r.Serial == Listed);
+                    Assert.Empty(WanSerialsInMyRadioList(rig));
+                    Assert.True(rig.RadioAvailability(Listed).wan);   // the row's SmartLink half, on the bank alone
+                }
+
+                wan.RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
+
+                WaitUntil(() => { lock (removed) return removed.Contains(Listed); },
+                    "the server said the radio was gone and the list was never told");
+                Assert.False(rig.RadioAvailability(Listed).wan);
+                lock (removed) Assert.Single(removed, s => s == Listed);   // once, not once per path
+            }
+            finally
+            {
+                FlexBase.RadioRemoved -= onRemoved;
+                owner.Dispose();
+            }
+        }
+
+        // ------------------------------------------------------------------
         // 2. A transport that has died while the session still reads Connected
         // ------------------------------------------------------------------
 
