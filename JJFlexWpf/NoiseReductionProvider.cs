@@ -7,7 +7,7 @@ namespace JJFlexWpf
     /// <summary>
     /// ISampleProvider wrapper that applies neural noise reduction, one engine
     /// per channel. RNNoise is the engine the app uses; 480-sample frames
-    /// (10 ms at 48 kHz). Includes wet/dry mix control via Strength property.
+    /// (10 ms at 48 kHz) and, since the 0.2 model, 960 samples of delay. Includes wet/dry mix control via Strength property.
     /// Sprint 25 Phase 10.
     /// </summary>
     /// <remarks>
@@ -77,7 +77,7 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Delay the processed signal currently has, in samples per channel:
-        /// the engine's own (480 for RNNoise) plus any frame carry (0 on
+        /// the engine's own (960 for RNNoise since the 0.2 model) plus any frame carry (0 on
         /// frame-aligned input).
         /// </summary>
         public int LatencySamples => _bank?.LatencySamples ?? 0;

@@ -280,7 +280,12 @@ Windows SDK 10.0.26100.0. What differs from the v0.1.1 recipe, and why:
   default (`--enable-dnn-debug-float` is off): the GRUs use their 8-bit weights.
 - **No run-time CPU dispatch; the generic path.** Upstream's x86 dispatch
   (`src/x86/`, enabled by `--enable-x86-rtcd`) is **off by default** upstream,
-  and we leave it off, so neither DLL contains an instruction beyond SSE2.
+  and we leave it off, so no RNNoise or detector code uses an instruction
+  beyond SSE2. (The x64 DLLs do contain AVX, FMA and AVX-512 instructions, all
+  inside the statically linked Microsoft C runtime's math and memory routines.
+  The runtime picks them only after checking CPUID, OSXSAVE and XGETBV, so
+  they are safe. Codex disassembled them and traced each one to its runtime
+  object, 2026-11-08. The x86 DLLs contain none.)
   Without `-mavx2` the SIMD header `vec_avx.h` compiles its SSE2 branch; clang
   predefines `__SSE2__` for both targets, and SSE2 is the floor of x64 and of
   every Windows that runs .NET 10. The compiler's own pragma message says so:
@@ -291,8 +296,10 @@ Windows SDK 10.0.26100.0. What differs from the v0.1.1 recipe, and why:
     turned off in the OS (some virtual machines, `bcdedit` with XSAVE disabled)
     would be dispatched to AVX code and crash. That is the "assumes AVX2
     without checking" case, even with detection on.
-  - One code path means **identical output on every machine**, which the tests
-    and any support conversation can rely on.
+  - One RNNoise code path means the same arithmetic on every machine, which
+    the tests and any support conversation can rely on. Not proven: identical
+    output bit for bit, because the runtime's math routines still choose a
+    path by CPU.
   - The cost is affordable. Measured 2026-11-08 on this machine (Intel Core
     Ultra 9 285HX), median of nine runs of 3,000 frames, one thread pinned:
     generic **133 µs per 10 ms frame on a performance core, 145 on an
