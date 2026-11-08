@@ -56,18 +56,36 @@ namespace JJFlexWpf
 
         private int? _activeSlice;
 
-        /// <summary>The surfaces' poll reports the active slice; a change writes the held intents to the new slice.</summary>
+        /// <summary>
+        /// The active slice, reported by the surfaces' poll and by the layer's
+        /// slice jump (LayerSliceJump, the moment it happens). A change writes
+        /// the held intents to the new slice, forgets what was believed about
+        /// the old slice's switches and levels, and, while the noise layer is
+        /// open, reads the radio part of its Escape picture afresh on the new
+        /// slice (repair round 1, B1): leaving a slice confirms that slice's
+        /// work, so Escape never writes the old slice's settings onto this one.
+        /// </summary>
         public void NoteActiveSlice(int slice)
         {
             if (_activeSlice == slice) return;
             bool first = _activeSlice == null;
             _activeSlice = slice;
-            if (!first) WriteRadioIntents("the active slice changed");
+            if (first)
+            {
+                if (_live is { Slice: null } unread) unread.Slice = slice;
+                return;
+            }
+            // A shadow is a value written on the slice that was active then.
+            _switchShadow.Clear();
+            _levelShadow.Clear();
+            WriteRadioIntents("the active slice changed");
+            if (_live is { } snap) ReadRadioPart(snap);
         }
 
         public void Detach()
         {
             _activeSlice = null;
+            _live = null;
             _group = null;
             _zeroRestore = null;
             foreach (var pending in _settling.Values) pending.Dispose();

@@ -5275,6 +5275,14 @@ public class KeyCommands
 
     private FilterSide? _filterRx;
 
+    /// <summary>
+    /// The noise layer's own answer to a slice jump, while it is open: the
+    /// controller re-reads its Escape picture on the new slice (Sprint 49
+    /// Track E repair round 1, B1), so leaving a slice confirms that slice's
+    /// work, as <see cref="LayerSliceJump"/> promises for every layer.
+    /// </summary>
+    private Action<int>? _noiseSliceJumped;
+
     private static int ClampSafe(int value, int min, int max)
         => max < min ? min : Math.Clamp(value, min, max);
 
@@ -5597,6 +5605,7 @@ public class KeyCommands
         if (noise == null) { LeaderNoRadio(); return; }
 
         noise.BeginSession();
+        _noiseSliceJumped = noise.NoteActiveSlice;
         var keys = new NoiseLayerKeys(noise, ToggleFeedback.LayerTone);
         bool restoredSomething = false;
 
@@ -5669,9 +5678,10 @@ public class KeyCommands
             DescribeFineStep = LayerFineStep,
             ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.NoiseLayerContext),
-            // Listen to what was removed is never left on, and the 0 key's
-            // "back" belongs to this session only.
-            Exited = why => { noise.ClearListening(); noise.ForgetZero(); },
+            // Listen to what was removed is never left on, the 0 key's
+            // "back" belongs to this session only, and the Escape picture
+            // stops collecting this layer's writes.
+            Exited = why => { _noiseSliceJumped = null; noise.ClearListening(); noise.ForgetZero(); noise.EndSnapshot(); },
             Cues = new Radios.ValueLayerCues
             {
                 Entered = EarconPlayer.LeaderEnterTone,
@@ -5710,7 +5720,10 @@ public class KeyCommands
     /// filter and, if the receive side is what the operator is working on,
     /// says so. What was done on the old slice is kept, not restored: the
     /// operator confirmed it by leaving. The transmit filter is radio-wide,
-    /// so on that side the jump changes the slice and nothing else.
+    /// so on that side the jump changes the slice and nothing else. The
+    /// noise layer, whose one target is a placeholder, keeps the rule through
+    /// its controller: the radio part of its Escape picture is read again on
+    /// the new slice, with nothing touched (repair round 1, B1).
     /// </summary>
     private bool LayerSliceJump(Keys k)
     {
@@ -5733,6 +5746,7 @@ public class KeyCommands
         {
             _valueLayer.Rebind(t => t.PerSlice);
         }
+        _noiseSliceJumped?.Invoke(rig.RXVFO);
         return true;
     }
 

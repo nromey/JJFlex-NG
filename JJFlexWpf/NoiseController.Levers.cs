@@ -364,6 +364,7 @@ namespace JJFlexWpf
                     int? was = ReadRadioLevel(e);
                     r.WriteLevel(e, v);
                     _levelShadow[e.Id] = (v, _clock() + ShadowMs);
+                    NoteRadioTouched(e.Id, level: true);
                     if (!e.Level.ReportedBack && r.Serial.Length > 0) _intents.Set(r.Serial, e.Id, v);
                     NoiseSettingsJournal.Record(NoiseJournalKind.Lever, source, e.Id, "level", was?.ToString() ?? "", v.ToString());
                     return true;

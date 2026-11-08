@@ -319,6 +319,7 @@ namespace JJFlexWpf
             bool was = IsOn(e.Id);
             r.WriteSwitch(e, on);
             _switchShadow[e.Id] = (on, _clock() + ShadowMs);
+            NoteRadioTouched(e.Id, level: false);
             if (was != on)
                 NoiseSettingsJournal.Record(NoiseJournalKind.Switch, source, e.Id, "", Words(was), Words(on), byApp);
         }
@@ -343,7 +344,12 @@ namespace JJFlexWpf
                     var e = _catalog.Find(id)!;
                     if (_switchShadow.TryGetValue(id, out var sh) && _clock() < sh.Until) continue; // we changed it ourselves
                     if (!r.ReadSwitch(e))
+                    {
+                        // The radio did it in answer to our write, so Escape
+                        // counts it among the layer's changes and puts it back.
+                        NoteRadioTouched(id, level: false);
                         Say(L("audio.noise_surface.radio_turned_off", ("engine", Lexicon.Get(e.LabelKey))), SpeechSubject.NoiseEngineSwitch);
+                    }
                 }
             });
         }

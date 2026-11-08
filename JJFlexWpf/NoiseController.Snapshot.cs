@@ -15,6 +15,21 @@ namespace JJFlexWpf
     {
         internal Dictionary<string, bool> RadioSwitches { get; } = new();
         internal Dictionary<string, int> RadioLevels { get; } = new();
+        /// <summary>
+        /// The slice the radio part was read on (repair round 1, B1). The
+        /// radio's switches and levels are per slice: the radio part belongs
+        /// to this slice and is never written to another one.
+        /// </summary>
+        internal int? Slice { get; set; }
+        /// <summary>
+        /// The radio switches and levels the layer itself wrote on
+        /// <see cref="Slice"/> since the radio part was read. Escape puts back
+        /// only these: a value that merely differs from the picture (another
+        /// slice, another program, the radio itself) is not this layer's to
+        /// undo.
+        /// </summary>
+        internal HashSet<string> TouchedSwitches { get; } = new();
+        internal HashSet<string> TouchedLevels { get; } = new();
         internal (bool On, string Engine) Spectral { get; set; }
         internal (bool On, string Engine) Neural { get; set; }
         internal Radios.DenoiseEngineSettings[] SpectralSettings { get; set; } = Array.Empty<Radios.DenoiseEngineSettings>();
@@ -29,12 +44,8 @@ namespace JJFlexWpf
         public NoiseSnapshot TakeSnapshot()
         {
             var snap = new NoiseSnapshot();
-            if (_radio() is { } r)
-                foreach (var e in Engines().Where(e => e.Side == DenoiseSide.Radio))
-                {
-                    snap.RadioSwitches[e.Id] = IsOn(e.Id);
-                    if (e.Level != null && ReadRadioLevel(e) is int level) snap.RadioLevels[e.Id] = level;
-                }
+            ReadRadioPart(snap);
+            _live = snap;
             if (_pipeline() is { } p)
             {
                 snap.Spectral = (p.SpectralSlot.Enabled, p.SpectralSlot.ChosenEngineId);
@@ -51,21 +62,61 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Put back everything that differs from the snapshot. Radio switches
-        /// are written only where they changed; radio levels only where the
-        /// layer moved them (an unreported level cannot be compared with the
-        /// radio, and writing every level back would be a write nobody asked
-        /// for). Returns whether anything was put back.
+        /// The snapshot the open noise layer will put back on Escape, if any:
+        /// the controller marks on it every radio write made while it is live.
+        /// </summary>
+        private NoiseSnapshot? _live;
+
+        /// <summary>
+        /// Read the radio part of a snapshot afresh, on the active slice, with
+        /// nothing touched yet: at the layer's entry, and when the active slice
+        /// changes under it (B1: leaving a slice confirms that slice's work,
+        /// LayerSliceJump's documented rule, so the new slice starts clean).
+        /// </summary>
+        private void ReadRadioPart(NoiseSnapshot snap)
+        {
+            snap.RadioSwitches.Clear();
+            snap.RadioLevels.Clear();
+            snap.TouchedSwitches.Clear();
+            snap.TouchedLevels.Clear();
+            snap.Slice = _activeSlice;
+            if (_radio() is null) return;
+            foreach (var e in Engines().Where(e => e.Side == DenoiseSide.Radio))
+            {
+                snap.RadioSwitches[e.Id] = IsOn(e.Id);
+                if (e.Level != null && ReadRadioLevel(e) is int level) snap.RadioLevels[e.Id] = level;
+            }
+        }
+
+        /// <summary>A radio write the controller made: marked on the live snapshot, so Escape knows the layer made it.</summary>
+        private void NoteRadioTouched(string id, bool level)
+        {
+            if (_live is not { } snap || snap.Slice != _activeSlice) return;
+            (level ? snap.TouchedLevels : snap.TouchedSwitches).Add(id);
+        }
+
+        /// <summary>The layer closed: nothing is live to put back any more.</summary>
+        public void EndSnapshot() => _live = null;
+
+        /// <summary>
+        /// Put back what the layer changed. Radio switches and levels only
+        /// where the layer itself wrote them on the slice the picture was read
+        /// on, and only where they now differ from it: nothing is written to
+        /// a slice the operator jumped to without touching, and an unreported
+        /// level is never written back unasked. Computer slots, favourites and
+        /// per-mode memory are app-wide and put back wherever they differ.
+        /// Returns whether anything was put back.
         /// </summary>
         public bool RestoreSnapshot(NoiseSnapshot snap, string source)
         {
             bool changed = false;
-            if (_radio() is { } r)
+            if (ReferenceEquals(_live, snap)) _live = null;
+            if (_radio() is { } r && snap.Slice == _activeSlice)
             {
                 foreach (var (id, on) in snap.RadioSwitches)
                 {
                     var e = _catalog.Find(id)!;
-                    if (IsOn(id) == on) continue;
+                    if (!snap.TouchedSwitches.Contains(id) || IsOn(id) == on) continue;
                     if (RadioRefusal(e, r, out _) != null) continue; // a refused write never happened
                     WriteRadioSwitch(e, r, on, source, byApp: false);
                     changed = true;
@@ -73,7 +124,7 @@ namespace JJFlexWpf
                 foreach (var (id, level) in snap.RadioLevels)
                 {
                     var e = _catalog.Find(id)!;
-                    if (ReadRadioLevel(e) == level) continue;
+                    if (!snap.TouchedLevels.Contains(id) || ReadRadioLevel(e) == level) continue;
                     if (RadioRefusal(e, r, out _) != null) continue;
                     var lever = Levers(id, false).First();
                     Write(lever, e, new EngineSettingValue(level), source);
