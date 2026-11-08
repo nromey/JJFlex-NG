@@ -5755,6 +5755,20 @@ public partial class MainWindow : UserControl
                     CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
             };
 
+            // The meters panel saves a meter the moment the operator changes it,
+            // into the same live config by the same route (#945). With no radio
+            // powered on the source is null and the panel saves straight into
+            // the root file instead: OpenParms and CurrentAudioConfig outlive a
+            // disconnect, and saving that older object whole would put back
+            // anything Settings changed since.
+            Controls.MetersPanel.AudioConfigSource = () =>
+                _radioPowerOn && OpenParms != null ? CurrentAudioConfig : null;
+            Controls.MetersPanel.AudioConfigSave = () =>
+            {
+                if (CurrentAudioConfig != null && OpenParms != null)
+                    CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
+            };
+
             // DSP controls track (2026-08-11): the noise-capture narrator
             // remembers each completed capture in the config (same store,
             // same immediate-save discipline as the workshop hooks above)...
