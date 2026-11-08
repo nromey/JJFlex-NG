@@ -247,6 +247,25 @@ public sealed class SliceOverwriteWarningTests : IDisposable
     }
 
     [Fact]
+    public void Play_takes_offers_only_Play_and_Back_up_on_a_slice_recording_row()
+    {
+        string dialog = Source("JJFlexWpf", "Dialogs", "PlayTakesDialog.cs");
+        string refresh = Body(dialog, "private void RefreshControls()");
+        int slice = refresh.IndexOf("if (CurrentSlice != null)", StringComparison.Ordinal);
+        int end = refresh.IndexOf("return;", slice, StringComparison.Ordinal);
+        Assert.True(slice > 0 && end > slice);
+        string branch = refresh.Substring(slice, end - slice);
+        Assert.Contains("Shown(_play, true);", branch);
+        Assert.Contains("Shown(_backUp, true);", branch);
+        foreach (string hidden in new[] { "_choose", "_compare", "_detailsButton", "_saveWav", "_saveFlac", "_delete", "_saveNote", "_rename", "_addToTest" })
+            Assert.Contains(hidden, branch.Substring(branch.IndexOf("new[] {", StringComparison.Ordinal)));
+        // No radio, no slice rows: only the radio can say what it holds.
+        Assert.Contains("_rig?.IsConnected == true ? SliceRecordingListing.Rows(_rig, DateTime.Now)", dialog);
+        // Play is a tagged door, so it never becomes a send to the air.
+        Assert.Contains("RecorderControls.ToggleSlicePlayAsync(_rig, sliceRow.Target, owner: this)", dialog);
+    }
+
+    [Fact]
     public void The_warning_puts_Record_first_and_default_and_swallows_F11()
     {
         string dialog = Source("JJFlexWpf", "Dialogs", "SliceOverwriteWarningDialog.cs");

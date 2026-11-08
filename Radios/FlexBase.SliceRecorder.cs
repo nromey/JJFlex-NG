@@ -446,6 +446,13 @@ public partial class FlexBase
         };
     }
 
+    /// <summary>The letters of this app's own slices on the connected radio (#999: Play takes lists their recordings).</summary>
+    public IReadOnlyList<string> SliceRecorderLetters()
+    {
+        if (theRadio == null || !theRadio.Connected) return Array.Empty<string>();
+        lock (mySlices) return mySlices.Where(SliceRecorderTargetIsOurs).Select(LetterOf).Distinct().ToList();
+    }
+
     /// <summary>The letter of the slice this target resolves to now, or empty when none does.</summary>
     public string SliceRecorderLetter(SliceRecorderTarget target)
     {
