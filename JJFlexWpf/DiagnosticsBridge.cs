@@ -42,6 +42,20 @@ namespace JJFlexWpf
         /// <summary>Start a detailed capture. Argument is a short reason for the manifest.</summary>
         public static Action<string>? StartCapture { get; set; }
 
+        /// <summary>
+        /// The reason the Diagnostics tab's capture button passes. The start
+        /// sentence reads it: only this door may say "from this button",
+        /// because only here was a button pressed.
+        /// </summary>
+        public const string DiagnosticsTabDoor = "Settings, Diagnostics tab";
+
+        /// <summary>
+        /// The reason the JJ key chord passes (Control J, then Control D). The
+        /// start sentence reads it and names the chord as the way to stop,
+        /// because the chord works from anywhere and no button was pressed.
+        /// </summary>
+        public const string ChordDoor = "Ctrl+J Ctrl+D";
+
         /// <summary>Stop the running capture, archive it, restore the standing level.</summary>
         public static Action? StopCapture { get; set; }
 

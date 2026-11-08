@@ -1166,6 +1166,11 @@ namespace Radios.Tests
                 // replaced with Noel's approved text and classified. Shown in
                 // the profile tab's status line as well as spoken: TextOnly.
                 "settings.profile.remote_firmware_allowed_warning",
+                // Junk box 2026-11-08 (#938): the capture-start sentence for the
+                // JJ key chord names the chord as the way to stop, and a plain
+                // one serves any other caller. DRAFT PROSE. Also the status line.
+                "logging.capture.started_from_chord",
+                "logging.capture.started_plain",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

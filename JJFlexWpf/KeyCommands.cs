@@ -6614,7 +6614,7 @@ public class KeyCommands
         // two doors into the same choke — were silent. All three doors now
         // inherit the earcon-first behaviour from the one place the state
         // actually changes.
-        DiagnosticsBridge.ToggleCapture("Ctrl+J Ctrl+D");
+        DiagnosticsBridge.ToggleCapture(DiagnosticsBridge.ChordDoor);
     }
 
     /// <summary>
