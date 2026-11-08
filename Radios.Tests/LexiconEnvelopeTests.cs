@@ -1096,6 +1096,7 @@ namespace Radios.Tests
                 "settings.mode.spoken.digu",
                 "settings.mode.spoken.digl",
                 "settings.mode.spoken.sam",
+                "settings.mode.spoken.dfm",
                 "settings.mode.spoken.nfm",
                 "settings.mode.words.usb",
                 "settings.mode.words.lsb",

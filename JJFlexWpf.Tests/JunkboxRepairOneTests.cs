@@ -147,6 +147,7 @@ public sealed class JunkboxRepairOneTests
     [InlineData("DIGL")]
     [InlineData("SAM")]
     [InlineData("NFM")]
+    [InlineData("DFM")]   // Digital FM, ruled 2026-11-08
     public void Homes_mode_field_says_a_mangled_mode_in_words_and_keeps_its_letters_on_display(string mode)
     {
         NoiseReductionPerChannelTests.AssertWindowless();

@@ -482,6 +482,8 @@
   "settings.mode.spoken.digl": { "text": "Digital lower", "delivery": null },
   "settings.mode.spoken.sam": { "text": "Synchronous AM", "delivery": null },
   "settings.mode.spoken.nfm": { "text": "Narrow FM", "delivery": null },
+  "_note_942_dfm": "Junk box #942 rulings (Noel, 2026-11-08) added settings.mode.spoken.dfm below: DFM is said Digital FM, as J41 allowed once verified. Verified by Noel from the FlexRadio manual: 5 kHz deviation with no pre-emphasis, used for repeaters and satellites. Ruled wording, not a draft.",
+  "settings.mode.spoken.dfm": { "text": "Digital FM", "delivery": null },
   "settings.mode.words.usb": { "text": "upper sideband", "delivery": null },
   "settings.mode.words.lsb": { "text": "lower sideband", "delivery": null },
   "settings.mode.words.digu": { "text": "digital upper sideband", "delivery": null },

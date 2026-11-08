@@ -14,13 +14,13 @@ namespace Radios
     /// (c): Eloquence ran "digl" together and buried the last letter that
     /// tells them apart); SAM is "Synchronous AM" (read as the name "Sam");
     /// NFM is "Narrow FM". USB, LSB, AM, FM, CW, DSB and RTTY stay letters.
-    /// The same at Terse and Chatty. Anything else, DFM among it, is said as
-    /// the radio names it.</para>
-    /// <para><b>DFM is deliberately left as letters.</b> The ruling allows
-    /// "Digital FM" only once that is verified to be what DFM is on Flex.
-    /// FlexLib names it without expanding it (it has DFM pre- and de-emphasis,
-    /// and groups its filter presets with D-STAR), which points that way but is
-    /// not FlexRadio saying so.</para>
+    /// The same at Terse and Chatty. Anything else is said as the radio
+    /// names it.</para>
+    /// <para><b>DFM is "Digital FM"</b>, ruled by Noel 2026-11-08. J41 allowed
+    /// it once verified to be what DFM is on Flex, and it was left as letters
+    /// until then; Noel verified it from the FlexRadio manual (5 kHz
+    /// deviation with no pre-emphasis, used for repeaters and
+    /// satellites).</para>
     /// <para><b><see cref="InWords"/></b> is the station check's vocabulary,
     /// moved here unchanged so there is one source: "upper sideband" and
     /// "digital upper sideband" where a sentence about the radio's setting
@@ -40,6 +40,7 @@ namespace Radios
                 case "DIGL": return Lexicon.Get("settings.mode.spoken.digl");
                 case "SAM": return Lexicon.Get("settings.mode.spoken.sam");
                 case "NFM": return Lexicon.Get("settings.mode.spoken.nfm");
+                case "DFM": return Lexicon.Get("settings.mode.spoken.dfm");
                 default: return m;
             }
         }

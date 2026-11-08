@@ -18,6 +18,7 @@ namespace Radios.Tests
         [InlineData("digl", "Digital lower")]
         [InlineData("SAM", "Synchronous AM")]
         [InlineData("NFM", "Narrow FM")]
+        [InlineData("dfm", "Digital FM")]   // ruled 2026-11-08, once verified on Flex
         public void A_mode_a_synthesizer_mangles_is_said_in_words(string mode, string spoken)
         {
             Assert.Equal(spoken, ModeWords.Spoken(mode));
@@ -31,7 +32,6 @@ namespace Radios.Tests
         [InlineData("CW")]
         [InlineData("DSB")]
         [InlineData("RTTY")]
-        [InlineData("DFM")]   // left as letters until what DFM is on Flex is verified
         public void Every_other_mode_stays_letters(string mode)
         {
             Assert.Equal(mode, ModeWords.Spoken(mode));
