@@ -2540,6 +2540,10 @@ public class NativeMenuBar : IDisposable
             // offers DSB where the radio has it and nothing it does not;
             // with no list reported yet, FlexLib's documented set. Rebuilt
             // with the rest of the menu on connect and on a slice change.
+            // A list that arrives after the last rebuild leaves these rows on
+            // the documented set, so the click asks the radio's list again
+            // before it writes, as SetMode does: a mode the radio has not
+            // listed is refused and said so, never written.
             var modeSub = AddSubmenu(slice, "Mode");
             foreach (string modeName in Radios.ModeCycle.KnownModes(Rig?.RadioModeList))
             {
@@ -2564,6 +2568,13 @@ public class NativeMenuBar : IDisposable
                 AddRadioChecked(modeSub, m + accel, () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
+                    if (!Radios.ModeCycle.Contains(Radios.ModeCycle.KnownModes(Rig.RadioModeList), m))
+                    {
+                        // The same sentence SetMode refuses with (DRAFT there).
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.not_on_radio",
+                            ("mode", Radios.ModeWords.Spoken(m))));
+                        return;
+                    }
                     Rig.Mode = m;
                     SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", Radios.ModeWords.Spoken(m))));
                 },

@@ -2285,13 +2285,19 @@ namespace Radios
             }
             // On the method rather than only in the UI: the 2026-08-29 port
             // incident bypassed the UI gate by calling this directly (#397).
-            if (GuardRefuses("settings.guard.action.ports")) return false;
+            // One step with the change-nothing hold: the hold cannot be armed
+            // between its check and the write.
             try
             {
-                if (enabled)
-                    theRadio.WanSetForwardedPorts(true, tcpPort, udpPort);
-                else
-                    theRadio.WanSetForwardedPorts(false, -1, -1);
+                var r = theRadio;
+                if (!OperatorWriteUnlessHeld("settings.guard.action.ports", () =>
+                    {
+                        if (enabled)
+                            r.WanSetForwardedPorts(true, tcpPort, udpPort);
+                        else
+                            r.WanSetForwardedPorts(false, -1, -1);
+                    }))
+                    return false;
                 Tracing.TraceLine($"SetSmartLinkPortForwarding: enabled={enabled} tcp={tcpPort} udp={udpPort}", TraceLevel.Info);
                 return true;
             }
@@ -10399,8 +10405,7 @@ namespace Radios
                 if (Enum.TryParse<ScreensaverMode>(value, out var mode))
                 {
                     if (r.Screensaver == mode) return;
-                    if (GuardRefuses("settings.guard.action.front_panel")) return;
-                    r.Screensaver = mode;
+                    OperatorWriteUnlessHeld("settings.guard.action.front_panel", () => r.Screensaver = mode);
                 }
                 else
                 {

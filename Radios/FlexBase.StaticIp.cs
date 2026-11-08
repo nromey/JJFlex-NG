@@ -294,11 +294,13 @@ namespace Radios
         public bool ApplyStaticIp(string ip, string gateway, string netmask, Action onSuccess, Action onFailure)
         {
             if (theRadio == null || !IsConnected) return false;
-            if (GuardRefuses("settings.guard.action.network")) return false;
 
             try
             {
                 var r = theRadio;
+                var staticIp = System.Net.IPAddress.Parse(ip);
+                var staticGateway = System.Net.IPAddress.Parse(gateway);
+                var staticNetmask = System.Net.IPAddress.Parse(netmask);
                 EventHandler okHandler = null, failHandler = null;
 
                 okHandler = (s, e) =>
@@ -316,13 +318,24 @@ namespace Radios
                     onFailure?.Invoke();
                 };
 
+                // Subscribed before the write, so a fast reply is not missed;
+                // taken off again if the change-nothing hold refuses it. The
+                // write is one step with the hold: the hold cannot be armed
+                // between its check and the command.
                 r.StaticIPSetSuccessful += okHandler;
                 r.StaticIPSetFailed += failHandler;
-
-                r.StaticIP = System.Net.IPAddress.Parse(ip);
-                r.StaticGateway = System.Net.IPAddress.Parse(gateway);
-                r.StaticNetmask = System.Net.IPAddress.Parse(netmask);
-                r.SetStaticNetworkParams();
+                if (!OperatorWriteUnlessHeld("settings.guard.action.network", () =>
+                    {
+                        r.StaticIP = staticIp;
+                        r.StaticGateway = staticGateway;
+                        r.StaticNetmask = staticNetmask;
+                        r.SetStaticNetworkParams();
+                    }))
+                {
+                    r.StaticIPSetSuccessful -= okHandler;
+                    r.StaticIPSetFailed -= failHandler;
+                    return false;
+                }
                 return true;
             }
             catch (Exception ex)
@@ -339,7 +352,6 @@ namespace Radios
         public bool RevertToDhcp(Action onSuccess, Action onFailure)
         {
             if (theRadio == null || !IsConnected) return false;
-            if (GuardRefuses("settings.guard.action.network")) return false;
 
             try
             {
@@ -361,9 +373,16 @@ namespace Radios
                     onFailure?.Invoke();
                 };
 
+                // As ApplyStaticIp: subscribed first, one step with the hold,
+                // taken off again if the hold refuses it.
                 r.DHCPSetSuccessful += okHandler;
                 r.DHCPSetFailed += failHandler;
-                r.SetNetworkToDCHP();
+                if (!OperatorWriteUnlessHeld("settings.guard.action.network", () => r.SetNetworkToDCHP()))
+                {
+                    r.DHCPSetSuccessful -= okHandler;
+                    r.DHCPSetFailed -= failHandler;
+                    return false;
+                }
                 return true;
             }
             catch (Exception ex)
@@ -390,9 +409,11 @@ namespace Radios
             {
                 try
                 {
-                    if (theRadio == null) return;
-                    if (GuardRefuses("settings.guard.action.private_ip")) return;
-                    theRadio.EnforcePrivateIPConnections = value;
+                    var r = theRadio;
+                    if (r == null) return;
+                    if (!OperatorWriteUnlessHeld("settings.guard.action.private_ip",
+                            () => r.EnforcePrivateIPConnections = value))
+                        return;
                     Tracing.TraceLine($"EnforcePrivateIPConnections set to {value}", TraceLevel.Info);
                 }
                 catch (Exception ex)

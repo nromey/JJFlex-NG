@@ -1403,9 +1403,9 @@ public partial class MetersPanel : UserControl
     /// <remarks>
     /// <para>Deliberately NOT <see cref="AudioOutputConfig.MeterTonesEnabled"/>,
     /// which this method wrote while it had no caller. The panel has no control
-    /// for it, and Ctrl+M switches the tones on to open the panel, so saving it
-    /// here would make every later launch start with meter tones sounding.
-    /// Settings and the meter keys own it.</para>
+    /// for it, and opening the panel does not touch the tones: Ctrl+M only
+    /// shows it, and the tone switch is Control J then Control T and the Meter
+    /// Tones menu (#126). Settings and the meter keys own it.</para>
     /// </remarks>
     public void SaveToConfig(AudioOutputConfig config)
     {
