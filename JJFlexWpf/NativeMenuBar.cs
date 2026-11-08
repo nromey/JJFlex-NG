@@ -617,6 +617,25 @@ public class NativeMenuBar : IDisposable
     /// were not, and acting now would be acting on an answer given after the
     /// fact.
     /// </summary>
+    /// <summary>
+    /// Why "Use My Transmit Audio Here" cannot be armed yet, as a label
+    /// suffix, or null when it can (#680, defect 3). It needs a chosen
+    /// transmit-audio profile that is STILL SAVED: until repair one any
+    /// saved name enabled it, so a chosen profile deleted in the Audio
+    /// Workshop left the row armable, promising a profile that no longer
+    /// existed (Codex's blocker), even with none saved at all. Matched as the
+    /// checkmarks below and the connect planner match it, ignoring case.
+    /// DRAFT labels.
+    /// </summary>
+    internal static string? UseMyTransmitAudioNotYet(string? chosen, IReadOnlyCollection<string> presetNames)
+    {
+        if (presetNames.Count == 0) return ", no transmit audio profiles saved yet";
+        if (string.IsNullOrEmpty(chosen)) return ", choose one under Which Transmit Audio first";
+        foreach (var name in presetNames)
+            if (string.Equals(name, chosen, System.StringComparison.OrdinalIgnoreCase)) return null;
+        return ", " + chosen + " is no longer saved, choose one under Which Transmit Audio";
+    }
+
     private void SetGuestProfileIntent(Radios.ProfileGuestIntent intent)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
@@ -627,14 +646,17 @@ public class NativeMenuBar : IDisposable
         {
             case Radios.ProfileGuestIntent.UseMyTransmitAudio:
                 var chosen = Rig.LocalTransmitAudioProfileChoice;
-                if (string.IsNullOrEmpty(chosen))
+                var saved = Rig.LocalTransmitAudioProfileNames();
+                if (UseMyTransmitAudioNotYet(chosen, saved) != null)
                 {
-                    // No profile chosen yet: send them straight to the picker
-                    // rather than leaving a dead intent.
-                    SpeakAfterMenuClose(Radios.Lexicon.Get(
-                        Rig.LocalTransmitAudioProfileNames().Count == 0
-                            ? "settings.profile_guest.no_presets"
-                            : "settings.profile_guest.why.no_local_profile"));
+                    // No usable profile chosen: send them straight to the
+                    // picker rather than leaving a dead intent, and never
+                    // promise a profile that is no longer saved (repair one).
+                    SpeakAfterMenuClose(saved.Count == 0
+                        ? Radios.Lexicon.Get("settings.profile_guest.no_presets")
+                        : string.IsNullOrEmpty(chosen)
+                            ? Radios.Lexicon.Get("settings.profile_guest.why.no_local_profile")
+                            : Radios.Lexicon.Get("settings.profile_guest.why.local_profile_missing", ("preset", chosen)));
                 }
                 else
                 {
@@ -2164,11 +2186,7 @@ public class NativeMenuBar : IDisposable
             // after the fact. Choosing one under Which Transmit Audio arms it.
             // DRAFT labels.
             var presetNames = Rig.LocalTransmitAudioProfileNames();
-            string? useMineNotYet = string.IsNullOrEmpty(Rig.LocalTransmitAudioProfileChoice)
-                ? (presetNames.Count == 0
-                    ? ", no transmit audio profiles saved yet"
-                    : ", choose one under Which Transmit Audio first")
-                : null;
+            string? useMineNotYet = UseMyTransmitAudioNotYet(Rig.LocalTransmitAudioProfileChoice, presetNames);
             AddRadioChecked(profilesSub, "Use My Transmit Audio Here" + (useMineNotYet ?? ""),
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.UseMyTransmitAudio),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.UseMyTransmitAudio,

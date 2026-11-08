@@ -168,6 +168,64 @@ public sealed class JunkboxRepairOneTests
         Assert.Contains(mode, FrequencyDisplay.FormatFieldAnnouncement(ModeField(mode)));
     }
 
+    // ------------------------------------------------------------------
+    // "Use My Transmit Audio Here" needs a chosen profile that still exists
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void A_chosen_transmit_audio_profile_deleted_afterwards_greys_use_my_transmit_audio_again()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string dir = Path.Combine(Path.GetTempPath(), "jjflex-repair1-680-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            const string op = "repair-one";
+            var store = new Radios.AudioChainPresets();
+            store.Presets.Add(new Radios.AudioChainPreset("Ragchew"));
+            store.Presets.Add(new Radios.AudioChainPreset("Contest"));
+            Assert.True(store.Save(dir, op));
+            List<string> Names() => Radios.AudioChainPresets.Load(dir, op).Presets.ConvertAll(p => p.Name);
+
+            // Chosen, and still saved: the row can be armed (the control).
+            string chosen = "Ragchew";
+            Assert.Null(JJFlexWpf.NativeMenuBar.UseMyTransmitAudioNotYet(chosen, Names()));
+            Assert.Null(JJFlexWpf.NativeMenuBar.UseMyTransmitAudioNotYet("ragchew", Names()));   // matched ignoring case
+
+            // Deleted in the Audio Workshop: removed from the store and saved,
+            // as its delete does. The per-radio choice is untouched by that.
+            var loaded = Radios.AudioChainPresets.Load(dir, op);
+            loaded.Presets.RemoveAt(loaded.Presets.FindIndex(p => p.Name == chosen));
+            Assert.True(loaded.Save(dir, op));
+            string? why = JJFlexWpf.NativeMenuBar.UseMyTransmitAudioNotYet(chosen, Names());
+            Assert.NotNull(why);
+            Assert.Contains(chosen, why);
+            Assert.Contains("no longer saved", why);
+
+            // And with none saved at all.
+            loaded = Radios.AudioChainPresets.Load(dir, op);
+            loaded.Presets.Clear();
+            Assert.True(loaded.Save(dir, op));
+            Assert.Empty(Names());
+            Assert.Equal(", no transmit audio profiles saved yet", JJFlexWpf.NativeMenuBar.UseMyTransmitAudioNotYet(chosen, Names()));
+            Assert.Equal(", choose one under Which Transmit Audio first",
+                JJFlexWpf.NativeMenuBar.UseMyTransmitAudioNotYet("", new[] { "Contest" }));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void Arming_it_anyway_never_promises_a_profile_that_is_not_saved()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string src = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "NativeMenuBar.cs"));
+        string handler = Body(src, "private void SetGuestProfileIntent(");
+        int gate = handler.IndexOf("if (UseMyTransmitAudioNotYet(chosen, saved) != null)", StringComparison.Ordinal);
+        int promise = handler.IndexOf("settings.profile_guest.live_audio_chosen", StringComparison.Ordinal);
+        Assert.True(gate > 0 && promise > gate, "the promise must sit behind the same check the row is greyed by");
+        Assert.Contains("settings.profile_guest.why.local_profile_missing", handler);
+    }
+
     private static string Body(string src, string signature)
     {
         int at = src.IndexOf(signature, StringComparison.Ordinal);

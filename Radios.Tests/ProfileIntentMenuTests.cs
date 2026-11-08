@@ -75,8 +75,10 @@ namespace Radios.Tests
             int decl = src.LastIndexOf("string? useMineNotYet", at, StringComparison.Ordinal);
             Assert.True(decl >= 0, "the reason is no longer worked out before the row");
             string why = src.Substring(decl, at - decl);
-            Assert.Contains("string.IsNullOrEmpty(Rig.LocalTransmitAudioProfileChoice)", why);
-            Assert.Contains("presetNames.Count == 0", why);   // none saved has its own reason
+            // Repair one: the choice is checked against the profiles still
+            // saved, through one decision the WPF tests drive with a real
+            // store (JunkboxRepairOneTests); its three reasons are pinned there.
+            Assert.Contains("UseMyTransmitAudioNotYet(Rig.LocalTransmitAudioProfileChoice, presetNames)", why);
         }
 
         /// <summary>
