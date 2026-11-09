@@ -43,7 +43,6 @@ namespace JJFlexWpf.Dialogs
                 ProblemList.ItemsSource = entries;
 
                 LeadText.Text = (ProblemLog.Truncated ? Radios.Lexicon.Get("logging.problems.lead_truncated") : Radios.Lexicon.Get("logging.problems.lead"));
-                System.Windows.Automation.AutomationProperties.SetName(LeadText, LeadText.Text);
 
                 if (string.IsNullOrEmpty(_logPath))
                 {
@@ -55,7 +54,6 @@ namespace JJFlexWpf.Dialogs
                 {
                     LogText.Text = Radios.Lexicon.Get("logging.problems.log_running");
                 }
-                System.Windows.Automation.AutomationProperties.SetName(LogText, LogText.Text);
 
                 if (entries.Count > 0) ProblemList.SelectedIndex = 0;
             };

@@ -123,32 +123,15 @@ public sealed class StatusTextNameTests
     // ---- the class ----
 
     /// <summary>
-    /// Waiting, with the reason. SettingsDialog.xaml is edited by Sprint 49
-    /// and the recordings work; only the Radio profile line was ours to
-    /// touch. The label and value pairs need a decision this batch did not
-    /// have: their fixed name is a field's label ("Frequency", "Source log
-    /// file"), so the right name carries both, not the value alone.
+    /// Waiting, with the reason. The label and value pairs need a decision
+    /// not yet made: their fixed name is a field's label ("Frequency",
+    /// "Source log file"), so the right name carries both, not the value
+    /// alone. (The seventeen SettingsDialog.xaml lines that waited here on
+    /// Sprint 49 and the recordings work moved in the third 2026-11-09 junk
+    /// box batch; Sprint 49's only hunk in that file is on the Audio tab.)
     /// </summary>
     private static readonly HashSet<string> Waiting = new(StringComparer.Ordinal)
     {
-        // SettingsDialog.xaml, after Sprint 49 and the recordings work merge.
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:ReachabilityStatusText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupConnectStatus",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupRegisterStatus",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupFirmwareStatus",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupFirmwareProgressText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupFirmwareFileText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupAddressStatus",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupWayInStatus",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupCheckStatus",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SetupRestartStatus",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:SilencedCountText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:UpdateLastCheckText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:DiagStatusText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:DiagProblemCountText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:DiagPathText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:DiagStorageText",
-        "JJFlexWpf/Dialogs/SettingsDialog.xaml:DiagCrashText",
         // Label and value pairs: a design decision, not built.
         "JJFlexWpf/Dialogs/AutoConnectSettingsDialog.xaml:RadioNameText",
         "JJFlexWpf/Dialogs/ConnectionTesterDialog.xaml:RadioInfoText",
@@ -206,6 +189,63 @@ public sealed class StatusTextNameTests
     }
 
     // ---- the scan ----
+
+    /// <summary>
+    /// A line that follows its text is never also renamed from code. A direct
+    /// write of its name (<c>AutomationProperties.SetName</c>, or
+    /// <c>SetValue(AutomationProperties.NameProperty, ...)</c>) renames it even
+    /// while it holds focus, which is the one thing the attached property
+    /// refuses to do. Six such writes sat beside the Diagnostics and Silenced
+    /// messages lines until they moved.
+    /// </summary>
+    [Fact]
+    public void A_line_that_follows_its_text_is_not_also_renamed_from_code()
+    {
+        AssertWindowless();
+        var writes = DirectNameWritesOnFollowingLines(TrackedXaml());
+        Assert.True(writes.Count == 0,
+            "a line with local:StatusTextName.Label is also renamed from code; drop the direct write: "
+            + string.Join(", ", writes));
+    }
+
+    [Fact]
+    public void The_direct_write_scan_sees_a_planted_write()
+    {
+        AssertWindowless();
+        // Positive control: both shapes the Diagnostics tab used.
+        var planted = new List<(string File, string Xaml, string CodeBehind)>
+        {
+            ("JJFlexWpf/Dialogs/Planted.xaml",
+             "<StackPanel><TextBlock x:Name=\"PlantedLine\" local:StatusTextName.Label=\"Planted\"/>"
+             + "<TextBlock x:Name=\"OtherLine\" local:StatusTextName.Label=\"Other\"/>"
+             + "<TextBlock x:Name=\"QuietLine\" local:StatusTextName.Label=\"Quiet\"/></StackPanel>",
+             "AutomationProperties.SetName(PlantedLine, PlantedLine.Text);"
+             + "OtherLine.SetValue(System.Windows.Automation.AutomationProperties.NameProperty,\r\n    OtherLine.Text);"
+             + "QuietLine.Text = warning;"),
+        };
+        Assert.Equal(new[] { "JJFlexWpf/Dialogs/Planted.xaml:PlantedLine", "JJFlexWpf/Dialogs/Planted.xaml:OtherLine" },
+            DirectNameWritesOnFollowingLines(planted));
+    }
+
+    private static readonly Regex FollowingLabel = new("local:StatusTextName\\.Label=\"", RegexOptions.Compiled);
+
+    private static List<string> DirectNameWritesOnFollowingLines(IEnumerable<(string File, string Xaml, string CodeBehind)> files)
+    {
+        var hits = new List<string>();
+        foreach (var (file, xaml, code) in files)
+        {
+            foreach (Match el in TextBlockElement.Matches(xaml))
+            {
+                var name = XName.Match(el.Value);
+                if (!name.Success || !FollowingLabel.IsMatch(el.Value)) continue;
+                string n = Regex.Escape(name.Groups[1].Value);
+                if (Regex.IsMatch(code, @"SetName\(\s*" + n + @"\s*,")
+                    || Regex.IsMatch(code, @"\b" + n + @"\.SetValue\(\s*(System\.Windows\.Automation\.)?AutomationProperties\.NameProperty"))
+                    hits.Add(file + ":" + name.Groups[1].Value);
+            }
+        }
+        return hits;
+    }
 
     private static readonly Regex TextBlockElement = new(@"<TextBlock\b[^>]*?/?>", RegexOptions.Singleline | RegexOptions.Compiled);
     private static readonly Regex XName = new("x:Name=\"([^\"]+)\"", RegexOptions.Compiled);

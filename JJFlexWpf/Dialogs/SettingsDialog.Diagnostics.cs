@@ -112,8 +112,6 @@ namespace JJFlexWpf.Dialogs
             try
             {
                 DiagStatusText.Text = DiagnosticsBridge.State();
-                DiagStatusText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty,
-                    DiagStatusText.Text);
 
                 bool keep = true;
                 int detail = 0;
@@ -151,8 +149,6 @@ namespace JJFlexWpf.Dialogs
                 {
                     DiagPathText.Text = Radios.Lexicon.Get("settings.diagnostics.log_location_unavailable");
                 }
-                DiagPathText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty,
-                    DiagPathText.Text);
 
                 UpdateProblemCount();
                 UpdateCaptureButton();
@@ -186,8 +182,6 @@ namespace JJFlexWpf.Dialogs
                 ? Radios.Lexicon.Get("settings.diagnostics.no_problems")
                 : Radios.Lexicon.Get("settings.diagnostics.problems_summary",
                     ("summary", ProblemLog.Summary()));
-            System.Windows.Automation.AutomationProperties.SetName(
-                DiagProblemCountText, DiagProblemCountText.Text);
 
             DiagShowProblemsButton.Visibility = n == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
@@ -470,7 +464,6 @@ namespace JJFlexWpf.Dialogs
                 if (!string.IsNullOrEmpty(crashes))
                 {
                     DiagCrashText.Text = crashes;
-                    DiagCrashText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, crashes);
                 }
             }
         }
@@ -484,12 +477,10 @@ namespace JJFlexWpf.Dialogs
             if (!string.IsNullOrEmpty(storage))
             {
                 DiagStorageText.Text = storage;
-                DiagStorageText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, storage);
             }
             if (!string.IsNullOrEmpty(crashes))
             {
                 DiagCrashText.Text = crashes;
-                DiagCrashText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, crashes);
                 _crashTextMeasured = true;
             }
             DiagnosticsBridge.Speak?.Invoke(storage + " " + crashes);

@@ -61,7 +61,6 @@ namespace JJFlexWpf.Dialogs
                 count == 0 ? Lexicon.Get("settings.silenced.count_none") :
                 count == 1 ? Lexicon.Get("settings.silenced.count_one") :
                 Lexicon.Get("settings.silenced.count_many", ("count", count));
-            AutomationProperties.SetName(SilencedCountText, SilencedCountText.Text);
             SilencedCountText.Focusable = true;
 
             // Nothing silenced means nothing to review. A disabled button is

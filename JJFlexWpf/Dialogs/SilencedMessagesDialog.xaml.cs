@@ -80,10 +80,8 @@ namespace JJFlexWpf.Dialogs
             LeadText.Text = rows.Count == 0
                 ? Lexicon.Get("settings.silenced.lead_empty")
                 : Lexicon.Get("settings.silenced.lead");
-            AutomationProperties.SetName(LeadText, LeadText.Text);
 
             StatusText.Text = status ?? string.Empty;
-            AutomationProperties.SetName(StatusText, StatusText.Text);
             // An empty status line is not a thing to land on. Keep it out of
             // the tab order until it has something to say.
             StatusText.Focusable = StatusText.Text.Length > 0;

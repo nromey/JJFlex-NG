@@ -111,7 +111,6 @@ public partial class StatusDialog : JJFlexDialog
         // The same issue-aware projection the list itself consumes, so this
         // line can never say "nothing" while the list shows a problem row.
         PendingSummary.Text = new Radios.Facts.FactListPresenter(Radios.Facts.ApplicationFacts.Store).StatusSummaryText();
-        System.Windows.Automation.AutomationProperties.SetName(PendingSummary, PendingSummary.Text);
     }
 
     /// <summary>
