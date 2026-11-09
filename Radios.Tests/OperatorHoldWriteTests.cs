@@ -182,11 +182,11 @@ namespace Radios.Tests
             var rig = Rig();
             int sent = rig.Vendor.Transport.Commands.Count;
             rig.Rig.SetChangeNothingActive(true);
-            Assert.False(rig.Rig.SetSmartLinkPortForwarding(true, 4994, 4993));
+            Assert.Equal(GuardedOutcome.Refused, rig.Rig.SetSmartLinkPortForwarding(true, 4994, 4993));
             Assert.Equal(sent, rig.Vendor.Transport.Commands.Count);
 
             rig.Rig.SetChangeNothingActive(false);
-            Assert.True(rig.Rig.SetSmartLinkPortForwarding(true, 4994, 4993));   // control
+            Assert.Equal(GuardedOutcome.Done, rig.Rig.SetSmartLinkPortForwarding(true, 4994, 4993));   // control
             Assert.Contains(rig.Vendor.Transport.Commands.Skip(sent), c => c.StartsWith("wan set public_tls_port=4994", StringComparison.Ordinal));
         }
 
@@ -202,8 +202,8 @@ namespace Radios.Tests
             Assert.True(rig.Rig.IsConnected);
             int sent = rig.Vendor.Transport.Commands.Count;
             rig.Rig.SetChangeNothingActive(true);
-            Assert.False(rig.Rig.ApplyStaticIp("192.168.1.50", "192.168.1.1", "255.255.255.0", () => { }, () => { }));
-            Assert.False(rig.Rig.RevertToDhcp(() => { }, () => { }));
+            Assert.Equal(GuardedOutcome.Refused, rig.Rig.ApplyStaticIp("192.168.1.50", "192.168.1.1", "255.255.255.0", () => { }, () => { }));
+            Assert.Equal(GuardedOutcome.Refused, rig.Rig.RevertToDhcp(() => { }, () => { }));
             Assert.Equal(sent, rig.Vendor.Transport.Commands.Count);
             Assert.Null(radio.StaticIPSetSuccessful);
             Assert.Null(radio.StaticIPSetFailed);
@@ -212,8 +212,8 @@ namespace Radios.Tests
 
             rig.Rig.SetChangeNothingActive(false);
             // Control: the same calls with the hold off reach the radio.
-            Assert.True(rig.Rig.ApplyStaticIp("192.168.1.50", "192.168.1.1", "255.255.255.0", () => { }, () => { }));
-            Assert.True(rig.Rig.RevertToDhcp(() => { }, () => { }));
+            Assert.Equal(GuardedOutcome.Done, rig.Rig.ApplyStaticIp("192.168.1.50", "192.168.1.1", "255.255.255.0", () => { }, () => { }));
+            Assert.Equal(GuardedOutcome.Done, rig.Rig.RevertToDhcp(() => { }, () => { }));
             var after = rig.Vendor.Transport.Commands.Skip(sent).ToList();
             Assert.Contains(after, c => c.StartsWith("radio static_net_params ip=192.168.1.50", StringComparison.Ordinal));
             Assert.Contains(after, c => c == "radio static_net_params reset");
@@ -419,18 +419,26 @@ namespace Radios.Tests
         public void The_one_step_operator_writers_use_the_one_step_helper(string file, string key)
         {
             string src = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", file));
-            Assert.Contains("OperatorWriteUnlessHeld(\"" + key + "\"", src);
+            // OperatorWriteOutcome is the same one step, telling a refusal
+            // apart for a caller that must stay silent on it (#486).
+            Assert.True(src.Contains("OperatorWriteUnlessHeld(\"" + key + "\"", StringComparison.Ordinal)
+                        || src.Contains("OperatorWriteOutcome(\"" + key + "\"", StringComparison.Ordinal),
+                key + " is not written through the one-step helper in " + file);
         }
 
         [Fact]
         public void The_one_step_helper_checks_and_writes_under_the_holds_lock_and_speaks_outside_it()
         {
             string src = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
-            int at = src.IndexOf("private bool OperatorWriteUnlessHeld(", StringComparison.Ordinal);
+            int bare = src.IndexOf("private bool OperatorWriteUnlessHeld(", StringComparison.Ordinal);
+            Assert.True(bare >= 0);
+            Assert.Contains("=> OperatorWriteOutcome(actionKey, write) == GuardedOutcome.Done;", src.Substring(bare, 200));
+            int at = src.IndexOf("private GuardedOutcome OperatorWriteOutcome(", StringComparison.Ordinal);
             Assert.True(at >= 0);
             string body = src.Substring(at, src.IndexOf("\n        }", at, StringComparison.Ordinal) - at);
-            Assert.Contains("if (WriteUnlessHeld(() => { write(); return true; })) return true;", body);
+            Assert.Contains("if (WriteUnlessHeld(() => { write(); return true; })) return GuardedOutcome.Done;", body);
             Assert.Contains("SayTheHoldRefused(actionKey);", body);
+            Assert.Contains("return GuardedOutcome.Refused;", body);
             int wuh = src.IndexOf("private bool WriteUnlessHeld(", StringComparison.Ordinal);
             Assert.Contains("lock (_changeNothingGate)", src.Substring(wuh, 300));   // positive control
         }

@@ -239,7 +239,7 @@ namespace JJFlexWpf.Controls
             }
 
             string ip = IpBox.Text.Trim();
-            bool sent = _rig.ApplyStaticIp(
+            var sent = _rig.ApplyStaticIp(
                 ip, GatewayBox.Text.Trim(), NetmaskBox.Text.Trim(),
                 onSuccess: () => Dispatcher.Invoke(() =>
                 {
@@ -252,13 +252,25 @@ namespace JJFlexWpf.Controls
                     Report(Lexicon.Get("connect.network.fixed_rejected_report"),
                            speak: Lexicon.Get("connect.network.fixed_rejected_speak"))));
 
-            if (!sent)
+            if (sent == Radios.GuardedOutcome.Refused)
+                ShowHoldRefusal();
+            else if (sent != Radios.GuardedOutcome.Done)
                 Report(Lexicon.Get("connect.network.fixed_send_failed_report"),
                        speak: Lexicon.Get("connect.network.fixed_send_failed_speak"));
             else
                 Report(Lexicon.Get("connect.network.sent_waiting_report"),
                        speak: Lexicon.Get("connect.network.sent_waiting_speak"));
         }
+
+        /// <summary>
+        /// The change-nothing hold refused the write and has already said so,
+        /// naming the setting. The result line carries the same sentence so it
+        /// can be re-read, and nothing more is spoken: a "could not send"
+        /// after it was untrue (#486).
+        /// </summary>
+        private void ShowHoldRefusal()
+            => ResultText.Text = Lexicon.Get("settings.guard.refused",
+                ("action", Lexicon.Get("settings.guard.action.network")));
 
         private void ApplyDhcp()
         {
@@ -291,7 +303,7 @@ namespace JJFlexWpf.Controls
                 return;
             }
 
-            bool sent = _rig.RevertToDhcp(
+            var sent = _rig.RevertToDhcp(
                 onSuccess: () => Dispatcher.Invoke(() =>
                 {
                     Report(Lexicon.Get("connect.network.dhcp_accepted_report"),
@@ -303,7 +315,9 @@ namespace JJFlexWpf.Controls
                     Report(Lexicon.Get("connect.network.dhcp_rejected_report"),
                            speak: Lexicon.Get("connect.network.dhcp_rejected_speak"))));
 
-            if (!sent)
+            if (sent == Radios.GuardedOutcome.Refused)
+                ShowHoldRefusal();
+            else if (sent != Radios.GuardedOutcome.Done)
                 Report(Lexicon.Get("connect.network.dhcp_send_failed_report"),
                        speak: Lexicon.Get("connect.network.dhcp_send_failed_speak"));
             else

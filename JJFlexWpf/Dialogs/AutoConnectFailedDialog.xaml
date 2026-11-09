@@ -15,7 +15,7 @@
         <!-- Message -->
         <TextBlock x:Name="MessageText" Grid.Row="0" TextWrapping="Wrap"
                    Margin="0,0,0,16"
-                   AutomationProperties.Name="Auto-connect failed message"/>
+                   local:StatusTextName.Label="Auto-connect failed message"/>
 
         <!-- Buttons -->
         <StackPanel Grid.Row="2" Orientation="Horizontal"

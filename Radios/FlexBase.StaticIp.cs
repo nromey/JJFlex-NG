@@ -291,9 +291,16 @@ namespace Radios
         /// StaticIPSetFailed events rather than a return value, so callers pass
         /// handlers. Both are unsubscribed after the first fire.
         /// </summary>
-        public bool ApplyStaticIp(string ip, string gateway, string netmask, Action onSuccess, Action onFailure)
+        /// <returns>
+        /// <see cref="GuardedOutcome.Done"/> when the parameters went out (the
+        /// radio's answer arrives through the handlers);
+        /// <see cref="GuardedOutcome.Refused"/> when the change-nothing hold
+        /// declined it and has already said so; <see cref="GuardedOutcome.Failed"/>
+        /// with no radio or when the send threw (#486).
+        /// </returns>
+        public GuardedOutcome ApplyStaticIp(string ip, string gateway, string netmask, Action onSuccess, Action onFailure)
         {
-            if (theRadio == null || !IsConnected) return false;
+            if (theRadio == null || !IsConnected) return GuardedOutcome.Failed;
 
             try
             {
@@ -324,24 +331,24 @@ namespace Radios
                 // between its check and the command.
                 r.StaticIPSetSuccessful += okHandler;
                 r.StaticIPSetFailed += failHandler;
-                if (!OperatorWriteUnlessHeld("settings.guard.action.network", () =>
+                if (OperatorWriteOutcome("settings.guard.action.network", () =>
                     {
                         r.StaticIP = staticIp;
                         r.StaticGateway = staticGateway;
                         r.StaticNetmask = staticNetmask;
                         r.SetStaticNetworkParams();
-                    }))
+                    }) == GuardedOutcome.Refused)
                 {
                     r.StaticIPSetSuccessful -= okHandler;
                     r.StaticIPSetFailed -= failHandler;
-                    return false;
+                    return GuardedOutcome.Refused;
                 }
-                return true;
+                return GuardedOutcome.Done;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"ApplyStaticIp: {ex.Message}", TraceLevel.Error);
-                return false;
+                return GuardedOutcome.Failed;
             }
         }
 
@@ -349,9 +356,9 @@ namespace Radios
         /// Put the radio back on DHCP. Same event-based outcome reporting as
         /// <see cref="ApplyStaticIp"/>.
         /// </summary>
-        public bool RevertToDhcp(Action onSuccess, Action onFailure)
+        public GuardedOutcome RevertToDhcp(Action onSuccess, Action onFailure)
         {
-            if (theRadio == null || !IsConnected) return false;
+            if (theRadio == null || !IsConnected) return GuardedOutcome.Failed;
 
             try
             {
@@ -377,18 +384,18 @@ namespace Radios
                 // taken off again if the hold refuses it.
                 r.DHCPSetSuccessful += okHandler;
                 r.DHCPSetFailed += failHandler;
-                if (!OperatorWriteUnlessHeld("settings.guard.action.network", () => r.SetNetworkToDCHP()))
+                if (OperatorWriteOutcome("settings.guard.action.network", () => r.SetNetworkToDCHP()) == GuardedOutcome.Refused)
                 {
                     r.DHCPSetSuccessful -= okHandler;
                     r.DHCPSetFailed -= failHandler;
-                    return false;
+                    return GuardedOutcome.Refused;
                 }
-                return true;
+                return GuardedOutcome.Done;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"RevertToDhcp: {ex.Message}", TraceLevel.Error);
-                return false;
+                return GuardedOutcome.Failed;
             }
         }
 

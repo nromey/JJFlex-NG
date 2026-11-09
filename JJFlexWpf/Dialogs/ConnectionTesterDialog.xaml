@@ -47,7 +47,7 @@
         <!-- Status -->
         <TextBlock x:Name="StatusText" Grid.Row="3" TextWrapping="Wrap" Margin="0,0,0,8"
                    Text="Ready"
-                   AutomationProperties.Name="Test status"/>
+                   local:StatusTextName.Label="Test status"/>
 
         <!-- Results list -->
         <ListBox x:Name="ResultsBox" Grid.Row="4" Margin="0,0,0,8"

@@ -108,6 +108,19 @@ public class FilterPreset
             ("description", Said(liveLow, liveHigh, atLimit: false, level)));
 
     /// <summary>
+    /// The active preset as the Status window SHOWS it, off the verbosity
+    /// dial (#983; the 2026-11-06 batch's rule that displayed text stays off
+    /// the dial): the name, the live edges, and the width in
+    /// <see cref="FormatForDisplay"/>'s never-rounding kilo form, "preset
+    /// Wide, filter 110 to 2790, 2.68 k". Speak Status keeps
+    /// <see cref="StatusSentence"/>, which follows the dial. DRAFT.
+    /// </summary>
+    public string DisplayedStatus(int liveLow, int liveHigh)
+        => Lexicon.Get("settings.filter.active_preset_status",
+            ("description", Lexicon.Get("settings.filter.preset_displayed", ("name", Name), ("low", liveLow), ("high", liveHigh),
+                ("width", HertzSpeech.DisplayedWidth(liveHigh - liveLow, HertzUnitStyle.KiloLetter)))));
+
+    /// <summary>
     /// The preset as a menu item shows it, which is not on the verbosity
     /// dial: "Wide (2.7 k)", the never-rounding kilo form at and above 1 kHz.
     /// It was "Wide (2.7 k Wide)", the name twice, until round five (Codex F1).
@@ -199,6 +212,16 @@ public class FilterPresets
     {
         int idx = FindActivePreset(mode, liveLow, liveHigh);
         return idx < 0 ? null : GetPresetsForMode(mode)[idx].StatusSentence(liveLow, liveHigh, level);
+    }
+
+    /// <summary>
+    /// <see cref="ActiveStatus"/> as the Status window shows it, off the
+    /// verbosity dial (#983): the same recognition, the displayed form.
+    /// </summary>
+    public string? ActiveDisplayedStatus(string mode, int liveLow, int liveHigh)
+    {
+        int idx = FindActivePreset(mode, liveLow, liveHigh);
+        return idx < 0 ? null : GetPresetsForMode(mode)[idx].DisplayedStatus(liveLow, liveHigh);
     }
 
     public int FindActivePreset(string mode, int low, int high)

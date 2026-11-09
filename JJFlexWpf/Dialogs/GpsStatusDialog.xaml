@@ -48,7 +48,7 @@
                    TextWrapping="Wrap"
                    Margin="0,0,0,8"
                    AutomationProperties.LiveSetting="Polite"
-                   AutomationProperties.Name="GPS state change"/>
+                   local:StatusTextName.Label="GPS state change"/>
 
         <!-- One arrowable surface for everything: summary, hardware,
              oscillator state, per-field details, and the explanatory prose.

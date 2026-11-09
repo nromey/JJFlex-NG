@@ -402,26 +402,30 @@ namespace Radios
 
         /// <summary>
         /// Load a mic profile by name ONLY if the radio already has it.
-        /// Returns false — and sends nothing — when it does not exist here,
-        /// so the caller can say so instead of this class quietly creating a
-        /// profile on somebody's radio.
+        /// <see cref="GuardedOutcome.Skipped"/> — and nothing sent — when it
+        /// does not exist here (or no name, or no radio), so the caller can say
+        /// so instead of this class quietly creating a profile on somebody's
+        /// radio. <see cref="GuardedOutcome.Refused"/> when the change-nothing
+        /// hold declined it and has already said so: the caller says nothing
+        /// more (#486; until 2026-11-09 a bool, so a refusal was followed by
+        /// "no longer listed"). <see cref="GuardedOutcome.Done"/> when the load
+        /// was queued.
         /// </summary>
-        public bool SelectMicProfileIfPresent(string name)
+        public GuardedOutcome SelectMicProfileIfPresent(string name)
         {
-            if (string.IsNullOrWhiteSpace(name)) return false;
+            if (string.IsNullOrWhiteSpace(name)) return GuardedOutcome.Skipped;
             var radio = theRadio;
-            if (radio == null || !radio.ProfileMICList.Contains(name)) return false;
+            if (radio == null || !radio.ProfileMICList.Contains(name)) return GuardedOutcome.Skipped;
             // A load of an EXISTING profile is still a change to shared
-            // station state, which is exactly what the hold holds. Every
-            // caller already handles false by saying what did not happen.
-            if (GuardRefuses("settings.guard.action.profile_load")) return false;
+            // station state, which is exactly what the hold holds.
+            if (GuardRefuses("settings.guard.action.profile_load")) return GuardedOutcome.Refused;
             q.Enqueue((FunctionDel)(() =>
             {
                 // Asked again at the write, one step with the hold (#976).
                 if (!WriteUnlessHeld(() => { theRadio.ProfileMICSelection = name; return true; }))
                     SayTheHoldRefused("settings.guard.action.profile_load");
             }), "SelectMicProfileIfPresent", true);
-            return true;
+            return GuardedOutcome.Done;
         }
 
         // ── Radio-scoped profile enumeration (#418, 2026-08-30) ──

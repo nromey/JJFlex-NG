@@ -33,11 +33,13 @@ public partial class StatusDialog : JJFlexDialog
     /// stale in the one surface whose entire job is being current.
     /// </para>
     /// <para>
-    /// <b>Both come from accessors that already exist</b> —
-    /// <c>MainWindow.GetTuningModeStatus</c> and
-    /// <c>MainWindow.GetFilterPresetStatus</c>, the same two the Speak Status
-    /// key reads. Nothing here derives either value; a second derivation is
-    /// how the meters ended up with two answers to one question.
+    /// <b>Both come from accessors on the main window</b> —
+    /// <c>MainWindow.GetTuningModeStatus</c>, which the Speak Status key reads
+    /// too, and <c>MainWindow.GetFilterPresetDisplayedStatus</c>, the
+    /// displayed form of the preset Speak Status says (#983: displayed text
+    /// stays off the verbosity dial; the same recognition and the same live
+    /// edges feed both). Nothing here derives either value; a second
+    /// derivation is how the meters ended up with two answers to one question.
     /// </para>
     /// <para>
     /// Null-returning is normal and means "no named preset" / "no handler

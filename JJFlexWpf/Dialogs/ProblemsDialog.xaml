@@ -28,7 +28,7 @@
 
         <TextBlock x:Name="LeadText" Grid.Row="0"
                    TextWrapping="Wrap" Margin="0,0,0,10"
-                   AutomationProperties.Name="About this list"/>
+                   local:StatusTextName.Label="About this list"/>
 
         <!-- Everything about one problem lives on its own list item: time, what
              failed, and what it means. A detail pane beside the list would be a
@@ -50,7 +50,7 @@
 
         <TextBlock x:Name="LogText" Grid.Row="2"
                    TextWrapping="Wrap" Margin="0,0,0,10"
-                   AutomationProperties.Name="Where the details are"/>
+                   local:StatusTextName.Label="Where the details are"/>
 
         <StackPanel Grid.Row="3" Style="{StaticResource ButtonPanel}">
             <Button x:Name="SaveButton" Content="Save the diagnostic log..."

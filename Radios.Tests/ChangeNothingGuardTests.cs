@@ -148,7 +148,7 @@ namespace Radios.Tests
             // one up.
             var storeKeys = StoreKeys();
             var named = new List<string>();
-            foreach (Match m in Regex.Matches(Read(FlexBase), "(?:GuardRefuses|OperatorWriteUnlessHeld)\\(\"([^\"]+)\""))
+            foreach (Match m in Regex.Matches(Read(FlexBase), "(?:GuardRefuses|OperatorWriteUnlessHeld|OperatorWriteOutcome)\\(\"([^\"]+)\""))
             {
                 named.Add(m.Groups[1].Value);
             }
@@ -212,18 +212,21 @@ namespace Radios.Tests
         // callsign are one step with the hold now: OperatorWriteUnlessHeld
         // rather than GuardRefuses and then the write.
         [InlineData("public bool RenameRadio(", "OperatorWriteUnlessHeld(\"settings.guard.action.rename\"", 700)]
-        [InlineData("public bool SetSmartLinkPortForwarding(", "OperatorWriteUnlessHeld(\"settings.guard.action.ports\"", 900)]
+        // #486 (2026-11-09): the port, network, firmware, registration and
+        // mic profile writers return a GuardedOutcome, so a caller can stay
+        // silent after the hold's refusal.
+        [InlineData("public GuardedOutcome SetSmartLinkPortForwarding(", "OperatorWriteOutcome(\"settings.guard.action.ports\"", 1300)]
         [InlineData("public bool SetRemoteOnEnabled(", "OperatorWriteUnlessHeld(\"settings.guard.action.rem_on\"", 900)]
         [InlineData("public bool EnforcePrivateIPConnections", "OperatorWriteUnlessHeld(\"settings.guard.action.private_ip\"", 900)]
-        [InlineData("public bool ApplyStaticIp(", "OperatorWriteUnlessHeld(\"settings.guard.action.network\"", 2400)]
-        [InlineData("public bool RevertToDhcp(", "OperatorWriteUnlessHeld(\"settings.guard.action.network\"", 2000)]
-        [InlineData("private bool SendRegistrationCommand(", "GuardRefuses(\"settings.guard.action.registration\")", 900)]
+        [InlineData("public GuardedOutcome ApplyStaticIp(", "OperatorWriteOutcome(\"settings.guard.action.network\"", 2400)]
+        [InlineData("public GuardedOutcome RevertToDhcp(", "OperatorWriteOutcome(\"settings.guard.action.network\"", 2000)]
+        [InlineData("private GuardedOutcome SendRegistrationCommand(", "GuardRefuses(\"settings.guard.action.registration\")", 900)]
         [InlineData("public bool SetSelectedOscillator(", "OperatorWriteUnlessHeld(\"settings.guard.action.oscillator\"", 900)]
-        [InlineData("public bool BeginFirmwareUpdate(", "GuardRefuses(\"settings.guard.action.firmware\")", 900)]
+        [InlineData("public GuardedOutcome BeginFirmwareUpdate(", "GuardRefuses(\"settings.guard.action.firmware\")", 900)]
         [InlineData("public string RadioCallsign", "OperatorWriteUnlessHeld(\"settings.guard.action.callsign\"", 1000)]
         [InlineData("public string FrontPanelDisplayMode", "OperatorWriteUnlessHeld(\"settings.guard.action.front_panel\"", 1400)]
         [InlineData("public GuardedOutcome SelectProfileGuarded(", "GuardRefuses(\"settings.guard.action.profile_load\")", 1000)]
-        [InlineData("public bool SelectMicProfileIfPresent(", "GuardRefuses(\"settings.guard.action.profile_load\")", 900)]
+        [InlineData("public GuardedOutcome SelectMicProfileIfPresent(", "GuardRefuses(\"settings.guard.action.profile_load\")", 900)]
         [InlineData("public GuardedOutcome SaveProfileGuarded(", "GuardRefuses(\"settings.guard.action.profile_save\")", 800)]
         // The gap the #397 write-path audit found in this very list: under the
         // hold you could still DELETE a profile off the radio while loading and

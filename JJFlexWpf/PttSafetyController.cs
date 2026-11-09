@@ -1159,22 +1159,63 @@ namespace JJFlexWpf
         };
 
         /// <summary>
+        /// One <see cref="FreshPressGate"/> per door for the another-station
+        /// refusal, so a held key says it once. Its OWN instances, under its own
+        /// door names: ZeroPowerDoors keys its gates by the bare "push to talk"
+        /// and "the lock key", and sharing one would silence a different
+        /// refusal said within its window.
+        /// </summary>
+        private readonly Dictionary<string, FreshPressGate> _anotherStationGates = new();
+
+        /// <summary>For tests: the clock presses of the another-station refusal are told apart by.</summary>
+        internal Func<long> RefusalClock { get; set; } = () => Environment.TickCount64;
+
+        /// <summary>
+        /// For tests: told each door whose another-station refusal is SAID
+        /// (tone and sentence). The speech history folds a sentence said twice
+        /// into one, so it cannot count them.
+        /// </summary>
+        internal Action<string>? AnotherStationRefusalSaid { get; set; }
+
+        /// <summary>
         /// Refuse a key from Idle while another station holds the transmitter,
         /// saying why with the warning tone first. True when refused. Keys
         /// nothing, writes nothing to the radio.
         /// </summary>
+        /// <remarks>
+        /// <b>One press, one answer.</b> A held key reaches here again on every
+        /// repeat, and under JAWS a hold arrives as down and up pairs about
+        /// 250 ms apart: nine tones and sentences in three seconds, each
+        /// cutting the last (#911's harness, #1022 item 2). Every repeat is
+        /// still refused; only the tone and the sentence pass the fresh-press
+        /// gate, as the zero-power refusal's do. The gate is asked only on the
+        /// refusal branch and never decides the return value, so it cannot
+        /// delay or block a release or an unlock, which never come here.
+        /// </remarks>
         private bool RefuseWhileAnotherStationTransmits(string door)
         {
             if (!AnotherStationTransmitting(SafeRig())) return false;
             Tracing.TraceLine("PTT: " + door + " refused: the radio reports another station transmitting on it, "
                 + "so a key from here would be refused by the radio and claim a transmission that is not ours",
                 TraceLevel.Warning);
+            if (!AnotherStationRefusalIsNew(door)) return true;   // refused again, nothing said
+            AnotherStationRefusalSaid?.Invoke(door);
             EarconPlayer.Warning2Beep();
             // DRAFT PROSE, awaiting Noel.
             ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.another_station_transmitting"),
                 Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
                 subject: Radios.Speech.SpeechSubject.TransmitKeyRefused);
             return true;
+        }
+
+        private bool AnotherStationRefusalIsNew(string door)
+        {
+            lock (_anotherStationGates)
+            {
+                if (!_anotherStationGates.TryGetValue(door, out FreshPressGate? gate))
+                    _anotherStationGates[door] = gate = new FreshPressGate();
+                return gate.NewRefusal(RefusalClock());
+            }
         }
 
         /// <summary>

@@ -531,11 +531,18 @@ namespace JJFlexWpf.Dialogs
             SetupRegisterButton.IsEnabled = false;
             SetupUnregisterButton.IsEnabled = false;
 
-            string opening = register
-                ? Lexicon.Get("settings.radio.register.starting")
-                : Lexicon.Get("settings.radio.unregister.starting");
-            SetupRegisterStatus.Text = opening;
-            ScreenReaderOutput.Speak(opening, VerbosityLevel.Terse, interrupt: true);
+            // The hold is asked FIRST (repair two): "Registering. Watch for
+            // the prompt to key the microphone." was said and then refused, so
+            // a refused press said two sentences and the first was untrue. Held,
+            // the send below refuses and says the one sentence.
+            if (!_rig.ChangeNothingActive)
+            {
+                string opening = register
+                    ? Lexicon.Get("settings.radio.register.starting")
+                    : Lexicon.Get("settings.radio.unregister.starting");
+                SetupRegisterStatus.Text = opening;
+                ScreenReaderOutput.Speak(opening, VerbosityLevel.Terse, interrupt: true);
+            }
 
             void OnState(string text, bool terminal) => Dispatcher.Invoke(() =>
             {
@@ -560,7 +567,21 @@ namespace JJFlexWpf.Dialogs
                 }
             });
 
-            if (!(register ? _rig.BeginSmartLinkRegistration(confirmed, OnState) : _rig.BeginSmartLinkUnregistration(confirmed, OnState)))
+            var sent = register ? _rig.BeginSmartLinkRegistration(confirmed, OnState) : _rig.BeginSmartLinkUnregistration(confirmed, OnState);
+            if (sent == GuardedOutcome.Refused)
+            {
+                // The change-nothing hold refused it and has said so, naming
+                // the setting. The status line carries the same sentence, and
+                // nothing more is spoken (#486). The other steps and the
+                // buttons are refreshed FIRST, without starting a new check,
+                // and the reason written after: the refresh rewrites this line,
+                // so in the old order the re-readable copy was gone at once
+                // (repair one).
+                RefreshSetupStatuses(startARegistrationCheck: false);
+                SetupRegisterStatus.Text = Lexicon.Get("settings.guard.refused",
+                    ("action", Lexicon.Get("settings.guard.action.registration")));
+            }
+            else if (sent != GuardedOutcome.Done)
             {
                 SetupRegisterStatus.Text =
                     Lexicon.Get("settings.radio.register.command_not_sent");
@@ -892,7 +913,7 @@ namespace JJFlexWpf.Dialogs
             string serial = _rig.SelectedRadioSerial;
             string previousVersion = _rig.RadioFirmwareVersion;
 
-            if (_rig.BeginFirmwareUpdate(_chosenFirmwarePath,
+            var started = _rig.BeginFirmwareUpdate(_chosenFirmwarePath,
                 onTransferFault: detail => Dispatcher.BeginInvoke(() =>
                 {
                     // Spoken announcement comes from FlexBase; this is the text
@@ -901,7 +922,8 @@ namespace JJFlexWpf.Dialogs
                     if (SetupFirmwareFileText == null) return;
                     SetupFirmwareFileText.Text =
                         Lexicon.Get("settings.radio.firmware.transfer_fault", ("detail", detail));
-                })))
+                }));
+            if (started == GuardedOutcome.Done)
             {
                 SetupFirmwareFileText.Text =
                     Lexicon.Get("settings.radio.firmware.sending");
@@ -929,6 +951,13 @@ namespace JJFlexWpf.Dialogs
                         }
                     }),
                     speakResult: true);
+            }
+            else if (started == GuardedOutcome.Refused)
+            {
+                // The change-nothing hold refused it and has said so; the line
+                // carries the same sentence, and nothing more is spoken (#486).
+                SetupFirmwareFileText.Text = Lexicon.Get("settings.guard.refused",
+                    ("action", Lexicon.Get("settings.guard.action.firmware")));
             }
             else
             {

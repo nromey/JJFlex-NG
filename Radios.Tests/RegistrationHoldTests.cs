@@ -66,7 +66,10 @@ namespace Radios.Tests
             rig.Vendor.Transport.Commands.Where(c => c.StartsWith("wan register", StringComparison.Ordinal)
                 || c.StartsWith("wan unregister", StringComparison.Ordinal)).ToList();
 
-        private static bool Send(RigOnVendorRadio rig, bool register, Action<string, bool> onState) => register
+        private static bool Send(RigOnVendorRadio rig, bool register, Action<string, bool> onState)
+            => Outcome(rig, register, onState) == GuardedOutcome.Done;
+
+        private static GuardedOutcome Outcome(RigOnVendorRadio rig, bool register, Action<string, bool> onState) => register
             ? rig.Rig.BeginSmartLinkRegistration(Confirmed(), onState)
             : rig.Rig.BeginSmartLinkUnregistration(Confirmed(), onState);
 
@@ -86,9 +89,11 @@ namespace Radios.Tests
                 return "test-token";
             };
 
-            bool sent = Send(rig, register, (_, __) => { });
+            var sent = Outcome(rig, register, (_, __) => { });
 
-            Assert.False(sent, "The registration command was sent after the change-nothing hold was armed.");
+            // Refused, not Failed (#486): the hold has said so, so the caller
+            // must not add "Could not send the command".
+            Assert.Equal(GuardedOutcome.Refused, sent);
             Assert.Empty(RegistrationCommands(rig));
         }
 

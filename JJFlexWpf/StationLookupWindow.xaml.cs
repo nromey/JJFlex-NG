@@ -77,6 +77,9 @@ public partial class StationLookupWindow : Window
         _operatorCallSign = operatorCallSign;
         _operatorGridSquare = operatorGridSquare;
         InitializeComponent();
+        // Not a JJFlexDialog, so it asks for the Cancel and default button
+        // rule itself (DefaultButtonAccessKey).
+        DefaultButtonAccessKey.WatchTree(this);
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)

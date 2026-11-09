@@ -211,7 +211,7 @@ namespace Radios.Tests
             string src = FlexBasePartials.JoinedText();
             string preflight = Body(src, "public RegistrationCheck PreflightSmartLinkRegistration()");
             string query = Body(src, "public Task<SmartLinkRegistrationEvidence.Finding> QuerySmartLinkRegistrationAsync()");
-            string send = Body(src, "private bool SendRegistrationCommand(");
+            string send = Body(src, "private GuardedOutcome SendRegistrationCommand(");
 
             Assert.Contains("ResolveRegistrationAccount(theRadio.Serial)", preflight, StringComparison.Ordinal);
             Assert.DoesNotContain("TryLoadSavedAccount()", preflight, StringComparison.Ordinal);

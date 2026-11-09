@@ -1257,7 +1257,7 @@
                                Style="{StaticResource DialogLabel}"
                                TextWrapping="Wrap" Margin="0,4,0,0"
                                Focusable="True"
-                               AutomationProperties.Name="Radio profile status"
+                               local:StatusTextName.Label="Radio profile status"
                                AutomationProperties.LiveSetting="Polite"/>
                 </StackPanel>
                 </ScrollViewer>

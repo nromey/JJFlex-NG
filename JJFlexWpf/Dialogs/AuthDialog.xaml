@@ -12,7 +12,7 @@
         <Border DockPanel.Dock="Top" Background="LightYellow" Padding="4">
             <TextBlock x:Name="StatusLabel" FontWeight="Bold"
                        Text="Authenticating with SmartLink..."
-                       AutomationProperties.Name="Authentication status"/>
+                       local:StatusTextName.Label="Authentication status"/>
         </Border>
 
         <!-- WebView2 control -->

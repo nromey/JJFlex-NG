@@ -1586,7 +1586,7 @@ public class KeyCommands
         {
             Rig = rig,
             TuningModeStatus = mw == null ? null : mw.GetTuningModeStatus,
-            FilterPresetStatus = mw == null ? null : mw.GetFilterPresetStatus,
+            FilterPresetStatus = mw == null ? null : mw.GetFilterPresetDisplayedStatus,
         };
         dialog.ShowDialog();
     }

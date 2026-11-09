@@ -551,8 +551,14 @@ namespace Radios
         /// <param name="confirmed">The check the operator confirmed: the
         /// registration is sent under ITS account, for ITS radio, and refused
         /// if the connected radio is no longer that radio.</param>
-        /// <returns>False if the command could not be sent at all.</returns>
-        public bool BeginSmartLinkRegistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
+        /// <returns>
+        /// <see cref="GuardedOutcome.Done"/> when the command went out;
+        /// <see cref="GuardedOutcome.Refused"/> when the change-nothing hold
+        /// declined it and has already said so, so the caller says nothing
+        /// more (#486); <see cref="GuardedOutcome.Failed"/> if the command could
+        /// not be sent at all.
+        /// </returns>
+        public GuardedOutcome BeginSmartLinkRegistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
             => SendRegistrationCommand(register: true, confirmed, onStateChange);
 
         /// <summary>
@@ -563,7 +569,8 @@ namespace Radios
         /// it can never be reached over SmartLink again without someone travelling to
         /// it. Callers must warn about this in the strongest terms they have.
         /// </summary>
-        public bool BeginSmartLinkUnregistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
+        /// <returns>As <see cref="BeginSmartLinkRegistration"/>.</returns>
+        public GuardedOutcome BeginSmartLinkUnregistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
             => SendRegistrationCommand(register: false, confirmed, onStateChange);
 
         /// <summary>
@@ -595,14 +602,14 @@ namespace Radios
         /// </summary>
         internal Func<SmartLinkAccount, string> RegistrationTokenForTest;
 
-        private bool SendRegistrationCommand(bool register, RegistrationCheck confirmed, Action<string, bool> onStateChange, int attempt = 1)
+        private GuardedOutcome SendRegistrationCommand(bool register, RegistrationCheck confirmed, Action<string, bool> onStateChange, int attempt = 1)
         {
             var r = theRadio;   // ONE read of the radio for the whole send (see below)
-            if (r == null || !IsConnected) return false;
+            if (r == null || !IsConnected) return GuardedOutcome.Failed;
             // Registration binds the radio to an ACCOUNT and persists in the
             // radio. Both directions — register and unregister — change what
             // the radio keeps, so both sit inside the hold (audit 2.9).
-            if (GuardRefuses("settings.guard.action.registration")) return false;
+            if (GuardRefuses("settings.guard.action.registration")) return GuardedOutcome.Refused;
             // The serial the confirmed check is matched against, the radio the
             // command goes to, and the one asked again after the token are the
             // same object (#713, repair round 2). Two reads of the connected
@@ -617,7 +624,7 @@ namespace Radios
                 Tracing.TraceLine(
                     $"SendRegistrationCommand: refused, the confirmed check does not cover this radio (check={(confirmed == null ? "none" : confirmed.RadioSerial + " " + confirmed.AccountEmail)}, connected={r.Serial})",
                     TraceLevel.Warning);
-                return false;
+                return GuardedOutcome.Failed;
             }
 
             try
@@ -629,7 +636,7 @@ namespace Radios
                 if (string.IsNullOrEmpty(jwt))
                 {
                     Tracing.TraceLine("SendRegistrationCommand: no JWT available", TraceLevel.Error);
-                    return false;
+                    return GuardedOutcome.Failed;
                 }
 
                 // Progress: each state the radio raises is queued WITH its own
@@ -682,7 +689,9 @@ namespace Radios
                             Thread.Sleep(2000);
                             // Re-entering fetches a fresh JWT — SmartLink id_tokens
                             // live 60 seconds, so the first one may already be dead.
-                            if (!SendRegistrationCommand(register, confirmed, onStateChange, attempt: 2))
+                            // A retry the hold refused has said so already;
+                            // only a retry that broke says it could not be sent.
+                            if (SendRegistrationCommand(register, confirmed, onStateChange, attempt: 2) == GuardedOutcome.Failed)
                                 onStateChange?.Invoke("The retry could not be sent. See the trace file for details.", true);
                         });
                         return;
@@ -767,20 +776,21 @@ namespace Radios
                     {
                         Tracing.TraceLine("SendRegistrationCommand: refused after the token, the change-nothing hold was armed meanwhile", TraceLevel.Warning);
                         SayTheHoldRefused("settings.guard.action.registration");
+                        return GuardedOutcome.Refused;
                     }
-                    return false;
+                    return GuardedOutcome.Failed;
                 }
 
                 lock (order) deferring = false;
                 StartDrainIfIdle();
 
                 Tracing.TraceLine($"SendRegistrationCommand: sent {(register ? "register" : "unregister")} for account {account.Email}", TraceLevel.Info);
-                return true;
+                return GuardedOutcome.Done;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"SendRegistrationCommand: {ex.Message}", TraceLevel.Error);
-                return false;
+                return GuardedOutcome.Failed;
             }
         }
 

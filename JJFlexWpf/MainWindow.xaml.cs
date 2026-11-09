@@ -1121,6 +1121,13 @@ public partial class MainWindow : UserControl
     public string? GetFilterPresetStatus() => _freqOutHandlers?.ActiveFilterPresetStatus;
 
     /// <summary>
+    /// The active filter preset as the Status window SHOWS it, off the
+    /// verbosity dial (#983), or null if not on a preset. Speak Status keeps
+    /// <see cref="GetFilterPresetStatus"/>, which follows the dial.
+    /// </summary>
+    public string? GetFilterPresetDisplayedStatus() => _freqOutHandlers?.ActiveFilterPresetDisplayedStatus;
+
+    /// <summary>
     /// Apply settings changes from the Settings dialog.
     /// Propagates PttConfig to controller, tuning steps to handler, and saves to disk.
     /// </summary>
@@ -7778,6 +7785,13 @@ public partial class MainWindow : UserControl
         // Frequency first, then mode, the order this method and the band jump
         // have always used.
         RigControl.Frequency = stop.FrequencyHz;
+        // The band notices' memory follows the stop, so a typed frequency
+        // afterwards is not judged against the band this came from. Only a
+        // stop the slice actually took (repair one): the receive frequency is
+        // read back after the write, because a locked slice refuses the tune
+        // and the setter returns normally, and while transmitting the setter
+        // returns before the admission flag is even reset.
+        _freqOutHandlers?.FollowChannelStop(stop.FrequencyHz, RigControl.RXFrequency);
 
         if (stop.Correction == null)
         {

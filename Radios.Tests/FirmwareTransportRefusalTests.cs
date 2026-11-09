@@ -80,7 +80,7 @@ namespace Radios.Tests
         [Fact]
         public void TheWriteRefusesOverSmartLinkEvenIfThePreflightWasSkipped()
         {
-            string slice = Slice(Read(FlexBase), "public bool BeginFirmwareUpdate(", 1400);
+            string slice = Slice(Read(FlexBase), "public GuardedOutcome BeginFirmwareUpdate(", 1400);
 
             Assert.True(slice.Contains("IsWanConnection", StringComparison.Ordinal),
                 "BeginFirmwareUpdate no longer tests the connection path. It is public and " +

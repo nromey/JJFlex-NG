@@ -851,8 +851,13 @@ namespace JJFlexWpf.Dialogs
         /// validation error (focus moved to the offending field); a declined
         /// confirmation or denied authority is reported in
         /// <paramref name="queued"/> and does not block the rest of OK.
+        /// <paramref name="refused"/> receives the hold's sentence when the
+        /// change-nothing hold refused the change, which was then neither sent
+        /// nor saved: the hold has said so, and the commit's announcement must
+        /// neither claim the change nor cut that sentence off, and its written
+        /// advisory must carry it (#486, repairs one and two).
         /// </summary>
-        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied)
+        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied, List<string> refused)
         {
             if (PortForwardEnabledCheck == null) return true;
             bool wantEnabled = PortForwardEnabledCheck.IsChecked == true;
@@ -916,10 +921,17 @@ namespace JJFlexWpf.Dialogs
                             declineNote = Lexicon.Get("settings.network.forwarding_declined");
                             return;
                         }
-                        if (PerformPortForwardApply(wantEnabled, tcp, udp))
+                        var outcome = PerformPortForwardApply(wantEnabled, tcp, udp);
+                        if (outcome == GuardedOutcome.Done)
                             applied.Add(NetworkCurrentStateText.Text);
-                        else
+                        // Refused: the hold has said so and the status line
+                        // carries the same sentence; "The port forwarding
+                        // command failed" after it was untrue (#486).
+                        else if (outcome != GuardedOutcome.Refused)
                             declineNote = Lexicon.Get("settings.network.forwarding_command_failed");
+                        else
+                            refused.Add(Lexicon.Get("settings.guard.refused",
+                                ("action", Lexicon.Get("settings.guard.action.ports"))));
                     },
                     onDenied: () =>
                     {
@@ -952,12 +964,13 @@ namespace JJFlexWpf.Dialogs
         /// <summary>
         /// Sprint 28 Phase 7 — extracted Apply body so both the guarded entrypoint
         /// and any future Apply callers reuse the same commit logic. Returns
-        /// true when the radio accepted the command.
+        /// the rig's outcome: Done when the radio accepted the command,
+        /// Refused when the change-nothing hold declined it (and has said so).
         /// </summary>
-        private bool PerformPortForwardApply(bool enabled, int tcp, int udp)
+        private GuardedOutcome PerformPortForwardApply(bool enabled, int tcp, int udp)
         {
-            bool ok = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
-            if (ok)
+            var outcome = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
+            if (outcome == GuardedOutcome.Done)
             {
                 // Sprint 27 Track A / Phase A.3 — also persist as account preference.
                 // It is a record only: since 2026-08-29 nothing applies it to a
@@ -1003,12 +1016,13 @@ namespace JJFlexWpf.Dialogs
                     : Lexicon.Get("settings.network.forwarding_disabled_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
             }
-            else if (_rig.ChangeNothingActive)
+            else if (outcome == GuardedOutcome.Refused)
             {
                 // Not a failure — the operator's own hold refused it, and the
                 // rig has already spoken the refusal by name. The status line
                 // carries the same sentence so it can be re-read; the generic
                 // "command failed" would be a lie with a worse diagnosis (#403).
+                // Nothing is spoken here or by the caller (#486).
                 NetworkCurrentStateText.Text = Lexicon.Get("settings.guard.refused",
                     ("action", Lexicon.Get("settings.guard.action.ports")));
             }
@@ -1018,7 +1032,7 @@ namespace JJFlexWpf.Dialogs
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.command_failed_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
             }
-            return ok;
+            return outcome;
         }
 
         /// <summary>
@@ -1668,49 +1682,96 @@ namespace JJFlexWpf.Dialogs
 
             if (!CommitRadioProfiles(queued, applied)) return false;
             CommitSetupRadioNameIfDirty(applied);
-            if (!CommitPortForwardIfDirty(queued, applied)) return false;
+            var refused = new List<string>(); // refused by the change-nothing hold: neither sent nor saved
+            if (!CommitPortForwardIfDirty(queued, applied, refused)) return false;
             CommitSystemWideKeysIfDirty(applied);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
 
             SettingsApplied?.Invoke();
 
-            if (closing)
-            {
-                if (queued.Count > 0)
-                {
-                    var body = new System.Text.StringBuilder(
-                        Lexicon.Get("settings.commit.some_items_wait_lead"));
-                    foreach (var note in queued)
-                    {
-                        body.AppendLine();
-                        body.AppendLine();
-                        body.Append(note);
-                    }
-                    if (applied.Count > 0)
-                    {
-                        body.AppendLine();
-                        body.AppendLine();
-                        body.Append(Lexicon.Get("settings.commit.done_right_away_lead")
-                            + string.Join(" ", applied));
-                    }
-                    AdvisoryDialog.Show(Lexicon.Get("settings.commit.some_items_wait_title"),
-                        body.ToString());
-                }
-                else
-                {
-                    ScreenReaderOutput.Speak(Lexicon.Get(pttDropped ? "settings.commit.ptt_not_saved" : "settings.commit.saved_spoken"),
-                        VerbosityLevel.Terse, interrupt: true);
-                }
-            }
+            var said = CommitAnnouncement(closing, pttDropped, refused, queued, applied);
+            if (said.Advisory != null)
+                AdvisoryDialog.Show(Lexicon.Get("settings.commit.some_items_wait_title"), said.Advisory);
             else
+                ScreenReaderOutput.Speak(said.Spoken!, VerbosityLevel.Terse, interrupt: said.Interrupt);
+            return true;
+        }
+
+        /// <summary>
+        /// The whole commit's final word, decided in one pure place so every
+        /// branch can be tested without a window (#486, repair two): OK with
+        /// something waiting writes an advisory; otherwise one sentence is
+        /// spoken. A change the change-nothing hold refused is never counted
+        /// as saved: the advisory then leads with the other settings only and
+        /// carries the hold's sentence so it can be re-read, and the spoken
+        /// sentence waits its turn behind the hold's.
+        /// </summary>
+        internal static (string? Advisory, string? Spoken, bool Interrupt) CommitAnnouncement(bool closing, bool pttDropped,
+            IReadOnlyList<string> refused, IReadOnlyList<string> queued, IReadOnlyList<string> applied)
+        {
+            bool holdRefused = refused.Count > 0;
+            if (closing && queued.Count > 0)
             {
-                string summary = pttDropped ? Lexicon.Get("settings.commit.ptt_not_saved") : Lexicon.Get("settings.commit.applied_spoken");
+                // DRAFT (repair two): the lead when a change was refused.
+                var body = new System.Text.StringBuilder(Lexicon.Get(holdRefused
+                    ? "settings.commit.some_items_wait_lead_refused"
+                    : "settings.commit.some_items_wait_lead"));
+                foreach (var note in queued)
+                {
+                    body.AppendLine();
+                    body.AppendLine();
+                    body.Append(note);
+                }
+                // The hold's own sentence, so the refusal it said can be
+                // re-read here, after the window change has cut it off.
+                foreach (var note in refused)
+                {
+                    body.AppendLine();
+                    body.AppendLine();
+                    body.Append(note);
+                }
+                if (applied.Count > 0)
+                {
+                    body.AppendLine();
+                    body.AppendLine();
+                    body.Append(Lexicon.Get("settings.commit.done_right_away_lead")
+                        + string.Join(" ", applied));
+                }
+                return (body.ToString(), null, false);
+            }
+
+            var said = CommitSummary(closing, pttDropped, holdRefused);
+            string summary = Lexicon.Get(said.Key);
+            // OK closes the dialog, and Home's return announcement interrupts
+            // about 70 ms into the hold's sentence; the arbiter replays only
+            // what is still owed, which was this summary alone (the 2026-11-09
+            // harness). So on OK the hold's sentence is folded into the one
+            // final sentence, which is what survives the close (repair two).
+            if (closing && holdRefused)
+                summary = string.Join(" ", refused) + " " + summary;
+            if (!closing)
+            {
                 if (queued.Count > 0)
                     summary += Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
                 else if (applied.Count > 0)
                     summary += " " + string.Join(" ", applied);
-                ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
             }
-            return true;
+            return (null, summary, said.Interrupt);
+        }
+
+        /// <summary>
+        /// The commit's spoken summary: which sentence, and whether it may cut
+        /// off what is speaking. When the change-nothing hold refused a radio
+        /// change in this commit, the hold has just said so: the summary then
+        /// waits its turn, never interrupting, and speaks only for the other
+        /// settings, which were saved (#486, repair one). Pure, so the
+        /// windowless tests can hold it.
+        /// </summary>
+        internal static (string Key, bool Interrupt) CommitSummary(bool closing, bool pttDropped, bool holdRefused)
+        {
+            string key = pttDropped ? "settings.commit.ptt_not_saved"
+                : holdRefused ? (closing ? "settings.commit.saved_others_spoken" : "settings.commit.applied_others_spoken")
+                : closing ? "settings.commit.saved_spoken" : "settings.commit.applied_spoken";
+            return (key, !holdRefused);
         }
 
         private void OkButton_Click(object sender, RoutedEventArgs e)

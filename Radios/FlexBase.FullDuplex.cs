@@ -239,10 +239,17 @@ public partial class FlexBase
             ReferenceEquals(connection, radio.CurrentCommandConnection) ? RestoreOutcome.Done : RestoreOutcome.Failed;
     }
 
+    /// <summary>
+    /// Toggle full duplex and return the lexicon key of the sentence the
+    /// caller says, or NULL when the change-nothing hold refused it: the hold
+    /// has already said so, naming the setting, and a second sentence spoken
+    /// on top cut it (#486; until 2026-11-09 this returned
+    /// <c>audio.full_duplex.blocked</c>, said 2 ms after the refusal).
+    /// </summary>
     public async Task<string> ToggleFullDuplexAsync()
     {
         if (FullDuplexAvailable != true) return "audio.full_duplex.not_reported";
-        if (GuardRefuses("settings.guard.action.full_duplex")) return "audio.full_duplex.blocked";
+        if (GuardRefuses("settings.guard.action.full_duplex")) return null;
         if (Interlocked.Exchange(ref _fullDuplexChanging, 1) != 0) return "audio.full_duplex.pending";
         try
         {

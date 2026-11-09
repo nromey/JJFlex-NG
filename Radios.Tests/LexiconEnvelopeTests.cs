@@ -1003,6 +1003,17 @@ namespace Radios.Tests
                 // never says either on its own account. DRAFTS awaiting Noel.
                 "settings.cw_message.list_empty",
                 "settings.cw_message.list_help",
+                // Junk box 2026-11-09, second batch: the Fix tool's transmitter
+                // check at tune power 0, its answer and its finding's two
+                // halves. Page text, never spoken on the application's own
+                // account, so delivery null. DRAFTS awaiting Noel.
+                "settings.transmit_check.zero_tune_power",
+                "settings.transmit_check.zero_tune_power_finding",
+                "settings.transmit_check.zero_tune_power_remedy",
+                // Same batch: the active filter preset as the Status window
+                // shows it, off the verbosity dial (#983). Window text, so
+                // delivery null. DRAFT awaiting Noel.
+                "settings.filter.preset_displayed",
                 // Junkbox #705, 2026-10-25: the Hotkey Editor's reason for a
                 // key that can never be assigned (Enter, and Tab or Escape
                 // with a modifier). A FRAGMENT that settings.keys.editor.key_reserved
@@ -2296,6 +2307,18 @@ namespace Radios.Tests
                 // Round two (#496, the bench's Fail 3): Settings with no radio
                 // says the PTT changes were not saved. DRAFT prose.
                 "settings.commit.ptt_not_saved",
+                // Junk box 2026-11-09 second batch, repair one (#486): the
+                // Settings commit's summary when the change-nothing hold refused
+                // a radio change in it, said after the hold's sentence for the
+                // settings that were saved; and the Audio Workshop's saved
+                // microphone setup when its radio half was refused. DRAFT prose.
+                "settings.commit.applied_others_spoken",
+                "settings.commit.saved_others_spoken",
+                "settings.audio.mic_setup_computer_half_applied",
+                // Repair two: the advisory's lead when a change was refused, and
+                // a saved setup whose computer half applied only in part. DRAFT.
+                "settings.commit.some_items_wait_lead_refused",
+                "settings.audio.mic_setup_computer_half_partly",
                 // Junk box 2026-11-09 (#517): Page Up and Page Down on the
                 // slice row, and Home on the Slice field, say where pan went
                 // instead of panning. Noel ruled the disposition 2026-09-21;

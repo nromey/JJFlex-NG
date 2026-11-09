@@ -296,6 +296,17 @@ namespace Radios.Fixer
                         critical: true));
                     break;
 
+                case TxTuneProbe.Verdict.NotJudgedAtZeroTunePower:
+                    // Not critical, and not tx-no-power: at tune power 0 the
+                    // radio's milliwatts say nothing either way, so "no RF came
+                    // out, check the antenna" would be false. A finding so the
+                    // stage does not read "passed" for a transmitter nobody
+                    // judged. DRAFT PROSE, in the lexicon.
+                    findings.Add(new FixerFinding("tx-zero-tune-power", FixOwner.Operator,
+                        Lexicon.Get("settings.transmit_check.zero_tune_power_finding"),
+                        Lexicon.Get("settings.transmit_check.zero_tune_power_remedy")));
+                    break;
+
                 case TxTuneProbe.Verdict.MakesPowerLoadSuspect:
                     // Reported, not shouted. An assertive region that fires
                     // for everything is one an operator learns to ignore.

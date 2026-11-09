@@ -70,6 +70,13 @@ namespace JJFlexWpf
             catch { return nint.Zero; }
         }
 
+        /// <summary>
+        /// Once per process, before the first dialog: a Cancel or default
+        /// button no longer hands a screen reader the Escape or carriage
+        /// return character as its access key (<see cref="DefaultButtonAccessKey"/>).
+        /// </summary>
+        static JJFlexDialog() => DefaultButtonAccessKey.Install();
+
         public JJFlexDialog()
         {
             // Load shared dialog styles
@@ -108,6 +115,10 @@ namespace JJFlexWpf
             // Wire up standard events
             PreviewKeyDown += JJFlexDialog_PreviewKeyDown;
             Loaded += JJFlexDialog_Loaded;
+            // Every Cancel and default button in this dialog, from the
+            // dialog's own Loaded: the class handler alone is never reached
+            // (see DefaultButtonAccessKey's remarks).
+            DefaultButtonAccessKey.WatchTree(this);
 
             // The stranded-focus sentinel runs for the LIFE of the dialog,
             // not just its edges — see StartStrandedFocusSentinel.

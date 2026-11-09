@@ -317,7 +317,8 @@ public partial class AudioWorkshopDialog
             }
         }
 
-        if (_rig.SelectMicProfileIfPresent(pick))
+        var selected = _rig.SelectMicProfileIfPresent(pick);
+        if (selected == GuardedOutcome.Done)
         {
             JJTrace.Tracing.TraceLine(
                 $"SilentTxFix: operator asked for mic profile '{pick}' on {radioId}.",
@@ -330,7 +331,9 @@ public partial class AudioWorkshopDialog
                 VerbosityLevel.Critical);
             PollTxAudio();
         }
-        else
+        // Refused: the change-nothing hold has said so, naming the setting;
+        // "no longer listed" after it was untrue (#486).
+        else if (selected != GuardedOutcome.Refused)
         {
             ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.micprofile.no_longer_listed", ("profile", pick)),
@@ -395,15 +398,63 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        string captureNotes = ApplyCaptureHalf(profile.Capture);
+        var capture = ApplyCaptureHalf(profile.Capture);
         var radioResult = profile.ApplyRadioHalf(_rig, _rig?.SelectedRadioSerial ?? "");
         if (radioResult.RadioHalfApplied) PollTxAudio();
 
-        var parts = new List<string> { Lexicon.Get("audio.micprofile.applied", ("profile", profile.Name)) };
-        if (!string.IsNullOrEmpty(radioResult.Message)) parts.Add(radioResult.Message);
-        if (!string.IsNullOrEmpty(captureNotes)) parts.Add(captureNotes);
-        ScreenReaderOutput.Speak(string.Join(" ", parts),
+        // Queued, never interrupting: under the change-nothing hold the
+        // hold's own sentence is speaking.
+        ScreenReaderOutput.Speak(MicProfileAppliedSentence(profile.Name, radioResult, capture),
             radioResult.Warning ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+    }
+
+    /// <summary>
+    /// What applying a saved microphone setup says. When the change-nothing
+    /// hold refused the radio half it has said so, naming the setting, so
+    /// this claims only what the computer half actually did (#486, repairs
+    /// one and two): all of it, some of it, or, when nothing was changed on
+    /// this computer (a different microphone in use, a level Windows would
+    /// not set, nothing recorded), no claim at all, only the notes saying
+    /// why. Pure, so the windowless tests can hold it.
+    /// </summary>
+    internal static string MicProfileAppliedSentence(string profileName, MicProfileApplyResult radioResult, CaptureHalfResult capture)
+    {
+        var parts = new List<string>();
+        if (!radioResult.HoldRefused)
+            parts.Add(Lexicon.Get("audio.micprofile.applied", ("profile", profileName)));
+        else if (capture.Outcome == CaptureHalfOutcome.Applied)
+            parts.Add(Lexicon.Get("settings.audio.mic_setup_computer_half_applied", ("profile", profileName)));
+        else if (capture.Outcome == CaptureHalfOutcome.Partly)
+            // DRAFT (repair two).
+            parts.Add(Lexicon.Get("settings.audio.mic_setup_computer_half_partly", ("profile", profileName)));
+        if (!string.IsNullOrEmpty(radioResult.Message)) parts.Add(radioResult.Message);
+        if (!string.IsNullOrEmpty(capture.Notes)) parts.Add(capture.Notes);
+        return string.Join(" ", parts);
+    }
+
+    /// <summary>What the capture half changed on this computer.</summary>
+    internal enum CaptureHalfOutcome
+    {
+        /// <summary>Something was changed and nothing was left undone.</summary>
+        Applied,
+        /// <summary>Something was changed, and the notes say what was not.</summary>
+        Partly,
+        /// <summary>Nothing was changed: skipped (a different microphone),
+        /// failed, needing a radio, or nothing recorded to apply.</summary>
+        NothingApplied,
+    }
+
+    /// <summary>The capture half's outcome and its spoken-ready notes.</summary>
+    internal sealed record CaptureHalfResult(CaptureHalfOutcome Outcome, string Notes)
+    {
+        internal static CaptureHalfResult From(bool changedSomething, List<string> notes)
+        {
+            string text = string.Join(" ", notes);
+            var outcome = !changedSomething ? CaptureHalfOutcome.NothingApplied
+                : notes.Count == 0 ? CaptureHalfOutcome.Applied
+                : CaptureHalfOutcome.Partly;
+            return new CaptureHalfResult(outcome, text);
+        }
     }
 
     /// <summary>
@@ -778,11 +829,62 @@ public partial class AudioWorkshopDialog
     /// driven: the gate engine is transmit-conditioning work and reads them
     /// from the profile when it arrives.
     /// </summary>
-    private string ApplyCaptureHalf(MicCaptureSettings capture)
+    private CaptureHalfResult ApplyCaptureHalf(MicCaptureSettings capture)
     {
-        if (capture == null) return "";
-        var notes = new List<string>();
         var (currentName, hostApi) = ReadSavedPcInput();
+        return ApplyCaptureHalfTo(capture, currentName,
+            conditioning =>
+            {
+                if (TxAudioConditioning.Conditioner == null) return false;
+                TxAudioConditioning.ApplySettings(conditioning);
+                PollTxCleanup();
+                return true;
+            },
+            (target, percent, boostRecorded, boostDb) => SetWindowsLevel(target, hostApi, percent, boostRecorded, boostDb));
+    }
+
+    /// <summary>
+    /// Set the Windows input level (and boost, when recorded) on one device.
+    /// Says whether anything was changed and, when something was not, why.
+    /// </summary>
+    private static (bool Changed, string? WhyNot) SetWindowsLevel(string targetName, int hostApi,
+        int percent, bool boostRecorded, float boostDb)
+    {
+        var level = WindowsMicLevel.TryFindByName(targetName, hostApi, out string whyNot);
+        if (level == null) return (false, whyNot);
+        bool changed = false;
+        try
+        {
+            level.Percent = percent;
+            changed = true;
+            if (boostRecorded && level.HasBoost)
+                level.BoostDb = boostDb;
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            return (changed, ex.Message);
+        }
+        finally
+        {
+            level.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The capture half's decisions, with this computer's two writers passed
+    /// in (repair two), so every branch can be driven without touching the
+    /// operator's audio devices: <paramref name="applyConditioning"/> answers
+    /// false when there is no live chain to take it, and
+    /// <paramref name="setLevel"/> answers what it changed and why not.
+    /// </summary>
+    internal static CaptureHalfResult ApplyCaptureHalfTo(MicCaptureSettings? capture, string currentName,
+        Func<TxConditioningSettings, bool> applyConditioning,
+        Func<string, int, bool, float, (bool Changed, string? WhyNot)> setLevel)
+    {
+        var notes = new List<string>();
+        if (capture == null) return CaptureHalfResult.From(false, notes);
+        bool changed = false;
 
         bool deviceMismatch = !string.IsNullOrEmpty(capture.DeviceName)
             && !string.IsNullOrEmpty(currentName)
@@ -805,7 +907,7 @@ public partial class AudioWorkshopDialog
                     ("device", capture.DeviceName), ("current", currentName))
                 : Lexicon.Get("audio.micprofile.device_mismatch",
                     ("device", capture.DeviceName), ("current", currentName)));
-            return string.Join(" ", notes);
+            return CaptureHalfResult.From(false, notes);
         }
 
         // The transmit cleanup half (PC NR + gate). Applied to the live
@@ -817,45 +919,23 @@ public partial class AudioWorkshopDialog
         // (Track B, 2026-08-18, #44.)
         if (capture.Conditioning != null)
         {
-            if (TxAudioConditioning.Conditioner != null)
-            {
-                TxAudioConditioning.ApplySettings(capture.Conditioning);
-                PollTxCleanup();
-            }
+            if (applyConditioning(capture.Conditioning))
+                changed = true;
             else
-            {
                 notes.Add(Lexicon.Get("audio.micprofile.cleanup_needs_a_radio"));
-            }
         }
 
         string targetName = !string.IsNullOrEmpty(currentName) ? currentName : capture.DeviceName;
         if (capture.InputLevelPercent >= 0 && !string.IsNullOrEmpty(targetName))
         {
-            var level = WindowsMicLevel.TryFindByName(targetName, hostApi, out string whyNot);
-            if (level == null)
-            {
+            var (levelChanged, whyNot) = setLevel(targetName, Math.Clamp(capture.InputLevelPercent, 0, 100),
+                capture.BoostRecorded, capture.BoostDb);
+            if (levelChanged) changed = true;
+            if (whyNot != null)
                 notes.Add(Lexicon.Get("audio.micprofile.level_not_set", ("reason", whyNot)));
-            }
-            else
-            {
-                try
-                {
-                    level.Percent = Math.Clamp(capture.InputLevelPercent, 0, 100);
-                    if (capture.BoostRecorded && level.HasBoost)
-                        level.BoostDb = capture.BoostDb;
-                }
-                catch (Exception ex)
-                {
-                    notes.Add(Lexicon.Get("audio.micprofile.level_not_set", ("reason", ex.Message)));
-                }
-                finally
-                {
-                    level.Dispose();
-                }
-            }
         }
 
-        return string.Join(" ", notes);
+        return CaptureHalfResult.From(changed, notes);
     }
 
     #endregion
