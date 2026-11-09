@@ -814,6 +814,7 @@
   "settings.profile_guest.opted_in": "JJ Flexible will load your profiles on this radio from the next time you connect, and put the radio's own back when you leave.",
   "settings.profile_guest.opted_in_mine": "JJ Flexible will load your profiles on this radio from the next time you connect.",
   "settings.profile_guest.opted_out": "JJ Flexible will leave this radio's profiles alone.",
+  "settings.profile_guest.ask_next_connect": {"text": "JJ Flexible will ask about this radio's profiles the next time you connect, and load nothing until you answer.", "delivery": null},
   "settings.profile_guest.pre_answered": "Your profiles load on this radio, as they always have. Change that under Profiles on This Radio in the Radio menu.",
   "settings.profile_guest.live_audio_chosen": "JJ Flexible will put your {preset} transmit audio on this radio from the next time you connect, changing nothing else and saving nothing on it. The radio gets its own settings back when you leave.",
   "settings.profile_guest.live_audio_applied": "Your {preset} transmit audio is on this radio. Nothing was saved on it.",

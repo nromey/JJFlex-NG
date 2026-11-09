@@ -1320,6 +1320,30 @@ namespace Radios
             return RadioConfig.RecordProfileIntent(serial, intent);
         }
 
+        /// <summary>
+        /// "Ask me at the next connect" for the connected radio (#680): the
+        /// profile question returns to unanswered and is asked at the next
+        /// connect, not pre-answered, whoever owns the radio. Takes effect at
+        /// the next connect, like every other answer here.
+        /// </summary>
+        public bool AskProfileQuestionAtNextConnect()
+        {
+            var serial = theRadio?.Serial;
+            if (string.IsNullOrEmpty(serial)) return false;
+            return RadioConfig.RecordAskProfileQuestionAtNextConnect(serial);
+        }
+
+        /// <summary>True while "ask me at the next connect" stands for the
+        /// connected radio. For the menu's check mark.</summary>
+        public bool ProfileQuestionWaitsForNextConnect
+        {
+            get
+            {
+                var serial = theRadio?.Serial;
+                return !string.IsNullOrEmpty(serial) && RadioConfig.ProfileAskAtNextConnectOf(serial);
+            }
+        }
+
         /// <summary>True when the operator has declared the connected radio
         /// theirs. False for a radio that is someone else's or unanswered.</summary>
         public bool RadioIsMine
@@ -1627,9 +1651,17 @@ namespace Radios
             var ownership = RadioConfig.OwnershipOf(serial);
             var current = RadioConfig.ProfileIntentOf(serial);
             bool connectedBefore = ConnectionHistory.Load(serial).Count > 0;
+            bool askAtNextConnect = RadioConfig.ProfileAskAtNextConnectOf(serial);
 
-            var pre = ProfileStewardship.PreAnswerForKnownRadio(ownership, connectedBefore, current, ChangeNothingActive);
-            if (pre == null) return false;
+            var pre = ProfileStewardship.PreAnswerForKnownRadio(
+                ownership, connectedBefore, current, ChangeNothingActive, askAtNextConnect);
+            if (pre == null)
+            {
+                if (askAtNextConnect)
+                    Tracing.TraceLine("ProfileStewardship: the operator chose to be asked at this connect, so "
+                        + "its profile question is not pre-answered; nothing is loaded.", TraceLevel.Info);
+                return false;
+            }
 
             // Recheck at the moment of persisting, not only at the decision:
             // the hold can be armed between the two (Track G review, step 2).

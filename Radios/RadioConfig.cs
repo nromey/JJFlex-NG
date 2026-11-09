@@ -1370,8 +1370,42 @@ namespace Radios
         /// first connect to a radio changes nothing, and the question is
         /// raised once.
         /// </summary>
+        /// <remarks>
+        /// Writing any answer other than <see cref="ProfileGuestIntent.NotAnswered"/>
+        /// clears <see cref="ProfileAskAtNextConnect"/> in the same write, so
+        /// every writer (the menu, the connect-time ownership question, the
+        /// transmit-audio choice, the automatic pre-answer) answers the
+        /// question the marker was holding open, and none can leave a marker
+        /// behind an answer.
+        /// </remarks>
         [XmlIgnore]
-        public ProfileGuestIntent ProfileIntent { get => _profileIntent.Value; set => _profileIntent.Value = value; }
+        public ProfileGuestIntent ProfileIntent
+        {
+            get => _profileIntent.Value;
+            set
+            {
+                _profileIntent.Value = value;
+                if (value != ProfileGuestIntent.NotAnswered) ProfileAskAtNextConnect = false;
+            }
+        }
+
+        /// <summary>
+        /// The operator chose "ask me at the next connect" under Profiles on
+        /// This Radio: the question stays open, and the automatic pre-answer
+        /// for a known radio of theirs (<c>ProfileStewardship.PreAnswerForKnownRadio</c>)
+        /// does not answer it for them. Means something only while
+        /// <see cref="ProfileIntent"/> is <see cref="ProfileGuestIntent.NotAnswered"/>;
+        /// any other answer clears it. Changes nothing a connect may DO on a
+        /// radio that is not the operator's: the question is already asked
+        /// there, and the plan already loads nothing.
+        /// </summary>
+        /// <remarks>
+        /// APPEND-ONLY like the blocks around it: an absent element reads as
+        /// false, which is what every config written before it meant. A build
+        /// that does not know the element drops it when it rewrites the file,
+        /// so an older build cannot leave a marker that bites later.
+        /// </remarks>
+        public bool ProfileAskAtNextConnect { get; set; }
 
         /// <summary>The saved text of <see cref="ProfileIntent"/>, read tolerantly (#847).</summary>
         [XmlElement("ProfileIntent")]
@@ -1634,6 +1668,56 @@ namespace Radios
                 return true;
             });
             return written;
+        }
+
+        /// <summary>
+        /// The operator chose "ask me at the next connect": the profile intent
+        /// returns to <see cref="ProfileGuestIntent.NotAnswered"/> and the
+        /// marker is set, in one write. Also on a radio already at
+        /// NotAnswered, where <see cref="RecordProfileIntent"/> would write
+        /// nothing, because the marker is what stops the pre-answer. Returns
+        /// false only when the value could not reach disk.
+        /// </summary>
+        public static bool RecordAskProfileQuestionAtNextConnect(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            return Update(radioId, cfg => {
+                if (cfg.ProfileIntent == ProfileGuestIntent.NotAnswered
+                    && !cfg.ProfileIntentIsFromANewerBuild
+                    && cfg.ProfileAskAtNextConnect) return false;
+                cfg.ProfileIntent = ProfileGuestIntent.NotAnswered;
+                cfg.ProfileAskAtNextConnect = true;
+                Tracing.TraceLine(
+                    $"RadioConfig: profile question for {radioId} returned to unanswered by the operator; "
+                    + "it is asked at the next connect and not pre-answered.",
+                    System.Diagnostics.TraceLevel.Info);
+                return true;
+            });
+        }
+
+        /// <summary>
+        /// True while the operator's "ask me at the next connect" stands for a
+        /// radio id: the marker is set AND the intent is still unanswered.
+        /// Unknown or unreadable ids read as false. Never throws.
+        /// </summary>
+        public static bool ProfileAskAtNextConnectOf(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                return cfg.ReadFailure == null
+                    && cfg.ProfileAskAtNextConnect
+                    && cfg.ProfileIntent == ProfileGuestIntent.NotAnswered
+                    && !cfg.ProfileIntentIsFromANewerBuild;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.ProfileAskAtNextConnectOf: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
         }
 
         public static bool RecordProfileIntent(string radioId, ProfileGuestIntent value)
