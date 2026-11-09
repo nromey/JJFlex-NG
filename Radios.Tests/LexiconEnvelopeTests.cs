@@ -1003,6 +1003,13 @@ namespace Radios.Tests
                 // never says either on its own account. DRAFTS awaiting Noel.
                 "settings.cw_message.list_empty",
                 "settings.cw_message.list_help",
+                // Junk box 2026-11-09, second batch: the Fix tool's transmitter
+                // check at tune power 0, its answer and its finding's two
+                // halves. Page text, never spoken on the application's own
+                // account, so delivery null. DRAFTS awaiting Noel.
+                "settings.transmit_check.zero_tune_power",
+                "settings.transmit_check.zero_tune_power_finding",
+                "settings.transmit_check.zero_tune_power_remedy",
                 // Junkbox #705, 2026-10-25: the Hotkey Editor's reason for a
                 // key that can never be assigned (Enter, and Tab or Escape
                 // with a modifier). A FRAGMENT that settings.keys.editor.key_reserved

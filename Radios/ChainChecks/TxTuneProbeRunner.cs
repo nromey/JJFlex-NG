@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
+using Flex.Smoothlake.FlexLib;
 using JJTrace;
 
 namespace Radios.ChainChecks
@@ -121,7 +122,10 @@ namespace Radios.ChainChecks
 
             // --- key, sample, and drop the carrier whatever happens ---
 
-            int tunePower = SafeTunePower(rig);
+            // Null when the setting could not be read: a failed read is not a
+            // setting of 0, so it never routes a verdict to "not judged at 0".
+            int? tunePowerRead = SafeTunePower(rig);
+            int tunePower = tunePowerRead ?? 0;
             var meters = new List<TxTuneProbe.Reading>(TxTuneProbe.Watched.Length);
             double lastComputedSwr = double.NaN;
             bool stoppedEarly = false;
@@ -231,7 +235,8 @@ namespace Radios.ChainChecks
                 return Refuse(TxTuneProbe.SkipReason.RadioNotReachable,
                               "the radio never reported transmitting and no meters read");
 
-            TxTuneProbe.Verdict verdict = TxTuneProbe.Assess(meters, lastComputedSwr);
+            TxTuneProbe.Verdict verdict = TxTuneProbe.Assess(meters, lastComputedSwr,
+                tunePowerSetToZero: tunePowerRead == 0);
 
             var result = TxTuneProbe.Result.Ran(verdict, DateTime.UtcNow, meters, tunePower,
                                                 lastComputedSwr, stoppedEarly,
@@ -337,10 +342,65 @@ namespace Radios.ChainChecks
                 // there is no number here. They must not read as zero.
                 bool reported = r != null && r.HasReading;
                 meters.Add(reported
-                    ? TxTuneProbe.Reading.Got(name, r.Value, r.Units.ToString())
+                    ? ToProbeReading(name, r.Value, r.Units)
                     : TxTuneProbe.Reading.Missing(name));
             }
             return meters;
+        }
+
+        /// <summary>
+        /// One inventory reading as the probe judges it: forward and reflected
+        /// power in WATTS, converted once, here, by the units the radio
+        /// declared for that meter. Pure, so the conversion is tested without
+        /// a radio.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why.</b> The 8600 declares FWDPWR and REFPWR in dBm, and this
+        /// copied the number across unconverted, while every judgement after it
+        /// (<see cref="ReflectedPercent"/>, <see cref="TxTuneProbe.Assess(IReadOnlyList{TxTuneProbe.Reading}, double, bool)"/>,
+        /// <see cref="TxTuneProbe.LooksBad"/>) reads watts. At tune power 0
+        /// the harness saw forward 18.23 dBm (about 66 mW) and reflected
+        /// 13.43 dBm read as 18.23 W and 13.43 W: "reflected 73.68 percent",
+        /// an early stop and a "large share came back" for a load the radio's
+        /// own SWR put at 1.01. The rig itself already converts
+        /// (<c>FlexBase.ForwardPowerWatts</c>); this reuses its arithmetic,
+        /// <see cref="FlexBase.DBmToWatts"/>, rather than writing a second.
+        /// </para>
+        /// <para>
+        /// dBm converts and keeps the raw number for the evidence; watts pass
+        /// through. Any other unit, including <c>None</c> (FlexLib leaves a
+        /// meter at None until its unit arrives, and then passes the raw
+        /// number unscaled), is treated as not reported, and traced: a number
+        /// in unknown units is not a power. Every other meter (SWR, ALC, the
+        /// PA temperature) passes through untouched.
+        /// </para>
+        /// <para>
+        /// <b>Not converted, on purpose:</b> <c>TxDifferential</c> records
+        /// FWDPWR too, and its <c>SignificantDelta</c> of 3.0 is three
+        /// decibels, which is right in dBm and would be wrong in watts.
+        /// </para>
+        /// </remarks>
+        internal static TxTuneProbe.Reading ToProbeReading(string name, double value, MeterUnits units)
+        {
+            bool power = string.Equals(name, "FWDPWR", StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(name, "REFPWR", StringComparison.OrdinalIgnoreCase);
+            if (!power) return TxTuneProbe.Reading.Got(name, value, units.ToString());
+
+            switch (units)
+            {
+                case MeterUnits.Dbm:
+                    return TxTuneProbe.Reading.Converted(name, FlexBase.DBmToWatts((float)value),
+                        MeterUnits.Watts.ToString(), value, units.ToString());
+                case MeterUnits.Watts:
+                    return TxTuneProbe.Reading.Got(name, value, units.ToString());
+                default:
+                    Tracing.TraceLine("TxTuneProbeRunner: " + name + " reported "
+                        + value.ToString("0.##", CultureInfo.InvariantCulture) + " in units "
+                        + units + ", which are neither dBm nor watts; treated as not reported",
+                        TraceLevel.Warning);
+                    return TxTuneProbe.Reading.Missing(name);
+            }
         }
 
         /// <summary>
@@ -412,9 +472,11 @@ namespace Radios.ChainChecks
             try { return rig?.MeterInventory; } catch { return null; }
         }
 
-        private static int SafeTunePower(FlexBase rig)
+        /// <summary>The tune power setting as read, or null when it could not be read.</summary>
+        private static int? SafeTunePower(FlexBase rig)
         {
-            try { return rig?.TunePower ?? 0; } catch { return 0; }
+            if (rig == null) return null;
+            try { return rig.TunePower; } catch { return null; }
         }
 
         private static double SafeComputedSwr(FlexBase rig)

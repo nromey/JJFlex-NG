@@ -207,6 +207,19 @@ namespace Radios.ChainChecks
             /// <see cref="NoPower"/>, and the difference matters: absence of a
             /// meter is not a measurement of zero.</summary>
             NoForwardPowerMeter,
+
+            /// <summary>
+            /// Keyed with the tune power SET to 0, and forward power under the
+            /// forward-power floor (<see cref="TransmitSafety.ForwardFloorWatts"/>).
+            /// Neither the transmitter nor the load can be judged: a radio at
+            /// setting 0 makes a carrier of milliwatts (50 to 174 mW measured on
+            /// the bench 8600), which reads as <see cref="NoPower"/> once the
+            /// meters are read in watts, and NoPower drives the Fix tool's
+            /// critical "no RF came out" finding. Routed by the SETTING, never
+            /// by a milliwatt threshold; an unreadable setting is not a setting
+            /// of 0. Added last so no stored value moves.
+            /// </summary>
+            NotJudgedAtZeroTunePower,
         }
 
         /// <summary>One meter reading, or a record that it was not reported.</summary>
@@ -217,13 +230,31 @@ namespace Radios.ChainChecks
             public double Value { get; }
             public string Units { get; }
 
-            private Reading(string name, bool reported, double value, string units)
+            /// <summary>
+            /// The number as the radio reported it, when <see cref="Value"/>
+            /// was converted from it (forward and reflected power arrive in
+            /// dBm and are judged in watts). NaN when nothing was converted.
+            /// Kept for the evidence: "0.##" prints anything under 5 mW as 0.
+            /// </summary>
+            public double RawValue { get; }
+
+            /// <summary>The units of <see cref="RawValue"/>; empty when nothing was converted.</summary>
+            public string RawUnits { get; }
+
+            private Reading(string name, bool reported, double value, string units,
+                            double rawValue = double.NaN, string rawUnits = null)
             {
                 Name = name; Reported = reported; Value = value; Units = units ?? "";
+                RawValue = rawValue; RawUnits = rawUnits ?? "";
             }
 
             public static Reading Got(string name, double value, string units)
                 => new Reading(name, true, value, units);
+
+            /// <summary>A reading converted from the radio's own units, keeping both.</summary>
+            public static Reading Converted(string name, double value, string units,
+                                            double rawValue, string rawUnits)
+                => new Reading(name, true, value, units, rawValue, rawUnits);
 
             public static Reading Missing(string name)
                 => new Reading(name, false, 0.0, "");
@@ -231,7 +262,11 @@ namespace Radios.ChainChecks
             public override string ToString()
                 => Reported
                     ? Name + " " + Value.ToString("0.##", CultureInfo.InvariantCulture) +
-                      (Units.Length > 0 ? " " + Units : "")
+                      (Units.Length > 0 ? " " + Units : "") +
+                      (RawUnits.Length > 0
+                          ? " (read as " + RawValue.ToString("0.##", CultureInfo.InvariantCulture)
+                            + " " + RawUnits + ")"
+                          : "")
                     : Name + " not reported";
         }
 
@@ -456,11 +491,33 @@ namespace Radios.ChainChecks
         /// </para>
         /// </remarks>
         public static Verdict Assess(IReadOnlyList<Reading> meters, double computedSwr)
+            => Assess(meters, computedSwr, tunePowerSetToZero: false);
+
+        /// <summary>
+        /// <see cref="Assess(IReadOnlyList{Reading}, double)"/>, knowing whether
+        /// the tune power was read as SET to 0.
+        /// </summary>
+        /// <param name="tunePowerSetToZero">
+        /// True only when the setting was READ and is 0. An unreadable setting
+        /// is false: a read that failed is not a setting of 0.
+        /// </param>
+        /// <remarks>
+        /// At setting 0, a carrier under the forward-power floor says nothing
+        /// about the transmitter or the load, so neither is judged
+        /// (<see cref="Verdict.NotJudgedAtZeroTunePower"/>). A carrier at or
+        /// above the floor is judged as usual, whatever the setting says. No
+        /// new threshold: the floor is the one every other reader uses.
+        /// </remarks>
+        public static Verdict Assess(IReadOnlyList<Reading> meters, double computedSwr,
+                                     bool tunePowerSetToZero)
         {
             if (meters == null || meters.Count == 0) return Verdict.NoForwardPowerMeter;
 
             Reading fwd = Find(meters, "FWDPWR");
             if (!fwd.Reported) return Verdict.NoForwardPowerMeter;
+
+            if (tunePowerSetToZero && fwd.Value < TransmitSafety.ForwardFloorWatts)
+                return Verdict.NotJudgedAtZeroTunePower;
 
             // Did the transmitter do anything at all? Everything else is a
             // question about the load, and a question about the load is
@@ -571,6 +628,10 @@ namespace Radios.ChainChecks
                     return "The radio keyed a tune carrier and produced no RF at all. Your " +
                            "microphone, your computer's audio and the mic profile were all " +
                            "out of the path.";
+
+                case Verdict.NotJudgedAtZeroTunePower:
+                    // DRAFT, for the wording sheet.
+                    return Lexicon.Get("settings.transmit_check.zero_tune_power");
 
                 case Verdict.NoForwardPowerMeter:
                     return "The transmitter was keyed, but this radio did not report a forward " +
