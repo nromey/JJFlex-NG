@@ -416,4 +416,39 @@ public sealed class SliceOverwriteWarningTests : IDisposable
         Assert.DoesNotContain("ScreenReaderOutput.Speak", dialog);
         Assert.DoesNotContain("Loaded +=", dialog);
     }
+
+    [Fact]
+    public void The_sentence_after_the_warning_waits_on_the_UI_threads_dispatcher_when_there_is_no_WPF_Application()
+    {
+        // This app hosts its WPF content in the WinForms shell, and no WPF Application exists.
+        Assert.Null(System.Windows.Application.Current);
+
+        System.Windows.Threading.Dispatcher? before = null, owned = null, found = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            before = RecorderControls.DispatcherAfterWarning();              // a thread with none: said at once
+            owned = System.Windows.Threading.Dispatcher.CurrentDispatcher;   // the UI thread owns one
+            found = RecorderControls.DispatcherAfterWarning();
+            owned.InvokeShutdown();
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.MTA);
+        thread.Start();
+        Assert.True(thread.Join(5000));
+        Assert.Null(before);
+        Assert.NotNull(owned);
+        Assert.Same(owned, found);
+    }
+
+    [Fact]
+    public void The_sentence_after_the_warning_is_queued_behind_the_returning_window_never_an_interrupt()
+    {
+        Assert.Equal(Radios.Speech.SpeechIntent.Queue, RecorderControls.AfterWarningIntent);
+        string controls = Source("JJFlexWpf", "RecorderControls.cs");
+        string speak = Body(controls, "private static void SpeakAfterWarning(string text)");
+        string say = controls.Substring(controls.IndexOf("private static void SayAfterWarning(string text)", StringComparison.Ordinal), 220);
+        Assert.Contains("DispatcherAfterWarning()", speak);
+        Assert.DoesNotContain("Application.Current", speak);
+        Assert.DoesNotContain("SpeechIntent.Interrupt", speak + say);
+        Assert.Contains("AfterWarningIntent", say);
+    }
 }
