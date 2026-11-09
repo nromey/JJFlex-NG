@@ -14,8 +14,8 @@ namespace JJFlexWpf
     /// look-ahead, unlike the 0.2-line engine in <see cref="RnnoiseEngine"/>).
     /// </summary>
     /// <remarks>
-    /// Loaded from its own library, <c>rnnoise_vad011.dll</c>, by absolute path, the way
-    /// <see cref="RnnoiseEngine"/> loads <c>rnnoise.dll</c>. That library exports only
+    /// Loaded from its own library, <c>rnnoise_vad011.dll</c>, by absolute path through
+    /// <see cref="NativeEngineLibrary"/>, as every RNNoise model is. That library exports only
     /// <c>rnvad011_*</c> names, so it can never be confused with the engine's
     /// <c>rnnoise_*</c> exports in one process. Built from the v0.1.1 pin by the recipe in
     /// runtimes/win-x64/native/README.md, which also says what C file adds the entry
@@ -82,8 +82,7 @@ namespace JJFlexWpf
         public void Dispose() => Stop();
 
         // Start's counterpart, the shape DeepFilterNet3Engine and SpecbleachEngine use.
-        // It does what RnnoiseEngine.Dispose does; the two bind different libraries by
-        // different export names, so they do not share a loader (Track R report).
+        // Loading is shared (NativeEngineLibrary); each engine frees its own state.
         private void Stop()
         {
             if (_state == IntPtr.Zero) return;
@@ -154,35 +153,25 @@ namespace JJFlexWpf
             internal FrameFn FrameSize = null!;
             internal ProcessFn Process = null!;
             internal ReferenceFn Reference = null!;
-            private static readonly object Gate = new();
-            private static readonly Dictionary<string, Api> Loaded = new(StringComparer.OrdinalIgnoreCase);
-
-            // Handles stay loaded for process lifetime, like RnnoiseEngine's.
-            internal static Api Load(string path)
-            {
-                lock (Gate)
+            // Through the one shared loader (#1016, Sprint 49 Track S): one handle
+            // per file per process, so RNNoise's old model (which runs from this
+            // same library, RnnoiseEngine model "v011") and this detector share it,
+            // each with its own binding.
+            internal static Api Load(string path) =>
+                NativeEngineLibrary.Load(path, "rnvad011.detector", exports =>
                 {
-                    if (Loaded.TryGetValue(path, out var existing)) return existing;
-                    IntPtr handle = NativeLibrary.Load(path);
-                    try
+                    var api = new Api
                     {
-                        var api = new Api {
-                            Create = Bind<CreateFn>(handle, "rnvad011_create"),
-                            Destroy = Bind<DestroyFn>(handle, "rnvad011_destroy"),
-                            FrameSize = Bind<FrameFn>(handle, "rnvad011_frame_size"),
-                            Process = Bind<ProcessFn>(handle, "rnvad011_process_frame"),
-                            Reference = Bind<ReferenceFn>(handle, "rnvad011_reference_frame")
-                        };
-                        if (FrameSizeProblem(api.FrameSize()) is string problem)
-                            throw new InvalidOperationException(problem);
-                        Loaded.Add(path, api);
-                        return api;
-                    }
-                    catch { NativeLibrary.Free(handle); throw; }
-                }
-            }
-            private static T Bind<T>(IntPtr handle, string name) where T : Delegate =>
-                Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(handle, name));
+                        Create = exports.Bind<CreateFn>("rnvad011_create"),
+                        Destroy = exports.Bind<DestroyFn>("rnvad011_destroy"),
+                        FrameSize = exports.Bind<FrameFn>("rnvad011_frame_size"),
+                        Process = exports.Bind<ProcessFn>("rnvad011_process_frame"),
+                        Reference = exports.Bind<ReferenceFn>("rnvad011_reference_frame"),
+                    };
+                    if (FrameSizeProblem(api.FrameSize()) is string problem)
+                        throw new InvalidOperationException(problem);
+                    return api;
+                });
         }
     }
 }

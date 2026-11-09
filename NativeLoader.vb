@@ -84,10 +84,15 @@ Public Module NativeLoader
         JJFlexWpf.RnnoiseEngine.LibraryLocator = AddressOf LocateRnnoise
     End Sub
 
-    Private Function LocateRnnoise() As String
+    ''' <summary>
+    ''' Where an RNNoise model's library is, by its file name: rnnoise.dll (the
+    ''' newest model), rnnoise_v02.dll (the v0.2 tag) or rnnoise_vad011.dll
+    ''' (v0.1.1, shared with its voice detector). #1019, Sprint 49 Track S.
+    ''' </summary>
+    Private Function LocateRnnoise(fileName As String) As String
         Dim arch As String = If(Environment.Is64BitProcess, "x64", "x86")
         Dim p As String = Path.Combine(AppContext.BaseDirectory, "runtimes", $"win-{arch}", "native",
-                                       MappedFileName("rnnoise.dll"))
+                                       MappedFileName(fileName))
         Return If(File.Exists(p), p, Nothing)
     End Function
 
@@ -171,6 +176,12 @@ Public Module NativeLoader
                 Return "prism.dll"
             Case "rnnoise.dll", "rnnoise"
                 Return "rnnoise.dll"
+            Case "rnnoise_v02.dll", "rnnoise_v02"
+                ' RNNoise's April 2024 v0.2 model, exporting rnv02_* only (#1019).
+                Return "rnnoise_v02.dll"
+            Case "rnnoise_vad011.dll", "rnnoise_vad011"
+                ' RNNoise v0.1.1: its voice detector and its whole frame, rnvad011_* only.
+                Return "rnnoise_vad011.dll"
             Case "deepfilter.dll", "deepfilter", "df.dll", "df"
                 ' DeepFilterNet3's C API, built from upstream as df.dll and
                 ' shipped renamed (see runtimes\win-x64\native\README.md).

@@ -36,8 +36,8 @@ public sealed class RnnoiseVoiceDetectorTests
     // for NoisySpeech() through the Corrected scaling. Recorded 2026-11-08 by Track R
     // from that DLL in a separate test run on each architecture; x64 (97C0940D...) and
     // x86 (48EF2397...) gave the same two digests, so one pair serves both.
-    private const string OldProbabilities = "FDFD832DF0B9C0DA14C8D7C6A37DBC25CE0DEF25CA659EC4457D738B4644084D";
-    private const string OldAudio = "330753EADA5F71AB51F4F6109482BBC6EFC521F71486C915C92827F4FCC76342";
+    internal const string OldProbabilities = "FDFD832DF0B9C0DA14C8D7C6A37DBC25CE0DEF25CA659EC4457D738B4644084D";
+    internal const string OldAudio = "330753EADA5F71AB51F4F6109482BBC6EFC521F71486C915C92827F4FCC76342";
 
     public RnnoiseVoiceDetectorTests() => NoiseReductionPerChannelTests.AssertWindowless();
 

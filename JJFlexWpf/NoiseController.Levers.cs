@@ -300,7 +300,7 @@ namespace JJFlexWpf
             else
             {
                 string? model = e.Settings.Any(d => d.Name == "model") ? SlotFor(e)?.GetSetting(id, "model").Choice : null;
-                ms = DenoiseEngineCatalog.ExpectedHelperDelayMs(id, model);
+                ms = DenoiseEngineCatalog.ExpectedHelperDelayMs(id, model) ?? DenoiseEngineCatalog.ExpectedEngineDelayMs(id, model);
             }
             return true;
         }
