@@ -54,6 +54,41 @@ public sealed class SharedLoaderMoveTests
     }
 
     [Fact]
+    public void Specbleach_says_a_wrong_architecture_library_would_not_load()
+    {
+        string lib = Path.Combine(Native(other: true), SpecbleachEngine.LibraryFileName);
+        using var e = new SpecbleachEngine(libraryPath: lib);
+        Assert.False(e.IsAvailable);
+        Assert.Equal(Unavailability.InitFailed, e.Unavailability);
+        Assert.Contains($"{lib} exists but would not load (not a DLL, the wrong architecture, or a missing dependency).", e.UnavailabilityDetail);
+    }
+
+    [Fact]
+    public void Specbleach_says_a_library_without_its_API_does_not_export_it_and_releases_the_file()
+    {
+        string lib = ForeignDll();
+        try
+        {
+            using (var e = new SpecbleachEngine(libraryPath: lib))
+            {
+                Assert.False(e.IsAvailable);
+                Assert.Equal(Unavailability.InitFailed, e.Unavailability);
+                Assert.Contains($"{lib} loaded but does not export libspecbleach's denoiser API (0.4.0 or later).", e.UnavailabilityDetail);
+            }
+            File.Delete(lib);
+            Assert.False(File.Exists(lib));
+        }
+        finally { try { File.Delete(lib); } catch (UnauthorizedAccessException) { } catch (IOException) { } }
+    }
+
+    [Fact]
+    public void Specbleach_still_loads_the_shipped_library_and_reads_its_version()
+    {
+        using var e = new SpecbleachEngine(libraryPath: Path.Combine(Native(), SpecbleachEngine.LibraryFileName));
+        Assert.True(e.IsAvailable, e.UnavailabilityDetail);
+    }
+
+    [Fact]
     public void DeepFilterNet3_still_checks_its_model_before_it_loads_the_library()
     {
         // Its C API ends the process on a bad model path, so the model check must
