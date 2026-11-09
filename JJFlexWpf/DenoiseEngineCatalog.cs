@@ -149,26 +149,6 @@ namespace JJFlexWpf
         };
 
         /// <summary>
-        /// RNNoise's one setting (#1019, Noel 2026-11-08 17:42): which model it
-        /// runs, in Advanced. Each option is a model in its own library and carries
-        /// that library's probe, so a model whose file is missing is listed and
-        /// marked, never hidden. A change builds a new engine under the warm-up
-        /// cross-fade (<see cref="EngineSettingDescriptor.ChangesLatency"/>: v0.1.1's
-        /// delay is half the 0.2 models'). The default is the newest, which ships
-        /// today; transmit always runs the newest (TxAudioConditioning).
-        /// </summary>
-        public static readonly IReadOnlyList<EngineSettingDescriptor> RnnoiseSettings = new[]
-        {
-            new EngineSettingDescriptor("model", "audio.denoise.rnnoise.model", EngineSettingKind.Choice,
-                new EngineSettingValue(0, RnnoiseModels.Default), ChangesLatency: true, Advanced: true, Options: new[]
-                {
-                    new EngineSettingOption(RnnoiseModels.Newest, "audio.denoise.rnnoise.model.main_70f1d256", () => ProbeRnnoise(RnnoiseModels.Newest)),
-                    new EngineSettingOption(RnnoiseModels.Tag, "audio.denoise.rnnoise.model.tag_v02", () => ProbeRnnoise(RnnoiseModels.Tag)),
-                    new EngineSettingOption(RnnoiseModels.V011, "audio.denoise.rnnoise.model.v011", () => ProbeRnnoise(RnnoiseModels.V011)),
-                }),
-        };
-
-        /// <summary>
         /// About how long a computer engine that runs in this process delays the
         /// audio, in milliseconds, before it runs and reports its own figure: RNNoise
         /// by its chosen model (#1019: v0.1.1 about 10 ms, the 0.2 models about 20).
@@ -300,7 +280,7 @@ namespace JJFlexWpf
                 ReductionSetting: "subtraction_amount");
             yield return new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.rnnoise", Both,
                 initial => new RnnoiseEngine(model: initial.TryGetValue("model", out var model) && model.Choice is string m ? m : RnnoiseModels.Default),
-                () => ProbeRnnoise(RnnoiseModels.Default), SettingDescriptors: RnnoiseSettings);
+                () => RnnoiseEngine.Probe(RnnoiseModels.Default), SettingDescriptors: RnnoiseEngine.SettingDescriptors);
             yield return new("deepfilternet3", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.deepfilternet3", Both,
                 initial => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors,
                 ReductionSetting: "attenuation_limit_db");
@@ -336,21 +316,6 @@ namespace JJFlexWpf
                 ReadRadio: r => r.APF, WriteRadio: (r, v) => r.APF = v, Group: DenoiseGroup.BlankersAndNotches, CwOnly: true,
                 Level: new RadioLevelSpec(FlexBase.AutoPeakLevelMin, FlexBase.AutoPeakLevelMax, true,
                     r => r.AutoPeakLevel, (r, v) => r.AutoPeakLevel = v));
-        }
-
-        /// <summary>Whether a model's library is where the locator says and is this process's architecture. Loads nothing.</summary>
-        internal static Unavailability ProbeRnnoise(string model)
-        {
-            try
-            {
-                string library = RnnoiseEngine.LocateLibrary(model);
-                if (!File.Exists(library)) return Unavailability.LibraryMissing;
-                using var stream = File.OpenRead(library);
-                using var pe = new PEReader(stream);
-                var expected = Environment.Is64BitProcess ? Machine.Amd64 : Machine.I386;
-                return pe.PEHeaders.CoffHeader.Machine == expected ? Unavailability.None : Unavailability.InitFailed;
-            }
-            catch { return Unavailability.InitFailed; }
         }
 
         private static Unavailability ProbeDeepFilter()

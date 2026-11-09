@@ -130,7 +130,50 @@ namespace JJFlexWpf
             Start();
         }
 
+        /// <summary>
+        /// RNNoise's one setting (#1019, Noel 2026-11-08 17:42): which model it
+        /// runs, in Advanced. Each option is a model in its own library and carries
+        /// that library's probe, so a model whose file is missing is listed and
+        /// marked, never hidden. A change builds a new engine under the warm-up
+        /// cross-fade (<see cref="EngineSettingDescriptor.ChangesLatency"/>: v0.1.1's
+        /// delay is half the 0.2 models'). The default is the newest, which ships
+        /// today; transmit always runs the newest (TxAudioConditioning). Declared on
+        /// the engine, as DeepFilterNet3's are (#1016), so tools/nrbench needs no
+        /// catalog to compile this file.
+        /// </summary>
+        public static readonly IReadOnlyList<EngineSettingDescriptor> SettingDescriptors = new[]
+        {
+            new EngineSettingDescriptor("model", "audio.denoise.rnnoise.model", EngineSettingKind.Choice,
+                new EngineSettingValue(0, RnnoiseModels.Default), ChangesLatency: true, Advanced: true, Options: new[]
+                {
+                    new EngineSettingOption(RnnoiseModels.Newest, "audio.denoise.rnnoise.model.main_70f1d256", () => Probe(RnnoiseModels.Newest)),
+                    new EngineSettingOption(RnnoiseModels.Tag, "audio.denoise.rnnoise.model.tag_v02", () => Probe(RnnoiseModels.Tag)),
+                    new EngineSettingOption(RnnoiseModels.V011, "audio.denoise.rnnoise.model.v011", () => Probe(RnnoiseModels.V011)),
+                }),
+        };
+
+        /// <summary>Whether a model's library is where the locator says and is this process's architecture. Loads nothing.</summary>
+        public static Unavailability Probe(string model)
+        {
+            try
+            {
+                string library = LocateLibrary(model);
+                if (!File.Exists(library)) return Unavailability.LibraryMissing;
+                using var stream = File.OpenRead(library);
+                using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+                var expected = Environment.Is64BitProcess ? System.Reflection.PortableExecutable.Machine.Amd64 : System.Reflection.PortableExecutable.Machine.I386;
+                return pe.PEHeaders.CoffHeader.Machine == expected ? Unavailability.None : Unavailability.InitFailed;
+            }
+            catch { return Unavailability.InitFailed; }
+        }
+
         public string Id => "rnnoise";
+        public IReadOnlyList<EngineSettingDescriptor> Settings => SettingDescriptors;
+
+        /// <summary>The model this instance runs. A model change needs a new instance, so nothing is set on a running one.</summary>
+        public EngineSettingValue GetSetting(string name) =>
+            name == "model" ? new EngineSettingValue(0, Model) : throw new ArgumentException("Unknown setting", nameof(name));
+        public bool TrySetSetting(string name, EngineSettingValue value) => false;
         public int SampleRate => 48000;
         public int FrameLength => Frame;
         public bool IsAvailable => _state != IntPtr.Zero;

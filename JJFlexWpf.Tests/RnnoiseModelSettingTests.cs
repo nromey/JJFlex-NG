@@ -151,6 +151,10 @@ public sealed class RnnoiseModelSettingTests
         // Its spoken name reads RNNoise's own model label, never the raw identity.
         Assert.DoesNotContain("tag_v02", f.Noise.FavouriteName(saved));
         Assert.Contains(Radios.Lexicon.Get("audio.denoise.rnnoise.model.tag_v02"), f.Noise.FavouriteName(saved));
+        // The default model of an Advanced model setting goes unsaid: "RNNoise", as before the model existed.
+        Assert.Equal(Radios.Lexicon.Get("audio.denoise.rnnoise"), f.Noise.FavouriteName(new NoiseFavourite { EngineId = "rnnoise", Model = RnnoiseModels.Newest }));
+        // NNR's model is a main lever, so its favourites keep naming it.
+        Assert.Contains(Radios.Lexicon.Get("audio.denoise.nnr.model.standard"), f.Noise.FavouriteName(new NoiseFavourite { EngineId = "nnr", Model = "standard" }));
     }
 
     [Fact]
