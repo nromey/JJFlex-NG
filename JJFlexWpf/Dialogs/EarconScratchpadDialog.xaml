@@ -247,7 +247,7 @@
         </StackPanel>
 
         <TextBlock x:Name="StatusText" Margin="0,12,0,0" TextWrapping="Wrap"
-                   AutomationProperties.Name="Status" AutomationProperties.LiveSetting="Polite"/>
+                   local:StatusTextName.Label="Status" AutomationProperties.LiveSetting="Polite"/>
     </StackPanel>
     </ScrollViewer>
 </local:JJFlexDialog>

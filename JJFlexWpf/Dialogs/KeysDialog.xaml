@@ -109,7 +109,7 @@
         <!-- Status line: live announcements mirror speech -->
         <TextBlock x:Name="StatusText" Grid.Row="5"
                    Margin="0,6,0,0" Foreground="Gray"
-                   AutomationProperties.Name="Status"
+                   local:StatusTextName.Label="Status"
                    AutomationProperties.LiveSetting="Polite" />
     </Grid>
 </local:JJFlexDialog>

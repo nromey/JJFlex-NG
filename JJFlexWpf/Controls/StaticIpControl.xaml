@@ -1,6 +1,7 @@
 <UserControl x:Class="JJFlexWpf.Controls.StaticIpControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:JJFlexWpf"
              AutomationProperties.Name="Radio network address">
 
     <!-- DialogStyles is merged here rather than inherited from the hosting
@@ -21,7 +22,7 @@
                    TextWrapping="Wrap"
                    Margin="0,0,0,8"
                    AutomationProperties.LiveSetting="Polite"
-                   AutomationProperties.Name="Current radio address"/>
+                   local:StatusTextName.Label="Current radio address"/>
 
         <GroupBox Header="Address mode" Margin="0,0,0,8"
                   AutomationProperties.Name="Radio address mode">
@@ -93,6 +94,6 @@
                    TextWrapping="Wrap"
                    Margin="0,0,0,4"
                    AutomationProperties.LiveSetting="Polite"
-                   AutomationProperties.Name="Result of the last address change"/>
+                   local:StatusTextName.Label="Result of the last address change"/>
     </StackPanel>
 </UserControl>

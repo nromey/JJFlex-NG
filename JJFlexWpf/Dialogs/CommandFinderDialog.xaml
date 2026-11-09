@@ -33,7 +33,7 @@
                   Checked="OnScopeFilterChanged" Unchecked="OnScopeFilterChanged" />
         <TextBlock x:Name="ResultCountLabel" DockPanel.Dock="Bottom"
                    Margin="0,4,0,0" Foreground="Gray"
-                   AutomationProperties.Name="Result count"
+                   local:StatusTextName.Label="Result count"
                    AutomationProperties.LiveSetting="Polite" />
         <ListView x:Name="ResultsListView"
                   AutomationProperties.Name="Command results"

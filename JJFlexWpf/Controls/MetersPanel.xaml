@@ -82,7 +82,7 @@
 
                 <TextBlock x:Name="SourceDetailText"
                            Margin="0,0,0,6" TextWrapping="Wrap"
-                           AutomationProperties.Name="Selected meter details" />
+                           local:StatusTextName.Label="Selected meter details" />
 
                 <!-- ── How it sounds ── -->
                 <TextBlock Text="Voice:" Margin="0,2,0,2" />
