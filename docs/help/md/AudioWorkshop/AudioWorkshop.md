@@ -1,6 +1,10 @@
 ---
 keywords:
   - audio workshop
+  - Play takes
+  - slice recording
+  - backup
+  - Save each playback as a take
 ---
 
 # Audio Workshop
@@ -112,7 +116,7 @@ All of it lives in Settings, on the Audio tab, in the **Countdown** group: turn 
 
 The method decides how you hear yourself. Each name says what you hear and whether anything goes out. They run in order, each one a step further than the one before: `Down Arrow` takes you to the next, `Up Arrow` back, `Home` to the first and `End` to the last. You hear the boundary sound as you arrive at the first or the last method, and again if you press on past it. Only the methods your radio and your connection can do are offered. **About this method**, the line under the method, says in one sentence what Start will do; `Ctrl+F1` on the method gives the whole account below, and says why a method is missing if one is, and `F1` anywhere in the window opens this page at that method.
 
-Your method is remembered per radio. The same radio reached over SmartLink starts on Record yourself if the method you chose locally is not offered there, without forgetting your local choice.
+Your method is remembered per radio. The same radio reached over SmartLink starts on the Radio recording audio check method when the locally selected method is unavailable over SmartLink, without forgetting the local choice.
 
 #### Is Windows hearing my microphone? No radio involved {#check-audio-computer-mic}
 
@@ -150,6 +154,16 @@ Start sends one watt through the transverter port to a listening receiver, recor
 
 The listening receiver sits on another transverter port. Your signal arrives there enormously strong, so what you hear is your audio, present and processed, through an overloaded front end: it proves your audio chain and your transmitter work end to end, but it is not a faithful on-air listen. A WebSDR or KiwiSDR tuned to your frequency is still the gold standard. One watt into a transverter port with antennas connected can still leak a little RF, so identify if your regulations require it.
 
+### Saving playbacks and grouping takes into a test
+
+The **Save each playback as a take** checkbox is offered for the Radio recording audio check method and the Looped back audio check method. The setting is on by default and is remembered separately for each radio. The checked box saves the radio's playback on this computer as a take in the Play takes tool. The saved audio is what reached this computer over the connection, including the network audio processing used by SmartLink.
+
+The radio itself silences the other slices in the listening audio while a slice recording plays. JJ Flexible also mutes the other slices during a saved playback and restores those mute settings when playback ends, including after a stop or error.
+
+Takes belong to a test, with each take numbered within that test. A new application run or a connection to a different radio starts a new test unless an earlier test has been selected with the **Add a take to this test** button. Reconnecting to the same radio within one application run keeps the current test.
+
+A change to the mic profile, the radio's mic input or this computer's microphone between takes makes the Check your audio tool ask whether to start a new test or add the next take to the current test. A resumed test also prompts about a change of radio. Choose the **Add to this test** button once to stop the question for that test, including when the test is resumed later. Takes made with the Heard on the air audio check method and diagnostic takes also join the current test.
+
 ### Test tone and reference recording
 
 These replace your microphone with a known signal while you transmit, and only one of them can be armed at a time.
@@ -160,11 +174,15 @@ An SSB transmit filter typically passes roughly 100 to 2900 hertz. A tone outsid
 
 **Reference audio** sends a known recording instead: the shipped JJ Flexible reference voice, or a take you record yourself with **Record a reference take**. It is the honest way to answer "did that change help?", because a tone does not respond to a compressor and you never say it the same way twice. It arms the same way the tone does and transmits only when you key.
 
+The end of a reference recording also ends the audio check or releases JJ Flexible's own push to talk or transmit lock. The finished announcement at Chatty verbosity is "Transmitting of the reference recording is complete." Terse verbosity uses "Transmitting reference complete." The microphone stays silent until the radio returns to receive.
+
+A hardware push to talk button or footswitch cannot be released by software. JJ Flexible keeps sending silence after the reference recording ends and asks for the hardware push to talk to be released. The silence continues until the radio returns to receive, even after the Check your audio window closes.
+
 Both ride the PC audio path, so they need PC audio on and the radio's transmit input set to PC. If the input is the only thing in the way, arming switches it for you and puts it back when you disarm.
 
 ### Check power
 
-**Transmit power during checks** is shown for the two methods that obey it, Hear yourself live and Record yourself, and is remembered per radio.
+The **Transmit power during checks** selector is shown for the Hear yourself live while you talk audio check method and the Radio recording audio check method. The check power is remembered separately for each radio.
 
 - **Dummy load, no RF** — the default. Every meter the check reads measures your audio before the power amplifier, so the reading is the same at zero watts as at a hundred.
 - **Low power** — for "is RF actually leaving my radio?" Pick the wattage, down to 1 watt. It is a cap: it only ever lowers your power, and it never overrides a dummy load you set yourself.
@@ -175,7 +193,44 @@ Both ride the PC audio path, so they need PC audio on and the radio's transmit i
 
 ### Results
 
-Results appear only once there is a take. **Play last take** plays the slice recording with Record yourself, or the off-air take with Hear what you transmitted, and stops a playback in progress. With an off-air take you also get **Play what I sent** and **Tell me how my sound changed compared to my last take**, which compares each new take with the one before it this session. **Review unrestored settings** appears only when a take left radio settings the radio never confirmed putting back. If the radio goes away before they are back, the next connect to it puts back each one still as the take left it, without asking, and tells you what it did.
+Results appear once there is a take. The **Play last take** button plays the most recent saved playback from this window for the selected audio check method, when that saved take is still available. The Radio recording audio check method otherwise plays the recording held on the radio. The Heard on the air audio check method plays the saved off-air take. Press the **Play last take** button again to stop playback.
+
+The Heard on the air audio check method also offers the **Play what I sent** and **Tell me how my sound changed compared to my last take** buttons. The comparison button compares each new take with the previous take in the session. The **Review unrestored settings** button appears only when a take left radio settings without confirmation that the settings were restored. The next connection to that radio restores each setting still at the value left by the take and reports the result.
+
+### Play takes {#play-takes}
+
+Use the Play takes tool to organize recordings, compare takes by listening, and read measurements and descriptions of the differences. Saved takes allow audio adjustments to be judged later, rather than immediately after each change. Start a test, change microphone or audio processing settings, and return to the same test to listen or add more takes.
+
+We created this utility to allow you to easily find all takes that you have triggered using the Radio recording audio check method or by recording slice audio on the radio.
+
+The Play takes tool lists the takes saved on this computer, newest first, from every radio and audio check method. The connected radio's slice recordings appear before the computer takes. Ordinary computer recordings have their own [Recorded QSOs](RecordedQsos.md) window.
+
+Press `Alt+Shift+T` in JJ Flexible to open the Play takes tool, or press the JJ key, `Ctrl+J`, then `Alt+T`. The **Play takes** button in the Check your audio tool opens the same window. The Play takes tool works with no radio connected; only the computer takes appear then. Opening the window never keys the radio.
+
+Use the **Show** selector to choose a kind of take. **All takes** includes every kind; the other choices include only kinds saved on this computer. Each computer take's row gives the kind, when the take was made, the test name and take number when available, the radio and mic profile, and any saved note. Use the arrow keys to select a take. `Enter` plays the selected take, and `Delete` asks before deleting a computer take.
+
+- Press the **Play** button to listen to the selected take. Press the **Play** button again to stop playback.
+- Press the **Choose for comparison** button to choose the first take, select a second take, and press the **Compare with chosen take** button. The report describes changes in settings and compares the audio where the measurements are fair. The report also explains why a measurement was left out or a comparison was refused. A different radio prevents a comparison involving a Heard on the air take, but two Radio recording takes may be compared across radios. Their tone is compared; loudness is not compared between saved radio playbacks.
+- Try a take with mic gain set to 50 and the speech processor set to DX, then make another take with the speech processor turned off. The comparison report describes the setting change and the measured difference in sound. Use the report alongside listening to decide which settings suit the station.
+- Press the **Details** button to read the take's method, duration, condition and available audio measurements.
+- Press the **Save a copy as WAV** or **Save a copy as FLAC** button to save the audio to a chosen folder on this computer or a network location. WAV (Waveform Audio File Format) and FLAC (Free Lossless Audio Codec) are the two export formats. The original take and its information remain available for further listening and analysis.
+- Press the **Delete** button to delete a computer take after confirmation. Deletion is refused while a radio setting changed by that take still needs to be restored.
+- Enter a note in the **Note** field and press the **Save note** button. Enter a test name in the **Test name** field and press the **Rename test** button to rename the selected take's test. The test keeps its earlier names as aliases.
+- Press the **Add a take to this test** button to continue an earlier test. The Play takes tool closes and the Check your audio tool opens, ready for another take. This allows microphone and audio processing adjustments to continue on another day within the same test. Starting the next check remains a separate action.
+
+Press `Escape` or the **Close** button to close the Play takes tool.
+
+#### Listening to recordings still on the radio
+
+Each slice that holds a recording has a row in the Play takes tool while that radio is connected. The row gives the slice letter, recording length and whether a complete backup is saved on this computer. A recording made with `F11` shows when the recording was made and, when known, the frequency and mode, as long as the saved information still matches the recording on the radio. A recording made by the Check your audio tool says so. A recording without matching information is described as made outside JJ Flexible.
+
+The **Play** button on a slice row plays the recording on the radio for listening only. The **Play** button stops the recording when pressed again. Playback is refused while the radio is transmitting. Slice rows offer playback and backup; deletion, notes and comparison apply to the saved computer takes.
+
+The **Back up** button saves the slice recording on this computer as a take by recording the radio's playback. The backup takes as long as the recording. The button changes to **Stop backup** during the backup; pressing the button stops early. A partial take does not count as a complete backup. A successful backup changes the slice row to show that a complete backup is saved on this computer.
+
+Two slice-recording backups may be compared with each other. The comparison reports differences in tone and leaves out loudness. A slice-recording backup cannot be compared with another kind of take.
+
+A radio restart erases the recordings held on the radio. A complete backup keeps a copy on this computer. Playing a slice recording with `Ctrl+F11`, or sending that recording over the air, does not create a backup; use the **Back up** button to keep a copy.
 
 ### The Fix tool
 
@@ -185,7 +240,7 @@ When a check fails, or something about your transmit audio is plainly broken, th
 
 While a check is transmitting, the first Escape unkeys and stays; the second closes the window. Escape never leaves you transmitting. Every check puts back everything it changed, power, monitor, the listening slice and full duplex, on every way out: Stop, Escape, the transmit timeout, closing the window, or the radio going away.
 
-One honest warning worth knowing: if your hand mic keys the radio through a hardware line, software cannot unkey it. If that happens the window tells you plainly and keeps warning until the line releases.
+A hardware push to talk line, a stuck microphone or voice-operated transmit (VOX) may keep the radio transmitting after JJ Flexible releases the key. The announcement then says that the radio is still transmitting, rather than announcing "Receiving". The Check your audio tool also warns until the radio returns to receive; a hardware push to talk line must be released at the hardware.
 
 ### Bench tools
 
@@ -224,4 +279,12 @@ The moment-to-moment listening levels have three homes, none of them here: the A
 **Tip:** If you are running into audio issues — no sound, distorted audio, audio from the wrong device — see the Audio Troubleshooting help page for a step-by-step checklist.
 
 
-The Record and play back Audio Check records the transmit slice even when a different slice is active. For local playback, JJ Flexible pauses VOX or CW break-in and restores it after the take. The slice Play control shows the recording length when known; pressing it during an existing transmission sends that recording through the transmit slice until you unkey. Play never keys the radio itself.
+The Radio recording audio check method records the transmit slice even when a different slice is active. For local playback, JJ Flexible pauses VOX or CW break-in and restores it after the take. The slice Play control shows the recording length when known; pressing it during an existing transmission sends that recording through the transmit slice until you unkey. Play never keys the radio itself.
+
+## Related Topics
+
+- [The keyboard reference](KeyboardReference.md#home-recorder) describes slice recording and the overwrite warning.
+- [The JJ Key](JJKey.md) lists the commands available through the JJ key.
+- [Recorded QSOs](RecordedQsos.md) describes ordinary recordings saved on this computer.
+- [Push to Talk and Transmission](PttAndTransmission.md) explains recorded sends and transmit controls.
+- [Audio Levels](AudioLevels.md) describes the listening levels.

@@ -117,7 +117,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
 - **Alt+F** — Open Recorded QSOs, your computer recordings — F for files. Play one, trim it, save it as another format, delete it or prune old ones (see "Recorded QSOs" below)
 - **Alt+C** — Open Check your audio — C for Check. It opens the window and never starts a check by itself (see "Check your audio" below)
-- **Alt+T** — Open Play takes, every take of your audio, newest first — T for takes. Play one, compare two, read the details, add a note, save a copy or delete one. Opening it never keys the radio
+- **Alt+T** — Open the Play takes tool to listen to saved takes, compare two, read details, add a note, save a copy or delete a take. The connected radio's slice recordings offer listening and backup. Opening the window never keys the radio.
 
 ### Still finding their layer
 
@@ -891,7 +891,21 @@ These keys are active when focus is on the row list in Saved Diagnostic Logs. Op
 - **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never selects a transmit slice, and it never keys the radio unless VOX is on and **Sends key the radio when VOX is on** is checked.
 - **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording. Unkeyed it plays on your speakers; pressed during your transmission it sends the recording over the air, you hear it through the radio's transmit monitor as it goes, and your microphone comes back when it ends. Pressed again, on your speakers or on the air, it pauses, holding its place, and once more it carries on; Escape stops it. A recording longer than three minutes asks first, and a send pauses by itself after ten minutes so you can identify.
 - With VOX on and **Sends key the radio when VOX is on** checked, either Play keys the radio itself, sends the whole recording so VOX cannot drop out in its pauses, unkeys, and hands back to VOX. Pressing push to talk while it goes out stops the recording and leaves you transmitting. See Push to Talk and Transmission for the whole story.
-- **F11** records the active slice; **Ctrl+F11** plays it. **Alt+F11** records to a file; **Ctrl+Alt+F11** plays from the computer. These are flat keys for the same four JJ key commands above.
+- `F11` records the active slice, and `Ctrl+F11` plays that slice's recording. `Alt+F11` records to a file, and `Ctrl+Alt+F11` plays from the computer. These are flat keys for the same four JJ key commands above.
+
+### Replacing a recording on the radio
+
+Starting a recording with `F11` on a slice that already holds a recording opens an overwrite warning. The **Record** button has focus. `Enter` starts the new recording at once, replacing the recording on that slice. `Escape` cancels without changing the recording.
+
+A recording without a confirmed backup also offers a **Back up first** button. `Tab` from the **Record** button reaches the **Back up first** button; `Enter` then saves the existing recording on this computer before starting the new recording. The backup takes as long as the recording. The new recording starts only after a successful backup. A recording already backed up still gets an overwrite warning, but needs no **Back up first** button.
+
+The **Don't show this warning again for this radio** checkbox turns off future warnings after choosing the **Record** or **Back up first** button. Cancelling leaves the warning setting unchanged. The **Warn before a recording on the radio is overwritten** checkbox in Settings, under Audio, Recorder, controls the warning separately for each radio and is on by default.
+
+The Radio recording audio check method also asks before replacing a recording on the transmit slice. The **Record** button in that warning continues the check's normal start checks and countdown.
+
+The [Play takes tool](AudioWorkshop.md#play-takes) lists the connected radio's slice recordings and offers listening and backup. `Alt+Shift+T` opens the Play takes tool; the JJ key, then `Alt+T`, opens the same window. A radio restart erases the recordings held on the radio; a backup keeps the copy on this computer.
+
+### Computer recordings
 - **Ctrl+Alt+Shift+F11** opens Recorded QSOs, the list of your computer recordings. **Ctrl+J, Alt+F** opens it too. Computer playback pauses VOX or CW break-in while it plays, the same as slice playback.
 
 ## Recorded QSOs
