@@ -9,6 +9,51 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-09 (COVERS 2026-11-08 07:48 TO 2026-11-09 06:25, MEASURED FROM `ad9791fa`) — THE OPUS-FINDINGS MERGE AND THE BUILD-SERVER RULE, THEN THE FOURTH NIGHT MODE: THREE JUNK BOX BATCHES STACKED AND CHECKED, A WPF EVENT THE TESTS COULD NOT SEE
+
+*Covers the 2026-11-08 day session and nap (07:48 to 19:32) and the fourth night mode (19:32 to 06:10; Noel said "Morning" at 06:10 in the junk box window, which woke the other two; both replied wrapped up). Three windows: junk box, Check your audio, sound processing. No build was published; the nightly promote (step 1) was SKIPPED: no debug build was produced, and everything new tonight is on unmerged branches.*
+
+**Main (35 commits since the last seal, 9 unpushed):** at Noel's word on 2026-11-08, the third 2026-11-07 junk box batch (`e7d8fd32`) and its Opus-findings follow-up (`fc2b1926`: #945 saved meters and send-box choices kept before the first connect, #942 modes said in words in the status key and connect briefing), each with full Radios.Tests and the windowless WPF filter green; CLAUDE.md's merge filter grew to sixty-two classes (`8a1dba00`, `1c5d3ac6`). **Ruled 2026-11-08 ~11:48 and written into CLAUDE.md and AGENTS.md (`3267ca10`): agents, Codex and benches build with `--disable-build-servers -nodeReuse:false`.** A second memory stop at 17:28 showed the limit that does not fix: concurrency (four Codex lanes plus two Opus checkers, about 115 dotnet processes); from then on, at most two build lanes per window.
+
+**Checker practice, ruled 2026-11-08 12:32 to 13:37:** an Opus checker was run beside Codex on the same fixes once, as an experiment (`for-claude/2026-11-08-checker-comparison-opus-vs-codex.md`); the standing rule is now selective: Codex checks every fix, and a second independent checker is added only where a miss is expensive (transmit safety, someone else's radio).
+
+**Junk box, three batches stacked and waiting for Noel's word to merge, in this order:**
+- `junkbox/2026-11-08-batch` (`93b9855e`, 16 commits, +2,153/-120): the firmware warning, PA temperature in keyed checks, the push-to-talk watchdog, the Home lock while another station transmits, the radio list keeping a gone radio, and five more. Codex-clean after one repair; Opus second checks of #704 and #911 clean; harness passed. The radio list's cable and power cases (#1008) need Noel's hands. Found by the #704 check: a HELD push to talk has no time limit (#1020, question J1).
+- `junkbox/2026-11-09-batch` (`62b37df0`, 16 commits, +3,322/-438): Ctrl and Shift with Up and Down tune on the slice row (no default keys yet), plain arrows tune on Slice and Slice operations, no callsign no transmit (#335, every keying JJ Flexible starts), the account Radio Associations names, a new radio closing Home's groups, the connect's two waits side by side, one owner for the radio object, the Workshop's Reset confirming. Codex-clean after one repair round; Codex wrote the help correction (seven pages, `62b37df0`, the night's only Codex-trailer commit besides #999's words); harness all pass (the different-radio half of #895 not run: it needs a tester's radio).
+- `junkbox/2026-11-09-batch-2` (`faeb0820`, 22 commits, +3,431/-218): the 60 m band notice on steps, the transmitter check reading dBm as watts (Codex and an Opus second check clean; harness at 0 W and 5 W into the dummy load), one refusal sentence per refused press across seven guarded writes, a held key saying the other-station refusal once, status lines read by their text, Cancel and default buttons no longer handing the screen reader a control character, the dialog notice once per split, a value field's stale value between digits, the Status window's preset line off the dial. Three repair rounds. **The access key fix passed unit tests and two Codex checks and did nothing in the running app:** WPF's Loaded broadcast never reaches a plain button that has only a class handler, and every check had raised Loaded by hand; repair two (each dialog's own Loaded walks its tree) passed the harness; repair three (keep a button's own underlined letter) failed in the app because WPF reports a button's registered keys in an order that varies by launch, and was reverted at Noel's go (`faeb0820`). Today no button reports a control character, and a Cancel or default button with its own letter no longer announces it (question J13).
+
+**Measured, not built:** the held-tuning write flood (#264, #199): nine held keys over SmartLink and LAN all landed exactly, so a latest-wins write slot now only saves load; the radio's write queue must stay first in, first out. SmartLink looped back inside the house, so a truly remote link is unmeasured.
+
+**Bench safety, twice:** a non-GUI client's reading of transmit and tune power can differ from the app's own (per-GUI-client view), in either direction and by one change. Read power in the APP's view before keying (memory `project_flex_transmit_settings_are_per_gui_client.md`, `junkbox-harness/BENCH-GUI-IDENTITY.md`). The 8600 did not come back from one `radio reboot` on 2026-11-08 (memory `project_8600_reboot_did_not_return.md`, #1007): no unattended reboots.
+
+**Sound processing (Sprint 49):** Track R's trial merge onto a copy of the sprint branch is green (Radios 6,494, the filtered tests 1,075 on 64 and 32 bit) and waits on S1; the noise bench tool compiles again (#1016, its own branch); the noise floor design draft and the Track S build brief (#1019) wait on S2 to S4 and S7; ham RNNoise training researched; Windows does not see the NVIDIA card (needs hands).
+
+**Check your audio, #999:** Codex wrote the slice recording words, the save-playback help and the changelog (`23360dc2`, Noel's ruling 2026-11-08 16:35); the Codex check of round 3 and the trial merge into main wait on C1.
+
+**Rulings and new entries from this morning (06:15 to 06:21), all queued, none built:** #1024 Radio Setup's opening line becomes "These steps help you set your radio up so that it can be reached through the network from anywhere."; #1025 DIGU and DIGL are said "Digital USB" and "Digital LSB" (replacing his "Digital upper"/"Digital lower" of 2026-11-07); #1026 "Change nothing is on for this radio" cannot be parsed by ear (high; Codex proposes wordings across the nine sentences, Noel picks); #95 and #659 the registration and firmware bench test, registration first, before release at the latest.
+
+**Seal checks:**
+- Step 1 nightly promote: SKIPPED (above).
+- No dependency advisories.
+- Memory drift: the two entries written tonight flag only symbols that live on the unmerged batch branch or inside WPF's own source; the standing set otherwise (98 path, 59 symbol candidates).
+- Codex instruction tests 5 of 5; Codex loads AGENTS.md; sandbox healthy.
+- NVDA logs archived to JJFlex-private as `2026-11-09-*` (41.7 MB, 33,727 Speaking lines; the old log is empty).
+- Backups: memory, Claude state, the dev mirror, AppData, private docs after the AAR.
+- MEMORY.md 18.1 KB, still over the 12 KB threshold; nothing new to archive. The trim pass is still owed.
+- Codex evaluation log: every junk box Codex run tonight logged (first checks about 1.71 million tokens, re-checks about 0.97 million, third and fourth checks about 0.53 million).
+
+**Junk box intake (3c-ter):** 20 entries opened since the last seal (#1007 to #1026); every one targeted, every JUNKBOX one prioritized. Found at this seal: seven entries written tonight had a bare `**TARGET:**` line, which the summary script does not read (it needs `> **TARGET:**`), so they were missing from the junk box view; fixed. Regenerated: 542 open, 261 in the junk box, 0 unprioritized. Nothing closed (no batch merged).
+
+**Memory written:** `project_wpf_loaded_class_handler_and_access_keys.md`, `project_speech_arbiter_salvage_and_retire_latest.md`, `feedback_scope_shared_file_edits_to_own_section.md`, and additions to the keying authorization and per-GUI-client entries.
+
+**Cross-surface:** 89 commits on all refs since the last seal: main 35, the three junk box batches 16, 32 and 54 (counted from main), #999 4, Sprint 49 Track R 5, its trial merge 7, the noise bench fix 1. JJFlex-private: 79 commits by the day windows, plus this seal's. Freight Fate still holds 16 unpushed commits (Noel's call); Civ VI Access none.
+
+**Waiting on Noel:** the push (main is 9 commits ahead of origin, plus this seal); the three junk box merges, in order, with their wording sheets; J1 to J13, S1 to S7, C1 (`for-noel/2026-11-09-night-questions.md`); the radio list's cable and power test (#1008); the graphics card.
+
+### Rigmeter snapshot — end of 2026-11-09
+
+Main, `rigmeter from 2026-11-08`: 23 commits; work done +18,252/-1,057 (net +17,195) across 149 files; size change net +17,202; C# +17,900/-972 in 132 files. Everything from tonight is on the three batch branches (+8,906/-776 between them), which main's figures do not count. Snapshot `historical\stats\2026-11-08-1c5d3ac6.json`.
+
 ## END-OF-DAY SEAL — 2026-11-08 (COVERS 2026-11-07 07:16 TO 2026-11-08 07:39, MEASURED FROM `788b59fc`) — FOUR JUNK BOX BATCHES AND TAKES ON MAIN, THE THIRD NIGHT MODE: TRACK E CODEX-CLEAN INTO INTEGRATION, #999 CODEX-CLEAN, THE 8600 OFF THE LAN, A MEMORY STOP
 
 *Covers the 2026-11-07 day session, nap and evening (07:16 to 21:20) and the third night mode (21:20 to 07:39; Noel said "Morning" at 07:39 in the junk box window, which woke the other two; both replied wrapped up). Three windows: junk box, Check your audio, sound processing. No build was published; the nightly promote (step 1) was SKIPPED by Noel's word, 2026-11-07 10:18 ("I'd wait on the nightly until tomorrow's work"), and because the third junk box batch is built but unverified.*
