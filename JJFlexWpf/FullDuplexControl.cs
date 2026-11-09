@@ -16,6 +16,9 @@ internal static class FullDuplexControl
             var request = rig.ToggleFullDuplexAsync();
             if (!request.IsCompleted) Speak("audio.full_duplex.setting");
             key = await request;
+            // Null: the change-nothing hold refused it and has said so. A
+            // second sentence here, 2 ms later and interrupting, cut it (#486).
+            if (key == null) return;
         }
         // Menu activation can return before the native menu has relinquished
         // focus. Deliver from the arriving Home context after that transition.

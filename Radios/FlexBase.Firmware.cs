@@ -305,17 +305,23 @@ namespace Radios
         /// the low-level exception message. The announcement is spoken here either
         /// way; the callback is for UI text.
         /// </param>
-        /// <returns>true if the transfer was started.</returns>
-        public bool BeginFirmwareUpdate(string path, Action<string> onTransferFault = null)
+        /// <returns>
+        /// <see cref="GuardedOutcome.Done"/> if the transfer was started;
+        /// <see cref="GuardedOutcome.Refused"/> when the change-nothing hold
+        /// declined it and has already said so, so the caller says nothing
+        /// more (#486); <see cref="GuardedOutcome.Failed"/> otherwise,
+        /// including the SmartLink refusal below, which speaks its own reason.
+        /// </returns>
+        public GuardedOutcome BeginFirmwareUpdate(string path, Action<string> onTransferFault = null)
         {
             if (theRadio == null || !IsConnected)
             {
                 Tracing.TraceLine("BeginFirmwareUpdate: no radio connected", TraceLevel.Error);
-                return false;
+                return GuardedOutcome.Failed;
             }
             // Belt to the preflight's braces: this method is public and the
             // preflight is advisory, so the write refuses on its own.
-            if (GuardRefuses("settings.guard.action.firmware")) return false;
+            if (GuardRefuses("settings.guard.action.firmware")) return GuardedOutcome.Refused;
 
             // #404, same reasoning as the preflight's WAN block. This method is
             // public and the preflight can be skipped, so the transport fact is
@@ -328,7 +334,7 @@ namespace Radios
                 Tracing.TraceLine("BeginFirmwareUpdate: refused, connection is over SmartLink",
                     TraceLevel.Error);
                 ScreenReaderOutput.Speak(why, VerbosityLevel.Critical, interrupt: true);
-                return false;
+                return GuardedOutcome.Failed;
             }
 
             try
@@ -365,14 +371,14 @@ namespace Radios
                         settleFirmwareExemption(sending, t.IsFaulted);
                     },
                     TaskScheduler.Default);
-                return true;
+                return GuardedOutcome.Done;
             }
             catch (Exception ex)
             {
                 // Nothing was sent, so nothing is restarting.
                 _firmwareUpdateSent = false;
                 Tracing.TraceLine($"BeginFirmwareUpdate: {ex.Message}", TraceLevel.Error);
-                return false;
+                return GuardedOutcome.Failed;
             }
         }
 

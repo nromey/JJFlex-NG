@@ -2022,10 +2022,19 @@ namespace Radios
         /// upload, a wait, speech or a queued write.
         /// </summary>
         private bool OperatorWriteUnlessHeld(string actionKey, Action write)
+            => OperatorWriteOutcome(actionKey, write) == GuardedOutcome.Done;
+
+        /// <summary>
+        /// <see cref="OperatorWriteUnlessHeld"/>, telling a refusal apart:
+        /// <see cref="GuardedOutcome.Refused"/> when the hold declined it and
+        /// has already said so, naming the action, so the caller says nothing
+        /// more (#486); <see cref="GuardedOutcome.Done"/> when the write ran.
+        /// </summary>
+        private GuardedOutcome OperatorWriteOutcome(string actionKey, Action write)
         {
-            if (WriteUnlessHeld(() => { write(); return true; })) return true;
+            if (WriteUnlessHeld(() => { write(); return true; })) return GuardedOutcome.Done;
             SayTheHoldRefused(actionKey);
-            return false;
+            return GuardedOutcome.Refused;
         }
 
         /// <summary>The refusal, traced and spoken, naming the action.</summary>
@@ -2276,12 +2285,20 @@ namespace Radios
         /// The paragraph above is the finding, so nothing here depends on
         /// reaching it.</para>
         /// </summary>
-        public bool SetSmartLinkPortForwarding(bool enabled, int tcpPort, int udpPort)
+        /// <returns>
+        /// <see cref="GuardedOutcome.Done"/> when the command went out;
+        /// <see cref="GuardedOutcome.Refused"/> when the change-nothing hold
+        /// declined it and has already said so, so the caller says nothing
+        /// more; <see cref="GuardedOutcome.Failed"/> with no radio or when the
+        /// write threw. Until 2026-11-09 a bool, so a correct refusal was
+        /// followed by "The port forwarding command failed" (#486).
+        /// </returns>
+        public GuardedOutcome SetSmartLinkPortForwarding(bool enabled, int tcpPort, int udpPort)
         {
             if (theRadio == null)
             {
                 Tracing.TraceLine("SetSmartLinkPortForwarding: no radio connected", TraceLevel.Warning);
-                return false;
+                return GuardedOutcome.Failed;
             }
             // On the method rather than only in the UI: the 2026-08-29 port
             // incident bypassed the UI gate by calling this directly (#397).
@@ -2290,21 +2307,21 @@ namespace Radios
             try
             {
                 var r = theRadio;
-                if (!OperatorWriteUnlessHeld("settings.guard.action.ports", () =>
+                if (OperatorWriteOutcome("settings.guard.action.ports", () =>
                     {
                         if (enabled)
                             r.WanSetForwardedPorts(true, tcpPort, udpPort);
                         else
                             r.WanSetForwardedPorts(false, -1, -1);
-                    }))
-                    return false;
+                    }) == GuardedOutcome.Refused)
+                    return GuardedOutcome.Refused;
                 Tracing.TraceLine($"SetSmartLinkPortForwarding: enabled={enabled} tcp={tcpPort} udp={udpPort}", TraceLevel.Info);
-                return true;
+                return GuardedOutcome.Done;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"SetSmartLinkPortForwarding failed: {ex.Message}", TraceLevel.Error);
-                return false;
+                return GuardedOutcome.Failed;
             }
         }
 

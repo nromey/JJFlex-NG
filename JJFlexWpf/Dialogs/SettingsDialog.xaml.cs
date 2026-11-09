@@ -916,9 +916,13 @@ namespace JJFlexWpf.Dialogs
                             declineNote = Lexicon.Get("settings.network.forwarding_declined");
                             return;
                         }
-                        if (PerformPortForwardApply(wantEnabled, tcp, udp))
+                        var outcome = PerformPortForwardApply(wantEnabled, tcp, udp);
+                        if (outcome == GuardedOutcome.Done)
                             applied.Add(NetworkCurrentStateText.Text);
-                        else
+                        // Refused: the hold has said so and the status line
+                        // carries the same sentence; "The port forwarding
+                        // command failed" after it was untrue (#486).
+                        else if (outcome != GuardedOutcome.Refused)
                             declineNote = Lexicon.Get("settings.network.forwarding_command_failed");
                     },
                     onDenied: () =>
@@ -952,12 +956,13 @@ namespace JJFlexWpf.Dialogs
         /// <summary>
         /// Sprint 28 Phase 7 — extracted Apply body so both the guarded entrypoint
         /// and any future Apply callers reuse the same commit logic. Returns
-        /// true when the radio accepted the command.
+        /// the rig's outcome: Done when the radio accepted the command,
+        /// Refused when the change-nothing hold declined it (and has said so).
         /// </summary>
-        private bool PerformPortForwardApply(bool enabled, int tcp, int udp)
+        private GuardedOutcome PerformPortForwardApply(bool enabled, int tcp, int udp)
         {
-            bool ok = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
-            if (ok)
+            var outcome = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
+            if (outcome == GuardedOutcome.Done)
             {
                 // Sprint 27 Track A / Phase A.3 — also persist as account preference.
                 // It is a record only: since 2026-08-29 nothing applies it to a
@@ -1003,12 +1008,13 @@ namespace JJFlexWpf.Dialogs
                     : Lexicon.Get("settings.network.forwarding_disabled_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
             }
-            else if (_rig.ChangeNothingActive)
+            else if (outcome == GuardedOutcome.Refused)
             {
                 // Not a failure — the operator's own hold refused it, and the
                 // rig has already spoken the refusal by name. The status line
                 // carries the same sentence so it can be re-read; the generic
                 // "command failed" would be a lie with a worse diagnosis (#403).
+                // Nothing is spoken here or by the caller (#486).
                 NetworkCurrentStateText.Text = Lexicon.Get("settings.guard.refused",
                     ("action", Lexicon.Get("settings.guard.action.ports")));
             }
@@ -1018,7 +1024,7 @@ namespace JJFlexWpf.Dialogs
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.command_failed_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
             }
-            return ok;
+            return outcome;
         }
 
         /// <summary>

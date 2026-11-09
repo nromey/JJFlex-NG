@@ -491,7 +491,7 @@ namespace Radios.Tests
                 Assert.False(File.Exists(missing));
 
                 // FlexLib says nothing is wrong...
-                Assert.True(rig.BeginFirmwareUpdate(missing));
+                Assert.Equal(GuardedOutcome.Done, rig.BeginFirmwareUpdate(missing));
                 Task settled = (Task)typeof(FlexBase)
                     .GetField("_firmwareTransferSettled", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .GetValue(rig)!;

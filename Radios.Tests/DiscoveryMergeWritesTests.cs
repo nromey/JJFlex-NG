@@ -385,7 +385,7 @@ namespace Radios.Tests
                 "SetSmartLinkPortForwarding is called from somewhere other than the Network tab's Apply: "
                 + string.Join("; ", calls.Select(c => c.file + ": " + c.line)));
             string settings = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs"));
-            Assert.Contains("SetSmartLinkPortForwarding(", Body(settings, "private bool PerformPortForwardApply("), StringComparison.Ordinal);
+            Assert.Contains("SetSmartLinkPortForwarding(", Body(settings, "private GuardedOutcome PerformPortForwardApply("), StringComparison.Ordinal);
         }
 
         /// <summary>The control: a planted second caller is caught, and a mention in a comment or a trace string is not a caller.</summary>
@@ -415,7 +415,7 @@ namespace Radios.Tests
                 {
                     string line = CodeOnly(raw);
                     if (!PortWriteCall.IsMatch(line)) continue;
-                    if (line.Contains("public bool SetSmartLinkPortForwarding(", StringComparison.Ordinal)) continue;
+                    if (line.Contains("public GuardedOutcome SetSmartLinkPortForwarding(", StringComparison.Ordinal)) continue;
                     found.Add((file, raw.Trim()));
                 }
             }

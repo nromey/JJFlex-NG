@@ -143,13 +143,23 @@ public class MicrophoneProfile
                         Message = "The stored radio reference is empty, so the radio was left alone.",
                     };
                 }
-                if (rig.SelectMicProfileIfPresent(reference.ProfileName))
+                var selected = rig.SelectMicProfileIfPresent(reference.ProfileName);
+                if (selected == GuardedOutcome.Done)
                 {
                     return new MicProfileApplyResult
                     {
                         RadioHalfApplied = true,
                         Message = $"Radio mic profile {reference.ProfileName} loaded.",
                     };
+                }
+                if (selected == GuardedOutcome.Refused)
+                {
+                    // The change-nothing hold refused the radio half and has
+                    // said so, naming the setting. Nothing more about the
+                    // radio: "this radio has no mic profile named ..." would
+                    // be untrue (#486). The caller still says the computer
+                    // half was applied, which it was.
+                    return new MicProfileApplyResult { RadioHalfApplied = false };
                 }
                 // Absent on this radio: say so plainly, no substitute, no
                 // silent creation on someone's equipment.

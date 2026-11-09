@@ -317,7 +317,8 @@ public partial class AudioWorkshopDialog
             }
         }
 
-        if (_rig.SelectMicProfileIfPresent(pick))
+        var selected = _rig.SelectMicProfileIfPresent(pick);
+        if (selected == GuardedOutcome.Done)
         {
             JJTrace.Tracing.TraceLine(
                 $"SilentTxFix: operator asked for mic profile '{pick}' on {radioId}.",
@@ -330,7 +331,9 @@ public partial class AudioWorkshopDialog
                 VerbosityLevel.Critical);
             PollTxAudio();
         }
-        else
+        // Refused: the change-nothing hold has said so, naming the setting;
+        // "no longer listed" after it was untrue (#486).
+        else if (selected != GuardedOutcome.Refused)
         {
             ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.micprofile.no_longer_listed", ("profile", pick)),

@@ -560,7 +560,17 @@ namespace JJFlexWpf.Dialogs
                 }
             });
 
-            if (!(register ? _rig.BeginSmartLinkRegistration(confirmed, OnState) : _rig.BeginSmartLinkUnregistration(confirmed, OnState)))
+            var sent = register ? _rig.BeginSmartLinkRegistration(confirmed, OnState) : _rig.BeginSmartLinkUnregistration(confirmed, OnState);
+            if (sent == GuardedOutcome.Refused)
+            {
+                // The change-nothing hold refused it and has said so, naming
+                // the setting. The status line carries the same sentence, and
+                // nothing more is spoken (#486).
+                SetupRegisterStatus.Text = Lexicon.Get("settings.guard.refused",
+                    ("action", Lexicon.Get("settings.guard.action.registration")));
+                RefreshSetupStatuses();
+            }
+            else if (sent != GuardedOutcome.Done)
             {
                 SetupRegisterStatus.Text =
                     Lexicon.Get("settings.radio.register.command_not_sent");
@@ -892,7 +902,7 @@ namespace JJFlexWpf.Dialogs
             string serial = _rig.SelectedRadioSerial;
             string previousVersion = _rig.RadioFirmwareVersion;
 
-            if (_rig.BeginFirmwareUpdate(_chosenFirmwarePath,
+            var started = _rig.BeginFirmwareUpdate(_chosenFirmwarePath,
                 onTransferFault: detail => Dispatcher.BeginInvoke(() =>
                 {
                     // Spoken announcement comes from FlexBase; this is the text
@@ -901,7 +911,8 @@ namespace JJFlexWpf.Dialogs
                     if (SetupFirmwareFileText == null) return;
                     SetupFirmwareFileText.Text =
                         Lexicon.Get("settings.radio.firmware.transfer_fault", ("detail", detail));
-                })))
+                }));
+            if (started == GuardedOutcome.Done)
             {
                 SetupFirmwareFileText.Text =
                     Lexicon.Get("settings.radio.firmware.sending");
@@ -929,6 +940,13 @@ namespace JJFlexWpf.Dialogs
                         }
                     }),
                     speakResult: true);
+            }
+            else if (started == GuardedOutcome.Refused)
+            {
+                // The change-nothing hold refused it and has said so; the line
+                // carries the same sentence, and nothing more is spoken (#486).
+                SetupFirmwareFileText.Text = Lexicon.Get("settings.guard.refused",
+                    ("action", Lexicon.Get("settings.guard.action.firmware")));
             }
             else
             {

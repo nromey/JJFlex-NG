@@ -326,7 +326,16 @@ internal static class FixerFixActions
             return FixerFixOutcome.Failed("The radio is not listing any microphone profiles to "
                 + "choose from, so nothing was changed.");
 
-        if (!rig.SelectMicProfileIfPresent(candidate))
+        var selected = rig.SelectMicProfileIfPresent(candidate);
+        // The change-nothing hold refused it and has said so. The outcome
+        // carries the hold's own sentence rather than "stopped listing",
+        // which was untrue (#486). The Fix tool still says every outcome, so
+        // the operator hears the refusal again behind "That fix did not
+        // succeed"; a silent outcome needs a Refused form of FixerFixOutcome.
+        if (selected == GuardedOutcome.Refused)
+            return FixerFixOutcome.Failed(Lexicon.Get("settings.guard.refused",
+                ("action", Lexicon.Get("settings.guard.action.profile_load"))));
+        if (selected != GuardedOutcome.Done)
             return FixerFixOutcome.Failed("The radio stopped listing \"" + candidate + "\" before "
                 + "it could be selected, so nothing was changed.");
 
