@@ -647,6 +647,13 @@ namespace JJFlexWpf
             // paths below.
             MeterConfigMigration.Migrate(config);
             config.UpgradeCountdownDefaults();
+            // Last, so a config it saves already carries every migration above
+            // (#1019, ruled S3: a saved receive RNNoise 0.8 moves to 0.9 once).
+            string canonical = CanonicalDir(configDir);
+            ReceiveNoiseFloorMove.Apply(config, canonical, c =>
+            {
+                if (!c.WriteTo(canonical)) throw new IOException("the moved config could not be saved");
+            });
             return config;
         }
 
@@ -776,7 +783,7 @@ namespace JJFlexWpf
             WriteTo(CanonicalDir(configDir));
         }
 
-        private void WriteTo(string configDir)
+        private bool WriteTo(string configDir)
         {
             try
             {
@@ -789,10 +796,12 @@ namespace JJFlexWpf
                 var serializer = new XmlSerializer(typeof(AudioOutputConfig));
                 using var stream = File.Create(path);
                 serializer.Serialize(stream, this);
+                return true;
             }
             catch (Exception ex)
             {
                 Trace.WriteLine($"AudioOutputConfig.Save({configDir}) failed: {ex.Message}");
+                return false;
             }
         }
 
