@@ -343,7 +343,7 @@ public partial class FrequencyDisplay : UserControl
     /// <summary>
     /// Route keyboard events to the field under the cursor.
     /// Left/Right move cursor one position at a time (character-by-character).
-    /// Home/End jump to first/last field. PgDn jumps to Frequency field.
+    /// Home/End jump to first/last field. PgUp/PgDn go to the field, which says where pan went.
     /// Other keys route to field-specific handlers.
     /// </summary>
     private void DisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -435,18 +435,16 @@ public partial class FrequencyDisplay : UserControl
             return;
         }
 
-        // PgDn: let field handler try first (Modern mode uses PgDn to cycle steps).
-        // If the handler doesn't consume it, jump to Frequency field.
-        if (e.Key == Key.PageDown)
+        // Page Up and Page Down: the field handlers answer them, saying where
+        // pan went (#517). The Page Down jump to the Frequency field that sat
+        // here is GONE, by the same ruling (Noel, 2026-09-21): a key that used
+        // to pan must not quietly become a focus jump. Not passed on to the
+        // text box either, whose own paging would move the caret between
+        // fields with nothing said.
+        if (e.Key == Key.PageDown || e.Key == Key.PageUp)
         {
-            var pgdnField = PositionToField(DisplayBox.SelectionStart);
-            if (pgdnField != null)
-            {
-                FieldKeyDown?.Invoke(pgdnField, e);
-                if (e.Handled) return;
-            }
-            if (_fieldDict.TryGetValue("Freq", out var freqField))
-                NavigateToField(freqField);
+            var pageField = PositionToField(DisplayBox.SelectionStart);
+            if (pageField != null) FieldKeyDown?.Invoke(pageField, e);
             e.Handled = true;
             return;
         }

@@ -81,35 +81,32 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// BOTH slice fields must honour it. A setting obeyed by one of them
-        /// is worse than no setting: it would be lying about what it controls,
-        /// and the operator would find the inconsistency by arrowing into it
-        /// rather than by reading anything.
+        /// #517 (ruled by Noel 2026-09-20): the bare arrows TUNE on the Slice
+        /// and Slice operations fields, so nothing walks the slice list by
+        /// arrow and nothing in the field handlers reads this setting any
+        /// more. This test said the opposite until 2026-11-09 (it pinned every
+        /// arrow-key slice cycler to the setting); it now pins that the
+        /// arrows no longer cycle slices at all, while the setting, its
+        /// control and the saved value above stay as they are until Noel rules
+        /// whether the setting waits for the slice layer or leaves Settings.
         /// </summary>
         [Fact]
-        public void EveryArrowKeySliceCyclerReadsTheSetting()
+        public void NoArrowKeyCyclesSlicesOnHomeSoTheSettingHasNoReaderThere()
         {
             string source = Read("JJFlexWpf/FreqOutHandlers.cs");
 
-            // Positive control first: the file really does contain arrow-key
-            // slice cycling, so an empty or wrongly-resolved read cannot pass
-            // the absence check below.
-            Assert.Contains("SliceStepForDownArrow", source, StringComparison.Ordinal);
-            Assert.Contains("SliceStepForUpArrow", source, StringComparison.Ordinal);
+            // Positive control: the file still cycles slices (Space and V), so
+            // an empty or wrongly-resolved read cannot pass the checks below.
+            Assert.Contains("CycleVFO(1, wrap: true)", source, StringComparison.Ordinal);
 
-            // No arrow-key case may hand the cycler a hard-coded direction.
-            // Space, V and the letter keys are untouched by this — they select
-            // by identity or cycle forward and have no direction to get wrong,
-            // so only the sites reached from Key.Up / Key.Down are checked.
             var arrows = Regex.Matches(source,
-                @"case\s+Key\.(Up|Down)\s*:\s*(?://[^\n]*\n\s*)*CycleVFO\(\s*(-?\d+)");
-
+                @"case\s+Key\.(Up|Down)\s*:\s*(?://[^\n]*\n\s*)*CycleVFO\(");
             Assert.True(arrows.Count == 0,
-                "An arrow-key slice cycler is back to a fixed direction, so the "
-                + "slice arrow order setting no longer controls it: "
+                "An arrow key cycles slices on Home again, against #517: "
                 + string.Join("; ", System.Linq.Enumerable.Select(
-                    System.Linq.Enumerable.Cast<Match>(arrows), m => m.Value.Trim()))
-                + ". Use SliceStepForUpArrow / SliceStepForDownArrow (#318).");
+                    System.Linq.Enumerable.Cast<Match>(arrows), m => m.Value.Trim())));
+            Assert.DoesNotContain("AccessibilityConfig.Current.SliceStepForDownArrow", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("SliceStepForUpArrow =>", source, StringComparison.Ordinal);
         }
 
         private static string Read(string relative)

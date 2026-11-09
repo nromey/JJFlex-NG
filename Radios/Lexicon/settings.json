@@ -618,6 +618,7 @@
   "settings.pan.center": "Pan center",
   "settings.pan.left": "Pan left",
   "settings.pan.level": "Pan {level}",
+  "settings.pan.moved_to_audio_layer": { "text": "Pan is in the audio layer. Press the JJ key, A, then P.", "delivery": null },
   "settings.pan.right": "Pan right",
   "settings.path_learning.cleared": "Cleared the connection history for {cleared} radio{plural}. Learning starts again from the next connection.",
   "settings.path_learning.cleared_with_failures": "Cleared the connection history for {cleared} radio{plural}. {failed} could not be cleared — your trace file has the reason, and those radios may still follow their old habit.",
