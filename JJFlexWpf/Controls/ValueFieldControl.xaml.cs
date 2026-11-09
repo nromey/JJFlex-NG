@@ -522,6 +522,11 @@ public partial class ValueFieldControl : UserControl, ValueFieldControl.ReaderAw
         // before the interrupt below, or the interrupt cuts it and the
         // arbiter replays it between the new digits: typing 100 over 150 was
         // heard as "entering 10", "Bench level 150", "0" (#1023 item 5).
+        // Both stages (repair one): a swept value still WAITING in the
+        // coalescer is not handed over yet, so Supersede cannot see it, and
+        // its timer later spoke the old number between the new digits. The
+        // field's Latest key is its value subject.
+        ScreenReaderOutput.RetireLatest(ValueSubject);
         ScreenReaderOutput.Supersede(ValueSubject, "a new value being typed");
         ScreenReaderOutput.Speak(Lexicon.Get("audio.field.enter_value", ("label", _label)), interrupt: true);
         HandleNumberEntryKey(firstKey);
