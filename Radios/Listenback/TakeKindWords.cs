@@ -19,6 +19,8 @@ public static class TakeKindWords
         TakeKind.RadioRecording => Lexicon.Get("audio.takes.kind.radio_recording"),
         TakeKind.LoopedBack => Lexicon.Get("audio.takes.kind.looped_back"),
         TakeKind.Diagnostic => Lexicon.Get("audio.takes.kind.diagnostic"),
+        // PLACEHOLDER: Codex writes (#999).
+        TakeKind.SliceRecording => Lexicon.Get("audio.takes.kind.slice_recording"),
         TakeKind.UnknownLegacy => Lexicon.Get("audio.takes.kind.unknown"),
         _ => Lexicon.Get("audio.takes.kind.damaged")
     };
@@ -29,6 +31,8 @@ public static class TakeKindWords
         TakeKind.RadioRecording => Lexicon.Get("audio.takes.phrase.radio_recording"),
         TakeKind.LoopedBack => Lexicon.Get("audio.takes.phrase.looped_back"),
         TakeKind.Diagnostic => Lexicon.Get("audio.takes.phrase.diagnostic"),
+        // PLACEHOLDER: Codex writes (#999).
+        TakeKind.SliceRecording => Lexicon.Get("audio.takes.phrase.slice_recording"),
         _ => Lexicon.Get("audio.takes.phrase.unknown")
     };
 }

@@ -757,6 +757,9 @@ public partial class CheckYourAudioDialog
     /// </summary>
     public void ToggleAudioCheck()
     {
+        // #999: set only by the overwrite warning's own go-ahead, and spent here.
+        bool overwriteAnswered = _overwriteAnsweredForNextStart;
+        _overwriteAnsweredForNextStart = false;
         if (_checkStarts.IsBusy)
         {
             if (!_checkStarts.IsCancelled)
@@ -826,6 +829,16 @@ public partial class CheckYourAudioDialog
         // the off-air one with "another IQ take is running", but an ordinary
         // check would key straight into it.
         if (AudioWorkshopDialog.ABenchTakeIsRunning) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
+        // #999: the Radio recording method records into the slice recorder, so
+        // the warning F11 gives comes first here too, before the countdown and
+        // never while keyed. Answered, the start runs again from the top, so
+        // everything above is asked again of the radio as it is then.
+        if (!overwriteAnswered && SelectedMethod == AudioCheckListenMethods.RecordPlayback
+            && RecorderControls.NeedsOverwriteQuestion(_rig, CheckRecorderTarget(_rig)))
+        {
+            _ = AskBeforeCheckOverwritesAsync(_rig);
+            return;
+        }
         // Unified takes: "start a new test or add to this one", before the
         // countdown and never while keyed (CheckYourAudioDialog.SaveTakes.cs).
         if (!AdmitTakeBeforeCountdown(SelectedMethod, ptt)) return;

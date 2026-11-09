@@ -40,6 +40,17 @@ namespace JJFlexWpf.Dialogs;
 /// <b>Add a take to this test</b> (round two) resumes the selected take's test
 /// and opens Check your audio; it never connects, starts a check or keys.
 /// </para>
+/// <para>
+/// <b>The radio's slice recordings (#999)</b> are listed above the computer
+/// takes while a radio is connected, one row per slice that holds one: the
+/// slice, the length, when and where it was made when a stamp still describes
+/// it, whether it is backed up, or that it was made outside JJ Flexible. Two
+/// actions only: Play, which the radio plays, and Back up, which captures that
+/// playback here as a take. No Delete, Compare or Note on these rows. With no
+/// radio there are no such rows, because only the radio can say what it holds.
+/// These two actions are the window's only radio work, and only on the
+/// operator's press.
+/// </para>
 /// </remarks>
 public sealed class PlayTakesDialog : JJFlexDialog
 {
@@ -51,8 +62,9 @@ public sealed class PlayTakesDialog : JJFlexDialog
     private readonly TextBox _note = new() { MinWidth = 240 };
     private readonly TextBox _testName = new() { MinWidth = 240 };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
-    private readonly Button _play, _choose, _compare, _detailsButton, _saveNote, _rename, _addToTest, _saveWav, _saveFlac, _delete;
+    private readonly Button _play, _backUp, _choose, _compare, _detailsButton, _saveNote, _rename, _addToTest, _saveWav, _saveFlac, _delete;
     private IReadOnlyList<TakeRow> _rows = Array.Empty<TakeRow>();
+    private IReadOnlyList<SliceRecordingRow> _sliceRows = Array.Empty<SliceRecordingRow>();
     private TakeRow? _chosen;
     private bool _busy, _quiet;
 
@@ -97,6 +109,8 @@ public sealed class PlayTakesDialog : JJFlexDialog
         DockPanel.SetDock(bottom, Dock.Bottom);
         var actions = new WrapPanel();
         _play = AddButton(actions, Lexicon.Get("audio.takes.play"), () => _ = PlayAsync(), "audio.takes.help.play");
+        // PLACEHOLDER: Codex writes (#999).
+        _backUp = AddButton(actions, Lexicon.Get("audio.takes.back_up"), () => _ = BackUpAsync(), "audio.takes.help.back_up");
         _choose = AddButton(actions, Lexicon.Get("audio.takes.choose_first"), Choose, "audio.takes.help.choose_first");
         _compare = AddButton(actions, Lexicon.Get("audio.takes.compare"), () => _ = CompareAsync(), "audio.takes.help.compare");
         _detailsButton = AddButton(actions, Lexicon.Get("audio.takes.details"), () => _ = DetailsAsync(), "audio.takes.help.details");
@@ -139,6 +153,8 @@ public sealed class PlayTakesDialog : JJFlexDialog
         DeleteKeyRemoves.SetButton(_list, _delete);
         root.Children.Add(_list);
         Content = root;
+        // A slice recording this window started playing stops with it (#999).
+        Closed += (_, _) => { if (_rig != null) _ = _rig.StopSliceRecorderOwnedByAsync(this); };
         Populate(keepSelection: false);
     }
 
@@ -154,13 +170,30 @@ public sealed class PlayTakesDialog : JJFlexDialog
     }
 
     private TakeRow? Current => (_list.SelectedItem as ListBoxItem)?.Tag as TakeRow;
+    /// <summary>The selected row when it is one of the radio's slice recordings (#999).</summary>
+    private SliceRecordingRow? CurrentSlice => (_list.SelectedItem as ListBoxItem)?.Tag as SliceRecordingRow;
+
+    /// <summary>A row's identity across a rebuild: a take by its folder, a slice recording by its letter.</summary>
+    private static string? KeyOf(object? tag) => tag switch
+    {
+        TakeRow take => "take:" + take.Directory,
+        SliceRecordingRow slice => "slice:" + slice.Letter,
+        _ => null,
+    };
     private static string Root => ListenbackTakes.Root;
     private string ShowOption => (_show.SelectedItem as ComboBoxItem)?.Tag as string ?? TakeListing.ShowAll;
 
     /// <summary>Read the takes again and rebuild the Show choices and the list, keeping the selection where it can.</summary>
     private void Populate(bool keepSelection)
     {
-        string? selected = keepSelection ? Current?.Directory : null;
+        string? selected = keepSelection ? KeyOf((_list.SelectedItem as ListBoxItem)?.Tag) : null;
+        // Only the radio can say what it holds: no radio, no slice rows (#999).
+        try { _sliceRows = _rig?.IsConnected == true ? SliceRecordingListing.Rows(_rig, DateTime.Now) : Array.Empty<SliceRecordingRow>(); }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException)
+        {
+            Tracing.TraceLine("PlayTakesDialog: slice recordings: " + ex, TraceLevel.Error);
+            _sliceRows = Array.Empty<SliceRecordingRow>();
+        }
         try { _rows = TakeListing.Rows(Root, DateTime.Now); }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidDataException || ex is System.Text.Json.JsonException)
         {
@@ -183,6 +216,16 @@ public sealed class PlayTakesDialog : JJFlexDialog
                 if (o == option) _show.SelectedItem = item;
             }
             _list.Items.Clear();
+            // The radio's slice recordings first, above the computer takes (#999),
+            // under All takes and under the backups' own kind.
+            var slices = option == TakeListing.ShowAll || option == TakeKind.SliceRecording
+                ? _sliceRows : Array.Empty<SliceRecordingRow>();
+            foreach (var row in slices)
+            {
+                var item = new ListBoxItem { Content = row.Sentence, Tag = row };
+                AutomationProperties.SetName(item, row.Sentence);
+                _list.Items.Add(item);
+            }
             var shown = TakeListing.Filter(_rows, option).ToList();
             foreach (var row in shown)
             {
@@ -190,14 +233,20 @@ public sealed class PlayTakesDialog : JJFlexDialog
                 AutomationProperties.SetName(item, row.Sentence);
                 _list.Items.Add(item);
             }
-            if (shown.Count == 0)
+            int count = slices.Count + shown.Count;
+            if (count == 0)
             {
                 var empty = new ListBoxItem { Content = Lexicon.Get("audio.takes.empty"), IsEnabled = false };
                 AutomationProperties.SetName(empty, Lexicon.Get("audio.takes.empty"));
                 _list.Items.Add(empty);
             }
-            int index = selected == null ? 0 : Math.Max(0, shown.FindIndex(r => r.Directory == selected));
-            _list.SelectedIndex = shown.Count == 0 ? -1 : Math.Min(index, shown.Count - 1);
+            int index = 0;
+            if (selected != null)
+            {
+                int found = _list.Items.OfType<ListBoxItem>().ToList().FindIndex(i => KeyOf(i.Tag) == selected);
+                index = Math.Max(0, found);
+            }
+            _list.SelectedIndex = count == 0 ? -1 : Math.Min(index, count - 1);
         }
         finally { _quiet = false; }
         RefreshControls();
@@ -210,6 +259,23 @@ public sealed class PlayTakesDialog : JJFlexDialog
     /// </summary>
     private void RefreshControls()
     {
+        if (CurrentSlice != null)
+        {
+            // A slice recording on the radio: Play and Back up, nothing else (#999).
+            Shown(_play, true);
+            Shown(_backUp, true);
+            foreach (var button in new[] { _choose, _compare, _detailsButton, _saveWav, _saveFlac, _delete, _saveNote, _rename, _addToTest })
+                Shown(button, false);
+            _note.Visibility = Visibility.Collapsed;
+            _testName.Visibility = Visibility.Collapsed;
+            _details.Text = "";
+            // Ctrl+F1 on Play says the radio plays this one.
+            JJFlexHelp.SetText(_play, Lexicon.Get("audio.takes.help.slice_play"));
+            SyncBackUpLabel();
+            return;
+        }
+        Shown(_backUp, false);
+        JJFlexHelp.SetText(_play, Lexicon.Get("audio.takes.help.play"));
         var row = Current;
         bool any = row != null;
         bool readable = any && row!.Entry.HeaderReadable && row.Kind != TakeKind.Damaged;
@@ -240,8 +306,53 @@ public sealed class PlayTakesDialog : JJFlexDialog
         button.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Back up reads Stop backup while a backup runs, and stops it.</summary>
+    private void SyncBackUpLabel()
+    {
+        string label = Lexicon.Get(SliceRecordingBackup.Running != null ? "audio.takes.stop_backup" : "audio.takes.back_up");
+        _backUp.Content = label;
+        AutomationProperties.SetName(_backUp, label);
+    }
+
+    /// <summary>
+    /// Back up the selected slice recording (#999): the radio plays it and this
+    /// computer captures the playback as a take. Pressed while one runs, it
+    /// stops it. Only this press makes such a take; no playback makes one by
+    /// itself (S2, ruled 2026-11-07 20:51).
+    /// </summary>
+    private async Task BackUpAsync()
+    {
+        if (SliceRecordingBackup.Running != null)
+        {
+            SliceBackupDoor.Stop();
+            return;
+        }
+        var slice = CurrentSlice;
+        if (slice == null) return;
+        if (RecordingPlayer.IsPlaying) RecordingPlayer.StopWithoutSpeaking();
+        var running = SliceBackupDoor.BackUpAsync(_rig, slice.Target);
+        SyncBackUpLabel();
+        try { await running; }
+        catch (Exception ex) { Fail("back up", ex); }
+        finally
+        {
+            if (IsVisible) Populate(keepSelection: true);
+        }
+    }
+
     private async Task PlayAsync()
     {
+        var sliceRow = CurrentSlice;
+        if (sliceRow != null)
+        {
+            // The radio plays its own recording to the listener only (#999,
+            // repair round 1): refused while the radio transmits, and a key
+            // after the press cannot turn it into a send. Stopping is allowed.
+            if (RecordingPlayer.IsPlaying) RecordingPlayer.StopWithoutSpeaking();
+            try { await RecorderControls.ToggleSliceListenAsync(_rig, sliceRow.Target, owner: this); }
+            catch (Exception ex) { Fail("play slice", ex); }
+            return;
+        }
         var row = Current;
         if (row == null || _busy) return;
         if (RecordingPlayer.IsPlaying) { RecordingPlayer.Stop(); return; }

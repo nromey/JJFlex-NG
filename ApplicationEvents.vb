@@ -139,6 +139,12 @@ Namespace My
             ' first utterance, because it decides whether there is one.
             JJFlexWpf.AudioOutputConfig.ApplySpeechVerbosityEarly()
 
+            ' A "warn before a recording on the radio is overwritten" choice
+            ' made in Settings before any radio connected waits in the audio
+            ' settings across a restart, for the first radio that connects
+            ' (#999 round 3). Wired before Settings can open or a radio connect.
+            JJFlexWpf.AudioOutputConfig.KeepPendingSliceOverwriteWarningAcrossRestarts()
+
             ' Greet at launch, which is where a greeting belongs. The arrival
             ' announcement at Home is a separate message saying where you landed
             ' and in which tuning mode - see MainWindow.SpeakWelcome.

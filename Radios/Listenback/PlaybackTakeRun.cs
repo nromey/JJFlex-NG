@@ -46,6 +46,8 @@ public sealed class PlaybackTakeRun
 {
     public const string RecordPlaybackMethod = "record-playback";
     public const string LoopbackMethod = "loopback";
+    /// <summary>The method token of a slice recording's backup (#999): no check ran, Back up did.</summary>
+    public const string SliceBackupMethod = "slice-backup";
     /// <summary>How long a requested stop may go unreported before the capture is closed as incomplete.</summary>
     public static readonly TimeSpan StopReportWait = TimeSpan.FromSeconds(3);
 
@@ -68,7 +70,8 @@ public sealed class PlaybackTakeRun
     private PlaybackTakeRun(FlexBase rig, string kind, SliceRecorderTarget target, TakeSeriesContext series)
     {
         _rig = rig; _kind = kind; _target = target; _series = series;
-        _facts = rig.PlaybackTakeFacts(kind, target, kind == TakeKind.LoopedBack ? LoopbackMethod : RecordPlaybackMethod);
+        _facts = rig.PlaybackTakeFacts(kind, target, kind == TakeKind.LoopedBack ? LoopbackMethod
+            : kind == TakeKind.SliceRecording ? SliceBackupMethod : RecordPlaybackMethod);
     }
 
     /// <summary>At recording admission, before keying: the facts as the radio records the content.</summary>
@@ -133,8 +136,15 @@ public sealed class PlaybackTakeRun
         try
         {
             Directory.CreateDirectory(folder);
-            var (test, number) = _series.Reserve(root, folder);
-            Test = test; Number = number; _folder = folder;
+            // A slice recording's backup is not an audio check, so it joins no
+            // test (#999): it is listed on its own, as a take made before tests
+            // existed is, and leaves the operator's current test alone.
+            if (_kind != TakeKind.SliceRecording)
+            {
+                var (test, number) = _series.Reserve(root, folder);
+                Test = test; Number = number;
+            }
+            _folder = folder;
         }
         catch (Exception ex) when (Expected(ex))
         {

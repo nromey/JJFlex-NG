@@ -177,11 +177,136 @@ public static class RecorderControls
         if (rig != null && (rig.Transmit || rig.RadioInterlockReportsTransmit) && !rig.IsSliceRecording(target)
             && ZeroPowerDoors.RefuseTransmit(rig, "a slice recording", afterMenu: speak != null))
             return new(false, "", SpeechSubject.SliceRecorder(""));
+        // #999: a recording about to start over one already in the slice asks
+        // first. Only when starting; a running recording always stops at once.
+        if (rig != null && !rig.IsSliceRecording(target))
+        {
+            var answered = await ConfirmOverwriteAsync(rig, target);
+            if (!answered.Proceed) return new(false, "", SpeechSubject.SliceRecorder(""));
+            if (answered.Asked)
+            {
+                // The question was open for a while; say no to what is no longer safe.
+                if (TuneDoors.Up(rig))
+                {
+                    TuneDoors.RefuseStart();
+                    return new(false, "", SpeechSubject.SliceRecorder(""));
+                }
+                if ((rig.Transmit || rig.RadioInterlockReportsTransmit)
+                    && ZeroPowerDoors.RefuseTransmit(rig, "a slice recording", afterMenu: speak != null))
+                    return new(false, "", SpeechSubject.SliceRecorder(""));
+                target = answered.Target;
+            }
+        }
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSliceRecordAsync(target, owner), SpeechSubject.SliceRecorder(""));
         (speak ?? Speak)(outcome);
         return outcome;
+    }
+
+    // ── The overwrite warning (#999) ──
+
+    /// <summary>The question the overwrite warning asks: its form, the slice and the recording's length.</summary>
+    public sealed record SliceOverwriteQuestion(bool BackedUp, string Letter, double Seconds);
+
+    /// <summary>What <see cref="ConfirmOverwriteAsync"/> decided: go ahead or not, whether it asked, and the slice to record on.</summary>
+    public readonly record struct OverwriteGo(bool Proceed, bool Asked, SliceRecorderTarget Target);
+
+    /// <summary>
+    /// Seam for tests: answers the warning instead of showing it, so no window
+    /// is ever built. Null in the app.
+    /// </summary>
+    internal static Func<SliceOverwriteQuestion, Dialogs.SliceOverwriteReply>? AskOverride { get; set; }
+
+    /// <summary>Seam for tests: runs Back up first instead of <see cref="SliceBackupDoor"/>.</summary>
+    internal static Func<FlexBase, SliceRecorderTarget, Task<Radios.Listenback.SliceBackupOutcome?>>? BackUpOverride { get; set; }
+
+    /// <summary>Seam for tests: what the radio would report, instead of asking a radio. Null in the app.</summary>
+    internal static Func<FlexBase, SliceRecorderTarget, SliceOverwriteFacts?>? FactsOverride { get; set; }
+
+    private static SliceOverwriteFacts? FactsFor(FlexBase rig, SliceRecorderTarget target) =>
+        FactsOverride != null ? FactsOverride(rig, target) : rig.SliceOverwriteFactsFor(target);
+
+    private static bool _asking;
+
+    /// <summary>True when starting a recording on <paramref name="target"/> would ask first.</summary>
+    public static bool NeedsOverwriteQuestion(FlexBase? rig, SliceRecorderTarget target) =>
+        rig != null && SliceOverwriteGate.Decide(FactsFor(rig, target)) != SliceOverwriteDecision.RecordNow;
+
+    /// <summary>
+    /// Ask before a recording starts over the one already in the slice (#999),
+    /// through <see cref="SliceOverwriteGate"/>: nothing asked when the slice is
+    /// empty or the warning is turned off. Record goes ahead; Back up first backs
+    /// the recording up and then goes ahead, on the same slice, only if the
+    /// backup succeeded; Cancel and Escape go no further and say so. The
+    /// warning's "don't show this again" turns the setting off, and only when
+    /// the operator went ahead.
+    /// </summary>
+    /// <remarks>
+    /// Shared by every door that starts a slice recording (F11, the JJ key, Home's
+    /// slice row and the Slice menu, through <see cref="ToggleSliceRecordAsync"/>)
+    /// and by Check your audio before its Radio recording method starts. While the
+    /// warning is open, another request to start a recording answers nothing: it
+    /// neither opens a second warning nor answers this one.
+    /// </remarks>
+    /// <param name="owner">The window the warning opens over; the main window when null.</param>
+    public static async Task<OverwriteGo> ConfirmOverwriteAsync(FlexBase rig, SliceRecorderTarget target, System.Windows.Window? owner = null)
+    {
+        var facts = FactsFor(rig, target);
+        var decision = SliceOverwriteGate.Decide(facts);
+        if (decision == SliceOverwriteDecision.RecordNow) return new(true, false, target);
+        if (_asking) return new(false, true, target);
+        var question = new SliceOverwriteQuestion(decision == SliceOverwriteDecision.WarnBackedUp, facts!.Letter,
+            facts.RadioSeconds ?? 0);
+        Dialogs.SliceOverwriteReply reply;
+        _asking = true;
+        try { reply = Ask(question, owner); }
+        finally { _asking = false; }
+        JJTrace.Tracing.TraceLine("SliceOverwrite: slice " + question.Letter + " backedUp=" + question.BackedUp
+            + " answer=" + reply.Answer + " dontShowAgain=" + reply.DontShowAgain, System.Diagnostics.TraceLevel.Info);
+        if (reply.Answer == Dialogs.SliceOverwriteAnswer.Cancel)
+        {
+            // PLACEHOLDER: Codex writes (#999).
+            SpeakAfterWarning(Lexicon.Get("audio.recorder.overwrite.cancelled", ("letter", question.Letter)));
+            return new(false, true, target);
+        }
+        if (reply.DontShowAgain && !RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(facts.Serial, false))
+            JJTrace.Tracing.TraceLine("SliceOverwrite: the warning setting could not be saved", System.Diagnostics.TraceLevel.Warning);
+        // The same slice the warning named, whichever becomes active meanwhile.
+        var slice = SliceRecorderTarget.Letter(question.Letter[0]);
+        if (reply.Answer == Dialogs.SliceOverwriteAnswer.BackUpFirst)
+        {
+            var backup = BackUpOverride != null ? await BackUpOverride(rig, slice) : await SliceBackupDoor.BackUpAsync(rig, slice);
+            // A backup that did not finish leaves the recording unprotected, so
+            // nothing records over it; the backup door has said why.
+            if (backup?.BackedUp != true) return new(false, true, target);
+        }
+        return new(true, true, slice);
+    }
+
+    private static Dialogs.SliceOverwriteReply Ask(SliceOverwriteQuestion question, System.Windows.Window? owner)
+    {
+        if (AskOverride != null) return AskOverride(question);
+        var dialog = new Dialogs.SliceOverwriteWarningDialog(question.BackedUp, question.Letter, question.Seconds);
+        if (owner != null) dialog.Owner = owner;
+        dialog.ShowModalDialog();
+        return dialog.Reply;
+    }
+
+    /// <summary>Speech flushes on a window change, so a sentence after the warning waits for focus to land.</summary>
+    private static void SpeakAfterWarning(string text)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (AskOverride != null || dispatcher == null)
+        {
+            ScreenReaderOutput.Speak(text, SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: SpeechSubject.SliceOverwriteWarning);
+            return;
+        }
+        dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            await Task.Delay(300);
+            ScreenReaderOutput.Speak(text, SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: SpeechSubject.SliceOverwriteWarning);
+        }));
     }
 
     /// <summary>
@@ -224,6 +349,25 @@ public static class RecorderControls
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSlicePlayAsync(target, owner), SpeechSubject.SliceRecorder(""));
         outcome = TuneDoors.ForPlay(outcome, underTune);
+        (speak ?? Speak)(outcome);
+        return outcome;
+    }
+
+    /// <summary>
+    /// Listen to the target slice's recording, never as a send (#999, repair
+    /// round 1): Play takes' slice rows. Refused while the radio transmits; the
+    /// local intent is carried to the radio command, so a key after the press
+    /// cannot put it on the air. Stopping a running playback is always allowed.
+    /// </summary>
+    public static async Task<RecorderOutcome> ToggleSliceListenAsync(FlexBase? rig, SliceRecorderTarget target,
+        Action<RecorderOutcome>? speak = null, object? owner = null)
+    {
+        Observe(rig);
+        bool starting = rig != null && !rig.IsSlicePlaying(target);
+        if (starting && !(rig!.Transmit || rig.RadioInterlockReportsTransmit || TuneDoors.Up(rig))) PlayStartClick();
+        var outcome = rig == null
+            ? NoRadio(SpeechSubject.SliceRecorder(""))
+            : await Guarded(() => rig.ToggleSliceListenAsync(target, owner), SpeechSubject.SliceRecorder(""));
         (speak ?? Speak)(outcome);
         return outcome;
     }

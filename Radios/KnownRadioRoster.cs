@@ -287,6 +287,54 @@ namespace Radios
         }
 
         /// <summary>
+        /// The radio this program last CONNECTED to, by serial, across restarts;
+        /// "" when no radio has ever connected (#999 round 4, ruled C3 by Noel
+        /// 2026-11-09: "Only connected radios").
+        /// </summary>
+        /// <remarks>
+        /// <para>Read from the <see cref="RadioConnectionCache"/> entries, the
+        /// newest of each entry's LAN and WAN stamps. Those entries and their
+        /// stamps are written by exactly one method,
+        /// <see cref="RadioConnectionCache.RecordConnectedRadio"/>, which the
+        /// connect calls only once it has worked (pinned by
+        /// <c>LastConnectedRadioTests</c>). A sighting never touches them: it
+        /// stamps the per-radio profile's <see cref="RadioConfig.LastSeenUtc"/>,
+        /// and an account's radio list is kept apart, in the file's
+        /// <c>AccountLists</c>. That is why this does not read <see cref="Load"/>,
+        /// whose <see cref="KnownRadioEntry.LastSeenUtc"/> merges all three.</para>
+        /// <para>Every install that has connected under an earlier build already
+        /// holds these entries, so the answer is right from the first start of
+        /// this one. A radio taken off the list is dropped from the file
+        /// (<see cref="Remove"/>), so it is no longer named here.</para>
+        /// <para>Never throws: a file that cannot be read reads as no radio.</para>
+        /// </remarks>
+        public static string LastConnectedSerial()
+        {
+            var cache = OpenCache();
+            if (cache == null) return "";
+            try
+            {
+                string serial = "";
+                DateTime newest = DateTime.MinValue;
+                foreach (var e in cache.GetAllEntries())
+                {
+                    if (e == null || string.IsNullOrWhiteSpace(e.Serial)) continue;
+                    var at = e.WanLastSeenUtc > e.LanLastSeenUtc ? e.WanLastSeenUtc : e.LanLastSeenUtc;
+                    if (at <= newest) continue;
+                    newest = at;
+                    serial = e.Serial;
+                }
+                return serial;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"KnownRadioRoster.LastConnectedSerial: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return "";
+            }
+        }
+
+        /// <summary>
         /// Take a radio off the roster (task #98). Two scopes, and the
         /// difference between them is the whole point of the confirmation the
         /// caller must have shown first.

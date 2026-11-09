@@ -160,7 +160,17 @@ public partial class FlexBase
         internal int TakeGeneration;
         internal DateTime? AppTakeAt;
         internal double? AppTakeSeconds;
+        // What the stamp of this app's take records besides its time and
+        // length (#999): read when the recording starts, written when it stops.
+        internal double TakeFrequencyMHz;
+        internal string TakeMode = "";
+        internal string TakeSource = SliceTakeSource.F11;
         internal bool PlayStopRequested;
+        // #999 repair round 1: whether this app asked the radio to stop the
+        // slice's current or last playback, from any door, since it started.
+        // A playback that ended with none asked for reached its natural end.
+        internal bool PlayStopCommanded;
+        internal bool PlayStartedOnce;
         internal bool RecordRefusedUnderTune;
     }
 
@@ -181,7 +191,15 @@ public partial class FlexBase
     /// line holding the radio keyed would otherwise carry the same play=1 into a
     /// real transmission (#860).
     /// </param>
-    private sealed record PlaybackIntent(bool OnAir, long Generation, Radio Radio, Slice Transmitter, bool UnderTune);
+    /// <param name="ListenOnly">
+    /// A listen that must never reach the air (#999: Play takes and the slice
+    /// recording backup). Every admission condition is read again where the
+    /// play command leaves, not just at the press: the radio's transmitting
+    /// interlock, which FlexLib publishes BEFORE its Mox cache, a hardware key,
+    /// and a tune that began after the press (repair round 2).
+    /// </param>
+    private sealed record PlaybackIntent(bool OnAir, long Generation, Radio Radio, Slice Transmitter, bool UnderTune,
+        bool ListenOnly = false);
 
     private PlaybackIntent CapturePlaybackIntent()
     {
@@ -205,6 +223,7 @@ public partial class FlexBase
             !ReferenceEquals(intent.Radio, theRadio) || theRadio?.Connected != true) return false;
         if (intent.UnderTune && !TuningNow) return false;
         bool keyed = Transmit || theRadio.Mox;
+        if (intent.ListenOnly && (keyed || RadioInterlockReportsTransmit || TuningNow)) return false;
         if (!intent.OnAir) return !keyed && (!requireLocalVoxOff || LocalPlaybackVoxOff(theRadio));
         if (!keyed || !CanTransmit || intent.Transmitter == null ||
             !ReferenceEquals(intent.Transmitter, theRadio.TransmitSlice) ||
@@ -220,6 +239,83 @@ public partial class FlexBase
         List<SliceRecorderState> playing;
         lock (_sliceRecorders) playing = _sliceRecorders.Values.Where(s => s.Playing || s.Intent != null).ToList();
         foreach (var state in playing) _ = StopPlayingForTransmitAsync(state, generation);
+    }
+
+    /// <summary>
+    /// Say where the recording this target slice is making came from (#999),
+    /// for the stamp written when it stops. Check your audio calls it once its
+    /// recorder has armed, so a Radio recording audio check method take is
+    /// stamped <see cref="SliceTakeSource.AudioCheck"/> rather than as the
+    /// operator's own. Does nothing unless this app is recording on that slice.
+    /// </summary>
+    public void MarkSliceTakeSource(SliceRecorderTarget target, string source)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice) || string.IsNullOrEmpty(source)) return;
+        lock (_sliceRecorders)
+            if (_sliceRecorders.TryGetValue(slice, out var state) && StateIsLive(state) && state.AppRecording)
+                state.TakeSource = source;
+    }
+
+    /// <summary>
+    /// The radio this program had last connected to before the current connect
+    /// (<see cref="KnownRadioRoster.LastConnectedSerial"/>, read by
+    /// <see cref="ApplyChoicesWaitingForAConnect"/> before the connect is
+    /// recorded); "" when none ever had, null before any connect of this rig.
+    /// The overwrite gate's facts retry a waiting choice against it, so the retry
+    /// follows the same rule as the connect.
+    /// </summary>
+    private string _lastConnectedBeforeThisConnect;
+
+    /// <summary>
+    /// The connect has succeeded: a choice made in Settings while no radio had
+    /// ever connected is saved to the radio it waits for (#999 round 4, ruled C2
+    /// and C3: <see cref="RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten"/>).
+    /// Called from the connect and the retried connect, right after each works
+    /// and BEFORE <see cref="RecordConnectedRadioForCache"/> records it, so the
+    /// radio last connected is still the one before this; and from nowhere that
+    /// only discovers a radio. Never throws.
+    /// </summary>
+    internal void ApplyChoicesWaitingForAConnect(string serial)
+    {
+        try
+        {
+            string before = KnownRadioRoster.LastConnectedSerial();
+            _lastConnectedBeforeThisConnect = before;
+            RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(serial, before);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ApplyChoicesWaitingForAConnect: " + ex.Message, TraceLevel.Warning);
+        }
+    }
+
+    /// <summary>
+    /// The facts <see cref="SliceOverwriteGate"/> decides on, for the slice a
+    /// recorder target resolves to now; null when there is no such slice of
+    /// ours, so nothing can be overwritten from here.
+    /// </summary>
+    public SliceOverwriteFacts SliceOverwriteFactsFor(SliceRecorderTarget target)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice)) return null;
+        string serial = theRadio?.Serial ?? "";
+        string letter = LetterOf(slice);
+        double? seconds = ReportedSliceRecordingSeconds(slice);
+        // A recording is there only when the radio has REPORTED one: play
+        // enabled AND a length. FlexLib's PlayEnabled starts true before any
+        // status arrives, so on its own it would warn about an empty slice.
+        bool has = slice.PlayEnabled && seconds != null;
+        if (string.IsNullOrEmpty(serial)) return new(serial, letter, has, seconds, null, true);
+        // A choice made in Settings while no radio had ever connected is saved
+        // now, if the connect could not save it, by the connect's own rule (this
+        // radio is connected: it has a slice of ours).
+        if (_lastConnectedBeforeThisConnect is string before)
+            RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(serial, before);
+        var config = RadioConfig.LoadForRadio(serial);
+        var stamp = config.SliceTakeStamps?.LastOrDefault(s =>
+            string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
+        return new(serial, letter, has, seconds, stamp, config.WarnBeforeSliceRecordingOverwritten);
     }
 
     /// <summary>The radio's recorded duration, with local timing as fallback.</summary>
@@ -265,6 +361,8 @@ public partial class FlexBase
         string letter = LetterOf(state.Slice);
         string serial = state.Radio.Serial;
         DateTime madeUtc = DateTime.UtcNow;
+        double frequency = state.TakeFrequencyMHz;
+        string mode = state.TakeMode, source = state.TakeSource;
         _ = Task.Run(async () =>
         {
             // record_time and play-enabled can follow the record=0 status.
@@ -279,7 +377,7 @@ public partial class FlexBase
                         state.AppTakeAt = madeUtc;
                         state.AppTakeSeconds = seconds;
                     }
-                    if (!RadioConfig.RecordSliceTake(serial, letter, seconds, madeUtc))
+                    if (!RadioConfig.RecordSliceTake(serial, letter, seconds, madeUtc, frequency, mode, source))
                         Tracing.TraceLine($"Slice {letter} take time not saved for {serial}", TraceLevel.Warning);
                     return;
                 }
@@ -400,6 +498,13 @@ public partial class FlexBase
         };
     }
 
+    /// <summary>The letters of this app's own slices on the connected radio (#999: Play takes lists their recordings).</summary>
+    public IReadOnlyList<string> SliceRecorderLetters()
+    {
+        if (theRadio == null || !theRadio.Connected) return Array.Empty<string>();
+        lock (mySlices) return mySlices.Where(SliceRecorderTargetIsOurs).Select(LetterOf).Distinct().ToList();
+    }
+
     /// <summary>The letter of the slice this target resolves to now, or empty when none does.</summary>
     public string SliceRecorderLetter(SliceRecorderTarget target)
     {
@@ -425,6 +530,21 @@ public partial class FlexBase
         lock (_sliceRecorders)
             if (_sliceRecorders.TryGetValue(slice, out var state) && StateIsLive(state)) return state.Playing;
         return slice.PlayOn;
+    }
+
+    /// <summary>
+    /// True when the target slice's last playback has ended because the radio
+    /// reported it finished, with no stop asked for by this app, from any door,
+    /// since it started (#999, repair round 1). A stop sent by another client is
+    /// not visible here; the length check beside this catches what it can.
+    /// </summary>
+    public bool SlicePlaybackEndedOnItsOwn(SliceRecorderTarget target)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice)) return false;
+        lock (_sliceRecorders)
+            return _sliceRecorders.TryGetValue(slice, out var state) && StateIsLive(state) && state.PlayStartedOnce
+                && !state.PlayStopCommanded && !state.Playing && !slice.PlayOn;
     }
 
     /// <summary>True when the radio reports a playable recording on the target slice.</summary>
@@ -673,7 +793,7 @@ public partial class FlexBase
 
     private async Task<bool> SendSafelyAsync(SliceRecorderState state, string property, bool enabled)
     {
-        if (property == "play" && !enabled) state.PlayStopRequested = true;
+        if (property == "play" && !enabled) { state.PlayStopRequested = true; state.PlayStopCommanded = true; }
         try { return await SliceRecorderCommandAsync(state, property, enabled).ConfigureAwait(false); }
         catch (Exception ex)
         {
@@ -837,6 +957,12 @@ public partial class FlexBase
         state.AppRecording = true;
         state.AppTakeAt = null;
         state.AppTakeSeconds = null;
+        // #999: where and how it was made. Every door is the operator's own
+        // recording; Check your audio says otherwise once its recorder is armed
+        // (MarkSliceTakeSource).
+        state.TakeFrequencyMHz = double.IsFinite(slice.Freq) ? slice.Freq : 0;
+        state.TakeMode = slice.DemodMode ?? "";
+        state.TakeSource = SliceTakeSource.F11;
         lock (_sliceRecorders)
             if (StateIsLive(state)) ArmCapWarning(state);
         // DRAFT PROSE (#787): awaiting Noel
@@ -882,6 +1008,62 @@ public partial class FlexBase
     {
         var intent = CapturePlaybackIntent();
         return WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn) ? StopPlayLockedAsync(state, target, owner) : StartPlayLockedAsync(state, target, intent, owner));
+    }
+
+    /// <summary>
+    /// Play the target slice's recording to the LISTENER only, never into a
+    /// transmission (#999, repair round 1): Play takes' Play and the slice
+    /// recording backup. Additive beside <see cref="StartSlicePlayAsync"/>, whose
+    /// callers are unchanged.
+    /// </summary>
+    /// <remarks>
+    /// Refused at the press while the radio reports transmit, a hardware key or a
+    /// tune. Otherwise the intent is fixed as LOCAL at the press, so a key that
+    /// starts afterwards cannot turn it into a send:
+    /// <see cref="PlaybackIntentIsCurrent"/> refuses a local intent while keyed,
+    /// and is read again on the radio queue just before <c>play=1</c> leaves, and
+    /// a transmit edge during the playback stops it, as for every local listen.
+    /// </remarks>
+    public Task<RecorderOutcome> StartSliceListenAsync(SliceRecorderTarget target, object owner = null)
+    {
+        var intent = ListenIntent();
+        if (ListenRefused(intent)) return Task.FromResult(ListenRefusedWhileTransmitting(target));
+        return WithRecorderAsync(target, state => StartPlayLockedAsync(state, target, intent, owner));
+    }
+
+    /// <summary>A local-only intent, fixed at the press, re-checked at the play command (repair round 2).</summary>
+    private PlaybackIntent ListenIntent() => CapturePlaybackIntent() with { ListenOnly = true };
+
+    /// <summary>The admission conditions a listen is refused on, at the press and again where the command leaves.</summary>
+    private bool ListenRefused(PlaybackIntent intent) => intent.OnAir || intent.UnderTune || RadioInterlockReportsTransmit;
+
+    /// <summary>
+    /// <see cref="StartSliceListenAsync"/>, or stop the playback running on the
+    /// slice. Stopping is always allowed, keyed or not.
+    /// </summary>
+    /// <remarks>
+    /// Start or stop is decided INSIDE the recorder's gate, as
+    /// <see cref="ToggleSlicePlayAsync"/> decides (repair round 2): a second press
+    /// while the first is still arming waits for it, then stops it. The local-only
+    /// intent is still fixed at the press. A press refused while transmitting is
+    /// answered at once when nothing is playing, since a refusal starts nothing.
+    /// </remarks>
+    public Task<RecorderOutcome> ToggleSliceListenAsync(SliceRecorderTarget target, object owner = null)
+    {
+        var intent = ListenIntent();
+        if (ListenRefused(intent) && !IsSlicePlaying(target)) return Task.FromResult(ListenRefusedWhileTransmitting(target));
+        return WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn)
+            ? StopPlayLockedAsync(state, target, owner)
+            : ListenRefused(intent) ? Task.FromResult(ListenRefusedWhileTransmitting(target))
+            : StartPlayLockedAsync(state, target, intent, owner));
+    }
+
+    // PLACEHOLDER: Codex writes (#999).
+    private RecorderOutcome ListenRefusedWhileTransmitting(SliceRecorderTarget target)
+    {
+        string letter = SliceRecorderLetter(target);
+        return new(false, Lexicon.Get("audio.recorder.listen_refused_transmitting", ("letter", letter)),
+            Speech.SpeechSubject.SliceRecorder(letter));
     }
 
     private void ReleasePlaybackVox(SliceRecorderState state)
@@ -963,7 +1145,9 @@ public partial class FlexBase
             // syllable is heard.
             if (intent.OnAir && state.PlaybackMonitor == null)
                 state.PlaybackMonitor = HoldMonitorForSend("slice " + letter + "'s recording on the air");
+            state.PlayStopCommanded = false;
             bool started = await SendSafelyAsync(state, "play", true).ConfigureAwait(false);
+            if (started) state.PlayStartedOnce = true;
             if (!started)
             {
                 if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))

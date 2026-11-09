@@ -92,6 +92,9 @@ public static partial class TakeAnalysis
     /// playback takes of the same kind, over the same transport, at the same
     /// slice volume, and only once <see cref="PlaybackBoundary"/> says that
     /// transport is verified. Punch and splatter are never compared here.
+    /// Two slice recordings' backups (#999, C2) pass the readable, kind and
+    /// capture-isolation gates only, then are measured the same way: tone,
+    /// and level under the same rule.
     /// </summary>
     private static AudioDifference CompareOnAudioRoad(TakeInspection a, TakeInspection b, string previousDirectory,
         string currentDirectory, bool reuseRenders)
@@ -101,6 +104,13 @@ public static partial class TakeAnalysis
             new(false, reason, SetupChanges: changes, Road: "audio", FirstKind: ka, SecondKind: kb, LevelCompared: false);
 
         if (!a.CanMeasure || !b.CanMeasure) return Refuse("corrupt-take");
+        // A slice recording's backup is whatever the slice heard (#999): no
+        // source and no transmit chain. Beside any other kind it is refused, as
+        // every cross-kind pair is. Two of them MAY be compared (Noel, ruled C2,
+        // 2026-11-08): two receive captures, measured for what they are.
+        bool sliceRecordings = ka == TakeKind.SliceRecording && kb == TakeKind.SliceRecording;
+        if (!sliceRecordings && (ka == TakeKind.SliceRecording || kb == TakeKind.SliceRecording))
+            return Refuse("unlike-takes:kind");
         // A diagnostic take recorded no transmission of this source; an older
         // take of unrecorded kind cannot evidence its source (design section 3).
         if (ka is TakeKind.Diagnostic or TakeKind.UnknownLegacy or TakeKind.Damaged ||
@@ -110,17 +120,27 @@ public static partial class TakeAnalysis
         // kept and played but never measured against another (D2's fallback).
         if (a.IsAudio && a.Get(CaptureIsolation) != Isolated || b.IsAudio && b.Get(CaptureIsolation) != Isolated)
             return Refuse("unlike-takes:contaminated");
-        string sa = SourceOf(a), sb = SourceOf(b);
-        if (sa == null || sb == null) return Refuse("unlike-takes:source-unknown");
-        if (sa != sb) return Refuse("unlike-takes:source", new[] { new SetupChange("source", sa, sb) });
-        if (a.Get("mode") is not ("USB" or "LSB") || a.Get("mode") != b.Get("mode")) return Refuse("unlike-takes:mode");
-        if (a.Get("tx-antenna") == null || a.Get("tx-antenna") != b.Get("tx-antenna")) return Refuse("unlike-takes:tx-antenna");
-        // Radio recording has no RF receive role; the other two both received.
-        if (ka != TakeKind.RadioRecording && kb != TakeKind.RadioRecording &&
-            (a.Get("receive-antenna") == null || a.Get("receive-antenna") != b.Get("receive-antenna")))
-            return Refuse("unlike-takes:receive-antenna");
         bool sameRadio = a.Get("serial") != null && a.Get("serial") == b.Get("serial");
-        if ((ka == TakeKind.OffAir || kb == TakeKind.OffAir) && !sameRadio) return Refuse("unlike-takes:serial");
+        // The gates that hold a TRANSMISSION fair: the same source, an SSB mode
+        // kept the same, the same transmit antenna, and the receive antenna and
+        // radio where a take received off the air. Two slice recordings'
+        // backups transmitted nothing, so none of these applies, and none may
+        // refuse them: they carry no source; their mode is whatever the slice
+        // was in, CW or FM as readily as SSB; and their receive antenna is the
+        // slice's at the backup, not where the recording was heard.
+        if (!sliceRecordings)
+        {
+            string sa = SourceOf(a), sb = SourceOf(b);
+            if (sa == null || sb == null) return Refuse("unlike-takes:source-unknown");
+            if (sa != sb) return Refuse("unlike-takes:source", new[] { new SetupChange("source", sa, sb) });
+            if (a.Get("mode") is not ("USB" or "LSB") || a.Get("mode") != b.Get("mode")) return Refuse("unlike-takes:mode");
+            if (a.Get("tx-antenna") == null || a.Get("tx-antenna") != b.Get("tx-antenna")) return Refuse("unlike-takes:tx-antenna");
+            // Radio recording has no RF receive role; the other two both received.
+            if (ka != TakeKind.RadioRecording && kb != TakeKind.RadioRecording &&
+                (a.Get("receive-antenna") == null || a.Get("receive-antenna") != b.Get("receive-antenna")))
+                return Refuse("unlike-takes:receive-antenna");
+            if ((ka == TakeKind.OffAir || kb == TakeKind.OffAir) && !sameRadio) return Refuse("unlike-takes:serial");
+        }
 
         var changes = TakeSetup.Changes(a, b).ToList();
         if (!sameRadio)

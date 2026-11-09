@@ -105,12 +105,58 @@ namespace Radios
         ComputerMic = 5,
     }
 
-    /// <summary>The last take this app made in one of the radio's slice buffers.</summary>
+    /// <summary>
+    /// What this app knows about one of the radio's slice recordings (#999):
+    /// the last take it made in that slice's buffer, or, for a recording it did
+    /// not make, the backup it took of one. Trusted only while the radio reports
+    /// the same length (<see cref="RadioConfig.TrustedSliceTakeStamp"/>).
+    /// </summary>
+    /// <remarks>
+    /// The fields after <see cref="RecordedSeconds"/> arrived with #999. A config
+    /// written before them reads them as 0 and empty, which is honest: those
+    /// recordings were never backed up, and nobody wrote down where they were made.
+    /// </remarks>
     public sealed class SliceTakeStamp
     {
         public string Letter { get; set; } = "";
+        /// <summary>When the recording was made. Unknown (not UTC) for one made outside this app.</summary>
         public DateTime MadeUtc { get; set; }
         public double RecordedSeconds { get; set; }
+        /// <summary>The slice's frequency when the recording started, in MHz; 0 when unknown.</summary>
+        public double FrequencyMHz { get; set; }
+        /// <summary>The slice's mode when the recording started; empty when unknown.</summary>
+        public string Mode { get; set; } = "";
+        /// <summary>Where the recording came from: one of <see cref="SliceTakeSource"/>'s tokens, or empty for an older stamp.</summary>
+        public string Source { get; set; } = "";
+        /// <summary>The take folder holding this recording's copy on this computer, or empty.</summary>
+        public string BackupTakeDirectory { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Where a slice recording came from (#999). Schema tokens written into the
+    /// radio's config; never spoken.
+    /// </summary>
+    public static class SliceTakeSource
+    {
+        /// <summary>The operator's own recording: F11, the JJ key, Home, the Slice menu or the Audio Workshop.</summary>
+        public const string F11 = "f11";
+        /// <summary>A Radio recording audio check method take, from Check your audio.</summary>
+        public const string AudioCheck = "audio-check";
+        /// <summary>A recording this app did not make, stamped when it was backed up.</summary>
+        public const string Outside = "outside";
+    }
+
+    /// <summary>
+    /// An app-wide place a choice can wait in across a restart, until a radio
+    /// connects (#999 round 3, C5a): see
+    /// <see cref="RadioConfig.PendingWarnStore"/>. <see cref="Read"/> returns null
+    /// when no choice is waiting; <see cref="Write"/> with null clears it, and
+    /// returns false when the value did not reach disk.
+    /// </summary>
+    public interface IPendingChoiceStore
+    {
+        bool? Read();
+        bool Write(bool? value);
     }
 
     /// <summary>
@@ -551,15 +597,36 @@ namespace Radios
 
         public DateTime? TrustedSliceTakeTime(string letter, double? radioSeconds)
         {
+            var stamp = TrustedSliceTakeStamp(letter, radioSeconds);
+            return stamp != null && stamp.MadeUtc.Kind == DateTimeKind.Utc ? stamp.MadeUtc : null;
+        }
+
+        /// <summary>How close the radio's reported length must be to a stamp's for the stamp to describe it.</summary>
+        public const double SliceTakeLengthTolerance = 0.1;
+
+        /// <summary>
+        /// The stamp for this slice letter, only while the radio reports the same
+        /// recorded length (within <see cref="SliceTakeLengthTolerance"/>). Another
+        /// client, or a Radio recording audio check, can replace the recording; the
+        /// length then differs and the stamp no longer describes what the radio holds.
+        /// </summary>
+        public SliceTakeStamp? TrustedSliceTakeStamp(string letter, double? radioSeconds)
+        {
             if (radioSeconds is not double seconds || !double.IsFinite(seconds) || seconds <= 0)
                 return null;
             var stamp = SliceTakeStamps?.LastOrDefault(s =>
                 string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
-            return stamp != null && stamp.MadeUtc.Kind == DateTimeKind.Utc &&
-                Math.Abs(stamp.RecordedSeconds - seconds) <= 0.1 ? stamp.MadeUtc : null;
+            return stamp != null && double.IsFinite(stamp.RecordedSeconds) && stamp.RecordedSeconds > 0
+                && Math.Abs(stamp.RecordedSeconds - seconds) <= SliceTakeLengthTolerance ? stamp : null;
         }
 
-        public static bool RecordSliceTake(string radioId, string letter, double seconds, DateTime madeUtc)
+        /// <summary>
+        /// Save the stamp of a take this app just made in a slice's buffer,
+        /// replacing whatever that letter held: a new recording is a new
+        /// recording, and any backup of the old one no longer describes it.
+        /// </summary>
+        public static bool RecordSliceTake(string radioId, string letter, double seconds, DateTime madeUtc,
+            double frequencyMHz = 0, string mode = "", string source = "")
         {
             if (string.IsNullOrWhiteSpace(letter) || !double.IsFinite(seconds) || seconds <= 0 ||
                 madeUtc.Kind != DateTimeKind.Utc) return false;
@@ -568,7 +635,201 @@ namespace Radios
                 cfg.SliceTakeStamps ??= new List<SliceTakeStamp>();
                 cfg.SliceTakeStamps.RemoveAll(s => string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
                 cfg.SliceTakeStamps.Add(new SliceTakeStamp
-                    { Letter = letter.ToUpperInvariant(), RecordedSeconds = seconds, MadeUtc = madeUtc });
+                {
+                    Letter = letter.ToUpperInvariant(), RecordedSeconds = seconds, MadeUtc = madeUtc,
+                    FrequencyMHz = double.IsFinite(frequencyMHz) && frequencyMHz > 0 ? frequencyMHz : 0,
+                    Mode = mode ?? "", Source = source ?? "",
+                });
+            });
+        }
+
+        /// <summary>
+        /// "Warn before a recording on the radio is overwritten" (#999): F11,
+        /// and anything else that starts a slice recording, asks first when the
+        /// slice already holds one. On by default and saved per radio; the
+        /// warning's "don't show this again" box turns this same setting off.
+        /// A config written before it reads on.
+        /// </summary>
+        public bool WarnBeforeSliceRecordingOverwritten { get; set; } = true;
+
+        /// <summary>Save <see cref="WarnBeforeSliceRecordingOverwritten"/> for this radio, changing nothing else.</summary>
+        public static bool RecordWarnBeforeSliceRecordingOverwritten(string radioId, bool warn) =>
+            Update(radioId, cfg => { cfg.WarnBeforeSliceRecordingOverwritten = warn; });
+
+        private static readonly object PendingWarnGate = new();
+        private static bool? _pendingWarnBeforeSliceRecordingOverwritten;
+
+        /// <summary>
+        /// Where a pending choice (<see cref="PendingWarnBeforeSliceRecordingOverwritten"/>)
+        /// is kept across a restart (#999 round 3, ruled C5a by Noel 2026-11-08).
+        /// Wired once at startup to the app-wide audio settings,
+        /// <c>audioConfig.xml</c> under <see cref="AppDataRoot"/>, which already
+        /// holds the other Recorder settings; this project cannot reach that type,
+        /// hence the seam. Null where nothing wired it (most tests): the choice then
+        /// lives only as long as the program, as it did before round 3.
+        /// </summary>
+        public static IPendingChoiceStore? PendingWarnStore
+        {
+            get { lock (PendingWarnGate) return _pendingWarnStore; }
+            set { lock (PendingWarnGate) { _pendingWarnStore = value; _pendingWarnUnsaved = false; } }
+        }
+        private static IPendingChoiceStore? _pendingWarnStore;
+
+        /// <summary>
+        /// True while the in-memory choice is one the store refused to write (a
+        /// locked or read-only file). The getter then answers from memory, not
+        /// from the disk it could not change, and tries the write again, so
+        /// neither a new choice nor a clear is lost for this run (Codex's check of
+        /// round 3, N1).
+        /// </summary>
+        private static bool _pendingWarnUnsaved;
+
+        /// <summary>
+        /// The overwrite warning's setting, chosen in Settings when no radio had
+        /// EVER connected (#999: settings are intents, queued and applied). Held
+        /// until a radio ACTUALLY CONNECTS, then saved by
+        /// <see cref="ApplyPendingWarnBeforeSliceRecordingOverwritten"/> and cleared.
+        /// A radio that was only discovered never receives it.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Who it is for (#999 round 4, ruled C2 and C3 by Noel
+        /// 2026-11-09).</b> Once any radio has connected, Settings no longer makes
+        /// a waiting choice: with nothing connected it names the radio last
+        /// connected (<see cref="KnownRadioRoster.LastConnectedSerial"/>) and saves
+        /// an edit to that radio's own config. So a choice waits for "the first
+        /// radio that connects" only when none ever had. One that is found waiting
+        /// beside a last-connected radio (left by an older build, or by a connect
+        /// whose save failed) belongs to that radio: Settings shows it against
+        /// that radio and saves it there on OK or Apply, and a connect hands it
+        /// there (<see cref="ApplyPendingWarnBeforeSliceRecordingOverwritten"/>).</para>
+        /// <para>With <see cref="PendingWarnStore"/> wired, the store is the truth: every
+        /// read reads it and every change writes it, so a restart keeps the choice
+        /// and a second instance sees one the first has already spent. A store
+        /// that cannot be read reads as no choice, which leaves every radio on
+        /// its own setting; one that cannot be written keeps the change in memory
+        /// for this run and says so in the trace.</para>
+        /// </remarks>
+        public static bool? PendingWarnBeforeSliceRecordingOverwritten
+        {
+            get
+            {
+                lock (PendingWarnGate)
+                {
+                    if (_pendingWarnStore == null) return _pendingWarnBeforeSliceRecordingOverwritten;
+                    if (_pendingWarnUnsaved)
+                    {
+                        // The disk still holds what the store refused to replace:
+                        // memory is the truth for this run. Try the write again.
+                        if (TryWritePendingWarn(_pendingWarnBeforeSliceRecordingOverwritten)) _pendingWarnUnsaved = false;
+                        return _pendingWarnBeforeSliceRecordingOverwritten;
+                    }
+                    try { return _pendingWarnBeforeSliceRecordingOverwritten = _pendingWarnStore.Read(); }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine("RadioConfig: the pending overwrite-warning choice could not be read: " + ex.Message,
+                            System.Diagnostics.TraceLevel.Warning);
+                        return null;
+                    }
+                }
+            }
+            set
+            {
+                lock (PendingWarnGate)
+                {
+                    _pendingWarnBeforeSliceRecordingOverwritten = value;
+                    if (_pendingWarnStore == null) return;
+                    _pendingWarnUnsaved = !TryWritePendingWarn(value);
+                    if (_pendingWarnUnsaved)
+                        Tracing.TraceLine(value == null
+                            ? "RadioConfig: the spent overwrite-warning choice could not be cleared on disk. It is cleared for this run; the clear is retried at each read, and until one works a restart would find the old choice waiting again."
+                            : "RadioConfig: the overwrite-warning choice (" + value + ") could not be saved. It holds for this run; the save is retried at each read, and until one works a restart would not find it.",
+                            System.Diagnostics.TraceLevel.Warning);
+                }
+            }
+        }
+
+        /// <summary>Write through the store; false when it refused or threw. Call under <see cref="PendingWarnGate"/>.</summary>
+        private static bool TryWritePendingWarn(bool? value)
+        {
+            try { return _pendingWarnStore?.Write(value) == true; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("RadioConfig: the pending overwrite-warning choice could not be written: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// A radio has connected: save a waiting choice to the radio it waits for,
+        /// once, and clear it. True when one was saved.
+        /// </summary>
+        /// <param name="connectedId">The radio that has connected. Call ONLY with a
+        /// connected radio: the connect itself (<c>FlexBase</c>, once it has
+        /// worked) and the overwrite gate's facts. Never for one that was only
+        /// discovered.</param>
+        /// <param name="lastConnectedBefore">The radio this program last connected
+        /// to BEFORE this connect (<see cref="KnownRadioRoster.LastConnectedSerial"/>,
+        /// read before the connect is recorded); "" when no radio ever had.</param>
+        /// <remarks>
+        /// Ruled C2 and C3 by Noel 2026-11-09 (#999 round 4): a waiting choice
+        /// belongs to the radio last connected, and to "the first radio that
+        /// connects" only when no radio ever had. So it goes to
+        /// <paramref name="connectedId"/> when there was no earlier radio or it was
+        /// this one. When an earlier radio was a DIFFERENT one, it goes to THAT
+        /// radio's own config, where it takes effect when that radio connects, and
+        /// the radio connecting now is untouched. Leaving it waiting instead would
+        /// hand it to the wrong radio a moment later: once this connect is recorded,
+        /// this radio is the one last connected.
+        /// </remarks>
+        public static bool ApplyPendingWarnBeforeSliceRecordingOverwritten(string connectedId, string lastConnectedBefore)
+        {
+            if (string.IsNullOrWhiteSpace(connectedId)) return false;
+            string radioId = string.IsNullOrWhiteSpace(lastConnectedBefore) ? connectedId : lastConnectedBefore;
+            lock (PendingWarnGate)
+            {
+                // One lock across read, apply and clear, so two doors cannot both
+                // spend the same choice.
+                bool? pending = PendingWarnBeforeSliceRecordingOverwritten;
+                if (pending is not bool warn) return false;
+                if (!RecordWarnBeforeSliceRecordingOverwritten(radioId, warn)) return false;
+                PendingWarnBeforeSliceRecordingOverwritten = null;
+                Tracing.TraceLine("RadioConfig: the waiting overwrite-warning choice (" + warn + ") is now "
+                    + radioId + "'s" + (string.Equals(radioId, connectedId, StringComparison.OrdinalIgnoreCase)
+                        ? "." : ", the radio last connected; " + connectedId + ", connecting now, is untouched."),
+                    System.Diagnostics.TraceLevel.Info);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// A take on this computer now holds a copy of the recording in this
+        /// slice's buffer (#999). When the stamp still describes that recording
+        /// (the radio reports its length), the take folder is written into it.
+        /// When there is no such stamp, the recording was not made by this app,
+        /// or was replaced since: a new stamp says so (source
+        /// <see cref="SliceTakeSource.Outside"/>, the length the radio reports, no
+        /// time), so the backed-up test can pass for it afterwards (ruled S1).
+        /// </summary>
+        public static bool RecordSliceTakeBackup(string radioId, string letter, double radioSeconds, string takeDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(letter) || !double.IsFinite(radioSeconds) || radioSeconds <= 0 ||
+                string.IsNullOrWhiteSpace(takeDirectory)) return false;
+            return Update(radioId, cfg =>
+            {
+                cfg.SliceTakeStamps ??= new List<SliceTakeStamp>();
+                var stamp = cfg.TrustedSliceTakeStamp(letter, radioSeconds);
+                if (stamp == null)
+                {
+                    cfg.SliceTakeStamps.RemoveAll(s => string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
+                    stamp = new SliceTakeStamp
+                    {
+                        Letter = letter.ToUpperInvariant(), RecordedSeconds = radioSeconds,
+                        Source = SliceTakeSource.Outside,
+                    };
+                    cfg.SliceTakeStamps.Add(stamp);
+                }
+                stamp.BackupTakeDirectory = takeDirectory;
             });
         }
 
@@ -627,10 +888,38 @@ namespace Radios
         /// recording and Looped back save what the radio plays back to this
         /// computer as a take, muting the other audible slices while it plays
         /// and putting them back. Per radio, as the design and every other
-        /// check setting are. Default off: it mutes slices, and a setting that
-        /// changes what the operator hears is never on by surprise.
+        /// check setting are.
         /// </summary>
-        public bool AudioCheckSavePlaybackTakes { get; set; }
+        /// <remarks>
+        /// <para><b>On by default, for every radio, once (#999, ruled by Noel
+        /// 2026-11-08: "Turn on everywhere").</b> It was off until then, on the
+        /// reasoning that muting the other slices changes what the operator hears.
+        /// The bench of 2026-11-08 measured that the radio itself already
+        /// silences the other slices while a slice plays its recording
+        /// (<c>for-claude/2026-11-08-999-bench-report.md</c>, all six trials), so
+        /// saving the playback changes nothing the operator hears.</para>
+        /// <para><b>Why the element is renamed.</b> Earlier builds wrote
+        /// <c>&lt;AudioCheckSavePlaybackTakes&gt;</c>, and almost always as false,
+        /// because false was the default and every save writes every field. Read
+        /// under that name, nearly every existing radio would keep it off. So the
+        /// value now lives under <see cref="SavePlaybackTakesElement"/>, and the
+        /// old element is simply not read: this class's XmlSerializer has no
+        /// UnknownElement or UnknownNode handler, so an element it does not know
+        /// is skipped without a read failure (pinned by
+        /// <c>UnifiedTakesSettingTests</c>). A file holding only the old element
+        /// therefore reads the initializer, true, and the next save writes the new
+        /// element. From then on the operator's own choice is what the file holds:
+        /// turned off under the new element, it stays off.</para>
+        /// </remarks>
+        [XmlElement(SavePlaybackTakesElement)]
+        public bool AudioCheckSavePlaybackTakes { get; set; } = true;
+
+        /// <summary>
+        /// The element <see cref="AudioCheckSavePlaybackTakes"/> is saved under
+        /// since it turned on for everyone (#999). Never the old name,
+        /// <c>AudioCheckSavePlaybackTakes</c>; see that property's remarks.
+        /// </summary>
+        internal const string SavePlaybackTakesElement = "AudioCheckSavePlaybackTakesV2";
 
         // ---------------------------------------------------------------
         // PC audio on connect (Threads Track, 2026-08-12). Before this, PC

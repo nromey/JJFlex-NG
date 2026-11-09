@@ -221,6 +221,9 @@ namespace JJFlexWpf.Dialogs
             // The one countdown (#835): Audio tab, Countdown. See SettingsDialog.Countdown.cs.
             InitializeCountdown();
 
+            // #999: the overwrite warning's setting, per radio, under Recorder. See SettingsDialog.SliceOverwrite.cs.
+            InitializeSliceOverwriteSetting();
+
             // The alert sound delay (#855): Audio tab, Alerts. See SettingsDialog.AlertBuffer.cs.
             InitializeAlertBuffer();
 
@@ -1582,6 +1585,8 @@ namespace JJFlexWpf.Dialogs
                 OfferStationSaveOnDisconnectCheck.IsChecked == true;
             // The one countdown (#835), made live by Apply() below.
             CommitCountdown();
+            // #999: saved for the radio it was shown for.
+            CommitSliceOverwriteSetting();
             // The alert sound delay (#855), likewise: Apply() reopens the alert device with it.
             CommitAlertBuffer();
 
