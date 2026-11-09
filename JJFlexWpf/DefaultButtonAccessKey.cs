@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace JJFlexWpf;
 
@@ -32,6 +33,17 @@ namespace JJFlexWpf;
 /// alone.
 /// </para>
 /// <para>
+/// <b>And when a button BECOMES Cancel or default after it loaded</b> (repair
+/// one): Messages moves <c>IsDefault</c> between Add and Update as the list
+/// empties and fills, and the newly default button then reported the carriage
+/// return. Each repaired button now carries a small watcher, bound one way to
+/// its <c>IsDefault</c> and <c>IsCancel</c>, that runs the rule again on every
+/// change. The value this rule set is remembered, so a button that stops being
+/// Cancel or default has it cleared again, and a value the button set itself
+/// is never touched. The watcher is held only by its button, so it lives and
+/// dies with it.
+/// </para>
+/// <para>
 /// The values set, "Escape" and "Enter", are DRAFT and are not what a screen
 /// reader hears today: the framework reports nothing once a value is set.
 /// Choosing what IS heard needs a custom automation peer, which is a design
@@ -54,14 +66,80 @@ internal static class DefaultButtonAccessKey
 
     private static void OnButtonLoaded(object sender, RoutedEventArgs e)
     {
-        if (sender is Button button) Repair(button);
+        if (sender is not Button button) return;
+        Repair(button);
+        Watch(button);
     }
 
-    /// <summary>Give one button its access key, if it needs one.</summary>
+    /// <summary>
+    /// Give one button its access key, if it needs one; and take back the one
+    /// this rule gave it when it no longer does. A key the button set itself
+    /// is left alone either way.
+    /// </summary>
     internal static void Repair(Button button)
     {
-        string? key = AccessKeyFor(button.IsCancel, button.IsDefault, AutomationProperties.GetAccessKey(button));
-        if (key != null) AutomationProperties.SetAccessKey(button, key);
+        string? current = AutomationProperties.GetAccessKey(button);
+        string? given = (string?)button.GetValue(GivenAccessKeyProperty);
+        bool ours = !string.IsNullOrEmpty(given) && current == given;
+        string? key = AccessKeyFor(button.IsCancel, button.IsDefault, ours ? null : current);
+        if (key != null)
+        {
+            if (current != key) AutomationProperties.SetAccessKey(button, key);
+            button.SetValue(GivenAccessKeyProperty, key);
+        }
+        else if (ours)
+        {
+            button.ClearValue(AutomationProperties.AccessKeyProperty);
+            button.ClearValue(GivenAccessKeyProperty);
+        }
+    }
+
+    /// <summary>The access key this rule set on a button, so it can be told
+    /// apart from one the button set itself.</summary>
+    private static readonly DependencyProperty GivenAccessKeyProperty = DependencyProperty.RegisterAttached(
+        "GivenAccessKey", typeof(string), typeof(DefaultButtonAccessKey), new PropertyMetadata(null));
+
+    /// <summary>The button's watcher, held by the button alone.</summary>
+    private static readonly DependencyProperty WatcherProperty = DependencyProperty.RegisterAttached(
+        "Watcher", typeof(FlagWatcher), typeof(DefaultButtonAccessKey), new PropertyMetadata(null));
+
+    /// <summary>
+    /// Run the rule again whenever the button's Cancel or default flag
+    /// changes after it loaded. Once per button.
+    /// </summary>
+    internal static void Watch(Button button)
+    {
+        if (button.GetValue(WatcherProperty) != null) return;
+        var watcher = new FlagWatcher(button);
+        button.SetValue(WatcherProperty, watcher);
+        BindingOperations.SetBinding(watcher, FlagWatcher.IsDefaultSeenProperty,
+            new Binding { Source = button, Path = new PropertyPath(Button.IsDefaultProperty), Mode = BindingMode.OneWay });
+        BindingOperations.SetBinding(watcher, FlagWatcher.IsCancelSeenProperty,
+            new Binding { Source = button, Path = new PropertyPath(Button.IsCancelProperty), Mode = BindingMode.OneWay });
+    }
+
+    /// <summary>
+    /// Two one-way bindings to a button's flags; a change to either runs the
+    /// rule on that button. Only the button references it (through
+    /// <see cref="WatcherProperty"/>), and it holds the button weakly, so
+    /// nothing static keeps either alive.
+    /// </summary>
+    private sealed class FlagWatcher : DependencyObject
+    {
+        internal static readonly DependencyProperty IsDefaultSeenProperty = DependencyProperty.Register(
+            "IsDefaultSeen", typeof(bool), typeof(FlagWatcher), new PropertyMetadata(false, OnFlagChanged));
+
+        internal static readonly DependencyProperty IsCancelSeenProperty = DependencyProperty.Register(
+            "IsCancelSeen", typeof(bool), typeof(FlagWatcher), new PropertyMetadata(false, OnFlagChanged));
+
+        private readonly WeakReference<Button> _button;
+
+        internal FlagWatcher(Button button) => _button = new WeakReference<Button>(button);
+
+        private static void OnFlagChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (((FlagWatcher)d)._button.TryGetTarget(out var button)) Repair(button);
+        }
     }
 
     /// <summary>

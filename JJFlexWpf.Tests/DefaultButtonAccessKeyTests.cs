@@ -100,6 +100,110 @@ public sealed class DefaultButtonAccessKeyTests
         Assert.Null(DefaultButtonAccessKey.AccessKeyFor(isCancel: false, isDefault: false, ownAccessKey: null));
     }
 
+    // ---- repair one: through the installed handler, and after load ----
+
+    /// <summary>The rule as the application installs it: JJFlexDialog's own
+    /// static constructor, then a real Loaded event on the button.</summary>
+    private static void InstallAndLoad(params Button[] buttons)
+    {
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(JJFlexDialog).TypeHandle);
+        foreach (var b in buttons) b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent, b));
+    }
+
+    [Fact]
+    public void A_button_that_becomes_default_or_Cancel_after_it_loaded_reports_no_control_character()
+    {
+        OnSta(() =>
+        {
+            // Positive control: a button the handler never saw reports the
+            // carriage return when it becomes default.
+            var unseen = new Button { Content = "Add" };
+            unseen.IsDefault = true;
+            Assert.Contains('\r', Reported(unseen));
+
+            var add = new Button { Content = "Add" };
+            InstallAndLoad(add);
+            Assert.Equal("", Reported(add));
+
+            add.IsDefault = true;
+            Assert.False(HasControlCharacter(Reported(add)), "default after load reports " + Escape(Reported(add)));
+            Assert.True(add.IsDefault);
+
+            // No longer default: the rule's own value is taken back, so a
+            // stale "Enter" is not left on a button that no longer has it.
+            add.IsDefault = false;
+            Assert.Equal("", AutomationProperties.GetAccessKey(add));
+
+            add.IsCancel = true;
+            Assert.False(HasControlCharacter(Reported(add)), "Cancel after load reports " + Escape(Reported(add)));
+            Assert.True(add.IsCancel);
+        });
+    }
+
+    [Fact]
+    public void A_button_whose_own_access_key_is_set_keeps_it_through_flag_changes()
+    {
+        OnSta(() =>
+        {
+            var about = new Button { Content = "Close" };
+            AutomationProperties.SetAccessKey(about, "Alt+L");
+            InstallAndLoad(about);
+            about.IsDefault = true;
+            about.IsCancel = true;
+            about.IsDefault = false;
+            about.IsCancel = false;
+            Assert.Equal("Alt+L", AutomationProperties.GetAccessKey(about));
+        });
+    }
+
+    [Fact]
+    public void Messages_moving_default_from_Update_to_Add_leaves_no_control_character_on_either()
+    {
+        OnSta(() =>
+        {
+            // Codex's probe, windowless: the real dialog type, uninitialized
+            // (no Window constructor runs), with unhosted controls, and its
+            // real selection handler.
+            var dialog = (JJFlexWpf.Dialogs.CWMessageUpdateDialog)System.Runtime.CompilerServices.RuntimeHelpers
+                .GetUninitializedObject(typeof(JJFlexWpf.Dialogs.CWMessageUpdateDialog));
+            dialog.KeysList = new ListBox();
+            dialog.AddButton = new Button { Content = "Add" };
+            dialog.UpdateButton = new Button { Content = "Update" };
+            dialog.DeleteButton = new Button { Content = "Delete" };
+            var empty = typeof(JJFlexWpf.Dialogs.CWMessageUpdateDialog).GetField("_listIsEmpty",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            var selectionChanged = typeof(JJFlexWpf.Dialogs.CWMessageUpdateDialog).GetMethod("KeysList_SelectionChanged",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+
+            // One message: Update is default when the buttons load.
+            empty.SetValue(dialog, false);
+            dialog.KeysList.ItemsSource = new[] { "CQ" };
+            dialog.KeysList.SelectedIndex = 0;
+            selectionChanged.Invoke(dialog, new object?[] { null, null });
+            InstallAndLoad(dialog.AddButton, dialog.UpdateButton);
+            Assert.True(dialog.UpdateButton.IsDefault);
+            Assert.False(HasControlCharacter(Reported(dialog.UpdateButton)));
+
+            // The last message deleted: Add becomes default after it loaded.
+            empty.SetValue(dialog, true);
+            dialog.KeysList.ItemsSource = new[] { "No messages yet" };
+            dialog.KeysList.SelectedIndex = 0;
+            selectionChanged.Invoke(dialog, new object?[] { null, null });
+            Assert.True(dialog.AddButton.IsDefault);
+            Assert.False(HasControlCharacter(Reported(dialog.AddButton)), "Add reports " + Escape(Reported(dialog.AddButton)));
+            Assert.False(dialog.UpdateButton.IsDefault);
+            Assert.Equal("", AutomationProperties.GetAccessKey(dialog.UpdateButton));
+
+            // And back: the first message added makes Update default again.
+            empty.SetValue(dialog, false);
+            dialog.KeysList.ItemsSource = new[] { "CQ" };
+            dialog.KeysList.SelectedIndex = 0;
+            selectionChanged.Invoke(dialog, new object?[] { null, null });
+            Assert.False(HasControlCharacter(Reported(dialog.UpdateButton)));
+            Assert.False(HasControlCharacter(Reported(dialog.AddButton)));
+        });
+    }
+
     [Fact]
     public void Every_dialog_installs_the_rule_before_its_first_button_loads()
     {
