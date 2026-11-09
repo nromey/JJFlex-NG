@@ -4563,6 +4563,13 @@ namespace Radios
 
             if (!disposed)
             {
+                // Claimed FIRST (#392). This flag was set as the very last
+                // statement, so a throw anywhere below left the object half
+                // torn down with the flag still false, and the finalizer (or a
+                // second Dispose from whoever owns the radio object) ran the
+                // whole teardown again on a half-dismantled object. Each step
+                // below is contained instead, so the one teardown finishes.
+                disposed = true;
                 if (disposing)
                 {
                     component.Dispose();
@@ -4642,20 +4649,33 @@ namespace Radios
                 if (_apiInit)
                 {
                     _apiInit = false;
-                    API.CloseSession();
+                    try { API.CloseSession(); }
+                    catch (Exception ex) { DisposeStepFailed("closing the FlexLib session", disposing, ex); }
                 }
 
                 if (RigFields != null)
                 {
                     // The caller should have removed the user control from their form.
-                    FilterObj?.Close(); // Remove event handlers
-                    RigFields.Close();
+                    try
+                    {
+                        FilterObj?.Close(); // Remove event handlers
+                        RigFields.Close();
+                    }
+                    catch (Exception ex) { DisposeStepFailed("closing the field controls", disposing, ex); }
                     RigFields = null;
                 }
-
-
-                disposed = true;
             }
+        }
+
+        /// <summary>A teardown step that threw, named and contained so the rest of Dispose runs (#392, #423).</summary>
+        private static void DisposeStepFailed(string step, bool disposing, Exception ex)
+        {
+            try
+            {
+                Tracing.TraceLine("FlexBase.Dispose: " + step + " failed and was contained so the rest of "
+                    + "Dispose could finish (disposing=" + disposing.ToString() + "). " + ex, TraceLevel.Error);
+            }
+            catch { /* a trace failing here must not become the fault */ }
         }
 
         /// <summary>
