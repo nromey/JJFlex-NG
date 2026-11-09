@@ -1223,11 +1223,26 @@ namespace Radios.Speech
         /// Plain prose naming what covered the subject, as it should read in
         /// the trace after "superseded … by".
         /// </param>
+        /// <remarks>
+        /// <b>Only what is still owed (#1022 item 1).</b> The ledger is brought
+        /// up to date first, exactly as an emission does: an untracked entry
+        /// the reader has finished (it says it is not speaking, or the estimate
+        /// has run out) leaves before the subject is marked. Without this, a
+        /// sentence already said stayed in the ledger until the next emission
+        /// and was marked superseded, which a caller following it reads as
+        /// "will not be said". Push to talk in a dialog says the transmit
+        /// notice after the key, and its release supersedes the notice's
+        /// subject: every release turned a notice the operator had heard into
+        /// one never heard, so the split was never remembered and the notice
+        /// was said again on every dialog key.
+        /// </remarks>
         public void Supersede(string subject, string by, string? origin)
         {
             lock (_lock)
             {
-                MarkSupersededLocked(subject, by, origin, _clock.UtcNow);
+                var now = _clock.UtcNow;
+                PruneLedgerLocked(now);
+                MarkSupersededLocked(subject, by, origin, now);
             }
         }
 
