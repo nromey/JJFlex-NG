@@ -1248,6 +1248,18 @@ document.addEventListener('keydown', function (e) {
                 // (#373) — recorded in the stage's notice slot too, so it can
                 // be re-read — and focus goes to the next action, which after
                 // a fix is running the check again to see whether it worked.
+                //
+                // A REFUSAL IS NOT SAID AGAIN (#486). The hold spoke its one
+                // sentence when it refused; "That fix did not succeed" behind
+                // it said the refusal twice, the second time as a failure. It
+                // is recorded in the notice slot, so it can be re-read, and
+                // the page is rendered with no announcement.
+                if (applied.Refused)
+                {
+                    RecordNotice(m.StageId, applied.WhatItBecame);
+                    Render(FixerPage.RunControlId(m.StageId));
+                    return;
+                }
                 string became = applied.Succeeded
                     ? applied.WhatItBecame
                     : "That fix did not succeed: " + applied.WhatItBecame;

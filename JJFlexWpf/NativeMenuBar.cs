@@ -2058,7 +2058,23 @@ public class NativeMenuBar : IDisposable
 
         if (Rig.FullDuplexAvailable == true)
             AddChecked(parent, Radios.Lexicon.Get("audio.full_duplex.label") + "\tCtrl+J, Ctrl+X",
-                () => _ = FullDuplexControl.ToggleAsync(Rig), () => Rig?.FullDuplexEnabled == true);
+                () =>
+                {
+                    // From the MENU the hold's refusal is said after the menu
+                    // closes (#486, #1022): spoken at once, the return to Home
+                    // cut it at word 0. The same sentence and trace the hold
+                    // gives; Ctrl+J, Ctrl+X keeps its own path, which is heard.
+                    if (Rig?.ChangeNothingActive == true)
+                    {
+                        Tracing.TraceLine("ChangeNothing: refused settings.guard.action.full_duplex "
+                            + "(from the Transmit menu, said after the menu closes)", TraceLevel.Warning);
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.guard.refused",
+                            ("action", Radios.Lexicon.Get("settings.guard.action.full_duplex"))),
+                            Radios.VerbosityLevel.Critical);
+                        return;
+                    }
+                    _ = FullDuplexControl.ToggleAsync(Rig);
+                }, () => Rig?.FullDuplexEnabled == true);
         else AddWired(parent, Radios.Lexicon.Get("audio.full_duplex.not_reported"),
                 () => SpeakAfterMenuClose(Radios.Lexicon.Get("audio.full_duplex.not_reported")));
 

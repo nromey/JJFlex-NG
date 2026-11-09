@@ -961,11 +961,31 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
-                SetupFirmwareFileText.Text = Lexicon.Get("settings.radio.firmware.send_failed");
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.send_failed_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
+                var (line, spoken) = FirmwareSendNotStarted(_rig.IsWanConnection);
+                SetupFirmwareFileText.Text = line;
+                if (spoken != null)
+                    ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse, interrupt: true);
             }
         }
+
+        /// <summary>
+        /// What the line says, and what is spoken, when a firmware send the
+        /// operator confirmed did not start for a reason other than the hold.
+        /// </summary>
+        /// <remarks>
+        /// Over SmartLink the send was refused at the write
+        /// (<c>FlexBase.BeginFirmwareUpdate</c>, reached only when the
+        /// connection became SmartLink while the confirmation was open: the
+        /// preflight refuses it before). That refusal has already spoken its
+        /// reason, so the line carries the same reason and nothing more is
+        /// spoken. "Could not send the firmware", spoken with an interrupt,
+        /// used to follow it and cut the reason off (#486, #1022).
+        /// </remarks>
+        internal static (string Line, string? Spoken) FirmwareSendNotStarted(bool overSmartLink)
+            => overSmartLink
+                ? (Lexicon.Get("settings.radio.firmware.smartlink_cannot_carry"), null)
+                : (Lexicon.Get("settings.radio.firmware.send_failed"),
+                   Lexicon.Get("settings.radio.firmware.send_failed_spoken"));
 
         private void SetupSuppressVersionWarningButton_Click(object sender, RoutedEventArgs e)
         {
