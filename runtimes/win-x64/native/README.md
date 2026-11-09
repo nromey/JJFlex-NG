@@ -6,9 +6,12 @@ This folder holds the x64 native libraries: `libopus.dll` and `portaudio.dll`
 ask NVDA whether an utterance was spoken to the end — see #521), and
 `deepfilter.dll` with its model archive (DeepFilterNet3 noise reduction, built
 and benched but not yet selectable — see #731).
-`rnnoise.dll` is RNNoise noise reduction, the engine the app runs, and
-`rnnoise_vad011.dll` is RNNoise v0.1.1's voice detector on its own (#873; nothing
-calls it yet); each has its `.COPYING.txt` beside it.
+`rnnoise.dll` is RNNoise noise reduction (its newest model, the default),
+`rnnoise_v02.dll` is RNNoise's April 2024 `v0.2` model, and
+`rnnoise_vad011.dll` is RNNoise v0.1.1: its voice detector on its own (#873;
+nothing calls the detector yet) and, since #1019, the old model's whole frame,
+which the engine runs when that model is chosen. Each has its `.COPYING.txt`
+beside it. The three models are an Advanced choice of RNNoise (#1019).
 `specbleach.dll` is libspecbleach, NR4 (LGPL 2.1, built from the source vendored
 in `third_party/libspecbleach/`, not yet selectable).
 The same recipes build the x86 set — substitute `Win32` for `x64` and target
@@ -17,7 +20,8 @@ The same recipes build the x86 set — substitute `Win32` for `x64` and target
 ## What is currently shipped — verify, do not trust this heading
 
 - **RNNoise, upstream pinned at commit `70f1d256acd4b34a572f999a05c87bf00b67730d`** (the 0.2 line; no release is newer than `v0.2`, and the tag is a different model), with the model tarball its `model_version` names (both architectures built here; no version string)
-- **RNNoise v0.1.1's voice detector, `rnnoise_vad011.dll`**, from tag `v0.1.1` at `6cbfd53eb348a8d394e0757b4025c6ded34eb2b6` plus our `native/rnvad011/rnvad011.c` (both architectures built here)
+- **RNNoise at the `v0.2` tag, `rnnoise_v02.dll`**, from commit `904a876dce1f9ab8860c0a5000ed151f9f6eef58` with the model `rnnoise_data-0b50c45.tar.gz`, plus our `native/rnv02/rnv02.c` (both architectures built here; exports `rnv02_*` only)
+- **RNNoise v0.1.1's voice detector and old model, `rnnoise_vad011.dll`**, from tag `v0.1.1` at `6cbfd53eb348a8d394e0757b4025c6ded34eb2b6` plus our `native/rnvad011/rnvad011.c` (both architectures built here)
 - **Opus 1.6.1**
 - **PortAudio: master pinned at `a880212` (commit date 2026-08-07)**
 - **Prism v0.18.1, pinned at tag commit `d2998e9281806fe1efd3394971c6e44ac11b9e75`**
@@ -337,7 +341,27 @@ The complete undecorated export list, both architectures: `rnnoise_create`,
 `rnnoise_process_frame`. Positive control: the four `RnnoiseEngine.cs` binds
 (`rnnoise_create`, `rnnoise_destroy`, `rnnoise_get_frame_size`,
 `rnnoise_process_frame`) are present; `rnnoise_get_frame_size` still compiles
-to `mov eax,480; ret`, which `RnnoiseBindingTests` patches. The binding is
+to `mov eax,480; ret`, which `RnnoiseBindingTests` patches. Since #1019 the
+engine also binds `rnnoise_model_from_buffer` and `rnnoise_model_free`, to run
+a model FILE of this network's shape (a future ham-trained model), and **never
+`rnnoise_model_from_filename` or `rnnoise_model_from_file`**: the first ends the
+process when the path does not exist (measured 2026-11-08, 0xC0000409), and the
+second takes a `FILE*` from a C runtime this DLL does not share. Our code reads
+the file and hands over the bytes.
+
+**An upstream defect the model-file path works around (found 2026-11-09).** At
+this pin, `rnnoise_model_from_buffer` (`src/denoise.c` lines 235-242) mallocs an
+`RNNModel` and sets `const_blob`, `blob` and `blob_len` but never `file`, and
+`rnnoise_model_free` calls `fclose(model->file)` whenever it is non-null. So
+freeing a model made from a buffer closes a garbage pointer; the test host died
+of it (an internal CLR error) the first time a refused file was freed.
+`RnnoiseEngine` checks the three fields it can know and then writes null into
+`file` before any free, and uses no model file at all if those fields do not
+read back as expected. Upstream source is not edited. A real model file
+(3,544,320 bytes, SHA-256 `1AD07B42...`, written by upstream's
+`write_weights.c` built with `/DDISABLE_DEBUG_FLOAT` and opened `"wb"`) runs
+bit for bit as the built-in model over 2,000 frames, then resets and frees
+cleanly. The binding is
 unchanged: cdecl, output pointer before input, 480 samples at 48 kHz,
 16-bit-range floats, return value the voice probability.
 
@@ -363,7 +387,9 @@ the renders in `JJFlex-private/planning/for-noel/2026-11-08-rnnoise-02-listen/`
 (never in the repository). **One result to know before relying on it: on CW the
 new model nearly erases the keyed signal**, where v0.1.1 cost it about 10 dB.
 
-**Swapping to the `v0.2` tag instead is one DLL and this section.** The same
+**The `v0.2` tag now ships as its own library, `rnnoise_v02.dll`** (#1019,
+section below), rather than replacing this one. What follows is Track R's record
+of the comparison build. **Swapping to the `v0.2` tag instead is one DLL and this section.** The same
 recipe with `$sourceRoot` at a clean checkout of commit
 `904a876dce1f9ab8860c0a5000ed151f9f6eef58` (tag `v0.2`) and the model
 `rnnoise_data-0b50c45.tar.gz`, 22,270,507 bytes, SHA-256
@@ -391,7 +417,12 @@ material as well as mixes, and on CW.
 
 **Why it exists.** Ruled by Noel 2026-11-08 13:41 (#873): keep v0.1.1's
 voice-activity branch as its own detector, whatever the engine becomes and
-whether or not anything uses it yet. In v0.1.1 the voice probability has a
+whether or not anything uses it yet. **Since #1019 (Sprint 49 Track S) it is
+also how RNNoise's old model runs** when an operator chooses it: the engine
+binds `rnvad011_create`, `rnvad011_destroy`, `rnvad011_frame_size` and
+`rnvad011_reference_frame` (the whole v0.1.1 frame), and no second v0.1.1
+library was built. The detector and the engine share one handle on this file
+(`NativeEngineLibrary`), each with its own binding and its own state. In v0.1.1 the voice probability has a
 private branch (`input_dense`, then `vad_gru`, then `vad_output`) that
 `compute_rnn` runs before, and that never reads, the noise and denoise GRUs
 (`src/rnn.c` lines 165 to 167 at the pin), so it can run alone on the same
@@ -406,8 +437,10 @@ four functions of its own: `rnvad011_create`, `rnvad011_destroy`,
 analysis and the three voice layers; it returns the probability and skips the
 noise and denoise GRUs, the gains, the pitch filter and the synthesis). A fifth,
 `rnvad011_reference_frame`, is upstream's whole `rnnoise_process_frame` under
-our name, there so the tests can hold the detector to the full frame without a
-second v0.1.1 library in the repository. `RNNOISE_BUILD` and `DLL_EXPORT` are
+our name: the old model's denoiser (#1019) and the tests' positive control for
+the detector. (The source comment said "for the tests' positive control" only
+until 2026-11-09; correcting it changed no byte: rebuilt from that commit by the
+recipe below, both architectures hash exactly as listed.) `RNNOISE_BUILD` and `DLL_EXPORT` are
 left undefined, so **none of upstream's `rnnoise_*` functions is exported**.
 
 Exact build run 2026-11-08, with a clean checkout at
@@ -452,9 +485,10 @@ Shipped SHA-256 and sizes:
 - Depends only on `KERNEL32.dll`; no `.pdb` reference or builder path. Two
   clean rebuilds were byte-identical.
 
-**The two libraries' exports, side by side** (`dumpbin /exports`, both
-architectures alike; `RnnoiseVoiceDetectorTests` reads both tables and fails
-on any shared name):
+**The two libraries' exports, side by side** as Track R recorded them
+(`dumpbin /exports`, both architectures alike; `RnnoiseVoiceDetectorTests`
+reads both tables and fails on any shared name). With `rnnoise_v02.dll` there
+are three; the three lists are in its section below:
 
 - `rnnoise.dll` (the engine): `rnnoise_create`, `rnnoise_destroy`,
   `rnnoise_get_frame_size`, `rnnoise_get_size`, `rnnoise_init`,
@@ -485,8 +519,151 @@ a third of the full frame, because the feature analysis (FFTs and the pitch
 search) still runs; under 0.3 percent of one core.
 
 The C# wrapper is `JJFlexWpf/RnnoiseVoiceDetector.cs`. It loads this file by
-absolute path, the way `RnnoiseEngine.cs` loads `rnnoise.dll`; there is no
-`NativeLoader.vb` locator for it yet, because nothing in the app constructs one.
+absolute path through the shared loader (`JJFlexWpf/NativeEngineLibrary.cs`);
+there is no `NativeLoader.vb` locator for the detector, because nothing in the
+app constructs one. The engine finds this same file through its own locator
+(`RnnoiseEngine.LibraryLocator`, given the file name; `NativeLoader.vb` maps
+`rnnoise_vad011.dll`).
+
+### RNNoise at the v0.2 tag (rnnoise_v02.dll) — built here from upstream plus one file of ours
+
+**Why it exists.** Noel, 2026-11-08 17:42 (#1019): *"add direction to allow, on
+advanced, ability to select tag and old as a model."* RNNoise's Advanced settings
+offer three models: the newest (`rnnoise.dll`, above), the April 2024 `v0.2` tag
+(this library), and v0.1.1 (run through `rnnoise_vad011.dll`, below). Each model
+needs its own library: measured 2026-11-08, the 70f1d256 library refuses the tag's
+model when it is handed over as a file (`rnnoise_create` returns NULL), and the
+tag library refuses 70f1d256's, because the tag's output layers take 384 inputs
+and 70f1d256's take 1,536.
+
+**What is built.** Upstream at the tag, unmodified, the model tarball the tag's
+`model_version` names, and our `native/rnv02/rnv02.c`. That file exports four
+functions of its own, each calling exactly one upstream function:
+`rnv02_create` (`rnnoise_create(NULL)`), `rnv02_destroy`, `rnv02_frame_size`
+and `rnv02_process_frame`. `DLL_EXPORT` is left undefined, so **none of
+upstream's `rnnoise_*` functions is exported** (Track R's rule: two RNNoise
+builds in one process must never be bound by the same name). A wrapper rather
+than a module-definition file: it is the shape `rnvad011.c` already uses, and
+every export is visible in one short C file. No model-buffer entry point is
+exported; loading a model file is the newest library's job.
+
+- Repository `https://github.com/xiph/rnnoise`, tag `v0.2`, which peels to commit
+  `904a876dce1f9ab8860c0a5000ed151f9f6eef58` (the tag object is
+  `c9137adac37fe21ede831f8a0aa31c17560c01e7`). Verified 2026-11-09 with
+  `git ls-remote` against both GitHub and Xiph's GitLab
+  (`https://gitlab.xiph.org/xiph/rnnoise.git`); they agree.
+- **The model**: `https://media.xiph.org/rnnoise/models/rnnoise_data-0b50c45.tar.gz`,
+  22,270,507 bytes, SHA-256
+  `4AC81C5C0884EC4BD5907026AAAE16209B7B76CD9D7F71AF582094A2F98F4B43`. Only
+  `src/rnnoise_data.c` and `src/rnnoise_data.h` are used, extracted OUTSIDE the
+  clone (`build-native/rnnoise-v0.2-model/`) so the clean-tree check stays
+  meaningful.
+- **The only external check of that hash is a third-party record, not Xiph's.**
+  The tag names no hash for its model: its `download_model.sh` downloads and
+  untars without checking (upstream added the checksum later, in `2e3c812`), and
+  its `model_version` reads `0b50c45`, which is not a hash of the tarball. Track R
+  checked the figure against the Nixpkgs pin for that model
+  (`sha256-SsgcXAiE7EvVkHAmqq4WIJt7ds2df3GvWCCUovmPS0M=`, the same digest in
+  base64) and took nothing else from it. Do not read the hash above as one
+  upstream signed.
+
+Exact build run 2026-11-09, from the worktree, with a clean checkout of the tag at
+`build-native/rnnoise-v0.2` and the tarball at `build-native/models/`:
+
+```powershell
+$repoRoot = 'C:\dev\jjflex-49s'
+$nativeRoot = Join-Path $repoRoot 'build-native'
+$sourceRoot = Join-Path $nativeRoot 'rnnoise-v0.2'
+if ((git -C $sourceRoot rev-parse HEAD) -ne '904a876dce1f9ab8860c0a5000ed151f9f6eef58') { throw 'Wrong RNNoise pin' }
+if (git -C $sourceRoot status --porcelain --ignored) { throw 'Dirty RNNoise source' }
+$modelTar = Join-Path $nativeRoot 'models\rnnoise_data-0b50c45.tar.gz'
+if ((Get-FileHash $modelTar -Algorithm SHA256).Hash -ne '4AC81C5C0884EC4BD5907026AAAE16209B7B76CD9D7F71AF582094A2F98F4B43') { throw 'Wrong RNNoise model tarball' }
+if ((Get-Item $modelTar).Length -ne 22270507) { throw 'Wrong RNNoise model tarball size' }
+$modelRoot = Join-Path $nativeRoot 'rnnoise-v0.2-model'
+Remove-Item -Recurse -Force $modelRoot -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $modelRoot | Out-Null
+tar -xzf $modelTar -C $modelRoot src/rnnoise_data.c src/rnnoise_data.h
+$modelSrc = Join-Path $modelRoot 'src'
+$compiler = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-cl.exe'
+$msvcRoot = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231'
+$sdkRoot = 'C:\Program Files (x86)\Windows Kits\10'
+$includes = @('/imsvc' + $msvcRoot + '\include', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\ucrt', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\shared', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\um')
+$sources = @('denoise','rnn','pitch','kiss_fft','celt_lpc','nnet','nnet_default','parse_lpcnet_weights','rnnoise_tables') | ForEach-Object { Join-Path $sourceRoot "src\$_.c" }
+$sources += Join-Path $modelSrc 'rnnoise_data.c'
+$sources += Join-Path $repoRoot 'native\rnv02\rnv02.c'
+# DLL_EXPORT deliberately NOT defined: upstream's rnnoise_* functions are compiled but not exported.
+$common = @('/nologo','/O2','/MT','/fp:precise','/DWIN32','/DRNNOISE_BUILD','/D_USE_MATH_DEFINES','/DDISABLE_DEBUG_FLOAT',"/I$sourceRoot\include","/I$sourceRoot\src","/I$modelSrc")
+foreach ($nativeArch in @('x64','x86')) {
+    $outputRoot = Join-Path $nativeRoot "rnnoise-v02-$nativeArch"
+    Remove-Item -Recurse -Force $outputRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+    Push-Location $outputRoot
+    try {
+        $target = if ($nativeArch -eq 'x64') { 'x86_64-pc-windows-msvc' } else { 'i686-pc-windows-msvc' }
+        & $compiler "--target=$target" /LD @common @includes @sources /link /DEBUG:NONE /INCREMENTAL:NO /Brepro "/LIBPATH:$msvcRoot\lib\$nativeArch" "/LIBPATH:$sdkRoot\Lib\10.0.26100.0\ucrt\$nativeArch" "/LIBPATH:$sdkRoot\Lib\10.0.26100.0\um\$nativeArch" /OUT:rnnoise_v02.dll
+        if ($LASTEXITCODE -ne 0) { throw "Native build $nativeArch failed: $LASTEXITCODE" }
+    } finally { Pop-Location }
+}
+```
+
+Run it in a child `pwsh -File`, not dot-sourced into a shell with
+`$ErrorActionPreference = 'Stop'` and `2>&1`: clang's warnings arrive on stderr and
+PowerShell then stops after the first architecture with no error printed.
+
+Toolchain and flags as for the newest model above (clang 22.1.3, MSVC libraries
+14.51.36231, Windows SDK 10.0.26100.0; `/O2 /MT /fp:precise`, `/DDISABLE_DEBUG_FLOAT`,
+the generic path with no run-time CPU dispatch, `/Brepro`), for the same reasons.
+The only differences are the pin, the model, the wrapper and the missing
+`DLL_EXPORT`.
+
+Copy `build-native/rnnoise-v02-x64/rnnoise_v02.dll` here and the x86 counterpart to
+`runtimes/win-x86/native/`. Its licence is the tag's `COPYING`, from git's blob
+(`git -C build-native/rnnoise-v0.2 cat-file blob 904a876dce1f9ab8860c0a5000ed151f9f6eef58:COPYING`),
+beside each as `rnnoise_v02.COPYING.txt`.
+
+Shipped SHA-256 and sizes:
+
+- x64 DLL: `730D06AF957A2DD22B0E47FB01BB24E5744C34584BFFB0199BD192660D1382DE`, 1,581,056 bytes, machine `0x8664`.
+- x86 DLL: `CA4023F3E102032A09C2D69DA300741B7D4BF96DD24B414833CA4B70DAAFB156`, 1,548,288 bytes, machine `0x14C`.
+- `rnnoise_v02.COPYING.txt` (both): `45D37CA1CDB278C088E1AA85E0E65CA3A534ED86A28DCC96CA16810248A61D35`,
+  1,612 bytes, LF; byte-identical to upstream's blob `59d7d09c` at the tag, and to
+  `rnnoise.COPYING.txt` above (the licence did not change between the tag and
+  70f1d256). Read in full 2026-11-09: the three-clause BSD licence.
+- Depends only on `KERNEL32.dll` (`dumpbin /dependents`); no `.pdb` reference,
+  user name or worktree path inside. Two clean rebuilds were byte-identical on
+  both architectures.
+- **Same arithmetic as the comparison build.** Track R built the tag for the
+  comparison only, exporting `rnnoise_*` names, never shipped (x64
+  `E9884CB7...`, x86 `BE387A96...`, its hashes are in the newest model's section above). On 6,000 frames of a seeded test signal, this library's audio and voice
+  probability equal that build's bit for bit, on both architectures.
+- **Cost**, one thread pinned to core 0, median of nine runs of 3,000 frames,
+  measured 2026-11-09 while other builds were running on the machine: about 191
+  µs per frame on x64 and 198 on x86. Treat these as upper figures; Track R's
+  quiet-machine method measured the newest model at 133 µs.
+
+Delay: 960 samples, as the newest model (`RnnoiseModels.LatencySamples`;
+`RnnoiseModelTests` measures it on real speech).
+
+**The three RNNoise-family libraries' exports, side by side** (`dumpbin
+/exports`, both architectures alike; `RnnoiseModelTests` reads all six files and
+fails on any `rnnoise_` name outside `rnnoise.dll`):
+
+- `rnnoise.dll` (the newest model): `rnnoise_create`, `rnnoise_destroy`,
+  `rnnoise_get_frame_size`, `rnnoise_get_size`, `rnnoise_init`,
+  `rnnoise_model_free`, `rnnoise_model_from_buffer`, `rnnoise_model_from_file`,
+  `rnnoise_model_from_filename`, `rnnoise_process_frame`.
+- `rnnoise_v02.dll` (the tag): `rnv02_create`, `rnv02_destroy`,
+  `rnv02_frame_size`, `rnv02_process_frame`.
+- `rnnoise_vad011.dll` (v0.1.1, the detector and the old model): `rnvad011_create`,
+  `rnvad011_destroy`, `rnvad011_frame_size`, `rnvad011_process_frame`,
+  `rnvad011_reference_frame`.
+- **No name in common, and no `rnnoise_` name outside `rnnoise.dll`.** The
+  engine binds, per model: `rnnoise_create`, `rnnoise_destroy`,
+  `rnnoise_get_frame_size`, `rnnoise_process_frame`, `rnnoise_model_from_buffer`
+  and `rnnoise_model_free` from `rnnoise.dll` (never the filename or `FILE*`
+  loaders); the four `rnv02_*` from this library; and `rnvad011_create`,
+  `rnvad011_destroy`, `rnvad011_frame_size` and `rnvad011_reference_frame` from
+  the detector's library.
 
 ### RNNoise v0.1.1 (rnnoise.dll until 2026-11-08) — history
 
