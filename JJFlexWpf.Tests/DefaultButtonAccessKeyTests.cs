@@ -204,6 +204,84 @@ public sealed class DefaultButtonAccessKeyTests
         });
     }
 
+    // ---- repair two: the real Loaded broadcast, not a hand-raised Loaded ----
+
+    /// <summary>
+    /// WPF's own Loaded broadcast, the walk a realized window runs
+    /// (BroadcastEventHelper.BroadcastLoadedSynchronously, internal, reached
+    /// by reflection), run on an unhosted tree: it decides who is handed
+    /// Loaded exactly as in a window, without one.
+    /// </summary>
+    private static void BroadcastLoaded(System.Windows.DependencyObject root)
+    {
+        var helper = typeof(System.Windows.FrameworkElement).Assembly.GetType("System.Windows.BroadcastEventHelper", throwOnError: true)!;
+        var broadcast = helper.GetMethod("BroadcastLoadedSynchronously",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        broadcast.Invoke(null, new object[] { root, false });
+    }
+
+    [Fact]
+    public void The_real_Loaded_broadcast_never_hands_Loaded_to_a_button_with_no_handler_of_its_own()
+    {
+        // Positive control for the harness's finding: with the class handler
+        // installed and the root's own Loaded handler firing, a plain default
+        // button is never visited, so the class handler never repairs it.
+        OnSta(() =>
+        {
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(JJFlexDialog).TypeHandle);
+            var done = new Button { Content = "Done", IsDefault = true };
+            var root = new StackPanel();
+            root.Children.Add(done);
+            bool rootLoaded = false;
+            root.Loaded += (_, _) => rootLoaded = true;
+            BroadcastLoaded(root);
+            Assert.True(rootLoaded, "the broadcast did not run");
+            Assert.Contains('\r', Reported(done));
+        });
+    }
+
+    [Fact]
+    public void A_watched_root_repairs_every_button_under_it_through_the_real_broadcast_and_keeps_watching()
+    {
+        OnSta(() =>
+        {
+            var update = new Button { Content = "Update", IsDefault = true };
+            var add = new Button { Content = "Add" };
+            var close = new Button { Content = "Close", IsCancel = true };
+            var nested = new Border { Child = close };
+            var root = new StackPanel();
+            root.Children.Add(update);
+            root.Children.Add(add);
+            root.Children.Add(nested);
+            DefaultButtonAccessKey.WatchTree(root);
+            BroadcastLoaded(root);
+
+            Assert.False(HasControlCharacter(Reported(update)), "Update reports " + Escape(Reported(update)));
+            Assert.False(HasControlCharacter(Reported(close)), "Close reports " + Escape(Reported(close)));
+            Assert.Equal("", Reported(add));
+
+            // Messages emptied: the default moves to Add after load.
+            update.IsDefault = false;
+            add.IsDefault = true;
+            Assert.False(HasControlCharacter(Reported(add)), "Add reports " + Escape(Reported(add)));
+            Assert.Equal("", AutomationProperties.GetAccessKey(update));
+            Assert.True(add.IsDefault && close.IsCancel);
+        });
+    }
+
+    [Fact]
+    public void Every_dialog_and_the_station_lookup_window_watch_their_own_tree()
+    {
+        Assert.Equal(ApartmentState.MTA, Thread.CurrentThread.GetApartmentState());
+        string root = RepoRoot();
+        string dialog = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "JJFlexDialog.cs"));
+        string ctor = dialog.Substring(dialog.IndexOf("public JJFlexDialog()", StringComparison.Ordinal));
+        ctor = ctor.Substring(0, ctor.IndexOf("\n        }", StringComparison.Ordinal) + 1);
+        Assert.Contains("DefaultButtonAccessKey.WatchTree(this);", ctor, StringComparison.Ordinal);
+        string lookup = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "StationLookupWindow.xaml.cs"));
+        Assert.Contains("DefaultButtonAccessKey.WatchTree(this);", lookup, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Every_dialog_installs_the_rule_before_its_first_button_loads()
     {

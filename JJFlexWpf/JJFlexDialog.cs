@@ -115,6 +115,10 @@ namespace JJFlexWpf
             // Wire up standard events
             PreviewKeyDown += JJFlexDialog_PreviewKeyDown;
             Loaded += JJFlexDialog_Loaded;
+            // Every Cancel and default button in this dialog, from the
+            // dialog's own Loaded: the class handler alone is never reached
+            // (see DefaultButtonAccessKey's remarks).
+            DefaultButtonAccessKey.WatchTree(this);
 
             // The stranded-focus sentinel runs for the LIFE of the dialog,
             // not just its edges — see StartStrandedFocusSentinel.

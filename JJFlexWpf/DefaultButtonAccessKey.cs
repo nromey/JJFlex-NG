@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Media;
 
 namespace JJFlexWpf;
 
@@ -44,6 +46,22 @@ namespace JJFlexWpf;
 /// dies with it.
 /// </para>
 /// <para>
+/// <b>Where the rule is run (repair two).</b> The first form registered a
+/// CLASS handler for Button.Loaded and nothing more, and in the running app it
+/// never ran: WPF's Loaded broadcast (<c>BroadcastEventHelper.OnBroadcastCallback</c>,
+/// dotnet/wpf release/10.0) adds an element to the event route, and walks
+/// into its subtree, only while <c>FrameworkElement.SubtreeHasLoadedChangeHandler</c>
+/// is set, and that flag is set only by an INSTANCE Loaded or Unloaded
+/// handler (or a style or template carrying one) in the subtree
+/// (<c>ThisHasLoadedChangeEventHandler</c>, <c>OnAddHandler</c>). A class
+/// handler sets nothing, so an ordinary button is never handed Loaded at all.
+/// The windowless tests raised Loaded by hand and could not see it. So each
+/// dialog now asks for the rule on its own root (<see cref="WatchTree"/>): the
+/// root's instance Loaded handler walks the logical and visual tree and
+/// repairs and watches every button in it. The class handler stays for the
+/// buttons that do receive Loaded.
+/// </para>
+/// <para>
 /// The values set, "Escape" and "Enter", are DRAFT and are not what a screen
 /// reader hears today: the framework reports nothing once a value is set.
 /// Choosing what IS heard needs a custom automation peer, which is a design
@@ -69,6 +87,52 @@ internal static class DefaultButtonAccessKey
         if (sender is not Button button) return;
         Repair(button);
         Watch(button);
+    }
+
+    /// <summary>
+    /// Run the rule on every button under <paramref name="root"/> each time
+    /// the root loads. The root's own instance handler is what the Loaded
+    /// broadcast is guaranteed to reach (see the remarks). Buttons added
+    /// after that are not seen until the root loads again.
+    /// </summary>
+    internal static void WatchTree(FrameworkElement root)
+    {
+        root.Loaded -= OnRootLoaded;
+        root.Loaded += OnRootLoaded;
+    }
+
+    private static void OnRootLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is DependencyObject root) RepairTree(root);
+    }
+
+    /// <summary>
+    /// Repair and watch every button under <paramref name="root"/>, through
+    /// the logical tree (content not yet shown, such as another tab's) and the
+    /// visual tree (template parts).
+    /// </summary>
+    internal static void RepairTree(DependencyObject root)
+    {
+        var seen = new HashSet<DependencyObject>();
+        var pending = new Stack<DependencyObject>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+            if (!seen.Add(node)) continue;
+            if (node is Button button)
+            {
+                Repair(button);
+                Watch(button);
+            }
+            foreach (object child in LogicalTreeHelper.GetChildren(node))
+                if (child is DependencyObject d) pending.Push(d);
+            if (node is Visual || node is System.Windows.Media.Media3D.Visual3D)
+            {
+                int count = VisualTreeHelper.GetChildrenCount(node);
+                for (int i = 0; i < count; i++) pending.Push(VisualTreeHelper.GetChild(node, i));
+            }
+        }
     }
 
     /// <summary>
