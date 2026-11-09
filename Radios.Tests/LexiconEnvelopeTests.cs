@@ -2305,6 +2305,13 @@ namespace Radios.Tests
                 // sentence every refused key says, at every door and at the
                 // radio's keying chokepoints. DRAFT, awaiting Noel.
                 "settings.operators.no_callsign_transmit",
+                // Junk box 2026-11-09 (#480): the Audio Workshop's Reset asks
+                // before it writes the live transmit chain, as Delete Preset
+                // does. DRAFT, awaiting Noel.
+                "settings.audio.reset_tx_audio_body",
+                "settings.audio.reset_tx_audio_question",
+                "settings.audio.reset_tx_audio_title",
+                "settings.audio.reset_tx_audio_yes_label",
                 // Junk box 2026-11-02 (#642): F names its slice by role when
                 // the transmit slice is not the selected one, and the setting
                 // that chooses which. DRAFT prose, awaiting Noel.
