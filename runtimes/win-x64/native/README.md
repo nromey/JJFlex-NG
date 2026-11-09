@@ -6,6 +6,9 @@ This folder holds the x64 native libraries: `libopus.dll` and `portaudio.dll`
 ask NVDA whether an utterance was spoken to the end — see #521), and
 `deepfilter.dll` with its model archive (DeepFilterNet3 noise reduction, built
 and benched but not yet selectable — see #731).
+`rnnoise.dll` is RNNoise noise reduction, the engine the app runs, and
+`rnnoise_vad011.dll` is RNNoise v0.1.1's voice detector on its own (#873; nothing
+calls it yet); each has its `.COPYING.txt` beside it.
 `specbleach.dll` is libspecbleach, NR4 (LGPL 2.1, built from the source vendored
 in `third_party/libspecbleach/`, not yet selectable).
 The same recipes build the x86 set — substitute `Win32` for `x64` and target
@@ -13,7 +16,8 @@ The same recipes build the x86 set — substitute `Win32` for `x64` and target
 
 ## What is currently shipped — verify, do not trust this heading
 
-- **RNNoise v0.1.1, pinned at `6cbfd53eb348a8d394e0757b4025c6ded34eb2b6`** (both architectures built here; no version string)
+- **RNNoise, upstream pinned at commit `70f1d256acd4b34a572f999a05c87bf00b67730d`** (the 0.2 line; no release is newer than `v0.2`, and the tag is a different model), with the model tarball its `model_version` names (both architectures built here; no version string)
+- **RNNoise v0.1.1's voice detector, `rnnoise_vad011.dll`**, from tag `v0.1.1` at `6cbfd53eb348a8d394e0757b4025c6ded34eb2b6` plus our `native/rnvad011/rnvad011.c` (both architectures built here)
 - **Opus 1.6.1**
 - **PortAudio: master pinned at `a880212` (commit date 2026-08-07)**
 - **Prism v0.18.1, pinned at tag commit `d2998e9281806fe1efd3394971c6e44ac11b9e75`**
@@ -201,7 +205,299 @@ lines that name what should be present and absent.
 
 RNNoise is Xiph's BSD-style speech denoiser. We build both architectures
 because the retired package shipped the same x64 binary in its x86 folder
-(#739). The model remains the classic one: repository
+(#739).
+
+**What ships, and why a commit rather than a tag.** Noel ruled on 2026-11-08
+(#873) to take "the latest" RNNoise. The newest release tag is still `v0.2`
+(April 2024), but `v0.2` and current upstream are **different models**: after
+the tag, upstream added skip connections (the voice output reads every layer,
+not the last GRU), a new training label and new weights (model of 2025-01-29).
+So the engine is the **PortAudio precedent**: no newer release, so a pinned
+commit with its SHA recorded here.
+
+- Repository `https://github.com/xiph/rnnoise`, commit
+  `70f1d256acd4b34a572f999a05c87bf00b67730d` (2025-02-22, "Remove outdated
+  TRAINING-README"), 22 commits past `v0.2`. Verified 2026-11-08 that Xiph's
+  canonical GitLab has `main` and `HEAD` at this same SHA:
+  `git ls-remote https://gitlab.xiph.org/xiph/rnnoise.git`.
+- **The weights are not in git.** The pin's `model_version` file holds
+  `0a8755f8e2d834eff6a54714ecc7d75f9932e845df35f8b59bc52a7cfe6e8b37`, and its
+  `download_model.sh` fetches
+  `https://media.xiph.org/rnnoise/models/rnnoise_data-<model_version>.tar.gz`
+  and checks the tarball's SHA-256 against that same value. Ours matched:
+  `rnnoise_data-0a8755f8e2d834eff6a54714ecc7d75f9932e845df35f8b59bc52a7cfe6e8b37.tar.gz`,
+  58,603,099 bytes, SHA-256 `0A8755F8E2D834EFF6A54714ECC7D75F9932E845DF35F8B59BC52A7CFE6E8B37`.
+  Only `src/rnnoise_data.c` and `src/rnnoise_data.h` are used (the default
+  model; the tarball also holds a "little" model and two PyTorch checkpoints).
+- **The recipe extracts the weights OUTSIDE the clone**, into
+  `build-native/rnnoise-70f1d256-model/`, so the source tree stays clean and the
+  clean-tree check stays meaningful.
+
+Exact build run 2026-11-08, from the repository root, with the upstream clone
+at `build-native/rnnoise-70f1d256` and the tarball at `build-native/models/`:
+
+```powershell
+$nativeRoot = 'C:\dev\jjflex-49r\build-native'
+$sourceRoot = Join-Path $nativeRoot 'rnnoise-70f1d256'
+$modelTar = Join-Path $nativeRoot 'models\rnnoise_data-0a8755f8e2d834eff6a54714ecc7d75f9932e845df35f8b59bc52a7cfe6e8b37.tar.gz'
+if ((git -C $sourceRoot rev-parse HEAD) -ne '70f1d256acd4b34a572f999a05c87bf00b67730d') { throw 'Wrong RNNoise pin' }
+if (git -C $sourceRoot status --porcelain --ignored) { throw 'Dirty RNNoise source' }
+if ((Get-FileHash $modelTar -Algorithm SHA256).Hash -ne '0A8755F8E2D834EFF6A54714ECC7D75F9932E845DF35F8B59BC52A7CFE6E8B37') { throw 'Wrong RNNoise model' }
+$modelRoot = Join-Path $nativeRoot 'rnnoise-70f1d256-model'
+Remove-Item -Recurse -Force $modelRoot -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $modelRoot | Out-Null
+tar -xzf $modelTar -C $modelRoot src/rnnoise_data.c src/rnnoise_data.h
+$modelSrc = Join-Path $modelRoot 'src'
+$compiler = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-cl.exe'
+$msvcRoot = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231'
+$sdkRoot = 'C:\Program Files (x86)\Windows Kits\10'
+$includes = @('/imsvc' + $msvcRoot + '\include', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\ucrt', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\shared', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\um')
+$sources = @('denoise','rnn','pitch','kiss_fft','celt_lpc','nnet','nnet_default','parse_lpcnet_weights','rnnoise_tables') | ForEach-Object { Join-Path $sourceRoot "src\$_.c" }
+$sources += Join-Path $modelSrc 'rnnoise_data.c'
+$common = @('/nologo','/O2','/MT','/fp:precise','/DWIN32','/DRNNOISE_BUILD','/DDLL_EXPORT','/D_USE_MATH_DEFINES','/DDISABLE_DEBUG_FLOAT',"/I$sourceRoot\include","/I$sourceRoot\src","/I$modelSrc")
+foreach ($nativeArch in @('x64','x86')) {
+    $outputRoot = Join-Path $nativeRoot "rnnoise-70f1d256-$nativeArch"
+    Remove-Item -Recurse -Force $outputRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+    Push-Location $outputRoot
+    try {
+        $target = if ($nativeArch -eq 'x64') { 'x86_64-pc-windows-msvc' } else { 'i686-pc-windows-msvc' }
+        & $compiler "--target=$target" /LD @common @includes @sources /link /DEBUG:NONE /INCREMENTAL:NO /Brepro "/LIBPATH:$msvcRoot\lib\$nativeArch" "/LIBPATH:$sdkRoot\Lib\10.0.26100.0\ucrt\$nativeArch" "/LIBPATH:$sdkRoot\Lib\10.0.26100.0\um\$nativeArch" /OUT:rnnoise.dll
+        if ($LASTEXITCODE -ne 0) { throw "Native build $nativeArch failed: $LASTEXITCODE" }
+    } finally { Pop-Location }
+}
+```
+
+Toolchain as for v0.1.1 below: clang 22.1.3 (LLVM
+`e9846648fd6183ee6d8cbdb4502213fcf902a211`), MSVC libraries 14.51.36231,
+Windows SDK 10.0.26100.0. What differs from the v0.1.1 recipe, and why:
+
+- **Sources** are `RNNOISE_SOURCES` from the pin's `Makefile.am` (unchanged
+  from `v0.2`): the 0.2 line adds the Opus DNN code (`nnet`, `nnet_default`,
+  `parse_lpcnet_weights`, `rnnoise_tables`), and `rnnoise_data.c` comes from
+  the model tarball. `rnn_reader.c` is gone.
+- **`DISABLE_DEBUG_FLOAT`** is what upstream's `configure.ac` defines by
+  default (`--enable-dnn-debug-float` is off): the GRUs use their 8-bit weights.
+- **No run-time CPU dispatch; the generic path.** Upstream's x86 dispatch
+  (`src/x86/`, enabled by `--enable-x86-rtcd`) is **off by default** upstream,
+  and we leave it off, so no RNNoise or detector code uses an instruction
+  beyond SSE2. (The x64 DLLs do contain AVX, FMA and AVX-512 instructions, all
+  inside the statically linked Microsoft C runtime's math and memory routines.
+  The runtime picks them only after checking CPUID, OSXSAVE and XGETBV, so
+  they are safe. Codex disassembled them and traced each one to its runtime
+  object, 2026-11-08. The x86 DLLs contain none.)
+  Without `-mavx2` the SIMD header `vec_avx.h` compiles its SSE2 branch; clang
+  predefines `__SSE2__` for both targets, and SSE2 is the floor of x64 and of
+  every Windows that runs .NET 10. The compiler's own pragma message says so:
+  "Only SSE and SSE2 are available". Three reasons:
+  - Upstream's dispatcher (`src/x86/x86cpu.c` at the pin) tests the CPUID bits
+    for AVX, FMA and AVX2 but **never checks that the operating system has
+    enabled the AVX register state** (OSXSAVE and XGETBV). A machine with AVX
+    turned off in the OS (some virtual machines, `bcdedit` with XSAVE disabled)
+    would be dispatched to AVX code and crash. That is the "assumes AVX2
+    without checking" case, even with detection on.
+  - One RNNoise code path means the same arithmetic on every machine, which
+    the tests and any support conversation can rely on. Not proven: identical
+    output bit for bit, because the runtime's math routines still choose a
+    path by CPU.
+  - The cost is affordable. Measured 2026-11-08 on this machine (Intel Core
+    Ultra 9 285HX), median of nine runs of 3,000 frames, one thread pinned:
+    generic **133 µs per 10 ms frame on a performance core, 145 on an
+    efficiency core, x64; 136 and 153, x86**, about 1.5 percent of one core per
+    channel. A scratch build WITH upstream's dispatch measured 81 to 90 µs on
+    both architectures, so dispatch would save about 40 percent if it is ever
+    wanted; adding the missing XGETBV check would be the condition.
+- **`/Brepro`** makes the link reproducible: the PE header timestamp is a hash
+  of the output, not the time. Two clean rebuilds gave byte-identical DLLs on
+  both architectures. (The v0.1.1 note below, "a linker timestamp can change
+  hashes", is why it was added.)
+
+Copy `build-native/rnnoise-70f1d256-x64/rnnoise.dll` to this folder and the
+x86 counterpart to `runtimes/win-x86/native/`. Write the pin's `COPYING` beside
+each as `rnnoise.COPYING.txt` **from git's blob, not from the working tree**
+(`git -C build-native/rnnoise-70f1d256 cat-file blob 70f1d256acd4b34a572f999a05c87bf00b67730d:COPYING`),
+because this machine's `core.autocrlf` rewrites checkouts.
+
+Shipped SHA-256 and sizes:
+
+- x64 DLL: `827DD730DDDD0076C0034066B0297595383924A156D90373014B42A716B90F35`, 3,741,184 bytes, machine `0x8664`.
+- x86 DLL: `B47148D17EF3518B2433C69C9481C49F82F5D71204E69F165606D12EBC2D9CE9`, 3,705,344 bytes, machine `0x14C`.
+- `rnnoise.COPYING.txt` (both): `45D37CA1CDB278C088E1AA85E0E65CA3A534ED86A28DCC96CA16810248A61D35`,
+  1,612 bytes with LF endings, byte-identical to upstream's blob `59d7d09c`.
+  Read in full 2026-11-08: the three-clause BSD licence, the same terms as
+  v0.1.1's. Only the copyright lines differ: it adds "2024" to Jean-Marc
+  Valin's years and adds "Copyright (c) 2023 Amazon".
+- Both DLLs depend only on `KERNEL32.dll` (`dumpbin /dependents`), and contain
+  no `.pdb` reference or builder path.
+
+The complete undecorated export list, both architectures: `rnnoise_create`,
+`rnnoise_destroy`, `rnnoise_get_frame_size`, `rnnoise_get_size`,
+`rnnoise_init`, `rnnoise_model_free`, `rnnoise_model_from_buffer`,
+`rnnoise_model_from_file`, `rnnoise_model_from_filename`,
+`rnnoise_process_frame`. Positive control: the four `RnnoiseEngine.cs` binds
+(`rnnoise_create`, `rnnoise_destroy`, `rnnoise_get_frame_size`,
+`rnnoise_process_frame`) are present; `rnnoise_get_frame_size` still compiles
+to `mov eax,480; ret`, which `RnnoiseBindingTests` patches. The binding is
+unchanged: cdecl, output pointer before input, 480 samples at 48 kHz,
+16-bit-range floats, return value the voice probability.
+
+**What an operator can notice.**
+
+- **The delay doubles, 480 to 960 samples (10 to 20 ms).** The 0.2 line adds
+  one frame of look-ahead (upstream `84fe83b`, "Adding one extra frame of
+  delay", before the tag): the gains for a frame are applied to the previous
+  one. `RnnoiseEngine.LatencySamples` now says 960 and `EngineLatencyTests`
+  measures it on real speech. The bank and the transmit stage align their dry
+  signal by that figure, so the blend stays aligned; the delay the app reports
+  for RNNoise doubles with it.
+- **The voice probability for frame n describes frame n minus 1**, for the
+  same reason. Compare it against v0.1.1's only after shifting it.
+- Frame size is unchanged (480). CPU per frame about 1.4 to 1.6 times v0.1.1's.
+
+**Model comparison before adopting it.** The same inputs through v0.1.1, the
+`v0.2` tag and `70f1d256`, each DLL in its own process, fully wet: 12
+speech-in-noise mixes, 3 SSB-shaped mixes, 4 off-air SSB minutes, a band-noise
+sample and 2 CW takes. The figures are in
+`JJFlex-private/planning/for-claude/2026-11-08-sprint49-track-r-report.md` and
+the renders in `JJFlex-private/planning/for-noel/2026-11-08-rnnoise-02-listen/`
+(never in the repository). **One result to know before relying on it: on CW the
+new model nearly erases the keyed signal**, where v0.1.1 cost it about 10 dB.
+
+**Swapping to the `v0.2` tag instead is one DLL and this section.** The same
+recipe with `$sourceRoot` at a clean checkout of commit
+`904a876dce1f9ab8860c0a5000ed151f9f6eef58` (tag `v0.2`) and the model
+`rnnoise_data-0b50c45.tar.gz`, 22,270,507 bytes, SHA-256
+`4AC81C5C0884EC4BD5907026AAAE16209B7B76CD9D7F71AF582094A2F98F4B43`. **The tag
+names no hash for its model**: its `download_model.sh` only downloads and
+untars (the checksum arrived after the tag, in `2e3c812`), and its
+`model_version` reads `0b50c45`, which is not a hash of the tarball. The figure
+above was checked against an independent record instead, the Nixpkgs pin for
+that model (`sha256-SsgcXAiE7EvVkHAmqq4WIJt7ds2df3GvWCCUovmPS0M=`, the same
+digest in base64). Built 2026-11-08 for the comparison only, not shipped: x64
+`E9884CB7E33E5897C7FB95495ED137419CB515B038AE3B28338ED3AF2095B249`
+(1,597,440 bytes), x86
+`BE387A960A14D5E5E627424B780FE65FD7C728FD0EF3E7A4A4A78B57C8D2C2C4`
+(1,561,600 bytes). Same exports, same licence text, same 960-sample delay.
+
+To bump: place a clean checkout at the new full pin, read `Makefile.am`,
+`configure.ac` (its defaults) and `include/rnnoise.h` again, take the model the
+pin's own `model_version` names and check its hash, rebuild both architectures,
+replace both DLLs and licences, update pin, recipe and hashes here, measure the
+delay (`EngineLatencyTests`), and run the RNNoise tests on both architectures.
+Compare model output deliberately before adopting a new model, on real
+material as well as mixes, and on CW.
+
+### The v0.1.1 voice detector (rnnoise_vad011.dll) — built here from upstream plus one file of ours
+
+**Why it exists.** Ruled by Noel 2026-11-08 13:41 (#873): keep v0.1.1's
+voice-activity branch as its own detector, whatever the engine becomes and
+whether or not anything uses it yet. In v0.1.1 the voice probability has a
+private branch (`input_dense`, then `vad_gru`, then `vad_output`) that
+`compute_rnn` runs before, and that never reads, the noise and denoise GRUs
+(`src/rnn.c` lines 165 to 167 at the pin), so it can run alone on the same
+weights. **Nothing in the app calls it yet**; `RnnoiseVoiceDetectorTests` holds
+that.
+
+**What is built.** Upstream at the v0.1.1 pin, unmodified, plus our
+`native/rnvad011/rnvad011.c`. That file `#include`s upstream's `denoise.c` and
+`rnn.c` (their feature analysis and layer kernels are `static`), and exports
+four functions of its own: `rnvad011_create`, `rnvad011_destroy`,
+`rnvad011_frame_size` and `rnvad011_process_frame` (the high-pass, the feature
+analysis and the three voice layers; it returns the probability and skips the
+noise and denoise GRUs, the gains, the pitch filter and the synthesis). A fifth,
+`rnvad011_reference_frame`, is upstream's whole `rnnoise_process_frame` under
+our name, there so the tests can hold the detector to the full frame without a
+second v0.1.1 library in the repository. `RNNOISE_BUILD` and `DLL_EXPORT` are
+left undefined, so **none of upstream's `rnnoise_*` functions is exported**.
+
+Exact build run 2026-11-08, with a clean checkout at
+`build-native/rnnoise-v011`:
+
+```powershell
+$nativeRoot = 'C:\dev\jjflex-49r\build-native'
+$sourceRoot = Join-Path $nativeRoot 'rnnoise-v011'
+if ((git -C $sourceRoot rev-parse HEAD) -ne '6cbfd53eb348a8d394e0757b4025c6ded34eb2b6') { throw 'Wrong RNNoise pin' }
+if (git -C $sourceRoot status --porcelain --ignored) { throw 'Dirty RNNoise source' }
+$compiler = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-cl.exe'
+$msvcRoot = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231'
+$sdkRoot = 'C:\Program Files (x86)\Windows Kits\10'
+$includes = @('/imsvc' + $msvcRoot + '\include', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\ucrt', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\shared', '/imsvc' + $sdkRoot + '\Include\10.0.26100.0\um')
+$sources = @('C:\dev\jjflex-49r\native\rnvad011\rnvad011.c', (Join-Path $sourceRoot 'src\rnn_data.c')) + (@('pitch','kiss_fft','celt_lpc') | ForEach-Object { Join-Path $sourceRoot "src\$_.c" })
+foreach ($nativeArch in @('x64','x86')) {
+    $outputRoot = Join-Path $nativeRoot "rnnoise-vad011-$nativeArch"
+    Remove-Item -Recurse -Force $outputRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+    Push-Location $outputRoot
+    try {
+        $target = if ($nativeArch -eq 'x64') { 'x86_64-pc-windows-msvc' } else { 'i686-pc-windows-msvc' }
+        & $compiler "--target=$target" /nologo /LD /O2 /MT /fp:precise /DWIN32 /D_USE_MATH_DEFINES "/I$sourceRoot\include" "/I$sourceRoot\src" @includes @sources /link /DEBUG:NONE /INCREMENTAL:NO /Brepro "/LIBPATH:$msvcRoot\lib\$nativeArch" "/LIBPATH:$sdkRoot\Lib\10.0.26100.0\ucrt\$nativeArch" "/LIBPATH:$sdkRoot\Lib\10.0.26100.0\um\$nativeArch" /OUT:rnnoise_vad011.dll
+        if ($LASTEXITCODE -ne 0) { throw "Native build $nativeArch failed: $LASTEXITCODE" }
+    } finally { Pop-Location }
+}
+```
+
+Copy `build-native/rnnoise-vad011-x64/rnnoise_vad011.dll` here and the x86
+counterpart to `runtimes/win-x86/native/`. Its licence is the **v0.1.1**
+`COPYING`, from git's blob
+(`git -C build-native/rnnoise-v011 cat-file blob 6cbfd53eb348a8d394e0757b4025c6ded34eb2b6:COPYING`),
+beside each as `rnnoise_vad011.COPYING.txt`.
+
+Shipped SHA-256 and sizes:
+
+- x64 DLL: `3DF015C8385286E135CF128A6B4757F6688AE484AF0BEE058D9022829A469637`, 260,096 bytes, machine `0x8664`.
+- x86 DLL: `47617A180A54AA07D4378FE7C2091F44952553BC1257DC0016DD1B197D098BCF`, 224,256 bytes, machine `0x14C`.
+- `rnnoise_vad011.COPYING.txt` (both): `E2F59FF41D9D03ADC3DCF3DEFF170F8C8CF4A6EB4A9B174762A7656D23200FFA`,
+  1,581 bytes, LF; byte-identical to upstream's blob `01ea4b1a` and to the
+  `rnnoise.COPYING.txt` that shipped with v0.1.1. Three-clause BSD.
+- Depends only on `KERNEL32.dll`; no `.pdb` reference or builder path. Two
+  clean rebuilds were byte-identical.
+
+**The two libraries' exports, side by side** (`dumpbin /exports`, both
+architectures alike; `RnnoiseVoiceDetectorTests` reads both tables and fails
+on any shared name):
+
+- `rnnoise.dll` (the engine): `rnnoise_create`, `rnnoise_destroy`,
+  `rnnoise_get_frame_size`, `rnnoise_get_size`, `rnnoise_init`,
+  `rnnoise_model_free`, `rnnoise_model_from_buffer`, `rnnoise_model_from_file`,
+  `rnnoise_model_from_filename`, `rnnoise_process_frame`.
+- `rnnoise_vad011.dll` (the detector): `rnvad011_create`, `rnvad011_destroy`,
+  `rnvad011_frame_size`, `rnvad011_process_frame`, `rnvad011_reference_frame`.
+- **No name in common, and none of the detector's begins with `rnnoise_`.**
+
+**Positive control.** On 20 s of noisy speech (the reference voice with seeded
+noise), the detector's probability equals the full v0.1.1 frame's return value
+**bit for bit on all 2,000 frames**, 1,362 of them above 0.5, on x64 and x86.
+The full frame in turn reproduces, by SHA-256 of its probabilities and of its
+audio, the v0.1.1 `rnnoise.dll` this folder shipped until 2026-11-08
+(`97C0940D...` and `48EF2397...`, digests recorded from that DLL in a separate
+run; both architectures gave the same digests). Each half is shown able to
+fail: one input sample changed by one 16-bit step on the detector's side
+breaks the first; one `vad_output` weight patched in a temporary copy breaks
+the second. A scratch build of `rnvad011.c` with one feature nudged by 1e-4
+made the committed tests fail, and the shipped build passes. Over the 22
+comparison files (104,728 frames) the detector also matched v0.1.1's full
+frame on every frame.
+
+**Cost**, same machine and method as above: the detector **23 µs per frame on
+a performance core and 26 on an efficiency core, x64; 24 and 27, x86**, against
+96 and 75 (x64), 98 and 79 (x86) for the full v0.1.1 frame. About a quarter to
+a third of the full frame, because the feature analysis (FFTs and the pitch
+search) still runs; under 0.3 percent of one core.
+
+The C# wrapper is `JJFlexWpf/RnnoiseVoiceDetector.cs`. It loads this file by
+absolute path, the way `RnnoiseEngine.cs` loads `rnnoise.dll`; there is no
+`NativeLoader.vb` locator for it yet, because nothing in the app constructs one.
+
+### RNNoise v0.1.1 (rnnoise.dll until 2026-11-08) — history
+
+**Not shipped as `rnnoise.dll` since 2026-11-08.** Kept as the record of the build that
+shipped from 2026-11-02 (Sprint 49 Track D) until Track R moved the engine to the 0.2
+line. The v0.1.1 model still ships, inside `rnnoise_vad011.dll` above, and the tests
+hold that library's full frame to this build's output by digest.
+
+RNNoise is Xiph's BSD-style speech denoiser. We build both architectures
+because the retired package shipped the same x64 binary in its x86 folder
+(#739). The model was the classic one: repository
 `https://github.com/xiph/rnnoise`, tag `v0.1.1`, full commit
 `6cbfd53eb348a8d394e0757b4025c6ded34eb2b6`. Its weights are `src/rnn_data.c`
 in git; no model download is needed. Build only at that SHA, with a clean
@@ -251,7 +547,7 @@ Copy `build-native/rnnoise-x64/rnnoise.dll` to this folder and the x86
 counterpart to `runtimes/win-x86/native/`. Copy upstream's unmodified
 `COPYING` beside each as `rnnoise.COPYING.txt`.
 
-Shipped SHA-256 and sizes:
+SHA-256 and sizes as shipped then:
 
 - x64 DLL: `97C0940D963B549D5DC97F1A165AAD8A6EA4815BEA9774FF8004DFE265DE57F6`, 293,888 bytes.
 - x86 DLL: `48EF23974BDD824A805CEB6E55DAF4C8DB7D12C37C121C5793EC3F71FD527F82`, 254,976 bytes.

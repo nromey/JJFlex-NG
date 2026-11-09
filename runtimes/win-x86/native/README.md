@@ -2,7 +2,9 @@
 
 This folder holds the 32-bit native libraries: `libopus.dll` and
 `portaudio.dll` (audio), `rnnoise.dll` with `rnnoise.COPYING.txt` (RNNoise
-noise reduction, built here at the same pin as x64), `prism.dll` (speech and braille), and
+noise reduction, built here at the same pin as x64), `rnnoise_vad011.dll` with
+`rnnoise_vad011.COPYING.txt` (RNNoise v0.1.1's voice detector on its own, #873;
+nothing calls it yet), `prism.dll` (speech and braille), and
 `nvdaControllerClient.dll` (NV Access's controller client, for asking NVDA
 whether an utterance was spoken to the end — #521; downloaded, not built, LGPL
 text beside it), and `deepfilter.dll` with `DeepFilterNet3_onnx.tar.gz` and its

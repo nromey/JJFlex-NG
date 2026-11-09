@@ -341,7 +341,7 @@ public sealed class EngineLatencyTests
         NoiseReductionPerChannelTests.AssertWindowless();
         using var e = new RnnoiseEngine();
         Assert.True(e.IsAvailable, "RNNoise did not load, so this proves nothing");
-        Assert.Equal(480, e.LatencySamples);
+        Assert.Equal(960, e.LatencySamples); // 0.2 line: 480 window overhang plus one frame of look-ahead
         AssertMeasuredDelay(e);
     }
 

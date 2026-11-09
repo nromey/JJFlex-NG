@@ -68,8 +68,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\runtimes\win-x64\native\rnnoise.dll;..\runtimes\win-x64\native\rnnoise.COPYING.txt" Link="runtimes\win-x64\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\runtimes\win-x86\native\rnnoise.dll;..\runtimes\win-x86\native\rnnoise.COPYING.txt" Link="runtimes\win-x86\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\runtimes\win-x64\native\rnnoise.dll;..\runtimes\win-x64\native\rnnoise.COPYING.txt;..\runtimes\win-x64\native\rnnoise_vad011.dll;..\runtimes\win-x64\native\rnnoise_vad011.COPYING.txt" Link="runtimes\win-x64\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\runtimes\win-x86\native\rnnoise.dll;..\runtimes\win-x86\native\rnnoise.COPYING.txt;..\runtimes\win-x86\native\rnnoise_vad011.dll;..\runtimes\win-x86\native\rnnoise_vad011.COPYING.txt" Link="runtimes\win-x86\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
