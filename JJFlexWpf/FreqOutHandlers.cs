@@ -4161,6 +4161,32 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// The band notices' memory after a 60 m channel stop: moved to the stop
+    /// only when the slice is now in the stop's band, read back after the
+    /// write as <paramref name="nowHz"/>. A refused stop (a locked slice, a
+    /// press while transmitting) leaves the memory on the band the operator
+    /// never left, so a typed frequency there afterwards says nothing.
+    /// </summary>
+    public void FollowChannelStop(ulong stopHz, ulong nowHz)
+    {
+        if (ChannelStopWasTaken(stopHz, nowHz)) InitializeBandTracking(stopHz);
+    }
+
+    /// <summary>
+    /// Whether a channel stop to <paramref name="stopHz"/> was taken, judged
+    /// from the frequency read back after the write. Compared by band, not by
+    /// hertz, so a radio's rounding of the echo cannot read as a refusal.
+    /// </summary>
+    internal static bool ChannelStopWasTaken(ulong stopHz, ulong nowHz)
+    {
+        var stopBand = Bands.Query(stopHz)?.Band;
+        return stopBand != null && Bands.Query(nowHz)?.Band == stopBand;
+    }
+
+    /// <summary>The band the notices remember, for the windowless tests.</summary>
+    internal Bands.BandNames? RememberedBand => _lastBand;
+
+    /// <summary>
     /// The band a boundary notice compares against: the band of the
     /// frequency a tune started from when the caller knows it, otherwise the
     /// band remembered at the last notice. Pure, so it can be tested without

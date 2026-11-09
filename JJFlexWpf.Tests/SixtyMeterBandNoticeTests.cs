@@ -105,9 +105,58 @@ public sealed class SixtyMeterBandNoticeTests
         Assert.True(nav > 0);
         string body = text.Substring(nav, 2500);
         int tune = body.IndexOf("RigControl.Frequency = stop.FrequencyHz;", StringComparison.Ordinal);
-        int note = body.IndexOf("_freqOutHandlers?.InitializeBandTracking(stop.FrequencyHz);", StringComparison.Ordinal);
+        int note = body.IndexOf("_freqOutHandlers?.FollowChannelStop(stop.FrequencyHz, RigControl.RXFrequency);", StringComparison.Ordinal);
         Assert.True(tune > 0 && note > tune, "a 60 m channel stop tunes without telling the band notices");
+        // Repair one: never the stop's own number unconditionally, which a
+        // refused tune would also have recorded.
+        Assert.DoesNotContain("InitializeBandTracking(stop.FrequencyHz)", body, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void A_refused_channel_stop_leaves_the_band_memory_where_the_slice_still_is()
+    {
+        AssertWindowless();
+        // Receiving on 40 m, the slice locked: the channel key's tune to
+        // 5.3585 MHz is refused, so reading the receive frequency back still
+        // gives 7.150 MHz. A typed 7.200 MHz afterwards makes the typed
+        // entry's own decision (no starting frequency, the memory) and must
+        // not say "Entering 40 meter band".
+        var h = Handlers();
+        h.InitializeBandTracking(7_150_000);
+        h.FollowChannelStop(5_358_500, nowHz: 7_150_000);
+        Assert.Equal(Bands.BandNames.m40, h.RememberedBand);
+        Assert.False(FreqOutHandlers.SaysBandEntry(
+            FreqOutHandlers.BandBefore(null, h.RememberedBand), Bands.Query(7_200_000UL)?.Band));
+    }
+
+    [Fact]
+    public void An_admitted_channel_stop_moves_the_band_memory_to_60_meters()
+    {
+        AssertWindowless();
+        // Positive control for the refusal above: the same stop, taken.
+        var h = Handlers();
+        h.InitializeBandTracking(7_150_000);
+        h.FollowChannelStop(5_358_500, nowHz: 5_358_500);
+        Assert.Equal(Bands.BandNames.m60, h.RememberedBand);
+        // So a typed 40 m frequency afterwards IS a band change.
+        Assert.True(FreqOutHandlers.SaysBandEntry(
+            FreqOutHandlers.BandBefore(null, h.RememberedBand), Bands.Query(7_200_000UL)?.Band));
+        // And a step inside 60 m stays quiet.
+        Assert.False(FreqOutHandlers.SaysBandEntry(
+            FreqOutHandlers.BandBefore(null, h.RememberedBand), Bands.Query(5_363_500UL)?.Band));
+    }
+
+    [Fact]
+    public void A_stop_is_judged_taken_by_band_so_a_rounded_echo_still_counts()
+    {
+        AssertWindowless();
+        Assert.True(FreqOutHandlers.ChannelStopWasTaken(5_358_500, 5_358_499));
+        Assert.False(FreqOutHandlers.ChannelStopWasTaken(5_358_500, 7_150_000));
+        Assert.False(FreqOutHandlers.ChannelStopWasTaken(5_358_500, 0));
+    }
+
+    private static FreqOutHandlers Handlers() =>
+        (FreqOutHandlers)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FreqOutHandlers));
 
     private static string Source(params string[] parts)
     {
