@@ -714,7 +714,11 @@ public class FreqOutHandlers
             {
                 SpeakTuningDebounced(FormatFreqForSpeech(newFreq));
             }
-            CheckBandBoundary(newFreq);
+            // A step is judged from where it started, not from the band
+            // remembered at the last notice: a 60 m channel stop, a slice
+            // change or a band jump elsewhere can leave that memory on another
+            // band, and every step then said "Entering 60 meter band" again.
+            CheckBandBoundary(newFreq, fromHz: current);
         }
     }
 
@@ -4139,14 +4143,48 @@ public class FreqOutHandlers
             _lastSubBandKey = GetSubBandKey(currentFreq, _lastBand.Value);
     }
 
-    public void CheckBandBoundary(ulong newFreq)
+    /// <summary>
+    /// The band a boundary notice compares against: the band of the
+    /// frequency a tune started from when the caller knows it, otherwise the
+    /// band remembered at the last notice. Pure, so it can be tested without
+    /// a window.
+    /// </summary>
+    /// <remarks>
+    /// A tuning step knows where it started, so it never relies on the memory.
+    /// The memory goes stale whenever something tunes without passing through
+    /// <see cref="CheckBandBoundary"/>: a 60 m channel stop did exactly that,
+    /// so after a band jump to 40 m and a channel stop, every step inside
+    /// 60 m said "Entering 60 meter band" (and the speech arbiter replayed it
+    /// after the frequency readout cut it, so it was heard twice). Typed
+    /// entry has no reliable starting frequency by the time the radio
+    /// answers, so it keeps the memory.
+    /// </remarks>
+    internal static Bands.BandNames? BandBefore(ulong? fromHz, Bands.BandNames? remembered)
+        => fromHz.HasValue ? Bands.Query(fromHz.Value)?.Band : remembered;
+
+    /// <summary>
+    /// Whether a tune said "Entering {band} band": only when both ends are on
+    /// a known band and they differ. Leaving a band for no band says nothing,
+    /// as before. Pure.
+    /// </summary>
+    internal static bool SaysBandEntry(Bands.BandNames? before, Bands.BandNames? after)
+        => before != null && after != null && after != before;
+
+    public void CheckBandBoundary(ulong newFreq, ulong? fromHz = null)
     {
         if (License == null || !License.BoundaryNotifications) return;
 
         var newBandInfo = Bands.Query(newFreq);
         var newBand = newBandInfo?.Band;
 
-        if (_lastBand != null && newBand != null && newBand != _lastBand)
+        // Judged from where the tune started when that is known (see
+        // BandBefore); the sub-band notice below uses the same starting point.
+        var before = BandBefore(fromHz, _lastBand);
+        if (fromHz.HasValue && before != null)
+            _lastSubBandKey = GetSubBandKey(fromHz.Value, before.Value);
+        _lastBand = before;
+
+        if (SaysBandEntry(_lastBand, newBand))
         {
             string bandName = BandDisplayName(newBand.Value);
             Radios.ScreenReaderOutput.Speak(

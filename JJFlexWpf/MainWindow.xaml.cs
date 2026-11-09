@@ -7778,6 +7778,9 @@ public partial class MainWindow : UserControl
         // Frequency first, then mode, the order this method and the band jump
         // have always used.
         RigControl.Frequency = stop.FrequencyHz;
+        // The band notices' memory follows the stop, so a typed frequency
+        // afterwards is not judged against the band this came from.
+        _freqOutHandlers?.InitializeBandTracking(stop.FrequencyHz);
 
         if (stop.Correction == null)
         {
