@@ -70,6 +70,56 @@ public sealed class StatusTextNameTests
         Assert.DoesNotContain("AutomationProperties.Name=", el, StringComparison.Ordinal);
     }
 
+    // ---- the behaviour, on a real line (repair one) ----
+
+    [Fact]
+    public void A_loaded_lines_name_follows_its_text_and_falls_back_to_the_label_while_empty()
+    {
+        // The checker found the seven tests above stayed green with both
+        // text-change subscriptions removed. This one drives the attached
+        // property on a lone TextBlock on a private STA thread: no window,
+        // no presentation source. Loaded and Unloaded are raised by hand.
+        OnSta(() =>
+        {
+            var line = new System.Windows.Controls.TextBlock();
+            StatusTextName.SetLabel(line, "Radio profile status");
+            Assert.Equal("Radio profile status", System.Windows.Automation.AutomationProperties.GetName(line));
+            line.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent, line));
+            try
+            {
+                const string warning = "Change nothing is on for this radio. Nothing you do here is sent to it.";
+                line.Text = warning;
+                Assert.Equal(warning, System.Windows.Automation.AutomationProperties.GetName(line));
+                line.Text = "Ready";
+                Assert.Equal("Ready", System.Windows.Automation.AutomationProperties.GetName(line));
+                line.Text = "";
+                Assert.Equal("Radio profile status", System.Windows.Automation.AutomationProperties.GetName(line));
+            }
+            finally
+            {
+                // Let the descriptor go, as a closed dialog's line does.
+                line.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.UnloadedEvent, line));
+            }
+        });
+    }
+
+    private static void OnSta(Action body)
+    {
+        AssertWindowless();
+        Assert.True(JJFlexWpf.Tests.Infrastructure.QuietRun.Silenced, "Refusing: " + JJFlexWpf.Tests.Infrastructure.QuietRun.Describe());
+        Exception? failure = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            try { body(); }
+            catch (Exception ex) { failure = ex; }
+            finally { System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown(); }
+        }) { IsBackground = true };
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "The line test did not finish.");
+        if (failure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
     // ---- the class ----
 
     /// <summary>
