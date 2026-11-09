@@ -676,21 +676,29 @@ namespace Radios
         private static IPendingChoiceStore? _pendingWarnStore;
 
         /// <summary>
-        /// The overwrite warning's setting, chosen in Settings before any radio
-        /// had connected (#999: settings are intents, queued and applied). Held
-        /// until a radio ACTUALLY CONNECTS, then saved to that radio's config by
+        /// The overwrite warning's setting, chosen in Settings when no radio had
+        /// EVER connected (#999: settings are intents, queued and applied). Held
+        /// until a radio ACTUALLY CONNECTS, then saved by
         /// <see cref="ApplyPendingWarnBeforeSliceRecordingOverwritten"/> and cleared.
-        /// A radio that was only discovered never receives it (the round 3
-        /// correction: C5a's option said "applied to the first radio that
-        /// connects").
+        /// A radio that was only discovered never receives it.
         /// </summary>
         /// <remarks>
-        /// With <see cref="PendingWarnStore"/> wired, the store is the truth: every
+        /// <para><b>Who it is for (#999 round 4, ruled C2 and C3 by Noel
+        /// 2026-11-09).</b> Once any radio has connected, Settings no longer makes
+        /// a waiting choice: with nothing connected it names the radio last
+        /// connected (<see cref="KnownRadioRoster.LastConnectedSerial"/>) and saves
+        /// an edit to that radio's own config. So a choice waits for "the first
+        /// radio that connects" only when none ever had. One that is found waiting
+        /// beside a last-connected radio (left by an older build, or by a connect
+        /// whose save failed) belongs to that radio: Settings shows it against
+        /// that radio and saves it there on OK or Apply, and a connect hands it
+        /// there (<see cref="ApplyPendingWarnBeforeSliceRecordingOverwritten"/>).</para>
+        /// <para>With <see cref="PendingWarnStore"/> wired, the store is the truth: every
         /// read reads it and every change writes it, so a restart keeps the choice
         /// and a second instance sees one the first has already spent. A store
         /// that cannot be read reads as no choice, which leaves every radio on
         /// its own setting; one that cannot be written keeps the change in memory
-        /// for this run and says so in the trace.
+        /// for this run and says so in the trace.</para>
         /// </remarks>
         public static bool? PendingWarnBeforeSliceRecordingOverwritten
         {
@@ -730,15 +738,31 @@ namespace Radios
         }
 
         /// <summary>
-        /// Save a pending choice to this radio, once. True when one was applied.
-        /// Call ONLY for a radio that is connected: the connect itself
-        /// (<c>FlexBase</c>, when the connect succeeds), the overwrite gate's
-        /// facts, and Settings while a radio is connected. Never for one that was
-        /// only discovered or last used.
+        /// A radio has connected: save a waiting choice to the radio it waits for,
+        /// once, and clear it. True when one was saved.
         /// </summary>
-        public static bool ApplyPendingWarnBeforeSliceRecordingOverwritten(string radioId)
+        /// <param name="connectedId">The radio that has connected. Call ONLY with a
+        /// connected radio: the connect itself (<c>FlexBase</c>, once it has
+        /// worked) and the overwrite gate's facts. Never for one that was only
+        /// discovered.</param>
+        /// <param name="lastConnectedBefore">The radio this program last connected
+        /// to BEFORE this connect (<see cref="KnownRadioRoster.LastConnectedSerial"/>,
+        /// read before the connect is recorded); "" when no radio ever had.</param>
+        /// <remarks>
+        /// Ruled C2 and C3 by Noel 2026-11-09 (#999 round 4): a waiting choice
+        /// belongs to the radio last connected, and to "the first radio that
+        /// connects" only when no radio ever had. So it goes to
+        /// <paramref name="connectedId"/> when there was no earlier radio or it was
+        /// this one. When an earlier radio was a DIFFERENT one, it goes to THAT
+        /// radio's own config, where it takes effect when that radio connects, and
+        /// the radio connecting now is untouched. Leaving it waiting instead would
+        /// hand it to the wrong radio a moment later: once this connect is recorded,
+        /// this radio is the one last connected.
+        /// </remarks>
+        public static bool ApplyPendingWarnBeforeSliceRecordingOverwritten(string connectedId, string lastConnectedBefore)
         {
-            if (string.IsNullOrWhiteSpace(radioId)) return false;
+            if (string.IsNullOrWhiteSpace(connectedId)) return false;
+            string radioId = string.IsNullOrWhiteSpace(lastConnectedBefore) ? connectedId : lastConnectedBefore;
             lock (PendingWarnGate)
             {
                 // One lock across read, apply and clear, so two doors cannot both
@@ -747,8 +771,10 @@ namespace Radios
                 if (pending is not bool warn) return false;
                 if (!RecordWarnBeforeSliceRecordingOverwritten(radioId, warn)) return false;
                 PendingWarnBeforeSliceRecordingOverwritten = null;
-                Tracing.TraceLine("RadioConfig: the overwrite-warning choice made before any radio connected ("
-                    + warn + ") is now " + radioId + "'s.", System.Diagnostics.TraceLevel.Info);
+                Tracing.TraceLine("RadioConfig: the waiting overwrite-warning choice (" + warn + ") is now "
+                    + radioId + "'s" + (string.Equals(radioId, connectedId, StringComparison.OrdinalIgnoreCase)
+                        ? "." : ", the radio last connected; " + connectedId + ", connecting now, is untouched."),
+                    System.Diagnostics.TraceLevel.Info);
                 return true;
             }
         }

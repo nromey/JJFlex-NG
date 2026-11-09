@@ -160,11 +160,11 @@ public sealed class SliceOverwriteGateTests : IDisposable
         try
         {
             RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = false;
-            Assert.True(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(Serial));
+            Assert.True(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(Serial, lastConnectedBefore: ""));
             Assert.False(RadioConfig.LoadForRadio(Serial).WarnBeforeSliceRecordingOverwritten);
             Assert.Null(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
             // Spent: a second radio keeps its own default.
-            Assert.False(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten("1234-5678-8600-0990"));
+            Assert.False(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten("1234-5678-8600-0990", lastConnectedBefore: Serial));
             Assert.True(RadioConfig.LoadForRadio("1234-5678-8600-0990").WarnBeforeSliceRecordingOverwritten);
         }
         finally { RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = null; }

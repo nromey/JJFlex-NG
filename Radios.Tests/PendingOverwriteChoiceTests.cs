@@ -109,7 +109,7 @@ public sealed class PendingOverwriteChoiceTests : IDisposable
         Restart();
         RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = true;
         // A malformed serial is refused by the per-radio store; nothing is spent.
-        Assert.False(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten("not-a-serial"));
+        Assert.False(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten("not-a-serial", lastConnectedBefore: ""));
         Assert.True(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
     }
 
@@ -118,7 +118,7 @@ public sealed class PendingOverwriteChoiceTests : IDisposable
     {
         RadioConfig.PendingWarnStore = null;
         RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = false;
-        Assert.True(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(First));
+        Assert.True(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(First, lastConnectedBefore: ""));
         Assert.False(RadioConfig.LoadForRadio(First).WarnBeforeSliceRecordingOverwritten);
         Assert.Null(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
     }
@@ -146,10 +146,21 @@ public sealed class PendingOverwriteChoiceTests : IDisposable
             .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/'))
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
+        // Round 4: Settings no longer hands a choice to a connected radio. It
+        // saves one shown against the radio last connected through its own edit
+        // (SliceOverwriteSettingEdits.Commit), tested in JJFlexWpf.Tests.
         Assert.Equal(new[]
         {
-            "JJFlexWpf/SliceOverwriteSettingEdits.cs",   // only in its connected branch (tested in JJFlexWpf.Tests)
             "Radios/FlexBase.SliceRecorder.cs",          // the connect, and the gate's facts for a slice of ours
         }, callers);
+
+        // The retried connect is a connect too, and applies before it records the radio as last connected.
+        int retried = connect.IndexOf("Seed the 4.2-line discovery-chain cache on retry success too.", StringComparison.Ordinal);
+        Assert.True(retried > 0);
+        int retryApplied = connect.LastIndexOf("ApplyChoicesWaitingForAConnect(theRadio.Serial);", retried, StringComparison.Ordinal);
+        Assert.InRange(retried - retryApplied, 1, 200);
+        // And the first connect applies before it records the radio, too.
+        int recorded = connect.IndexOf("RecordConnectedRadioForCache();", applied, StringComparison.Ordinal);
+        Assert.True(recorded > applied);
     }
 }

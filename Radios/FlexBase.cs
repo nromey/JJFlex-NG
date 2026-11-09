@@ -3457,6 +3457,10 @@ namespace Radios
 
                     if (rv)
                     {
+                        // A retried connect is a connect: a waiting choice is
+                        // saved now, before the cache below records this radio
+                        // as the one last connected (#999 round 4).
+                        ApplyChoicesWaitingForAConnect(theRadio.Serial);
                         // Seed the 4.2-line discovery-chain cache on retry success too.
                         RecordConnectedRadioForCache();
                         sendConnectFence("RetryConnect");

@@ -37,12 +37,14 @@ public sealed class PendingOverwriteChoiceStoreTests : IDisposable
         Directory.CreateDirectory(_dir);
         RadioConfig.PendingWarnStore = null;
         RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = null;
+        LastConnectedRadioSettingTests.ForgetEveryConnect();
     }
 
     public void Dispose()
     {
         RadioConfig.PendingWarnStore = null;
         RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = null;
+        LastConnectedRadioSettingTests.ForgetEveryConnect();
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
@@ -103,10 +105,11 @@ public sealed class PendingOverwriteChoiceStoreTests : IDisposable
         Restart();
         RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = false;
 
-        // Settings refreshes with nothing connected; the roster's most recent
-        // sighting (or the radio last used) is offered as the target.
+        // Settings refreshes with nothing connected, after discovery has seen a
+        // radio. No radio has ever connected, so it names none (round 4, C3).
+        Assert.True(KnownRadioRoster.RecordSighting(Discovered, "seen on the LAN", "", false, ""));
         var edits = new SliceOverwriteSettingEdits();
-        string target = edits.ResolveTarget(connectedSerial: "", lastUsedOrSeenSerial: Discovered);
+        string target = edits.ResolveTarget(connectedSerial: "");
         Assert.Equal("", target);
         Assert.False(edits.Show(target, _ => throw new InvalidOperationException("no radio's config is read"),
             RadioConfig.PendingWarnBeforeSliceRecordingOverwritten));
@@ -124,10 +127,11 @@ public sealed class PendingOverwriteChoiceStoreTests : IDisposable
         NoiseReductionPerChannelTests.AssertWindowless();
         Restart();
         var edits = new SliceOverwriteSettingEdits();
-        Assert.True(edits.Show(edits.ResolveTarget("", ""), _ => true, null));
+        Assert.True(edits.Show(edits.ResolveTarget(""), _ => true, null));
         edits.Edit(false);
-        // A radio is discovered while Settings is open: the edit stays for the next radio connected.
-        string target = edits.ResolveTarget("", Discovered);
+        // A radio is discovered while Settings is open: the edit stays for the first radio that connects.
+        Assert.True(KnownRadioRoster.RecordSighting(Discovered, "seen on the LAN", "", false, ""));
+        string target = edits.ResolveTarget("");
         Assert.Equal("", target);
         Assert.False(edits.Show(target, _ => true, null));
         edits.Commit((_, _) => throw new InvalidOperationException("nothing is saved to a radio"),
@@ -141,15 +145,19 @@ public sealed class PendingOverwriteChoiceStoreTests : IDisposable
         NoiseReductionPerChannelTests.AssertWindowless();
         Restart();
         RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = false;
-        var edits = new SliceOverwriteSettingEdits();
-        Assert.Equal(Connected, edits.ResolveTarget(Connected, Discovered));
+        Assert.True(KnownRadioRoster.RecordSighting(Discovered, "seen on the LAN", "", false, ""));
+
+        // What the connect does (FlexBase.ApplyChoicesWaitingForAConnect), then records it.
+        Assert.True(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(Connected, KnownRadioRoster.LastConnectedSerial()));
+        LastConnectedRadioSettingTests.RecordConnect(Connected, DateTime.UtcNow);
         Assert.False(RadioConfig.LoadForRadio(Connected).WarnBeforeSliceRecordingOverwritten);
         Assert.Null(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
 
-        // Spent, across a restart: nothing waits, and the box names the radio last used again.
+        // Spent, across a restart: nothing waits, and the box names the radio last connected, not the one seen.
         Restart();
+        Assert.True(KnownRadioRoster.RecordSighting(Discovered, "seen again", "", false, ""));
         Assert.Null(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
-        Assert.Equal(Discovered, new SliceOverwriteSettingEdits().ResolveTarget("", Discovered));
+        Assert.Equal(Connected, new SliceOverwriteSettingEdits().ResolveTarget(""));
         Assert.True(RadioConfig.LoadForRadio(Discovered).WarnBeforeSliceRecordingOverwritten);
     }
 }

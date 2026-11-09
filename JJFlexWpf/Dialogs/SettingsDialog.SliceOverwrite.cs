@@ -19,11 +19,13 @@ namespace JJFlexWpf.Dialogs
     /// are intents: never hidden on connection state, queued and applied. The
     /// box is for one radio, named beside it and in its screen-reader help: the
     /// connected radio; with none connected, the radio this program last
-    /// connected to, else the radio most recently seen. With no radio ever used
-    /// it says it applies to the next radio connected, and a choice made then
-    /// waits for that radio (<see cref="RadioConfig.PendingWarnBeforeSliceRecordingOverwritten"/>),
-    /// across restarts, and is shown as long as it waits. Only a radio that
-    /// actually connects receives it (#999 round 3).
+    /// CONNECTED to, remembered across restarts
+    /// (<see cref="KnownRadioRoster.LastConnectedSerial"/>; ruled C2 and C3 by
+    /// Noel 2026-11-09, #999 round 4). A radio that was only discovered is never
+    /// named. Only when no radio has ever connected does it say it applies to the
+    /// first radio that connects, and a choice made then waits for that radio
+    /// (<see cref="RadioConfig.PendingWarnBeforeSliceRecordingOverwritten"/>),
+    /// across restarts, shown as long as it waits.
     /// </para>
     /// <para>
     /// <b>An edit is kept for the radio it was made for</b>, across a disconnect
@@ -63,28 +65,25 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Which radio the box is for (<see cref="SliceOverwriteSettingEdits.ResolveTarget"/>):
-        /// the connected one; else, while a choice waits for the next radio
-        /// connected, none; else the one this program last connected to; else the
-        /// one most recently seen; else none. Only the connected one may receive
-        /// a waiting choice.
+        /// Which radio the box is for, and its name
+        /// (<see cref="SliceOverwriteSettingEdits.ResolveTarget(string)"/>): the
+        /// connected one; else the one this program last connected to; else none,
+        /// the first radio that connects. The roster is read here for the NAME
+        /// only: which radio is decided by connects, never by sightings (C3).
         /// </summary>
         private (string Serial, string Name) WarnOverwriteTarget()
         {
             var rig = _rig;
             string connected = rig != null && rig.IsConnected ? rig.TakeAdmissionFactsNow().Serial ?? "" : "";
-            string lastUsed = rig?.SelectedRadioSerial ?? "";
+            string serial = _warnOverwriteEdits.ResolveTarget(connected);
+            if (string.IsNullOrEmpty(serial)) return ("", "");
             List<KnownRadioEntry> known;
-            try { known = KnownRadioRoster.Load(); }
+            try { known = KnownRadioRoster.Load(includeHidden: true); }
             catch (System.Exception ex)
             {
                 JJTrace.Tracing.TraceLine("Settings: known radios: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
                 known = new List<KnownRadioEntry>();
             }
-            if (string.IsNullOrEmpty(lastUsed))
-                lastUsed = known.OrderByDescending(e => e.LastSeenUtc).FirstOrDefault()?.Serial ?? "";
-            string serial = _warnOverwriteEdits.ResolveTarget(connected, lastUsed);
-            if (string.IsNullOrEmpty(serial)) return ("", "");
             var entry = known.FirstOrDefault(e => string.Equals(e.Serial, serial, System.StringComparison.OrdinalIgnoreCase));
             string name = entry == null ? serial
                 : !string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.DisplayName
@@ -123,6 +122,7 @@ namespace JJFlexWpf.Dialogs
                             System.Diagnostics.TraceLevel.Warning);
                     return saved;
                 },
-                warn => RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = warn);
+                warn => RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = warn,
+                () => RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = null);
     }
 }
