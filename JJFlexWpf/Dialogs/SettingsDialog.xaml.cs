@@ -1741,6 +1741,13 @@ namespace JJFlexWpf.Dialogs
 
             var said = CommitSummary(closing, pttDropped, holdRefused);
             string summary = Lexicon.Get(said.Key);
+            // OK closes the dialog, and Home's return announcement interrupts
+            // about 70 ms into the hold's sentence; the arbiter replays only
+            // what is still owed, which was this summary alone (the 2026-11-09
+            // harness). So on OK the hold's sentence is folded into the one
+            // final sentence, which is what survives the close (repair two).
+            if (closing && holdRefused)
+                summary = string.Join(" ", refused) + " " + summary;
             if (!closing)
             {
                 if (queued.Count > 0)
