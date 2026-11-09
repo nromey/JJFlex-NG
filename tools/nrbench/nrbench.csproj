@@ -33,6 +33,8 @@
     <Compile Include="..\..\JJPortaudio\JJPortaudio\LufsMeter.cs" Link="src\LufsMeter.cs" />
     <Compile Include="..\..\JJFlexWpf\EngineSettingDescriptor.cs" Link="src\EngineSettingDescriptor.cs" />
     <Compile Include="..\..\Radios\DenoiseEngineSettings.cs" Link="src\DenoiseEngineSettings.cs" />
+    <!-- #1019: NoiseReductionProvider's default Strength comes from the one source. -->
+    <Compile Include="..\..\Radios\NoiseFloor.cs" Link="src\NoiseFloor.cs" />
     <Compile Include="..\..\JJFlexWpf\IDenoiseEngine.cs" Link="src\IDenoiseEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\RnnoiseEngine.cs" Link="src\RnnoiseEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\DeepFilterNet3Engine.cs" Link="src\DeepFilterNet3Engine.cs" />

@@ -150,14 +150,18 @@ public sealed class NoiseControllerTests
     public void Levers_list_the_primary_first_and_Advanced_only_when_asked()
     {
         using var f = new NoiseFixture();
-        Assert.Equal(new[] { "strength", "reduction_db" }, f.Noise.Levers("nr4", false).Select(l => l.Key));
+        // #1019 (S2): NR4 leads with its own reduction and keeps the noise floor
+        // first among its Advanced levers; it led with Strength before the flip.
+        Assert.Equal(new[] { "reduction_db" }, f.Noise.Levers("nr4", false).Select(l => l.Key));
         var all = f.Noise.Levers("nr4", true).Select(l => l.Key).ToList();
-        Assert.Equal("strength", all[0]);
+        Assert.Equal("reduction_db", all[0]);
+        Assert.Equal("floor", all[1]);
         Assert.Contains("noise_estimator", all);
         Assert.Equal("listen_removed", all[^1]);
         Assert.Equal(new[] { "level" }, f.Noise.Levers("radio_nrl", true).Select(l => l.Key));
         Assert.Empty(f.Noise.Levers("radio_rnn", true));
-        Assert.Equal(new[] { "strength", "model", "mask_floor_db" }, f.Noise.Levers("nnr", false).Select(l => l.Key));
+        // #1019: NNR's first lever is its Depth, so the layer never starts on its model.
+        Assert.Equal(new[] { "mask_floor_db", "model" }, f.Noise.Levers("nnr", false).Select(l => l.Key));
     }
 
     [Fact]
@@ -207,12 +211,14 @@ public sealed class NoiseControllerTests
     }
 
     [Fact]
-    public void Strength_steps_by_five_percent()
+    public void The_noise_floor_steps_by_five_percent()
     {
+        // #1019: Strength 80 became a noise floor whose default is 10 (stored
+        // 0.9); Up raises it to 15, which stores 0.85.
         using var f = new NoiseFixture();
-        var strength = f.Noise.Levers("rnnoise", false)[0];
-        Assert.Equal(80, f.Noise.NumberOf(strength));
-        f.Noise.Adjust(strength, +1, "test");
+        var floor = f.Noise.Levers("rnnoise", false)[0];
+        Assert.Equal(10, f.Noise.NumberOf(floor));
+        f.Noise.Adjust(floor, +1, "test");
         Assert.Equal(0.85f, f.Pipeline.NeuralSlot.GetStrength("rnnoise"), 3);
     }
 
@@ -259,16 +265,17 @@ public sealed class NoiseControllerTests
     {
         using var f = new NoiseFixture();
         f.Noise.Toggle("nr4", "test");
-        var reduction = f.Noise.Levers("nr4", false)[1];
+        var reduction = f.Noise.Levers("nr4", false)[0];
         f.Noise.Adjust(reduction, +1, "test");
-        f.Noise.Adjust(f.Noise.Levers("nr4", false)[0], -1, "test");
+        f.Noise.Adjust(f.Noise.FloorLeverOf("nr4")!, +1, "test");
         f.Pipeline.SpectralSlot.TrySetSetting("nr4", "smoothing", new(0.25));
         f.Noise.ReturnToDefaults("nr4", "test");
         Assert.Equal(20, f.Pipeline.SpectralSlot.GetSetting("nr4", "reduction_db").Number);
         Assert.Equal(0.5, f.Pipeline.SpectralSlot.GetSetting("nr4", "smoothing").Number);
         Assert.Equal(1f, f.Pipeline.SpectralSlot.GetStrength("nr4"));
         Assert.True(f.Noise.IsOn("nr4"));
-        Assert.Equal("NR4 back to its defaults: strength 100 percent, reduction 20 decibels.", f.Spoken.Last);
+        // #1019: the floor is Advanced on NR4, so the sentence names only the main levers.
+        Assert.Equal("NR4 back to its defaults: reduction 20 decibels.", f.Spoken.Last);
         Assert.Equal(SpeechSubject.NoiseDefaults, f.Spoken.Said[^1].Subject);
 
         f.Noise.Toggle("nr4", "test");
@@ -437,7 +444,8 @@ public sealed class NoiseControllerTests
         f.Radio.Levels["radio_nrl"] = 8;
         f.Noise.Toggle("nnr", "test");
         f.Settle();
-        Assert.Equal("On the radio: Legacy NR, level 8. On this computer: NNR, Standard voice, depth 25 decibels.", f.Noise.ActiveSummary());
+        // #1019: NNR's levers lead with its Depth, so the summary reads them in that order.
+        Assert.Equal("On the radio: Legacy NR, level 8. On this computer: NNR, depth 25 decibels, Standard voice.", f.Noise.ActiveSummary());
         f.Spoken.Verbosity = VerbosityLevel.Terse;
         Assert.Equal("Radio: Legacy NR 8. Computer: NNR.", f.Noise.ActiveSummary());
     }
@@ -485,7 +493,7 @@ public sealed class NoiseControllerTests
         Assert.False(f.Pipeline.SpectralSlot.Enabled);
         Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.ChosenEngineId);
         Assert.True(f.Pipeline.NeuralSlot.Enabled);
-        Assert.Equal(0.8f, f.Pipeline.NeuralSlot.GetStrength("rnnoise"), 3);
+        Assert.Equal(0.9f, f.Pipeline.NeuralSlot.GetStrength("rnnoise"), 3); // #1019: the receive default is floor 10
         Assert.Empty(f.Config.NoiseFavourites);
     }
 
@@ -517,7 +525,7 @@ public sealed class NoiseControllerTests
         try
         {
             f.Noise.Toggle("nr4", "layer");
-            f.Noise.Adjust(f.Noise.Levers("nr4", false)[1], +1, "menu");
+            f.Noise.Adjust(f.Noise.Levers("nr4", false)[0], +1, "menu"); // #1019: NR4's own reduction is its first lever
             f.Noise.ReturnToDefaults("nr4", "home");
         }
         finally { NoiseSettingsJournal.Recorded -= Listen; }

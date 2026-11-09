@@ -52,10 +52,12 @@ namespace JJFlexWpf
         public bool Enabled { get; set; }
 
         /// <summary>
-        /// Wet/dry mix: 0.0 = original signal only, 1.0 = fully processed.
-        /// Default 0.8 to preserve some signal character.
+        /// Wet/dry mix: 0.0 = original signal only, 1.0 = fully processed. The
+        /// operator meets it as a noise floor (#1019; <see cref="Radios.NoiseFloor"/>).
+        /// Defaults to transmit RNNoise's default from the one source (floor 20),
+        /// since the transmit chain is this class's caller in the app.
         /// </summary>
-        public float Strength { get; set; } = 0.8f;
+        public float Strength { get; set; } = Radios.NoiseFloor.DefaultStrength("rnnoise", Radios.DenoiseDirection.Transmit);
 
         public WaveFormat WaveFormat => _waveFormat;
 

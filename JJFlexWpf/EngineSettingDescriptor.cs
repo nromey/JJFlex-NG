@@ -13,7 +13,13 @@ namespace JJFlexWpf
 
     public enum EngineSettingKind { Number, Choice }
     public readonly record struct EngineSettingValue(double Number, string? Choice = null);
-    public sealed record EngineSettingOption(string Name, string LabelKey);
+    /// <summary>
+    /// One option of a choice lever. <paramref name="Probe"/> (#1019) says whether
+    /// this option can run here, for an option that needs its own native file
+    /// (RNNoise's models): an option that cannot is still listed, marked with its
+    /// reason, never hidden (#726). Null for an option that is always available.
+    /// </summary>
+    public sealed record EngineSettingOption(string Name, string LabelKey, Func<Unavailability>? Probe = null);
 
     /// <summary>
     /// One lever an engine offers, as data every surface reads.

@@ -406,7 +406,15 @@ namespace JJFlexWpf
                 Say(L("audio.noise_surface.voice_model_back", ("model", ModelName(owed))), SpeechSubject.NoiseModeStart);
         }
 
+        /// <summary>
+        /// A model's spoken name, from whichever engine offers it: NNR's models
+        /// and, since #1019, RNNoise's (option names are distinct across engines,
+        /// so the first match is the only one). A name no engine offers is said as
+        /// it stands.
+        /// </summary>
         private string ModelName(string model) =>
-            DenoiseEngineCatalog.NnrMirror[0].Options!.FirstOrDefault(o => o.Name == model) is { } o ? Lexicon.Get(o.LabelKey) : model;
+            _catalog.Entries.SelectMany(e => e.Settings).Where(d => d.Name == "model" && d.Options != null)
+                .SelectMany(d => d.Options!).Concat(DenoiseEngineCatalog.NnrMirror[0].Options!)
+                .FirstOrDefault(o => o.Name == model) is { } o ? Lexicon.Get(o.LabelKey) : model;
     }
 }

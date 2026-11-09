@@ -241,7 +241,8 @@ public class TxConditioningSettings
     /// <summary>Schema version for forward migration.</summary>
     public int Version { get; set; } = 1;
     public bool NrEnabled { get; set; }
-    public float NrStrength { get; set; } = 0.8f;
+    /// <summary>The stored wet fraction, 0 to 1; shown as a noise floor (#1019). Default from the one source (<see cref="NoiseFloor.DefaultStrength"/>, transmit RNNoise, floor 20).</summary>
+    public float NrStrength { get; set; } = NoiseFloor.DefaultStrength("rnnoise", DenoiseDirection.Transmit);
     public bool GateEnabled { get; set; }
     public bool AutoThreshold { get; set; } = true;
     public float ThresholdMarginDb { get; set; } = 8f;

@@ -112,7 +112,7 @@ public sealed class NoisePresetTests
         var (f, store, chain) = Rig();
         using var _f = f;
         f.Noise.Toggle("nr4", "test");
-        f.Noise.Adjust(f.Noise.Levers("nr4", false)[1], +1, "test");
+        f.Noise.Adjust(f.Noise.Levers("nr4", false)[0], +1, "test"); // #1019: NR4's reduction leads
         Assert.Equal("Weak DX", f.Noise.SavePreset("Weak DX", includeNoise: true, includeChain: false, PresetCollision.Ask, "test"));
         Assert.Equal("Preset Weak DX saved, receive noise reduction only.", f.Spoken.Last);
         var saved = store.Store.NoisePresets.Single(p => p.Name == "Weak DX");

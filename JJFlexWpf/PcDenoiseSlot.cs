@@ -148,13 +148,26 @@ namespace JJFlexWpf
             }
         }
 
-        private Parameters ParametersFor(string id) => _settings.GetOrAdd(id,
-            key => new Parameters(key == "rnnoise" ? 0.8f : 1f, new Dictionary<string, EngineSettingValue>()));
+        /// <summary>
+        /// An engine's stored parameters, or its defaults read live when nobody
+        /// has touched it (#1019). Reading stores NOTHING: until Sprint 49 Track S
+        /// this was a GetOrAdd, so the first read wrote the default into the
+        /// store, every setup saved it, and a new default could never reach an
+        /// engine the operator had never touched.
+        /// </summary>
+        private Parameters ParametersFor(string id) =>
+            _settings.TryGetValue(id, out var p) ? p : DefaultParameters(id);
+
+        /// <summary>An untouched engine's parameters: its default Strength from the one source, no values.</summary>
+        private Parameters DefaultParameters(string id) =>
+            new(NoiseFloor.DefaultStrength(id, Direction), new Dictionary<string, EngineSettingValue>());
+
+        /// <summary>The stored wet fraction, 0 to 1. Surfaces show it as a noise floor through <see cref="NoiseController"/>'s lever, never by their own arithmetic.</summary>
         public float GetStrength(string id) => ParametersFor(id).Strength;
         public void SetStrength(string id, float value)
         {
             if (!float.IsFinite(value)) return;
-            _settings.AddOrUpdate(id, _ => new Parameters(Math.Clamp(value, 0, 1), new Dictionary<string, EngineSettingValue>()),
+            _settings.AddOrUpdate(id, key => DefaultParameters(key) with { Strength = Math.Clamp(value, 0, 1) },
                 (_, p) => p with { Strength = Math.Clamp(value, 0, 1) });
         }
         public IReadOnlyList<EngineSettingDescriptor> SettingsFor(string id)
@@ -174,7 +187,11 @@ namespace JJFlexWpf
         {
             var descriptor = SettingsFor(id).FirstOrDefault(s => s.Name == name);
             if (descriptor == null || !descriptor.Accepts(value)) return false;
-            _settings.AddOrUpdate(id, _ => new Parameters(1, new Dictionary<string, EngineSettingValue> { [name] = value }),
+            // A first setting on an untouched engine keeps its default Strength
+            // (#1019): this used to create the entry at Strength 1 whatever the
+            // engine, so choosing RNNoise's model on a fresh setup would have
+            // silently set its floor to 0.
+            _settings.AddOrUpdate(id, key => DefaultParameters(key) with { Values = new Dictionary<string, EngineSettingValue> { [name] = value } },
                 (_, p) => p with { Values = new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value } });
             // A rebuild setting (a new delay, or NR4's estimator) only takes
             // effect in a new instance, built under the warm-up cross-fade.

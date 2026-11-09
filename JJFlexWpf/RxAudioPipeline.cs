@@ -94,7 +94,7 @@ namespace JJFlexWpf
             set => NeuralSlot.Enabled = value;
         }
 
-        /// <summary>RNNoise wet/dry mix: 0.0 = bypass, 1.0 = fully processed. Default 0.8.</summary>
+        /// <summary>RNNoise wet/dry mix: 0.0 = bypass, 1.0 = fully processed. Default from <see cref="NoiseFloor.DefaultStrength"/> (floor 10, stored 0.9).</summary>
         public float RnnStrength
         {
             get => NeuralSlot.GetStrength("rnnoise");

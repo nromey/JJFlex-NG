@@ -73,8 +73,15 @@ namespace JJFlexWpf
         Func<Unavailability>? Probe = null, RadioCapability? Capability = null,
         Func<FlexBase, OffOnValues>? ReadRadio = null, Action<FlexBase, OffOnValues>? WriteRadio = null,
         IReadOnlyList<EngineSettingDescriptor>? SettingDescriptors = null,
-        DenoiseGroup Group = DenoiseGroup.NoiseReduction, RadioLevelSpec? Level = null, bool CwOnly = false)
+        DenoiseGroup Group = DenoiseGroup.NoiseReduction, RadioLevelSpec? Level = null, bool CwOnly = false,
+        string? ReductionSetting = null)
     {
+        // ReductionSetting (#1019, S2 confirmed by Noel 2026-11-09 16:43): the
+        // name of the computer engine's OWN reduction setting, when it has one
+        // (DeepFilterNet3's limit, NR4's reduction, NNR's Depth, Captured noise's
+        // amount). Such an engine shows that setting first and keeps the noise
+        // floor in Advanced, default 0; an engine without one (RNNoise, NR2)
+        // shows the floor first among its main controls.
         public IReadOnlyList<EngineSettingDescriptor> Settings => SettingDescriptors ?? Array.Empty<EngineSettingDescriptor>();
         public bool Serves(DenoiseDirection direction) => Directions.Contains(direction);
         public Unavailability Availability() => Probe?.Invoke() ?? Unavailability.LibraryMissing;
@@ -258,16 +265,18 @@ namespace JJFlexWpf
                 SettingDescriptors: Nr2Mirror);
             yield return new("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr4", Both,
                 initial => new SpecbleachEngine(initial, estimator: SpecbleachEngine.EstimatorFrom(initial)),
-                SpecbleachEngine.Probe, SettingDescriptors: SpecbleachEngine.SettingDescriptors);
+                SpecbleachEngine.Probe, SettingDescriptors: SpecbleachEngine.SettingDescriptors, ReductionSetting: "reduction_db");
             yield return new("spectral_capture", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.spectral_capture", Receive,
-                _ => new SpectralCaptureEngine(), () => Unavailability.None, SettingDescriptors: SpectralCaptureEngine.SettingDescriptors);
+                _ => new SpectralCaptureEngine(), () => Unavailability.None, SettingDescriptors: SpectralCaptureEngine.SettingDescriptors,
+                ReductionSetting: "subtraction_amount");
             yield return new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.rnnoise", Both,
                 _ => new RnnoiseEngine(), ProbeRnnoise);
             yield return new("deepfilternet3", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.deepfilternet3", Both,
-                initial => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors);
+                initial => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors,
+                ReductionSetting: "attenuation_limit_db");
             yield return new("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr", Both,
                 initial => new WdspHelperEngine("nnr", DenoiseDirection.Receive, initial), () => WdspHelperEngine.Probe("nnr"),
-                SettingDescriptors: NnrMirror);
+                SettingDescriptors: NnrMirror, ReductionSetting: "mask_floor_db");
             // Track G (#768) builds NVIDIA NR. Until then the row is listed,
             // marked and self-explaining, and has no factory.
             yield return new("nvidia_afx", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nvidia_afx", Both,

@@ -81,7 +81,10 @@ namespace JJFlexWpf
         }
 
         internal static NoiseReductionProvider CreateNoiseReductionProvider() =>
-            new NoiseReductionProvider(48000, 2, () => new RnnoiseEngine()) { Enabled = false, Strength = 0.8f };
+            new NoiseReductionProvider(48000, 2, () => new RnnoiseEngine()) { Enabled = false, Strength = DefaultNrStrength };
+
+        /// <summary>Transmit RNNoise's stored default (floor 20, ruled S3), from the one source.</summary>
+        internal static float DefaultNrStrength => NoiseFloor.DefaultStrength("rnnoise", DenoiseDirection.Transmit);
 
         /// <summary>Unhook from the rig and release the monitor device.</summary>
         public static void Detach()
@@ -199,13 +202,15 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// NR strength, 0..1 wet/dry. LIVE while monitoring — hear your own
-        /// voice in the residual, turn this down, hear it gone. That loop is
-        /// the whole point of the residual monitor.
+        /// NR strength, 0..1 wet/dry, stored as it always was; the operator
+        /// meets it as a noise floor (#1019, <see cref="NoiseFloor"/>). LIVE
+        /// while monitoring — hear your own voice in the residual, raise the
+        /// floor, hear it gone. That loop is the whole point of the residual
+        /// monitor.
         /// </summary>
         public static float NrStrength
         {
-            get { return _nr?.Strength ?? 0.8f; }
+            get { return _nr?.Strength ?? DefaultNrStrength; }
             set { var nr = _nr; if (nr != null) nr.Strength = Math.Clamp(value, 0f, 1f); }
         }
 

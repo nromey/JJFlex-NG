@@ -67,7 +67,8 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
         Content = panel;
 
         // === The computer's two slots, in the same shape as Home's (Sprint 49
-        // Track E, E11): each slot's engine, its On, its Strength, so this
+        // Track E, E11): each slot's engine, its On, its noise floor (#1019; it
+        // was Strength until Sprint 49 Track S), so this
         // window cannot disagree with the expander. Then Captured noise's own
         // two levers, since this is its window. "Apply Recommended Levels" is
         // gone: it is the "Balanced capture" preset now (ruled, departure D3).
@@ -76,15 +77,17 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
         _spectralEngine = AddEngineField(panel, Lexicon.Get("audio.noise_profiles_window.spectral_engine"), DenoiseFamily.Spectral, out _spectralIds);
         _subCheck = AddToggle(panel, Lexicon.Get("audio.noise_profiles_window.spectral_on"),
             on => _noise?.Quietly(() => _noise.SetSlotOn(DenoiseFamily.Spectral, on, "noise profiles")));
-        _subStrength = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.spectral_strength"), 0, 100, 5,
-            SlotStrength(DenoiseFamily.Spectral), "%",
-            v => SetSlotStrength(DenoiseFamily.Spectral, v));
+        _subStrength = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.spectral_noise_floor"), NoiseFloor.Min, NoiseFloor.Max, NoiseFloor.Step,
+            SlotFloor(DenoiseFamily.Spectral), "%",
+            v => SetSlotFloor(DenoiseFamily.Spectral, v));
+        _subStrength.UpLowers = !NoiseController.UpRaisesFloor;
         _neuralEngine = AddEngineField(panel, Lexicon.Get("audio.noise_profiles_window.neural_engine"), DenoiseFamily.Neural, out _neuralIds);
         _rnnCheck = AddToggle(panel, Lexicon.Get("audio.noise_profiles_window.neural_on"),
             on => _noise?.Quietly(() => _noise.SetSlotOn(DenoiseFamily.Neural, on, "noise profiles")));
-        _rnnStrength = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.neural_strength"), 0, 100, 5,
-            SlotStrength(DenoiseFamily.Neural), "%",
-            v => SetSlotStrength(DenoiseFamily.Neural, v));
+        _rnnStrength = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.neural_noise_floor"), NoiseFloor.Min, NoiseFloor.Max, NoiseFloor.Step,
+            SlotFloor(DenoiseFamily.Neural), "%",
+            v => SetSlotFloor(DenoiseFamily.Neural, v));
+        _rnnStrength.UpLowers = !NoiseController.UpRaisesFloor;
         _subFloor = AddValue(panel, Lexicon.Get("audio.noise_profiles_window.captured_amount"), 0, 100, 1,
             PercentOf(_pipeline?.SpectralStrength ?? 0.7f), "%",
             v => { if (_pipeline != null) _pipeline.SpectralStrength = v / 100f; });
@@ -299,18 +302,28 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
         return field;
     }
 
-    private int SlotStrength(DenoiseFamily family)
-    {
-        var slot = family == DenoiseFamily.Spectral ? _pipeline?.SpectralSlot : _pipeline?.NeuralSlot;
-        return slot == null ? 100 : PercentOf(slot.GetStrength(slot.ChosenEngineId));
-    }
+    private PcDenoiseSlot? SlotOf(DenoiseFamily family) => family == DenoiseFamily.Spectral ? _pipeline?.SpectralSlot : _pipeline?.NeuralSlot;
 
-    private void SetSlotStrength(DenoiseFamily family, int percent)
+    private int SlotFloor(DenoiseFamily family) => FloorFor(_noise, SlotOf(family));
+
+    private void SetSlotFloor(DenoiseFamily family, int floor) => SetFloorFor(_noise, SlotOf(family), floor);
+
+    /// <summary>
+    /// The chosen engine's noise floor, read through the controller's lever, never
+    /// by arithmetic of this window's own (#1019). The lever is looked up WITH the
+    /// Advanced ones, because on DeepFilterNet3, NR4, NNR and Captured noise the
+    /// floor lives in Advanced (S2): looked up without them, this window found no
+    /// lever, wrote nothing, and still showed a number.
+    /// </summary>
+    internal static int FloorFor(NoiseController? noise, PcDenoiseSlot? slot) =>
+        slot != null && noise?.FloorLeverOf(slot.ChosenEngineId) is { } lever && noise.NumberOf(lever) is double floor
+            ? (int)floor : NoiseFloor.Min;
+
+    /// <summary>Write the chosen engine's noise floor through the controller, quietly (the field speaks its own value).</summary>
+    internal static void SetFloorFor(NoiseController? noise, PcDenoiseSlot? slot, int floor)
     {
-        var slot = family == DenoiseFamily.Spectral ? _pipeline?.SpectralSlot : _pipeline?.NeuralSlot;
-        if (slot == null || _noise == null) return;
-        var lever = _noise.Levers(slot.ChosenEngineId, false).FirstOrDefault(l => l.Kind == NoiseLeverKind.Strength);
-        if (lever != null) _noise.Quietly(() => _noise.Set(lever, percent, null, "noise profiles"));
+        if (slot == null || noise?.FloorLeverOf(slot.ChosenEngineId) is not { } lever) return;
+        noise.Quietly(() => noise.Set(lever, floor, null, "noise profiles"));
     }
 
     private void LoadSelected()
@@ -482,9 +495,9 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
         try
         {
             SyncToggle(_rnnCheck, _pipeline.RnnEnabled);
-            SyncValue(_rnnStrength, SlotStrength(DenoiseFamily.Neural));
+            SyncValue(_rnnStrength, SlotFloor(DenoiseFamily.Neural));
             SyncToggle(_subCheck, _pipeline.SpectralEnabled);
-            SyncValue(_subStrength, SlotStrength(DenoiseFamily.Spectral));
+            SyncValue(_subStrength, SlotFloor(DenoiseFamily.Spectral));
             SyncValue(_subFloor, PercentOf(_pipeline.SpectralStrength));
             SyncValue(_capturedFloor, PercentOf(_pipeline.SpectralFloor));
             SyncEngine(_spectralEngine, _spectralIds, DenoiseFamily.Spectral);

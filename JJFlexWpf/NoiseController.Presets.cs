@@ -181,12 +181,12 @@ namespace JJFlexWpf
                 }
         }
 
-        /// <summary>An engine's Strength and every setting as words, for the before-and-after of a preset.</summary>
+        /// <summary>An engine's noise floor and every setting as words, for the before-and-after of a preset (#1019: the floor, never the stored Strength).</summary>
         private Dictionary<string, string> SettingValues(PcDenoiseSlot slot, string engineId)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);
             if (_catalog.Find(engineId) is not { Side: DenoiseSide.Pc } e || e.Family != slot.Family) return values;
-            values["strength"] = Pct(slot.GetStrength(engineId));
+            values[FloorKey] = FloorText(slot.GetStrength(engineId));
             foreach (var d in slot.SettingsFor(engineId))
                 values[d.Name] = Describe(slot.GetSetting(engineId, d.Name));
             return values;
@@ -196,8 +196,8 @@ namespace JJFlexWpf
         private string? SettingPhrase(PcDenoiseSlot slot, string engineId, string name)
         {
             if (_catalog.Find(engineId) is not { } e) return null;
-            var lever = name == "strength"
-                ? new NoiseLever(engineId, "strength", "audio.noise_surface.lever.strength", NoiseLeverKind.Strength)
+            var lever = name == FloorKey
+                ? FloorLeverOf(engineId)
                 : e.Settings.FirstOrDefault(d => d.Name == name) is { } d ? new NoiseLever(engineId, d.Name, d.LabelKey, NoiseLeverKind.Setting, d) : null;
             if (lever == null) return null;
             return L("audio.noise_surface.phrase_setting", ("engine", Lexicon.Get(e.LabelKey)),

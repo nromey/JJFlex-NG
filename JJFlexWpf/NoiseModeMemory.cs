@@ -22,8 +22,15 @@ namespace JJFlexWpf
         public string? Model { get; set; }
         public string Name { get; set; } = "";
 
+        /// <summary>
+        /// Whether this favourite is the engine in that model. A favourite saved
+        /// with no model matches the engine in whatever model it is set to (#1019):
+        /// RNNoise favourites were saved before RNNoise had a model, and adding the
+        /// model must not quietly stop them matching.
+        /// </summary>
         public bool SameAs(string engineId, string? model) =>
-            string.Equals(EngineId, engineId, StringComparison.Ordinal) && string.Equals(Model ?? "", model ?? "", StringComparison.Ordinal);
+            string.Equals(EngineId, engineId, StringComparison.Ordinal)
+            && (string.IsNullOrEmpty(Model) || string.Equals(Model, model ?? "", StringComparison.Ordinal));
     }
 
     /// <summary>One computer slot as a mode group remembers it: on or off, and which engine.</summary>

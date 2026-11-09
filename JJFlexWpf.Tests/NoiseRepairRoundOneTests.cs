@@ -204,9 +204,9 @@ public sealed class NoiseRepairRoundOneTests
         using var f = new NoiseFixture();
         f.Noise.PresetStore = new MemoryPresets();
         f.Noise.Toggle("rnnoise", "test");
-        Assert.NotNull(f.Noise.SavePreset("Gentle", true, false, PresetCollision.Ask, "test"));   // strength 80
-        var strength = f.Noise.Levers("rnnoise", false)[0];
-        f.Noise.Set(strength, 50, null, "test");
+        Assert.NotNull(f.Noise.SavePreset("Gentle", true, false, PresetCollision.Ask, "test"));   // noise floor 10 (#1019)
+        var floor = f.Noise.Levers("rnnoise", false)[0];
+        f.Noise.Set(floor, 50, null, "test");
 
         var entries = new List<NoiseJournalEntry>();
         void Listen(NoiseJournalEntry e) { lock (entries) entries.Add(e); }
@@ -214,13 +214,15 @@ public sealed class NoiseRepairRoundOneTests
         try { f.Noise.ApplyPreset("Gentle", "test"); }
         finally { NoiseSettingsJournal.Recorded -= Listen; }
 
-        Assert.Equal(0.8f, f.Pipeline.NeuralSlot.GetStrength("rnnoise"), 3);
-        Assert.Equal("Gentle preset: RNNoise strength, 80 percent.", f.Spoken.Last);
+        // #1019: the preset held the new default (floor 10, stored 0.9) and says
+        // the floor, never the stored Strength. The lever's name is Codex's to word.
+        Assert.Equal(0.9f, f.Pipeline.NeuralSlot.GetStrength("rnnoise"), 3);
+        Assert.Equal("Gentle preset: RNNoise " + Radios.Lexicon.Get(NoiseController.FloorLabelKey).ToLowerInvariant() + ", 10 percent.", f.Spoken.Last);
         Assert.DoesNotContain("nothing to change", f.Spoken.Last);
         lock (entries)
         {
             var applied = Assert.Single(entries, e => e.Kind == NoiseJournalKind.PresetApplied && e.Source == "test");
-            Assert.Contains(applied.Changes, c => c.EngineId == "rnnoise" && c.Setting == "strength" && c.OldValue == "50" && c.NewValue == "80");
+            Assert.Contains(applied.Changes, c => c.EngineId == "rnnoise" && c.Setting == "floor" && c.OldValue == "50" && c.NewValue == "10");
         }
     }
 
