@@ -18,8 +18,21 @@ namespace JJFlexWpf.Dialogs
     /// affordance, never two rows: screen-reader users arrow this list, and two
     /// rows carrying the same nickname read as two radios.</para>
     /// </summary>
-    public class RadioListItem : Radios.IRosterOrderKey
+    public class RadioListItem : Radios.IRosterOrderKey, INotifyPropertyChanged
     {
+        /// <summary>
+        /// Raised for <see cref="DisplayText"/> by the list's refresh, so the
+        /// row's printed text and its accessible name, both bound to it, follow
+        /// the row (#1008). <see cref="DisplayText"/> is computed from a dozen
+        /// fields that change in many places; the refresh is the one place
+        /// every such change reaches the list, so it says so there.
+        /// </summary>
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        /// <summary>The row's text may have changed: re-read it.</summary>
+        internal void NotifyDisplayTextChanged() =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayText)));
+
         public string Serial { get; set; } = "";
 
         /// <summary>The radio's name as OBSERVED — its own broadcast
@@ -2518,6 +2531,15 @@ namespace JJFlexWpf.Dialogs
                 if (reorder) ReorderLocked();
             }
 
+            // Every row's text is re-read where it is shown and named (#1008).
+            // The comparison below cannot see a row whose text changed in
+            // place (it compares each row with itself), so without this the
+            // printed text kept whatever it said when its container was made.
+            List<RadioListItem> rows;
+            lock (_radiosLock) rows = _radiosList.ToList();
+            foreach (var row in rows) row.NotifyDisplayTextChanged();
+
+            bool unchanged = false;
             lock (_radiosLock)
             {
                 if (RadiosBox.Items.Count == _radiosList.Count)
@@ -2533,9 +2555,17 @@ namespace JJFlexWpf.Dialogs
                             break;
                         }
                     }
-                    if (identical)
-                        return;
+                    unchanged = identical;
                 }
+            }
+            if (unchanged)
+            {
+                // The rows are the same rows in the same order, but one may
+                // have gone offline or come back: the list's "{count} listed,
+                // {live} online" name is recomputed whatever (#1008). It used
+                // to return here and keep the old count until a rebuild.
+                UpdateListAutomationName();
+                return;
             }
 
             var selectedSerial = (RadiosBox.SelectedItem as RadioListItem)?.Serial;
@@ -2628,6 +2658,25 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void UpdateListAutomationName()
         {
+            // The rule every counted list follows (ListNaming): renamed at
+            // once unless the list ITSELF holds focus with rows in it, where a
+            // rename would be spoken over the app's own refresh (#555); then
+            // owed, and paid when that focus moves on.
+            if (!ListNaming.RenameNow(RadiosBox.IsKeyboardFocused, _listNamingOnFocus, RadiosBox.Items.Count))
+            {
+                _listNameOwed = true;
+                return;
+            }
+            _listNameOwed = false;
+            System.Windows.Automation.AutomationProperties.SetName(RadiosBox, ListAutomationName());
+        }
+
+        private bool _listNamingOnFocus;
+        private bool _listNameOwed;
+
+        /// <summary>The list's accessible name for the rows it holds now.</summary>
+        private string ListAutomationName()
+        {
             int count = RadiosBox.Items.Count;
             int live = LiveCount();
 
@@ -2648,7 +2697,7 @@ namespace JJFlexWpf.Dialogs
                     ("count", count), ("live", live));
             }
 
-            System.Windows.Automation.AutomationProperties.SetName(RadiosBox, name);
+            return name;
         }
 
         private RadioListItem? GetSelectedRadio()
@@ -4500,7 +4549,11 @@ namespace JJFlexWpf.Dialogs
                 }), DispatcherPriority.Input);
             }
 
-            UpdateRadioListAccessibility();
+            // Named on the way in, where a rename is part of the arrival and
+            // not a second announcement (ListNaming).
+            _listNamingOnFocus = true;
+            try { UpdateRadioListAccessibility(); }
+            finally { _listNamingOnFocus = false; }
         }
 
         private void UpdateRadioListAccessibility()
@@ -4546,9 +4599,10 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            // Deliberately SILENT. RadioListItem.ToString() returns DisplayText,
-            // so the ListBox item's accessible name is already that exact
-            // string — the screen reader announces the row on every arrow, and
+            // Deliberately SILENT. Each ListBoxItem's accessible name is bound
+            // to the row's DisplayText (the ItemContainerStyle in the XAML,
+            // the same source as the printed text since #1008), so it is
+            // already that exact string — the screen reader announces the row on every arrow, and
             // announces "N of M" for list items by itself. Speaking it again
             // here meant hearing each row twice, which is what Noel reported on
             // 2026-08-17 ("still seeing double speaking as I arrow").
@@ -4566,6 +4620,13 @@ namespace JJFlexWpf.Dialogs
         private void RadiosBox_LostFocus(object sender, RoutedEventArgs e)
         {
             ConnectButton.IsDefault = false;
+            // A name owed while the list itself held focus is paid as that
+            // focus moves on, to a row or away (ListNaming, #1008).
+            if (ReferenceEquals(e.OriginalSource, RadiosBox) && _listNameOwed)
+            {
+                _listNameOwed = false;
+                System.Windows.Automation.AutomationProperties.SetName(RadiosBox, ListAutomationName());
+            }
         }
 
         private void GlobalAutoConnectCheckbox_Changed(object sender, RoutedEventArgs e)
@@ -4616,8 +4677,9 @@ namespace JJFlexWpf.Dialogs
 
             SyncPathAffordance();
 
-            // Deliberately SILENT on arrow keys. RadioListItem.ToString()
-            // returns DisplayText and the ListBox has no ItemTemplate, so the
+            // Deliberately SILENT on arrow keys. The item's accessible name is
+            // bound to the row's DisplayText (the ItemContainerStyle in the
+            // XAML; the ItemTemplate prints the same binding), so the
             // item's accessible name IS that string — the screen reader
             // announces it, and announces "N of M" position, by itself. This
             // spoke the identical sentence on top of that, which is the double
@@ -4636,8 +4698,8 @@ namespace JJFlexWpf.Dialogs
             //
             // If arrow keys ever go quiet again, the answer is NOT to restore
             // this Speak. It is that the item's accessible name broke — check
-            // ToString() and that no ItemTemplate was added without an
-            // AutomationProperties.Name on it.
+            // the ItemContainerStyle's AutomationProperties.Name binding to
+            // DisplayText, and that the row still raises its DisplayText change.
         }
 
         private void AutoConnectButton_Click(object sender, RoutedEventArgs e)

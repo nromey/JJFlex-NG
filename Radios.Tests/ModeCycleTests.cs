@@ -314,6 +314,30 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// The Slice menu's Mode rows are built when the menu is rebuilt, so a
+        /// mode list that arrives later leaves them on the documented set (DSB
+        /// on an 8600 that has none). The click asks the radio's list again,
+        /// as SetMode does, and refuses a mode it has not listed before
+        /// anything is written.
+        /// </summary>
+        [Fact]
+        public void The_Mode_menu_asks_the_radios_list_again_before_it_writes()
+        {
+            string menu = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "NativeMenuBar.cs"));
+            int sub = menu.IndexOf("var modeSub = AddSubmenu(slice, \"Mode\");", StringComparison.Ordinal);
+            Assert.True(sub >= 0, "the Mode submenu moved");
+            int write = menu.IndexOf("Rig.Mode = m;", sub, StringComparison.Ordinal);
+            Assert.True(write > sub, "the Mode row no longer writes Rig.Mode");
+            string click = menu.Substring(sub, write - sub);
+            int ask = click.IndexOf("if (!Radios.ModeCycle.Contains(Radios.ModeCycle.KnownModes(Rig.RadioModeList), m))",
+                StringComparison.Ordinal);
+            Assert.True(ask >= 0, "the Mode row writes without asking the radio's list again");
+            int refuse = click.IndexOf("\"settings.mode.not_on_radio\"", ask, StringComparison.Ordinal);
+            int ret = click.IndexOf("return;", ask, StringComparison.Ordinal);
+            Assert.True(refuse > ask && ret > refuse, "a mode the radio has not listed must be refused, said, and not written");
+        }
+
+        /// <summary>
         /// Codex B2 on 4ffb2106: a saved cycle of USB and DSB on the 8600
         /// (no DSB) leaves one mode on this radio, and Alt+M on USB said "USB
         /// is the only mode in the cycle" while the cycle held two. It now says

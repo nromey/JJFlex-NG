@@ -137,6 +137,106 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // The four moved onto one step (junk box 2026-11-08): refused under
+        // the hold, nothing sent; written with the hold off.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void The_front_panel_display_is_refused_under_the_hold()
+        {
+            var rig = Rig();
+            string before = rig.Rig.FrontPanelDisplayMode;
+            string other = Enum.GetNames(typeof(Flex.Smoothlake.FlexLib.ScreensaverMode)).First(n => n != before);
+            int sent = rig.Vendor.Transport.Commands.Count;
+            rig.Rig.SetChangeNothingActive(true);
+            rig.Rig.FrontPanelDisplayMode = other;
+            Assert.Equal(before, rig.Rig.FrontPanelDisplayMode);
+            Assert.Equal(sent, rig.Vendor.Transport.Commands.Count);
+
+            rig.Rig.SetChangeNothingActive(false);
+            rig.Rig.FrontPanelDisplayMode = other;                   // control
+            Assert.Equal(other, rig.Rig.FrontPanelDisplayMode);
+            Assert.Contains(rig.Vendor.Transport.Commands.Skip(sent), c => c.StartsWith("radio screensaver", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void Which_connections_the_radio_accepts_is_refused_under_the_hold()
+        {
+            var rig = Rig();
+            bool before = rig.Rig.EnforcePrivateIPConnections;
+            int sent = rig.Vendor.Transport.Commands.Count;
+            rig.Rig.SetChangeNothingActive(true);
+            rig.Rig.EnforcePrivateIPConnections = !before;
+            Assert.Equal(before, rig.Rig.EnforcePrivateIPConnections);
+            Assert.Equal(sent, rig.Vendor.Transport.Commands.Count);
+
+            rig.Rig.SetChangeNothingActive(false);
+            rig.Rig.EnforcePrivateIPConnections = !before;           // control
+            Assert.Equal(!before, rig.Rig.EnforcePrivateIPConnections);
+            Assert.Contains(rig.Vendor.Transport.Commands.Skip(sent), c => c.Contains("enforce_private_ip_connections"));
+        }
+
+        [Fact]
+        public void Port_forwarding_is_refused_under_the_hold_and_says_so_to_its_caller()
+        {
+            var rig = Rig();
+            int sent = rig.Vendor.Transport.Commands.Count;
+            rig.Rig.SetChangeNothingActive(true);
+            Assert.False(rig.Rig.SetSmartLinkPortForwarding(true, 4994, 4993));
+            Assert.Equal(sent, rig.Vendor.Transport.Commands.Count);
+
+            rig.Rig.SetChangeNothingActive(false);
+            Assert.True(rig.Rig.SetSmartLinkPortForwarding(true, 4994, 4993));   // control
+            Assert.Contains(rig.Vendor.Transport.Commands.Skip(sent), c => c.StartsWith("wan set public_tls_port=4994", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void A_static_address_and_a_return_to_DHCP_are_refused_under_the_hold_and_leave_no_listener()
+        {
+            var rig = Rig();
+            var radio = rig.Vendor.Radio;
+            // Both ask FlexBase.IsConnected first; the fixture's radio is
+            // attached but the connect sequence never ran, so say it did.
+            typeof(FlexBase).GetField("_IsConnected", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(rig.Rig, true);
+            Assert.True(rig.Rig.IsConnected);
+            int sent = rig.Vendor.Transport.Commands.Count;
+            rig.Rig.SetChangeNothingActive(true);
+            Assert.False(rig.Rig.ApplyStaticIp("192.168.1.50", "192.168.1.1", "255.255.255.0", () => { }, () => { }));
+            Assert.False(rig.Rig.RevertToDhcp(() => { }, () => { }));
+            Assert.Equal(sent, rig.Vendor.Transport.Commands.Count);
+            Assert.Null(radio.StaticIPSetSuccessful);
+            Assert.Null(radio.StaticIPSetFailed);
+            Assert.Null(radio.DHCPSetSuccessful);
+            Assert.Null(radio.DHCPSetFailed);
+
+            rig.Rig.SetChangeNothingActive(false);
+            // Control: the same calls with the hold off reach the radio.
+            Assert.True(rig.Rig.ApplyStaticIp("192.168.1.50", "192.168.1.1", "255.255.255.0", () => { }, () => { }));
+            Assert.True(rig.Rig.RevertToDhcp(() => { }, () => { }));
+            var after = rig.Vendor.Transport.Commands.Skip(sent).ToList();
+            Assert.Contains(after, c => c.StartsWith("radio static_net_params ip=192.168.1.50", StringComparison.Ordinal));
+            Assert.Contains(after, c => c == "radio static_net_params reset");
+        }
+
+        /// <summary>
+        /// Every action phrase completes "did not {action}", so it is a plain
+        /// verb: "did not changing full duplex" was spoken until 2026-11-08.
+        /// </summary>
+        [Fact]
+        public void Every_refusal_action_completes_did_not()
+        {
+            Lexicon.Load(Lexicon.Partitions);
+            var keys = Lexicon.Keys.Where(k => k.StartsWith("settings.guard.action.", StringComparison.Ordinal)).ToList();
+            Assert.True(keys.Count >= 15, "found " + keys.Count + " action phrases; the scan is not reading the store");
+            foreach (string key in keys)
+            {
+                string first = Lexicon.Get(key).Split(' ')[0];
+                Assert.False(first.EndsWith("ing", StringComparison.Ordinal), key + " reads \"did not " + Lexicon.Get(key) + "\"");
+            }
+        }
+
+        // ------------------------------------------------------------------
         // A queued operator write asks the hold again at its write (#976,
         // repair one, Codex B1): pressed with the hold off, the hold armed
         // while it waits in the queue, it sends nothing when it runs.
@@ -234,66 +334,74 @@ namespace Radios.Tests
 
         /// <summary>
         /// Every operator refusal still made with <c>GuardRefuses</c> (check,
-        /// then act) is one that cannot be a single step with the hold, or one
-        /// #976 did not cover, and is named here with its reason. A new one
-        /// fails until it is moved onto <c>OperatorWriteUnlessHeld</c> or added
-        /// here with a reason.
+        /// then act) is one that cannot be a single step with the hold, and is
+        /// named here with its reason and HOW MANY such calls its file holds.
+        /// A new one fails until it is moved onto <c>OperatorWriteUnlessHeld</c>
+        /// or added here with a reason, including a second call with a key the
+        /// same file already has: keyed by file and key alone, that one was
+        /// invisible (Codex, on the third 2026-11-07 batch).
         /// </summary>
-        private static readonly Dictionary<(string File, string Key), string> TwoStepRefusals = new()
+        private static readonly Dictionary<(string File, string Key), (int Count, string Why)> TwoStepRefusals = new()
         {
             // A dialog, an archive on disk and a queued upload come first; asked
             // again at the queued run (ImportProfile).
-            [("FlexBase.cs", "settings.guard.action.profile_import")] = "import: refused before the file dialog",
-            [("FlexBase.MainThread.cs", "settings.guard.action.profile_import")] = "import: asked again when the queued import runs",
+            [("FlexBase.cs", "settings.guard.action.profile_import")] = (1, "import: refused before the file dialog"),
+            [("FlexBase.MainThread.cs", "settings.guard.action.profile_import")] = (1, "import: asked again when the queued import runs"),
             // An upload; the preflight refuses first.
-            [("FlexBase.Firmware.cs", "settings.guard.action.firmware")] = "firmware upload",
+            [("FlexBase.Firmware.cs", "settings.guard.action.firmware")] = (1, "firmware upload"),
             // Queued profile writes: refused up front, before the enqueue, so
             // the press hears it at once; and asked AGAIN at the write, one
             // step with the hold, inside the queued delegate (repair one,
             // pinned by Every_queued_profile_write_asks_the_hold_at_the_write).
-            [("FlexBase.Profiles.cs", "settings.guard.action.profile_load")] = "up front; one step again at the queued write",
-            [("FlexBase.Profiles.cs", "settings.guard.action.profile_save")] = "up front; one step again at the queued write",
-            [("FlexBase.Profiles.cs", "settings.guard.action.profile_delete")] = "up front; one step again at the queued write",
+            [("FlexBase.Profiles.cs", "settings.guard.action.profile_load")] = (2, "up front; one step again at the queued write"),
+            [("FlexBase.Profiles.cs", "settings.guard.action.profile_save")] = (1, "up front; one step again at the queued write"),
+            [("FlexBase.Profiles.cs", "settings.guard.action.profile_delete")] = (1, "up front; one step again at the queued write"),
             // Not queued: refused up front, then the send is one step with the
             // hold (WriteUnlessHeld); the confirmation wait is outside it.
-            [("FlexBase.Profiles.cs", "settings.guard.action.autosave")] = "up front; one step again at the send",
+            [("FlexBase.Profiles.cs", "settings.guard.action.autosave")] = (1, "up front; one step again at the send"),
             // Queued on the IQ queue and confirmed by reply.
-            [("FlexBase.FullDuplex.cs", "settings.guard.action.full_duplex")] = "full duplex, queued and confirmed",
+            [("FlexBase.FullDuplex.cs", "settings.guard.action.full_duplex")] = (1, "full duplex, queued and confirmed"),
             // Queued; the run asks again under the mic lock.
-            [("FlexBase.RemoteAudio.cs", "settings.guard.action.mic_input_pc")] = "mic input, queued; asked again at the run",
+            [("FlexBase.RemoteAudio.cs", "settings.guard.action.mic_input_pc")] = (2, "mic input, queued; asked again at the run"),
             // Excluded from #976 in this batch: its file is being rewritten elsewhere.
-            [("FlexBase.Listenback.cs", "settings.guard.action.iq_take")] = "IQ take, after the takes merge",
-            // Operator refusals #976 did not name; left as they were.
-            [("FlexBase.cs", "settings.guard.action.ports")] = "not in #976's list",
-            [("FlexBase.cs", "settings.guard.action.front_panel")] = "not in #976's list",
-            [("FlexBase.StaticIp.cs", "settings.guard.action.network")] = "not in #976's list",
-            [("FlexBase.StaticIp.cs", "settings.guard.action.private_ip")] = "not in #976's list",
+            [("FlexBase.Listenback.cs", "settings.guard.action.iq_take")] = (1, "IQ take, after the takes merge"),
             // Refused up front before the token; the command itself is one step (WriteUnlessHeld).
-            [("FlexBase.SmartLink.cs", "settings.guard.action.registration")] = "up front, before the token",
+            [("FlexBase.SmartLink.cs", "settings.guard.action.registration")] = (1, "up front, before the token"),
         };
 
         [Fact]
         public void No_new_two_step_operator_refusal()
         {
-            var found = new HashSet<(string, string)>();
+            var found = new Dictionary<(string File, string Key), int>();
             foreach (string path in Directory.GetFiles(Path.Combine(RepoRoot(), "Radios"), "*.cs", SearchOption.AllDirectories))
             {
                 if (path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)
                     || path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)) continue;
                 foreach (Match m in Regex.Matches(File.ReadAllText(path), "GuardRefuses\\(\"([^\"]+)\"\\)"))
-                    found.Add((Path.GetFileName(path), m.Groups[1].Value));
+                {
+                    var site = (Path.GetFileName(path), m.Groups[1].Value);
+                    found[site] = found.TryGetValue(site, out int n) ? n + 1 : 1;
+                }
             }
-            Assert.True(found.Count >= 10, "the scan found " + found.Count + " GuardRefuses calls; it is not reading the tree");
+            Assert.True(found.Values.Sum() >= 10, "the scan found " + found.Values.Sum() + " GuardRefuses calls; it is not reading the tree");
 
-            var unnamed = found.Where(f => !TwoStepRefusals.ContainsKey(f)).ToList();
+            var unnamed = found.Keys.Where(f => !TwoStepRefusals.ContainsKey(f)).ToList();
             Assert.True(unnamed.Count == 0,
                 "a two-step operator refusal (GuardRefuses, then the write) that is not on the list: "
-                + string.Join(", ", unnamed.Select(u => u.Item1 + " " + u.Item2))
+                + string.Join(", ", unnamed.Select(u => u.File + " " + u.Key))
                 + ". Make the write one step with OperatorWriteUnlessHeld, or name it here with why it cannot be.");
-            var gone = TwoStepRefusals.Keys.Where(k => !found.Contains(k)).ToList();
+            var gone = TwoStepRefusals.Keys.Where(k => !found.ContainsKey(k)).ToList();
             Assert.True(gone.Count == 0,
                 "named as two-step but no longer found (moved onto one step? take it off the list): "
                 + string.Join(", ", gone.Select(g => g.File + " " + g.Key)));
+            // A second two-step refusal with a key its file already has on the
+            // list: the count, not just the key, has to agree.
+            var recounted = TwoStepRefusals.Where(kv => found[kv.Key] != kv.Value.Count).ToList();
+            Assert.True(recounted.Count == 0,
+                "a file holds a different number of two-step refusals with a listed key than the list says: "
+                + string.Join(", ", recounted.Select(r => r.Key.File + " " + r.Key.Key
+                    + " (listed " + r.Value.Count + ", found " + found[r.Key] + ")"))
+                + ". A new site must be one step with OperatorWriteUnlessHeld, or named here with why it cannot be.");
         }
 
         /// <summary>The operator writers #976 named that can be one short step, are.</summary>
@@ -303,6 +411,11 @@ namespace Radios.Tests
         [InlineData("FlexBase.cs", "settings.guard.action.rem_on")]
         [InlineData("FlexBase.Gps.cs", "settings.guard.action.oscillator")]
         [InlineData("FlexBase.TxControls.cs", "settings.guard.action.tx_controls")]
+        // Junk box 2026-11-08: the four #976 did not name, moved onto one step.
+        [InlineData("FlexBase.cs", "settings.guard.action.ports")]
+        [InlineData("FlexBase.cs", "settings.guard.action.front_panel")]
+        [InlineData("FlexBase.StaticIp.cs", "settings.guard.action.network")]
+        [InlineData("FlexBase.StaticIp.cs", "settings.guard.action.private_ip")]
         public void The_one_step_operator_writers_use_the_one_step_helper(string file, string key)
         {
             string src = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", file));

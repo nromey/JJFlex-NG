@@ -359,7 +359,7 @@ namespace JJFlexWpf.Dialogs
         private void DiagCaptureButton_Click(object sender, RoutedEventArgs e)
         {
             bool wasCapturing = DiagnosticsBridge.Capturing();
-            DiagnosticsBridge.ToggleCapture("Settings, Diagnostics tab");
+            DiagnosticsBridge.ToggleCapture(DiagnosticsBridge.DiagnosticsTabDoor);
             RefreshDiagnosticsTab();
 
             // After a STOP, the common next act is getting the file somewhere

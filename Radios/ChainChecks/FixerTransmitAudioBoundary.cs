@@ -579,6 +579,11 @@ namespace Radios.ChainChecks
                     // returned — the same rule the transmitter probe follows.
                     _gate.NoteKeyed(stageId);
                     facts.Keyed = true;
+                    // PA temperature at key-down (#236): read, reported and
+                    // traced, judged by nothing. Its key-up reading is taken
+                    // in the finally below, before the carrier drops.
+                    facts.PaTemperature = PaTemperatureSpan.Begin("the injected transmit check",
+                        () => PaTemperatureSpan.ReadFrom(rig));
 
                     // With the countdown off, this stage would otherwise key in
                     // total silence: the count was its only cue (#835, fix round
@@ -703,7 +708,10 @@ namespace Radios.ChainChecks
                     // nothing armed by this stage rides the operator's own
                     // next key-down; then tell the gate. The scope's mode
                     // restore runs after this block, on a radio that is no
-                    // longer transmitting.
+                    // longer transmitting. The PA temperature's key-up reading
+                    // goes just before the unkey, while still keyed (#236); it
+                    // never throws.
+                    facts.PaTemperature?.End(() => PaTemperatureSpan.ReadFrom(rig));
                     UnkeyMox(rig);
                     SafeDo(() => rig.TxToneStop(), "disarm tone");
                     SafeDo(() => rig.TxFileStop(), "disarm voice");
@@ -869,6 +877,9 @@ namespace Radios.ChainChecks
 
                 _gate.NoteKeyed(stageId);
                 facts.Keyed = true;
+                // PA temperature at key-down (#236), as in the injected stage.
+                facts.PaTemperature = PaTemperatureSpan.Begin("the spoken transmit check",
+                    () => PaTemperatureSpan.ReadFrom(rig));
 
                 // AND ONLY NOW IS THE COUNTDOWN ACTUALLY OVER. The key-up goes
                 // out on the last dit so the radio is up by the landing; the
@@ -915,6 +926,8 @@ namespace Radios.ChainChecks
                 // Read while the kill is still armed — see the injected stage.
                 stoppedShort = StopRequested();
 
+                // The PA temperature's key-up reading, while still keyed. Never throws.
+                facts.PaTemperature?.End(() => PaTemperatureSpan.ReadFrom(rig));
                 UnkeyMox(rig);
                 _gate.NoteUnkeyed();
 

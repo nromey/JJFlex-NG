@@ -41,6 +41,16 @@ namespace Radios
         /// <see cref="TxAllowed"/> never counts: unknown is not a refusal.
         /// </summary>
         public bool RadioRefuses => !Transmitting && (TxAllowed == false || NotReady);
+
+        /// <summary>
+        /// The radio says, clearly, that another station holds its transmitter:
+        /// it names a transmitting client that is not this one, AND its
+        /// interlock reports a transmission in progress. Both, because a client
+        /// handle on its own could be left over from a transmission that has
+        /// ended. False whenever either is unread or unclear: unknown is never
+        /// a reason to refuse (#911).
+        /// </summary>
+        public bool AnotherStationTransmitting => AnotherClient && (Transmitting || Busy);
     }
 
     /// <summary>

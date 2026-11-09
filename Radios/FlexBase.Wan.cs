@@ -555,7 +555,7 @@ namespace Radios
 
             /// <summary>The intake has re-validated the latch — its last
             /// currency check — and is about to make the display writes:
-            /// the ghost sweep and its RadioRemoved, the WAN bank, the
+            /// the ghost sweep, the WAN bank and their RadioRemoved, the
             /// account cache, the merge and its RadioFound. Inside the intake
             /// lock. A list parked here while the connection changes is the
             /// sighting a consumer must refuse (#619, Sol's review of L7).</summary>
@@ -634,8 +634,8 @@ namespace Radios
                 //
                 // THE WINDOW AFTER STEP 2, AND WHO CLOSES IT (#619, Sol's
                 // review of L7). Between step 2 and the display writes that
-                // follow it — the ghost sweep and its RadioRemoved, the WAN
-                // bank, the account-list cache, the merge and its RadioFound,
+                // follow it — the ghost sweep, the WAN bank and their
+                // RadioRemoved, the account-list cache, the merge and its RadioFound,
                 // and the rows' provenance — a dial, disconnect or death can
                 // land, and those writes then happen after it. Track L7
                 // argued nothing false could result; Sol traced RadioFound
@@ -719,7 +719,6 @@ namespace Radios
                 {
                     Tracing.TraceLine($"wanRadioListReceivedHandler: WAN radio {g.Serial} ({g.Nickname}) absent from {accountId}'s fresh list — removing", TraceLevel.Info);
                     myRadioList.Remove(g);
-                    RaiseRadioRemoved(this, g.Serial, g.Nickname ?? "");
                 }
 
                 // The WAN identity of every listed radio, banked BEFORE the merge
@@ -728,14 +727,54 @@ namespace Radios
                 // connects through these. Also drop handles for radios that left
                 // the list — those serials are dual-homed no longer. Same scope
                 // rule as the ghost sweep: only this account's handles.
+                var bankGone = new List<(string Serial, string Name)>();
                 lock (_wanRadiosLock)
                 {
                     foreach (var stale in _wanRadiosBySerial
                         .Where(kv => !freshSerials.Contains(kv.Key)
                             && (string.IsNullOrEmpty(kv.Value.AccountId)
                                 || string.Equals(kv.Value.AccountId, accountId, StringComparison.OrdinalIgnoreCase)))
-                        .Select(kv => kv.Key).ToList())
-                        _wanRadiosBySerial.Remove(stale);
+                        .Select(kv => (kv.Key, kv.Value.Radio?.Nickname ?? "")).ToList())
+                    {
+                        _wanRadiosBySerial.Remove(stale.Key);
+                        bankGone.Add((stale.Key, stale.Item2));
+                    }
+                }
+
+                // ══ EVERY REMOVAL IS RAISED ONLY NOW, AFTER BOTH SOURCES ══════
+                //
+                // RadioRemoved's consumer re-asks RadioAvailability inside the
+                // event, synchronously (the picker's Dispatcher.Invoke), and
+                // RadioAvailability reads TWO sources: myRadioList for the
+                // local half and the WAN bank for the SmartLink half. So the
+                // event is raised only after the radio has left both. Until
+                // repair round one of #1008 the sweep raised its removal
+                // straight after myRadioList.Remove, while the bank still held
+                // the radio: a SmartLink-only radio that went away under a
+                // connected session was re-asked, read wan=true with a sighting
+                // from this same connection (still current), stayed live, and
+                // its row kept reading online. The bank was cleared a moment
+                // later and nothing told the picker again.
+                //
+                // One removal per serial. The sweep's radios first, then a
+                // radio this list dropped whose row the sweep could not see:
+                // the dual-homed radio, held in myRadioList as its LAN object
+                // (not IsWan), or kept on SmartLink alone by the bank after its
+                // LAN half left. Its SmartLink half was the bank entry just
+                // removed, so after a cable pull the row read "on SmartLink,
+                // online" for minutes after the server had said the radio was
+                // gone (#1008). The picker re-asks the radio's paths at its own
+                // decision, so a radio still on the local network keeps its row
+                // and loses only the SmartLink half, and a radio this list still
+                // carries is in neither set and is never told it left.
+                foreach (Radio g in gone)
+                    RaiseRadioRemoved(this, g.Serial, g.Nickname ?? "");
+                var sweptSerials = new HashSet<string>(gone.Select(g => g.Serial), StringComparer.OrdinalIgnoreCase);
+                foreach (var (serial, name) in bankGone)
+                {
+                    if (sweptSerials.Contains(serial)) continue;
+                    Tracing.TraceLine($"wanRadioListReceivedHandler: {serial} ({name}) absent from {accountId}'s fresh list — its SmartLink half is gone; telling the list", TraceLevel.Info);
+                    RaiseRadioRemoved(this, serial, name);
                 }
                 foreach (Radio w in lst) RememberWanRadio(w, accountId, provenance);
 

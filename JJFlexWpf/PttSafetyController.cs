@@ -124,7 +124,28 @@ namespace JJFlexWpf
         /// let go. The takeover part is spoken even with push to talk's own
         /// speech off, because it is about the send, not about keying.
         /// </summary>
-        private void SpeakKeyDownFirstLine(string keyingLine)
+        /// <summary>
+        /// Set by a door just before it presses push to talk, for that one
+        /// key: the key-down line ("Transmitting on slice B") is not said,
+        /// because the door says the longer transmit-slice notice instead
+        /// (push to talk in a dialog on a new split; ruled by Noel 2026-11-06,
+        /// J12). Tones, keying and everything else are unchanged. Consumed by
+        /// the next <see cref="PttDown"/> whether or not it keys.
+        /// </summary>
+        internal bool QuietNextKeyingLine { get; set; }
+
+        /// <summary>
+        /// The key-down line, said now: for a door that dropped it for a
+        /// notice which then could not be said, so its key is never silent.
+        /// Only while a held push to talk is still keyed.
+        /// </summary>
+        internal void SpeakKeyingLineLate()
+        {
+            if (State != PttState.PttHold || !_config.SpeechEnabled || CheckNarratesThisKeying) return;
+            ScreenReaderOutput.Speak(TransmittingWords(), VerbosityLevel.Critical, interrupt: false);
+        }
+
+        private void SpeakKeyDownFirstLine(string keyingLine, bool quietKeyingLine = false)
         {
             string? takeover = null;
             try { takeover = VoiceMessageSender.TakeOverAtKeyDown(); }
@@ -134,7 +155,7 @@ namespace JJFlexWpf
                 // tick still takes it over a moment later.
                 Tracing.TraceLine("PTT: send takeover at key-down failed: " + ex.Message, TraceLevel.Warning);
             }
-            bool speakKeying = _config.SpeechEnabled && !CheckNarratesThisKeying;
+            bool speakKeying = _config.SpeechEnabled && !CheckNarratesThisKeying && !quietKeyingLine;
             if (string.IsNullOrEmpty(takeover))
             {
                 if (speakKeying)
@@ -998,6 +1019,10 @@ namespace JJFlexWpf
         /// </summary>
         public void PttDown()
         {
+            // One key only, whatever happens below: a press refused here does
+            // not leave the next press quiet.
+            bool quietLine = QuietNextKeyingLine;
+            QuietNextKeyingLine = false;
             if (!CanTransmit()) return;
             if (State == PttState.Idle && RefusedForTeardown()) return;
 
@@ -1008,6 +1033,12 @@ namespace JJFlexWpf
 
             // A rig reading 0 watts (#859). Not the hold: its own rule and state.
             if (State == PttState.Idle && ZeroPowerDoors.RefuseTransmit(_getRigControl(), "push to talk")) return;
+
+            // Another station holds this radio's transmitter (#911): the radio
+            // refuses our key, and nothing tells us, so a key now would claim
+            // "Transmitting" over someone else's carrier. Refused up front, on
+            // a clear reading only. Only from Idle: a release is never refused.
+            if (State == PttState.Idle && RefuseWhileAnotherStationTransmits("push to talk")) return;
 
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
@@ -1031,7 +1062,7 @@ namespace JJFlexWpf
                 StartFreshAudioSample();
                 KeyDownTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
-                SpeakKeyDownFirstLine(TransmittingWords());
+                SpeakKeyDownFirstLine(TransmittingWords(), quietLine);
                 if (!CheckNarratesThisKeying) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
@@ -1085,6 +1116,14 @@ namespace JJFlexWpf
             if (State == PttState.Idle && !_keyingForCheck
                 && ZeroPowerDoors.RefuseTransmit(_getRigControl(), "the lock key")) return;
 
+            // Another station holds this radio's transmitter (#911): the lock
+            // said "Transmitting, locked" and went Locked while the radio
+            // refused its key. Refused up front, on a clear reading only, and
+            // only from Idle, so the operator's own unlock is never refused. A
+            // check's own key is left to the check's start path (#910).
+            if (State == PttState.Idle && !_keyingForCheck
+                && RefuseWhileAnotherStationTransmits("the lock key")) return;
+
             if (State == PttState.Idle || State == PttState.PttHold)
             {
                 EnterLocked();
@@ -1094,6 +1133,36 @@ namespace JJFlexWpf
                 // Any TX state — unlock
                 GoIdle(ReceivingWords(), confirmReceive: true);
             }
+        }
+
+        /// <summary>
+        /// Does the radio clearly report another station transmitting on it?
+        /// Read-only. Replaced by tests, which have no radio. False whenever
+        /// the reading is missing or unclear: unknown is never a refusal.
+        /// </summary>
+        internal Func<FlexBase?, bool> AnotherStationTransmitting { get; set; } = rig =>
+        {
+            try { return rig != null && rig.ReadTuneStanding().AnotherStationTransmitting; }
+            catch { return false; }
+        };
+
+        /// <summary>
+        /// Refuse a key from Idle while another station holds the transmitter,
+        /// saying why with the warning tone first. True when refused. Keys
+        /// nothing, writes nothing to the radio.
+        /// </summary>
+        private bool RefuseWhileAnotherStationTransmits(string door)
+        {
+            if (!AnotherStationTransmitting(SafeRig())) return false;
+            Tracing.TraceLine("PTT: " + door + " refused: the radio reports another station transmitting on it, "
+                + "so a key from here would be refused by the radio and claim a transmission that is not ours",
+                TraceLevel.Warning);
+            EarconPlayer.Warning2Beep();
+            // DRAFT PROSE, awaiting Noel.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.another_station_transmitting"),
+                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.TransmitKeyRefused);
+            return true;
         }
 
         /// <summary>

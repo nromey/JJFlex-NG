@@ -56,10 +56,20 @@ namespace Radios.SignalCapture
             // is heard before the figure it qualifies (#452). A clean capture
             // says nothing about coverage: silence is the reward.
             if (a.CoverageDegraded)
-                sb.Append(Lexicon.Get("audio.qso.coverage_gaps",
-                    ("coverage", CoveragePercent(a.Coverage)),
-                    ("missing", SpokenDuration.English(a.MissingSeconds)),
-                    ("longest", SpokenDuration.English(a.LongestGapSeconds))));
+            {
+                // One gap, or a longest gap that reads the same as the total,
+                // is said once: "missing for 2 seconds, the longest gap 2
+                // seconds" says one figure twice.
+                if (GapFigures(a, out string missing, out string longest))
+                    sb.Append(Lexicon.Get("audio.qso.coverage_gap_once",
+                        ("coverage", CoveragePercent(a.Coverage)),
+                        ("missing", missing)));
+                else
+                    sb.Append(Lexicon.Get("audio.qso.coverage_gaps",
+                        ("coverage", CoveragePercent(a.Coverage)),
+                        ("missing", missing),
+                        ("longest", longest)));
+            }
 
             if (!a.HasStats)
             {
@@ -112,6 +122,22 @@ namespace Radios.SignalCapture
             return SMeterReading.IsOverS9(smeter)
                 ? Lexicon.Get("audio.smeter.over_s9", ("over", SMeterReading.ExcessOverS9(smeter)))
                 : Lexicon.Get("audio.smeter.s_units", ("smeter", smeter));
+        }
+
+        /// <summary>
+        /// The total missing time and the longest gap, as spoken. One measure
+        /// (each gap less the usual spacing, so the longest never exceeds the
+        /// total) and one rounding rule (<see cref="SpokenDuration"/>, which
+        /// never decreases as its input grows), so the total can never read
+        /// below the longest gap. Shared with the report page.
+        /// </summary>
+        /// <returns>True when the two should be said as one figure: there was
+        /// one gap, or the longest reads the same as the total.</returns>
+        internal static bool GapFigures(QsoSignalAnalysisResult a, out string missing, out string longest)
+        {
+            missing = SpokenDuration.English(a.MissingSeconds);
+            longest = SpokenDuration.English(a.LongestGapMissingSeconds);
+            return a.GapCount == 1 || missing == longest;
         }
 
         /// <summary>

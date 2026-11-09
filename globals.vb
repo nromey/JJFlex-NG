@@ -1121,7 +1121,18 @@ Module globals
             Return
         End Try
 
-        SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.started"))
+        ' The sentence names the way to stop that fits the door it came in by.
+        ' "From this button" is true only on the Diagnostics tab; the chord
+        ' works from anywhere, so it names itself; any other caller (a check
+        ' run's own recording, which says how it ends) gets the plain line.
+        Select Case reason
+            Case JJFlexWpf.DiagnosticsBridge.DiagnosticsTabDoor
+                SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.started"))
+            Case JJFlexWpf.DiagnosticsBridge.ChordDoor
+                SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.started_from_chord"))
+            Case Else
+                SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.started_plain"))
+        End Select
         RaiseDiagnosticLogStateChanged()
     End Sub
 

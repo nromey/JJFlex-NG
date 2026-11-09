@@ -104,7 +104,8 @@ public sealed class JunkboxRepairTwoTests
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         string menu = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "NativeMenuBar.cs"));
-        Assert.Contains("AddChecked(whichSub, n, () => SetGuestTransmitAudioProfile(n),", menu);
+        // A radio-group row since junk box 2026-11-08 (#680): AddChecked spoke ": On"/": Off".
+        Assert.Contains("AddRadioChecked(whichSub, n, () => SetGuestTransmitAudioProfile(n),", menu);
 
         string handler = Body(menu, "private void SetGuestTransmitAudioProfile(");
         Assert.Contains("ChooseTransmitAudioProfile(presetName,", handler);

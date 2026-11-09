@@ -883,7 +883,6 @@ audio.ptt.remaining_one_minute_seconds	575929ad0ac300ee
 audio.ptt.remaining_seconds	0e49e9a13181c78b
 audio.ptt.status_hold	d01d67280f2d0d84
 audio.ptt.status_locked	1501850e0c3cf2bf
-audio.ptt.systemwide_watchdog_unkeyed	56fb3754004429e7
 audio.ptt.timed_out	0abd4b2cdec5ba65
 audio.ptt.timeout_approaching	7e42fa88ecde2ee4
 audio.ptt.timeout_ending_now	71edcd85488f5fe6
@@ -2635,7 +2634,6 @@ settings.profile.rem_on_leave_alone	cfa79c25d6d4bbed
 settings.profile.rem_on_turn_off	2d7c2cbaba386f85
 settings.profile.rem_on_turn_on	8a89525342e2940a
 settings.profile.remote_admin_not_allowed	5a4b6013baa35a6f
-settings.profile.remote_firmware_allowed_warning	7304276cb29b8ee2
 settings.profile.remote_firmware_updates_label	71941992f349b060
 settings.profile.remote_port_allowed_warning	3578fd1d184204d9
 settings.profile.remote_port_changes_label	b3ce15bfe42dcc0a

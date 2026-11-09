@@ -1162,6 +1162,26 @@ namespace Radios.Tests
                 // press: TextOnly. DRAFT PROSE.
                 "settings.flexdb.import_only_lan",
 
+                // Junk box 2026-11-08 (#709): the remote firmware warning,
+                // replaced with Noel's approved text and classified. Shown in
+                // the profile tab's status line as well as spoken: TextOnly.
+                "settings.profile.remote_firmware_allowed_warning",
+                // Junk box 2026-11-08 (#938): the capture-start sentence for the
+                // JJ key chord names the chord as the way to stop, and a plain
+                // one serves any other caller. DRAFT PROSE. Also the status line.
+                "logging.capture.started_from_chord",
+                "logging.capture.started_plain",
+                // Junk box 2026-11-08 (#704): the system-wide push to talk
+                // watchdog's two spoken outcomes, replacing the one shared
+                // sentence (audio.ptt.systemwide_watchdog_unkeyed, retired) that
+                // was false on both. release_not_honoured is Noel's ruled
+                // sentence; held_too_long is DRAFT PROSE.
+                "audio.ptt.systemwide_release_not_honoured",
+                "audio.ptt.systemwide_held_too_long",
+                // Junk box 2026-11-08 (#911): push to talk or the lock refused
+                // while another station transmits on the radio. DRAFT PROSE.
+                "audio.ptt.another_station_transmitting",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than
@@ -2452,6 +2472,9 @@ namespace Radios.Tests
                 // FRAGMENT of that utterance, so TextOnly (the #777
                 // reasoning). DRAFT PROSE.
                 "audio.qso.coverage_gaps",
+                // Junk box 2026-11-08 (#939): the same sentence for one gap,
+                // which says its figure once. Same reasoning. DRAFT PROSE.
+                "audio.qso.coverage_gap_once",
                 // Junk box #625 (2026-11-07): the drop window, reworded to
                 // Noel's approved text of 2026-09-29, so the nine reworded
                 // keys leave the freeze list and are classified (#629). The
@@ -2701,7 +2724,11 @@ namespace Radios.Tests
             // audio.meters.panel.slot_combo_name.
             // Two fewer (3067 to 3065): junk box #181 repair one reworded and
             // classified logging.crash.reports_unresolved_one and _many.
-            Assert.Equal(3063, unclassified);
+            // One fewer (3063 to 3062): junk box 2026-11-08 (#709) replaced and
+            // classified settings.profile.remote_firmware_allowed_warning.
+            // One fewer (3062 to 3061): junk box 2026-11-08 (#704) retired
+            // audio.ptt.systemwide_watchdog_unkeyed, replaced by two classified keys.
+            Assert.Equal(3061, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

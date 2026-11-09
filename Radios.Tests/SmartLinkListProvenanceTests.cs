@@ -279,6 +279,232 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // #1008: a list that drops a radio whose row the sweep cannot see
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The cable pull of 2026-11-08: the radio's local half left the list,
+        /// the server then pushed an empty list, and the row kept "on SmartLink,
+        /// online" for minutes. The ghost sweep removes only WAN objects in the
+        /// rig's own list; a dual-homed radio is held there as its LAN object,
+        /// and once that has gone the row's SmartLink half lives on in the WAN
+        /// bank alone. The bank entry was pruned and nobody told the picker.
+        /// Now the removal is raised for it, the same event the sweep raises.
+        /// </summary>
+        /// <remarks>
+        /// The first case is the positive control: a radio the rig holds as a
+        /// WAN object is removed by the sweep, as it always was. The second
+        /// takes the WAN object out of the rig's list (its row now lives on the
+        /// bank alone, as after the LAN half leaves) and pushes the same empty
+        /// list; before the fix nothing was raised.
+        /// </remarks>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void An_empty_push_tells_the_list_its_SmartLink_half_is_gone_whoever_holds_the_row(bool rowIsAWanObject)
+        {
+            var (owner, wan) = NewSession();
+            var removed = new List<string>();
+            FlexBase.RadioRemovedDel onRemoved = (_, serial, __) => { lock (removed) removed.Add(serial); };
+            FlexBase.RadioRemoved += onRemoved;
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+                Assert.Equal(new[] { Listed }, RadiosOf(rig));
+                Assert.True(rig.RadioAvailability(Listed).wan, "the bank never took the radio, so this proves nothing");
+
+                if (!rowIsAWanObject)
+                {
+                    var list = (List<Radio>)MyRadioListField!.GetValue(rig)!;
+                    list.RemoveAll(r => r.Serial == Listed);
+                    Assert.Empty(WanSerialsInMyRadioList(rig));
+                    Assert.True(rig.RadioAvailability(Listed).wan);   // the row's SmartLink half, on the bank alone
+                }
+
+                wan.RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
+
+                WaitUntil(() => { lock (removed) return removed.Contains(Listed); },
+                    "the server said the radio was gone and the list was never told");
+                Assert.False(rig.RadioAvailability(Listed).wan);
+                lock (removed) Assert.Single(removed, s => s == Listed);   // once, not once per path
+            }
+            finally
+            {
+                FlexBase.RadioRemoved -= onRemoved;
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>What the list's one consumer sees INSIDE a removal
+        /// event: the picker re-asks the radio's paths synchronously and
+        /// reconciles its row from that answer, so a state assertion after
+        /// the push returns can pass while the consumer saw the old state.</summary>
+        private sealed record SeenAtRemoval(string Serial, bool Lan, bool Wan, bool? SightingCurrent, bool RowLive);
+
+        /// <summary>
+        /// Take the removal the way the picker takes it: inside the event,
+        /// ask the rig for the radio's paths and reconcile a row that was live
+        /// on the given halves, as RigSelectorDialog.OnRadioRemoved does
+        /// through PickerSighting.Reconcile.
+        /// </summary>
+        private static FlexBase.RadioRemovedDel RecordWhatThePickerSees(
+            FlexBase rig, List<SeenAtRemoval> seen, Func<string, PickerRowPaths> rowBefore)
+            => (_, serial, __) =>
+            {
+                var (lan, wan) = rig.RadioAvailability(serial, out var sighting);
+                var (paths, _) = PickerSighting.Reconcile(rowBefore(serial), null!, lan, wan, sighting);
+                lock (seen) seen.Add(new SeenAtRemoval(serial, lan, wan, sighting?.StillCurrent(), paths.IsLive));
+            };
+
+        private static Radio LanRadio(string serial)
+        {
+            var radio = WanRadio(serial);
+            typeof(Radio).GetProperty(nameof(Radio.IsWan))!.GetSetMethod(nonPublic: true)!.Invoke(radio, new object[] { false });
+            Assert.False(radio.IsWan);
+            return radio;
+        }
+
+        private static void PutOnTheLocalNetwork(FlexBase rig, string serial)
+        {
+            var list = (List<Radio>)MyRadioListField!.GetValue(rig)!;
+            list.Add(LanRadio(serial));
+        }
+
+        /// <summary>
+        /// Codex's check of #1008, blocker B1: a SmartLink-only radio, held
+        /// as a WAN object, goes away while the session stays connected. The
+        /// sweep raised its removal before the WAN bank was cleared, so the
+        /// picker, re-asking inside the event, read wan=true from a sighting
+        /// of this same connection (still current), kept the row live, and
+        /// was never told again. The removal must be raised after the radio
+        /// has left BOTH sources the picker reads.
+        /// </summary>
+        /// <remarks>
+        /// The bank-only row is the positive control: its removal has always
+        /// been raised after the bank was pruned, so it reads gone inside the
+        /// event before and after the repair. The dual-homed case pins what
+        /// the repair must not break: a radio still on the local network keeps
+        /// its local half and stays online.
+        /// </remarks>
+        [Theory]
+        [InlineData("wan-object")]
+        [InlineData("bank-only")]
+        [InlineData("dual-homed")]
+        public void Inside_the_removal_the_list_already_reads_the_SmartLink_half_as_gone(string row)
+        {
+            var (owner, wan) = NewSession();
+            var seen = new List<SeenAtRemoval>();
+            var rig = NewRig();
+            var onRemoved = RecordWhatThePickerSees(rig, seen,
+                _ => new PickerRowPaths(row == "dual-homed", true, false));
+            FlexBase.RadioRemoved += onRemoved;
+            try
+            {
+                rig.EngageSmartLinkPresence();
+                if (row == "dual-homed") PutOnTheLocalNetwork(rig, Listed);
+                ConnectAndList(owner, wan, Listed);
+                WaitUntil(() => rig.RadioAvailability(Listed).wan, "the bank never took the radio, so this proves nothing");
+                var before = rig.RadioAvailability(Listed, out var sightingBefore);
+                Assert.True(sightingBefore?.StillCurrent(), "the sighting was not current before the push, so the trap is not set");
+                Assert.Equal(row == "dual-homed", before.lan);
+                Assert.Equal(row != "dual-homed", WanSerialsInMyRadioList(rig).Contains(Listed));
+
+                if (row == "bank-only")
+                {
+                    var list = (List<Radio>)MyRadioListField!.GetValue(rig)!;
+                    list.RemoveAll(r => r.Serial == Listed);
+                    Assert.True(rig.RadioAvailability(Listed).wan);
+                }
+
+                wan.RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
+
+                WaitUntil(() => { lock (seen) return seen.Any(s => s.Serial == Listed); },
+                    "the server said the radio was gone and the list was never told");
+                SeenAtRemoval at;
+                lock (seen) at = Assert.Single(seen, s => s.Serial == Listed);   // once, not once per source
+                Assert.False(at.Wan,
+                    $"Inside the removal ({row}) the radio still read as on SmartLink, so the picker kept its row online (#1008, B1).");
+                if (row == "dual-homed")
+                {
+                    Assert.True(at.Lan, "a radio still on the local network lost its local half");
+                    Assert.True(at.RowLive, "a radio still on the local network stopped reading online");
+                }
+                else
+                {
+                    Assert.False(at.Lan);
+                    Assert.False(at.RowLive, $"the {row} row still read online after the server said the radio was gone");
+                }
+            }
+            finally
+            {
+                FlexBase.RadioRemoved -= onRemoved;
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The repair must not drop a radio that IS still on SmartLink, nor
+        /// touch one the account never listed. A push that keeps one radio and
+        /// omits another tells the list about the omitted one only; inside
+        /// that event the kept radio still reads on SmartLink with a current
+        /// sighting, and a radio known only on the local network is never named.
+        /// </summary>
+        [Fact]
+        public void A_push_that_omits_one_radio_leaves_the_kept_one_and_a_local_only_one_alone()
+        {
+            var (owner, wan) = NewSession();
+            var seen = new List<SeenAtRemoval>();
+            var keptDuringRemoval = new List<(bool Wan, bool? Current)>();
+            var rig = NewRig();
+            var recorder = RecordWhatThePickerSees(rig, seen, _ => new PickerRowPaths(false, true, false));
+            FlexBase.RadioRemovedDel watchTheKeptOne = (_, serial, ___) =>
+            {
+                if (serial != Listed) return;
+                var (_, keptWan) = rig.RadioAvailability(Other, out var keptSighting);
+                lock (seen) keptDuringRemoval.Add((keptWan, keptSighting?.StillCurrent()));
+            };
+            FlexBase.RadioRemoved += recorder;
+            FlexBase.RadioRemoved += watchTheKeptOne;
+            try
+            {
+                rig.EngageSmartLinkPresence();
+                PutOnTheLocalNetwork(rig, Third);
+                owner.Connect();
+                WaitUntil(() => owner.IsConnected, "the mock session never reported connected");
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Listed), WanRadio(Other) });
+                WaitUntil(() => rig.RadioAvailability(Other).wan && rig.RadioAvailability(Listed).wan,
+                    "the bank never took both radios, so this proves nothing");
+
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Other) });
+
+                WaitUntil(() => { lock (seen) return seen.Any(s => s.Serial == Listed); },
+                    "the omitted radio's removal was never raised");
+                lock (seen)
+                {
+                    var at = Assert.Single(seen, s => s.Serial is Listed or Other or Third);
+                    Assert.Equal(Listed, at.Serial);
+                    Assert.False(at.Wan);
+                    Assert.False(at.RowLive);
+                    var kept = Assert.Single(keptDuringRemoval);
+                    Assert.True(kept.Wan, "the radio the list still carries read as off SmartLink during another radio's removal");
+                    Assert.True(kept.Current, "the radio the list still carries read as last seen during another radio's removal");
+                }
+                Assert.True(rig.RadioAvailability(Other).wan, "a radio the list still carries was dropped");
+                var local = rig.RadioAvailability(Third);
+                Assert.True(local.lan, "a radio on the local network alone lost its row");
+                Assert.False(local.wan);
+            }
+            finally
+            {
+                FlexBase.RadioRemoved -= recorder;
+                FlexBase.RadioRemoved -= watchTheKeptOne;
+                owner.Dispose();
+            }
+        }
+
+        // ------------------------------------------------------------------
         // 2. A transport that has died while the session still reads Connected
         // ------------------------------------------------------------------
 
