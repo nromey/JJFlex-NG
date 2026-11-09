@@ -94,7 +94,19 @@ internal sealed class SliceOverwriteSettingEdits
     /// clears it, even untouched. Cancel leaves it waiting, and the connect still
     /// hands it to that radio.</para>
     /// </remarks>
-    public bool Show(string serial, Func<string, bool> saved, bool? waiting)
+    public bool Show(string serial, Func<string, bool> saved, bool? waiting) =>
+        ShowWithChoice(serial, saved, waiting is bool warn ? new PendingWarnChoice(warn, "") : null);
+
+    /// <summary>
+    /// <see cref="Show(string, Func{string, bool}, bool?)"/> for a waiting choice
+    /// that may name its radio (#999 N2). One that names a radio is shown only
+    /// against THAT radio, connected or not, and so is saved only there; against
+    /// any other radio, or with no radio, the box shows that radio's own
+    /// setting and the choice waits on for its own. One naming no radio follows
+    /// round 4: shown against the radio last connected with nothing connected,
+    /// or as the value for the first radio that connects.
+    /// </summary>
+    public bool ShowWithChoice(string serial, Func<string, bool> saved, PendingWarnChoice? waiting)
     {
         serial ??= "";
         if (serial.Length > 0 && _edits.TryGetValue("", out bool forNext) && !_edits.ContainsKey(serial))
@@ -103,13 +115,16 @@ internal sealed class SliceOverwriteSettingEdits
             _edits[serial] = forNext;
         }
         Target = serial;
-        if (serial.Length > 0 && !TargetIsConnected && waiting is bool held)
+        bool? waitingHere = waiting is PendingWarnChoice choice
+            && (choice.Target.Length > 0 ? choice.IsFor(serial) : serial.Length == 0 || !TargetIsConnected)
+            ? choice.Warn : null;
+        if (serial.Length > 0 && waitingHere is bool held)
         {
             _waitingChoiceShownFor = serial;
             if (!_edits.ContainsKey(serial)) _edits[serial] = held;
         }
         if (_edits.TryGetValue(serial, out bool edited)) return edited;
-        return serial.Length > 0 ? saved(serial) : waiting ?? true;
+        return serial.Length > 0 ? saved(serial) : waitingHere ?? true;
     }
 
     /// <summary>The operator changed the box: an edit for the radio it is showing.</summary>

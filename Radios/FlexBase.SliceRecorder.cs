@@ -309,7 +309,8 @@ public partial class FlexBase
         if (string.IsNullOrEmpty(serial)) return new(serial, letter, has, seconds, null, true);
         // A choice made in Settings while no radio had ever connected is saved
         // now, if the connect could not save it, by the connect's own rule (this
-        // radio is connected: it has a slice of ours).
+        // radio is connected: it has a slice of ours). A choice the connect
+        // could not save names its radio by now (#999 N2), and goes there.
         if (_lastConnectedBeforeThisConnect is string before)
             RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(serial, before);
         var config = RadioConfig.LoadForRadio(serial);

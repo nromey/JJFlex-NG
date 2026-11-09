@@ -32,17 +32,28 @@ public sealed class PendingOverwriteChoiceTests : IDisposable
         finally { _scope.Dispose(); }
     }
 
-    /// <summary>A stand-in app-wide store: one text file, "", "true" or "false".</summary>
+    /// <summary>
+    /// A stand-in app-wide store: one text file, "", "true" or "false", and the
+    /// radio a choice is for after a "|" when it names one.
+    /// </summary>
     private sealed class FileStore : IPendingChoiceStore
     {
         private readonly string _path;
         public int Writes;
         public FileStore(string path) => _path = path;
-        public bool? Read() => File.Exists(_path) ? File.ReadAllText(_path) switch { "true" => true, "false" => false, _ => null } : null;
-        public bool Write(bool? value)
+        public PendingWarnChoice? Read()
+        {
+            if (!File.Exists(_path)) return null;
+            var parts = File.ReadAllText(_path).Split('|');
+            string target = parts.Length > 1 ? parts[1] : "";
+            return parts[0] switch { "true" => new(true, target), "false" => new(false, target), _ => null };
+        }
+        public bool Write(PendingWarnChoice? value)
         {
             Writes++;
-            File.WriteAllText(_path, value switch { true => "true", false => "false", null => "" });
+            File.WriteAllText(_path, value is PendingWarnChoice c
+                ? (c.Warn ? "true" : "false") + (c.Target.Length > 0 ? "|" + c.Target : "")
+                : "");
             return true;
         }
     }
@@ -116,14 +127,20 @@ public sealed class PendingOverwriteChoiceTests : IDisposable
     /// <summary>A store whose file reads but cannot be written: locked, or read-only.</summary>
     private sealed class StuckStore : IPendingChoiceStore
     {
-        public bool? OnDisk;
+        public PendingWarnChoice? Choice;
+        /// <summary>The setting on disk, without its radio.</summary>
+        public bool? OnDisk
+        {
+            get => Choice?.Warn;
+            init => Choice = value is bool warn ? new PendingWarnChoice(warn, "") : null;
+        }
         public bool Writable;
         public int Reads;
-        public bool? Read() { Reads++; return OnDisk; }
-        public bool Write(bool? value)
+        public PendingWarnChoice? Read() { Reads++; return Choice; }
+        public bool Write(PendingWarnChoice? value)
         {
             if (!Writable) return false;
-            OnDisk = value;
+            Choice = value;
             return true;
         }
     }

@@ -84,7 +84,7 @@ public sealed class PendingOverwriteChoiceStoreTests : IDisposable
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         var store = Restart();
-        Assert.True(store.Write(false));
+        Assert.True(store.Write(new PendingWarnChoice(false, "")));
         // The live config is loaded once (at connect) and saved again at power-off.
         var live = AudioOutputConfig.Load(_dir);
         Assert.Equal("false", live.PendingSliceOverwriteWarning);
@@ -93,9 +93,9 @@ public sealed class PendingOverwriteChoiceStoreTests : IDisposable
         Assert.Null(store.Read());
 
         var older = AudioOutputConfig.Load(_dir);   // loaded before a newer choice
-        Assert.True(store.Write(true));
+        Assert.True(store.Write(new PendingWarnChoice(true, "")));
         older.Save(_dir);
-        Assert.True(store.Read());
+        Assert.True(store.Read()?.Warn);
     }
 
     [Fact]
@@ -159,5 +159,78 @@ public sealed class PendingOverwriteChoiceStoreTests : IDisposable
         Assert.Null(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
         Assert.Equal(Connected, new SliceOverwriteSettingEdits().ResolveTarget(""));
         Assert.True(RadioConfig.LoadForRadio(Discovered).WarnBeforeSliceRecordingOverwritten);
+    }
+
+    // #999 N2: the waiting choice keeps the radio it is for.
+
+    [Fact]
+    public void The_radio_a_choice_is_for_is_saved_beside_it_and_survives_a_restart_and_a_later_live_save()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var store = Restart();
+        var live = AudioOutputConfig.Load(_dir);              // loaded before the choice was pinned
+        RadioConfig.PendingWarnChoiceWaiting = new PendingWarnChoice(false, Connected);
+        string xml = File.ReadAllText(ConfigPath);
+        Assert.Contains("<PendingWarnBeforeSliceRecordingOverwritten>false</PendingWarnBeforeSliceRecordingOverwritten>", xml);
+        Assert.Contains("<PendingWarnBeforeSliceRecordingOverwrittenFor>" + Connected + "</PendingWarnBeforeSliceRecordingOverwrittenFor>", xml);
+
+        live.Save(_dir);                                       // power-off: the choice and its radio are carried over
+        Restart();
+        Assert.Equal(new PendingWarnChoice(false, Connected), RadioConfig.PendingWarnChoiceWaiting);
+
+        // Clearing clears both.
+        Assert.True(store.Write(null));
+        Assert.Null(store.Read());
+        Assert.Contains("<PendingWarnBeforeSliceRecordingOverwrittenFor />", File.ReadAllText(ConfigPath));
+    }
+
+    [Fact]
+    public void An_audioConfig_from_before_N2_reads_as_a_choice_that_names_no_radio()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var store = Restart();
+        Assert.True(store.Write(new PendingWarnChoice(false, Connected)));
+        // What an older build leaves: the setting, and no element for the radio.
+        var doc = System.Xml.Linq.XDocument.Load(ConfigPath);
+        doc.Root!.Element("PendingWarnBeforeSliceRecordingOverwrittenFor")!.Remove();
+        doc.Save(ConfigPath);
+
+        Restart();
+        Assert.Equal(new PendingWarnChoice(false, ""), RadioConfig.PendingWarnChoiceWaiting);
+    }
+
+    [Fact]
+    public void Settings_shows_a_choice_that_names_its_radio_against_that_radio_only_and_saves_it_there()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Restart();
+        Assert.True(RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(Connected, true));
+        Assert.True(RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(Discovered, true));
+        RadioConfig.PendingWarnChoiceWaiting = new PendingWarnChoice(false, Connected);
+        Func<string, bool> saved = s => RadioConfig.LoadForRadio(s).WarnBeforeSliceRecordingOverwritten;
+        Func<string, bool, bool> save = (s, w) => saved(s) == w || RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(s, w);
+
+        // Another radio is the one last connected: the box shows ITS setting, and OK leaves the choice waiting.
+        var edits = new SliceOverwriteSettingEdits();
+        string other = edits.ResolveTarget("", Discovered);
+        Assert.True(edits.ShowWithChoice(other, saved, RadioConfig.PendingWarnChoiceWaiting));
+        edits.Commit(save, warn => RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = warn,
+            () => RadioConfig.PendingWarnChoiceWaiting = null);
+        Assert.Equal(new PendingWarnChoice(false, Connected), RadioConfig.PendingWarnChoiceWaiting);
+        Assert.True(saved(Discovered));
+
+        // With no radio at all named, it is not offered as the first radio's value either.
+        edits = new SliceOverwriteSettingEdits();
+        Assert.True(edits.ShowWithChoice(edits.ResolveTarget("", ""), saved, RadioConfig.PendingWarnChoiceWaiting));
+
+        // Its own radio, even connected, shows it, and OK saves it there and spends it.
+        edits = new SliceOverwriteSettingEdits();
+        string own = edits.ResolveTarget(Connected, "");
+        Assert.False(edits.ShowWithChoice(own, saved, RadioConfig.PendingWarnChoiceWaiting));
+        edits.Commit(save, warn => RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = warn,
+            () => RadioConfig.PendingWarnChoiceWaiting = null);
+        Assert.False(saved(Connected));
+        Assert.True(saved(Discovered));
+        Assert.Null(RadioConfig.PendingWarnChoiceWaiting);
     }
 }

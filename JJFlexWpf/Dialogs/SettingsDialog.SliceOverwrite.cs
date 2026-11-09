@@ -25,7 +25,8 @@ namespace JJFlexWpf.Dialogs
     /// named. Only when no radio has ever connected does it say it applies to the
     /// first radio that connects, and a choice made then waits for that radio
     /// (<see cref="RadioConfig.PendingWarnBeforeSliceRecordingOverwritten"/>),
-    /// across restarts, shown as long as it waits.
+    /// across restarts, shown as long as it waits. A waiting choice that names
+    /// its radio (#999 N2) is shown, and saved, against that radio only.
     /// </para>
     /// <para>
     /// <b>An edit is kept for the radio it was made for</b>, across a disconnect
@@ -96,9 +97,9 @@ namespace JJFlexWpf.Dialogs
         {
             if (_warnOverwriteCheck == null || _warnOverwriteAppliesTo == null) return;
             var (serial, name) = WarnOverwriteTarget();
-            bool value = _warnOverwriteEdits.Show(serial,
+            bool value = _warnOverwriteEdits.ShowWithChoice(serial,
                 s => RadioConfig.LoadForRadio(s).WarnBeforeSliceRecordingOverwritten,
-                RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
+                RadioConfig.PendingWarnChoiceWaiting);
             _warnOverwriteQuiet = true;
             try { _warnOverwriteCheck.IsChecked = value; }
             finally { _warnOverwriteQuiet = false; }
