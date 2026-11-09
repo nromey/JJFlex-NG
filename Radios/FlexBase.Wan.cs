@@ -2621,8 +2621,7 @@ namespace Radios
                 // the plan's, from one reading (integration pass, finding 4;
                 // #401's class), and the wire uses that same account (Codex
                 // B1).
-                var saved = savedAccounts ?? AccountManager.Accounts.Where(a => a != null).Select(a => a.Email);
-                string planned = RadiosOwnAccount(PlanSmartLinkSignIn(TakeAccountPictureFor(serial, saved: saved)));
+                string planned = ConnectAccountFor(serial, savedAccounts);
                 if (planned.Length > 0) return planned;
                 // Nothing names the radio's account. With a session live the
                 // connect signs in to nothing and the wire resolves as it
@@ -2639,6 +2638,43 @@ namespace Radios
                 Tracing.TraceLine($"AccountThatWillBroker({serial}): {ex.Message}", TraceLevel.Warning);
             }
             return activeAccountEmail ?? "";
+        }
+
+        /// <summary>
+        /// The account a SmartLink connect to <paramref name="serial"/> would
+        /// actually use, by the connect's own plan: the held session whose
+        /// live list names the radio, else the first of its chosen and
+        /// last-seen accounts that is saved on this computer. EMPTY when the
+        /// plan names no account (no saved account lists the radio, or the
+        /// connect would sign in through the saved default), and on any error.
+        /// </summary>
+        /// <remarks>
+        /// <para>#405, ruled by Noel 2026-11-08 ~16:28: the radio list's
+        /// "another account" flag and the Radio Associations row name "the
+        /// account connecting will actually use (the first matching account
+        /// saved on this computer), not the one chosen or last seen". So they
+        /// read THIS, which is <see cref="PlanSmartLinkSignIn"/> and
+        /// <see cref="AccountPicture.FirstSaved"/> through
+        /// <see cref="RadiosOwnAccount"/>: the one decision the connect, the
+        /// announcement, the wire and registration already share, and no third
+        /// tier walk.</para>
+        /// <para>Reads the radio's own record from disk and the held sessions,
+        /// so a caller painting many rows asks it outside any list lock.</para>
+        /// </remarks>
+        /// <param name="savedAccounts">The saved accounts; null reads the account manager.</param>
+        public static string ConnectAccountFor(string serial, IEnumerable<string> savedAccounts = null)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return "";
+            try
+            {
+                var saved = savedAccounts ?? AccountManager.Accounts.Where(a => a != null).Select(a => a.Email);
+                return RadiosOwnAccount(PlanSmartLinkSignIn(TakeAccountPictureFor(serial, saved: saved)));
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ConnectAccountFor({serial}): {ex.Message}", TraceLevel.Warning);
+                return "";
+            }
         }
 
         /// <summary>
