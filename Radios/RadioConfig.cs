@@ -671,9 +671,18 @@ namespace Radios
         public static IPendingChoiceStore? PendingWarnStore
         {
             get { lock (PendingWarnGate) return _pendingWarnStore; }
-            set { lock (PendingWarnGate) _pendingWarnStore = value; }
+            set { lock (PendingWarnGate) { _pendingWarnStore = value; _pendingWarnUnsaved = false; } }
         }
         private static IPendingChoiceStore? _pendingWarnStore;
+
+        /// <summary>
+        /// True while the in-memory choice is one the store refused to write (a
+        /// locked or read-only file). The getter then answers from memory, not
+        /// from the disk it could not change, and tries the write again, so
+        /// neither a new choice nor a clear is lost for this run (Codex's check of
+        /// round 3, N1).
+        /// </summary>
+        private static bool _pendingWarnUnsaved;
 
         /// <summary>
         /// The overwrite warning's setting, chosen in Settings when no radio had
@@ -707,6 +716,13 @@ namespace Radios
                 lock (PendingWarnGate)
                 {
                     if (_pendingWarnStore == null) return _pendingWarnBeforeSliceRecordingOverwritten;
+                    if (_pendingWarnUnsaved)
+                    {
+                        // The disk still holds what the store refused to replace:
+                        // memory is the truth for this run. Try the write again.
+                        if (TryWritePendingWarn(_pendingWarnBeforeSliceRecordingOverwritten)) _pendingWarnUnsaved = false;
+                        return _pendingWarnBeforeSliceRecordingOverwritten;
+                    }
                     try { return _pendingWarnBeforeSliceRecordingOverwritten = _pendingWarnStore.Read(); }
                     catch (Exception ex)
                     {
@@ -722,18 +738,25 @@ namespace Radios
                 {
                     _pendingWarnBeforeSliceRecordingOverwritten = value;
                     if (_pendingWarnStore == null) return;
-                    bool written;
-                    try { written = _pendingWarnStore.Write(value); }
-                    catch (Exception ex)
-                    {
-                        Tracing.TraceLine("RadioConfig: the pending overwrite-warning choice could not be saved: " + ex.Message,
+                    _pendingWarnUnsaved = !TryWritePendingWarn(value);
+                    if (_pendingWarnUnsaved)
+                        Tracing.TraceLine(value == null
+                            ? "RadioConfig: the spent overwrite-warning choice could not be cleared on disk. It is cleared for this run; the clear is retried at each read, and until one works a restart would find the old choice waiting again."
+                            : "RadioConfig: the overwrite-warning choice (" + value + ") could not be saved. It holds for this run; the save is retried at each read, and until one works a restart would not find it.",
                             System.Diagnostics.TraceLevel.Warning);
-                        written = false;
-                    }
-                    if (!written)
-                        Tracing.TraceLine("RadioConfig: the pending overwrite-warning choice (" + (value?.ToString() ?? "none")
-                            + ") was not saved; it holds for this run only.", System.Diagnostics.TraceLevel.Warning);
                 }
+            }
+        }
+
+        /// <summary>Write through the store; false when it refused or threw. Call under <see cref="PendingWarnGate"/>.</summary>
+        private static bool TryWritePendingWarn(bool? value)
+        {
+            try { return _pendingWarnStore?.Write(value) == true; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("RadioConfig: the pending overwrite-warning choice could not be written: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
             }
         }
 

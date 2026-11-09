@@ -113,6 +113,66 @@ public sealed class PendingOverwriteChoiceTests : IDisposable
         Assert.True(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
     }
 
+    /// <summary>A store whose file reads but cannot be written: locked, or read-only.</summary>
+    private sealed class StuckStore : IPendingChoiceStore
+    {
+        public bool? OnDisk;
+        public bool Writable;
+        public int Reads;
+        public bool? Read() { Reads++; return OnDisk; }
+        public bool Write(bool? value)
+        {
+            if (!Writable) return false;
+            OnDisk = value;
+            return true;
+        }
+    }
+
+    [Fact]
+    public void A_choice_the_store_could_not_save_holds_for_this_run_and_is_saved_once_it_can_be()
+    {
+        // Codex's check of round 3, N1: the getter read the disk back and lost the new choice.
+        var store = new StuckStore();
+        RadioConfig.PendingWarnStore = store;
+        RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = false;
+        Assert.Null(store.OnDisk);
+        Assert.False(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
+        Assert.False(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
+        Assert.Equal(0, store.Reads);   // memory answered, not the disk it could not change
+
+        // The file comes free: the next read saves it, and from then on the disk is the truth again.
+        store.Writable = true;
+        Assert.False(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
+        Assert.False(store.OnDisk);
+        Assert.False(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
+        Assert.Equal(1, store.Reads);
+
+        // And the connect still receives it.
+        Assert.True(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(First, lastConnectedBefore: ""));
+        Assert.False(RadioConfig.LoadForRadio(First).WarnBeforeSliceRecordingOverwritten);
+        Assert.Null(store.OnDisk);
+    }
+
+    [Fact]
+    public void A_spent_choice_the_store_could_not_clear_is_not_applied_again_this_run()
+    {
+        var store = new StuckStore { OnDisk = false };
+        RadioConfig.PendingWarnStore = store;
+        Assert.False(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);   // read from disk
+
+        Assert.True(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(First, lastConnectedBefore: ""));
+        Assert.False(RadioConfig.LoadForRadio(First).WarnBeforeSliceRecordingOverwritten);
+        Assert.False(store.OnDisk);                                            // the clear was refused
+        Assert.Null(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);   // but it is spent for this run
+
+        Assert.False(RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten(Second, lastConnectedBefore: First));
+        Assert.True(RadioConfig.LoadForRadio(Second).WarnBeforeSliceRecordingOverwritten);
+
+        store.Writable = true;
+        Assert.Null(RadioConfig.PendingWarnBeforeSliceRecordingOverwritten);
+        Assert.Null(store.OnDisk);                                             // the retried clear landed
+    }
+
     [Fact]
     public void Unwired_it_still_waits_in_memory_for_this_run()
     {
