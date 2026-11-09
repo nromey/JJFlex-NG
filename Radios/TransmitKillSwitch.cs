@@ -394,25 +394,6 @@ namespace Radios
         public static bool RaiseCarrier(FlexBase rig, Carrier carrier) => RaiseCarrier(rig, carrier, null);
 
         /// <summary>
-        /// No callsign, no transmit (#335), for a keying that does not start at
-        /// one of the operator's doors: the Fix tool's transmit stages ask this
-        /// before their gate is asked and before their countdown, and
-        /// <see cref="RaiseCarrier(FlexBase, Carrier, object)"/> asks it again at
-        /// the key. Null when the operator has a callsign (or the radio was
-        /// handed no way to ask); otherwise the refusal is traced and spoken, by
-        /// the radio's own admission boundary, and its sentence returned for the
-        /// caller's detail line, so the page says what the operator heard.
-        /// </summary>
-        /// <param name="rig">The radio. None reads as not refused: the caller's
-        /// own no-radio refusal answers that.</param>
-        /// <param name="what">What would have keyed, for the trace.</param>
-        public static string RefusedForNoCallsign(FlexBase rig, string what)
-        {
-            if (rig == null || !rig.RefusedForNoCallsign(what)) return null;
-            return FlexBase.NoCallsignRefusal;
-        }
-
-        /// <summary>
         /// <see cref="RaiseCarrier(FlexBase, Carrier)"/> for a send that took an
         /// admission at its press (<see cref="FlexBase.TransmitAdmissionNow"/>):
         /// the key is pinned to that radio and command connection at its write
@@ -494,6 +475,25 @@ namespace Radios
                                   + " carrier — " + ex.Message, TraceLevel.Error);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// No callsign, no transmit (#335), for a keying that does not start at
+        /// one of the operator's doors: the Fix tool's transmit stages ask this
+        /// before their gate is asked and before their countdown, and
+        /// <see cref="RaiseCarrier(FlexBase, Carrier, object)"/> asks it again at
+        /// the key. Null when the operator has a callsign (or the radio was
+        /// handed no way to ask); otherwise the refusal is traced and spoken, by
+        /// the radio's own admission boundary, and its sentence returned for the
+        /// caller's detail line, so the page says what the operator heard.
+        /// </summary>
+        /// <param name="rig">The radio. None reads as not refused: the caller's
+        /// own no-radio refusal answers that.</param>
+        /// <param name="what">What would have keyed, for the trace.</param>
+        public static string RefusedForNoCallsign(FlexBase rig, string what)
+        {
+            if (rig == null || !rig.RefusedForNoCallsign(what)) return null;
+            return FlexBase.NoCallsignRefusal;
         }
 
         /// <summary>

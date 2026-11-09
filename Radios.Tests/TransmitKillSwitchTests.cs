@@ -105,7 +105,6 @@ namespace Radios.Tests
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
             try
             {
-                Lexicon.Load(Lexicon.Partitions);
                 using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
                 {
                     foreach (var carrier in new[] { TransmitKillSwitch.Carrier.Mox, TransmitKillSwitch.Carrier.Tune })
@@ -134,7 +133,6 @@ namespace Radios.Tests
             var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests", GetOperatorCallsign = () => call });
             try
             {
-                Lexicon.Load(Lexicon.Partitions);
                 Assert.Equal(FlexBase.NoCallsignRefusal, TransmitKillSwitch.RefusedForNoCallsign(rig, "a check"));
                 call = "N0CALL";
                 Assert.Null(TransmitKillSwitch.RefusedForNoCallsign(rig, "a check"));
