@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
-using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
@@ -146,39 +145,17 @@ internal static class DefaultButtonAccessKey
         string? current = AutomationProperties.GetAccessKey(button);
         string? given = (string?)button.GetValue(GivenAccessKeyProperty);
         bool ours = !string.IsNullOrEmpty(given) && current == given;
-        if (!ours && !string.IsNullOrEmpty(current)) return;   // the button's own: never touched
-
-        // What the screen reader is handed with no value of ours in the way
-        // (repair three). The peer reports a registered key only while the
-        // property is empty, so ours is taken back first and put back only
-        // if what it would report is still a control character. A button
-        // with its own underlined letter (ConfirmActionDialog's "_No") can
-        // report that letter, and setting anything would silence it.
-        if (ours)
+        string? key = AccessKeyFor(button.IsCancel, button.IsDefault, ours ? null : current);
+        if (key != null)
+        {
+            if (current != key) AutomationProperties.SetAccessKey(button, key);
+            button.SetValue(GivenAccessKeyProperty, key);
+        }
+        else if (ours)
         {
             button.ClearValue(AutomationProperties.AccessKeyProperty);
             button.ClearValue(GivenAccessKeyProperty);
         }
-        string? key = AccessKeyFor(button.IsCancel, button.IsDefault, null, ReportedAccessKey(button));
-        if (key != null)
-        {
-            AutomationProperties.SetAccessKey(button, key);
-            button.SetValue(GivenAccessKeyProperty, key);
-        }
-    }
-
-    /// <summary>
-    /// The access key the button's automation peer reports, the value a
-    /// screen reader is handed. With the property empty that is
-    /// <c>AccessKeyManager</c>'s registered character for the button: the
-    /// Escape or carriage return a Cancel or default flag registers, or the
-    /// underlined letter its content registers, whichever its lookup finds
-    /// first.
-    /// </summary>
-    private static string ReportedAccessKey(Button button)
-    {
-        try { return UIElementAutomationPeer.CreatePeerForElement(button)?.GetAccessKey() ?? ""; }
-        catch (InvalidOperationException) { return ""; }
     }
 
     /// <summary>The access key this rule set on a button, so it can be told
@@ -231,18 +208,12 @@ internal static class DefaultButtonAccessKey
 
     /// <summary>
     /// The access key a button is given, or null to leave it alone: only a
-    /// Cancel or default button, only when it names none of its own, and only
-    /// when what its peer would report (<paramref name="reported"/>) is a
-    /// control character (repair three: a reported letter is the button's
-    /// own mnemonic and stays). Pure. DRAFT values.
+    /// Cancel or default button, and only when it names none of its own.
+    /// Pure. DRAFT values.
     /// </summary>
-    internal static string? AccessKeyFor(bool isCancel, bool isDefault, string? ownAccessKey, string? reported)
+    internal static string? AccessKeyFor(bool isCancel, bool isDefault, string? ownAccessKey)
     {
         if (!string.IsNullOrEmpty(ownAccessKey)) return null;
-        if (string.IsNullOrEmpty(reported)) return null;
-        bool control = false;
-        foreach (char c in reported) if (char.IsControl(c)) { control = true; break; }
-        if (!control) return null;
         if (isCancel) return "Escape";
         if (isDefault) return "Enter";
         return null;

@@ -93,14 +93,11 @@ public sealed class DefaultButtonAccessKeyTests
     public void The_rule_is_Cancel_then_default_and_never_over_an_own_key()
     {
         Assert.Equal(ApartmentState.MTA, Thread.CurrentThread.GetApartmentState());
-        Assert.Equal("Escape", DefaultButtonAccessKey.AccessKeyFor(isCancel: true, isDefault: false, ownAccessKey: null, reported: "\x1b"));
-        Assert.Equal("Enter", DefaultButtonAccessKey.AccessKeyFor(isCancel: false, isDefault: true, ownAccessKey: "", reported: "\r"));
-        Assert.Equal("Escape", DefaultButtonAccessKey.AccessKeyFor(isCancel: true, isDefault: true, ownAccessKey: null, reported: "\r"));
-        Assert.Null(DefaultButtonAccessKey.AccessKeyFor(isCancel: true, isDefault: true, ownAccessKey: "Alt+L", reported: "\x1b"));
-        Assert.Null(DefaultButtonAccessKey.AccessKeyFor(isCancel: false, isDefault: false, ownAccessKey: null, reported: "\x1b"));
-        // Repair three: a reported letter is the button's own mnemonic, and nothing reported needs nothing.
-        Assert.Null(DefaultButtonAccessKey.AccessKeyFor(isCancel: true, isDefault: false, ownAccessKey: null, reported: "N"));
-        Assert.Null(DefaultButtonAccessKey.AccessKeyFor(isCancel: true, isDefault: false, ownAccessKey: null, reported: ""));
+        Assert.Equal("Escape", DefaultButtonAccessKey.AccessKeyFor(isCancel: true, isDefault: false, ownAccessKey: null));
+        Assert.Equal("Enter", DefaultButtonAccessKey.AccessKeyFor(isCancel: false, isDefault: true, ownAccessKey: ""));
+        Assert.Equal("Escape", DefaultButtonAccessKey.AccessKeyFor(isCancel: true, isDefault: true, ownAccessKey: null));
+        Assert.Null(DefaultButtonAccessKey.AccessKeyFor(isCancel: true, isDefault: true, ownAccessKey: "Alt+L"));
+        Assert.Null(DefaultButtonAccessKey.AccessKeyFor(isCancel: false, isDefault: false, ownAccessKey: null));
     }
 
     // ---- repair one: through the installed handler, and after load ----
@@ -283,76 +280,6 @@ public sealed class DefaultButtonAccessKeyTests
         Assert.Contains("DefaultButtonAccessKey.WatchTree(this);", ctor, StringComparison.Ordinal);
         string lookup = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "StationLookupWindow.xaml.cs"));
         Assert.Contains("DefaultButtonAccessKey.WatchTree(this);", lookup, StringComparison.Ordinal);
-    }
-
-    // ---- repair three: a Cancel or default button's own underlined letter ----
-
-    /// <summary>
-    /// "_No" as ConfirmActionDialog builds it, Cancel, its content an
-    /// AccessText registering N. Which registered key the peer reports
-    /// (N or Escape) depends on the order of AccessKeyManager's table, whose
-    /// string keys hash differently in every process; WPF caches the element
-    /// it found on the button (AccessKeyManager.AccessKeyElementProperty,
-    /// private). The test sets that cache to the AccessText, by reflection,
-    /// so the peer reports N here as it did on the bench.
-    /// </summary>
-    private static (Button Button, AccessText Text) CancelWithMnemonic()
-    {
-        var text = new AccessText { Text = "_No" };
-        var no = new Button { Content = text, IsCancel = true };
-        var cache = typeof(System.Windows.Input.AccessKeyManager).GetField("AccessKeyElementProperty",
-            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
-        no.SetValue((System.Windows.DependencyProperty)cache.GetValue(null)!, new WeakReference(text));
-        return (no, text);
-    }
-
-    [Fact]
-    public void A_Cancel_button_with_its_own_underlined_letter_keeps_reporting_it()
-    {
-        OnSta(() =>
-        {
-            // Positive control: what repair two did to it. Any value of ours
-            // empties the peer, so N was no longer announced.
-            var (silenced, _) = CancelWithMnemonic();
-            Assert.Equal("N", Reported(silenced));
-            AutomationProperties.SetAccessKey(silenced, "Escape");
-            Assert.Equal("", Reported(silenced));
-
-            var (no, _) = CancelWithMnemonic();
-            DefaultButtonAccessKey.Repair(no);
-            Assert.Equal("N", Reported(no));
-            Assert.Equal("", AutomationProperties.GetAccessKey(no));
-            Assert.True(no.IsCancel);
-
-            // Through the real broadcast and the watcher too.
-            var (watched, _) = CancelWithMnemonic();
-            var root = new StackPanel();
-            root.Children.Add(watched);
-            DefaultButtonAccessKey.WatchTree(root);
-            BroadcastLoaded(root);
-            Assert.Equal("N", Reported(watched));
-            watched.IsDefault = true;
-            Assert.False(HasControlCharacter(Reported(watched)), "reports " + Escape(Reported(watched)));
-        });
-    }
-
-    [Fact]
-    public void Whatever_the_peer_reports_a_Cancel_button_never_ends_with_a_control_character_or_loses_a_letter()
-    {
-        // The real table order, whatever this process gives: a letter stays,
-        // a control character is repaired.
-        OnSta(() =>
-        {
-            foreach (string label in new[] { "_No", "_Cancel", "C_lose", "_Done", "D_one", "_Quit" })
-            {
-                var b = new Button { Content = new AccessText { Text = label }, IsCancel = true };
-                string before = Reported(b);
-                DefaultButtonAccessKey.Repair(b);
-                string after = Reported(b);
-                Assert.False(HasControlCharacter(after), label + " reports " + Escape(after));
-                if (!HasControlCharacter(before)) Assert.Equal(before, after);
-            }
-        });
     }
 
     [Fact]
