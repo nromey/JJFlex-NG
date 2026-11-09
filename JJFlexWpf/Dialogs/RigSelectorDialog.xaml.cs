@@ -1091,6 +1091,11 @@ namespace JJFlexWpf.Dialogs
                 // arrival appends instead (#254).
                 RefreshRadiosList(reorder: true);
 
+                // A connect already started (an auto-connect, or an operator
+                // faster than the settle window): the pass's progress lines
+                // would only talk over it (#775).
+                if (!SaysOpeningPassLine(_connectStarted)) return;
+
                 // A radio landed inside the window — its own arrival speech and
                 // the auto-select line already told the user the interesting
                 // part. The loaded-state line queues behind it (interrupt:
@@ -1307,6 +1312,19 @@ namespace JJFlexWpf.Dialogs
         /// listening for as long as the picker is open — this marks "the first
         /// wave is in," not "local is done."</summary>
         private bool _localSettled;
+
+        /// <summary>
+        /// A connect has been started from this picker (#775). From then on the
+        /// opening pass's progress lines say nothing: the radio was already
+        /// found and chosen, and "Local connection list loaded, still
+        /// listening" spoken over the connect tells the operator nothing they
+        /// can act on. Set at the top of <see cref="CompleteConnect"/>, the one
+        /// place every connect from the picker passes.
+        /// </summary>
+        private bool _connectStarted;
+
+        /// <summary>The opening pass's loaded line is said only while no connect has started (#775).</summary>
+        internal static bool SaysOpeningPassLine(bool connectStarted) => !connectStarted;
 
         /// <summary>
         /// Loaded-state announcements, Terse-gated, never interrupting: they
@@ -3021,6 +3039,7 @@ namespace JJFlexWpf.Dialogs
         private void CompleteConnect(RadioListItem radio, ConnectPathKind path, bool forced,
             List<ConnectPathKind> fallbacks)
         {
+            _connectStarted = true;   // #775: the opening pass's progress lines stop here
             var radioName = RowName(radio);
             bool remote = path == ConnectPathKind.SmartLink;
             // #401: name the account the connect will actually ROUTE THROUGH,
