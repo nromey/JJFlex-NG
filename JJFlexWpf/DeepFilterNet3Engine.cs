@@ -46,6 +46,11 @@ namespace JJFlexWpf
         /// <summary>The shipped file name (built as <c>df.dll</c> upstream, renamed).</summary>
         public const string LibraryFileName = "deepfilter.dll";
 
+        /// <summary>The attenuation limit's stops, in decibels: fine at the gentle end (Noel, 2026-10-17). 100 is shown as "unlimited".
+        /// The engine owns them (#1016): they used to live in DenoiseEngineCatalog, which needs the radio layer, so the noise bench
+        /// tool could not compile this file on its own. Declared before SettingDescriptors, which reads it during static initialisation.</summary>
+        public static readonly IReadOnlyList<double> LimitStops = new double[] { 0, 3, 6, 9, 12, 15, 18, 24, 30, 40, 60, 100 };
+
         /// <summary>Upstream's DeepFilterNet3 model archive, shipped beside the DLL unchanged.</summary>
         public const string ModelFileName = "DeepFilterNet3_onnx.tar.gz";
 
@@ -115,7 +120,7 @@ namespace JJFlexWpf
             // as "unlimited". A stored value between stops snaps to the nearest
             // one on load (PcDenoiseSlot.RestoreSettings), never to the default.
             new EngineSettingDescriptor("attenuation_limit_db", "audio.denoise.attenuation_limit_db", EngineSettingKind.Number,
-                new EngineSettingValue(9), 0, 100, 1, "audio.denoise.db", Stops: DenoiseEngineCatalog.DeepFilterLimitStops),
+                new EngineSettingValue(9), 0, 100, 1, "audio.denoise.db", Stops: LimitStops),
             new EngineSettingDescriptor("post_filter_beta", "audio.denoise.post_filter_beta", EngineSettingKind.Number,
                 new EngineSettingValue(0), 0, 0.05, 0.001, Advanced: true)
         };
