@@ -1,0 +1,1 @@
+- A signal capture's summary of missing readings no longer gives a total shorter than its longest gap or reads a single gap twice.

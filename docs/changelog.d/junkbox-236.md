@@ -1,0 +1,1 @@
+- The transmit-check reports now include your radio's power amplifier temperature at the start and end of each transmission, or say when a reading was not available.

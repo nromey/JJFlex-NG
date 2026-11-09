@@ -1,1 +1,2 @@
 - The three choices under Radio, Profiles on This Radio, now read as one choice out of three, with a check mark on the one in effect. Your screen reader used to hear "On" and "Off" after each, as if they were three switches you could turn off.
+- The profile names under Which Transmit Audio now use a check mark for the chosen profile, without calling each profile on or off.

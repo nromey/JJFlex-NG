@@ -1,0 +1,1 @@
+- JJ Flexible now checks for your callsign before keying the radio for push to talk, the transmit lock, tune, a send or a check; enter yours under Radio, Operators.

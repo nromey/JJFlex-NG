@@ -1,0 +1,1 @@
+- The warnings for push to talk from another program now distinguish a key held too long from a released key that failed to stop transmission.

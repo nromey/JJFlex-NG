@@ -1,0 +1,2 @@
+- Push to talk inside a dialog no longer adds a short transmit announcement when the longer notice naming the slice and frequency is due.
+- A split send's announcement of what is being sent and for how long is no longer cut off by Home's arrival announcement.

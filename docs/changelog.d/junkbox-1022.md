@@ -1,0 +1,3 @@
+- The Fix tool's transmitter check now reads the radio's power meters correctly. With tune power confirmed at 0 watts and too little output to judge, the check says so instead of reporting a load fault.
+- The Radio profile tab's status line and status messages in several other dialogs now read their text when you return to them with your screen reader.
+- A dialog's transmit-slice notice is now remembered after you hear it, so the notice does not repeat on every push to talk on the same split.

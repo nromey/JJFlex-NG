@@ -1,0 +1,1 @@
+- Connecting now waits for the radio's antenna list and your station name together, which can shorten a slow connect.

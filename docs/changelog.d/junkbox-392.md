@@ -1,0 +1,1 @@
+- A connection attempt that ends with an error now closes its radio connection instead of leaving the connection running in the background.
