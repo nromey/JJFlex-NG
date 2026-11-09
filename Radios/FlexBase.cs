@@ -3711,57 +3711,22 @@ namespace Radios
                 return false;
             }
 
-            // Must have an antenna. Wait up to 20s — FlexLib fetches the list via an
-            // async "ant list" command at connect time and populates RXAntList from the
-            // reply. Over WAN that round trip routinely takes 5–15s (same timing profile
-            // as the station-name wait below). LAN connections settle in <200ms.
-            if (!await(() =>
-            {
-                return ((theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0)) || _cancelRequested;
-            }, 20000))
-            {
-                // QB Track D (item 4): "no RX antenna" was a misleading verdict
-                // for this timeout. Every Flex physically has RX antennas; when
-                // this wait expires the real story is almost always that the
-                // "ant list" REPLY never arrived — the command/data path came
-                // up dead or the connection dropped mid-setup. Say the real
-                // thing; only an actually-empty reply earns the antenna words.
-                if (!IsConnected)
-                {
-                    Tracing.TraceLine("start: connection dropped during antenna-list wait", TraceLevel.Error);
-                    LastStartFailureReason = "Connection lost during setup";
-                    raiseNoSliceError("the connection to the radio dropped during setup");
-                    return false;
-                }
-                if (theRadio.RXAntList == null)
-                {
-                    Tracing.TraceLine("start: antenna list never arrived — command/data path never came up", TraceLevel.Error);
-                    LastStartFailureReason = "Radio setup stalled — the radio never sent its setup data";
-                    raiseNoSliceError("the radio connected but never sent its setup data. "
-                        + "This is a connection problem, not an antenna problem — try connecting again");
-                    return false;
-                }
-                // RXAntList arrived but is empty: the radio genuinely reported
-                // zero RX antennas. Vanishingly rare, but honest.
-                Tracing.TraceLine("start: radio answered with an empty RX antenna list", TraceLevel.Error);
-                LastStartFailureReason = "No RX antenna detected";
-                raiseNoSliceError(noRXAnt);
-                return false;
-            }
-
-            if (_cancelRequested)
-            {
-                Tracing.TraceLine("start: cancelled during antenna wait", TraceLevel.Info);
-                LastStartFailureReason = "Cancelled by user";
-                ConnectionProfiler.Current?.RecordAndSave("start_cancelled", new Dictionary<string, object>
-                {
-                    { "phase", "antenna_wait" }
-                });
-                teardownDisconnect("cancel during antenna wait");
-                return false;
-            }
-
-            ConnectionProfiler.Current?.RecordEvent("start_antenna_available");
+            // Must have an antenna, and the radio must take our station name.
+            // The two waits run SIDE BY SIDE (#326): neither needs the other,
+            // and run one after the other the station name could not even
+            // start being watched until the antenna list arrived. The
+            // antenna list keeps its own bound, 20 s, checked inside the
+            // station-name loop below and finished after it if the name came
+            // first. FlexLib fetches the list via an async "ant list" command
+            // at connect time and populates RXAntList from the reply; over WAN
+            // that round trip routinely takes 5-15 s, and LAN connections
+            // settle in under 200 ms. The bounds are unchanged: the entry's
+            // standing rule is not to just move a timeout.
+            const int antennaWaitMs = 20000;
+            long antennaDeadline = Environment.TickCount64 + antennaWaitMs;
+            bool antennasArrived = false;
+            bool antennaWaitExpired = false;
+            bool AntennasHere() => (theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0);
 
             // Wait for the station name to be set on the GUIClient.
             // SmartLink removes and re-adds the GUIClient during connection setup.
@@ -3827,6 +3792,21 @@ namespace Radios
                         Tracing.TraceLine("start:connection dropped while waiting for station name", TraceLevel.Error);
                         break;
                     }
+                    // The antenna list, alongside (#326). Its own 20 s bound ends
+                    // the wait as the old sequential wait did.
+                    if (!antennasArrived)
+                    {
+                        if (AntennasHere())
+                        {
+                            antennasArrived = true;
+                            ConnectionProfiler.Current?.RecordEvent("start_antenna_available");
+                        }
+                        else if (Environment.TickCount64 >= antennaDeadline)
+                        {
+                            antennaWaitExpired = true;
+                            break;
+                        }
+                    }
                     // Fast abort: if client was removed during Start() without ever being added
                     // during Start(), the re-add will never come on this connection.
                     // Profile data: every failure shows removal ~800ms into Start() with no prior add.
@@ -3888,6 +3868,47 @@ namespace Radios
                     }
                     Thread.Sleep(interval);
                 }
+            }
+            // The antenna list, if the station-name wait ended first: finish
+            // its own wait inside its own bound, then judge it exactly as the
+            // sequential wait did, ahead of the station name (#326).
+            if (!_cancelRequested && !antennasArrived)
+            {
+                long left = antennaDeadline - Environment.TickCount64;
+                if (!antennaWaitExpired && IsConnected && left > 0)
+                    await(() => AntennasHere() || _cancelRequested || !IsConnected, (int)left);
+                antennasArrived = AntennasHere();
+                if (antennasArrived) ConnectionProfiler.Current?.RecordEvent("start_antenna_available");
+            }
+            if (!_cancelRequested && !antennasArrived)
+            {
+                // QB Track D (item 4): "no RX antenna" was a misleading verdict
+                // for this timeout. Every Flex physically has RX antennas; when
+                // this wait expires the real story is almost always that the
+                // "ant list" REPLY never arrived — the command/data path came
+                // up dead or the connection dropped mid-setup. Say the real
+                // thing; only an actually-empty reply earns the antenna words.
+                if (!IsConnected)
+                {
+                    Tracing.TraceLine("start: connection dropped during antenna-list wait", TraceLevel.Error);
+                    LastStartFailureReason = "Connection lost during setup";
+                    raiseNoSliceError("the connection to the radio dropped during setup");
+                    return false;
+                }
+                if (theRadio.RXAntList == null)
+                {
+                    Tracing.TraceLine("start: antenna list never arrived — command/data path never came up", TraceLevel.Error);
+                    LastStartFailureReason = "Radio setup stalled — the radio never sent its setup data";
+                    raiseNoSliceError("the radio connected but never sent its setup data. "
+                        + "This is a connection problem, not an antenna problem — try connecting again");
+                    return false;
+                }
+                // RXAntList arrived but is empty: the radio genuinely reported
+                // zero RX antennas. Vanishingly rare, but honest.
+                Tracing.TraceLine("start: radio answered with an empty RX antenna list", TraceLevel.Error);
+                LastStartFailureReason = "No RX antenna detected";
+                raiseNoSliceError(noRXAnt);
+                return false;
             }
             if (_cancelRequested)
             {
