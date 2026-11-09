@@ -251,11 +251,33 @@ namespace Radios.Tests
             Assert.Contains("ToProbeReading(name, r.Value, r.Units)", readBody, StringComparison.Ordinal);
             Assert.DoesNotContain("Reading.Got(", readBody, StringComparison.Ordinal);
 
-            // An unreadable setting is null, never 0, and only a read 0 routes.
-            int safe = text.IndexOf("private static int? SafeTunePower(FlexBase rig)", StringComparison.Ordinal);
-            Assert.True(safe > 0, "the tune power read can no longer say it failed");
-            Assert.Contains("catch { return null; }", text.Substring(safe, 250), StringComparison.Ordinal);
-            Assert.Contains("tunePowerSetToZero: tunePowerRead == 0", text, StringComparison.Ordinal);
+            // Only a zero the radio has reported routes (repair one): the
+            // placeholder zero after a connect is not a setting of 0. The old
+            // pin held a catch around a getter that cannot throw.
+            Assert.Contains("tunePowerSetToZero: TunePowerIsAReadZero(rig.TunePower, rig.TunePowerReported)", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("SafeTunePower", text, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Only_a_zero_the_radio_reported_is_a_setting_of_0()
+        {
+            Assert.True(TxTuneProbeRunner.TunePowerIsAReadZero(0, tunePowerReported: true));
+            // The placeholder after a connect: 0, not yet a reading.
+            Assert.False(TxTuneProbeRunner.TunePowerIsAReadZero(0, tunePowerReported: false));
+            Assert.False(TxTuneProbeRunner.TunePowerIsAReadZero(10, tunePowerReported: true));
+            Assert.False(TxTuneProbeRunner.TunePowerIsAReadZero(10, tunePowerReported: false));
+        }
+
+        [Fact]
+        public void The_placeholder_zero_after_a_connect_takes_the_ordinary_path_and_a_reported_zero_is_not_judged()
+        {
+            // The harness's sub-watt reading, routed by what the rig can vouch for.
+            var m = Read(("FWDPWR", HarnessForwardDbm, MeterUnits.Dbm),
+                         ("REFPWR", HarnessReflectedDbm, MeterUnits.Dbm));
+            Assert.Equal(Verdict.NoPower,
+                Assess(m, double.NaN, tunePowerSetToZero: TxTuneProbeRunner.TunePowerIsAReadZero(0, tunePowerReported: false)));
+            Assert.Equal(Verdict.NotJudgedAtZeroTunePower,
+                Assess(m, double.NaN, tunePowerSetToZero: TxTuneProbeRunner.TunePowerIsAReadZero(0, tunePowerReported: true)));
         }
 
         private static string RepoRoot()

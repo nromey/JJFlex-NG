@@ -122,10 +122,9 @@ namespace Radios.ChainChecks
 
             // --- key, sample, and drop the carrier whatever happens ---
 
-            // Null when the setting could not be read: a failed read is not a
-            // setting of 0, so it never routes a verdict to "not judged at 0".
-            int? tunePowerRead = SafeTunePower(rig);
-            int tunePower = tunePowerRead ?? 0;
+            // The setting, for the record. Whether a 0 here is a READING is
+            // decided at the verdict, below (repair one).
+            int tunePower = rig.TunePower;
             var meters = new List<TxTuneProbe.Reading>(TxTuneProbe.Watched.Length);
             double lastComputedSwr = double.NaN;
             bool stoppedEarly = false;
@@ -235,8 +234,14 @@ namespace Radios.ChainChecks
                 return Refuse(TxTuneProbe.SkipReason.RadioNotReachable,
                               "the radio never reported transmitting and no meters read");
 
+            // Only a zero the radio has confirmed routes to "not judged at 0"
+            // (repair one). TunePower cannot fail to read, so the old
+            // "unreadable is not 0" guard guarded nothing; the real unknown
+            // zero is the tunepower=0 placeholder the radio sends for up to
+            // about 3.3 s after a connect (FlexBase.PowerReports.cs). An
+            // unconfirmed zero takes the ordinary path, as before the batch.
             TxTuneProbe.Verdict verdict = TxTuneProbe.Assess(meters, lastComputedSwr,
-                tunePowerSetToZero: tunePowerRead == 0);
+                tunePowerSetToZero: TunePowerIsAReadZero(rig.TunePower, rig.TunePowerReported));
 
             var result = TxTuneProbe.Result.Ran(verdict, DateTime.UtcNow, meters, tunePower,
                                                 lastComputedSwr, stoppedEarly,
@@ -472,12 +477,13 @@ namespace Radios.ChainChecks
             try { return rig?.MeterInventory; } catch { return null; }
         }
 
-        /// <summary>The tune power setting as read, or null when it could not be read.</summary>
-        private static int? SafeTunePower(FlexBase rig)
-        {
-            if (rig == null) return null;
-            try { return rig.TunePower; } catch { return null; }
-        }
+        /// <summary>
+        /// Whether the tune power is a setting of 0 the radio has reported:
+        /// 0, and <see cref="FlexBase.TunePowerReported"/>. Pure, so the
+        /// routing can be tested without a radio.
+        /// </summary>
+        internal static bool TunePowerIsAReadZero(int tunePower, bool tunePowerReported)
+            => tunePower == 0 && tunePowerReported;
 
         private static double SafeComputedSwr(FlexBase rig)
         {
