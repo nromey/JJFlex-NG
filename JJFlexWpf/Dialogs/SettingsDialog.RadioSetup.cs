@@ -531,11 +531,18 @@ namespace JJFlexWpf.Dialogs
             SetupRegisterButton.IsEnabled = false;
             SetupUnregisterButton.IsEnabled = false;
 
-            string opening = register
-                ? Lexicon.Get("settings.radio.register.starting")
-                : Lexicon.Get("settings.radio.unregister.starting");
-            SetupRegisterStatus.Text = opening;
-            ScreenReaderOutput.Speak(opening, VerbosityLevel.Terse, interrupt: true);
+            // The hold is asked FIRST (repair two): "Registering. Watch for
+            // the prompt to key the microphone." was said and then refused, so
+            // a refused press said two sentences and the first was untrue. Held,
+            // the send below refuses and says the one sentence.
+            if (!_rig.ChangeNothingActive)
+            {
+                string opening = register
+                    ? Lexicon.Get("settings.radio.register.starting")
+                    : Lexicon.Get("settings.radio.unregister.starting");
+                SetupRegisterStatus.Text = opening;
+                ScreenReaderOutput.Speak(opening, VerbosityLevel.Terse, interrupt: true);
+            }
 
             void OnState(string text, bool terminal) => Dispatcher.Invoke(() =>
             {

@@ -127,13 +127,35 @@ public sealed class RefusalFinalSentenceTests
     }
 
     [Fact]
-    public void OK_and_Apply_with_nothing_waiting_speak_as_repair_one_decided()
+    public void OK_with_a_refusal_folds_the_holds_sentence_into_the_one_final_sentence_that_survives_the_close()
     {
         AssertWindowless();
+        // Repair two: Home's return cut the hold's sentence about 70 ms in,
+        // and only the summary was replayed. On OK the summary now carries it.
         var ok = SettingsDialog.CommitAnnouncement(true, false, new[] { Refusal }, Array.Empty<string>(), Array.Empty<string>());
-        Assert.Equal(("Your other settings were saved.", false), (ok.Spoken, ok.Interrupt));
+        Assert.Equal((Refusal + " Your other settings were saved.", false), (ok.Spoken, ok.Interrupt));
+        // Apply does not close: the hold's sentence is heard whole, so it is not repeated.
+        var apply = SettingsDialog.CommitAnnouncement(false, false, new[] { Refusal }, Array.Empty<string>(), Array.Empty<string>());
+        Assert.Equal(("Your other settings were applied.", false), (apply.Spoken, apply.Interrupt));
         var plain = SettingsDialog.CommitAnnouncement(false, false, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
         Assert.Equal(("Settings applied.", true), (plain.Spoken, plain.Interrupt));
+        var plainOk = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
+        Assert.Equal(("Settings saved.", true), (plainOk.Spoken, plainOk.Interrupt));
+    }
+
+    [Fact]
+    public void A_held_registration_says_no_opening_sentence_before_the_refusal()
+    {
+        AssertWindowless();
+        string text = Read("JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs").Replace("\r\n", "\n");
+        string start = Body(text, "private void StartRegistration(bool register, FlexBase.RegistrationCheck confirmed)");
+        int ask = start.IndexOf("if (!_rig.ChangeNothingActive)", StringComparison.Ordinal);
+        int opening = start.IndexOf("ScreenReaderOutput.Speak(opening,", StringComparison.Ordinal);
+        int send = start.IndexOf("_rig.BeginSmartLinkRegistration(confirmed, OnState)", StringComparison.Ordinal);
+        Assert.True(ask > 0 && opening > ask && send > opening, "the opening sentence is said before the hold is asked");
+        // The opening is inside the hold's question, not after it.
+        string guarded = start.Substring(ask, start.IndexOf("\n            }", ask, StringComparison.Ordinal) - ask);
+        Assert.Contains("ScreenReaderOutput.Speak(opening,", guarded, StringComparison.Ordinal);
     }
 
     // ---- the Audio Workshop's saved microphone setup ----
