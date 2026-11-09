@@ -1121,6 +1121,13 @@ public partial class MainWindow : UserControl
     public string? GetFilterPresetStatus() => _freqOutHandlers?.ActiveFilterPresetStatus;
 
     /// <summary>
+    /// The active filter preset as the Status window SHOWS it, off the
+    /// verbosity dial (#983), or null if not on a preset. Speak Status keeps
+    /// <see cref="GetFilterPresetStatus"/>, which follows the dial.
+    /// </summary>
+    public string? GetFilterPresetDisplayedStatus() => _freqOutHandlers?.ActiveFilterPresetDisplayedStatus;
+
+    /// <summary>
     /// Apply settings changes from the Settings dialog.
     /// Propagates PttConfig to controller, tuning steps to handler, and saves to disk.
     /// </summary>

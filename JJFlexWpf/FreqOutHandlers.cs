@@ -3779,6 +3779,23 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// The active filter preset as the Status window shows it: the same
+    /// recognition and the same live edges as <see cref="ActiveFilterPresetStatus"/>,
+    /// in a form that does not follow the speech verbosity dial (#983). Null
+    /// when not on a named preset.
+    /// </summary>
+    public string? ActiveFilterPresetDisplayedStatus
+    {
+        get
+        {
+            if (FilterPresets == null || Rig == null) return null;
+            string mode = Rig.Mode ?? "USB";
+            int low = Rig.FilterLow, high = Rig.FilterHigh;
+            return FilterPresets.ActiveDisplayedStatus(mode, low, high);
+        }
+    }
+
+    /// <summary>
     /// Get mode-specific filter bounds for boundary detection.
     /// Matches Slice.UpdateFilter() clamping logic.
     /// </summary>

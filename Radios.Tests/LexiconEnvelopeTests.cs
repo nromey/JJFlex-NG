@@ -1010,6 +1010,10 @@ namespace Radios.Tests
                 "settings.transmit_check.zero_tune_power",
                 "settings.transmit_check.zero_tune_power_finding",
                 "settings.transmit_check.zero_tune_power_remedy",
+                // Same batch: the active filter preset as the Status window
+                // shows it, off the verbosity dial (#983). Window text, so
+                // delivery null. DRAFT awaiting Noel.
+                "settings.filter.preset_displayed",
                 // Junkbox #705, 2026-10-25: the Hotkey Editor's reason for a
                 // key that can never be assigned (Enter, and Tab or Escape
                 // with a modifier). A FRAGMENT that settings.keys.editor.key_reserved

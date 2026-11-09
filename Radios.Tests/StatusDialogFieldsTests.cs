@@ -82,11 +82,14 @@ namespace Radios.Tests
         {
             string commands = Read("JJFlexWpf/KeyCommands.cs");
 
-            // The same two SpeakStatusHandler reads. If either is renamed, this
-            // fails here rather than leaving the dialog quietly blank.
+            // The tuning mode is the one SpeakStatusHandler reads. The preset
+            // is its DISPLAYED form since #983 (displayed text stays off the
+            // verbosity dial), beside the spoken one Speak Status keeps. If
+            // either is renamed, this fails here rather than leaving the
+            // dialog quietly blank.
             Assert.Contains("TuningModeStatus = mw == null ? null : mw.GetTuningModeStatus",
                 commands, StringComparison.Ordinal);
-            Assert.Contains("FilterPresetStatus = mw == null ? null : mw.GetFilterPresetStatus",
+            Assert.Contains("FilterPresetStatus = mw == null ? null : mw.GetFilterPresetDisplayedStatus",
                 commands, StringComparison.Ordinal);
             Assert.Contains("mw?.GetTuningModeStatus()", commands, StringComparison.Ordinal);
             Assert.Contains("mw?.GetFilterPresetStatus()", commands, StringComparison.Ordinal);
