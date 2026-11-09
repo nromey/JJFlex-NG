@@ -403,4 +403,17 @@ public sealed class SliceOverwriteWarningTests : IDisposable
         Assert.Contains("e.Key == Key.F11", dialog);
         Assert.Contains("answer != SliceOverwriteAnswer.Cancel && _dontShow.IsChecked == true", dialog);
     }
+
+    // ── Speech around the warning (desk checks on the 8600, 2026-11-09) ──
+
+    [Fact]
+    public void The_warning_leaves_its_opening_line_to_the_screen_reader_and_does_not_say_it_again()
+    {
+        string dialog = Source("JJFlexWpf", "Dialogs", "SliceOverwriteWarningDialog.cs");
+        // The window's description carries it: NVDA reads it with the title as the warning opens.
+        Assert.Contains("AutomationProperties.SetHelpText(this, _opening);", dialog);
+        // No copy of our own, so nothing is left queued to replay after the warning closes.
+        Assert.DoesNotContain("ScreenReaderOutput.Speak", dialog);
+        Assert.DoesNotContain("Loaded +=", dialog);
+    }
 }
