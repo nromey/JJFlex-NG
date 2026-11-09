@@ -135,14 +135,27 @@ public sealed class CallsignDoorsTests : IDisposable
     }
 
     [Fact]
-    public void Every_door_that_asks_about_power_asks_about_the_callsign_first()
+    public void A_keying_press_asks_about_the_callsign_first()
     {
-        Assert.True(ZeroPowerDoors.RefuseTransmit(_rig, "a send"));
-        Assert.True(ZeroPowerDoors.RefuseTune(_rig, "the tune carrier"));
+        Assert.True(ZeroPowerDoors.RefuseTransmitPress(_rig, "a send"));
+        Assert.True(ZeroPowerDoors.RefuseTunePress(_rig, "the tune carrier"));
         Assert.Equal(new[] { "callsign: a send", "callsign: the tune carrier" }, _answers);
         _noCallsign = false;
-        Assert.False(ZeroPowerDoors.RefuseTransmit(_rig, "a send"));
-        Assert.False(ZeroPowerDoors.RefuseTune(_rig, "the tune carrier"));
+        Assert.False(ZeroPowerDoors.RefuseTransmitPress(_rig, "a send"));
+        Assert.False(ZeroPowerDoors.RefuseTunePress(_rig, "the tune carrier"));
+    }
+
+    /// <summary>
+    /// The power-only question stays power-only: the slice recorder asks it
+    /// about a recording started under a hardware push to talk, which keys
+    /// nothing, so a missing callsign is no reason to refuse that.
+    /// </summary>
+    [Fact]
+    public void The_power_only_question_does_not_ask_about_the_callsign()
+    {
+        Assert.False(ZeroPowerDoors.RefuseTransmit(_rig, "a slice recording"));
+        Assert.False(ZeroPowerDoors.RefuseTune(_rig, "a door"));
+        Assert.Empty(_answers);
     }
 
     /// <summary>

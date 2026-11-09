@@ -367,7 +367,7 @@ internal static class VoiceMessageSender
 
         // A rig reading 0 watts (#859): wherever the hold asks, this asks, on
         // the same condition. It speaks for itself.
-        if (ZeroPowerDoors.RefuseTransmit(rig, "a message key")) return;
+        if (ZeroPowerDoors.RefuseTransmitPress(rig, "a message key")) return;
 
         if (rig.TxToneEngaged)
         {
@@ -879,7 +879,7 @@ internal static class VoiceMessageSender
             return false;
         }
         // The same for a rig reading 0 watts (#859).
-        if (route == SendRoute.Box && ZeroPowerDoors.RefuseTransmit(rig, "a recording send")) return false;
+        if (route == SendRoute.Box && ZeroPowerDoors.RefuseTransmitPress(rig, "a recording send")) return false;
         return true;
     }
 
@@ -1025,7 +1025,7 @@ internal static class VoiceMessageSender
         }
         // The rig went to 0 watts while VOX was pausing (#859). As for a tune
         // here, a send that was carrying on keeps its paused place.
-        if (ZeroPowerDoors.RefuseTransmit(rig, "a send"))
+        if (ZeroPowerDoors.RefuseTransmitPress(rig, "a send"))
         {
             pause.Dispose();
             KeepPausedPlace(info);
@@ -1345,7 +1345,7 @@ internal static class VoiceMessageSender
         if (way != ResumeWay.Join && ptt != null && ptt.RefuseIfHeldAfterCut("a send carrying on"))
             return;
         // The same for a rig reading 0 watts (#859); it speaks, and the send stays paused.
-        if (way != ResumeWay.Join && ZeroPowerDoors.RefuseTransmit(rig, "a send carrying on"))
+        if (way != ResumeWay.Join && ZeroPowerDoors.RefuseTransmitPress(rig, "a send carrying on"))
             return;
         if (rig.TxToneEngaged)
         {

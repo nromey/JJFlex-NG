@@ -2055,7 +2055,7 @@ public class NativeMenuBar : IDisposable
         AddChecked(parent, "Tune &Carrier\tCtrl+Shift+T", () =>
             {
                 // Asked here too, so its sentence can wait for the menu to close (#859).
-                if (Rig?.TxTune == false && ZeroPowerDoors.RefuseTune(Rig, "the tune menu", afterMenu: true)) return;
+                if (Rig?.TxTune == false && ZeroPowerDoors.RefuseTunePress(Rig, "the tune menu", afterMenu: true)) return;
                 _window.ToggleTuneCarrier();
             },
             () => Rig?.TxTune == true);
@@ -2684,7 +2684,7 @@ public class NativeMenuBar : IDisposable
                 AddSep(antSub);
                 AddWired(antSub, "ATU Tune\tCtrl+T", () =>
                 {
-                    if (Rig?.FlexTunerOn == false && ZeroPowerDoors.RefuseTune(Rig, "the ATU menu", afterMenu: true)) return;
+                    if (Rig?.FlexTunerOn == false && ZeroPowerDoors.RefuseTunePress(Rig, "the ATU menu", afterMenu: true)) return;
                     _window.StartATUTuneCycle();
                 });
             }

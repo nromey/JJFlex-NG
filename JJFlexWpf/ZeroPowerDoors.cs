@@ -82,14 +82,16 @@ internal static class ZeroPowerDoors
     /// anything is prepared. True when it is refused: the caller must not key.
     /// </summary>
     /// <remarks>
-    /// <para>The first of this class's preconditions on purpose, and the only
-    /// one a check's own keying is NOT exempt from: Noel ruled (2026-11-08,
-    /// nap question J1) that the gate covers every keying JJ Flexible starts,
-    /// the checks included, where the zero-power rule leaves Test your
-    /// microphone alone. So <see cref="PttSafetyController.ToggleLock"/> asks
-    /// this directly, ahead of its check exemption, and every door that asks
-    /// <see cref="RefuseTransmit"/> or <see cref="RefuseTune"/> gets it from
-    /// there.</para>
+    /// <para>Asked first at every door that would key, and the one rule a
+    /// check's own keying is NOT exempt from: Noel ruled (2026-11-08, nap
+    /// question J1) that the gate covers every keying JJ Flexible starts, the
+    /// checks included, where the zero-power rule leaves Test your microphone
+    /// alone. So <see cref="PttSafetyController.ToggleLock"/> asks this
+    /// directly, ahead of its check exemption, and the doors ask it through
+    /// <see cref="RefuseTransmitPress"/> and <see cref="RefuseTunePress"/>.</para>
+    /// <para>NOT folded into <see cref="RefuseTransmit"/>: one caller of that,
+    /// the slice recorder's door, asks it about a recording started while a
+    /// hardware push to talk is down, which keys nothing.</para>
     /// <para>The answer is the radio's (<see cref="FlexBase.OperatorCallsignMissing"/>),
     /// which reads the operator's callsign at this moment, and the sentence
     /// is <see cref="FlexBase.NoCallsignRefusal"/>, the same one the radio's
@@ -123,13 +125,26 @@ internal static class ZeroPowerDoors
         }
     }
 
+    /// <summary>
+    /// An operator's press that would KEY the radio: no callsign first (#335),
+    /// then 0 watts (#859). True when refused: the caller must not key.
+    /// </summary>
+    internal static bool RefuseTransmitPress(FlexBase? rig, string door, bool afterMenu = false)
+        => RefuseNoCallsign(rig, door, afterMenu) || RefuseTransmit(rig, door, afterMenu);
+
+    /// <summary>
+    /// An operator's press that would start a tune carrier or the tuner: no
+    /// callsign first (#335), then tune power at 0 watts (#859).
+    /// </summary>
+    internal static bool RefuseTunePress(FlexBase? rig, string door, bool afterMenu = false)
+        => RefuseNoCallsign(rig, door, afterMenu) || RefuseTune(rig, door, afterMenu);
+
     /// <summary>A press that would transmit. True when it is refused: the caller must not key.</summary>
     /// <param name="rig">The radio. None or unreadable reads as not refused.</param>
     /// <param name="door">The door, for the trace. One press answers once per door.</param>
     /// <param name="afterMenu">The press came from a menu, which is about to close.</param>
     internal static bool RefuseTransmit(FlexBase? rig, string door, bool afterMenu = false)
     {
-        if (RefuseNoCallsign(rig, door, afterMenu)) return true;   // #335, first
         if (!AtZero(rig, tune: false)) return false;
         Answer(door, RadioPowerFloor.TransmitRefusal, afterMenu);
         return true;
@@ -141,7 +156,6 @@ internal static class ZeroPowerDoors
     /// <param name="afterMenu">The press came from a menu, which is about to close.</param>
     internal static bool RefuseTune(FlexBase? rig, string door, bool afterMenu = false)
     {
-        if (RefuseNoCallsign(rig, door, afterMenu)) return true;   // #335, first
         if (!AtZero(rig, tune: true)) return false;
         Answer(door, RadioPowerFloor.TuneRefusal, afterMenu);
         return true;

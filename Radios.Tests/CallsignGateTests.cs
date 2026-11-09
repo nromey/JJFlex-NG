@@ -220,9 +220,31 @@ public sealed class CallsignGateTests : IDisposable
         Assert.Contains(lockLine, ptt, StringComparison.Ordinal);
 
         string doors = Src("JJFlexWpf/ZeroPowerDoors.cs");
-        Assert.Matches(new Regex(@"internal static bool RefuseTransmit\([^)]*\)\s*\{\s*if \(RefuseNoCallsign\(rig, door, afterMenu\)\) return true;"), doors);
-        Assert.Matches(new Regex(@"internal static bool RefuseTune\([^)]*\)\s*\{\s*if \(RefuseNoCallsign\(rig, door, afterMenu\)\) return true;"), doors);
+        Assert.Contains("=> RefuseNoCallsign(rig, door, afterMenu) || RefuseTransmit(rig, door, afterMenu);", doors, StringComparison.Ordinal);
+        Assert.Contains("=> RefuseNoCallsign(rig, door, afterMenu) || RefuseTune(rig, door, afterMenu);", doors, StringComparison.Ordinal);
         Assert.Contains("FlexBase.NoCallsignRefusal", doors, StringComparison.Ordinal);
+
+        // Every operator door that keys asks the keying form; only the slice
+        // recorder's door, which keys nothing, keeps the power-only question.
+        var doorsAsked = new (string File, string Line)[]
+        {
+            ("JJFlexWpf/KeyCommands.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a CW message\")"),
+            ("JJFlexWpf/MainWindow.xaml.cs", "ZeroPowerDoors.RefuseTransmitPress(RigControl, \"the transmit toggle\")"),
+            ("JJFlexWpf/MainWindow.xaml.cs", "ZeroPowerDoors.RefuseTunePress(RigControl, \"the antenna tuner\")"),
+            ("JJFlexWpf/MainWindow.xaml.cs", "ZeroPowerDoors.RefuseTunePress(RigControl, \"the tune carrier\")"),
+            ("JJFlexWpf/NativeMenuBar.cs", "ZeroPowerDoors.RefuseTunePress(Rig, \"the tune menu\", afterMenu: true)"),
+            ("JJFlexWpf/NativeMenuBar.cs", "ZeroPowerDoors.RefuseTunePress(Rig, \"the ATU menu\", afterMenu: true)"),
+            ("JJFlexWpf/VoiceMessageSender.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a message key\")"),
+            ("JJFlexWpf/VoiceMessageSender.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a recording send\")"),
+            ("JJFlexWpf/VoiceMessageSender.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a send\")"),
+            ("JJFlexWpf/VoiceMessageSender.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a send carrying on\")"),
+        };
+        foreach (var (file, line) in doorsAsked)
+            Assert.Contains(line, Src(file), StringComparison.Ordinal);
+        var plain = Regex.Matches(string.Concat(new[] { "JJFlexWpf/KeyCommands.cs", "JJFlexWpf/MainWindow.xaml.cs",
+                "JJFlexWpf/NativeMenuBar.cs", "JJFlexWpf/VoiceMessageSender.cs" }.Select(Src)),
+            @"ZeroPowerDoors\.Refuse(Transmit|Tune)\(");
+        Assert.Empty(plain);
     }
 
     [Fact]

@@ -4055,7 +4055,7 @@ public class KeyCommands
                     break;
                 }
                 // A rig reading 0 watts (#859), asked here for the same reason.
-                if (ZeroPowerDoors.RefuseTransmit(rig, "a CW message")) break;
+                if (ZeroPowerDoors.RefuseTransmitPress(rig, "a CW message")) break;
                 string msg = item.Message;
                 if (msg.Length > 0 && msg[^1] != ' ')
                     msg += " ";

@@ -6575,7 +6575,7 @@ public partial class MainWindow : UserControl
         {
             // Fallback — direct TX toggle (no safety controller)
             Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
-            if (!RigControl.Transmit && ZeroPowerDoors.RefuseTransmit(RigControl, "the transmit toggle")) return;
+            if (!RigControl.Transmit && ZeroPowerDoors.RefuseTransmitPress(RigControl, "the transmit toggle")) return;
             RigControl.Transmit = !RigControl.Transmit;
         }
     }
@@ -7015,7 +7015,7 @@ public partial class MainWindow : UserControl
     /// watts (#859). Turning the tuner off is never refused.
     /// </summary>
     private bool TunerStartRefused() =>
-        !RigControl.FlexTunerOn && ZeroPowerDoors.RefuseTune(RigControl, "the antenna tuner");
+        !RigControl.FlexTunerOn && ZeroPowerDoors.RefuseTunePress(RigControl, "the antenna tuner");
 
     /// <summary>
     /// Show SWR/tuner status on hover.
@@ -7060,7 +7060,7 @@ public partial class MainWindow : UserControl
         // button checked, and of everything below, so a refused press tells
         // nothing it keyed. The button has flipped itself by now, so it goes
         // back. This is not the hold: tune is not held, by ruling of 2026-10-22.
-        if (!RigControl.TxTune && ZeroPowerDoors.RefuseTune(RigControl, "the tune carrier"))
+        if (!RigControl.TxTune && ZeroPowerDoors.RefuseTunePress(RigControl, "the tune carrier"))
         {
             if (TuneToggleButton != null) TuneToggleButton.IsChecked = false;
             return;

@@ -503,7 +503,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     public void A_refused_click_unchecks_the_button_that_flipped_itself_and_plays_no_tune_tone()
     {
         string tune = Body(Source("JJFlexWpf", "MainWindow.xaml.cs"), "public void ToggleTuneCarrier()");
-        int door = tune.IndexOf("ZeroPowerDoors.RefuseTune(RigControl, \"the tune carrier\")", StringComparison.Ordinal);
+        int door = tune.IndexOf("ZeroPowerDoors.RefuseTunePress(RigControl, \"the tune carrier\")", StringComparison.Ordinal);
         int uncheck = tune.IndexOf("TuneToggleButton.IsChecked = false;", StringComparison.Ordinal);
         int leaves = tune.IndexOf("return;", uncheck, StringComparison.Ordinal);
         int debounce = tune.IndexOf("_lastTuneToggleTicks < 500", StringComparison.Ordinal);
@@ -556,8 +556,8 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     public void The_menus_ask_first_so_the_sentence_outlives_the_menu_closing()
     {
         string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
-        Assert.Contains("if (Rig?.TxTune == false && ZeroPowerDoors.RefuseTune(Rig, \"the tune menu\", afterMenu: true)) return;", menu);
-        Assert.Contains("if (Rig?.FlexTunerOn == false && ZeroPowerDoors.RefuseTune(Rig, \"the ATU menu\", afterMenu: true)) return;", menu);
+        Assert.Contains("if (Rig?.TxTune == false && ZeroPowerDoors.RefuseTunePress(Rig, \"the tune menu\", afterMenu: true)) return;", menu);
+        Assert.Contains("if (Rig?.FlexTunerOn == false && ZeroPowerDoors.RefuseTunePress(Rig, \"the ATU menu\", afterMenu: true)) return;", menu);
     }
 
     // ── The sends ───────────────────────────────────────────────────────
@@ -611,16 +611,16 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         string voice = Source("JJFlexWpf", "VoiceMessageSender.cs");
         foreach (string line in new[]
         {
-            "if (ZeroPowerDoors.RefuseTransmit(rig, \"a message key\")) return;",
-            "if (route == SendRoute.Box && ZeroPowerDoors.RefuseTransmit(rig, \"a recording send\")) return false;",
-            "if (ZeroPowerDoors.RefuseTransmit(rig, \"a send\"))",
-            "if (way != ResumeWay.Join && ZeroPowerDoors.RefuseTransmit(rig, \"a send carrying on\"))",
+            "if (ZeroPowerDoors.RefuseTransmitPress(rig, \"a message key\")) return;",
+            "if (route == SendRoute.Box && ZeroPowerDoors.RefuseTransmitPress(rig, \"a recording send\")) return false;",
+            "if (ZeroPowerDoors.RefuseTransmitPress(rig, \"a send\"))",
+            "if (way != ResumeWay.Join && ZeroPowerDoors.RefuseTransmitPress(rig, \"a send carrying on\"))",
         })
             Assert.Contains(line, voice);
 
         string commands = Source("JJFlexWpf", "KeyCommands.cs");
         int hold = commands.IndexOf("ptt.RefuseIfHeldAfterCut(\"a CW message\")", StringComparison.Ordinal);
-        int door = commands.IndexOf("if (ZeroPowerDoors.RefuseTransmit(rig, \"a CW message\")) break;", StringComparison.Ordinal);
+        int door = commands.IndexOf("if (ZeroPowerDoors.RefuseTransmitPress(rig, \"a CW message\")) break;", StringComparison.Ordinal);
         int send = commands.IndexOf("_context.SendCW(msg);", StringComparison.Ordinal);
         Assert.True(hold > 0 && door > hold && send > door);
     }
@@ -629,7 +629,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     public void A_box_send_turned_away_late_gives_VOX_back_and_keeps_a_paused_place()
     {
         string voice = Source("JJFlexWpf", "VoiceMessageSender.cs");
-        int door = voice.IndexOf("if (ZeroPowerDoors.RefuseTransmit(rig, \"a send\"))", StringComparison.Ordinal);
+        int door = voice.IndexOf("if (ZeroPowerDoors.RefuseTransmitPress(rig, \"a send\"))", StringComparison.Ordinal);
         int pause = voice.IndexOf("pause.Dispose();", door, StringComparison.Ordinal);
         int place = voice.IndexOf("KeepPausedPlace(info);", door, StringComparison.Ordinal);
         int hand = voice.IndexOf("HandOffNow(info);", door, StringComparison.Ordinal);
@@ -640,7 +640,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     public void A_send_carrying_on_is_refused_with_nothing_changed_so_it_stays_paused()
     {
         string resume = Body(Source("JJFlexWpf", "VoiceMessageSender.cs"), "private static void ResumePaused()");
-        int door = resume.IndexOf("ZeroPowerDoors.RefuseTransmit(rig, \"a send carrying on\")", StringComparison.Ordinal);
+        int door = resume.IndexOf("ZeroPowerDoors.RefuseTransmitPress(rig, \"a send carrying on\")", StringComparison.Ordinal);
         int leaves = resume.IndexOf("_paused = null;", StringComparison.Ordinal);
         Assert.True(door > 0 && leaves > door);
     }
