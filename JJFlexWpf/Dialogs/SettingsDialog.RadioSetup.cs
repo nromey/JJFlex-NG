@@ -565,10 +565,14 @@ namespace JJFlexWpf.Dialogs
             {
                 // The change-nothing hold refused it and has said so, naming
                 // the setting. The status line carries the same sentence, and
-                // nothing more is spoken (#486).
+                // nothing more is spoken (#486). The other steps and the
+                // buttons are refreshed FIRST, without starting a new check,
+                // and the reason written after: the refresh rewrites this line,
+                // so in the old order the re-readable copy was gone at once
+                // (repair one).
+                RefreshSetupStatuses(startARegistrationCheck: false);
                 SetupRegisterStatus.Text = Lexicon.Get("settings.guard.refused",
                     ("action", Lexicon.Get("settings.guard.action.registration")));
-                RefreshSetupStatuses();
             }
             else if (sent != GuardedOutcome.Done)
             {

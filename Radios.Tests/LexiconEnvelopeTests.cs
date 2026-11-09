@@ -2307,6 +2307,14 @@ namespace Radios.Tests
                 // Round two (#496, the bench's Fail 3): Settings with no radio
                 // says the PTT changes were not saved. DRAFT prose.
                 "settings.commit.ptt_not_saved",
+                // Junk box 2026-11-09 second batch, repair one (#486): the
+                // Settings commit's summary when the change-nothing hold refused
+                // a radio change in it, said after the hold's sentence for the
+                // settings that were saved; and the Audio Workshop's saved
+                // microphone setup when its radio half was refused. DRAFT prose.
+                "settings.commit.applied_others_spoken",
+                "settings.commit.saved_others_spoken",
+                "settings.audio.mic_setup_computer_half_applied",
                 // Junk box 2026-11-09 (#517): Page Up and Page Down on the
                 // slice row, and Home on the Slice field, say where pan went
                 // instead of panning. Noel ruled the disposition 2026-09-21;

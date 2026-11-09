@@ -402,11 +402,30 @@ public partial class AudioWorkshopDialog
         var radioResult = profile.ApplyRadioHalf(_rig, _rig?.SelectedRadioSerial ?? "");
         if (radioResult.RadioHalfApplied) PollTxAudio();
 
-        var parts = new List<string> { Lexicon.Get("audio.micprofile.applied", ("profile", profile.Name)) };
+        // Queued, never interrupting: under the change-nothing hold the
+        // hold's own sentence is speaking.
+        ScreenReaderOutput.Speak(MicProfileAppliedSentence(profile.Name, radioResult, captureNotes),
+            radioResult.Warning ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+    }
+
+    /// <summary>
+    /// What applying a saved microphone setup says. When the change-nothing
+    /// hold refused the radio half it has said so, naming the setting, so
+    /// this claims only the computer half, which was applied: "Microphone
+    /// setup X applied." over a refused radio half was untrue (#486, repair
+    /// one). Pure, so the windowless tests can hold it.
+    /// </summary>
+    internal static string MicProfileAppliedSentence(string profileName, MicProfileApplyResult radioResult, string? captureNotes)
+    {
+        var parts = new List<string>
+        {
+            radioResult.HoldRefused
+                ? Lexicon.Get("settings.audio.mic_setup_computer_half_applied", ("profile", profileName))
+                : Lexicon.Get("audio.micprofile.applied", ("profile", profileName)),
+        };
         if (!string.IsNullOrEmpty(radioResult.Message)) parts.Add(radioResult.Message);
         if (!string.IsNullOrEmpty(captureNotes)) parts.Add(captureNotes);
-        ScreenReaderOutput.Speak(string.Join(" ", parts),
-            radioResult.Warning ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+        return string.Join(" ", parts);
     }
 
     /// <summary>

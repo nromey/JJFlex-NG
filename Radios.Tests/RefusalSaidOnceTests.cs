@@ -75,6 +75,36 @@ public sealed class RefusalSaidOnceTests : IDisposable
     }
 
     [Fact]
+    public void A_saved_mic_setup_under_the_hold_says_its_radio_half_was_refused_and_nothing_else()
+    {
+        // Repair one: the Workshop's saved setup told the refusal apart from
+        // nothing, so it said "Microphone setup Ragchew applied." over a
+        // refused radio half.
+        using var c = new RadioCase();
+        c.F.Rig.SuppressSpeech = true;
+        c.F.Vendor.Status("profile mic list=Default^Ragchew^");
+        var profile = new MicrophoneProfile { Name = "Desk mic" };
+        profile.SetSetupFor(new RadioProfileReference { RadioId = "TEST-SERIAL", ProfileName = "Ragchew" });
+
+        c.F.Rig.SetChangeNothingActive(true);
+        var held = profile.ApplyRadioHalf(c.F.Rig, "TEST-SERIAL");
+        Assert.True(held.HoldRefused);
+        Assert.False(held.RadioHalfApplied);
+        Assert.Equal("", held.Message);
+        Assert.Equal(0, c.F.Rig.q.Count);
+
+        // Control: the hold off, the same setup loads, and is not a refusal.
+        c.F.Rig.SetChangeNothingActive(false);
+        var loaded = profile.ApplyRadioHalf(c.F.Rig, "TEST-SERIAL");
+        Assert.False(loaded.HoldRefused);
+        Assert.True(loaded.RadioHalfApplied);
+        // And a profile the radio does not list is "absent", not a refusal.
+        profile.SetSetupFor(new RadioProfileReference { RadioId = "TEST-SERIAL", ProfileName = "Not on this radio" });
+        c.F.Rig.SetChangeNothingActive(true);
+        Assert.False(profile.ApplyRadioHalf(c.F.Rig, "TEST-SERIAL").HoldRefused);
+    }
+
+    [Fact]
     public void A_firmware_send_under_the_hold_is_refused()
     {
         using var c = new RadioCase();

@@ -851,8 +851,20 @@ namespace JJFlexWpf.Dialogs
         /// validation error (focus moved to the offending field); a declined
         /// confirmation or denied authority is reported in
         /// <paramref name="queued"/> and does not block the rest of OK.
+        /// <paramref name="refused"/> is true when the change-nothing hold
+        /// refused the change: the hold has said so, and the commit's own
+        /// summary must neither claim it nor cut that sentence off (#486,
+        /// repair one).
         /// </summary>
-        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied)
+        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied, out bool refused)
+        {
+            bool heldBack = false;
+            bool valid = CommitPortForwardIfDirtyCore(queued, applied, () => heldBack = true);
+            refused = heldBack;
+            return valid;
+        }
+
+        private bool CommitPortForwardIfDirtyCore(List<string> queued, List<string> applied, Action noteRefused)
         {
             if (PortForwardEnabledCheck == null) return true;
             bool wantEnabled = PortForwardEnabledCheck.IsChecked == true;
@@ -924,6 +936,8 @@ namespace JJFlexWpf.Dialogs
                         // command failed" after it was untrue (#486).
                         else if (outcome != GuardedOutcome.Refused)
                             declineNote = Lexicon.Get("settings.network.forwarding_command_failed");
+                        else
+                            noteRefused();
                     },
                     onDenied: () =>
                     {
@@ -1674,7 +1688,7 @@ namespace JJFlexWpf.Dialogs
 
             if (!CommitRadioProfiles(queued, applied)) return false;
             CommitSetupRadioNameIfDirty(applied);
-            if (!CommitPortForwardIfDirty(queued, applied)) return false;
+            if (!CommitPortForwardIfDirty(queued, applied, out bool holdRefused)) return false;
             CommitSystemWideKeysIfDirty(applied);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
 
             SettingsApplied?.Invoke();
@@ -1703,20 +1717,37 @@ namespace JJFlexWpf.Dialogs
                 }
                 else
                 {
-                    ScreenReaderOutput.Speak(Lexicon.Get(pttDropped ? "settings.commit.ptt_not_saved" : "settings.commit.saved_spoken"),
-                        VerbosityLevel.Terse, interrupt: true);
+                    var said = CommitSummary(closing: true, pttDropped, holdRefused);
+                    ScreenReaderOutput.Speak(Lexicon.Get(said.Key), VerbosityLevel.Terse, interrupt: said.Interrupt);
                 }
             }
             else
             {
-                string summary = pttDropped ? Lexicon.Get("settings.commit.ptt_not_saved") : Lexicon.Get("settings.commit.applied_spoken");
+                var said = CommitSummary(closing: false, pttDropped, holdRefused);
+                string summary = Lexicon.Get(said.Key);
                 if (queued.Count > 0)
                     summary += Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
                 else if (applied.Count > 0)
                     summary += " " + string.Join(" ", applied);
-                ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: said.Interrupt);
             }
             return true;
+        }
+
+        /// <summary>
+        /// The commit's spoken summary: which sentence, and whether it may cut
+        /// off what is speaking. When the change-nothing hold refused a radio
+        /// change in this commit, the hold has just said so: the summary then
+        /// waits its turn, never interrupting, and speaks only for the other
+        /// settings, which were saved (#486, repair one). Pure, so the
+        /// windowless tests can hold it.
+        /// </summary>
+        internal static (string Key, bool Interrupt) CommitSummary(bool closing, bool pttDropped, bool holdRefused)
+        {
+            string key = pttDropped ? "settings.commit.ptt_not_saved"
+                : holdRefused ? (closing ? "settings.commit.saved_others_spoken" : "settings.commit.applied_others_spoken")
+                : closing ? "settings.commit.saved_spoken" : "settings.commit.applied_spoken";
+            return (key, !holdRefused);
         }
 
         private void OkButton_Click(object sender, RoutedEventArgs e)
