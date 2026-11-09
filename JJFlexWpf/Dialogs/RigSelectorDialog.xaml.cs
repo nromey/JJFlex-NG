@@ -1093,8 +1093,10 @@ namespace JJFlexWpf.Dialogs
 
                 // A connect already started (an auto-connect, or an operator
                 // faster than the settle window): the pass's progress lines
-                // would only talk over it (#775).
-                if (!SaysOpeningPassLine(_connectStarted)) return;
+                // would only talk over it (#775). A line queued BEFORE the
+                // connect is retired by its own condition; see
+                // PickerOpeningPassSpeech.
+                if (_openingPass.ConnectStarted) return;
 
                 // A radio landed inside the window — its own arrival speech and
                 // the auto-select line already told the user the interesting
@@ -1314,29 +1316,30 @@ namespace JJFlexWpf.Dialogs
         private bool _localSettled;
 
         /// <summary>
-        /// A connect has been started from this picker (#775). From then on the
-        /// opening pass's progress lines say nothing: the radio was already
-        /// found and chosen, and "Local connection list loaded, still
-        /// listening" spoken over the connect tells the operator nothing they
-        /// can act on. Set at the top of <see cref="CompleteConnect"/>, the one
-        /// place every connect from the picker passes.
+        /// The opening pass's progress lines, and whether they are still worth
+        /// saying (#775). Once a connect has started from this picker they say
+        /// nothing: the radio was already found and chosen, and "Local
+        /// connection list loaded, still listening" spoken over the connect
+        /// tells the operator nothing they can act on. That holds for a line
+        /// not yet said AND for one already queued, which the speech arbiter
+        /// would otherwise rescue and say after the connect's own sentence.
+        /// Marked at the top of <see cref="CompleteConnect"/>, the one place
+        /// every connect from the picker passes.
         /// </summary>
-        private bool _connectStarted;
-
-        /// <summary>The opening pass's loaded line is said only while no connect has started (#775).</summary>
-        internal static bool SaysOpeningPassLine(bool connectStarted) => !connectStarted;
+        private readonly Radios.PickerOpeningPassSpeech _openingPass = new();
 
         /// <summary>
         /// Loaded-state announcements, Terse-gated, never interrupting: they
         /// queue behind whatever arrival or delta speech is already going out,
         /// which is the ordering requirement — a state line that clobbers the
-        /// delta line would trade one lie for another.
+        /// delta line would trade one lie for another. Each carries the
+        /// opening pass's condition, so a connect retires it (#775).
         /// </summary>
-        private static void AnnounceLoadedState(string terse, string chatty)
+        private void AnnounceLoadedState(string terse, string chatty)
         {
             var text = Radios.ScreenReaderOutput.CurrentVerbosity == Radios.VerbosityLevel.Chatty
                 ? chatty : terse;
-            Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Terse, false);
+            _openingPass.Say(text);
         }
 
         /// <summary>
@@ -3039,7 +3042,7 @@ namespace JJFlexWpf.Dialogs
         private void CompleteConnect(RadioListItem radio, ConnectPathKind path, bool forced,
             List<ConnectPathKind> fallbacks)
         {
-            _connectStarted = true;   // #775: the opening pass's progress lines stop here
+            _openingPass.ConnectStarting();   // #775: the opening pass's lines stop here, queued ones included
             var radioName = RowName(radio);
             bool remote = path == ConnectPathKind.SmartLink;
             // #401: name the account the connect will actually ROUTE THROUGH,
