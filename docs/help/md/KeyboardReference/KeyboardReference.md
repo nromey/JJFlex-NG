@@ -442,7 +442,7 @@ These work while your focus is in the JJ Flexible Home or in Home's field groups
 - **Shift+Space** — Toggle a transmit lock on or off
 - **Escape** — Stop transmitting (while a transmit lock is on)
 
-Ctrl+Space also keys the radio from the app's own dialogs, such as Settings.
+`Ctrl+Space` also keys the radio from the app's own dialogs, such as Settings. [PTT and Transmission](PttAndTransmission.md) explains the callsign requirement, the refusal while another station is transmitting, and using the transmit lock for a long transmission under JAWS or NVDA.
 
 ### RX Filter Adjustment
 

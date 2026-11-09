@@ -47,7 +47,7 @@ A capture is for when you can make the problem happen. Start a capture, reproduc
 Three ways to run one, all equivalent:
 
 - The "Start detailed capture" button on the Diagnostics tab. Press it again to stop.
-- **Ctrl+J, then Ctrl+D** — the JJ key chord. Works from anywhere: any dialog, radio or no radio. Press it once to start, again to stop.
+- Press the JJ key, `Ctrl+J`, then `Ctrl+D`, to start a detailed capture from anywhere in JJ Flexible, including dialogs, with or without a radio connected. The start announcement names the same chord as the way to stop. Reproduce the problem, then press the chord again to stop the capture.
 - If the app itself notices something fail, it may offer to start one for you.
 
 Stopping a capture announces where it went, and an "Export this capture" button appears so you can save it as a single file right away. The standing log resumes on its own afterward — stopping a capture never leaves you unrecorded.

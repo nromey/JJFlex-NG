@@ -179,7 +179,9 @@ Results appear only once there is a take. **Play last take** plays the slice rec
 
 ### The Fix tool
 
-When a check fails, or something about your transmit audio is plainly broken, the **Fix tool** button opens the Fix tool, the same as Tools, Fix, "Transmit problems...". It walks your audio setup, your microphone and the transmit path a stage at a time. A check that could not start, did not key, made no recording or heard nothing from your microphone says so and names the button. The same button sits at the top of the Audio Workshop's **Diagnostics** category. It waits while a check is running, because the Fix tool keys the radio for tests of its own.
+The **Fix tool** button opens the Fix tool when a check fails or something about the transmit audio is plainly broken. The **Transmission problems...** item under **Tools**, then **Fix**, opens the same tool. The Fix tool walks the audio setup, microphone and transmit path a stage at a time. A check that could not start, did not key, made no recording or heard nothing from the microphone says so and names the button. The same button sits at the top of the Audio Workshop's **Diagnostics** category. The button waits while a check is running, because the Fix tool keys the radio for tests of its own.
+
+The Fix tool's transmitter check needs enough forward power to judge the transmitter and the antenna port. A tune power of 0 reported by the radio, together with too little measured forward power, produces a result saying that neither was judged and asking for a higher tune power. That result reports neither a load problem nor a passed check.
 
 ### Escape, and what a check puts back
 
