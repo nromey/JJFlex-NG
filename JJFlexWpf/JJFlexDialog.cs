@@ -70,6 +70,13 @@ namespace JJFlexWpf
             catch { return nint.Zero; }
         }
 
+        /// <summary>
+        /// Once per process, before the first dialog: a Cancel or default
+        /// button no longer hands a screen reader the Escape or carriage
+        /// return character as its access key (<see cref="DefaultButtonAccessKey"/>).
+        /// </summary>
+        static JJFlexDialog() => DefaultButtonAccessKey.Install();
+
         public JJFlexDialog()
         {
             // Load shared dialog styles
