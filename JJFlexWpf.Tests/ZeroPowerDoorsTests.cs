@@ -611,8 +611,8 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         string voice = Source("JJFlexWpf", "VoiceMessageSender.cs");
         foreach (string line in new[]
         {
-            "if (ZeroPowerDoors.RefuseTransmitPress(rig, \"a message key\")) return;",
-            "if (route == SendRoute.Box && ZeroPowerDoors.RefuseTransmitPress(rig, \"a recording send\")) return false;",
+            "if (RefuseSendDoor(rig, \"a message key\")) return;",
+            "if (route == SendRoute.Box && RefuseSendDoor(rig, \"a recording send\")) return false;",
             "if (ZeroPowerDoors.RefuseTransmitPress(rig, \"a send\"))",
             "if (way != ResumeWay.Join && ZeroPowerDoors.RefuseTransmitPress(rig, \"a send carrying on\"))",
         })

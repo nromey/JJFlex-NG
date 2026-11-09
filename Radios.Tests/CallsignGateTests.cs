@@ -234,15 +234,23 @@ public sealed class CallsignGateTests : IDisposable
             ("JJFlexWpf/MainWindow.xaml.cs", "ZeroPowerDoors.RefuseTunePress(RigControl, \"the tune carrier\")"),
             ("JJFlexWpf/NativeMenuBar.cs", "ZeroPowerDoors.RefuseTunePress(Rig, \"the tune menu\", afterMenu: true)"),
             ("JJFlexWpf/NativeMenuBar.cs", "ZeroPowerDoors.RefuseTunePress(Rig, \"the ATU menu\", afterMenu: true)"),
-            ("JJFlexWpf/VoiceMessageSender.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a message key\")"),
-            ("JJFlexWpf/VoiceMessageSender.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a recording send\")"),
+            ("JJFlexWpf/VoiceMessageSender.cs", "RefuseSendDoor(rig, \"a message key\")"),
+            ("JJFlexWpf/VoiceMessageSender.cs", "RefuseSendDoor(rig, \"a recording send\")"),
             ("JJFlexWpf/VoiceMessageSender.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a send\")"),
             ("JJFlexWpf/VoiceMessageSender.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a send carrying on\")"),
         };
         foreach (var (file, line) in doorsAsked)
             Assert.Contains(line, Src(file), StringComparison.Ordinal);
+        // One exception, by name (repair one): the send door asks the
+        // power-only question of a send that joins a transmission the radio's
+        // own push to talk holds, because that keys nothing. It is pinned here
+        // whole, so the callsign half cannot quietly drop out of it.
+        const string sendDoor =
+            "JoinsAHeldTransmission(rig)\n            ? ZeroPowerDoors.RefuseTransmit(rig, door)\n            : ZeroPowerDoors.RefuseTransmitPress(rig, door);";
+        string voice = Src("JJFlexWpf/VoiceMessageSender.cs").Replace("\r\n", "\n");
+        Assert.Contains(sendDoor, voice, StringComparison.Ordinal);
         var plain = Regex.Matches(string.Concat(new[] { "JJFlexWpf/KeyCommands.cs", "JJFlexWpf/MainWindow.xaml.cs",
-                "JJFlexWpf/NativeMenuBar.cs", "JJFlexWpf/VoiceMessageSender.cs" }.Select(Src)),
+                "JJFlexWpf/NativeMenuBar.cs" }.Select(Src).Append(voice.Replace(sendDoor, ""))),
             @"ZeroPowerDoors\.Refuse(Transmit|Tune)\(");
         Assert.Empty(plain);
     }

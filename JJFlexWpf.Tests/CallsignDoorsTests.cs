@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using JJFlexWpf.Tests.Infrastructure;
+using NAudio.Wave;
 using Radios;
 using Xunit;
 
@@ -175,5 +177,139 @@ public sealed class CallsignDoorsTests : IDisposable
         ZeroPowerDoors.NoCallsignOverride = null;   // the real read: this rig was handed no reader
         _controller.ToggleLock();
         Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+    }
+
+    // ── Repair one: a send that joins a held transmission keys nothing ──────
+
+    private void Transmitting(bool on) =>
+        typeof(FlexBase).GetField("_Transmit", Any)!.SetValue(_rig, on);
+
+    /// <summary>A real one-second recording in the (isolated) recordings folder.</summary>
+    private static string Recording(string name)
+    {
+        Directory.CreateDirectory(RecordingStore.FolderPath);
+        string path = RecordingStore.PathForName(name);
+        using var writer = new WaveFileWriter(path, new WaveFormat(48000, 16, 1));
+        float[] samples = Enumerable.Repeat(0.1f, 48000).ToArray();
+        writer.WriteSamples(samples, 0, samples.Length);
+        return path;
+    }
+
+    /// <summary>
+    /// Press a voice message key for a real recording, on a radio whose audio
+    /// path says yes (an unconnected vendor radio, transmit audio from PC, as
+    /// TuneDoorsTests builds it), with the radio's own microphone push to talk
+    /// holding the carrier or not, and give back what was said.
+    /// </summary>
+    private List<string> PressAMessageKey(bool hardwarePushToTalkHeld, out bool sent)
+    {
+        var radioType = typeof(FlexBase).GetField("theRadio", Any)!.FieldType;
+        object radio = Activator.CreateInstance(radioType, Any, null, new object[] { false }, null)!;
+        radioType.GetField("_micInput", Any)!.SetValue(radio, "PC");
+        if (hardwarePushToTalkHeld)
+            radioType.GetField("_pttSource", Any)!.SetValue(radio, Flex.Smoothlake.FlexLib.PTTSource.Mic);
+        typeof(FlexBase).GetField("theRadio", Any)!.SetValue(_rig, radio);
+        typeof(FlexBase).GetField("_PCAudio", Any)!.SetValue(_rig, true);
+        Assert.Equal("", _rig.TxTonePathTrouble);    // or the send never reaches its own start
+        Assert.Equal(hardwarePushToTalkHeld, _rig.PttSourceIsHardware);
+
+        string name = "callsign repair " + Guid.NewGuid().ToString("N");
+        string path = Recording(name);
+        bool boxWas = VoxSendBox.Ticked;
+        try
+        {
+            VoxSendBox.Ticked = false;
+            Transmitting(hardwarePushToTalkHeld);
+            List<string> said = Said(() => VoiceMessageSender.Send(_rig, new CWMessageItem { Label = "CQ test", Audio = name }));
+            sent = VoiceMessageSender.InFlight;
+            return said;
+        }
+        finally
+        {
+            VoiceMessageSender.Stop();
+            Transmitting(false);
+            VoxSendBox.Ticked = boxWas;
+            typeof(FlexBase).GetField("_PCAudio", Any)!.SetValue(_rig, false);
+            typeof(FlexBase).GetField("theRadio", Any)!.SetValue(_rig, null);
+            try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>
+    /// Codex's blocker and the second checker's N2: with no callsign, the radio's
+    /// own microphone push to talk (or footswitch) holding the carrier, and a
+    /// voice message key pressed, the message joins that transmission. It keys
+    /// nothing (VoiceMessageSend.Begin's already-transmitting branch starts the
+    /// file and writes no key), and the ruling leaves the radio's own push to
+    /// talk usable, so it is not refused. Before repair one the door asked the
+    /// callsign question first and said "nothing was transmitted" over a live
+    /// carrier.
+    /// </summary>
+    [Fact]
+    public void A_voice_message_joining_a_hardware_push_to_talk_goes_out_with_no_callsign()
+    {
+        List<string> said = PressAMessageKey(hardwarePushToTalkHeld: true, out bool sent);
+        Assert.DoesNotContain(NoCall, said);
+        Assert.Empty(_answers);
+        Assert.True(sent, "the message did not go out: " + string.Join(" | ", said));
+        Assert.Contains(said, s => s.StartsWith("Sending CQ test", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The refusal stays where the send would key: the same press, the same
+    /// recording, the radio receiving.
+    /// </summary>
+    [Fact]
+    public void A_voice_message_that_would_key_is_still_refused_with_no_callsign()
+    {
+        List<string> said = PressAMessageKey(hardwarePushToTalkHeld: false, out bool sent);
+        Assert.Equal(new[] { NoCall }, said);
+        Assert.Equal(new[] { "callsign: a message key" }, _answers);
+        Assert.False(sent);
+    }
+
+    /// <summary>
+    /// Only a radio READ as transmitting is a join; anything else, the send
+    /// door asks about the callsign.
+    /// </summary>
+    [Fact]
+    public void Only_a_radio_read_as_transmitting_is_a_join()
+    {
+        Transmitting(false);
+        Assert.False(VoiceMessageSender.JoinsAHeldTransmission(_rig));
+        Transmitting(true);
+        try { Assert.True(VoiceMessageSender.JoinsAHeldTransmission(_rig)); }
+        finally { Transmitting(false); }
+    }
+
+    /// <summary>
+    /// The same class at the recording sends' first door (a slice recording
+    /// sent, a computer recording sent through the box): under a held
+    /// transmission the box joins it, so the callsign is not asked there; with
+    /// the radio receiving it is. The box asks again at its own key, before
+    /// anything keys, so a transmission that ends while it waits is refused
+    /// there.
+    /// </summary>
+    [Fact]
+    public void A_recording_send_joining_a_held_transmission_is_not_asked_about_the_callsign()
+    {
+        try
+        {
+            Transmitting(true);
+            List<string> joining = Said(() => VoiceMessageSender.SendSliceRecording(_rig, SliceRecorderTarget.ActiveSlice));
+            Assert.DoesNotContain(NoCall, joining);
+            Assert.Empty(_answers);
+            VoiceMessageSender.Stop();
+
+            Transmitting(false);
+            Assert.Equal(new[] { NoCall }, Said(() => VoiceMessageSender.SendSliceRecording(_rig, SliceRecorderTarget.ActiveSlice)));
+            Assert.Equal(new[] { "callsign: a recording send" }, _answers);
+            Assert.False(VoiceMessageSender.InFlight);
+        }
+        finally
+        {
+            VoiceMessageSender.Stop();
+            Transmitting(false);
+        }
     }
 }

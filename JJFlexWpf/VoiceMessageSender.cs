@@ -366,8 +366,10 @@ internal static class VoiceMessageSender
         }
 
         // A rig reading 0 watts (#859): wherever the hold asks, this asks, on
-        // the same condition. It speaks for itself.
-        if (ZeroPowerDoors.RefuseTransmitPress(rig, "a message key")) return;
+        // the same condition. It speaks for itself. No callsign (#335) is asked
+        // only of a send that would start a carrier: one joining a transmission
+        // the radio's own push to talk holds keys nothing.
+        if (RefuseSendDoor(rig, "a message key")) return;
 
         if (rig.TxToneEngaged)
         {
@@ -878,9 +880,39 @@ internal static class VoiceMessageSender
                 TraceLevel.Info);
             return false;
         }
-        // The same for a rig reading 0 watts (#859).
-        if (route == SendRoute.Box && ZeroPowerDoors.RefuseTransmitPress(rig, "a recording send")) return false;
+        // The same for a rig reading 0 watts (#859), and no callsign (#335)
+        // only when the send would start a carrier: a box send under a
+        // hardware push to talk joins it, and keys nothing.
+        if (route == SendRoute.Box && RefuseSendDoor(rig, "a recording send")) return false;
         return true;
+    }
+
+    /// <summary>
+    /// The first door of a send that may only JOIN a transmission (#335, repair
+    /// one): the power question (#859) always, as before, and the callsign
+    /// question only when the send would start a carrier. Ruled by Noel
+    /// 2026-11-08: the gate covers every keying JJ Flexible starts and leaves
+    /// the radio's own microphone push to talk and footswitch usable, and a
+    /// send that joins the transmission they hold starts the file and writes
+    /// no key (<see cref="VoiceMessageSend.Begin"/>, the already-transmitting
+    /// branch; the box joins on the same reading). True when refused.
+    /// </summary>
+    /// <remarks>
+    /// Only a radio READ as transmitting is a join: a reading that throws asks
+    /// the callsign question, so the gate fails closed. If the transmission
+    /// ends before the send begins, the send would key, and the late door
+    /// (the box's <c>"a send"</c>) and the radio's own chokepoint refuse it.
+    /// </remarks>
+    private static bool RefuseSendDoor(FlexBase rig, string door) =>
+        JoinsAHeldTransmission(rig)
+            ? ZeroPowerDoors.RefuseTransmit(rig, door)
+            : ZeroPowerDoors.RefuseTransmitPress(rig, door);
+
+    /// <summary>The radio reads as already transmitting, so a send now joins and keys nothing.</summary>
+    internal static bool JoinsAHeldTransmission(FlexBase rig)
+    {
+        try { return rig.Transmit; }
+        catch { return false; }
     }
 
     /// <summary>
