@@ -251,7 +251,8 @@ namespace Radios.Speech
             // which for a progress line means the newer one supersedes it, and
             // for the connect lead means the salvage may offer it again.
             foreach (var w in withdrawnItems)
-                ReportWithdrawn(w, byUs: false);
+                ReportWithdrawn(w, byUs: false,
+                    $"withdrawn unspoken: delivery #{afterTicket} ahead of it was cancelled by something outside this application");
 
             // **The cause is UNKNOWN, and this line used to assert one
             // (#606).** It said "The operator asked for quiet" about an event
@@ -306,13 +307,18 @@ namespace Radios.Speech
         /// An item that never reached the reader at all. Zero marks, and the
         /// arbiter is told, so its ledger entry is retired rather than orphaned.
         /// </summary>
-        private void ReportWithdrawn(Item item, bool byUs)
+        private void ReportWithdrawn(Item item, bool byUs, string? why = null)
         {
+            // why: for a withdrawal that follows someone else's cancel, the
+            // line says so instead of claiming its own unknown cause. Most
+            // "word 0 of N after 0 ms, NOT by us" lines in a capture are these
+            // (#709 item 2): ONE foreign cancel of the item in flight, then
+            // every item queued behind it (#182).
             Report(item, SpeechOutcome.Cancelled(
                 marksReached: 0,
                 markCount: NvdaCompletionChannel.SplitWords(item.Text).Length,
                 byUs: byUs,
-                elapsedMs: 0));
+                elapsedMs: 0).WithAttribution(why));
         }
 
         public long Interrupt(ISpeechCompletionChannel channel, string text)

@@ -46,6 +46,10 @@ Public Class ShellForm
         _elementHost.AccessibleRole = AccessibleRole.Client
         Me.Controls.Add(_elementHost)
 
+        ' #709 item 3: the speech trace names what was seen near a cancel it
+        ' did not make (a key, a focus move). Diagnostic only.
+        JJFlexWpf.SpeechCancelWitnessFeed.Install()
+
         ' Create WPF content and host it
         WpfContent = New JJFlexWpf.MainWindow()
         _elementHost.Child = WpfContent
@@ -203,6 +207,7 @@ Public Class ShellForm
         JJTrace.Tracing.TraceLine("KEYROUTE shell.ProcessCmdKey key=" & keyData.ToString() &
                           " msg=0x" & msg.Msg.ToString("X") &
                           " inMenuLoop=" & _inNativeMenuLoop.ToString())
+        Radios.Speech.SpeechCancelWitness.Shared.Note(Radios.Speech.SpeechCancelWitness.EventKind.Key, keyData.ToString())
 
         ' Let DoCommandHandler try first (scope-aware key routing)
         If WpfContent?.DoCommandHandler IsNot Nothing Then
@@ -346,6 +351,10 @@ Public Class ShellForm
         ' they left it. See KeyCommands.ApplicationDeactivated.
         If m.Msg = WM_ACTIVATEAPP AndAlso m.WParam = IntPtr.Zero Then
             JJFlexWpf.KeyCommands.ApplicationDeactivated()
+            ' #709 item 3: another program took the foreground, which
+            ' cancels a screen reader's speech; the speech trace names it.
+            Radios.Speech.SpeechCancelWitness.Shared.Note(
+                Radios.Speech.SpeechCancelWitness.EventKind.ApplicationDeactivated, Nothing)
         End If
 
         ' #550 - the other order Windows can use: activate first, then send

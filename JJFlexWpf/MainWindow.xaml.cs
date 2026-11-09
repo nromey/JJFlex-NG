@@ -2295,6 +2295,10 @@ public partial class MainWindow : UserControl
                 // The shell, read off our own visual tree - the last caller of
                 // Process.MainWindowHandle outside JJFlexDialog's harness
                 // fallback went here (Sprint 45 Track A2).
+                // #709 item 3: our own focus hand-back, named in the speech
+                // trace when a delivery is cancelled near it.
+                Radios.Speech.SpeechCancelWitness.Shared.Note(
+                    Radios.Speech.SpeechCancelWitness.EventKind.OwnFocusReturn, "Home, after a dialog closed");
                 Radios.WindowActivation.EnsureForeground(ShellHandle());
                 FocusHome();
             }

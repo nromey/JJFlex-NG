@@ -77,7 +77,8 @@ namespace Radios.Speech
     public readonly struct SpeechOutcome
     {
         private SpeechOutcome(SpeechOutcomeKind kind, int marksReached, int markCount,
-            bool cancelledByUs, SpeechUnknownReason reason, string? detail, int elapsedMs)
+            bool cancelledByUs, SpeechUnknownReason reason, string? detail, int elapsedMs,
+            string? attribution = null)
         {
             Kind = kind;
             MarksReached = marksReached;
@@ -86,6 +87,7 @@ namespace Radios.Speech
             UnknownReason = reason;
             Detail = detail;
             ElapsedMs = elapsedMs;
+            Attribution = attribution;
         }
 
         public SpeechOutcomeKind Kind { get; }
@@ -121,6 +123,15 @@ namespace Radios.Speech
         /// <summary>Wall time from hand-over to the reader's answer.</summary>
         public int ElapsedMs { get; }
 
+        /// <summary>
+        /// For a Cancelled outcome NOT by us: what was seen near the reader's
+        /// answer, captured when the outcome was made (#709 item 3) by
+        /// <see cref="SpeechCancelWitness"/>, or why the utterance was withdrawn
+        /// unspoken. Diagnostic text for the trace line; nothing reads it to
+        /// decide anything. Null when nobody looked.
+        /// </summary>
+        public string? Attribution { get; }
+
         /// <summary>The reader said it finished. The one and only "heard".</summary>
         public bool WasHeard => Kind == SpeechOutcomeKind.Completed;
 
@@ -144,7 +155,11 @@ namespace Radios.Speech
 
         /// <summary>The same outcome with a longer detail — used when a fallback path was taken afterwards.</summary>
         public SpeechOutcome WithDetail(string detail) =>
-            new SpeechOutcome(Kind, MarksReached, MarkCount, CancelledByUs, UnknownReason, detail, ElapsedMs);
+            new SpeechOutcome(Kind, MarksReached, MarkCount, CancelledByUs, UnknownReason, detail, ElapsedMs, Attribution);
+
+        /// <summary>The same outcome carrying what was seen near its cancel. Diagnostic only.</summary>
+        public SpeechOutcome WithAttribution(string? attribution) =>
+            new SpeechOutcome(Kind, MarksReached, MarkCount, CancelledByUs, UnknownReason, Detail, ElapsedMs, attribution);
 
         /// <summary>One line for the trace, assembled here so every caller says it the same way.</summary>
         public override string ToString()
@@ -160,11 +175,20 @@ namespace Radios.Speech
                     // were the set and reads later as evidence of a cause
                     // (#606). Another program taking the foreground is a
                     // third, and the callback cannot separate any of them.
+                    //
+                    // Since #709 item 3 the outcome can carry what was seen
+                    // near the reader's answer (a key, a focus change, our own
+                    // focus return, the foreground lost), captured when the
+                    // outcome was made. It names the NEAREST event and its
+                    // distance, not a proven cause. Without it the old honest
+                    // line stands.
                     return $"cancelled at word {MarksReached} of {MarkCount} after {ElapsedMs} ms, "
                         + (CancelledByUs
                             ? "by us"
-                            : "NOT by us — cause unknown: a key, a focus change and another program "
-                              + "taking the foreground are indistinguishable here");
+                            : string.IsNullOrEmpty(Attribution)
+                                ? "NOT by us — cause unknown: a key, a focus change and another program "
+                                  + "taking the foreground are indistinguishable here"
+                                : "NOT by us — " + Attribution);
                 default:
                     return $"UNKNOWN ({UnknownReason}) after {ElapsedMs} ms"
                         + (MarkCount > 0 ? $", {MarksReached} of {MarkCount} word(s) reached" : string.Empty)
