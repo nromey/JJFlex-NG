@@ -2301,6 +2301,10 @@ namespace Radios.Tests
                 // instead of panning. Noel ruled the disposition 2026-09-21;
                 // the wording is the key-ownership design's proposal. DRAFT.
                 "settings.pan.moved_to_audio_layer",
+                // Junk box 2026-11-09 (#335): no callsign, no transmit. The one
+                // sentence every refused key says, at every door and at the
+                // radio's keying chokepoints. DRAFT, awaiting Noel.
+                "settings.operators.no_callsign_transmit",
                 // Junk box 2026-11-02 (#642): F names its slice by role when
                 // the transmit slice is not the selected one, and the setting
                 // that chooses which. DRAFT prose, awaiting Noel.

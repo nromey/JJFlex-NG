@@ -614,6 +614,7 @@
   "settings.operator.ok_add": "Add",
   "settings.operator.ok_update": "Update",
   "settings.operator.qrz_logbook_title": "QRZ Logbook",
+  "settings.operators.no_callsign_transmit": { "text": "No callsign entered, so nothing was transmitted. Enter yours in the Radio menu, under Operators.", "delivery": null },
   "settings.operators.unavailable": "Operator management is not available.",
   "settings.pan.center": "Pan center",
   "settings.pan.left": "Pan left",

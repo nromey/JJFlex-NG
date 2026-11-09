@@ -328,7 +328,9 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         string answer = Body(src, "private static void Answer(");
         int trace = answer.IndexOf("Tracing.TraceLine(", StringComparison.Ordinal);
         int tone = answer.IndexOf("EarconPlayer.ATUFailTone();", StringComparison.Ordinal);
-        int say = answer.IndexOf("Say(sentence)", StringComparison.Ordinal);
+        // "Say(sentence, subject)" since #335 shared this path with the
+        // callsign refusal, which speaks under its own subject.
+        int say = answer.IndexOf("Say(sentence, subject)", StringComparison.Ordinal);
         Assert.True(trace > 0 && tone > trace && say > tone);
         Assert.DoesNotContain("AdmitWarnings", src);
         Assert.DoesNotContain("VerbosityLevel.Critical", src);

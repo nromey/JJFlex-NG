@@ -8684,6 +8684,7 @@ namespace Radios
         {
             t_keyAskedHere = null;
             if (RefusedForCheckTeardown("transmit")) return;
+            if (RefusedForNoCallsign("transmit")) return;   // #335
             if (TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
             // A new transmission, counted under the falling cue's gate before
             // it is queued (repair round 6, #863 S1): a falling cue being
@@ -8763,6 +8764,7 @@ namespace Radios
             {
                 // #835: as Transmit above; turning tune off is never refused.
                 if (value && RefusedForCheckTeardown("tune")) return;
+                if (value && RefusedForNoCallsign("tune")) return;   // #335
                 EnqueueTuneWrite(value, "tune", null);
             }
         }
@@ -10269,6 +10271,7 @@ namespace Radios
                 // Audio Check teardown, here and again when its queued write
                 // runs. Turning it off is never refused.
                 if (value && RefusedForCheckTeardown("antenna tuner")) return;
+                if (value && RefusedForNoCallsign("antenna tuner")) return;   // #335
                 switch (_FlexTunerType)
                 {
                     case FlexTunerTypes.manual:
@@ -13882,6 +13885,7 @@ namespace Radios
             // hook speaks the refusal; nothing is buffered or queued.
             if (CwKeyingRefused("a CW message")) return false;
             if (RefusedForCheckTeardown("a CW message")) return false;   // #835
+            if (RefusedForNoCallsign("a CW message")) return false;   // #335
             lock (cwBuffer)
             {
                 if (CWBuffering)
@@ -13914,6 +13918,7 @@ namespace Radios
         {
             if (CwKeyingRefused("CW typing")) return false;   // #571, as the string form above
             if (RefusedForCheckTeardown("CW typing")) return false;   // #835
+            if (RefusedForNoCallsign("CW typing")) return false;   // #335
             if (CWBuffering)
             {
                 cwBuffer.Text += c;
@@ -14031,6 +14036,13 @@ namespace Radios
             /// </summary>
             public GetOperatorNameDel GetOperatorName;
             internal string OperatorName { get { return GetOperatorName(); } }
+            /// <summary>
+            /// Read the OPERATOR's callsign (Radio, Operators), at the moment
+            /// it is asked: the no-callsign transmit gate asks at every key
+            /// (#335, FlexBase.CallsignGate.cs). Not the radio's own callsign
+            /// field. Left unset, the gate is not installed.
+            /// </summary>
+            public Func<string> GetOperatorCallsign;
             /// <summary>
             /// Station name
             /// </summary>

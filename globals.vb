@@ -3981,6 +3981,16 @@ Module globals
     End Function
 
     ''' <summary>
+    ''' The current operator's callsign as entered under Radio, Operators, read
+    ''' when asked (#335). Empty when there is no operator or no callsign, which
+    ''' the transmit gate reads as none.
+    ''' </summary>
+    Private Function currentOperatorCallsign() As String
+        If CurrentOp Is Nothing Then Return ""
+        Return If(CurrentOp.callSign, "")
+    End Function
+
+    ''' <summary>
     ''' Show the one-time "Try Modern UI?" prompt for existing operators
     ''' who predate the UIMode feature.
     ''' </summary>
@@ -5362,6 +5372,9 @@ Module globals
             OpenParms.ConfigDirectory = BaseConfigDir & "\Radios"
             OpenParms.AudioDevicesFile = AudioDevicesFile
             OpenParms.GetOperatorName = AddressOf currentOperatorName
+            ' No callsign, no transmit (#335): the radio layer asks for the
+            ' OPERATOR's callsign at every key, never the radio's own field.
+            OpenParms.GetOperatorCallsign = AddressOf currentOperatorCallsign
             OpenParms.StationName = StationName
             OpenParms.BrailleCells = CurrentOp.BrailleDisplaySize
             OpenParms.License = CurrentOp.License
