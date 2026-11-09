@@ -4599,9 +4599,10 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            // Deliberately SILENT. RadioListItem.ToString() returns DisplayText,
-            // so the ListBox item's accessible name is already that exact
-            // string — the screen reader announces the row on every arrow, and
+            // Deliberately SILENT. Each ListBoxItem's accessible name is bound
+            // to the row's DisplayText (the ItemContainerStyle in the XAML,
+            // the same source as the printed text since #1008), so it is
+            // already that exact string — the screen reader announces the row on every arrow, and
             // announces "N of M" for list items by itself. Speaking it again
             // here meant hearing each row twice, which is what Noel reported on
             // 2026-08-17 ("still seeing double speaking as I arrow").
@@ -4676,8 +4677,9 @@ namespace JJFlexWpf.Dialogs
 
             SyncPathAffordance();
 
-            // Deliberately SILENT on arrow keys. RadioListItem.ToString()
-            // returns DisplayText and the ListBox has no ItemTemplate, so the
+            // Deliberately SILENT on arrow keys. The item's accessible name is
+            // bound to the row's DisplayText (the ItemContainerStyle in the
+            // XAML; the ItemTemplate prints the same binding), so the
             // item's accessible name IS that string — the screen reader
             // announces it, and announces "N of M" position, by itself. This
             // spoke the identical sentence on top of that, which is the double
@@ -4696,8 +4698,8 @@ namespace JJFlexWpf.Dialogs
             //
             // If arrow keys ever go quiet again, the answer is NOT to restore
             // this Speak. It is that the item's accessible name broke — check
-            // ToString() and that no ItemTemplate was added without an
-            // AutomationProperties.Name on it.
+            // the ItemContainerStyle's AutomationProperties.Name binding to
+            // DisplayText, and that the row still raises its DisplayText change.
         }
 
         private void AutoConnectButton_Click(object sender, RoutedEventArgs e)
