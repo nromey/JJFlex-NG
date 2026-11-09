@@ -215,7 +215,7 @@ Every sound the application makes, each behind a button so you can learn them at
 
 ## Presets
 
-The toolbar's Load, Save, Export, Import, and Reset buttons work on the whole TX audio chain, so you can keep one setup for ragchews and another for DX and switch between them. `Ctrl+S` saves and `Ctrl+O` loads from anywhere in the workshop; `Alt+E` exports a preset to a file, `Alt+I` imports one a friend sent you (into your list, not onto the radio), and deleting lives inside the Load picker where the list is. See the Audio Presets help page for the full story, including exactly what a preset does and does not capture.
+The toolbar's Load, Save, Export, Import, and Reset buttons work on the whole TX audio chain, so you can keep one setup for ragchews and another for DX and switch between them. The **Reset** button asks for confirmation before changing the transmit audio settings. `Ctrl+S` saves and `Ctrl+O` loads from anywhere in the workshop; `Alt+E` exports a preset to a file, `Alt+I` imports one a friend sent you (into your list, not onto the radio), and deleting lives inside the Load picker where the list is. See the Audio Presets help page for the full story, including exactly what a preset does and does not capture.
 
 ## Everyday volume lives elsewhere
 
