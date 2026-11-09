@@ -3795,6 +3795,22 @@ public partial class MainWindow : UserControl
         _sessionTitle.NoRadioTitleShown();
     }
 
+    /// <summary>The serial of the radio last connected in this run, for #895. Empty before the first connect.</summary>
+    private string _lastConnectedSerial = "";
+
+    /// <summary>
+    /// Whether a connect closes Home's field groups (#895): only when there
+    /// WAS an earlier radio this run and this one is a different radio. The
+    /// first connect after launch has nothing to close against; a reconnect
+    /// to the same radio, after a drop or a deliberate disconnect, keeps the
+    /// groups; and a connect whose serial is not known yet changes nothing,
+    /// because it cannot be called different.
+    /// </summary>
+    internal static bool ClosesFieldGroupsOnConnect(string? lastSerial, string? newSerial)
+        => !string.IsNullOrWhiteSpace(lastSerial)
+           && !string.IsNullOrWhiteSpace(newSerial)
+           && !string.Equals(lastSerial, newSerial, StringComparison.OrdinalIgnoreCase);
+
     private readonly Radios.SessionTitle _sessionTitle = new();
     private Action<bool>? _connectionWatch;
     private FlexBase? _connectionWatched;
@@ -5834,6 +5850,15 @@ public partial class MainWindow : UserControl
         // Initialize screen fields panel (Sprint 14)
         if (RigControl != null)
         {
+            // #895, ruled by Noel 2026-11-08 ~16:23: connecting to a DIFFERENT
+            // radio closes every Home field group, so nothing from the last
+            // radio is on screen; reconnecting to the SAME radio after a drop
+            // keeps them as they were. Before Initialize, so the groups are
+            // closed before the new radio's values fill them.
+            string connectedSerial = RigControl.ConnectedSerial ?? "";
+            if (ClosesFieldGroupsOnConnect(_lastConnectedSerial, connectedSerial))
+                FieldsPanel.CloseAllGroupsForNewRadio();
+            if (connectedSerial.Length > 0) _lastConnectedSerial = connectedSerial;
             FieldsPanel.Initialize(RigControl);
             _brailleEngine.SetRig(RigControl);
 
