@@ -125,6 +125,14 @@ namespace Radios.ChainChecks
                 // Whether the REQUEST named the right run was settled at the
                 // message pump, before any stage started; by the time we are
                 // here the only open questions are about the station.
+                // No callsign, no transmit (#335), asked before the gate and the
+                // countdown, so the stage is not counted down and then refused at
+                // its key, and its page says what the operator heard rather than
+                // that the radio never keyed.
+                string noCallsign = TransmitKillSwitch.RefusedForNoCallsign(rig, "the tune check");
+                if (noCallsign != null)
+                    return TxTuneProbe.Result.NotRun(TxTuneProbe.SkipReason.RefusedByHost, noCallsign);
+
                 FixerTransmitGate.Decision d = gate.Request(
                     gate.RunId, stageId, stageTransmits: true,
                     radioReachable: reachable, rigIsKeyed: keyed,
