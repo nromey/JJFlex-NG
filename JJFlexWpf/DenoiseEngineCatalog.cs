@@ -119,9 +119,6 @@ namespace JJFlexWpf
         /// <summary>Legacy NR's lowest level, as the doors always had it.</summary>
         public const int LegacyNrLevelMin = 1;
 
-        /// <summary>DeepFilterNet3's limit stops, in decibels: fine at the gentle end (Noel, 2026-10-17). 100 is shown as "unlimited".</summary>
-        public static readonly IReadOnlyList<double> DeepFilterLimitStops = new double[] { 0, 3, 6, 9, 12, 15, 18, 24, 30, 40, 60, 100 };
-
         /// <summary>
         /// The NNR descriptors the helper offers, mirrored here so the slot can
         /// hold every lever as an intent before the helper has ever started
