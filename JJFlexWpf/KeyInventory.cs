@@ -152,6 +152,21 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] UniversalHome =
     {
+        // Tuning from every field on the slice row, Frequency included, in
+        // both tuning modes (#703, #877; Noel, 2026-11-08 16:24-16:27). Run by
+        // FreqOutHandlers.TryHandleSliceRowKey ahead of each field's own map,
+        // through the same code as the four tuning commands. Read first in
+        // this list because tuning is what an operator does most.
+        // DRAFT PROSE: awaiting Noel.
+        new("Home", "Any Home field", "Ctrl+Up / Ctrl+Down", "Tune by your coarse step",
+            new[] { "tune", "tuning", "coarse", "step", "control", "frequency" }),
+        new("Home", "Any Home field", "Shift+Up / Shift+Down", "Tune by your fine step",
+            new[] { "tune", "tuning", "fine", "step", "shift", "frequency" }),
+        // Pan left the slice row for the audio layer (#517; Noel 2026-09-21:
+        // "pagedown speaking pan in audio is fine"). The keys answer with where
+        // it went and pan nothing. DRAFT PROSE: awaiting Noel.
+        new("Home", "Any Home field", "Page Up / Page Down", "Say where pan went: the audio layer, JJ key A then P",
+            new[] { "pan", "stereo", "balance", "audio layer", "page up", "page down" }),
         new("Home", "Any Home field", "M", "Mute or unmute the active slice",
             new[] { "mute", "unmute", "audio", "slice" }),
         new("Home", "Any Home field", "V", "Cycle to the next slice",
@@ -185,8 +200,10 @@ public static class KeyInventory
         // ── Slice field ──
         new("Slice", "Slice field", "Space", "Next slice (wraps around)",
             new[] { "slice", "next", "cycle" }),
-        new("Slice", "Slice field", "Up / Down", "Next or previous slice",
-            new[] { "slice", "next", "previous", "cycle" }),
+        // The bare arrows tune here since #517 (Noel, 2026-09-20). Slice
+        // selection keeps Space, V, the letters and the digits. DRAFT PROSE.
+        new("Slice", "Slice field", "Up / Down", "Tune by your coarse step",
+            new[] { "tune", "tuning", "coarse", "step", "frequency" }),
         // 0-9, not 0-7: the handler answers every digit, and a digit past
         // your last slice says "no such slice" instead of going quiet (#358).
         // No supported radio has more than 8 slices, so 8 and 9 only ever
@@ -195,18 +212,16 @@ public static class KeyInventory
             new[] { "slice", "jump", "letter", "number", "digit" }),
         new("Slice", "Slice field", "T", "Make this slice the transmit slice",
             new[] { "transmit", "tx", "slice" }),
-        new("Slice", "Slice field", "Page Up", "Pan hard right",
-            new[] { "pan", "right", "stereo" }),
-        new("Slice", "Slice field", "Home", "Pan center",
-            new[] { "pan", "center", "stereo" }),
-        new("Slice", "Slice field", "Page Down", "Pan hard left",
-            new[] { "pan", "left", "stereo" }),
+        // Home centred pan here until #517; it now says where pan went, as
+        // Page Up and Page Down do from every field. DRAFT PROSE.
+        new("Slice", "Slice field", "Home", "Say where pan went: the audio layer, JJ key A then P",
+            new[] { "pan", "center", "stereo", "audio layer" }),
 
         // ── Slice operations field ──
-        new("SliceOps", "Slice operations field", "Up / Down", "Adjust volume",
-            new[] { "volume", "gain", "audio", "slice" }),
-        new("SliceOps", "Slice operations field", "Page Up / Page Down", "Pan right or left",
-            new[] { "pan", "stereo", "balance" }),
+        // The bare arrows tune here since #517 (Noel, 2026-09-20); slice
+        // volume is the audio layer's V and the Volume field. DRAFT PROSE.
+        new("SliceOps", "Slice operations field", "Up / Down", "Tune by your coarse step",
+            new[] { "tune", "tuning", "coarse", "step", "frequency" }),
         new("SliceOps", "Slice operations field", "Space", "Toggle mute",
             new[] { "mute", "unmute", "toggle" }),
         new("SliceOps", "Slice operations field", "M", "Mute or unmute",

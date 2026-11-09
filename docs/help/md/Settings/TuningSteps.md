@@ -4,16 +4,16 @@ keywords: []
 
 # Tuning Steps
 
-Tuning-knob step sizes are configurable. You can pick the size of one click of the Up/Down arrow on the Frequency field, separately for coarse tuning and fine tuning. The settings are per operator, saved to disk, and they survive application restarts.
+The coarse and fine tuning steps control how far the frequency moves with each press of a tuning key. `Ctrl+Up` and `Ctrl+Down` use the coarse step, and `Shift+Up` and `Shift+Down` use the fine step, from every field on the Home slice row in both tuning modes. The settings are per operator, saved to disk, and they survive application restarts.
 
 ## Coarse Versus Fine
 
-JJ Flexible Radio Access has two tuning speeds in Modern tuning mode:
+JJ Flexible Radio Access provides coarse and fine steps in both tuning modes:
 
-- **Coarse** — used by Up and Down on the Frequency field. Think of coarse as "move across a band to find a QSO." A typical coarse step is 1 kHz to 5 kHz.
-- **Fine** — used by Shift+Up and Shift+Down on the Frequency field. Think of fine as "centre on a signal after you've rough-tuned onto it." A typical fine step is 10 Hz to 100 Hz.
+- **Coarse** — `Ctrl+Up` and `Ctrl+Down` move across the band by the coarse step. A typical coarse step is 1 to 5 kilohertz.
+- **Fine** — `Shift+Up` and `Shift+Down` adjust the frequency by the fine step to center on a signal. A typical fine step is 10 to 100 hertz.
 
-The two are always available simultaneously. There's no mode to switch between — Up is coarse, Shift+Up is fine, and that's the whole story.
+Plain `Up` and `Down` on the Frequency field use the coarse step in Modern tuning mode and the digit under the cursor in Classic tuning mode. The Slice and Slice Operations fields use the coarse step for plain `Up` and `Down` in both tuning modes.
 
 ## Where to Edit Them
 
@@ -36,4 +36,4 @@ The built-in defaults are general-purpose. Tuning patterns differ by operator an
 
 ## What Changed in 4.1.17
 
-If you remember the old days: there used to be a `C` key that toggled between coarse and fine, plus a Page Up / Page Down pair on the Frequency field that cycled through a list of candidate step sizes for whichever mode you were in. That whole modal dance is gone. One coarse value, one fine value, two separate keys (Up and Shift+Up). No mode to forget.
+If you remember the old days: there used to be a `C` key that toggled between coarse and fine, plus a Page Up / Page Down pair on the Frequency field that cycled through a list of candidate step sizes for whichever mode you were in. That whole modal dance is gone. The Home slice row provides both steps directly: `Ctrl+Up` and `Ctrl+Down` use the coarse value, and `Shift+Up` and `Shift+Down` use the fine value.

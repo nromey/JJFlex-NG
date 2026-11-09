@@ -471,7 +471,7 @@ namespace Radios.Tests
                 && bitAnd.ToString().Contains("Keyboard.Modifiers", StringComparison.Ordinal))
             {
                 string? modifier = ModifierName(bitAnd.Left) ?? ModifierName(bitAnd.Right);
-                if (modifier != null && modifier != "None") mods.Add(modifier);
+                if (modifier != null && modifier != "None") mods.Add(InventoryModifierName(modifier));
                 else clause.ModsUnresolved = true;
                 return;
             }
@@ -487,7 +487,7 @@ namespace Radios.Tests
                     string? modifier = ModifierName(left) ?? ModifierName(right);
                     if (!isEquals || modifier == null) clause.ModsUnresolved = true;
                     else if (modifier == "None") clause.ExplicitlyPlain = true;
-                    else mods.AddRange(modifier.Split('|').Select(m => m.Trim()));
+                    else mods.AddRange(modifier.Split('|').Select(m => InventoryModifierName(m.Trim())));
                     return;
                 }
 
@@ -526,6 +526,16 @@ namespace Radios.Tests
             => Unwrap(expression) is MemberAccessExpressionSyntax member && IsKeyEnum(member)
                 ? member.Name.Identifier.ValueText
                 : null;
+
+        /// <summary>
+        /// The modifier under the name the inventory parser gives it: the code
+        /// writes <c>ModifierKeys.Control</c> and the inventory "Ctrl", and
+        /// ParseKeyDisplay already reads both as "Ctrl". Until a Home handler
+        /// first bound a Control arrow (#703) no claim carried Control, so the
+        /// two names had never had to meet.
+        /// </summary>
+        private static string InventoryModifierName(string modifier)
+            => modifier == "Control" ? "Ctrl" : modifier;
 
         private static string? ModifierName(ExpressionSyntax expression)
         {

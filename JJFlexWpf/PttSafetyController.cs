@@ -1031,6 +1031,10 @@ namespace JJFlexWpf
             // a down while already transmitting keys nothing anyway.
             if (State == PttState.Idle && RefuseIfHeldAfterCut("push to talk")) return;
 
+            // No callsign, no transmit (#335). Only from Idle: a key-down while
+            // already transmitting keys nothing, and a release is never refused.
+            if (State == PttState.Idle && ZeroPowerDoors.RefuseNoCallsign(_getRigControl(), "push to talk")) return;
+
             // A rig reading 0 watts (#859). Not the hold: its own rule and state.
             if (State == PttState.Idle && ZeroPowerDoors.RefuseTransmit(_getRigControl(), "push to talk")) return;
 
@@ -1109,6 +1113,14 @@ namespace JJFlexWpf
             // the empty port. An unlock (any transmitting state) is never
             // refused — the hold only ever stops RF, never keeps it on.
             if (State == PttState.Idle && RefuseIfHeldAfterCut("the lock key")) return;
+
+            // No callsign, no transmit (#335). NOT exempting a check's own key
+            // (_keyingForCheck), unlike the zero-power rule below: Noel ruled
+            // that the gate covers the checks too (2026-11-08, nap question
+            // J1). A check refused here is told so by its own start path, which
+            // already handles a refused KeyForCheck and rolls back. Only from
+            // Idle, so an unlock is never refused.
+            if (State == PttState.Idle && ZeroPowerDoors.RefuseNoCallsign(_getRigControl(), "the lock key")) return;
 
             // A rig reading 0 watts (#859). An operator's press only: a check
             // keys through KeyForCheck, and Test your microphone is at zero by

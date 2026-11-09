@@ -3795,6 +3795,22 @@ public partial class MainWindow : UserControl
         _sessionTitle.NoRadioTitleShown();
     }
 
+    /// <summary>The serial of the radio last connected in this run, for #895. Empty before the first connect.</summary>
+    private string _lastConnectedSerial = "";
+
+    /// <summary>
+    /// Whether a connect closes Home's field groups (#895): only when there
+    /// WAS an earlier radio this run and this one is a different radio. The
+    /// first connect after launch has nothing to close against; a reconnect
+    /// to the same radio, after a drop or a deliberate disconnect, keeps the
+    /// groups; and a connect whose serial is not known yet changes nothing,
+    /// because it cannot be called different.
+    /// </summary>
+    internal static bool ClosesFieldGroupsOnConnect(string? lastSerial, string? newSerial)
+        => !string.IsNullOrWhiteSpace(lastSerial)
+           && !string.IsNullOrWhiteSpace(newSerial)
+           && !string.Equals(lastSerial, newSerial, StringComparison.OrdinalIgnoreCase);
+
     private readonly Radios.SessionTitle _sessionTitle = new();
     private Action<bool>? _connectionWatch;
     private FlexBase? _connectionWatched;
@@ -5834,6 +5850,15 @@ public partial class MainWindow : UserControl
         // Initialize screen fields panel (Sprint 14)
         if (RigControl != null)
         {
+            // #895, ruled by Noel 2026-11-08 ~16:23: connecting to a DIFFERENT
+            // radio closes every Home field group, so nothing from the last
+            // radio is on screen; reconnecting to the SAME radio after a drop
+            // keeps them as they were. Before Initialize, so the groups are
+            // closed before the new radio's values fill them.
+            string connectedSerial = RigControl.ConnectedSerial ?? "";
+            if (ClosesFieldGroupsOnConnect(_lastConnectedSerial, connectedSerial))
+                FieldsPanel.CloseAllGroupsForNewRadio();
+            if (connectedSerial.Length > 0) _lastConnectedSerial = connectedSerial;
             FieldsPanel.Initialize(RigControl);
             _brailleEngine.SetRig(RigControl);
 
@@ -6575,7 +6600,7 @@ public partial class MainWindow : UserControl
         {
             // Fallback — direct TX toggle (no safety controller)
             Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
-            if (!RigControl.Transmit && ZeroPowerDoors.RefuseTransmit(RigControl, "the transmit toggle")) return;
+            if (!RigControl.Transmit && ZeroPowerDoors.RefuseTransmitPress(RigControl, "the transmit toggle")) return;
             RigControl.Transmit = !RigControl.Transmit;
         }
     }
@@ -7015,7 +7040,7 @@ public partial class MainWindow : UserControl
     /// watts (#859). Turning the tuner off is never refused.
     /// </summary>
     private bool TunerStartRefused() =>
-        !RigControl.FlexTunerOn && ZeroPowerDoors.RefuseTune(RigControl, "the antenna tuner");
+        !RigControl.FlexTunerOn && ZeroPowerDoors.RefuseTunePress(RigControl, "the antenna tuner");
 
     /// <summary>
     /// Show SWR/tuner status on hover.
@@ -7060,7 +7085,7 @@ public partial class MainWindow : UserControl
         // button checked, and of everything below, so a refused press tells
         // nothing it keyed. The button has flipped itself by now, so it goes
         // back. This is not the hold: tune is not held, by ruling of 2026-10-22.
-        if (!RigControl.TxTune && ZeroPowerDoors.RefuseTune(RigControl, "the tune carrier"))
+        if (!RigControl.TxTune && ZeroPowerDoors.RefuseTunePress(RigControl, "the tune carrier"))
         {
             if (TuneToggleButton != null) TuneToggleButton.IsChecked = false;
             return;

@@ -2044,6 +2044,7 @@ namespace Radios
         public void TxFileStartForVox()
         {
             if (RefusedForCheckTeardown("a recording for VOX")) return;   // #835, see FlexBase.CheckRestore.cs
+            if (RefusedForNoCallsign("a recording for VOX")) return;   // #335: VOX keys it, no transmit write
             Tracing.TraceLine("TxFileStartForVox: \"" + txFilePlayer.ContentName + "\", "
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz — reaching the radio while receiving so VOX can key on it",

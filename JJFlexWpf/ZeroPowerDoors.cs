@@ -71,6 +71,74 @@ internal static class ZeroPowerDoors
         lock (Gates) Gates.Clear();
     }
 
+    /// <summary>
+    /// For tests: stands in for the radio's answer to "has the operator a
+    /// callsign?" (#335). True means none.
+    /// </summary>
+    internal static Func<FlexBase?, bool>? NoCallsignOverride { get; set; }
+
+    /// <summary>
+    /// No callsign, no transmit (#335): a press that would key, asked BEFORE
+    /// anything is prepared. True when it is refused: the caller must not key.
+    /// </summary>
+    /// <remarks>
+    /// <para>Asked first at every door that would key, and the one rule a
+    /// check's own keying is NOT exempt from: Noel ruled (2026-11-08, nap
+    /// question J1) that the gate covers every keying JJ Flexible starts, the
+    /// checks included, where the zero-power rule leaves Test your microphone
+    /// alone. So <see cref="PttSafetyController.ToggleLock"/> asks this
+    /// directly, ahead of its check exemption, and the doors ask it through
+    /// <see cref="RefuseTransmitPress"/> and <see cref="RefuseTunePress"/>.</para>
+    /// <para>NOT folded into <see cref="RefuseTransmit"/>: one caller of that,
+    /// the slice recorder's door, asks it about a recording started while a
+    /// hardware push to talk is down, which keys nothing.</para>
+    /// <para>The answer is the radio's (<see cref="FlexBase.OperatorCallsignMissing"/>),
+    /// which reads the operator's callsign at this moment, and the sentence
+    /// is <see cref="FlexBase.NoCallsignRefusal"/>, the same one the radio's
+    /// chokepoints speak if a route ever reaches them without a door.</para>
+    /// <para>This class is named for its first rule and now holds two; its
+    /// name is reported for the orchestrator rather than changed here.</para>
+    /// </remarks>
+    /// <param name="rig">The radio. None reads as not refused (nothing can key).</param>
+    /// <param name="door">The door, for the trace. One press answers once per door.</param>
+    /// <param name="afterMenu">The press came from a menu, which is about to close.</param>
+    internal static bool RefuseNoCallsign(FlexBase? rig, string door, bool afterMenu = false)
+    {
+        if (!NoCallsign(rig)) return false;
+        // Told the usual way, as the zero-power refusal is (Noel, 2026-11-01:
+        // "we notify the usual way, verbosity gated for tone and text"): the
+        // tone through its own gate, the sentence at Terse, the trace always.
+        Answer("callsign: " + door, FlexBase.NoCallsignRefusal, afterMenu,
+            SpeechSubject.TransmitKeyRefused, "refused with no operator callsign: ");
+        return true;
+    }
+
+    private static bool NoCallsign(FlexBase? rig)
+    {
+        if (NoCallsignOverride != null) return NoCallsignOverride(rig);
+        if (rig == null) return false;
+        try { return rig.OperatorCallsignMissing; }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ZeroPowerDoors: callsign: " + ex.Message, TraceLevel.Warning);
+            return true;   // refusing a key is the safe failure
+        }
+    }
+
+    /// <summary>
+    /// An operator's press that would KEY the radio: no callsign first (#335),
+    /// then 0 watts (#859). True when refused: the caller must not key.
+    /// </summary>
+    internal static bool RefuseTransmitPress(FlexBase? rig, string door, bool afterMenu = false)
+        => RefuseNoCallsign(rig, door, afterMenu) || RefuseTransmit(rig, door, afterMenu);
+
+    /// <summary>
+    /// An operator's press that would start a tune carrier or the tuner: no
+    /// callsign first (#335), then tune power at 0 watts (#859).
+    /// </summary>
+    internal static bool RefuseTunePress(FlexBase? rig, string door, bool afterMenu = false)
+        => RefuseNoCallsign(rig, door, afterMenu) || RefuseTune(rig, door, afterMenu);
+
     /// <summary>A press that would transmit. True when it is refused: the caller must not key.</summary>
     /// <param name="rig">The radio. None or unreadable reads as not refused.</param>
     /// <param name="door">The door, for the trace. One press answers once per door.</param>
@@ -115,23 +183,24 @@ internal static class ZeroPowerDoors
         }
     }
 
-    private static void Answer(string door, string sentence, bool afterMenu)
+    private static void Answer(string door, string sentence, bool afterMenu,
+        string subject = SpeechSubject.ZeroPowerRefused, string traceWhy = "refused at 0 watts: ")
     {
         if (!NewPress(door)) return;
         Answered?.Invoke(door);
-        Tracing.TraceLine("ZeroPowerDoors: refused at 0 watts: " + door, TraceLevel.Info);
+        Tracing.TraceLine("ZeroPowerDoors: " + traceWhy + door, TraceLevel.Info);
         EarconPlayer.ATUFailTone();   // the refusal tone, through its own gate, with no admission
-        if (afterMenu) _ = SayAfterMenuAsync(sentence);
-        else Say(sentence);
+        if (afterMenu) _ = SayAfterMenuAsync(sentence, subject);
+        else Say(sentence, subject);
     }
 
-    private static async Task SayAfterMenuAsync(string sentence)
+    private static async Task SayAfterMenuAsync(string sentence, string subject)
     {
         await Task.Delay(AfterMenuMs);
-        Say(sentence);
+        Say(sentence, subject);
     }
 
-    private static void Say(string sentence) =>
+    private static void Say(string sentence, string subject) =>
         ScreenReaderOutput.Speak(sentence, SpeechIntent.Interrupt, VerbosityLevel.Terse,
-            subject: SpeechSubject.ZeroPowerRefused);
+            subject: subject);
 }

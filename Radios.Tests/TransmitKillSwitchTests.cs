@@ -91,6 +91,57 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void NoCallsignRefusesTheCarrierAndLeavesItsSentenceForTheCheck()
+        {
+            // #335, repair one: beside the hold and for the same reason. The
+            // radio's own chokepoint would refuse the write anyway, but behind
+            // a raise that returned true, so a Fix tool stage waited for the
+            // radio and reported that it "never reported transmitting". Now the
+            // raise is refused, nothing is recorded as raised, and the check's
+            // detail line gets the sentence the operator heard.
+            string call = "";
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests", GetOperatorCallsign = () => call });
+            var raised = typeof(TransmitKillSwitch).GetField("_carrierRaised",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+            try
+            {
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    foreach (var carrier in new[] { TransmitKillSwitch.Carrier.Mox, TransmitKillSwitch.Carrier.Tune })
+                    {
+                        Assert.False(TransmitKillSwitch.RaiseCarrier(rig, carrier));
+                        Assert.Equal(FlexBase.NoCallsignRefusal, TransmitKillSwitch.LastRaiseRefusal);
+                        Assert.False((bool)raised.GetValue(null)!);
+                        Assert.False(TransmitKillSwitch.HoldsTuneCarrier(rig));
+                    }
+
+                    // Positive control, same arm: with a callsign entered the
+                    // same raise goes through and the stale sentence is cleared.
+                    call = "N0CALL";
+                    Assert.True(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox));
+                    Assert.Null(TransmitKillSwitch.LastRaiseRefusal);
+                    Assert.True((bool)raised.GetValue(null)!);
+                }
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
+        public void TheCallsignQuestionForACheckIsTheRadiosAndNamesTheSentence()
+        {
+            string call = "";
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests", GetOperatorCallsign = () => call });
+            try
+            {
+                Assert.Equal(FlexBase.NoCallsignRefusal, TransmitKillSwitch.RefusedForNoCallsign(rig, "a check"));
+                call = "N0CALL";
+                Assert.Null(TransmitKillSwitch.RefusedForNoCallsign(rig, "a check"));
+                Assert.Null(TransmitKillSwitch.RefusedForNoCallsign(null, "a check"));
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
         public void AReflectedPowerCutTellsTheHoldSubscriberBeforeAnythingWaits()
         {
             // #571, Astra B1: a cut from a transmit check must start the same

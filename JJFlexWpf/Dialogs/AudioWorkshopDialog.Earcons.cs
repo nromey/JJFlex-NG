@@ -42,16 +42,16 @@ public partial class AudioWorkshopDialog
     #region Tab 3: Earcon Explorer
 
     /// <summary>Bench level, as a multiplier on each sound's own tier.</summary>
-    private Slider? _earconBenchGain;
+    private ValueFieldControl? _earconBenchGain;
 
     /// <summary>Bench stereo position, added to whatever the sound does itself.</summary>
-    private Slider? _earconBenchPan;
+    private ValueFieldControl? _earconBenchPan;
 
     /// <summary>How many times a single press plays the sound.</summary>
-    private Slider? _earconBenchRepeat;
+    private ValueFieldControl? _earconBenchRepeat;
 
     /// <summary>Gap between repeats and between sounds in a series, in ms.</summary>
-    private Slider? _earconBenchGap;
+    private ValueFieldControl? _earconBenchGap;
 
     private TextBlock? _earconBenchStatus;
 
@@ -102,24 +102,24 @@ public partial class AudioWorkshopDialog
             Margin = new Thickness(2, 0, 2, 6),
         });
 
-        _earconBenchGain = AddEarconBenchSlider(panel, "Bench level",
-            10, 200, 100,
+        _earconBenchGain = AddEarconBenchValue(panel, "Bench level",
+            10, 200, 5, 100,
             "A multiplier on each sound's own level, as a percentage. 100 plays it exactly as it ships. "
             + "Turning this up is how you find out whether a sound is too quiet or simply too similar to the noise, "
             + "which are different problems with different fixes.");
 
-        _earconBenchPan = AddEarconBenchSlider(panel, "Bench pan",
-            -100, 100, 0,
+        _earconBenchPan = AddEarconBenchValue(panel, "Bench pan",
+            -100, 100, 5, 0,
             "Stereo position, negative left and positive right. Added to any panning the sound already does, "
             + "so a left-panned filter edge auditioned at pan right lands in the middle rather than jumping.");
 
-        _earconBenchRepeat = AddEarconBenchSlider(panel, "Repeats",
-            1, 10, 1,
+        _earconBenchRepeat = AddEarconBenchValue(panel, "Repeats",
+            1, 10, 1, 1,
             "How many times one press plays the sound. A repeat is how a short click stops being a guess: "
             + "one may or may not have got through the noise, four in a row tells you.");
 
-        _earconBenchGap = AddEarconBenchSlider(panel, "Gap between sounds",
-            100, 2000, 600,
+        _earconBenchGap = AddEarconBenchValue(panel, "Gap between sounds",
+            100, 2000, 50, 600,
             "Milliseconds between repeats, and between sounds when you play a whole family.");
 
         var stopButton = new Button
@@ -147,35 +147,25 @@ public partial class AudioWorkshopDialog
         panel.Children.Add(_earconBenchStatus);
     }
 
-    private static Slider AddEarconBenchSlider(StackPanel parent, string label,
-        int min, int max, int value, string help)
+    /// <summary>
+    /// One bench number (#480). A <see cref="ValueFieldControl"/>, like every
+    /// other number in the Audio Workshop: it reads as "label: value", takes
+    /// typed digits, and speaks its value the same way. It was the one bare
+    /// WPF Slider left, which a screen reader announced as a percentage of its
+    /// track rather than the value it held.
+    /// </summary>
+    private static ValueFieldControl AddEarconBenchValue(StackPanel parent, string label,
+        int min, int max, int step, int value, string help)
     {
-        var row = new StackPanel
+        var ctl = new ValueFieldControl
         {
-            Orientation = Orientation.Horizontal,
             Margin = new Thickness(2, 2, 2, 2),
+            HorizontalAlignment = HorizontalAlignment.Left,
         };
-        row.Children.Add(new TextBlock
-        {
-            Text = label + ":",
-            Width = 150,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        var slider = new Slider
-        {
-            Minimum = min,
-            Maximum = max,
-            Value = value,
-            Width = 220,
-            SmallChange = 1,
-            LargeChange = 10,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        AutomationProperties.SetName(slider, label);
-        JJFlexHelp.SetText(slider, help);
-        row.Children.Add(slider);
-        parent.Children.Add(row);
-        return slider;
+        ctl.Setup(label, min, max, step, initialValue: value);
+        JJFlexHelp.SetText(ctl, help);
+        parent.Children.Add(ctl);
+        return ctl;
     }
 
     /// <summary>
@@ -310,8 +300,8 @@ public partial class AudioWorkshopDialog
 
     private float BenchGain => (float)((_earconBenchGain?.Value ?? 100) / 100.0);
     private float BenchPan => (float)((_earconBenchPan?.Value ?? 0) / 100.0);
-    private int BenchRepeats => (int)Math.Round(_earconBenchRepeat?.Value ?? 1);
-    private int BenchGapMs => (int)Math.Round(_earconBenchGap?.Value ?? 600);
+    private int BenchRepeats => _earconBenchRepeat?.Value ?? 1;
+    private int BenchGapMs => _earconBenchGap?.Value ?? 600;
 
     /// <summary>Play one sound once, at the bench settings.</summary>
     private void PlayEarconOnce(EarconEntry entry, bool announce)

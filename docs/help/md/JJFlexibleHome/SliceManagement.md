@@ -60,23 +60,13 @@ The maximum number of slices depends on your radio model:
 
 Keep in mind that in MultiFlex mode (when multiple operators share a single radio), the available slices are split among the connected clients.
 
-## Which Way the Arrows Go
+## Selecting a Slice and Tuning
 
-On the Slice field and the Slice Operations field, Down arrow walks you A, B, C
-— the same direction the list reads. Up arrow walks back the other way.
+The Slice field uses letter keys `A` through `H` and digit keys to select a slice directly. `Space` cycles to the next slice and wraps at the end; `V` also cycles forward on this field. The Slice Operations field also accepts `A` through `H` for direct selection.
 
-It used to be the other way round, and if that is the direction your fingers
-learned, you can have it back. Open **Tools > Settings**, go to the
-**Accessibility** tab, and look for **Slice arrow direction**. There are two
-choices:
+`Up` and `Down` on the Slice and Slice Operations fields tune up or down by the coarse step. Every field on the Home slice row, including Frequency, also accepts `Ctrl+Up` and `Ctrl+Down` for coarse tuning and `Shift+Up` and `Shift+Down` for fine tuning. These pairs work in both Classic tuning mode and Modern tuning mode. Plain `Up` and `Down` on the Classic Frequency field continue to tune by the digit under the cursor.
 
-- **Down arrow goes A to B to C** — the default, and reading order.
-- **Up arrow goes A to B to C** — how the field behaved before.
-
-Whichever you pick applies to both fields, so the two never disagree with each
-other. Nothing else changes: Space still cycles forward and wraps, `V` still
-moves to the next slice from anywhere on the Home, and the number and letter
-keys still jump straight to the slice you name.
+Slice volume is adjusted on the Volume field or in the audio layer: press the JJ key, then `A`, then `V`. Press `P` in the audio layer to adjust pan. `Page Up` and `Page Down` on any slice-row field, and `Home` on the Slice field, announce the route to pan without changing the setting.
 
 ## Enhanced Slice Status
 

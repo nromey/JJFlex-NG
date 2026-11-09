@@ -26,6 +26,7 @@ public class FreqOutHandlers
 
     public void AdjustRecord(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Keyboard.Modifiers == ModifierKeys.None && (e.Key == Key.Space || e.Key == Key.Enter))
         {
             if (!e.IsRepeat) _ = RecorderControls.ToggleSliceRecordAsync(_window.RigControl, SliceRecorderTarget.ActiveSlice);
@@ -36,6 +37,7 @@ public class FreqOutHandlers
 
     public void AdjustRecorded(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Keyboard.Modifiers == ModifierKeys.None && (e.Key == Key.Space || e.Key == Key.Enter))
         {
             if (!e.IsRepeat) _ = RecorderControls.ToggleSlicePlayAsync(_window.RigControl, SliceRecorderTarget.ActiveSlice);
@@ -316,6 +318,30 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// Tune the slice you are on by one coarse or fine step (#703, #877).
+    /// </summary>
+    /// <param name="coarse">True for the coarse step, false for the fine one.</param>
+    /// <param name="direction">Above zero tunes up, below zero tunes down.</param>
+    /// <remarks>
+    /// <para><b>The four tuning commands and the slice row's Control and
+    /// Shift arrows all land here</b>, and this lands on <see cref="TuneFreq"/>,
+    /// the path the Frequency field's own arrows use. One tuning path: the
+    /// readout, the debounce, the band-edge notices and the "a locked slice
+    /// does not move" rule come with it rather than being copied.</para>
+    /// <para>Ends a Classic step-multiplier entry the way a plain Up or Down
+    /// on the Frequency field does: a tuning key means the entry is over.</para>
+    /// <para>A held key writes once per key repeat, exactly as a held plain Up
+    /// does today; the write path is not this method's to change.</para>
+    /// </remarks>
+    public void TuneByStep(bool coarse, int direction)
+    {
+        if (Rig == null || direction == 0) return;
+        _inStepEntry = false;
+        long step = coarse ? _coarseStep : _fineStep;
+        TuneFreq(direction > 0 ? (ulong)step : unchecked((ulong)(-step)));
+    }
+
+    /// <summary>
     /// Filter presets for the current operator. Set by ApplicationEvents.vb during radio connect.
     /// </summary>
     public Radios.FilterPresets? FilterPresets { get; set; }
@@ -455,6 +481,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustFreq(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -1295,34 +1322,15 @@ public class FreqOutHandlers
     // Restoring a VFO or memory field by pattern-matching this file must NOT
     // bring M and V back with it.
 
-    /// <summary>
-    /// The slice step Down-arrow means, and Up-arrow's negation of it.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>The list read bottom-to-top (#318):</b> Down-arrow walked backwards
-    /// through the alphabet, so reaching Slice C from Slice A meant arrowing
-    /// UP twice. Noel found it 2026-08-11 and ruled the same day that it
-    /// should become a setting rather than a flip — we pick the better
-    /// default, the operator keeps the choice.
-    /// </para>
-    /// <para>
-    /// <b>Both slice fields read it, deliberately.</b> The Slice field and the
-    /// Slice Operations field both bind Up/Down to this cycler, and a setting
-    /// honoured by one of them would be lying about what it controls. The
-    /// letter keys, the number keys, V and Space are unaffected — they select
-    /// by identity or cycle forward, and neither has a direction to get wrong.
-    /// </para>
-    /// <para>
-    /// <b>NOT a key binding change.</b> Up and Down keep the meanings the key
-    /// inventory records for them, "next or previous slice"; what moves is
-    /// which letter each one reaches.
-    /// </para>
-    /// </remarks>
-    private static int SliceStepForDownArrow =>
-        Radios.AccessibilityConfig.Current.SliceStepForDownArrow;
-
-    private static int SliceStepForUpArrow => -SliceStepForDownArrow;
+    // SliceStepForUpArrow and SliceStepForDownArrow WERE HERE (#318), the
+    // direction the Slice field's arrows walked the slice list, read from the
+    // slice arrow order setting. Since #517 (ruled by Noel 2026-09-20: "slice
+    // lost arrow as well with substitution being letters and arrows coming
+    // back in slice layering") the bare arrows TUNE on Slice and Slice
+    // operations, so nothing walks the list by arrow and nothing reads the
+    // setting. The setting, its control and the saved value are left alone
+    // on purpose: whether it waits for the slice layer or leaves Settings is
+    // Noel's to rule.
 
     private void CycleVFO(int direction, bool wrap = false)
     {
@@ -1459,6 +1467,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSlice(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -1523,8 +1532,8 @@ public class FreqOutHandlers
             case 'R':
                 // Sprint 28 Phase 5 — R is now RIT toggle on all three home
                 // fields. Was pan-right on the Slice field; pan moved to
-                // PageUp/Home/PageDown (see key.PageUp/Home/PageDown handlers
-                // below).
+                // PageUp/Home/PageDown, and with #517 to the audio layer
+                // (those keys now say so).
                 {
                     var rit = new FlexBase.RITData(Rig.RIT);
                     rit.Active = !rit.Active;
@@ -1547,44 +1556,28 @@ public class FreqOutHandlers
             default:
                 switch (key)
                 {
+                    // The bare arrows TUNE by the coarse step (#517, ruled by
+                    // Noel 2026-09-20: "Do we really need gain for arrows?
+                    // We'd use tuning most often", and "slice lost arrow as
+                    // well with substitution being letters and arrows coming
+                    // back in slice layering"). Slice selection keeps this
+                    // field's letters A to H, Space and V, and the JJ key's
+                    // slice keys. The same TuneByStep the tuning commands run.
                     case Key.Up:
-                        CycleVFO(SliceStepForUpArrow);
+                        TuneByStep(coarse: true, 1);
                         e.Handled = true;
                         break;
                     case Key.Down:
-                        CycleVFO(SliceStepForDownArrow);
+                        TuneByStep(coarse: true, -1);
                         e.Handled = true;
                         break;
-                    // Sprint 28 Phase 5 — pan triad moved from L/C/R letter keys
-                    // to navigation keys to match Slice Operations field's existing
-                    // pattern and free R for RIT toggle. Nav keys carry inherent
-                    // spatial semantics (PageUp/PageDown = directional) reducing
-                    // cognitive load for screen-reader users.
-                    case Key.PageDown:
-                        if (Rig.ValidVFO(vfo))
-                        {
-                            Rig.SetVFOPan(vfo, FlexBase.MinPan);
-                            Radios.ScreenReaderOutput.Speak(
-                                Lexicon.Get("settings.pan.left"), VerbosityLevel.Terse);
-                        }
-                        e.Handled = true;
-                        break;
+                    // Pan left this field with #517: Page Up and Page Down say
+                    // where it went for every field (TryHandleSliceRowKey), and
+                    // Home, which centred pan here, says the same thing rather
+                    // than quietly becoming the jump to the first field (this
+                    // IS the first field, so the jump would do nothing).
                     case Key.Home:
-                        if (Rig.ValidVFO(vfo))
-                        {
-                            Rig.SetVFOPan(vfo, (FlexBase.MaxPan - FlexBase.MinPan) / 2);
-                            Radios.ScreenReaderOutput.Speak(
-                                Lexicon.Get("settings.pan.center"), VerbosityLevel.Terse);
-                        }
-                        e.Handled = true;
-                        break;
-                    case Key.PageUp:
-                        if (Rig.ValidVFO(vfo))
-                        {
-                            Rig.SetVFOPan(vfo, FlexBase.MaxPan);
-                            Radios.ScreenReaderOutput.Speak(
-                                Lexicon.Get("settings.pan.right"), VerbosityLevel.Terse);
-                        }
+                        SayWherePanWent();
                         e.Handled = true;
                         break;
                 }
@@ -1645,23 +1638,14 @@ public class FreqOutHandlers
                 coalesceKey: "slice-volume");
     }
 
-    private void AdjustPan(int vfo, int delta)
-    {
-        if (Rig == null) return;
-        int current = Rig.GetVFOPan(vfo);
-        int newVal = Math.Clamp(current + delta, FlexBase.MinPan, FlexBase.MaxPan);
-        Rig.SetVFOPan(vfo, newVal);
-        Radios.ScreenReaderOutput.Speak(
-            Lexicon.Get("settings.pan.level", ("level", newVal)), VerbosityLevel.Terse);
-    }
-
     #endregion
 
     #region AdjustSliceOps
 
     /// <summary>
-    /// Slice Operations field handler — per-slice volume, pan, and mute.
-    /// Up/Down = volume, PageUp/PageDown = pan, Space = mute toggle.
+    /// Slice Operations field handler — tuning and mute.
+    /// Up/Down tune by the coarse step (#517; volume and pan moved to the
+    /// audio layer), Space = mute toggle.
     ///
     /// <para>
     /// Sprint 26 Phase 8 Jim-parity: letter shortcuts match Jim's original
@@ -1687,6 +1671,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSliceOps(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -1703,24 +1688,17 @@ public class FreqOutHandlers
 
         switch (key)
         {
+            // The bare arrows TUNE by the coarse step (#517, ruled by Noel
+            // 2026-09-20). Gain moved to the audio layer's slice volume (JJ
+            // key A, then V) and the Volume field; pan to the audio layer's P.
+            // Page Up and Page Down say where pan went, from
+            // TryHandleSliceRowKey, before this switch.
             case Key.Up:
-                if (Rig.ValidVFO(vfo))
-                    AdjustGain(vfo, FlexBase.GainIncrement);
+                TuneByStep(coarse: true, 1);
                 e.Handled = true;
                 break;
             case Key.Down:
-                if (Rig.ValidVFO(vfo))
-                    AdjustGain(vfo, -FlexBase.GainIncrement);
-                e.Handled = true;
-                break;
-            case Key.PageUp:
-                if (Rig.ValidVFO(vfo))
-                    AdjustPan(vfo, FlexBase.PanIncrement);
-                e.Handled = true;
-                break;
-            case Key.PageDown:
-                if (Rig.ValidVFO(vfo))
-                    AdjustPan(vfo, -FlexBase.PanIncrement);
+                TuneByStep(coarse: true, -1);
                 e.Handled = true;
                 break;
             default:
@@ -1839,6 +1817,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSplit(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -1891,12 +1870,14 @@ public class FreqOutHandlers
 
     public void AdjustRit(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         AdjustRITXIT(Rig.RIT, true, field, e);
     }
 
     public void AdjustXit(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         AdjustRITXIT(Rig.XIT, false, field, e);
     }
@@ -2136,6 +2117,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustVox(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -2187,6 +2169,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustTxSlice(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -2326,6 +2309,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSquelch(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -2350,6 +2334,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSquelchLevel(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -2524,6 +2509,123 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// The keys every field on the slice row answers the same way, asked
+    /// FIRST, before the field's own map (#703, #877).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Control with Up or Down tunes by the coarse step, Shift with
+    /// Up or Down by the fine step, on every field</b> (Noel, 2026-11-08
+    /// 16:24-16:27: "ctrl up and down does coarse, shift up and down does
+    /// fine", everywhere including Frequency). They run the same code as the
+    /// four tuning commands, <see cref="TuneByStep"/>, so the Hotkey Editor's
+    /// binding and this key cannot disagree. Asked first because most field
+    /// maps test only the KEY on the arrows, so a modifier used to fall into
+    /// the bare arrow's meaning: Shift+Up changed the slice on Slice (#877),
+    /// toggled VOX on VOX and moved transmit on Transmit slice.</para>
+    /// <para><b>The class, not two modifiers.</b> Any other modifier set on
+    /// an arrow (Control and Shift together, Alt with either, Alt alone when
+    /// the band keys are unbound) is not the bare arrow either: it says it
+    /// does nothing on this field, the promise the letters already keep
+    /// (<see cref="AnnounceDeadHomeKey"/>). A chord the registry binds is
+    /// left alone; the registry runs before this and normally takes it
+    /// first.</para>
+    /// <para>The bare arrows are NOT claimed here: they stay each field's own
+    /// (Classic Frequency's digit tuning included).</para>
+    /// </remarks>
+    private bool TryHandleSliceRowKey(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (e.Handled) return false;
+        var key = RawKey(e);
+
+        if ((key == Key.Up || key == Key.Down) && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            TuneByStepFromField(coarse: true, key == Key.Up ? 1 : -1);
+            e.Handled = true;
+            return true;
+        }
+        if ((key == Key.Up || key == Key.Down) && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            TuneByStepFromField(coarse: false, key == Key.Up ? 1 : -1);
+            e.Handled = true;
+            return true;
+        }
+        // Page Up and Page Down on every field of the slice row say where pan
+        // went, and pan nothing (#517; Noel, 2026-09-21: "pagedown speaking
+        // pan in audio is fine, that's what we had planned for anyway"). On
+        // every field, not only the two that panned: FrequencyDisplay's
+        // Page Down jump to Frequency went in the same change, so without
+        // this Page Down would fall silent everywhere else.
+        if (key == Key.PageUp || key == Key.PageDown)
+        {
+            SayWherePanWent();
+            e.Handled = true;
+            return true;
+        }
+        if (IsUnboundArrowChord(key, Keyboard.Modifiers) && !IsRegistryBound(e))
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.home.key_unbound",
+                    ("key", SpokenArrowChord(Keyboard.Modifiers, key)), ("field", field.Label ?? field.Key)),
+                VerbosityLevel.Terse, true);
+            e.Handled = true;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The relocation answer for the keys that panned on the slice row (#517).
+    /// Says where pan is now; pans nothing. Needs no radio: it describes the
+    /// key map, not the radio.
+    /// </summary>
+    private static void SayWherePanWent() =>
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get("settings.pan.moved_to_audio_layer"),   // DRAFT wording, awaiting Noel
+            VerbosityLevel.Terse, true);
+
+    /// <summary>The slice row's tuning chord, with the no-radio answer every Home key gives.</summary>
+    private void TuneByStepFromField(bool coarse, int direction)
+    {
+        if (Rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("connect.command_needs_radio"),
+                VerbosityLevel.Critical, true);
+            return;
+        }
+        TuneByStep(coarse, direction);
+    }
+
+    /// <summary>
+    /// An arrow held with a modifier set the slice row gives no meaning to:
+    /// anything but none, Control alone or Shift alone, and never the
+    /// Windows key (the shell's). Pure, so a test can hold the whole class
+    /// (#877).
+    /// </summary>
+    internal static bool IsUnboundArrowChord(Key key, ModifierKeys mods)
+    {
+        if (key != Key.Up && key != Key.Down) return false;
+        if ((mods & ModifierKeys.Windows) != 0) return false;
+        return mods != ModifierKeys.None
+            && mods != ModifierKeys.Control
+            && mods != ModifierKeys.Shift;
+    }
+
+    /// <summary>
+    /// An arrow chord as it is spoken, in the words <see cref="SpokenChord"/>
+    /// uses: "Control Shift Up arrow", "Control Alt Down arrow". DRAFT
+    /// wording, filled into the existing does-nothing sentence.
+    /// </summary>
+    internal static string SpokenArrowChord(ModifierKeys mods, Key key)
+    {
+        string name = key == Key.Up ? "Up arrow" : "Down arrow";
+        if ((mods & ModifierKeys.Shift) != 0) name = "Shift " + name;
+        if ((mods & ModifierKeys.Alt) != 0) name = "Alt " + name;
+        if ((mods & ModifierKeys.Control) != 0) name = "Control " + name;
+        return name;
+    }
+
+    /// <summary>
     /// The last stop for a Home key nothing claimed — a key that does nothing
     /// must SAY so, because from the chair it is indistinguishable from a key
     /// that is broken (#338, and the project's founding accessibility rule).
@@ -2539,9 +2641,10 @@ public class FreqOutHandlers
     ///
     /// <para><b>What it deliberately does NOT claim.</b> Anything carrying
     /// Alt (the menu bar and the mode chords) or the Windows key, navigation
-    /// keys (Left/Right/Home/End/PageDown belong to FrequencyDisplay's cursor
-    /// movement, and claiming PageDown here would break jump-to-Frequency
-    /// while disconnected), Escape, Tab, Enter, function keys — and any chord
+    /// keys (Left/Right/Home/End belong to FrequencyDisplay's cursor
+    /// movement; Page Up and Page Down are answered earlier, by
+    /// TryHandleSliceRowKey, with where pan went, #517), Escape, Tab, Enter,
+    /// function keys — and any chord
     /// the KeyCommands registry has bound in the current scope. A user keymap
     /// can bind a Shift or Ctrl letter, so the registry is asked, not
     /// assumed.</para>
@@ -2794,6 +2897,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSMeter(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         // Disconnected, the displayed reading is a leftover from the last
         // connection — speaking it as current would be a stale value in a
         // fresh sentence, so the honest answer is the missing radio (#338).
@@ -2847,6 +2951,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustMode(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
 
@@ -2916,6 +3021,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustMute(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -2948,6 +3054,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustVolume(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         int vfo = Rig.RXVFO;
@@ -2980,6 +3087,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustOffset(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -3061,6 +3169,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustFreqModern(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        if (TryHandleSliceRowKey(field, e)) return;
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
@@ -3084,20 +3193,23 @@ public class FreqOutHandlers
         // Quick-type frequency entry: digits, dot, Enter, Escape
         if (HandleQuickTypeKey(key, ch, e)) return;
 
-        // Tuning unity: Up = +coarse, Shift+Up = +fine, Down/Shift+Down inverse.
-        // The Shift case must come first so the unmodified Up/Down branch
-        // doesn't swallow it.
-        bool shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-
+        // Tuning unity: Up = +coarse, Down = -coarse. Shift with the arrows
+        // (the fine step) and Control with them (the coarse step) belong to
+        // every field on the slice row now, so TryHandleSliceRowKey takes
+        // them before this switch, through the same TuneByStep the four
+        // tuning commands run (#703). This field used to test only Shift, so
+        // Control+Up was the coarse step by accident and Control+Shift+Up
+        // the fine step; the first is now deliberate and the second says it
+        // does nothing.
         switch (key)
         {
             case Key.Up:
-                TuneFreq((ulong)(shiftHeld ? _fineStep : _coarseStep));
+                TuneByStep(coarse: true, 1);
                 e.Handled = true;
                 break;
 
             case Key.Down:
-                TuneFreq(unchecked((ulong)(-(long)(shiftHeld ? _fineStep : _coarseStep))));
+                TuneByStep(coarse: true, -1);
                 e.Handled = true;
                 break;
 

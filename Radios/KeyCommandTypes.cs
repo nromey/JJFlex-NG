@@ -215,6 +215,17 @@ public enum CommandValues
     // Ctrl+J, Alt+T on the JJ key (proposed, not yet ruled); NO default flat
     // key until Noel picks one (the F11 recorder family is full).
     OpenPlayTakes = 132,
+    // #703 and #877: tuning by the coarse and fine step, as commands, so the
+    // Hotkey Editor can bind them and the Command Finder can find them. On
+    // Home's slice row, Ctrl with Up or Down runs the coarse pair and Shift
+    // with Up or Down the fine pair, from every field. NO default flat key
+    // yet: a flat key is taken across the whole main window before any
+    // control sees it, which would also take Shift's finer value step from
+    // Home's field groups, and that surface is not ruled.
+    TuneCoarseUp = 133,
+    TuneCoarseDown = 134,
+    TuneFineUp = 135,
+    TuneFineDown = 136,
 }
 
 /// <summary>

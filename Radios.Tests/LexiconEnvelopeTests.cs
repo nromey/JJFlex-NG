@@ -2296,6 +2296,22 @@ namespace Radios.Tests
                 // Round two (#496, the bench's Fail 3): Settings with no radio
                 // says the PTT changes were not saved. DRAFT prose.
                 "settings.commit.ptt_not_saved",
+                // Junk box 2026-11-09 (#517): Page Up and Page Down on the
+                // slice row, and Home on the Slice field, say where pan went
+                // instead of panning. Noel ruled the disposition 2026-09-21;
+                // the wording is the key-ownership design's proposal. DRAFT.
+                "settings.pan.moved_to_audio_layer",
+                // Junk box 2026-11-09 (#335): no callsign, no transmit. The one
+                // sentence every refused key says, at every door and at the
+                // radio's keying chokepoints. DRAFT, awaiting Noel.
+                "settings.operators.no_callsign_transmit",
+                // Junk box 2026-11-09 (#480): the Audio Workshop's Reset asks
+                // before it writes the live transmit chain, as Delete Preset
+                // does. DRAFT, awaiting Noel.
+                "settings.audio.reset_tx_audio_body",
+                "settings.audio.reset_tx_audio_question",
+                "settings.audio.reset_tx_audio_title",
+                "settings.audio.reset_tx_audio_yes_label",
                 // Junk box 2026-11-02 (#642): F names its slice by role when
                 // the transmit slice is not the selected one, and the setting
                 // that chooses which. DRAFT prose, awaiting Noel.

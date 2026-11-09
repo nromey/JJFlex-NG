@@ -19,7 +19,11 @@ You can also enter frequencies in kilohertz — for example, `14225` is the same
 
 ## Tuning with the Keyboard
 
-In both Modern and Classic tuning modes, you can tune the radio with the up and down arrow keys. The tuning step size depends on your current tuning-step settings.
+Every field on the Home slice row accepts `Ctrl+Up` and `Ctrl+Down` to tune up or down by the coarse step, and `Shift+Up` and `Shift+Down` to tune up or down by the fine step. Both pairs work in Classic tuning mode and Modern tuning mode, including on the Frequency field.
+
+Plain `Up` and `Down` on the Frequency field use the coarse step in Modern tuning mode and the digit under the cursor in Classic tuning mode. Plain `Up` and `Down` on the Slice and Slice Operations fields use the coarse step in both tuning modes.
+
+The commands **Tune up by your coarse step**, **Tune down by your coarse step**, **Tune up by your fine step** and **Tune down by your fine step** also appear in the Command Finder and the Hotkey Editor without default keys. These commands tune the active slice; assign a key in the Hotkey Editor for access beyond the Home slice row.
 
 ## RIT (Receiver Incremental Tuning)
 

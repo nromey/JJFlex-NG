@@ -3981,6 +3981,16 @@ Module globals
     End Function
 
     ''' <summary>
+    ''' The current operator's callsign as entered under Radio, Operators, read
+    ''' when asked (#335). Empty when there is no operator or no callsign, which
+    ''' the transmit gate reads as none.
+    ''' </summary>
+    Private Function currentOperatorCallsign() As String
+        If CurrentOp Is Nothing Then Return ""
+        Return If(CurrentOp.callSign, "")
+    End Function
+
+    ''' <summary>
     ''' Show the one-time "Try Modern UI?" prompt for existing operators
     ''' who predate the UIMode feature.
     ''' </summary>
@@ -4070,7 +4080,7 @@ Module globals
             Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
             ShowConnectingFormOnOwnThread(_autoConnectConfig.RadioName, Radios.ConnectionProfiler.Current)
 
-            RigControl = New FlexBase(OpenParms)
+            NewRigControl("startup auto-connect")
 
             ' Wire account selector for SmartLink remote auto-connect
             RigControl.ShowAccountSelector = Function(mgr)
@@ -4121,8 +4131,7 @@ Module globals
 
             Select Case dialogResult
                 Case Radios.AutoConnectFailedResult.TryAgain
-                    RigControl.Dispose()
-                    RigControl = New FlexBase(OpenParms)
+                    NewRigControl("startup auto-connect, try again")
                     Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
                     ShowConnectingFormOnOwnThread(_autoConnectConfig.RadioName, Radios.ConnectionProfiler.Current)
                     Dim tryAgainRig = RigControl
@@ -4493,7 +4502,7 @@ Module globals
     End Function
 
     Private Sub wpfSelectorProc(initialCall As Boolean)
-        RigControl = New FlexBase(OpenParms)
+        NewRigControl("radio picker")
 
         ' Wire account selector to auto-use most recent saved account.
         ' If credentials are expired, setupRemote falls through to PerformNewLogin
@@ -5362,6 +5371,9 @@ Module globals
             OpenParms.ConfigDirectory = BaseConfigDir & "\Radios"
             OpenParms.AudioDevicesFile = AudioDevicesFile
             OpenParms.GetOperatorName = AddressOf currentOperatorName
+            ' No callsign, no transmit (#335): the radio layer asks for the
+            ' OPERATOR's callsign at every key, never the radio's own field.
+            OpenParms.GetOperatorCallsign = AddressOf currentOperatorCallsign
             OpenParms.StationName = StationName
             OpenParms.BrailleCells = CurrentOp.BrailleDisplaySize
             OpenParms.License = CurrentOp.License
@@ -5666,9 +5678,7 @@ RadioConnected:
                         End If
 
                         WpfMainWindow?.UnwireRadioEvents()
-                        RigControl.Dispose()
-
-                        RigControl = New FlexBase(OpenParms)
+                        NewRigControl("auto-connect retry")
                         WpfMainWindow.RigControl = RigControl
 
                         ' Captured, and both blocking halves run off the UI
@@ -5738,9 +5748,60 @@ RadioConnected:
             TraceSessionContext.MarkOutcome(TraceSessionOutcome.Crashed,
                 $"openTheRadio exception: {ex.GetType().Name}: {ex.Message}")
             TraceSessionContext.AddKeyEvent("opentheradio_exception")
+            ' The radio object this open made is nobody's now: dispose it here,
+            ' through the one owner, instead of leaving it live and
+            ' presence-engaged until the next picker opens (#392). If the main
+            ' window had already been wired to it, its events come off first,
+            ' as CloseTheRadio does, while the radio object is still whole.
+            Try
+                If RigControl IsNot Nothing AndAlso WpfMainWindow IsNot Nothing _
+                   AndAlso WpfMainWindow.RigControl Is RigControl Then
+                    WpfMainWindow.UnwireRadioEvents()
+                End If
+            Catch unwireEx As Exception
+                Tracing.TraceLine("openTheRadio exception: unwiring threw: " & unwireEx.Message, TraceLevel.Error)
+            End Try
+            ReleaseRigControl("openTheRadio exception")
             Return False
         End Try
     End Function
+
+    ''' <summary>
+    ''' THE one place a new radio object becomes RigControl (#392). Whatever
+    ''' radio object was there is disposed first, here, so "the previous one
+    ''' was disposed" is a property of the assignment and not of every caller
+    ''' remembering to do it. A caller that has already disposed it loses
+    ''' nothing: Dispose does its teardown once.
+    ''' </summary>
+    ''' <remarks>
+    ''' Disposed BEFORE the new object is assigned, as every call site did by
+    ''' hand: the old object's events still reach this module's handlers while
+    ''' it tears down, exactly as before.
+    ''' </remarks>
+    Private Function NewRigControl(why As String) As FlexBase
+        ReleaseRigControl(why)
+        RigControl = New FlexBase(OpenParms)
+        Return RigControl
+    End Function
+
+    ''' <summary>
+    ''' The radio object stops being ours (#392): disposed, and no longer named
+    ''' by this module or by the main window. A dispose that throws is traced
+    ''' and contained; the reference is dropped either way.
+    ''' </summary>
+    Private Sub ReleaseRigControl(why As String)
+        Dim old = RigControl
+        If old Is Nothing Then Return
+        Try
+            old.Dispose()
+        Catch ex As Exception
+            Tracing.TraceLine("ReleaseRigControl(" & why & "): dispose threw: " & ex.Message, TraceLevel.Error)
+        End Try
+        RigControl = Nothing
+        If WpfMainWindow IsNot Nothing AndAlso WpfMainWindow.RigControl Is old Then
+            WpfMainWindow.RigControl = Nothing
+        End If
+    End Sub
 
     ''' <summary>
     ''' Close the radio and unwire all events.

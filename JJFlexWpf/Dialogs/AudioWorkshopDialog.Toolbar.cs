@@ -312,6 +312,18 @@ public partial class AudioWorkshopDialog
             return;
         }
 
+        // Confirmed first, as Delete Preset is (#480): this writes the LIVE
+        // transmit chain of whichever radio is connected, which on a radio
+        // that is not yours is someone else's, and there is no undo. DRAFT
+        // wording, awaiting Noel.
+        var confirm = new ConfirmActionDialog(
+            Lexicon.Get("settings.audio.reset_tx_audio_title"),
+            Lexicon.Get("settings.audio.reset_tx_audio_body"),
+            question: Lexicon.Get("settings.audio.reset_tx_audio_question"),
+            yesLabel: Lexicon.Get("settings.audio.reset_tx_audio_yes_label"));
+        if (confirm.ShowDialog() != true)
+            return;
+
         var defaults = new AudioChainPreset();
         _ = defaults.ApplyTo(_rig); // a default preset carries no EQ or input notes
         PollTxAudio();

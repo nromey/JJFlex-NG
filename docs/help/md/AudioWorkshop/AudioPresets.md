@@ -65,7 +65,7 @@ A word to the wise before loading a preset from someone else: their mic, their v
 
 ### Reset
 
-**Reset** (`Alt+R`) is not a preset at all — it puts the whole transmit chain back to stock defaults (mic gain 50, no processing, filter 100 through 2900 hertz). A known-good starting point for when an experiment has wandered somewhere strange.
+**Reset** (`Alt+R`) is not a preset at all — it puts the whole transmit chain back to stock defaults (mic gain 50, no processing, filter 100 through 2900 hertz). A known-good starting point for when an experiment has wandered somewhere strange. The **Reset** button asks for confirmation before changing the transmit audio settings.
 
 ## Your presets are yours
 

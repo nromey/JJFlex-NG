@@ -474,6 +474,17 @@ namespace Radios.ChainChecks
             // Facts the gate is not allowed to take on trust, read from the
             // radio itself. This stage keys MOX, so the transmit power — not
             // tune power — is what the low-power ceiling judges (#180).
+            // No callsign, no transmit (#335), asked here, before the gate and
+            // the countdown, so the stage is not counted down and then refused
+            // at its key, and its page says what the operator heard rather than
+            // that the radio never reported transmitting.
+            string noCallsign = TransmitKillSwitch.RefusedForNoCallsign(rig, "the injected transmit check");
+            if (noCallsign != null)
+            {
+                facts.Detail = noCallsign;
+                return facts;
+            }
+
             FixerTransmitGate.Decision d = _gate.Request(
                 _gate.RunId, stageId, stageTransmits: true,
                 radioReachable: rig != null,
@@ -785,6 +796,17 @@ namespace Radios.ChainChecks
                 Tracing.TraceLine("FixerTransmitAudioBoundary: spoken transmit not run — "
                                   + inTheWay, TraceLevel.Warning);
                 facts.Detail = inTheWay;
+                return facts;
+            }
+
+            // No callsign, no transmit (#335), asked here, before the gate and
+            // the countdown, so the stage is not counted down and then refused
+            // at its key, and its page says what the operator heard rather than
+            // that the radio never reported transmitting.
+            string noCallsign = TransmitKillSwitch.RefusedForNoCallsign(rig, "the spoken transmit check");
+            if (noCallsign != null)
+            {
+                facts.Detail = noCallsign;
                 return facts;
             }
 

@@ -27,6 +27,14 @@ public partial class RadioAssociationsDialog : JJFlexDialog
     private sealed class RadioRow
     {
         public KnownRadioEntry Entry { get; init; } = null!;
+
+        /// <summary>
+        /// The account a connect to this radio would use, by the connect's own
+        /// plan (<see cref="FlexBase.ConnectAccountFor"/>), read once when the
+        /// list loads; empty when the plan names none (#405).
+        /// </summary>
+        public string ConnectAccount { get; init; } = "";
+
         public override string ToString()
         {
             var name = string.IsNullOrWhiteSpace(Entry.Nickname)
@@ -34,28 +42,51 @@ public partial class RadioAssociationsDialog : JJFlexDialog
             var model = string.IsNullOrWhiteSpace(Entry.Model)
                 ? Lexicon.Get("settings.associations.unknown_model") : Entry.Model;
 
-            string account;
-            if (!string.IsNullOrWhiteSpace(Entry.PreferredAccount))
-                account = Lexicon.Get("settings.associations.preferred_account",
-                    ("account", Entry.PreferredAccount));
-            else if (!string.IsNullOrWhiteSpace(Entry.LastSeenViaAccount))
-                account = Lexicon.Get("settings.associations.registered_to",
-                    ("account", Entry.LastSeenViaAccount));
-            else
-                account = Lexicon.Get("settings.associations.automatic_lowercase");
-
-            // Orphan-and-show: a binding to an account this machine no longer
-            // holds is stated, not hidden and not silently cleared.
             var bound = Entry.ResolvedAccount;
-            if (!string.IsNullOrWhiteSpace(bound)
-                && FlexBase.SharedAccountManager.GetAccountByEmail(bound) == null)
-            {
-                account += Lexicon.Get("settings.associations.account_not_on_this_computer");
-            }
+            string account = AccountWords(ConnectAccount, Entry.PreferredAccount, Entry.LastSeenViaAccount,
+                boundNotSaved: !string.IsNullOrWhiteSpace(bound)
+                    && FlexBase.SharedAccountManager.GetAccountByEmail(bound) == null);
 
             return Lexicon.Get("settings.associations.row",
                 ("name", name), ("model", model), ("account", account));
         }
+    }
+
+    /// <summary>
+    /// The account half of a row (#405). Ruled by Noel 2026-11-08 ~16:28: the
+    /// row names "the account connecting will actually use (the first
+    /// matching account saved on this computer), not the one chosen or last
+    /// seen". So when the connect's plan names an account, the row names THAT
+    /// one, said as the radio's chosen account when it is the chosen one and
+    /// as registered to otherwise. When the plan names none (no saved
+    /// account lists the radio, or the connect would sign in through the
+    /// saved default), the row keeps today's words, chosen, then last seen,
+    /// then automatic, with the not-on-this-computer note beside a binding
+    /// this machine does not hold: DRAFT for Noel's sheet, because naming an
+    /// account there would name one connecting will not use.
+    /// </summary>
+    internal static string AccountWords(string connectAccount, string preferred, string lastSeen, bool boundNotSaved)
+    {
+        if (!string.IsNullOrWhiteSpace(connectAccount))
+        {
+            return string.Equals(connectAccount, preferred, StringComparison.OrdinalIgnoreCase)
+                ? Lexicon.Get("settings.associations.preferred_account", ("account", connectAccount))
+                : Lexicon.Get("settings.associations.registered_to", ("account", connectAccount));
+        }
+
+        string account;
+        if (!string.IsNullOrWhiteSpace(preferred))
+            account = Lexicon.Get("settings.associations.preferred_account", ("account", preferred));
+        else if (!string.IsNullOrWhiteSpace(lastSeen))
+            account = Lexicon.Get("settings.associations.registered_to", ("account", lastSeen));
+        else
+            account = Lexicon.Get("settings.associations.automatic_lowercase");
+
+        // Orphan-and-show: a binding to an account this machine no longer
+        // holds is stated, not hidden and not silently cleared.
+        if (boundNotSaved)
+            account += Lexicon.Get("settings.associations.account_not_on_this_computer");
+        return account;
     }
 
     private static string AutomaticLabel => Lexicon.Get("settings.associations.automatic_label");
@@ -82,7 +113,11 @@ public partial class RadioAssociationsDialog : JJFlexDialog
         RadioList.Items.Clear();
         foreach (var entry in known)
         {
-            RadioList.Items.Add(new RadioRow { Entry = entry });
+            RadioList.Items.Add(new RadioRow
+            {
+                Entry = entry,
+                ConnectAccount = FlexBase.ConnectAccountFor(entry.Serial ?? ""),
+            });
         }
 
         if (RadioList.Items.Count == 0)

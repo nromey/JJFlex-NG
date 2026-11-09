@@ -2371,4 +2371,34 @@ public partial class ScreenFieldsPanel : UserControl
     }
 
     #endregion
+
+    /// <summary>
+    /// Close every field group because a DIFFERENT radio is connecting (#895,
+    /// ruled by Noel 2026-11-08 ~16:23), so the new radio is met from the top
+    /// with nothing of the last radio's on screen.
+    /// </summary>
+    /// <remarks>
+    /// Quiet, and focus is left where it is: this runs inside the connect,
+    /// while the picker or the connect's own speech has the operator's ear, so
+    /// there is no gavel, no per-group collapse cue and no sentence, unlike the
+    /// operator's own collapse-all (<see cref="CloseAllGroups"/>). Added at the
+    /// end of this file on purpose: <see cref="Initialize"/> and Detach belong
+    /// to another lane's work.
+    /// </remarks>
+    public void CloseAllGroupsForNewRadio()
+    {
+        _suppressCollapseEarcons = true;
+        try
+        {
+            foreach (var exp in _expanders)
+            {
+                if (exp.IsExpanded)
+                    exp.IsExpanded = false;
+            }
+        }
+        finally
+        {
+            _suppressCollapseEarcons = false;
+        }
+    }
 }

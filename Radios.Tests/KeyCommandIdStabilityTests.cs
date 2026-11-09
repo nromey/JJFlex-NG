@@ -143,7 +143,11 @@ namespace Radios.Tests
                 Assert.Equal(name, Enum.GetName(type, (CommandValues)value));
             }
 
-            // 134 as of 2026-11-02 (Unified takes, #864), which appended
+            // 138 as of 2026-11-09 (#703 and #877), which appended
+            // TuneCoarseUp = 133, TuneCoarseDown = 134, TuneFineUp = 135 and
+            // TuneFineDown = 136, tuning by the coarse and fine step as
+            // commands, with no default key until the main window is ruled.
+            // Was 134 as of 2026-11-02 (Unified takes, #864), which appended
             // OpenPlayTakes = 132, the Play takes window, on Ctrl+J, Alt+T and
             // with no flat key until Noel picked Alt+Shift+T (2026-11-07, C17).
             // Was 133 as of 2026-10-27 (#835, Check your audio Track B), which
@@ -170,7 +174,7 @@ namespace Radios.Tests
             // build chord (#269). Bump this deliberately when a command is
             // added; a test that counts is how an accidental renumbering gets
             // noticed.
-            Assert.Equal(134, names.Length);
+            Assert.Equal(138, names.Length);
         }
     }
 }

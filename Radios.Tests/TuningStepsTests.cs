@@ -345,8 +345,10 @@ namespace Radios.Tests
             Assert.Contains("ShowTuningStepsDialog", body, StringComparison.Ordinal);
 
             // Positive control: the extractor must be reading the real method
-            // body, not an empty string that trivially contains nothing.
-            Assert.Contains("TuneFreq", body, StringComparison.Ordinal);
+            // body, not an empty string that trivially contains nothing. The
+            // body tunes through TuneByStep since #703 (the four tuning
+            // commands' path); it read "TuneFreq" until then.
+            Assert.Contains("TuneByStep(coarse: true", body, StringComparison.Ordinal);
         }
 
         /// <summary>

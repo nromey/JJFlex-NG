@@ -421,6 +421,10 @@ public partial class FlexBase
     // two queued writes (now guarded). TransmitKillSwitch.RaiseCarrier, used
     // by the Fixer, goes through the Transmit and TxTune setters.
     //
+    // The no-callsign gate (#335, FlexBase.CallsignGate.cs) refuses at the
+    // same keying chokepoints, right after this one: transmit, tune, the
+    // tuner, both SendCW forms and TxFileStartForVox.
+    //
     // ANY NEW SEND MUST END AT ONE OF THESE. A sender that keys the radio some
     // other way (a new FlexLib property, a raw command) has to add the same
     // refusal at its own write, or it reopens the hole this closes. Upper

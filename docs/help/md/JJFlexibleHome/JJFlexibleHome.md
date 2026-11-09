@@ -15,7 +15,7 @@ Press `F2` at any time to move focus to the JJ Flexible Home. Your screen reader
 The JJ Flexible Home presents a sequence of fields that you move between by pressing the left and right arrow keys. The fields, in arrow-navigation order, are:
 
 - **Slice** — the slice that is currently active (A, B, C, and so on)
-- **Slice Operations** — volume, pan, and mute controls for the active slice
+- **Slice Operations** — tuning, selection and mute controls for the active slice
 - **Frequency** — the current receive or transmit frequency
 - **Mute** — the mute state of the active slice
 - **Volume** — the audio volume of the active slice
@@ -45,7 +45,11 @@ You can set your verbosity under **Settings > Notifications > Speech verbosity**
 
 ## Universal Keys in the JJ Flexible Home
 
-A small set of letter keys works the same way from most fields inside the JJ Flexible Home, so you do not need to navigate to a specific field to use them:
+Every field on the Home slice row accepts `Ctrl+Up` and `Ctrl+Down` to tune by the coarse step, and `Shift+Up` and `Shift+Down` to tune by the fine step. Both pairs work in Classic tuning mode and Modern tuning mode, including on the Frequency field. Plain `Up` and `Down` on the Slice and Slice Operations fields also tune by the coarse step; the Classic Frequency field uses the digit under the cursor for plain arrows.
+
+`Page Up` and `Page Down` on every slice-row field, and `Home` on the Slice field, announce the route to pan in the audio layer without changing pan. Press the JJ key, then `A`, then `P` to adjust pan, or choose `V` in the audio layer to adjust slice volume. The Volume field also adjusts slice volume.
+
+A small set of letter keys works the same way from most fields inside JJ Flexible Home:
 
 - `M` — toggle mute on or off for the currently active slice
 - `Shift+M` — toggle mute on or off across every slice at once (multi-slice earcon: a rising or falling tri-tone, distinct from the single-slice mute sound so you can tell the two actions apart by ear)
@@ -54,7 +58,7 @@ A small set of letter keys works the same way from most fields inside the JJ Fle
 - `X` — toggle Transmitter Incremental Tuning (XIT) on or off
 - `Q` — toggle squelch on or off
 - `=` — make the current slice transceive (receive and transmit on the same slice)
-- `Shift+S` — in Modern tuning, speak both your coarse and fine step sizes. In Classic tuning it says it does nothing there, because Classic has no coarse and fine steps
+- `Shift+S` — Speak both coarse and fine step sizes in Modern tuning mode. Classic tuning mode announces that this key does nothing on the current field; the coarse and fine tuning arrow pairs still work.
 - `.` (period) — create a new slice
 - `,` (comma) — release the current slice. On the Frequency field, period and comma are slice keys only until you type a digit; after that you are entering a frequency, the period is its decimal point, and the comma is a thousands separator, so 14,225.000 is 14.225 megahertz. So type the zero first for a frequency under one megahertz: 0.5, not .5
 - `Shift+Comma` (the `<` key on US keyboards) — release every slice except the one you are currently on, so you end up cleanly on a single-slice setup. Handy when you want to reset back to one slice in one keystroke.
