@@ -152,6 +152,16 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] UniversalHome =
     {
+        // Tuning from every field on the slice row, Frequency included, in
+        // both tuning modes (#703, #877; Noel, 2026-11-08 16:24-16:27). Run by
+        // FreqOutHandlers.TryHandleSliceRowKey ahead of each field's own map,
+        // through the same code as the four tuning commands. Read first in
+        // this list because tuning is what an operator does most.
+        // DRAFT PROSE: awaiting Noel.
+        new("Home", "Any Home field", "Ctrl+Up / Ctrl+Down", "Tune by your coarse step",
+            new[] { "tune", "tuning", "coarse", "step", "control", "frequency" }),
+        new("Home", "Any Home field", "Shift+Up / Shift+Down", "Tune by your fine step",
+            new[] { "tune", "tuning", "fine", "step", "shift", "frequency" }),
         new("Home", "Any Home field", "M", "Mute or unmute the active slice",
             new[] { "mute", "unmute", "audio", "slice" }),
         new("Home", "Any Home field", "V", "Cycle to the next slice",
