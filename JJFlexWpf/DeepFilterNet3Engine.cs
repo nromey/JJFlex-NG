@@ -343,51 +343,33 @@ namespace JJFlexWpf
             public float ProcessFrame(IntPtr st, float[] input, float[] output) => _process(st, input, output);
             public void Free(IntPtr st) => _free(st);
 
-            private static readonly object Gate = new();
-            private static string? _loadedPath;
-            private static Api? _loaded;
-
-            /// <summary>One handle per process: the library is never unloaded.</summary>
+            /// <summary>
+            /// One handle per process, through the shared loader (#1016, Sprint 49
+            /// Track S; NativeEngineLibrary). The checks and the two problems they
+            /// report are unchanged, in the same order: the file will not load,
+            /// then the file loads but lacks the C API. A handle refused for a
+            /// missing export is now freed rather than kept.
+            /// </summary>
             public static Api? Load(string path, out string? problem)
             {
-                lock (Gate)
+                problem = null;
+                var api = NativeEngineLibrary.TryLoad(path, "deepfilter", exports =>
                 {
-                    problem = null;
-                    if (_loaded != null && string.Equals(_loadedPath, path, StringComparison.OrdinalIgnoreCase))
-                        return _loaded;
-
-                    if (!NativeLibrary.TryLoad(path, out IntPtr h))
-                    {
-                        problem = $"{path} exists but would not load (wrong architecture, or a missing dependency).";
-                        return null;
-                    }
-
-                    var api = new Api();
-                    if (!Bind(h, "df_create", out IntPtr create)
-                        || !Bind(h, "df_get_frame_length", out IntPtr frame)
-                        || !Bind(h, "df_set_atten_lim", out IntPtr atten)
-                        || !Bind(h, "df_set_post_filter_beta", out IntPtr beta)
-                        || !Bind(h, "df_process_frame", out IntPtr process)
-                        || !Bind(h, "df_free", out IntPtr free))
-                    {
-                        problem = $"{path} loaded but does not export DeepFilterNet's C API.";
-                        return null;
-                    }
-                    api._create = Marshal.GetDelegateForFunctionPointer<CreateFn>(create);
-                    api._frame = Marshal.GetDelegateForFunctionPointer<GetFrameLengthFn>(frame);
-                    api._atten = Marshal.GetDelegateForFunctionPointer<SetFloatFn>(atten);
-                    api._beta = Marshal.GetDelegateForFunctionPointer<SetFloatFn>(beta);
-                    api._process = Marshal.GetDelegateForFunctionPointer<ProcessFrameFn>(process);
-                    api._free = Marshal.GetDelegateForFunctionPointer<FreeFn>(free);
-
-                    _loadedPath = path;
-                    _loaded = api;
-                    return api;
-                }
+                    var create = exports.TryBind<CreateFn>("df_create");
+                    var frame = exports.TryBind<GetFrameLengthFn>("df_get_frame_length");
+                    var atten = exports.TryBind<SetFloatFn>("df_set_atten_lim");
+                    var beta = exports.TryBind<SetFloatFn>("df_set_post_filter_beta");
+                    var process = exports.TryBind<ProcessFrameFn>("df_process_frame");
+                    var free = exports.TryBind<FreeFn>("df_free");
+                    if (create == null || frame == null || atten == null || beta == null || process == null || free == null) return null;
+                    return new Api { _create = create, _frame = frame, _atten = atten, _beta = beta, _process = process, _free = free };
+                }, out bool loaded);
+                if (api != null) return api;
+                problem = loaded
+                    ? $"{path} loaded but does not export DeepFilterNet's C API."
+                    : $"{path} exists but would not load (wrong architecture, or a missing dependency).";
+                return null;
             }
-
-            private static bool Bind(IntPtr h, string name, out IntPtr fn)
-                => NativeLibrary.TryGetExport(h, name, out fn);
         }
     }
 }
