@@ -3712,175 +3712,76 @@ namespace Radios
             }
 
             // Must have an antenna, and the radio must take our station name.
-            // The two waits run SIDE BY SIDE (#326): neither needs the other,
-            // and run one after the other the station name could not even
-            // start being watched until the antenna list arrived. The
-            // antenna list keeps its own bound, 20 s, checked inside the
-            // station-name loop below and finished after it if the name came
-            // first. FlexLib fetches the list via an async "ant list" command
-            // at connect time and populates RXAntList from the reply; over WAN
-            // that round trip routinely takes 5-15 s, and LAN connections
-            // settle in under 200 ms. The bounds are unchanged: the entry's
-            // standing rule is not to just move a timeout.
-            const int antennaWaitMs = 20000;
-            long antennaDeadline = Environment.TickCount64 + antennaWaitMs;
-            bool antennasArrived = false;
-            bool antennaWaitExpired = false;
-            bool AntennasHere() => (theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0);
-
-            // Wait for the station name to be set on the GUIClient.
-            // SmartLink removes and re-adds the GUIClient during connection setup.
-            // We track the removal event for faster detection — if our client is removed
-            // and not re-added within the grace period, disconnect and let caller retry.
-            // A fresh reconnection is faster than waiting for a slow re-add cycle.
-            bool stationNameSet = false;
+            // The two waits run SIDE BY SIDE (#326), each inside its own
+            // unchanged bound, 20 s and 45 s: neither needs the other, and run
+            // one after the other the station name could not even start being
+            // watched until the antenna list arrived. FlexLib fetches the list
+            // via an async "ant list" command at connect time and populates
+            // RXAntList from the reply; over WAN that round trip routinely
+            // takes 5-15 s, and LAN connections settle in under 200 ms.
+            //
+            // SmartLink removes and re-adds the GUIClient during connection
+            // setup. We track the removal for faster detection: if our client
+            // is removed and not re-added within the grace, disconnect and let
+            // the caller retry. Giving the station up waits for the antenna
+            // list, and until then a re-add still counts (repair one, Codex's
+            // F1). The whole decision, on a clock a test can drive, is
+            // ConnectSetupWait; read its remarks before changing the order.
             _stationMismatchTraced = false;
+            _clientRemovedDuringStart = false;
+            _clientAddedDuringStart = false;
+            _startBeginTickCount = Environment.TickCount64;
+
+            // One look at the station name, for the shared wait.
+            bool StationNamedNow()
             {
-                int maxWaitMs = 45000;       // 45s overall timeout (SmartLink re-add can take 30s+ over WAN)
-                int removalGraceMs = 15000;  // 15s grace after client removal (Don's 6300 over WAN needs 10s+)
-                int earlyAbortMs = 1000;     // 1s: if removed without ever being added, abort fast for retry
-                int interval = 25;
-                // A DEADLINE, not a count of sleeps (task #293).
-                //
-                // This used to be `iterations = maxWaitMs / interval` and a
-                // `while (iterations-- > 0)` loop that slept 25 ms per turn. The
-                // loop then ran the right NUMBER of times, but every turn cost
-                // 25 ms of sleep PLUS whatever the work in it cost — so the
-                // declared 45,000 ms budget elapsed in about 56 seconds of wall
-                // clock, measured at 55.7 s in the 2026-08-26 field trace. The
-                // error is not a constant offset either: it scales with how busy
-                // the machine and the radio are, which means it grows exactly
-                // when a connect is already struggling and the number matters
-                // most.
-                //
-                // It had already misled a caller. ConnectNarrator needed a
-                // ceiling for the #212 heartbeat, read maxWaitMs as a duration,
-                // and would have gone silent with ten seconds of this wait still
-                // to run — recreating the silence it exists to remove, at the
-                // worst possible moment. It was covered with a 1.5 margin, which
-                // is a fudge factor over an arithmetic error that the next caller
-                // has no way to know about.
-                //
-                // So the budget is now the budget: read the clock, compare
-                // against a deadline. maxWaitMs means 45 seconds to anyone
-                // reading it here, in the profiler payload, or in a trace.
-                long stationWaitDeadline = Environment.TickCount64 + maxWaitMs;
-                _clientRemovedDuringStart = false;
-                _clientAddedDuringStart = false;
-                _startBeginTickCount = Environment.TickCount64;
-
-                ConnectionProfiler.Current?.RecordEvent("start_station_name_wait_begin", new Dictionary<string, object>
+                GUIClient client = TheGuiClient;
+                // The radio's own report finishes this wait when it carries
+                // the name. A matching name that only a SmartLink list or a
+                // discovery broadcast wrote into our record — the rescue — may
+                // still finish it, narrowed (#634, ruled 2026-09-26): only for
+                // the handle this connection was given (TheGuiClient reads by
+                // that handle), only from the account this connection was
+                // brokered through (the merge is gated on it), and only while
+                // the radio has reported neither a different name nor our
+                // departure. It finishes the name wait and nothing else.
+                var decision = StationNameWaitDecision(client?.Station, Callouts.StationName);
+                if (decision.Finished)
                 {
-                    { "maxWaitMs", maxWaitMs },
-                    { "earlyAbortMs", earlyAbortMs },
-                    { "removalGraceMs", removalGraceMs }
-                });
-
-                while (Environment.TickCount64 < stationWaitDeadline)
-                {
-                    if (_cancelRequested)
-                    {
-                        ConnectionProfiler.Current?.RecordEvent("start_cancelled_in_station_wait", new Dictionary<string, object>
-                        {
-                            { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount }
-                        });
-                        Tracing.TraceLine("start: cancelled during station-name wait", TraceLevel.Info);
-                        break;
-                    }
-                    if (!IsConnected)
-                    {
-                        Tracing.TraceLine("start:connection dropped while waiting for station name", TraceLevel.Error);
-                        break;
-                    }
-                    // The antenna list, alongside (#326). Its own 20 s bound ends
-                    // the wait as the old sequential wait did.
-                    if (!antennasArrived)
-                    {
-                        if (AntennasHere())
-                        {
-                            antennasArrived = true;
-                            ConnectionProfiler.Current?.RecordEvent("start_antenna_available");
-                        }
-                        else if (Environment.TickCount64 >= antennaDeadline)
-                        {
-                            antennaWaitExpired = true;
-                            break;
-                        }
-                    }
-                    // Fast abort: if client was removed during Start() without ever being added
-                    // during Start(), the re-add will never come on this connection.
-                    // Profile data: every failure shows removal ~800ms into Start() with no prior add.
-                    if (_clientRemovedDuringStart && !_clientAddedDuringStart &&
-                        (Environment.TickCount64 - _clientRemovedTickCount) > earlyAbortMs)
-                    {
-                        ConnectionProfiler.Current?.RecordEvent("start_early_abort", new Dictionary<string, object>
-                        {
-                            { "msSinceRemoval", Environment.TickCount64 - _clientRemovedTickCount },
-                            { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount },
-                            { "clientAddedDuringStart", _clientAddedDuringStart }
-                        });
-                        Tracing.TraceLine($"start:client removed without prior add during Start(), aborting after {earlyAbortMs}ms for retry", TraceLevel.Warning);
-                        break;
-                    }
-                    // Standard grace: if client was added then removed, give it more time for re-add.
-                    if (_clientRemovedDuringStart && _clientAddedDuringStart &&
-                        (Environment.TickCount64 - _clientRemovedTickCount) > removalGraceMs)
-                    {
-                        ConnectionProfiler.Current?.RecordEvent("start_grace_abort", new Dictionary<string, object>
-                        {
-                            { "msSinceRemoval", Environment.TickCount64 - _clientRemovedTickCount },
-                            { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount }
-                        });
-                        Tracing.TraceLine($"start:client removed {removalGraceMs}ms ago without re-add, aborting for retry", TraceLevel.Warning);
-                        break;
-                    }
-                    GUIClient client = TheGuiClient;
-                    // The radio's own report finishes this wait when it
-                    // carries the name. A matching name that only a SmartLink
-                    // list or a discovery broadcast wrote into our record —
-                    // the rescue — may still finish it, narrowed (#634, ruled
-                    // 2026-09-26): only for the handle this connection was
-                    // given (TheGuiClient reads by that handle), only from
-                    // the account this connection was brokered through (the
-                    // merge is gated on it), and only while the radio has
-                    // reported neither a different name nor our departure.
-                    // It finishes the name wait and nothing else.
-                    var decision = StationNameWaitDecision(client?.Station, Callouts.StationName);
-                    if (decision.Finished)
-                    {
-                        stationNameSet = true;
-                        StationNameSource = decision.Source;
-                        StationNameRescueSentence = decision.RescueSentence;
-                        break;
-                    }
-                    // Diagnostic for the case the strict equality hides: the
-                    // radio answered with a DIFFERENT name than we asked for
-                    // (its own dedupe, or a stale merge). Without this line a
-                    // radio-side rename and total radio silence produce the
-                    // same 45 seconds of nothing in the trace (#402).
-                    if (client != null && !string.IsNullOrEmpty(client.Station)
-                        && !_stationMismatchTraced)
-                    {
-                        _stationMismatchTraced = true;
-                        Tracing.TraceLine(
-                            $"start: radio reports our station as '{client.Station}' but we are waiting for '{Callouts.StationName}' — a rename happened somewhere and the wait cannot succeed",
-                            TraceLevel.Error);
-                    }
-                    Thread.Sleep(interval);
+                    StationNameSource = decision.Source;
+                    StationNameRescueSentence = decision.RescueSentence;
+                    return true;
                 }
+                // Diagnostic for the case the strict equality hides: the radio
+                // answered with a DIFFERENT name than we asked for (its own
+                // dedupe, or a stale merge). Without this line a radio-side
+                // rename and total radio silence produce the same 45 seconds of
+                // nothing in the trace (#402).
+                if (client != null && !string.IsNullOrEmpty(client.Station)
+                    && !_stationMismatchTraced)
+                {
+                    _stationMismatchTraced = true;
+                    Tracing.TraceLine(
+                        $"start: radio reports our station as '{client.Station}' but we are waiting for '{Callouts.StationName}' — a rename happened somewhere and the wait cannot succeed",
+                        TraceLevel.Error);
+                }
+                return false;
             }
-            // The antenna list, if the station-name wait ended first: finish
-            // its own wait inside its own bound, then judge it exactly as the
-            // sequential wait did, ahead of the station name (#326).
-            if (!_cancelRequested && !antennasArrived)
+
+            ConnectSetupWait.Outcome waited = ConnectSetupWait.Run(new ConnectSetupWait.World
             {
-                long left = antennaDeadline - Environment.TickCount64;
-                if (!antennaWaitExpired && IsConnected && left > 0)
-                    await(() => AntennasHere() || _cancelRequested || !IsConnected, (int)left);
-                antennasArrived = AntennasHere();
-                if (antennasArrived) ConnectionProfiler.Current?.RecordEvent("start_antenna_available");
-            }
-            if (!_cancelRequested && !antennasArrived)
+                Cancelled = () => _cancelRequested,
+                Connected = () => IsConnected,
+                AntennasHere = () => (theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0),
+                ClientRemoved = () => _clientRemovedDuringStart,
+                ClientRemovedAt = () => _clientRemovedTickCount,
+                ClientAdded = () => _clientAddedDuringStart,
+                StationNamed = StationNamedNow,
+                Record = (name, data) => ConnectionProfiler.Current?.RecordEvent(name, data),
+                Trace = (line, level) => Tracing.TraceLine(line, level),
+            }, _startBeginTickCount);
+            bool stationNameSet = waited.StationNamed;
+            if (!_cancelRequested && !waited.AntennasArrived)
             {
                 // QB Track D (item 4): "no RX antenna" was a misleading verdict
                 // for this timeout. Every Flex physically has RX antennas; when
