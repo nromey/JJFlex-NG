@@ -2315,6 +2315,10 @@ namespace Radios.Tests
                 "settings.commit.applied_others_spoken",
                 "settings.commit.saved_others_spoken",
                 "settings.audio.mic_setup_computer_half_applied",
+                // Repair two: the advisory's lead when a change was refused, and
+                // a saved setup whose computer half applied only in part. DRAFT.
+                "settings.commit.some_items_wait_lead_refused",
+                "settings.audio.mic_setup_computer_half_partly",
                 // Junk box 2026-11-09 (#517): Page Up and Page Down on the
                 // slice row, and Home on the Slice field, say where pan went
                 // instead of panning. Noel ruled the disposition 2026-09-21;
