@@ -238,18 +238,19 @@ nothing lingers. Noel: *"especially when multiple agents work on stuff. That's
 where things build up."* Put the flags in every brief's build command, not just
 this paragraph: an agent copies the command it is shown.
 
-**And `-m:4`, to cap how many build workers run at once. Ruled by Noel
-2026-11-09 21:12** (*"Yes, cap at 4"*). The build-server rule stops processes
-from staying after a build; it does not limit how many run DURING one. Without a
-cap, MSBuild starts one worker per processor core, about sixteen here, using
-about 1.7 GB while it compiles, and two or three windows building at once are
-enough to run the machine short. So the full set for an agent, Codex or bench
-`dotnet build` or `dotnet test` is
-`--disable-build-servers -nodeReuse:false -m:4`. A build takes a little longer
-and uses about a quarter of the memory. Noel's desk builds keep the default
-here too. This is a margin, not the cause of the 2026-11-09 17:40 low-memory
-kill, which was a ten-worker Python sweep: **a script that fans out workers
-caps them for the same reason.**
+**There is NO worker cap any more: the `-m:4` rule of 2026-11-09 was LIFTED by
+Noel on 2026-11-10 16:44**, after the machine went from 32 GB to 96 GB
+(*"drop m and two windows"*). The cap existed only to save memory: an uncapped
+build starts one worker per processor core, about sixteen here, and uses about
+1.7 GB while it compiles, which mattered on 32 GB when two or three windows built
+at once and costs nothing on 96. **The windows' agreement to run heavy work two
+at a time, made after the 2026-11-10 00:42 low-memory kill, is lifted with it.**
+So the set for an agent, Codex or bench `dotnet build` or `dotnet test` is
+`--disable-build-servers -nodeReuse:false` again. **Build servers stay OFF**:
+memory was only half their cost. Agents build each worktree once or twice, so the
+servers rarely help, every folder leaves its own set behind, and they hold files
+open. A script that fans out workers (the 2026-11-09 17:40 kill was a ten-worker
+Python sweep) still sizes its pool to the machine on purpose.
 
 ### WARNING: `--no-incremental` Does NOT Guarantee Fresh Builds
 

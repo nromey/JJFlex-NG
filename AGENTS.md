@@ -191,11 +191,12 @@ because it reads like protection.
 
 ## Building and testing
 
-- Build: `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal --disable-build-servers -nodeReuse:false -m:4`
-- Test: `dotnet test Radios.Tests/Radios.Tests.csproj -c Debug -p:Platform=x64 --disable-build-servers -nodeReuse:false -m:4`
-- **Always pass `--disable-build-servers`, `-nodeReuse:false` and `-m:4`** (ruled
-  by Noel 2026-11-08 and 2026-11-09): leftover build servers from many worktrees
-  starved the machine of memory, and an uncapped build starts a worker per core.
+- Build: `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal --disable-build-servers -nodeReuse:false`
+- Test: `dotnet test Radios.Tests/Radios.Tests.csproj -c Debug -p:Platform=x64 --disable-build-servers -nodeReuse:false`
+- **Always pass `--disable-build-servers` and `-nodeReuse:false`** (ruled by Noel
+  2026-11-08): leftover build servers from many worktrees starved the machine of
+  memory and held files open. The `-m:4` worker cap was lifted 2026-11-10, when
+  the machine went to 96 GB; do not add it.
   `CLAUDE.md`, "Agents, Codex and benches build WITHOUT build servers".
 - Run the window-constructing project only filtered, exactly as `CLAUDE.md`
   shows under its integration pass, and say which classes you ran.
