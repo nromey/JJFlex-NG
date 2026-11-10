@@ -270,6 +270,13 @@ namespace JJFlexWpf
             return true;
         }
 
+        /// <summary>
+        /// Whether the running bank is this engine, built from the settings chosen now.
+        /// False after a model change until audio has carried the new build in, so a
+        /// delay readout does not report the old build's figure as measured (#1019).
+        /// </summary>
+        public bool RunningIsCurrent(string id) => RunningEngineId == id && RunningLatencyCurrent(id);
+
         private bool RunningLatencyCurrent(string id)
         {
             var built = Volatile.Read(ref _runningBuild);

@@ -115,7 +115,8 @@ internal sealed class NoiseFixture : IDisposable
     public Dictionary<string, Unavailability> Unavailable { get; } = new();
     public ConcurrentBag<string> Built { get; } = new();
 
-    public NoiseFixture()
+    /// <param name="rnnoiseLatency">The fake RNNoise's delay in samples; 0 (the default) makes every delay readout fall back to the expected figure.</param>
+    public NoiseFixture(int rnnoiseLatency = 0)
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         var real = new DenoiseEngineCatalog();
@@ -129,7 +130,7 @@ internal sealed class NoiseFixture : IDisposable
             };
         }
         var rows = real.Entries.Where(e => e.Side == DenoiseSide.Radio).ToList();
-        rows.AddRange(new[] { Pc("nr2"), Pc("nr4"), Pc("spectral_capture"), Pc("rnnoise"), Pc("deepfilternet3"), Pc("nnr"), Pc("nvidia_afx") });
+        rows.AddRange(new[] { Pc("nr2"), Pc("nr4"), Pc("spectral_capture"), Pc("rnnoise", rnnoiseLatency), Pc("deepfilternet3"), Pc("nnr"), Pc("nvidia_afx") });
         Catalog = new DenoiseEngineCatalog(rows);
         Pipeline = new RxAudioPipeline(catalog: Catalog);
         Noise = new NoiseController(Catalog, () => RadioPresent ? Radio : null, () => Pipeline, () => Config,
