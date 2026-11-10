@@ -36,21 +36,19 @@ public partial class CheckYourAudioDialog
     {
         if (rig == null) return;
         var target = CheckRecorderTarget(rig);
-        var go = await RecorderControls.ConfirmOverwriteAsync(rig, target, owner: this);
-        if (!go.Proceed)
-        {
-            // Back up first did not finish (#1040): the backup door has said why,
-            // and this says the check did not start, once, queued behind it so
-            // it cuts nothing. Cancel and Escape stay silent (#999, C3); the
-            // outcome tells the two apart.
-            if (go.BackupUnfinished && !_closing && ReferenceEquals(rig, _rig))
-                // Written by Codex 2026-11-09 (#1040); Noel reviews the wording.
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.not_started_backup_unfinished"),
-                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
-                    subject: Radios.Speech.SpeechSubject.CheckNotStartedBackupUnfinished);
-            return;
-        }
-        if (_closing || !ReferenceEquals(rig, _rig)) return;
+        // Back up first that does not finish (#1040): the backup door says why
+        // and then that the check did not start, in ONE utterance. Queued
+        // behind the door's interrupting sentence, as round 1 had it, it was
+        // withdrawn unspoken on the 8600 bench, two of two: NVDA carries out
+        // the cancel for that interrupt after the call that asked for it has
+        // returned, so it is reported against the door's own sentence (which
+        // NVDA still speaks) and the speech queue then withdraws everything
+        // behind it as the operator's silence. Cancel and Escape stay silent
+        // (#999, C3): the door is never reached.
+        // Sentence written by Codex 2026-11-09 (#1040); Noel reviews the wording.
+        var go = await RecorderControls.ConfirmOverwriteAsync(rig, target, owner: this,
+            afterUnfinishedBackup: Lexicon.Get("audio.check.not_started_backup_unfinished"));
+        if (!go.Proceed || _closing || !ReferenceEquals(rig, _rig)) return;
         // Answered for this slice only: if the transmit slice moved meanwhile,
         // the next start asks about the slice it would really record over.
         _overwriteAnsweredForNextStart =

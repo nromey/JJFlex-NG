@@ -259,7 +259,12 @@ public static class RecorderControls
     /// neither opens a second warning nor answers this one.
     /// </remarks>
     /// <param name="owner">The window the warning opens over; the main window when null.</param>
-    public static async Task<OverwriteGo> ConfirmOverwriteAsync(FlexBase rig, SliceRecorderTarget target, System.Windows.Window? owner = null)
+    /// <param name="afterUnfinishedBackup">
+    /// Said when Back up first does not finish, at the end of the backup's own
+    /// sentence and in the same utterance (#1040). Only Check your audio passes one.
+    /// </param>
+    public static async Task<OverwriteGo> ConfirmOverwriteAsync(FlexBase rig, SliceRecorderTarget target, System.Windows.Window? owner = null,
+        string? afterUnfinishedBackup = null)
     {
         var facts = FactsFor(rig, target);
         var decision = SliceOverwriteGate.Decide(facts);
@@ -283,7 +288,7 @@ public static class RecorderControls
         var slice = SliceRecorderTarget.Letter(question.Letter[0]);
         if (reply.Answer == Dialogs.SliceOverwriteAnswer.BackUpFirst)
         {
-            var backup = BackUpOverride != null ? await BackUpOverride(rig, slice) : await SliceBackupDoor.BackUpAsync(rig, slice);
+            var backup = BackUpOverride != null ? await BackUpOverride(rig, slice) : await SliceBackupDoor.BackUpAsync(rig, slice, afterUnfinishedBackup);
             // A backup that did not finish leaves the recording unprotected, so
             // nothing records over it; the backup door has said why.
             if (backup?.BackedUp != true) return new(false, true, target) { BackupUnfinished = true };

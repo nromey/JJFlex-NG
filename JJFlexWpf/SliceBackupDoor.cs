@@ -27,24 +27,37 @@ public static class SliceBackupDoor
     /// never began (no radio, no computer audio); otherwise how it ended. Said
     /// aloud either way.
     /// </summary>
-    public static async Task<SliceBackupOutcome?> BackUpAsync(FlexBase? rig, SliceRecorderTarget target)
+    /// <param name="afterNotBackedUp">
+    /// A sentence the caller needs said when this does not end in a backup,
+    /// carried at the end of the door's own sentence, in the same utterance
+    /// (#1040). Spoken separately behind it, it was lost: the door's sentence
+    /// interrupts, and the screen reader's cancel for that interrupt is carried
+    /// out after the call that asked for it returns, so it is reported against
+    /// the interrupting sentence and the speech queue then withdraws what waits
+    /// behind it as if the operator had asked for quiet. Not carried by the
+    /// tune refusal, which is the tune door's own sentence.
+    /// </param>
+    public static async Task<SliceBackupOutcome?> BackUpAsync(FlexBase? rig, SliceRecorderTarget target,
+        string? afterNotBackedUp = null)
     {
+        void Refuse(string sentence) => Say(WithFollower(sentence, afterNotBackedUp), refusal: true);
+
         // PLACEHOLDER: Codex writes (#999). Every sentence below is an audio.takes.backup.* key.
         if (rig == null)
         {
-            Say(Lexicon.Get("audio.no_radio_connected"), refusal: true);
+            Refuse(Lexicon.Get("audio.no_radio_connected"));
             return null;
         }
         if (SliceRecordingBackup.Running != null)
         {
-            Say(Lexicon.Get("audio.takes.backup.busy"), refusal: true);
+            Refuse(Lexicon.Get("audio.takes.backup.busy"));
             return null;
         }
         // The capture reads the radio's audio on this computer, as a saved
         // playback does (Check your audio's needs_computer_audio).
         if (!rig.ReceiveAudioRunning || ComputerRecorder.Current is not ComputerFlacRecorder recorder)
         {
-            Say(Lexicon.Get("audio.takes.backup.needs_computer_audio"), refusal: true);
+            Refuse(Lexicon.Get("audio.takes.backup.needs_computer_audio"));
             return null;
         }
         if (TuneDoors.Up(rig))
@@ -63,12 +76,17 @@ public static class SliceBackupDoor
         catch (Exception ex)
         {
             JJTrace.Tracing.TraceLine("SliceBackupDoor: " + ex, System.Diagnostics.TraceLevel.Error);
-            Say(Lexicon.Get("audio.takes.backup.failed"), refusal: true);
+            Refuse(Lexicon.Get("audio.takes.backup.failed"));
             return null;
         }
-        Say(Sentence(outcome), refusal: !outcome.BackedUp);
+        if (outcome.BackedUp) Say(Sentence(outcome), refusal: false);
+        else Refuse(Sentence(outcome));
         return outcome;
     }
+
+    /// <summary>The door's sentence, then the caller's, as one utterance (#1040). No words of its own.</summary>
+    internal static string WithFollower(string sentence, string? follower) =>
+        string.IsNullOrEmpty(follower) ? sentence : sentence + " " + follower;
 
     /// <summary>What a backup's ending says.</summary>
     public static string Sentence(SliceBackupOutcome outcome)

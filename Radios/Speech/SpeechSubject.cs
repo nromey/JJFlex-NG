@@ -613,15 +613,6 @@ namespace Radios.Speech
         /// </summary>
         public const string CheckPlayRefused = "check-play-refused";
         /// <summary>
-        /// Check your audio did not start because Back up first, on the warning
-        /// before its Radio recording method records over a slice, did not
-        /// finish (#1040). Queued behind the backup's own ending, which is
-        /// <see cref="SliceRecordingBackup"/>'s and must not be retired by this:
-        /// hence a subject of its own. The next such start covers an unheard
-        /// earlier one.
-        /// </summary>
-        public const string CheckNotStartedBackupUnfinished = "check-not-started-backup-unfinished";
-        /// <summary>
         /// The radio still reports transmit after the app let go of its key
         /// (task 904): said once the radio has had its time to report receive,
         /// and again by a second Stop or Escape in Check your audio. One fact,

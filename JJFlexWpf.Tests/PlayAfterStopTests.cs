@@ -75,6 +75,7 @@ public sealed class PlayAfterStopTests : IDisposable
         RecorderControls.FactsOverride = null;
         RecorderControls.BackUpOverride = null;
         RecorderControls.AskOverride = null;
+        SliceBackupDoor.SpeakOverride = null;
         ScreenReaderOutput.CurrentVerbosity = _verbosityBefore;
         Field("_session").SetValue(_dialog, null);
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
@@ -312,20 +313,41 @@ public sealed class PlayAfterStopTests : IDisposable
     }
 
     /// <summary>
-    /// Back up first, and the backup could not finish (the harness's 0.1 s
-    /// recording): the check says it did not start, once, queued behind the
-    /// backup's own sentence so it cuts nothing.
+    /// Back up first that cannot finish, through the REAL backup door (no
+    /// override): an unconnected radio has no computer audio, so the door
+    /// refuses. The sentence that the check did not start rides at the end of
+    /// the door's own refusal, in one utterance, and nothing is queued behind
+    /// it. Round 1 queued it separately, and on the 8600 that follower was
+    /// withdrawn unspoken behind the interrupting backup sentence (#1040).
     /// </summary>
     [Fact]
-    public void A_backup_that_did_not_finish_says_the_check_did_not_start_once_and_queued()
+    public void A_backup_that_did_not_finish_says_the_check_did_not_start_inside_the_backups_own_sentence()
     {
         TheSliceHoldsARecording(SliceOverwriteAnswer.BackUpFirst, SliceBackupResult.Incomplete);
+        RecorderControls.BackUpOverride = null;                    // the real door
+        var door = new List<(string Text, bool Refusal)>();
+        SliceBackupDoor.SpeakOverride = (text, refusal) => door.Add((text, refusal));
         Listen();
         TheCheckAsks();
         var said = Said();
-        var line = Assert.Single(said, s => s.Text == NotStarted);
-        Assert.Equal("Queue", line.Intent);
-        Assert.Single(_asked);
+        Assert.Single(_asked);                                     // positive control: the warning was asked
+        var (text, refusal) = Assert.Single(door);                 // one utterance from the door
+        Assert.True(refusal);
+        Assert.Equal(Lexicon.Get("audio.takes.backup.needs_computer_audio") + " " + NotStarted, text);
+        Assert.DoesNotContain(NotStarted, said.Select(s => s.Text)); // and nothing queued behind it
+    }
+
+    /// <summary>The door carries a caller's sentence only on an ending that is not a backup, and adds no words of its own.</summary>
+    [Fact]
+    public void The_backup_door_carries_the_follower_on_its_refusal_and_nowhere_else()
+    {
+        var door = new List<(string Text, bool Refusal)>();
+        SliceBackupDoor.SpeakOverride = (text, refusal) => door.Add((text, refusal));
+        Assert.Null(SliceBackupDoor.BackUpAsync(null, SliceRecorderTarget.Letter('A'), "FOLLOWER").GetAwaiter().GetResult());
+        Assert.Null(SliceBackupDoor.BackUpAsync(null, SliceRecorderTarget.Letter('A')).GetAwaiter().GetResult());
+        Assert.Equal(new[] { Lexicon.Get("audio.no_radio_connected") + " FOLLOWER", Lexicon.Get("audio.no_radio_connected") },
+            door.Select(d => d.Text));
+        Assert.Equal("Done.", SliceBackupDoor.WithFollower("Done.", null));
     }
 
     /// <summary>Cancel or Escape on the warning stays silent (#999, ruled C3).</summary>
@@ -333,12 +355,16 @@ public sealed class PlayAfterStopTests : IDisposable
     public void Cancel_on_the_warning_says_nothing()
     {
         TheSliceHoldsARecording(SliceOverwriteAnswer.Cancel, SliceBackupResult.Incomplete);
+        RecorderControls.BackUpOverride = null;                    // the real door, which Cancel never reaches
+        var door = new List<(string Text, bool Refusal)>();
+        SliceBackupDoor.SpeakOverride = (text, refusal) => door.Add((text, refusal));
         Listen();
         ScreenReaderOutput.Speak("marker", VerbosityLevel.Terse);
         TheCheckAsks();
         var said = Said();
         Assert.Single(_asked);                                     // positive control: the warning was asked
         Assert.Equal(new[] { "marker" }, said.Select(s => s.Text));  // and only the marker was said
+        Assert.Empty(door);
     }
 
     // ── the transcript ──
