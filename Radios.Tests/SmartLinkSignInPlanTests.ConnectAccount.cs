@@ -61,6 +61,9 @@ namespace Radios.Tests
                 // Cold start first: no list has arrived, so the plan signs in
                 // as the saved last-seen account and both answers agree.
                 Assert.Equal(Owner, FlexBase.RadioListAccountFor(Radio6300, saved));
+                // ...and it is the plan's own account, not a remembered one.
+                FlexBase.RadioListAccountFor(Radio6300, out bool coldRuledOut, saved);
+                Assert.False(coldRuledOut);
 
                 Listed(Operator);                 // both saved accounts answer...
                 Listed(Owner);                    // ...and neither lists the radio
@@ -70,13 +73,23 @@ namespace Radios.Tests
                 Assert.Equal(Operator, FlexBase.AccountThatWillBroker(Radio6300, Operator, saved));
 
                 Assert.Equal(Owner, FlexBase.RadioListAccountFor(Radio6300, saved)); // the identity, kept
+
+                // #405 repair two (Codex, 2026-11-10): and the list is told the
+                // account is only remembered, so it does not word it as a
+                // current registration.
+                Assert.Equal(Owner, FlexBase.RadioListAccountFor(Radio6300, out bool ruledOut, saved));
+                Assert.True(ruledOut);
             }
             finally { Record("", ""); }
 
             // Control: when neither recorded account is saved, the same
             // all-answered state names nothing, and the row keeps its refusal.
             Record(ChosenNotSaved, "seen-elsewhere@example.com");
-            try { Assert.Equal("", FlexBase.RadioListAccountFor(Radio6300, saved)); }
+            try
+            {
+                Assert.Equal("", FlexBase.RadioListAccountFor(Radio6300, out bool noneRuledOut, saved));
+                Assert.False(noneRuledOut);   // nothing named, so nothing remembered
+            }
             finally { Record("", ""); }
         }
 

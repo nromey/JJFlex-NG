@@ -103,13 +103,61 @@ public sealed class RadioListItemTextTests
         string src = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "Dialogs", "RigSelectorDialog.xaml.cs"))
             .Replace("\r\n", "\n");
         int paint = src.IndexOf("private void PaintRoster(", System.StringComparison.Ordinal);
-        int ask = src.IndexOf("connectBySerial[k.Serial] = Radios.FlexBase.RadioListAccountFor(k.Serial);", paint, System.StringComparison.Ordinal);
+        int ask = src.IndexOf("connectBySerial[k.Serial] = Radios.FlexBase.RadioListAccountFor(k.Serial, out bool ruledOut);", paint, System.StringComparison.Ordinal);
         int theLock = src.IndexOf("lock (_radiosLock)", paint, System.StringComparison.Ordinal);
         Assert.True(paint > 0 && ask > paint && theLock > ask, "RadioListAccountFor must be asked before the list lock");
         Assert.Contains("RadioListItem.AccountInPlay(connect, k.PreferredAccount, k.LastSeenViaAccount), accountEmail);", src, System.StringComparison.Ordinal);
-        Assert.Contains("radio.ConnectAccount = Radios.FlexBase.RadioListAccountFor(radio.Serial);", src, System.StringComparison.Ordinal);
+        Assert.Contains("radio.ConnectAccount = Radios.FlexBase.RadioListAccountFor(radio.Serial, out bool ruledOut);", src, System.StringComparison.Ordinal);
+        // #405 repair two: the remembered-account state is stamped beside the
+        // account, in the paint (new and existing rows) and at a changed choice.
+        Assert.Contains("existing.EverySavedListRuledItOut = ruledOutEverywhere;", src, System.StringComparison.Ordinal);
+        Assert.Contains("EverySavedListRuledItOut = ruledOutEverywhere,", src, System.StringComparison.Ordinal);
+        Assert.Contains("radio.EverySavedListRuledItOut = ruledOut;", src, System.StringComparison.Ordinal);
         Assert.DoesNotContain("FlexBase.ConnectAccountFor(", src, System.StringComparison.Ordinal);
         Assert.Contains("GetAccountByEmail(radio.BoundAccount)", src, System.StringComparison.Ordinal);
+    }
+
+    // ---- #405 repair two (Codex, 2026-11-10): no registration claim from history ----
+
+    /// <summary>
+    /// The remembered-account wording follows the state, and only the state:
+    /// the same row with <see cref="RadioListItem.EverySavedListRuledItOut"/>
+    /// false keeps "registered to" (the control that the branch is the one
+    /// deciding), and a CHOSEN saved account keeps "preferred account", which
+    /// claims only the choice, so Enter keeps its usual sentence there.
+    /// </summary>
+    [Fact]
+    public void Only_a_remembered_account_is_worded_as_last_known_and_a_chosen_one_keeps_its_words()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Lexicon.Load(Lexicon.Partitions);
+        var row = new RadioListItem
+        {
+            Serial = "0000-0000-6300-0406", Name = "Shack", ModelName = "FLEX-6300",
+            PreferredAccount = Chosen, LastSeenViaAccount = LastSeen, ConnectAccount = LastSeen,
+            EverySavedListRuledItOut = true, DiscoverySettled = true,
+        };
+        row.ForeignAccount = RadioListItem.BoundElsewhere(row.BoundAccount, Selector);
+        Assert.True(row.NamedFromHistoryOnly);
+        Assert.Equal(Lexicon.Get("connect.row.offline_last_known_for",
+            ("lastSeenViaAccount", LastSeen), ("age", ""), ("refreshing", "")), row.WhereText);
+
+        row.EverySavedListRuledItOut = false;            // control: another state
+        Assert.False(row.NamedFromHistoryOnly);
+        Assert.Equal(Lexicon.Get("connect.row.offline_registered_to",
+            ("lastSeenViaAccount", LastSeen), ("age", "")), row.WhereText);
+
+        // A chosen account that IS saved, in the same all-answered state.
+        var chosen = new RadioListItem
+        {
+            Serial = "0000-0000-6300-0407", Name = "Shack", ModelName = "FLEX-6300",
+            PreferredAccount = LastSeen, LastSeenViaAccount = "", ConnectAccount = LastSeen,
+            EverySavedListRuledItOut = true, DiscoverySettled = true,
+        };
+        chosen.ForeignAccount = RadioListItem.BoundElsewhere(chosen.BoundAccount, Selector);
+        Assert.False(chosen.NamedFromHistoryOnly);
+        Assert.Equal(Lexicon.Get("connect.row.offline_preferred_account",
+            ("preferredAccount", LastSeen), ("age", "")), chosen.WhereText);
     }
 
     // ---- #405 repair one (Codex B1): every saved list answered, the radio absent ----
@@ -170,14 +218,17 @@ public sealed class RadioListItemTextTests
         {
             // The planner's verdict: no saved account lists it; the connect uses none.
             Assert.Equal("", FlexBase.ConnectAccountFor(serial));
-            // The answer the roster paint stamps: the saved last-seen account.
-            string account = FlexBase.RadioListAccountFor(serial);
+            // The answer the roster paint stamps: the saved last-seen account,
+            // and that it is only remembered (#405 repair two).
+            string account = FlexBase.RadioListAccountFor(serial, out bool ruledOut);
             Assert.Equal(LastSeen, account);
+            Assert.True(ruledOut);
 
             var row = new RadioListItem
             {
                 Serial = serial, Name = name, ModelName = "FLEX-6300",
                 PreferredAccount = Chosen, LastSeenViaAccount = LastSeen, ConnectAccount = account,
+                EverySavedListRuledItOut = ruledOut,
                 DiscoverySettled = true,
             };
             row.ForeignAccount = RadioListItem.BoundElsewhere(
@@ -185,6 +236,13 @@ public sealed class RadioListItemTextTests
             Assert.True(row.ForeignAccount);
             Assert.Equal(LastSeen, row.BoundAccount);
             Assert.DoesNotContain(Chosen, row.DisplayText);
+
+            // #405 repair two (Codex, 2026-11-10): the row names the account
+            // as where the radio was last known, never "registered to" it.
+            Assert.True(row.NamedFromHistoryOnly);
+            Assert.Equal(Lexicon.Get("connect.row.offline_last_known_for",
+                ("lastSeenViaAccount", LastSeen), ("age", ""), ("refreshing", "")), row.WhereText);
+            Assert.DoesNotContain("registered to", row.DisplayText);
 
             // Enter.
             var said = new System.Collections.Generic.List<string>();
@@ -213,7 +271,9 @@ public sealed class RadioListItemTextTests
             Assert.IsType<StoppedAtTheSwitch>(thrown.InnerException);
 
             Assert.Equal(LastSeen, switchedTo);
-            Assert.Equal(new[] { Lexicon.Get("connect.selector.switching_account", ("radioName", name), ("email", LastSeen)) }, said);
+            // Enter says the radio was last seen under it, not that it "uses" it.
+            Assert.Equal(new[] { Lexicon.Get("connect.selector.switching_to_last_seen_account", ("radioName", name), ("email", LastSeen)) }, said);
+            Assert.DoesNotContain(" uses account ", said[0]);
         }
         finally
         {

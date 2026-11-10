@@ -2704,27 +2704,55 @@ namespace Radios
         /// </remarks>
         /// <param name="savedAccounts">The saved accounts; null reads the account manager.</param>
         public static string RadioListAccountFor(string serial, IEnumerable<string> savedAccounts = null)
+            => RadioListAccountFor(serial, out _, savedAccounts);
+
+        /// <summary>
+        /// <see cref="RadioListAccountFor(string, IEnumerable{string})"/>, also
+        /// saying whether the account was named only because every saved
+        /// account's list has answered WITHOUT the radio
+        /// (<paramref name="everySavedListRuledItOut"/>). Then the account is
+        /// a remembered one, not a current registration, and the radio list
+        /// must not word it as one.
+        /// </summary>
+        /// <remarks>
+        /// #405 repair two (Codex, 2026-11-10): in that state the row said
+        /// "registered to" the saved last-seen account and Enter said the radio
+        /// "uses" it, though no current list had it (a radio transferred away
+        /// since that sighting is the falsifier). The state is the plan's own
+        /// verdict, read once, here, from the same picture as the account.
+        /// </remarks>
+        public static string RadioListAccountFor(string serial, out bool everySavedListRuledItOut,
+            IEnumerable<string> savedAccounts = null)
         {
+            everySavedListRuledItOut = false;
             if (string.IsNullOrWhiteSpace(serial)) return "";
             try
             {
                 var saved = savedAccounts ?? AccountManager.Accounts.Where(a => a != null).Select(a => a.Email);
-                return RadioListAccount(TakeAccountPictureFor(serial, saved: saved));
+                return RadioListAccount(TakeAccountPictureFor(serial, saved: saved), out everySavedListRuledItOut);
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"RadioListAccountFor({serial}): {ex.Message}", TraceLevel.Warning);
+                everySavedListRuledItOut = false;
                 return "";
             }
         }
 
-        /// <summary>The rule behind <see cref="RadioListAccountFor"/>, from one picture. Pure.</summary>
-        internal static string RadioListAccount(AccountPicture picture)
+        /// <summary>The rule behind <see cref="RadioListAccountFor(string, out bool, IEnumerable{string})"/>,
+        /// from one picture. Pure. The flag is true only when the plan says no
+        /// saved account lists the radio AND a saved account is named.</summary>
+        internal static string RadioListAccount(AccountPicture picture, out bool everySavedListRuledItOut)
         {
             var plan = PlanSmartLinkSignIn(picture);
-            return plan.Kind == SmartLinkSignInPlanKind.NotListedByAnySavedAccount
-                ? picture.FirstSaved(picture.Preferred, picture.LastSeen)
-                : RadiosOwnAccount(plan);
+            if (plan.Kind == SmartLinkSignInPlanKind.NotListedByAnySavedAccount)
+            {
+                var remembered = picture.FirstSaved(picture.Preferred, picture.LastSeen);
+                everySavedListRuledItOut = !string.IsNullOrEmpty(remembered);
+                return remembered;
+            }
+            everySavedListRuledItOut = false;
+            return RadiosOwnAccount(plan);
         }
 
         /// <summary>

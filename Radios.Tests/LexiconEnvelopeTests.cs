@@ -1209,6 +1209,11 @@ namespace Radios.Tests
                 "settings.profile.rename_held",
                 "settings.profile.saved_rem_on_held",
                 "settings.restore_export.saved_no_walk",
+                // Junk box 2026-11-09, fourth batch, repair two: Enter on a
+                // radio list row whose account is only the one the radio was
+                // last seen under (every saved list answered without it).
+                // Said only in answer to Enter: TextOnly. DRAFT PROSE.
+                "connect.selector.switching_to_last_seen_account",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
