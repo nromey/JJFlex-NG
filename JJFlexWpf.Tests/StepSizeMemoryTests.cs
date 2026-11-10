@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace JJFlexWpf.Tests;
@@ -33,7 +35,8 @@ public sealed class StepSizeMemoryTests
         (r, c, f) => { var rec = (Record)r; rec.Coarse = c; rec.Fine = f; },
         r => _written.Add((r, ((Record)r).Coarse, ((Record)r).Fine)),
         () => _armed++,
-        () => _disarmed++);
+        () => _disarmed++,
+        r => (((Record)r).Coarse, ((Record)r).Fine));
 
     [Fact]
     public void A_key_repeat_walk_writes_the_record_once_with_where_it_landed()
@@ -135,6 +138,103 @@ public sealed class StepSizeMemoryTests
         Assert.Contains("Operators.ops.Contains(op) Then", app, StringComparison.Ordinal);
         int shutdown = app.IndexOf("Private Sub MyApplication_Shutdown(", StringComparison.Ordinal);
         Assert.True(app.IndexOf("_stepMemory?.Flush()", shutdown, StringComparison.Ordinal) > shutdown);
+    }
+
+    // ---- #346 repair one ----
+
+    /// <summary>
+    /// Codex B1: with no radio there are no FreqOutHandlers (they are built at
+    /// power-on), so Settings showed 1000 Hz and 10 Hz, saved nothing, and the
+    /// next connect loaded the old steps. Now Settings shows the operator's
+    /// saved steps and keeps a change on the operator's record (in memory at
+    /// once, written once after the quiet), which is what the connect loads.
+    /// Driven through the window's own two methods, on a window made with no
+    /// constructor (no element exists), with no handlers, which is the
+    /// no-radio state.
+    /// </summary>
+    [Fact]
+    public void With_no_radio_Settings_shows_the_operators_steps_and_keeps_a_change_on_the_record()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var window = (MainWindow)RuntimeHelpers.GetUninitializedObject(typeof(MainWindow));
+        Assert.Null(window.FreqHandlers);                        // the no-radio state
+        var record = (Record)_current!;
+        record.Coarse = 2500; record.Fine = 50;                  // what an earlier session saved
+        window.StepMemory = Memory();
+
+        Assert.Equal((2500, 50), window.StepSizesForSettings());
+
+        window.ApplyStepSizesFromSettings(10000, 25);            // Settings, OK
+        Assert.Equal((10000, 25), (record.Coarse, record.Fine)); // the record the connect loads
+        Assert.Equal((10000, 25), window.StepSizesForSettings()); // reopened: what was chosen
+        Assert.Empty(_written);
+        Assert.True(window.StepMemory.Pending);
+        window.StepMemory.Flush();                               // the quiet, or close
+        Assert.Equal(new[] { ((object)record, 10000, 25) }, _written);
+
+        window.ApplyStepSizesFromSettings(0, 100);               // a step that is not positive keeps its value
+        Assert.Equal((10000, 100), (record.Coarse, record.Fine));
+    }
+
+    [Fact]
+    public void With_no_radio_and_no_operator_Settings_shows_the_old_fallback_and_keeps_nothing()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var window = (MainWindow)RuntimeHelpers.GetUninitializedObject(typeof(MainWindow));
+        _current = null;
+        window.StepMemory = Memory();
+        Assert.Equal((MainWindow.SettingsFallbackCoarseStep, MainWindow.SettingsFallbackFineStep), window.StepSizesForSettings());
+        window.ApplyStepSizesFromSettings(2500, 50);
+        Assert.False(window.StepMemory.Pending);
+        Assert.Equal(0, _armed);
+    }
+
+    /// <summary>
+    /// Codex N1: the host sets the wire callback after InitializeApplication,
+    /// which starts the first connect, so the handlers can be created first
+    /// (the radio's power-on reaching the UI thread) and were then never wired.
+    /// That state, a window holding handlers and no callback yet, is made
+    /// directly; setting the callback then wires them, once. Set first, it
+    /// does nothing until the handlers exist, which EnsureFreqOutHandlers
+    /// still does at creation (pinned from source).
+    /// </summary>
+    [Fact]
+    public void The_handlers_are_wired_once_whichever_comes_first()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var handlers = (FreqOutHandlers)RuntimeHelpers.GetUninitializedObject(typeof(FreqOutHandlers));
+        var field = typeof(MainWindow).GetField("_freqOutHandlers", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        // Handlers first (the race), then the callback.
+        var late = (MainWindow)RuntimeHelpers.GetUninitializedObject(typeof(MainWindow));
+        field.SetValue(late, handlers);
+        var wired = new List<FreqOutHandlers>();
+        late.FreqOutHandlersWireCallback = h => wired.Add(h);
+        Assert.Equal(new[] { handlers }, wired);
+
+        // Callback first: nothing to wire yet.
+        var early = (MainWindow)RuntimeHelpers.GetUninitializedObject(typeof(MainWindow));
+        var none = new List<FreqOutHandlers>();
+        early.FreqOutHandlersWireCallback = h => none.Add(h);
+        Assert.Empty(none);
+
+        string window = Read("JJFlexWpf", "MainWindow.xaml.cs");
+        int ensure = window.IndexOf("private void EnsureFreqOutHandlers()", StringComparison.Ordinal);
+        int create = window.IndexOf("_freqOutHandlers = new FreqOutHandlers(this);", ensure, StringComparison.Ordinal);
+        int invoke = window.IndexOf("FreqOutHandlersWireCallback?.Invoke(_freqOutHandlers);", ensure, StringComparison.Ordinal);
+        Assert.True(ensure > 0 && create > ensure && invoke > create, "creation no longer wires the handlers");
+
+        // The order the host really uses: the memory before the first connect,
+        // the callback after it (which is why the replay above is needed).
+        string app = Read("ApplicationEvents.vb");
+        int memory = app.IndexOf("WpfMainWindow.StepMemory = _stepMemory", StringComparison.Ordinal);
+        int init = app.IndexOf("            InitializeApplication()", StringComparison.Ordinal);
+        int callback = app.IndexOf("WpfMainWindow.FreqOutHandlersWireCallback = Sub(handlers)", StringComparison.Ordinal);
+        Assert.True(memory > 0 && init > memory && callback > init);
+
+        string menu = Read("JJFlexWpf", "NativeMenuBar.cs");
+        Assert.Contains("var (coarseStep, fineStep) = _window.StepSizesForSettings();", menu, StringComparison.Ordinal);
+        Assert.Contains("ApplyStepSizesFromSettings(coarseStep, fineStep);", window, StringComparison.Ordinal);
     }
 
     private static string Read(params string[] parts)

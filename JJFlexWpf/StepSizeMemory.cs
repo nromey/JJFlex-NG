@@ -43,6 +43,7 @@ public sealed class StepSizeMemory
     private readonly Func<object?> _currentOperator;
     private readonly Action<object, int, int> _remember;
     private readonly Action<object> _write;
+    private readonly Func<object, (int Coarse, int Fine)>? _read;
     private readonly Action _arm;
     private readonly Action _disarm;
 
@@ -51,11 +52,14 @@ public sealed class StepSizeMemory
     /// <param name="currentOperator">The operator record in use now; null when none.</param>
     /// <param name="remember">Puts the two steps on a record, in memory only.</param>
     /// <param name="write">Writes a record to its own file.</param>
-    public StepSizeMemory(Func<object?> currentOperator, Action<object, int, int> remember, Action<object> write)
+    /// <param name="read">Reads the two steps a record holds.</param>
+    public StepSizeMemory(Func<object?> currentOperator, Action<object, int, int> remember, Action<object> write,
+        Func<object, (int Coarse, int Fine)> read)
     {
         _currentOperator = currentOperator ?? throw new ArgumentNullException(nameof(currentOperator));
         _remember = remember ?? throw new ArgumentNullException(nameof(remember));
         _write = write ?? throw new ArgumentNullException(nameof(write));
+        _read = read ?? throw new ArgumentNullException(nameof(read));
         var timer = new DispatcherTimer { Interval = Quiet };
         timer.Tick += (_, _) => Flush();
         _arm = () => { timer.Stop(); timer.Start(); };
@@ -64,13 +68,31 @@ public sealed class StepSizeMemory
 
     /// <summary>For tests: the timer stood in for, so nothing needs a dispatcher.</summary>
     internal StepSizeMemory(Func<object?> currentOperator, Action<object, int, int> remember, Action<object> write,
-        Action arm, Action disarm)
+        Action arm, Action disarm, Func<object, (int Coarse, int Fine)>? read = null)
     {
         _currentOperator = currentOperator;
         _remember = remember;
         _write = write;
         _arm = arm;
         _disarm = disarm;
+        _read = read;
+    }
+
+    /// <summary>
+    /// The steps the current operator's record holds now, null when there is
+    /// no operator. Includes a step noted a moment ago and not yet written:
+    /// the record changes at once.
+    /// </summary>
+    /// <remarks>
+    /// #346 repair one (Codex B1): with no radio connected there is no
+    /// <see cref="FreqOutHandlers"/> (it is built at power-on), so Settings
+    /// shows, and the next connect loads, what the record holds.
+    /// </remarks>
+    public (int Coarse, int Fine)? CurrentSteps()
+    {
+        object? record = _currentOperator();
+        if (record == null || _read == null) return null;
+        return _read(record);
     }
 
     /// <summary>True while a write is waiting for the steps to stay still.</summary>

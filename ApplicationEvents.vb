@@ -33,7 +33,8 @@ Namespace My
         Friend Shared FactIssuer As Radios.Facts.FactAuthorityRegistry
 
         ''' <summary>
-        ''' The operator's last tuning steps, kept (#346 J2): wired to
+        ''' The operator's last tuning steps, kept (#346 J2): made at startup and
+        ''' handed to the window (Settings with no radio), wired to
         ''' FreqOutHandlers.SaveStepSizes in FreqOutHandlersWireCallback, flushed
         ''' at an operator switch and at shutdown.
         ''' </summary>
@@ -302,6 +303,36 @@ Namespace My
                 Operators.UpdateCurrentOp()
             End Sub
 
+            ' #346 J2: the operator's last tuning steps. Made HERE, before
+            ' InitializeApplication starts the first connect, so the steps are
+            ' kept with or without a radio (#346 repair one, Codex B1: with no
+            ' radio there are no FreqOutHandlers, so Settings reads and writes
+            ' the steps on the operator's record through the window, and the
+            ' next connect loads them). Debounced on the UI thread: the record
+            ' in memory changes at once, its file a moment after the steps stop
+            ' changing, so a key-repeat walk does not write the operator record
+            ' on every repeat. The record is captured when the step changes,
+            ' and a record an Operators dialog edit has since replaced is not
+            ' written (that edit already saved the steps, through the copy).
+            _stepMemory = New JJFlexWpf.StepSizeMemory(
+                Function() CurrentOp,
+                Sub(record, coarse, fine)
+                    Dim op = DirectCast(record, PersonalData.personal_v1)
+                    op.CoarseTuneStep = coarse
+                    op.FineTuneStep = fine
+                End Sub,
+                Sub(record)
+                    Dim op = DirectCast(record, PersonalData.personal_v1)
+                    If Operators IsNot Nothing AndAlso Operators.ops IsNot Nothing AndAlso Operators.ops.Contains(op) Then
+                        Operators.Write(op)
+                    End If
+                End Sub,
+                Function(record)
+                    Dim op = DirectCast(record, PersonalData.personal_v1)
+                    Return (op.CoarseTuneStep, op.FineTuneStep)
+                End Function)
+            WpfMainWindow.StepMemory = _stepMemory
+
             ' Run VB-side initialization (moved from Form1_Load).
             ' Note: MigrateConfigFiles runs inside InitializeApplication before openTheRadio
             ' so auto-connect can find renamed config files.
@@ -516,25 +547,7 @@ Namespace My
                 If CurrentOp IsNot Nothing Then
                     handlers.ApplyStepSizes(CurrentOp.CoarseTuneStep, CurrentOp.FineTuneStep, speak:=False)
                 End If
-                ' Debounced on the UI thread: the record in memory changes at
-                ' once, its file a moment after the steps stop changing, so a
-                ' key-repeat walk does not write the operator record on every
-                ' repeat. The record is captured when the step changes, and a
-                ' record an Operators dialog edit has since replaced is not
-                ' written (that edit already saved the steps, through the copy).
-                _stepMemory = New JJFlexWpf.StepSizeMemory(
-                    Function() CurrentOp,
-                    Sub(record, coarse, fine)
-                        Dim op = DirectCast(record, PersonalData.personal_v1)
-                        op.CoarseTuneStep = coarse
-                        op.FineTuneStep = fine
-                    End Sub,
-                    Sub(record)
-                        Dim op = DirectCast(record, PersonalData.personal_v1)
-                        If Operators IsNot Nothing AndAlso Operators.ops IsNot Nothing AndAlso Operators.ops.Contains(op) Then
-                            Operators.Write(op)
-                        End If
-                    End Sub)
+                ' The memory made at startup, above InitializeApplication.
                 handlers.SaveStepSizes = AddressOf _stepMemory.Note
 
                 ' An operator switch (or an edit) writes the pending step to its

@@ -3897,8 +3897,9 @@ public class NativeMenuBar : IDisposable
     {
         var pttConfig = _window.CurrentPttConfig ?? new PttConfig();
         var handlers = _window.FreqHandlers;
-        int coarseStep = handlers?.CoarseTuneStep ?? 1000;
-        int fineStep = handlers?.FineTuneStep ?? 10;
+        // The handlers' steps with a radio, the operator's saved steps without
+        // (#346 repair one): what the next connect will use.
+        var (coarseStep, fineStep) = _window.StepSizesForSettings();
         var licenseConfig = handlers?.License;
 
         // User-scope config lives at BaseConfigDir (root). The FreqHandlers
