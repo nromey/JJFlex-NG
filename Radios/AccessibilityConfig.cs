@@ -105,16 +105,42 @@ namespace Radios
         /// negation.
         /// </summary>
         /// <remarks>
-        /// A property rather than a conditional at each key handler, because
-        /// there are two Up/Down slice sites in the app — the Slice field and
-        /// the Slice Operations field — and a setting honoured by one of them
-        /// is worse than no setting at all: it would be lying about what it
-        /// controls. Derived, so it is never serialised and can never disagree
-        /// with <see cref="SliceArrowOrder"/>.
+        /// Read by the Slice field's Up and Down while they switch slices
+        /// (<see cref="SliceFieldArrowsTune"/> unchecked). The Slice operations
+        /// field never read it: its arrows were the slice's volume before the
+        /// 2026-11-09 batch and tune or change volume now, and never walked
+        /// the slice list. Derived, so it is never serialised and can never
+        /// disagree with <see cref="SliceArrowOrder"/>.
         /// </remarks>
         [XmlIgnore]
         public int SliceStepForDownArrow =>
             SliceArrowOrder == SliceArrowOrder.TopToBottom ? 1 : -1;
+
+        /// <summary>
+        /// Whether plain Up and Down on Home's Slice field tune by the coarse
+        /// step. Default <c>false</c>: they switch slices, in the direction
+        /// <see cref="SliceArrowOrder"/> gives (#517, ruled by Noel 2026-11-09
+        /// 20:50 and 21:01).
+        /// </summary>
+        /// <remarks>
+        /// The default lives HERE and nowhere else (Noel, 2026-11-09 20:59:
+        /// flipping it later must stay a one-place change). A missing element
+        /// in an older config file leaves this at the initialiser. Ctrl and
+        /// Shift with the arrows tune from the field either way.
+        /// </remarks>
+        public bool SliceFieldArrowsTune { get; set; } = false;
+
+        /// <summary>
+        /// Whether plain Up and Down on Home's Slice operations field tune by
+        /// the coarse step. Default <c>true</c>: they tune; unchecked they
+        /// change the slice's volume, as before the 2026-11-09 batch (#517,
+        /// ruled by Noel 2026-11-09 20:50 and 21:01).
+        /// </summary>
+        /// <remarks>
+        /// The default lives HERE and nowhere else, as above. Page Up and Page
+        /// Down pan on the field whatever this says.
+        /// </remarks>
+        public bool SliceOpsFieldArrowsTune { get; set; } = true;
 
         /// <summary>
         /// Whether the #529 focus watchdog may take the keyboard back when

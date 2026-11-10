@@ -1984,7 +1984,21 @@
                               AutomationProperties.Name="Slice list">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Which way the up and down arrows walk the slice letters, on the Slice field and the Slice Operations field. This does not change what any key is bound to — only which slice each arrow reaches."/>
+                                       Text="What the up and down arrows do on the Slice field and the Slice operations field, and which way they walk the slice letters on the Slice field while they switch slices there."/>
+
+                            <!-- #517, ruled by Noel 2026-11-09 21:01: one box per
+                                 field. Labels DRAFT for Codex. Unchecked, the
+                                 Slice field's arrows switch slices in the
+                                 direction below; the Slice operations field's
+                                 change the slice's volume. -->
+                            <CheckBox x:Name="SliceFieldArrowsTuneCheckbox" Margin="0,0,0,4"
+                                      AutomationProperties.Name="Arrows tune on the Slice field">
+                                <TextBlock Text="Arrows tune on the Slice field" TextWrapping="Wrap"/>
+                            </CheckBox>
+                            <CheckBox x:Name="SliceOpsFieldArrowsTuneCheckbox" Margin="0,0,0,8"
+                                      AutomationProperties.Name="Arrows tune on the Slice operations field">
+                                <TextBlock Text="Arrows tune on the Slice operations field" TextWrapping="Wrap"/>
+                            </CheckBox>
 
                             <GroupBox Header="Slice arrow direction" Margin="0,0,0,8"
                                       AutomationProperties.Name="Slice arrow direction">

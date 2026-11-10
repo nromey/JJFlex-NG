@@ -549,6 +549,9 @@ namespace JJFlexWpf.Dialogs
                     SliceOrderBottomToTopRadio.IsChecked = true;
                 else
                     SliceOrderTopToBottomRadio.IsChecked = true;
+                // #517 (2026-11-09 21:01): what the two slice fields' arrows do.
+                SliceFieldArrowsTuneCheckbox.IsChecked = AccessibilityConfig.Current.SliceFieldArrowsTune;
+                SliceOpsFieldArrowsTuneCheckbox.IsChecked = AccessibilityConfig.Current.SliceOpsFieldArrowsTune;
 
                 // Sprint 45 Track D2 — the focus watchdog's off switch, same
                 // tab, same config file, same suppression window.
@@ -1624,6 +1627,10 @@ namespace JJFlexWpf.Dialogs
             // Sprint 43 Track E (#318). Committed alongside the tolerance so
             // the whole Accessibility tab saves or does not save together.
             AccessibilityConfig.Current.SliceArrowOrder = GetSelectedSliceArrowOrder();
+            // #517: the two slice fields' arrows, same file, same commit. Never
+            // three-state, so IsChecked is never null here.
+            AccessibilityConfig.Current.SliceFieldArrowsTune = SliceFieldArrowsTuneCheckbox.IsChecked == true;
+            AccessibilityConfig.Current.SliceOpsFieldArrowsTune = SliceOpsFieldArrowsTuneCheckbox.IsChecked == true;
             // Sprint 45 Track D2 — the focus watchdog's off switch. Committed
             // here rather than applied on the Checked event: JJFlexDialog reads
             // AccessibilityConfig.Current on every tick, so a live-applied
