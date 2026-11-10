@@ -1,6 +1,10 @@
 ---
 keywords:
   - audio workshop
+  - check your audio
+  - callsign
+  - another station transmitting
+  - disconnect
 ---
 
 # Audio Workshop
@@ -96,9 +100,13 @@ Mic gain, mic boost, mic bias, the compander and its level, the speech processor
 
 Check your audio is every way of checking how you sound, in one window. Open it with `Ctrl+J`, then `Alt+C`, from anywhere; from the Audio menu; with the **Check your audio** button in the Audio Workshop (or `Alt+C` there); or with the **Check your audio** button in Home's Audio and Slice group, right after your microphone's verdict. Opening it never keys the radio. Focus lands on the method, `Shift+Tab` from there reaches **Start Audio Check**, and `Ctrl+Enter` starts or stops a check from anywhere in the window. `F6` and `Shift+F6` move between its sections.
 
+The Check your audio tool follows the current radio connection, even when opened from a Play takes window left open during a reconnect. Disconnecting makes the tool's radio controls unavailable without needing to reopen the window. Reconnecting makes those controls available for the current radio.
+
 The **Close** button at the end of the window closes it the way its title bar does, which stops a running check and puts back what it changed.
 
 Every check except the first keys the radio through the same safety system as ordinary transmit: the timeout warnings, the license check, and the hard kill all stay on duty. When a check that keys starts, focus moves to your gain, and the live reading is the very next `Tab`.
+
+The **Start Audio Check** button requires an operator callsign for every method that keys the radio, including the Test your microphone audio check method at zero power. Enter the callsign under **Operators** in the **Radio** menu. A missing callsign or another station transmitting makes the Check your audio tool say why the check cannot start before any countdown or question about replacing a recording. The computer microphone audio check method, **Is Windows hearing my microphone? No radio involved**, needs neither an operator callsign nor an idle transmitter.
 
 ### The countdown before it keys
 
@@ -225,3 +233,8 @@ The moment-to-moment listening levels have three homes, none of them here: the A
 
 
 The Record and play back Audio Check records the transmit slice even when a different slice is active. For local playback, JJ Flexible pauses VOX or CW break-in and restores it after the take. The slice Play control shows the recording length when known; pressing it during an existing transmission sends that recording through the transmit slice until you unkey. Play never keys the radio itself.
+
+## Related Topics
+
+- [Audio Presets](AudioPresets.md)
+- [Settings and Profiles](Settings.md)

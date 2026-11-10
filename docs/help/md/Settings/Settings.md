@@ -1,6 +1,9 @@
 ---
 keywords:
   - settings
+  - radio setup
+  - profiles
+  - ask me at the next connect
 ---
 
 # Settings and Profiles
@@ -10,6 +13,8 @@ JJ Flexible Radio Access has a Settings dialog that lets you customise the appli
 ## Opening the Settings Dialog
 
 Open the **Tools** menu and choose **Settings**. The dialog opens on a list of its categories — PTT, Tuning, License, Audio, Network and the rest — with whichever category you pick filling the rest of the window. Arrow through the list to move between them, or press **Ctrl+Tab** and **Ctrl+Shift+Tab** from anywhere in the dialog, which works even while you are sitting in a text box. Tab moves from the list into that category's own settings and never changes category by itself. There is more on this on the Keyboard Reference page, under "Moving between categories".
+
+Status and result lines in Settings give a screen reader the message itself, such as a firmware status or a diagnostic log result. An empty line uses its label until a message is available. Use the screen reader's review commands to read lines that are not Tab stops.
 
 ## OK, Apply, and Cancel
 
@@ -31,7 +36,7 @@ Some settings describe a radio that is not connected right now — a radio name,
 - **Audio** — the radio's own outputs, radio audio through this computer, alert sounds, meter tones, the recorder, the countdown before a check keys, and the braille status line.
 - **Network** — SmartLink port forwarding, connection tiers, and network diagnostics.
 - **Radios** — per-radio settings remembered by serial number: how to reach each radio, its name, whether its S-meter reads in S-units or dBm, remote administration allowances, the REM ON power jack, and whether the radio is somewhere you can physically get to. Works with no radio connected — that is the point.
-- **Radio Setup** — the ordered checklist for bringing a new radio up, especially one that will live somewhere you cannot walk to.
+- **Radio Setup** provides an ordered checklist for setting up a radio so that it can be reached through the network from anywhere.
 - **Notifications** — speech verbosity, alert sounds, and connection progress announcements.
 - **Accessibility** — the Double-Tap Tolerance setting and other accessibility controls live here.
 - **Updates** — update channel and automatic update checking.
@@ -71,6 +76,14 @@ carrying that you have never adopted — those are marked "on radio". From here
 you can select a profile to load it, add a name, update an entry, delete one, or
 save the current station into a global profile.
 
+### Asking About Profiles at the Next Connection
+
+Open the **Radio** menu, choose **Profiles on This Radio**, then choose **Ask Me at the Next Connect** to undo an earlier answer about profiles. The choice is remembered for that radio, including a radio marked as yours.
+
+The next connection asks about profiles again. JJ Flexible loads no profiles and makes none of its automatic changes to that radio's setup while the question remains unanswered. Radio setup protection takes priority: the profile question waits while protection is on.
+
+Choosing another answer under **Profiles on This Radio**, answering the question at connect, or choosing a saved transmit-audio profile under **Which Transmit Audio** replaces the request to be asked again. **Leave This Radio's Profiles Alone** is a lasting answer; **Ask Me at the Next Connect** leaves the question open.
+
 ### Saving your station without opening this dialog
 
 Adding or releasing a slice does not change anything permanently: the radio puts
@@ -109,3 +122,8 @@ The **License** tab controls country-specific transmit rules:
 JJ Flexible Radio Access stores its configuration in your user profile folder at `%AppData%\JJFlexRadio\`. (That folder keeps the older `JJFlexRadio` name even though the program file is now `jjflexible.exe` — your settings stay put when you update.) If you ever need to start from scratch, you can rename or delete that folder while the application is closed, and JJ Flexible Radio Access will create fresh default settings the next time it launches.
 
 **Warning:** Back up your configuration folder before making any destructive changes to it. Deleting the folder means losing your saved settings, your CW messages, and your profiles.
+
+## Related Topics
+
+- [Audio Workshop](AudioWorkshop.md)
+- [Band Navigation](BandNavigation.md)

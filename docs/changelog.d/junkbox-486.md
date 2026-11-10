@@ -1,0 +1,1 @@
+- A refused microphone profile fix in the Fix tool or a firmware send refused over SmartLink no longer adds a generic failure message after the reason. A port forwarding failure is said once, and a Full duplex refusal under radio setup protection is said once after the menu closes.

@@ -1,6 +1,9 @@
 ---
 keywords:
   - band jumping
+  - refused band change
+  - locked slice
+  - 60 meter channels
 ---
 
 # Band Navigation
@@ -37,6 +40,10 @@ If you prefer to step through bands one at a time:
 - `Alt+Up` moves to the next higher band.
 - `Alt+Down` moves to the next lower band.
 
+## When a Band Change Is Refused
+
+A locked slice or a radio that is transmitting can refuse a band change. JJ Flexible then plays the refusal sound and says "Unable to tune this frequency". The slice keeps its frequency and mode.
+
 ## Where Do You Land?
 
 When you jump to a band, JJ Flexible Radio Access tunes to a sensible default frequency for that band based on your current mode. For example, jumping to 20 meters in USB might land you near 14.200 MHz, while jumping in CW mode would land you in the CW portion of the band.
@@ -54,6 +61,13 @@ When you are on the 60-meter band (jump there with `Shift+F3`), use these keys:
 
 As you navigate, JJ Flexible Radio Access speaks each channel — for example, "Channel 1, 5.332 megahertz, Upper Side Band" or "60 meter digital segment, 5.3515 megahertz." The channels wrap around, so pressing Up from the last channel takes you back to Channel 1.
 
+A refused 60-meter channel change also leaves the channel sequence unchanged, so repeating the key attempts the same channel or digital segment.
+
 ### Channel Enforcement
 
 By default, JJ Flexible Radio Access uses US channelisation rules for 60 meters. You can change your country (and you can control whether transmit rules are enforced) under **Tools > Settings > License**. The **Enforce transmit rules** checkbox controls whether the application restricts you to legal channels on 60 meters, or lets you tune freely.
+
+## Related Topics
+
+- [Tuning and Frequency](TuningAndFrequency.md)
+- [Settings and Profiles](Settings.md)

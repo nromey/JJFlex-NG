@@ -1,0 +1,1 @@
+- Check your audio now follows the current radio connection when opened from Play takes or another window left open during a reconnect. Disconnecting also makes its radio controls unavailable without having to reopen the tool.

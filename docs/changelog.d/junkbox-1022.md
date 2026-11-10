@@ -1,0 +1,1 @@
+- Your screen reader now reads the text of more status and result lines in Settings, including Radio Setup, firmware, diagnostics, silenced messages and the last update check.

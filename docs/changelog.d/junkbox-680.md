@@ -1,1 +1,2 @@
 - The three choices under Radio, Profiles on This Radio, now read as one choice out of three, with a check mark on the one in effect. Your screen reader used to hear "On" and "Off" after each, as if they were three switches you could turn off.
+- Profiles on This Radio now includes "Ask Me at the Next Connect". Choose it to undo an earlier answer and be asked again next time; radio setup protection still takes priority.

@@ -1,0 +1,1 @@
+- Check your audio now tells you to enter an operator callsign before starting a countdown if no callsign is saved, even for the microphone test at zero power. The computer microphone check still works without a callsign.

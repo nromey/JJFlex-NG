@@ -1,0 +1,1 @@
+- Check your audio now says why it cannot start when another station is transmitting, before any countdown. The check also gives a reason if another station takes the transmitter during the count.

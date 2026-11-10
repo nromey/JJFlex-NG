@@ -3,6 +3,8 @@ keywords:
   - frequency
   - tuning
   - tuning debounce
+  - refused tuning step
+  - locked slice
 ---
 
 # Tuning and Frequency
@@ -24,6 +26,8 @@ Every field on the Home slice row accepts `Ctrl+Up` and `Ctrl+Down` to tune up o
 Plain `Up` and `Down` on the Frequency field use the coarse step in Modern tuning mode and the digit under the cursor in Classic tuning mode. Plain `Up` and `Down` on the Slice and Slice Operations fields use the coarse step in both tuning modes.
 
 The commands **Tune up by your coarse step**, **Tune down by your coarse step**, **Tune up by your fine step** and **Tune down by your fine step** also appear in the Command Finder and the Hotkey Editor without default keys. These commands tune the active slice; assign a key in the Hotkey Editor for access beyond the Home slice row.
+
+A tuning step refused because the slice is locked or the radio is transmitting leaves the frequency unchanged and says nothing. JJ Flexible does not announce a frequency as though the tune had succeeded.
 
 ## RIT (Receiver Incremental Tuning)
 
@@ -48,3 +52,8 @@ You can also configure tuning debounce under **Settings > Tuning**, where you wi
 Press `Ctrl+J` then `Alt+M` to open the memory channel list, where you can save and recall favorite frequencies. (`Ctrl+M` on its own opens the meters panel.)
 
 Memory scan has no key of its own. `Ctrl+Shift+M` switches tuning mode and always has, so memory scan ships unbound — reach it from Command Finder (`Ctrl+/`), or give it any free key you like in the Hotkey Editor.
+
+## Related Topics
+
+- [Band Navigation](BandNavigation.md)
+- [Settings and Profiles](Settings.md)

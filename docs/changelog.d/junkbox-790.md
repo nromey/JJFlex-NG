@@ -1,0 +1,1 @@
+- A refused band change or 60-meter channel change now leaves the frequency and mode alone and gives the refusal instead of announcing an arrival. A refused tuning step stays silent.

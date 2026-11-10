@@ -1,0 +1,1 @@
+- The Radio Setup checklist now explains its purpose at the start: setting up a radio so it can be reached through the network from anywhere.
