@@ -44,7 +44,7 @@ public partial class CheckYourAudioDialog
             // it cuts nothing. Cancel and Escape stay silent (#999, C3); the
             // outcome tells the two apart.
             if (go.BackupUnfinished && !_closing && ReferenceEquals(rig, _rig))
-                // PLACEHOLDER: Codex writes (#1040).
+                // Written by Codex 2026-11-09 (#1040); Noel reviews the wording.
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.not_started_backup_unfinished"),
                     Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
                     subject: Radios.Speech.SpeechSubject.CheckNotStartedBackupUnfinished);

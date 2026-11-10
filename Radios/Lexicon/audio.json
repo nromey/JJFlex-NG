@@ -72,7 +72,7 @@
   "audio.check.monitor_restored_off": "Monitor restored off.",
   "audio.check.no_recording_available": {"text": "No recording available. The Fix tool button in this window can help you find what is wrong.", "delivery": null},
   "audio.check.no_recording_yet": "No take yet. Your radio's record buffer is empty and there is nothing in your recordings folder. Record a reference take, or run an audio check with record and play back.",
-  "audio.check.not_started_backup_unfinished": {"text": "[#1040: Codex writes this sentence]", "delivery": null},
+  "audio.check.not_started_backup_unfinished": {"text": "The audio check did not start.", "delivery": null},
   "audio.check.play_after_check": {"text": "Press play to hear your take once the check completes.", "delivery": null},
   "audio.check.play_after_transmit": {"text": "The radio is transmitting. Press play to hear your take once it stops.", "delivery": null},
   "audio.check.playback_stopped": "Playback stopped",
