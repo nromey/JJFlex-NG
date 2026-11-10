@@ -250,11 +250,20 @@ namespace JJFlexWpf.Dialogs
         public string PreferredAccount { get; set; } = "";
 
         /// <summary>
-        /// The account a SmartLink connect to this radio would actually use,
-        /// by the connect's own plan (<see cref="Radios.FlexBase.ConnectAccountFor"/>),
-        /// stamped at roster paint outside the list lock. Empty when the plan
-        /// names none.
+        /// The saved account this radio belongs to by the connect's own plan
+        /// (<see cref="Radios.FlexBase.RadioListAccountFor"/>): the account a
+        /// connect would use, or, once every saved account's list has answered
+        /// without the radio, the saved account the plan would otherwise sign
+        /// in as. Stamped at roster paint outside the list lock. Empty when
+        /// neither the chosen nor the last-seen account is saved here.
         /// </summary>
+        /// <remarks>
+        /// #405 repair one (Codex B1): this was the connect's answer alone,
+        /// which is empty in both of those last two cases, so a radio every
+        /// saved list had ruled out read as "neither account saved" and named
+        /// the unsaved chosen account. Telling the two apart lives in Radios,
+        /// beside the plan, not here.
+        /// </remarks>
         public string ConnectAccount { get; set; } = "";
 
         /// <summary>Which account reaches this radio: the one a connect would
@@ -1257,7 +1266,7 @@ namespace JJFlexWpf.Dialogs
                 if (!string.IsNullOrWhiteSpace(k.Serial))
                 {
                     learnedBySerial[k.Serial] = LearnedPathFor(k.Serial);
-                    connectBySerial[k.Serial] = Radios.FlexBase.ConnectAccountFor(k.Serial);
+                    connectBySerial[k.Serial] = Radios.FlexBase.RadioListAccountFor(k.Serial);
                 }
             }
 
@@ -3785,7 +3794,7 @@ namespace JJFlexWpf.Dialogs
             radio.PreferredAccount = email;
             // The connect's answer changes with the choice (#405 J10): asked
             // again now the choice is saved, outside the list lock.
-            radio.ConnectAccount = Radios.FlexBase.ConnectAccountFor(radio.Serial);
+            radio.ConnectAccount = Radios.FlexBase.RadioListAccountFor(radio.Serial);
             var current = CurrentAccountEmail();
             radio.ForeignAccount = RadioListItem.BoundElsewhere(radio.BoundAccount, current);
 
