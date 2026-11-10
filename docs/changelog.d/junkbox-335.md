@@ -1,1 +1,2 @@
 - JJ Flexible now checks for your callsign before keying the radio for push to talk, the transmit lock, tune, a send or a check; enter yours under Radio, Operators.
+- Check your audio now tells you to enter an operator callsign before starting a countdown if no callsign is saved, even for the microphone test at zero power. The computer microphone check still works without a callsign.

@@ -1,3 +1,4 @@
 - The full duplex key and the port forwarding and network address controls now keep the Change nothing refusal instead of following the refusal with a failure message.
 - Settings' Apply and OK messages no longer claim a refused port change was saved, and OK keeps the reason for the refusal with the final result.
 - A saved microphone setup whose radio changes were refused now reports only the computer settings that were actually applied.
+- A refused microphone profile fix in the Fix tool or a firmware send refused over SmartLink no longer adds a generic failure message after the reason. A port forwarding failure is said once, and a Full duplex refusal under radio setup protection is said once after the menu closes.
