@@ -299,9 +299,12 @@ namespace JJFlexWpf
             var e = _catalog.Find(id);
             if (e == null || e.Side == DenoiseSide.Radio) return false;
             // Measured only when the running bank was built from today's choice: a
-            // model chosen while no audio flows has not been carried in yet.
-            if (SlotFor(e) is { } slot && slot.RunningIsCurrent(id) && slot.RunningLatencySamples > 0)
-                ms = (int)Math.Round(slot.RunningLatencySamples / 48.0);
+            // model chosen while no audio flows has not been carried in yet. One
+            // read of one snapshot, so the engine, its build and the delay are the
+            // same bank's even during a swap (repair round 5).
+            int samples = SlotFor(e)?.CurrentLatencySamples(id) ?? 0;
+            if (samples > 0)
+                ms = (int)Math.Round(samples / 48.0);
             else
             {
                 string? model = e.Settings.Any(d => d.Name == "model") ? SlotFor(e)?.GetSetting(id, "model").Choice : null;

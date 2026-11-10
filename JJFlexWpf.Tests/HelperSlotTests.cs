@@ -255,4 +255,61 @@ public sealed class HelperSlotTests
         Assert.True(before >= 0 && after >= 0, "the swap's hook points were never reached");
         Assert.Equal(0, after - before);
     }
+
+    /// <summary>
+    /// Repair round 5 (#1019, Codex's fifth check): the delay readout reads one
+    /// snapshot. Until round 5 the slot published the running bank, its build and
+    /// its id as three separate writes, so a readout taken mid-swap from engine a
+    /// (standard, 480 samples) to engine b (premium, 960) could qualify a's id and
+    /// build and then read b's delay. Read at EVERY hook point the audio thread
+    /// passes, both through the readout's own call and through the separate
+    /// id/currentness/delay reads the readout used to make, and through the
+    /// published snapshot itself: the id, the build and the bank always belong
+    /// together.
+    /// </summary>
+    [Fact]
+    public void A_delay_readout_taken_during_a_swap_never_mixes_two_engines()
+    {
+        DenoiseEngineEntry Row(string id) => new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
+            initial => new ModelEngine(id, initial), () => Unavailability.None, SettingDescriptors: ModelEngine.Descriptors);
+        using var pipeline = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("a"), Row("b") }));
+        var slot = pipeline.NeuralSlot;
+        pipeline.RnnEnabled = true;
+        var buffer = Audio(0);
+        Assert.True(slot.TrySetSetting("b", "model", new EngineSettingValue(0, "premium")));
+        Assert.True(pipeline.SelectPcEngine("a"));
+        HelperTestRig.Until(() => slot.RunningEngineId == "a" && slot.CurrentLatencySamples("a") > 0, "a running", step: () => pipeline.Process(buffer));
+
+        // a standard: 480 samples, plus at most 479 of frame carry; b premium: 960 and up.
+        static bool Belongs(string id, int samples) => samples == 0 || (id == "a" ? samples < 960 : samples >= 960);
+        var problems = new List<string>();
+        var tags = new List<string>();
+        void Check(string tag)
+        {
+            tags.Add(tag);
+            foreach (var id in new[] { "a", "b" })
+            {
+                int readout = slot.CurrentLatencySamples(id);
+                if (!Belongs(id, readout)) problems.Add($"{tag}: the readout for {id} read {readout}");
+                // The reads HasDelay made until round 5, one after another.
+                if (slot.RunningEngineId == id && slot.RunningIsCurrent(id) && !Belongs(id, slot.RunningLatencySamples))
+                    problems.Add($"{tag}: id {id} is current but the running delay is {slot.RunningLatencySamples}");
+            }
+            if (slot.RunningSnapshotForTest is { } snap && snap.Bank is { } bank)
+                for (int c = 0; c < bank.Channels; c++)
+                    if (bank.EngineFor(c) is not ModelEngine m || m.Id != snap.Id || m.BuiltWith != snap.Initial["model"].Choice)
+                        problems.Add($"{tag}: the snapshot names {snap.Id}/{snap.Initial["model"].Choice} over another engine's bank");
+        }
+        slot.InstallHook = Check;
+        Assert.True(pipeline.SelectPcEngine("b"));
+        HelperTestRig.Until(() => slot.RunningEngineId == "b", "b running", step: () => pipeline.Process(buffer));
+        Assert.True(pipeline.SelectPcEngine("a"));
+        HelperTestRig.Until(() => slot.RunningEngineId == "a", "a running again", step: () => pipeline.Process(buffer));
+        slot.InstallHook = null;
+
+        Assert.Contains("after-running-id", tags); // positive control: the swaps were observed from inside
+        Assert.Empty(problems);
+        Assert.InRange(slot.CurrentLatencySamples("a"), 480, 959);
+        Assert.Equal(0, slot.CurrentLatencySamples("b")); // not running: no measured figure for b
+    }
 }

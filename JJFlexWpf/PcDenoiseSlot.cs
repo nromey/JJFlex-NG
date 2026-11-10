@@ -59,11 +59,20 @@ namespace JJFlexWpf
             internal RunningBuild? Running;
         }
         /// <summary>
-        /// What the running bank was built from: its id and the starting values
-        /// it got, published together so Select can tell whether arrowing back
-        /// to it would keep an instance built with an out-of-date latency setting.
+        /// The running bank, its id and the starting values it was built from,
+        /// as ONE reference (repair round 5). Select reads it to tell whether
+        /// arrowing back would keep an instance built with an out-of-date
+        /// latency setting; the delay readout reads it to measure only the bank
+        /// it names. Until round 5 the bank, the build and the id were three
+        /// fields published one after another, so a readout taken during a swap
+        /// to another engine could qualify the outgoing id and build and then
+        /// read the incoming bank's delay. Made on the build worker (or in the
+        /// constructor), never on the audio thread, which only swaps the
+        /// reference. <paramref name="Bank"/> is null only after
+        /// <see cref="DisposeOwned"/>, which keeps the id as it always did.
         /// </summary>
-        private sealed record RunningBuild(string Id, IReadOnlyDictionary<string, EngineSettingValue> Initial);
+        private sealed record RunningBuild(string Id, IReadOnlyDictionary<string, EngineSettingValue> Initial,
+            PerChannelDenoiserBank? Bank);
         private RunningBuild? _runningBuild;
         private readonly object _control = new();
         private readonly DenoiseEngineCatalog _catalog;
@@ -73,21 +82,40 @@ namespace JJFlexWpf
         private Choice _choice;
         private Built? _ready;
         private Built? _warming;
-        private PerChannelDenoiserBank? _running;
         private Parameters? _runningApplied;
         private int _warmSamples;
         private int _closed;
         private long _announced = -1;
         private int _enabled;
         private bool _wasActive;
-        private string _runningId = "";
         private float[] _nextAudio = Array.Empty<float>();
         public DenoiseFamily Family { get; }
         public DenoiseDirection Direction => DenoiseDirection.Receive;
         public string ChosenEngineId => Volatile.Read(ref _choice).Id;
-        public string RunningEngineId => Volatile.Read(ref _runningId);
-        /// <summary>What the running bank delays the audio by, in samples (engine plus any frame carry); 0 with nothing running. For the Delay readout only.</summary>
-        public int RunningLatencySamples => Volatile.Read(ref _running)?.LatencySamples ?? 0;
+        public string RunningEngineId => Volatile.Read(ref _runningBuild)?.Id ?? "";
+        /// <summary>
+        /// What the running bank delays the audio by, in samples (engine plus any
+        /// frame carry); 0 with nothing running. Says nothing about WHICH engine
+        /// it is: a readout uses <see cref="CurrentLatencySamples"/>, which reads
+        /// the engine and its delay from one snapshot.
+        /// </summary>
+        public int RunningLatencySamples => Volatile.Read(ref _runningBuild)?.Bank?.LatencySamples ?? 0;
+
+        /// <summary>
+        /// The running bank's delay in samples when it is engine <paramref name="id"/>
+        /// built from the settings chosen now (#1019); 0 otherwise. One reference
+        /// read, so the id, the build and the delay all belong to the same bank,
+        /// and the delay is read once (repair round 5).
+        /// </summary>
+        public int CurrentLatencySamples(string id)
+        {
+            var run = Volatile.Read(ref _runningBuild);
+            return run?.Bank != null && BuiltFromChoiceNow(run, id) ? run.Bank.LatencySamples : 0;
+        }
+
+        /// <summary>Tests only: the published snapshot's id, starting values and bank, read as one reference.</summary>
+        internal (string Id, IReadOnlyDictionary<string, EngineSettingValue> Initial, PerChannelDenoiserBank? Bank)? RunningSnapshotForTest =>
+            Volatile.Read(ref _runningBuild) is { } run ? (run.Id, run.Initial, run.Bank) : null;
         private int _hasBeenEnabled;
         /// <summary>True once the slot has been turned on, or restored with a remembered choice. Read by the audio thread (E5's hold), so volatile.</summary>
         public bool HasBeenEnabled { get => Volatile.Read(ref _hasBeenEnabled) != 0; private set => Volatile.Write(ref _hasBeenEnabled, value ? 1 : 0); }
@@ -128,7 +156,7 @@ namespace JJFlexWpf
         }
         internal Action<string>? InstallHook { get; set; }
         /// <summary>Tests only: the bank the audio thread is running now.</summary>
-        internal PerChannelDenoiserBank? RunningBankForTest => Volatile.Read(ref _running);
+        internal PerChannelDenoiserBank? RunningBankForTest => Volatile.Read(ref _runningBuild)?.Bank;
         internal bool BuildDelivered(string id)
         {
             var choice = Volatile.Read(ref _choice);
@@ -156,9 +184,7 @@ namespace JJFlexWpf
                     initial = BuildBank(entry, out var builtFrom);
                     if (!initial.IsAvailable)
                         throw new InvalidOperationException(initial.EngineFor(0).UnavailabilityDetail);
-                    _running = initial;
-                    _runningId = initialId;
-                    _runningBuild = new RunningBuild(initialId, builtFrom);
+                    _runningBuild = new RunningBuild(initialId, builtFrom, initial);
                     initial = null;
                 }
                 catch (Exception ex)
@@ -265,7 +291,7 @@ namespace JJFlexWpf
             // Not when a latency setting changed since that bank was built: it
             // can change only through a new build, and the change was stored
             // while another engine was chosen, so nothing has rebuilt it yet.
-            if (!force && RunningEngineId == id && RunningLatencyCurrent(id)) return true;
+            if (!force && RunningIsCurrent(id)) return true;
             RequestBuild(choice);
             return true;
         }
@@ -275,11 +301,11 @@ namespace JJFlexWpf
         /// False after a model change until audio has carried the new build in, so a
         /// delay readout does not report the old build's figure as measured (#1019).
         /// </summary>
-        public bool RunningIsCurrent(string id) => RunningEngineId == id && RunningLatencyCurrent(id);
+        public bool RunningIsCurrent(string id) => BuiltFromChoiceNow(Volatile.Read(ref _runningBuild), id);
 
-        private bool RunningLatencyCurrent(string id)
+        /// <summary>Whether this one snapshot is engine <paramref name="id"/>, built from the rebuild settings chosen now.</summary>
+        private bool BuiltFromChoiceNow(RunningBuild? built, string id)
         {
-            var built = Volatile.Read(ref _runningBuild);
             if (built == null || built.Id != id) return false;
             foreach (var descriptor in SettingsFor(id))
             {
@@ -314,7 +340,7 @@ namespace JJFlexWpf
                 lock (_control)
                 {
                     if (_closed != 0 || !ReferenceEquals(choice, _choice)) { bank.Dispose(); return; }
-                    var previous = Interlocked.Exchange(ref _ready, new Built(choice, bank) { Running = new RunningBuild(choice.Id, builtFrom) });
+                    var previous = Interlocked.Exchange(ref _ready, new Built(choice, bank) { Running = new RunningBuild(choice.Id, builtFrom, bank) });
                     bank = null;
                     previous?.Bank.Dispose();
                 }
@@ -385,21 +411,25 @@ namespace JJFlexWpf
                 if (_warming != null && !ReferenceEquals(_warming.Choice, choice))
                 { Retire(_warming.Bank); _warming = null; _warmSamples = 0; }
             }
-            if (_running != null) prepareSpectral?.Invoke(_running);
+            // The running bank and its id, from one snapshot. Only this thread
+            // swaps it, and not before the warm handover below.
+            var run = Volatile.Read(ref _runningBuild);
+            var running = run?.Bank;
+            if (running != null) prepareSpectral?.Invoke(running);
             if (_warming != null) prepareSpectral?.Invoke(_warming.Bank);
             bool active = Enabled && permitted;
             if (Family == DenoiseFamily.Spectral && capturing) active = false;
             if (choice.Id == "spectral_capture" && !profilePresent) active = false;
             if (!active)
             {
-                if (_wasActive) { _running?.ClearCarry(); _warming?.Bank.ClearCarry(); }
+                if (_wasActive) { running?.ClearCarry(); _warming?.Bank.ClearCarry(); }
                 _wasActive = false;
                 // Keep the built choice, but do not warm or announce it with no audio.
                 return;
             }
             _wasActive = true;
             bool listen = ListenToRemoved;
-            if (_running != null) { _running.ListenToRemoved = listen; ApplyParameters(_running, RunningEngineId, ref _runningApplied); }
+            if (running != null) { running.ListenToRemoved = listen; ApplyParameters(running, run!.Id, ref _runningApplied); }
             if (_warming != null) _warming.Bank.ListenToRemoved = listen;
             if (_warming != null)
             {
@@ -420,7 +450,7 @@ namespace JJFlexWpf
                     StopFailedChoice(failedBuild.Choice);
                     return;
                 }
-                if (_running != null) _running.Process(audio, GetStrength(RunningEngineId));
+                if (running != null) running.Process(audio, GetStrength(run!.Id));
                 if (produced) _warmSamples += audio.Length / _channels;
                 else _warmSamples = 0;
                 if (_warmSamples >= _sampleRate / 10 && ReferenceEquals(choice, Volatile.Read(ref _choice)))
@@ -428,9 +458,11 @@ namespace JJFlexWpf
                     InstallHook?.Invoke("before-running-id");
                     if (CrossFadeEnabled) CrossFade(audio, _nextAudio, _channels);
                     else _nextAudio.AsSpan(0, audio.Length).CopyTo(audio);
-                    var old = Interlocked.Exchange(ref _running, _warming.Bank);
-                    Volatile.Write(ref _runningBuild, _warming.Running); // built on the worker: nothing is allocated here
-                    Volatile.Write(ref _runningId, _warming.Choice.Id);
+                    // One reference: the bank, its id and its build, made on the
+                    // worker, so nothing is allocated here and no reader can see
+                    // the incoming bank under the outgoing id (repair round 5).
+                    Volatile.Write(ref _runningBuild, _warming.Running);
+                    var old = running;
                     InstallHook?.Invoke("after-running-id");
                     _runningApplied = _warming.Applied;
                     _warming = null;
@@ -440,12 +472,12 @@ namespace JJFlexWpf
                 }
                 return;
             }
-            if (_running != null)
+            if (running != null)
             {
-                long late = _running.LateFrames, failed = _running.FallbackFrames;
-                _running.Process(audio, GetStrength(RunningEngineId));
-                if (choice.Id == RunningEngineId && !choice.Force && _announced != choice.Generation &&
-                    late == _running.LateFrames && failed == _running.FallbackFrames)
+                long late = running.LateFrames, failed = running.FallbackFrames;
+                running.Process(audio, GetStrength(run!.Id));
+                if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
+                    late == running.LateFrames && failed == running.FallbackFrames)
                 { _announced = choice.Generation; Publish(choice, true); }
             }
         }
@@ -455,10 +487,8 @@ namespace JJFlexWpf
             // Only this audio thread releases the audible bank. A builder
             // leaves a failure on its choice; the next buffer applies it,
             // including while disabled, before reporting that the slot stopped.
-            var old = Interlocked.Exchange(ref _running, null);
+            var old = Interlocked.Exchange(ref _runningBuild, null)?.Bank;
             if (old != null) Retire(old);
-            Volatile.Write(ref _runningBuild, null);
-            Volatile.Write(ref _runningId, "");
             _runningApplied = null;
             if (_warming != null) { Retire(_warming.Bank); _warming = null; }
             _warmSamples = 0; _wasActive = false;
@@ -515,7 +545,9 @@ namespace JJFlexWpf
         }
         internal void DisposeOwned()
         {
-            _running?.Dispose(); _running = null;
+            // The id stays, as it always did; only the bank goes, so the delay reads 0.
+            var run = Volatile.Read(ref _runningBuild);
+            if (run?.Bank != null) { run.Bank.Dispose(); Volatile.Write(ref _runningBuild, run with { Bank = null }); }
             _warming?.Bank.Dispose(); _warming = null;
         }
 
@@ -551,7 +583,7 @@ namespace JJFlexWpf
             // A rebuild unless the running instance was built with exactly
             // these values already (Escape put back what is playing): then the
             // new choice only retires a warming build of the value undone.
-            Select(chosen, out _, force: !(RunningEngineId == chosen && RunningLatencyCurrent(chosen)));
+            Select(chosen, out _, force: !RunningIsCurrent(chosen));
             return false;
         }
 
