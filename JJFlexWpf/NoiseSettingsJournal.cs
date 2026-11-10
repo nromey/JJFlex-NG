@@ -8,8 +8,10 @@ namespace JJFlexWpf
     /// <summary>What kind of noise change a journal entry records (#884, design part nine).</summary>
     public enum NoiseJournalKind
     {
-        Switch, Lever, Strength, Model, Favourite, PresetApplied, ReturnToDefaults,
-        StartingPoint, ModeRestore, IntentKept,
+        // Floor was Strength until #1019 flipped it; the journal writes the trace
+        // only, so no stored history names the old kind.
+        Switch, Lever, Floor, Model, Favourite, PresetApplied, ReturnToDefaults,
+        StartingPoint, ModeRestore, IntentKept, DefaultMoved,
     }
 
     /// <summary>One value that changed: which engine, which setting, from what, to what.</summary>

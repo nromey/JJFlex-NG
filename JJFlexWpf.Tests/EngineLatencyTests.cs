@@ -357,7 +357,7 @@ public sealed class EngineLatencyTests
         AssertMeasuredDelay(e);
     }
 
-    private static void AssertMeasuredDelay(IDenoiseEngine e)
+    internal static void AssertMeasuredDelay(IDenoiseEngine e)
     {
         float[] speech = ReferenceSpeech(startSeconds: 12, seconds: 4);
         int f = e.FrameLength;

@@ -63,7 +63,7 @@ public sealed class RnnoiseBindingTests
             // PE header is valid, but NO RNNoise exports: loading/constructing
             // would fail, whereas this intentionally cheap probe must pass.
             File.Copy(typeof(RnnoiseEngine).Assembly.Location, path);
-            RnnoiseEngine.LibraryLocator = () => path;
+            RnnoiseEngine.LibraryLocator = _ => path;
             var entry = new DenoiseEngineCatalog().Find("rnnoise")!;
             using (var stream = File.OpenRead(path)) using (var pe = new PEReader(stream)) {
                 Assert.Equal(Environment.Is64BitProcess ? Machine.Amd64 : Machine.I386, pe.PEHeaders.CoffHeader.Machine);
@@ -73,7 +73,7 @@ public sealed class RnnoiseBindingTests
             Assert.Equal(Unavailability.LibraryMissing, entry.Availability());
             string wrong = Path.Combine(RepoPaths.RequireRoot(), "runtimes",
                 Environment.Is64BitProcess ? "win-x86" : "win-x64", "native", "rnnoise.dll");
-            RnnoiseEngine.LibraryLocator = () => wrong;
+            RnnoiseEngine.LibraryLocator = _ => wrong;
             Assert.Equal(Unavailability.InitFailed, entry.Availability());
         }
         finally { RnnoiseEngine.LibraryLocator = previous; if (File.Exists(path)) File.Delete(path); }

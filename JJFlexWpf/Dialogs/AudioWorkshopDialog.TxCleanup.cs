@@ -32,8 +32,9 @@ public partial class AudioWorkshopDialog
     /// The removed-audio monitor is the tuning instrument: listening to the
     /// output can never reveal over-processing, because the missing parts
     /// are not there to hear. Hear your own words in the REMOVED audio and
-    /// the cleanup is eating your voice — turn the strength down while it
-    /// plays until the words fade. The strength control is live for exactly
+    /// the cleanup is eating your voice — raise the noise floor (it was
+    /// "turn the strength down" until #1019 flipped the control) while it
+    /// plays until the words fade. The floor control is live for exactly
     /// that loop.
     ///
     /// The gate threshold is not a knob here: it is derived from the room's
@@ -41,6 +42,16 @@ public partial class AudioWorkshopDialog
     /// floor plus a margin, so a quiet 3 AM shack and the same shack with
     /// the air conditioner on both land right without retuning.
     /// </summary>
+    /// <summary>
+    /// The transmit noise floor field's shape, as data a windowless test can read:
+    /// the floor's range and step, its initial value from the one default (transmit
+    /// RNNoise, floor 20, ruled S3), and whether Up lowers it, from
+    /// <see cref="NoiseController.UpRaisesFloor"/>.
+    /// </summary>
+    internal static (int Min, int Max, int Step, int Initial, bool UpLowers) TxFloorField() =>
+        (NoiseFloor.Min, NoiseFloor.Max, NoiseFloor.Step,
+         NoiseFloor.DefaultFloor("rnnoise", DenoiseDirection.Transmit), !NoiseController.UpRaisesFloor);
+
     private void BuildTxCleanupSection()
     {
         AddSectionHeader(ThisComputerContent, "PC Cleanup");
@@ -50,15 +61,21 @@ public partial class AudioWorkshopDialog
         _txNrCheck.Unchecked += (s, e) => SetTxCleanupToggle("Noise reduction", false);
         AddToSection(ThisComputerContent, _txNrCheck);
 
+        // The transmit noise floor (#1019): the stored NrStrength keeps its
+        // meaning; this field shows and sets the floor through the one
+        // conversion, starts from the one default, and turns around with the
+        // noise layer's direction switch. Its label is a placeholder for Codex.
+        var floorField = TxFloorField();
         _txNrStrengthControl = new ValueFieldControl();
         _txNrStrengthControl.Setup(
-            "Noise reduction strength (lower it if you hear your words in the removed audio)",
-            0, 100, 5, 80, 0, "percent");
+            Radios.Lexicon.Get("audio.cleanup.tx_noise_floor"),
+            floorField.Min, floorField.Max, floorField.Step, floorField.Initial, 0, "percent");
+        _txNrStrengthControl.UpLowers = floorField.UpLowers;
         _txNrStrengthControl.Visibility = Visibility.Collapsed;
         _txNrStrengthControl.ValueChanged += (s, v) =>
         {
             if (_polling) return;
-            TxAudioConditioning.NrStrength = v / 100f;
+            TxAudioConditioning.NrStrength = NoiseFloor.ToStrength(v);
         };
         AddToSection(ThisComputerContent, _txNrStrengthControl);
 
@@ -237,8 +254,7 @@ public partial class AudioWorkshopDialog
             if (_txNrStrengthControl != null)
             {
                 _txNrStrengthControl.Visibility = nrOn ? Visibility.Visible : Visibility.Collapsed;
-                if (nrOn) _txNrStrengthControl.Value =
-                    (int)Math.Round(TxAudioConditioning.NrStrength * 100f);
+                if (nrOn) _txNrStrengthControl.Value = NoiseFloor.FromStrength(TxAudioConditioning.NrStrength);
             }
 
             if (_txGateCheck != null) _txGateCheck.IsChecked = gateOn;

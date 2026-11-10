@@ -46,12 +46,16 @@ namespace JJFlexWpf
         }
     }
 
-    /// <summary>What kind of thing a lever adjusts.</summary>
-    public enum NoiseLeverKind { RadioLevel, Strength, Setting, ListenRemoved }
+    /// <summary>
+    /// What kind of thing a lever adjusts. <see cref="Floor"/> is a computer
+    /// engine's noise floor (#1019): it was "Strength" until Sprint 49 Track S
+    /// flipped it, and the stored quantity underneath is still the wet fraction.
+    /// </summary>
+    public enum NoiseLeverKind { RadioLevel, Floor, Setting, ListenRemoved }
 
     /// <summary>
     /// One lever of one engine, as every surface sees it: the radio's level,
-    /// a computer engine's Strength, one of its descriptor's settings, or the
+    /// a computer engine's noise floor, one of its descriptor's settings, or the
     /// Listen to what was removed switch. The value lives in the radio or the
     /// slot; this only says where.
     /// </summary>
@@ -229,8 +233,20 @@ namespace JJFlexWpf
             return string.IsNullOrEmpty(marker) ? name : name + ", " + char.ToLowerInvariant(marker[0]) + marker.Substring(1);
         }
 
-        private static Unavailability SafeAvailability(DenoiseEngineEntry e)
+        /// <summary>
+        /// Whether an engine can run here, probing nothing that starts. An engine
+        /// whose chosen model needs its own native file (RNNoise, #1019) is as
+        /// available as that model: the engine follows the choice, so a missing
+        /// tag library marks RNNoise only while the tag model is chosen.
+        /// </summary>
+        private Unavailability SafeAvailability(DenoiseEngineEntry e)
         {
+            if (e.Side == DenoiseSide.Pc && e.Settings.FirstOrDefault(d => d.Name == "model") is { Kind: EngineSettingKind.Choice } model
+                && model.Options?.Any(o => o.Probe != null) == true)
+            {
+                string? chosen = SlotFor(e) is { } slot ? slot.GetSetting(e.Id, "model").Choice : model.Default.Choice;
+                if (model.Options.FirstOrDefault(o => o.Name == chosen)?.Probe is { } probe) return SafeProbe(probe, e.Id + "." + chosen);
+            }
             try { return e.Availability(); }
             catch (Exception ex) { Trace.WriteLine("NoiseController: probe for " + e.Id + " threw " + ex.Message); return Unavailability.InitFailed; }
         }

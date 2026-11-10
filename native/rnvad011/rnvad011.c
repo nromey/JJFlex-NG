@@ -64,10 +64,12 @@ RNVAD011_EXPORT float rnvad011_process_frame(void *state, const float *in) {
 }
 
 /* The FULL v0.1.1 frame, upstream's rnnoise_process_frame unchanged, under a
-   name of our own. It exists for the tests' positive control (and for
-   offline comparisons), so the detector can be checked against the whole
-   network without a second v0.1.1 library in the repository. Never mix the
-   two entry points on one state: each advances the state differently. */
+   name of our own. Since Sprint 49 Track S (#1019) it is how the app runs
+   RNNoise's old model when an operator chooses it (RnnoiseEngine, model
+   "v011"), so this library is both the detector and that denoiser; it is also
+   the tests' positive control, holding the detector to the whole network.
+   Never mix the two entry points on one state: each advances the state
+   differently. */
 RNVAD011_EXPORT float rnvad011_reference_frame(void *state, float *out, const float *in) {
   return rnnoise_process_frame((DenoiseState *)state, out, in);
 }

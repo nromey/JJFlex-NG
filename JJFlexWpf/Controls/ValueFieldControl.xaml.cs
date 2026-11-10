@@ -106,6 +106,16 @@ public partial class ValueFieldControl : UserControl
     public int FineStep { get; set; } = 1;
 
     /// <summary>
+    /// When true, Up, Page Up and End move the number DOWN, and Down, Page Down
+    /// and Home move it up. False (the default) is what every field has always
+    /// done. For a field whose direction follows a switch elsewhere: the noise
+    /// floor's (#1019, <see cref="NoiseController.UpRaisesFloor"/>), so the
+    /// transmit floor and the Noise Profiles floors turn around with the noise
+    /// layer and Home when that switch is flipped.
+    /// </summary>
+    public bool UpLowers { get; set; }
+
+    /// <summary>
     /// QB Track I — decimal display mode. 0 (default) keeps legacy integer
     /// behavior. N &gt; 0 means Value is carried in scaled integer units
     /// (e.g. 2 → hundredths: Value 550 displays and speaks as "5.50"). Typed
@@ -218,38 +228,39 @@ public partial class ValueFieldControl : UserControl
         }
 
         bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+        int up = UpLowers ? -1 : 1;
 
         switch (e.Key)
         {
             case Key.Up:
                 // Up = configured Step (default 5); Shift+Up = FineStep (default 1) as fine-grain escape hatch.
-                AdjustValue(shift ? FineStep : _step);
+                AdjustValue(up * (shift ? FineStep : _step));
                 e.Handled = true;
                 break;
 
             case Key.Down:
                 // Down = configured Step (default 5); Shift+Down = FineStep (default 1) as fine-grain escape hatch.
-                AdjustValue(shift ? -FineStep : -_step);
+                AdjustValue(-up * (shift ? FineStep : _step));
                 e.Handled = true;
                 break;
 
             case Key.PageUp:
-                AdjustValue(10);
+                AdjustValue(up * 10);
                 e.Handled = true;
                 break;
 
             case Key.PageDown:
-                AdjustValue(-10);
+                AdjustValue(-up * 10);
                 e.Handled = true;
                 break;
 
             case Key.Home:
-                SetValue(LowestForOperator);
+                SetValue(UpLowers ? _max : LowestForOperator);
                 e.Handled = true;
                 break;
 
             case Key.End:
-                SetValue(_max);
+                SetValue(UpLowers ? LowestForOperator : _max);
                 e.Handled = true;
                 break;
 

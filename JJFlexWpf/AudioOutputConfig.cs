@@ -195,8 +195,13 @@ namespace JJFlexWpf
         /// <summary>The Settings Advanced tab's guard checkbox: its fields are enabled only once this is ticked.</summary>
         public bool AdvancedSettingsUnderstood { get; set; }
 
-        /// <summary>RNNoise wet/dry mix strength 0.0-1.0.</summary>
-        public float RNNoiseStrength { get; set; } = 0.8f;
+        /// <summary>
+        /// RNNoise wet/dry mix strength 0.0-1.0, the legacy field older builds
+        /// read (ReceiveDenoiseConfig dual-writes it). Its initialiser is what a
+        /// brand-new setup gets, through ReceiveDenoiseConfig.Map's legacy branch,
+        /// so it comes from the one source (#1019, floor 10).
+        /// </summary>
+        public float RNNoiseStrength { get; set; } = Radios.NoiseFloor.DefaultStrength("rnnoise", Radios.DenoiseDirection.Receive);
 
         /// <summary>Auto-disable RNNoise in CW/digital modes.</summary>
         public bool RNNoiseAutoDisableNonVoice { get; set; } = true;
@@ -642,6 +647,13 @@ namespace JJFlexWpf
             // paths below.
             MeterConfigMigration.Migrate(config);
             config.UpgradeCountdownDefaults();
+            // Last, so a config it saves already carries every migration above
+            // (#1019, ruled S3: a saved receive RNNoise 0.8 moves to 0.9 once).
+            string canonical = CanonicalDir(configDir);
+            ReceiveNoiseFloorMove.Apply(config, canonical, c =>
+            {
+                if (!c.WriteTo(canonical)) throw new IOException("the moved config could not be saved");
+            });
             return config;
         }
 
@@ -771,7 +783,7 @@ namespace JJFlexWpf
             WriteTo(CanonicalDir(configDir));
         }
 
-        private void WriteTo(string configDir)
+        private bool WriteTo(string configDir)
         {
             try
             {
@@ -784,10 +796,12 @@ namespace JJFlexWpf
                 var serializer = new XmlSerializer(typeof(AudioOutputConfig));
                 using var stream = File.Create(path);
                 serializer.Serialize(stream, this);
+                return true;
             }
             catch (Exception ex)
             {
                 Trace.WriteLine($"AudioOutputConfig.Save({configDir}) failed: {ex.Message}");
+                return false;
             }
         }
 

@@ -533,6 +533,8 @@
     <Content Include="runtimes\win-x64\native\rnnoise.COPYING.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\rnnoise.COPYING.txt" />
     <Content Include="runtimes\win-x64\native\rnnoise_vad011.dll" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\rnnoise_vad011.dll" />
     <Content Include="runtimes\win-x64\native\rnnoise_vad011.COPYING.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\rnnoise_vad011.COPYING.txt" />
+    <Content Include="runtimes\win-x64\native\rnnoise_v02.dll" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\rnnoise_v02.dll" />
+    <Content Include="runtimes\win-x64\native\rnnoise_v02.COPYING.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\rnnoise_v02.COPYING.txt" />
     <Content Include="runtimes\win-x64\native\deepfilter.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x64\native\deepfilter.dll</Link>
@@ -596,6 +598,8 @@
     <Content Include="runtimes\win-x86\native\rnnoise.COPYING.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\rnnoise.COPYING.txt" />
     <Content Include="runtimes\win-x86\native\rnnoise_vad011.dll" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\rnnoise_vad011.dll" />
     <Content Include="runtimes\win-x86\native\rnnoise_vad011.COPYING.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\rnnoise_vad011.COPYING.txt" />
+    <Content Include="runtimes\win-x86\native\rnnoise_v02.dll" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\rnnoise_v02.dll" />
+    <Content Include="runtimes\win-x86\native\rnnoise_v02.COPYING.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\rnnoise_v02.COPYING.txt" />
     <Content Include="runtimes\win-x86\native\deepfilter.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x86\native\deepfilter.dll</Link>

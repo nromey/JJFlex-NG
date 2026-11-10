@@ -13,13 +13,54 @@ namespace JJFlexWpf
         //  Levers
         // ────────────────────────────────────────────────────────────────
 
+        /// <summary>The noise floor lever's key (#1019; "strength" until Sprint 49 Track S).</summary>
+        public const string FloorKey = "floor";
+
+        /// <summary>The noise floor lever's label key.</summary>
+        public const string FloorLabelKey = "audio.noise_surface.lever.floor";
+
+        /// <summary>
+        /// THE direction switch for the noise floor (S7, ruled by Noel 2026-11-09
+        /// 15:44: Up raises the floor's number, as Captured noise's own Floor
+        /// already does). The one place the direction lives: the floor's steps
+        /// (the noise layer, the Audio menu), Home and End, every field built from
+        /// <see cref="LeverSteps"/> (Home's expander) and the Audio Workshop's
+        /// transmit field all consult it. He added "if in practice it doesn't
+        /// make sense, all we gotta do is flip it": flipping is this initialiser.
+        /// Settable from tests only, to prove every surface follows.
+        /// </summary>
+        public static bool UpRaisesFloor { get; internal set; } = true;
+
+        /// <summary>The sign of the floor's change for a press: Up (+1) raises the number while <see cref="UpRaisesFloor"/>.</summary>
+        internal static int FloorSign(int pressed) => UpRaisesFloor ? Math.Sign(pressed) : -Math.Sign(pressed);
+
+        /// <summary>An engine's noise floor lever: Advanced on an engine that has its own reduction setting (S2).</summary>
+        private static NoiseLever FloorLever(DenoiseEngineEntry e) =>
+            new(e.Id, FloorKey, FloorLabelKey, NoiseLeverKind.Floor, Advanced: MainSettingOf(e) != null);
+
+        /// <summary>The engine's own reduction setting when it shows one among its main controls (S2), else null.</summary>
+        private static EngineSettingDescriptor? MainSettingOf(DenoiseEngineEntry e) =>
+            e.ReductionSetting is string own ? e.Settings.FirstOrDefault(d => d.Name == own && !d.Advanced) : null;
+
+        /// <summary>An engine's noise floor lever wherever it sits (main or Advanced), or null for a radio engine.</summary>
+        public NoiseLever? FloorLeverOf(string id) =>
+            _catalog.Find(id) is { Side: DenoiseSide.Pc } e ? FloorLever(e) : null;
+
         /// <summary>
         /// An engine's levers in order: the primary first (a radio engine's
-        /// Level, a computer engine's Strength), then the normal levers, then,
-        /// when asked, the Advanced ones and Listen to what was removed. A
-        /// lever that means nothing at the moment (NR2's trained values while
-        /// the gain curve is not Trained) is left out.
+        /// Level; a computer engine's main reduction control), then the normal
+        /// levers, then, when asked, the Advanced ones and Listen to what was
+        /// removed. A lever that means nothing at the moment (NR2's trained
+        /// values while the gain curve is not Trained) is left out.
         /// </summary>
+        /// <remarks>
+        /// The main reduction control (#1019, S2): RNNoise and NR2 have no
+        /// setting of their own, so the noise floor is their first lever.
+        /// DeepFilterNet3, NR4, NNR and Captured noise lead with their own
+        /// (<see cref="DenoiseEngineEntry.ReductionSetting"/>) and carry the floor
+        /// first among their Advanced levers, so the noise layer (which starts on
+        /// lever 0) never lands on a model or on the floor by surprise.
+        /// </remarks>
         public IReadOnlyList<NoiseLever> Levers(string id, bool includeAdvanced)
         {
             var e = _catalog.Find(id);
@@ -30,11 +71,15 @@ namespace JJFlexWpf
                 if (e.Level != null) list.Add(new NoiseLever(id, "level", "audio.noise_surface.lever.level", NoiseLeverKind.RadioLevel));
                 return list;
             }
-            list.Add(new NoiseLever(id, "strength", "audio.noise_surface.lever.strength", NoiseLeverKind.Strength));
-            foreach (var d in e.Settings.Where(d => !d.Advanced && Shown(e, d)))
+            var floor = FloorLever(e);
+            var main = MainSettingOf(e);
+            if (main == null) list.Add(floor);
+            else list.Add(new NoiseLever(id, main.Name, main.LabelKey, NoiseLeverKind.Setting, main));
+            foreach (var d in e.Settings.Where(d => !d.Advanced && d != main && Shown(e, d)))
                 list.Add(new NoiseLever(id, d.Name, d.LabelKey, NoiseLeverKind.Setting, d));
             if (includeAdvanced)
             {
+                if (floor.Advanced) list.Add(floor);
                 foreach (var d in e.Settings.Where(d => d.Advanced && Shown(e, d)))
                     list.Add(new NoiseLever(id, d.Name, d.LabelKey, NoiseLeverKind.Setting, d, Advanced: true));
                 list.Add(new NoiseLever(id, "listen_removed", "audio.noise_surface.lever.listen_removed", NoiseLeverKind.ListenRemoved, Advanced: true));
@@ -62,6 +107,36 @@ namespace JJFlexWpf
             return options;
         }
 
+        /// <summary>
+        /// An option's text as every list shows it: its label, with its
+        /// availability marker when it cannot run here (#1019: an RNNoise model
+        /// whose library is missing is listed and marked, never hidden, the way
+        /// <see cref="MarkedName"/> marks an engine).
+        /// </summary>
+        public string OptionText(EngineSettingOption option)
+        {
+            string label = Lexicon.Get(option.LabelKey);
+            if (option.Probe is not { } probe) return label;
+            var reason = SafeProbe(probe, option.Name);
+            if (reason == Unavailability.None) return label;
+            string marker = Lexicon.Get(DenoiseEngineCatalog.UnavailabilityKey(reason));
+            return string.IsNullOrEmpty(marker) ? label : label + ", " + char.ToLowerInvariant(marker[0]) + marker.Substring(1);
+        }
+
+        /// <summary>The option a choice lever holds now, or null.</summary>
+        private EngineSettingOption? ChosenOption(NoiseLever lever)
+        {
+            string? choice = ChoiceOf(lever);
+            return lever.Descriptor?.Options?.FirstOrDefault(o => o.Name == choice);
+        }
+
+        /// <summary>Run an option's probe, a throw reading as a failed start.</summary>
+        private static Unavailability SafeProbe(Func<Unavailability> probe, string what)
+        {
+            try { return probe(); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine("NoiseController: probe for " + what + " threw " + ex.Message); return Unavailability.InitFailed; }
+        }
+
         /// <summary>A lever's value as a number on its own scale (a level, a percent, decibels, Depth); null for a choice.</summary>
         public double? NumberOf(NoiseLever lever)
         {
@@ -71,8 +146,8 @@ namespace JJFlexWpf
             {
                 case NoiseLeverKind.RadioLevel:
                     return ReadRadioLevel(e);
-                case NoiseLeverKind.Strength:
-                    return SlotFor(e) is { } s ? Math.Round(s.GetStrength(e.Id) * 100) : null;
+                case NoiseLeverKind.Floor:
+                    return SlotFor(e) is { } s ? NoiseFloor.FromStrength(s.GetStrength(e.Id)) : null;
                 case NoiseLeverKind.ListenRemoved:
                     return SlotFor(e)?.ListenToRemoved == true ? 1 : 0;
                 default:
@@ -110,7 +185,7 @@ namespace JJFlexWpf
         /// <summary>The unit key a lever's number is spoken with, or null.</summary>
         public static string? UnitOf(NoiseLever lever) => lever.Kind switch
         {
-            NoiseLeverKind.Strength => "audio.noise_surface.unit.percent",
+            NoiseLeverKind.Floor => "audio.noise_surface.unit.percent",
             NoiseLeverKind.Setting when lever.Descriptor is { } d && IsPercent(d) => "audio.noise_surface.unit.percent",
             NoiseLeverKind.Setting when lever.Descriptor is { UnitKey: "audio.denoise.db" or "audio.unit.decibels" } => "audio.unit.decibels",
             _ => null,
@@ -125,7 +200,7 @@ namespace JJFlexWpf
             {
                 string? choice = ChoiceOf(lever);
                 var option = d.Options?.FirstOrDefault(o => o.Name == choice);
-                return option != null ? Lexicon.Get(option.LabelKey) : choice ?? "";
+                return option != null ? OptionText(option) : choice ?? "";
             }
             double? n = NumberOf(lever);
             if (n == null) return "";
@@ -136,10 +211,12 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Every value a lever can take, least to most, as a field lists them:
-        /// the number on the lever's own scale (what <see cref="Set"/> takes)
-        /// or the choice, and its text with its unit. A Home field arrows
-        /// through exactly what the layer's Up and Down step through.
+        /// Every value a lever can take, in the order Up walks them (least to
+        /// most, except the noise floor while <see cref="UpRaisesFloor"/> is
+        /// false), as a field lists them: the number on the lever's own scale
+        /// (what <see cref="Set"/> takes) or the choice, and its text with its
+        /// unit. A Home field arrows through exactly what the layer's Up and
+        /// Down step through.
         /// </summary>
         public IReadOnlyList<(double? Shown, string? Choice, string Text)> LeverSteps(NoiseLever lever)
         {
@@ -147,14 +224,14 @@ namespace JJFlexWpf
             if (_catalog.Find(lever.EngineId) is null) return list;
             if (lever.Descriptor is { Kind: EngineSettingKind.Choice } d)
             {
-                foreach (var o in OptionsFor(lever)) list.Add((null, o.Name, Lexicon.Get(o.LabelKey)));
+                foreach (var o in OptionsFor(lever)) list.Add((null, o.Name, OptionText(o)));
                 return list;
             }
             EngineSettingValue? at = Edge(lever, -1);
             int guard = 0;
             while (at is { } v && guard++ < 1000)
             {
-                double shown = lever.Kind is NoiseLeverKind.RadioLevel or NoiseLeverKind.Strength or NoiseLeverKind.ListenRemoved
+                double shown = lever.Kind is NoiseLeverKind.RadioLevel or NoiseLeverKind.Floor or NoiseLeverKind.ListenRemoved
                     ? v.Number : ToShown(lever, v.Number);
                 list.Add((shown, null, FormatShown(lever, shown)));
                 at = Next(lever, v, +1);
@@ -223,19 +300,19 @@ namespace JJFlexWpf
             else
             {
                 string? model = e.Settings.Any(d => d.Name == "model") ? SlotFor(e)?.GetSetting(id, "model").Choice : null;
-                ms = DenoiseEngineCatalog.ExpectedHelperDelayMs(id, model);
+                ms = DenoiseEngineCatalog.ExpectedHelperDelayMs(id, model) ?? DenoiseEngineCatalog.ExpectedEngineDelayMs(id, model);
             }
             return true;
         }
 
         /// <summary>
-        /// The lexicon key of a lever's Ctrl+F1 line. Strength and Listen to
+        /// The lexicon key of a lever's Ctrl+F1 line. The noise floor and Listen to
         /// what was removed share one line each; a radio level has one per
         /// engine (four of them are held intents); every setting has its own.
         /// </summary>
         public static string HelpKey(NoiseLever lever) => lever.Kind switch
         {
-            NoiseLeverKind.Strength => "audio.noise_help.strength",
+            NoiseLeverKind.Floor => "audio.noise_help.floor",
             NoiseLeverKind.ListenRemoved => "audio.noise_help.listen_removed",
             NoiseLeverKind.RadioLevel => "audio.noise_help.level." + lever.EngineId,
             _ => "audio.noise_help." + lever.EngineId + "." + lever.Key,
@@ -273,7 +350,7 @@ namespace JJFlexWpf
         /// <summary>Set a lever to a shown number (a Home value field) or a choice name.</summary>
         public void Set(NoiseLever lever, double? shown, string? choice, string source) =>
             Move(lever, source, _ => choice != null ? new EngineSettingValue(0, choice)
-                : lever.Kind is NoiseLeverKind.RadioLevel or NoiseLeverKind.Strength ? new EngineSettingValue(shown ?? 0)
+                : lever.Kind is NoiseLeverKind.RadioLevel or NoiseLeverKind.Floor ? new EngineSettingValue(shown ?? 0)
                 : new EngineSettingValue(FromShown(lever, shown ?? 0)), 0);
 
         private EngineSettingValue? Next(NoiseLever lever, EngineSettingValue current, int direction)
@@ -286,9 +363,9 @@ namespace JJFlexWpf
                     int v = (int)current.Number, next = e.Level!.Step(v, direction);
                     return next == v ? null : new EngineSettingValue(next);
                 }
-                case NoiseLeverKind.Strength:
+                case NoiseLeverKind.Floor:
                 {
-                    double next = Math.Clamp(current.Number + 5 * Math.Sign(direction), 0, 100);
+                    double next = Math.Clamp(current.Number + NoiseFloor.Step * FloorSign(direction), NoiseFloor.Min, NoiseFloor.Max);
                     return next == current.Number ? null : new EngineSettingValue(next);
                 }
                 case NoiseLeverKind.ListenRemoved:
@@ -325,7 +402,7 @@ namespace JJFlexWpf
             switch (lever.Kind)
             {
                 case NoiseLeverKind.RadioLevel: return new EngineSettingValue(edge < 0 ? e.Level!.Min : e.Level!.Max);
-                case NoiseLeverKind.Strength: return new EngineSettingValue(edge < 0 ? 0 : 100);
+                case NoiseLeverKind.Floor: return new EngineSettingValue(FloorSign(edge) < 0 ? NoiseFloor.Min : NoiseFloor.Max);
                 case NoiseLeverKind.ListenRemoved: return new EngineSettingValue(edge < 0 ? 0 : 1);
                 default:
                     var d = lever.Descriptor!;
@@ -338,14 +415,14 @@ namespace JJFlexWpf
             }
         }
 
-        /// <summary>The value a lever holds, in the form <see cref="Next"/> works on: a radio level or Strength as shown, a setting raw.</summary>
+        /// <summary>The value a lever holds, in the form <see cref="Next"/> works on: a radio level or the floor as shown, a setting raw.</summary>
         private EngineSettingValue Raw(NoiseLever lever)
         {
             var e = _catalog.Find(lever.EngineId)!;
             return lever.Kind switch
             {
                 NoiseLeverKind.RadioLevel => new EngineSettingValue(ReadRadioLevel(e) ?? e.Level!.Min),
-                NoiseLeverKind.Strength => new EngineSettingValue(NumberOf(lever) ?? 100),
+                NoiseLeverKind.Floor => new EngineSettingValue(NumberOf(lever) ?? NoiseFloor.DefaultFloor(e.Id, DenoiseDirection.Receive)),
                 NoiseLeverKind.ListenRemoved => new EngineSettingValue(NumberOf(lever) ?? 0),
                 _ => SlotFor(e)!.GetSetting(e.Id, lever.Descriptor!.Name),
             };
@@ -401,12 +478,12 @@ namespace JJFlexWpf
                     NoiseSettingsJournal.Record(NoiseJournalKind.Lever, source, e.Id, "level", was?.ToString() ?? "", v.ToString());
                     return true;
                 }
-                case NoiseLeverKind.Strength:
+                case NoiseLeverKind.Floor:
                 {
                     var slot = SlotFor(e)!;
                     float was = slot.GetStrength(e.Id);
-                    slot.SetStrength(e.Id, (float)(Math.Clamp(value.Number, 0, 100) / 100));
-                    NoiseSettingsJournal.Record(NoiseJournalKind.Strength, source, e.Id, "strength", Pct(was), Pct(slot.GetStrength(e.Id)));
+                    slot.SetStrength(e.Id, NoiseFloor.ToStrength(value.Number));
+                    NoiseSettingsJournal.Record(NoiseJournalKind.Floor, source, e.Id, FloorKey, FloorText(was), FloorText(slot.GetStrength(e.Id)));
                     _persist();
                     return true;
                 }
@@ -431,13 +508,21 @@ namespace JJFlexWpf
             }
         }
 
-        private static string Pct(float strength) => Math.Round(strength * 100).ToString(CultureInfo.InvariantCulture);
+        /// <summary>A stored Strength as the floor the journal and a preset's before-and-after record (#1019).</summary>
+        private static string FloorText(float strength) => NoiseFloor.FromStrength(strength).ToString(CultureInfo.InvariantCulture);
         private static string Describe(EngineSettingValue v) => v.Choice ?? v.Number.ToString(CultureInfo.InvariantCulture);
 
         private void SpeakLever(NoiseLever lever, DenoiseEngineEntry e)
         {
             string name = Lexicon.Get(e.LabelKey), leverName = LeverName(lever), value = ValueText(lever);
             bool on = IsOn(e.Id);
+            // A model that cannot run here is kept as an intent and refused with
+            // the reason, exactly as choosing an unavailable engine is (#1019, B3).
+            if (lever.Key == "model" && ChosenOption(lever)?.Probe is { } probe && SafeProbe(probe, e.Id) is var reason && reason != Unavailability.None)
+            {
+                SpeakUnavailable(e, reason, kept: true);
+                return;
+            }
             if (lever.Kind == NoiseLeverKind.ListenRemoved)
             {
                 bool listening = NumberOf(lever) == 1;
@@ -543,12 +628,14 @@ namespace JJFlexWpf
             var said = new List<string>();
             float strength = DefaultStrength(id);
             if (Math.Abs(slot.GetStrength(id) - strength) > 0.0001)
-                changes.Add(new NoiseJournalChange(id, "strength", Pct(slot.GetStrength(id)), Pct(strength)));
+                changes.Add(new NoiseJournalChange(id, FloorKey, FloorText(slot.GetStrength(id)), FloorText(strength)));
             slot.SetStrength(id, strength);
             foreach (var d in e.Settings)
             {
                 var target = DefaultFor(e, d);
-                if (d.Name == "model" && CurrentGroup == NoiseModeGroup.Cw) target = new EngineSettingValue(0, NoiseModeRules.ChooseCwModel(_cwCost).Model);
+                // NNR's model only: in CW it returns to the CW model the rule picks.
+                // RNNoise's model has no CW rule (#1015, nothing ruled) and returns to its default.
+                if (e.Id == "nnr" && d.Name == "model" && CurrentGroup == NoiseModeGroup.Cw) target = new EngineSettingValue(0, NoiseModeRules.ChooseCwModel(_cwCost).Model);
                 var was = slot.GetSetting(id, d.Name);
                 if (!Same(was, target))
                 {
@@ -571,8 +658,8 @@ namespace JJFlexWpf
         private static bool Same(EngineSettingValue a, EngineSettingValue b) =>
             string.Equals(a.Choice, b.Choice, StringComparison.Ordinal) && (a.Choice != null || Math.Abs(a.Number - b.Number) < 1e-9);
 
-        /// <summary>A slot's Strength default per engine: RNNoise starts at 80 percent, every other at 100 (design part one).</summary>
-        public static float DefaultStrength(string id) => id == "rnnoise" ? 0.8f : 1f;
+        /// <summary>A receive slot's stored Strength default per engine, from the one source (<see cref="NoiseFloor.DefaultStrength"/>, ruled S3 2026-11-09).</summary>
+        public static float DefaultStrength(string id) => NoiseFloor.DefaultStrength(id, DenoiseDirection.Receive);
 
         // ────────────────────────────────────────────────────────────────
         //  Say what is active
@@ -638,14 +725,31 @@ namespace JJFlexWpf
                 }
                 var reason = SafeAvailability(e);
                 if (reason == Unavailability.None)
-                {
                     lines.Add(Lexicon.Get("audio.noise_availability.available_line", ("engine", name), ("status", Lexicon.Get("audio.noise_availability.available"))));
-                    continue;
-                }
-                lines.Add(Lexicon.Get("audio.noise_availability.line", ("engine", name), ("status", Lexicon.Get("audio.noise_availability.unavailable")),
-                    ("reason", Lexicon.Get(AvailabilityReasonKey(reason)))));
+                else
+                    lines.Add(Lexicon.Get("audio.noise_availability.line", ("engine", name), ("status", Lexicon.Get("audio.noise_availability.unavailable")),
+                        ("reason", Lexicon.Get(AvailabilityReasonKey(reason)))));
+                lines.AddRange(ModelAvailabilityLines(e, name));
             }
             return lines;
+        }
+
+        /// <summary>
+        /// One line for each model of an engine that cannot run here, with its
+        /// reason (#1019: an RNNoise model whose library is missing). Models that
+        /// can run add nothing, so a healthy install reads exactly as before.
+        /// </summary>
+        private IEnumerable<string> ModelAvailabilityLines(DenoiseEngineEntry e, string engineName)
+        {
+            if (e.Settings.FirstOrDefault(d => d.Name == "model") is not { Options: { } options }) yield break;
+            foreach (var option in options)
+            {
+                if (option.Probe is not { } probe) continue;
+                var reason = SafeProbe(probe, e.Id + "." + option.Name);
+                if (reason == Unavailability.None) continue;
+                yield return Lexicon.Get("audio.noise_availability.model_line", ("engine", engineName), ("model", Lexicon.Get(option.LabelKey)),
+                    ("status", Lexicon.Get("audio.noise_availability.unavailable")), ("reason", Lexicon.Get(AvailabilityReasonKey(reason))));
+            }
         }
     }
 }

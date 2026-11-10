@@ -73,8 +73,15 @@ namespace JJFlexWpf
         Func<Unavailability>? Probe = null, RadioCapability? Capability = null,
         Func<FlexBase, OffOnValues>? ReadRadio = null, Action<FlexBase, OffOnValues>? WriteRadio = null,
         IReadOnlyList<EngineSettingDescriptor>? SettingDescriptors = null,
-        DenoiseGroup Group = DenoiseGroup.NoiseReduction, RadioLevelSpec? Level = null, bool CwOnly = false)
+        DenoiseGroup Group = DenoiseGroup.NoiseReduction, RadioLevelSpec? Level = null, bool CwOnly = false,
+        string? ReductionSetting = null)
     {
+        // ReductionSetting (#1019, S2 confirmed by Noel 2026-11-09 16:43): the
+        // name of the computer engine's OWN reduction setting, when it has one
+        // (DeepFilterNet3's limit, NR4's reduction, NNR's Depth, Captured noise's
+        // amount). Such an engine shows that setting first and keeps the noise
+        // floor in Advanced, default 0; an engine without one (RNNoise, NR2)
+        // shows the floor first among its main controls.
         public IReadOnlyList<EngineSettingDescriptor> Settings => SettingDescriptors ?? Array.Empty<EngineSettingDescriptor>();
         public bool Serves(DenoiseDirection direction) => Directions.Contains(direction);
         public Unavailability Availability() => Probe?.Invoke() ?? Unavailability.LibraryMissing;
@@ -140,6 +147,15 @@ namespace JJFlexWpf
             new EngineSettingDescriptor("mask_floor_db", "audio.denoise.nnr.mask_floor_db", EngineSettingKind.Number,
                 new EngineSettingValue(-25), -50, -10, 1, "audio.unit.decibels"),
         };
+
+        /// <summary>
+        /// About how long a computer engine that runs in this process delays the
+        /// audio, in milliseconds, before it runs and reports its own figure: RNNoise
+        /// by its chosen model (#1019: v0.1.1 about 10 ms, the 0.2 models about 20).
+        /// Null for any other engine.
+        /// </summary>
+        public static int? ExpectedEngineDelayMs(string engineId, string? model) =>
+            engineId == "rnnoise" ? (int)Math.Round(RnnoiseModels.LatencySamples(model ?? RnnoiseModels.Default) / 48.0) : null;
 
         /// <summary>The NR2 descriptors the helper offers, mirrored for the same reason as <see cref="NnrMirror"/>. All five are Advanced (ruled, question 15); NR2's normal lever is Strength.</summary>
         public static readonly IReadOnlyList<EngineSettingDescriptor> Nr2Mirror = new[]
@@ -258,16 +274,19 @@ namespace JJFlexWpf
                 SettingDescriptors: Nr2Mirror);
             yield return new("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr4", Both,
                 initial => new SpecbleachEngine(initial, estimator: SpecbleachEngine.EstimatorFrom(initial)),
-                SpecbleachEngine.Probe, SettingDescriptors: SpecbleachEngine.SettingDescriptors);
+                SpecbleachEngine.Probe, SettingDescriptors: SpecbleachEngine.SettingDescriptors, ReductionSetting: "reduction_db");
             yield return new("spectral_capture", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.spectral_capture", Receive,
-                _ => new SpectralCaptureEngine(), () => Unavailability.None, SettingDescriptors: SpectralCaptureEngine.SettingDescriptors);
+                _ => new SpectralCaptureEngine(), () => Unavailability.None, SettingDescriptors: SpectralCaptureEngine.SettingDescriptors,
+                ReductionSetting: "subtraction_amount");
             yield return new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.rnnoise", Both,
-                _ => new RnnoiseEngine(), ProbeRnnoise);
+                initial => new RnnoiseEngine(model: initial.TryGetValue("model", out var model) && model.Choice is string m ? m : RnnoiseModels.Default),
+                () => RnnoiseEngine.Probe(RnnoiseModels.Default), SettingDescriptors: RnnoiseEngine.SettingDescriptors);
             yield return new("deepfilternet3", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.deepfilternet3", Both,
-                initial => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors);
+                initial => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors,
+                ReductionSetting: "attenuation_limit_db");
             yield return new("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr", Both,
                 initial => new WdspHelperEngine("nnr", DenoiseDirection.Receive, initial), () => WdspHelperEngine.Probe("nnr"),
-                SettingDescriptors: NnrMirror);
+                SettingDescriptors: NnrMirror, ReductionSetting: "mask_floor_db");
             // Track G (#768) builds NVIDIA NR. Until then the row is listed,
             // marked and self-explaining, and has no factory.
             yield return new("nvidia_afx", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nvidia_afx", Both,
@@ -297,20 +316,6 @@ namespace JJFlexWpf
                 ReadRadio: r => r.APF, WriteRadio: (r, v) => r.APF = v, Group: DenoiseGroup.BlankersAndNotches, CwOnly: true,
                 Level: new RadioLevelSpec(FlexBase.AutoPeakLevelMin, FlexBase.AutoPeakLevelMax, true,
                     r => r.AutoPeakLevel, (r, v) => r.AutoPeakLevel = v));
-        }
-
-        private static Unavailability ProbeRnnoise()
-        {
-            try
-            {
-                string library = RnnoiseEngine.LocateLibrary();
-                if (!File.Exists(library)) return Unavailability.LibraryMissing;
-                using var stream = File.OpenRead(library);
-                using var pe = new PEReader(stream);
-                var expected = Environment.Is64BitProcess ? Machine.Amd64 : Machine.I386;
-                return pe.PEHeaders.CoffHeader.Machine == expected ? Unavailability.None : Unavailability.InitFailed;
-            }
-            catch { return Unavailability.InitFailed; }
         }
 
         private static Unavailability ProbeDeepFilter()

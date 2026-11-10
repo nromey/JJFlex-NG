@@ -17,7 +17,17 @@ namespace JJFlexWpf
 
         /// <summary>A favourite's spoken name: the operator's own, else the engine's name and its model's ("NNR Premium CW").</summary>
         public string FavouriteName(NoiseFavourite f) =>
-            f.Name.Length > 0 ? f.Name : f.Model is { Length: > 0 } m ? NameOf(f.EngineId) + " " + ModelName(m) : NameOf(f.EngineId);
+            f.Name.Length > 0 ? f.Name : f.Model is { Length: > 0 } m && !QuietModel(f.EngineId, m) ? NameOf(f.EngineId) + " " + ModelName(m) : NameOf(f.EngineId);
+
+        /// <summary>
+        /// Whether a favourite's model goes unsaid: the DEFAULT model of an engine
+        /// whose model is an Advanced setting (RNNoise, #1019). An operator who never
+        /// opened Advanced hears "RNNoise", as before the model existed; a
+        /// favourite on another model is named with it. NNR's model is a main
+        /// lever, so NNR favourites are always named with their model, as before.
+        /// </summary>
+        private bool QuietModel(string engineId, string model) =>
+            _catalog.Find(engineId)?.Settings.FirstOrDefault(d => d.Name == "model") is { Advanced: true } d && d.Default.Choice == model;
 
         /// <summary>The model an engine is set to now, for a favourite to carry; null for an engine with no model.</summary>
         public string? CurrentModel(string id)

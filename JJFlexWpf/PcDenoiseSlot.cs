@@ -23,7 +23,27 @@ namespace JJFlexWpf
     /// </summary>
     public sealed class PcDenoiseSlot
     {
-        private sealed record Parameters(float Strength, IReadOnlyDictionary<string, EngineSettingValue> Values);
+        /// <summary>
+        /// An engine's stored Strength and values. <paramref name="Live"/> is the
+        /// values a RUNNING instance takes (every value but a rebuild setting's),
+        /// worked out once on the control side when the record is made (repair
+        /// round 2), so <see cref="ApplyParameters"/> walks an array on the audio
+        /// thread with no enumerator, no LINQ and no allocation. Make one with
+        /// <see cref="MakeParameters"/> whenever <paramref name="Values"/> changes;
+        /// a <c>with</c> that changes only the Strength keeps the same Live.
+        /// </summary>
+        private sealed record Parameters(float Strength, IReadOnlyDictionary<string, EngineSettingValue> Values,
+            KeyValuePair<string, EngineSettingValue>[] Live);
+
+        /// <summary>A record for these values, with its live settings worked out here, off the audio thread.</summary>
+        private Parameters MakeParameters(string id, float strength, IReadOnlyDictionary<string, EngineSettingValue> values)
+        {
+            var settings = SettingsFor(id);
+            var live = new List<KeyValuePair<string, EngineSettingValue>>(values.Count);
+            foreach (var pair in values)
+                if (!settings.Any(s => s.Name == pair.Key && s.NeedsRebuild)) live.Add(pair);
+            return new Parameters(strength, values, live.ToArray());
+        }
         private sealed record Choice(long Generation, string Id, DenoiseDirection Direction = DenoiseDirection.Receive)
         {
             internal int BuildClaim;
@@ -120,6 +140,8 @@ namespace JJFlexWpf
             DenoiseEngineCatalog catalog)
         {
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
+            // Every engine's default parameters, made here rather than on the audio thread (repair round 1).
+            foreach (var row in catalog.Entries) DefaultParameters(row.Id);
             _choice = new Choice(0, initialId);
             var entry = catalog.Find(initialId);
             _choice.Entry = entry;
@@ -148,13 +170,49 @@ namespace JJFlexWpf
             }
         }
 
-        private Parameters ParametersFor(string id) => _settings.GetOrAdd(id,
-            key => new Parameters(key == "rnnoise" ? 0.8f : 1f, new Dictionary<string, EngineSettingValue>()));
+        /// <summary>
+        /// An engine's stored parameters, or its defaults read live when nobody
+        /// has touched it (#1019). Reading stores NOTHING: until Sprint 49 Track S
+        /// this was a GetOrAdd, so the first read wrote the default into the
+        /// store, every setup saved it, and a new default could never reach an
+        /// engine the operator had never touched.
+        /// </summary>
+        private Parameters ParametersFor(string id) =>
+            _settings.TryGetValue(id, out var p) ? p : DefaultParameters(id);
+
+        /// <summary>The one empty, read-only value set every untouched engine shares.</summary>
+        private static readonly IReadOnlyDictionary<string, EngineSettingValue> NoValues =
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, EngineSettingValue>(new Dictionary<string, EngineSettingValue>());
+
+        /// <summary>
+        /// One immutable default <see cref="Parameters"/> per engine, kept APART from
+        /// the store so reading still stores nothing (#1019). Built for every catalog
+        /// engine in the constructor, off the audio thread (repair round 1): the
+        /// audio thread reads an untouched engine's Strength every buffer, and
+        /// <see cref="ApplyParameters"/> compares by reference, so this must hand
+        /// back the same instance every time and allocate nothing.
+        /// </summary>
+        private readonly ConcurrentDictionary<string, Parameters> _defaults = new();
+
+        /// <summary>An untouched engine's parameters: its default Strength from the one source, no values. The same instance on every call.</summary>
+        private Parameters DefaultParameters(string id)
+        {
+            // TryGetValue first: GetOrAdd with a lambda that captures this slot
+            // would allocate a delegate on every call, on the audio thread too.
+            if (_defaults.TryGetValue(id, out var cached)) return cached;
+            var made = new Parameters(NoiseFloor.DefaultStrength(id, Direction), NoValues, Array.Empty<KeyValuePair<string, EngineSettingValue>>());
+            return _defaults.GetOrAdd(id, made);
+        }
+
+        /// <summary>Tests only: the parameters an engine reads now, to prove an untouched engine's are one instance.</summary>
+        internal object ParametersForTest(string id) => ParametersFor(id);
+
+        /// <summary>The stored wet fraction, 0 to 1. Surfaces show it as a noise floor through <see cref="NoiseController"/>'s lever, never by their own arithmetic.</summary>
         public float GetStrength(string id) => ParametersFor(id).Strength;
         public void SetStrength(string id, float value)
         {
             if (!float.IsFinite(value)) return;
-            _settings.AddOrUpdate(id, _ => new Parameters(Math.Clamp(value, 0, 1), new Dictionary<string, EngineSettingValue>()),
+            _settings.AddOrUpdate(id, key => DefaultParameters(key) with { Strength = Math.Clamp(value, 0, 1) },
                 (_, p) => p with { Strength = Math.Clamp(value, 0, 1) });
         }
         public IReadOnlyList<EngineSettingDescriptor> SettingsFor(string id)
@@ -174,8 +232,12 @@ namespace JJFlexWpf
         {
             var descriptor = SettingsFor(id).FirstOrDefault(s => s.Name == name);
             if (descriptor == null || !descriptor.Accepts(value)) return false;
-            _settings.AddOrUpdate(id, _ => new Parameters(1, new Dictionary<string, EngineSettingValue> { [name] = value }),
-                (_, p) => p with { Values = new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value } });
+            // A first setting on an untouched engine keeps its default Strength
+            // (#1019): this used to create the entry at Strength 1 whatever the
+            // engine, so choosing RNNoise's model on a fresh setup would have
+            // silently set its floor to 0.
+            _settings.AddOrUpdate(id, key => MakeParameters(key, DefaultParameters(key).Strength, new Dictionary<string, EngineSettingValue> { [name] = value }),
+                (key, p) => MakeParameters(key, p.Strength, new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value }));
             // A rebuild setting (a new delay, or NR4's estimator) only takes
             // effect in a new instance, built under the warm-up cross-fade.
             if (descriptor.NeedsRebuild && ChosenEngineId == id) Select(id, out _, force: true);
@@ -281,10 +343,11 @@ namespace JJFlexWpf
         {
             var p = ParametersFor(id);
             if (ReferenceEquals(p, applied)) return;
+            // On the audio thread: an array and two for loops, nothing else (repair round 2).
+            var live = p.Live;
             for (int ch = 0; ch < bank.Channels; ch++)
-                foreach (var setting in p.Values)
-                    if (!SettingsFor(id).Any(s => s.Name == setting.Key && s.NeedsRebuild))
-                        bank.EngineFor(ch).TrySetSetting(setting.Key, setting.Value);
+                for (int i = 0; i < live.Length; i++)
+                    bank.EngineFor(ch).TrySetSetting(live[i].Key, live[i].Value);
             applied = p;
         }
 
@@ -501,7 +564,8 @@ namespace JJFlexWpf
                 // stored is silently reset to a default. A name this build does
                 // not know is kept as it was, for a newer build to read back.
                 var descriptors = row.Settings;
-                _settings[record.EngineId] = new Parameters(float.IsFinite(record.Strength) ? Math.Clamp(record.Strength, 0, 1) : ParametersFor(record.EngineId).Strength,
+                _settings[record.EngineId] = MakeParameters(record.EngineId,
+                    float.IsFinite(record.Strength) ? Math.Clamp(record.Strength, 0, 1) : ParametersFor(record.EngineId).Strength,
                     record.Values.GroupBy(v => v.Name).ToDictionary(v => v.Key, v =>
                     {
                         var stored = new EngineSettingValue(v.Last().Number, v.Last().Choice);

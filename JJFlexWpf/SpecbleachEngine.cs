@@ -554,61 +554,48 @@ namespace JJFlexWpf
             public uint GetFrameSize(IntPtr instance) => _frameSize(instance);
             public uint GetFftSize(IntPtr instance) => _fftSize(instance);
 
-            private static readonly object Gate = new();
-            private static string? _loadedPath;
-            private static Api? _loaded;
-
-            /// <summary>One handle per process: the library is never unloaded.</summary>
+            /// <summary>
+            /// One handle per process, through the shared loader (#1016, Sprint 49
+            /// Track S; NativeEngineLibrary). The checks and the problems they report
+            /// are unchanged, in the same order: the file will not load, then it lacks
+            /// the denoiser API; the version is read and traced only for a library
+            /// that has it all. A handle refused for a missing export is now freed
+            /// rather than kept.
+            /// </summary>
             public static Api? Load(string path, out string? problem)
             {
-                lock (Gate)
+                problem = null;
+                var api = NativeEngineLibrary.TryLoad(path, "specbleach", exports =>
                 {
-                    problem = null;
-                    if (_loaded != null && string.Equals(_loadedPath, path, StringComparison.OrdinalIgnoreCase))
-                        return _loaded;
-
-                    if (!NativeLibrary.TryLoad(path, out IntPtr h))
+                    var defaults = exports.TryBind<GetDefaultsFn>("specbleach_denoiser_get_default_parameters");
+                    var initialize = exports.TryBind<InitializeFn>("specbleach_denoiser_initialize");
+                    var free = exports.TryBind<FreeFn>("specbleach_denoiser_free");
+                    var load = exports.TryBind<LoadParametersFn>("specbleach_denoiser_load_parameters");
+                    var process = exports.TryBind<ProcessFn>("specbleach_denoiser_process");
+                    var latency = exports.TryBind<QueryFn>("specbleach_denoiser_get_latency");
+                    var frameSize = exports.TryBind<QueryFn>("specbleach_denoiser_get_frame_size");
+                    var fftSize = exports.TryBind<QueryFn>("specbleach_denoiser_get_fft_size");
+                    var version = exports.TryBind<VersionFn>("specbleach_get_version_string");
+                    if (defaults == null || initialize == null || free == null || load == null || process == null
+                        || latency == null || frameSize == null || fftSize == null || version == null) return null;
+                    var made = new Api
                     {
-                        problem = $"{path} exists but would not load (not a DLL, the wrong architecture, or a missing dependency).";
-                        return null;
-                    }
-
-                    var api = new Api();
-                    if (!Bind(h, "specbleach_denoiser_get_default_parameters", out IntPtr defaults)
-                        || !Bind(h, "specbleach_denoiser_initialize", out IntPtr initialize)
-                        || !Bind(h, "specbleach_denoiser_free", out IntPtr free)
-                        || !Bind(h, "specbleach_denoiser_load_parameters", out IntPtr load)
-                        || !Bind(h, "specbleach_denoiser_process", out IntPtr process)
-                        || !Bind(h, "specbleach_denoiser_get_latency", out IntPtr latency)
-                        || !Bind(h, "specbleach_denoiser_get_frame_size", out IntPtr frameSize)
-                        || !Bind(h, "specbleach_denoiser_get_fft_size", out IntPtr fftSize)
-                        || !Bind(h, "specbleach_get_version_string", out IntPtr version))
-                    {
-                        problem = $"{path} loaded but does not export libspecbleach's denoiser API (0.4.0 or later).";
-                        return null;
-                    }
-                    api._defaults = Marshal.GetDelegateForFunctionPointer<GetDefaultsFn>(defaults);
-                    api._initialize = Marshal.GetDelegateForFunctionPointer<InitializeFn>(initialize);
-                    api._free = Marshal.GetDelegateForFunctionPointer<FreeFn>(free);
-                    api._load = Marshal.GetDelegateForFunctionPointer<LoadParametersFn>(load);
-                    api._process = Marshal.GetDelegateForFunctionPointer<ProcessFn>(process);
-                    api._latency = Marshal.GetDelegateForFunctionPointer<QueryFn>(latency);
-                    api._frameSize = Marshal.GetDelegateForFunctionPointer<QueryFn>(frameSize);
-                    api._fftSize = Marshal.GetDelegateForFunctionPointer<QueryFn>(fftSize);
-                    IntPtr text = Marshal.GetDelegateForFunctionPointer<VersionFn>(version)();
-                    api.Version = text == IntPtr.Zero ? "" : Marshal.PtrToStringAnsi(text) ?? "";
+                        _defaults = defaults, _initialize = initialize, _free = free, _load = load, _process = process,
+                        _latency = latency, _frameSize = frameSize, _fftSize = fftSize,
+                    };
+                    IntPtr text = version();
+                    made.Version = text == IntPtr.Zero ? "" : Marshal.PtrToStringAnsi(text) ?? "";
 
                     // Traced, never refused: the LGPL entitles the operator to replace this library.
-                    Trace.WriteLine($"SpecbleachEngine: loaded {path}, which reports \"{api.Version}\" (built against libspecbleach 0.4.1).");
-
-                    _loadedPath = path;
-                    _loaded = api;
-                    return api;
-                }
+                    Trace.WriteLine($"SpecbleachEngine: loaded {path}, which reports \"{made.Version}\" (built against libspecbleach 0.4.1).");
+                    return made;
+                }, out bool loaded);
+                if (api != null) return api;
+                problem = loaded
+                    ? $"{path} loaded but does not export libspecbleach's denoiser API (0.4.0 or later)."
+                    : $"{path} exists but would not load (not a DLL, the wrong architecture, or a missing dependency).";
+                return null;
             }
-
-            private static bool Bind(IntPtr h, string name, out IntPtr fn)
-                => NativeLibrary.TryGetExport(h, name, out fn);
         }
     }
 

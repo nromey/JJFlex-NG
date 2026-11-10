@@ -715,7 +715,7 @@ public class NativeMenuBar : IDisposable
                     foreach (var option in noise.OptionsFor(l))
                     {
                         var o = option;
-                        AddRadioChecked(choices, Radios.Lexicon.Get(o.LabelKey),
+                        AddRadioChecked(choices, noise.OptionText(o),
                             () => AfterMenu(n => n.Set(l, null, o.Name, MenuSource)),
                             () => _window.Noise.ChoiceOf(l) == o.Name);
                     }

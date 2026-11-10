@@ -115,20 +115,27 @@ public sealed class NoiseLayerKeysTests
         var keys = new NoiseLayerKeys(f.Noise);
         keys.Handle(Keys.Up);
         Assert.StartsWith("Choose an engine first", f.Spoken.Last);
-        keys.Handle(Keys.N | Keys.Control);          // NNR: Strength, Model, Depth
-        keys.Handle(Keys.Down);                      // Strength 95
-        Assert.Equal(0.95f, f.Pipeline.NeuralSlot.GetStrength("nnr"), 3);
+        // #1019: NNR leads with Depth, then Model, then (Advanced) the noise floor.
+        keys.Handle(Keys.N | Keys.Control);          // NNR: Depth, Model, noise floor
+        keys.Handle(Keys.Down);                      // Depth 24
+        Assert.Equal(-24, f.Pipeline.NeuralSlot.GetSetting("nnr", "mask_floor_db").Number);
         keys.Handle(Keys.Tab);
         Assert.Equal("Model, Standard voice.", f.Spoken.Last);
         keys.Handle(Keys.Tab);
-        Assert.Equal("Depth, 25 decibels.", f.Spoken.Last);
+        Assert.Equal(NoiseLeverKind.Floor, f.Noise.CurrentLever!.Kind);
+        keys.Handle(Keys.Up);                        // noise floor 5
+        Assert.Equal(0.95f, f.Pipeline.NeuralSlot.GetStrength("nnr"), 3);
+        keys.Handle(Keys.Tab | Keys.Shift);
+        keys.Handle(Keys.Tab | Keys.Shift);
+        Assert.Equal("Depth, 24 decibels.", f.Spoken.Last);
+        keys.Handle(Keys.Up);
         keys.Handle(Keys.Up);
         Assert.Equal(-26, f.Pipeline.NeuralSlot.GetSetting("nnr", "mask_floor_db").Number);
         keys.Handle(Keys.End);
         Assert.Equal(-50, f.Pipeline.NeuralSlot.GetSetting("nnr", "mask_floor_db").Number);
         keys.Handle(Keys.Home);
         Assert.Equal(-10, f.Pipeline.NeuralSlot.GetSetting("nnr", "mask_floor_db").Number);
-        keys.Handle(Keys.Tab | Keys.Shift);
+        keys.Handle(Keys.Tab);
         Assert.Equal("Model, Standard voice.", f.Spoken.Last);
     }
 
