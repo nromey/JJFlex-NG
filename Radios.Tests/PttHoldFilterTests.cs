@@ -434,7 +434,8 @@ namespace Radios.Tests
             int elapsed = main.IndexOf("if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))", StringComparison.Ordinal);
             int traced = main.IndexOf("Tracing.TraceLine(Radios.PttHoldFilter.DescribeRelease(released)", StringComparison.Ordinal);
             int up = main.IndexOf("_pttController?.PttUp();", elapsed, StringComparison.Ordinal);
-            Assert.True(elapsed > 0 && traced > elapsed && up > traced, "traced on the release, before the unkey");
+            int done = main.IndexOf("return;", up, StringComparison.Ordinal);
+            Assert.True(elapsed > 0 && up > elapsed && traced > up && traced < done, "traced on the release, after the unkey");
         }
 
         [Fact]

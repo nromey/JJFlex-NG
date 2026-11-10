@@ -3689,11 +3689,6 @@ public partial class MainWindow : UserControl
                 _pttDeferTimer!.Stop();
                 if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))
                 {
-                    // One line per deferred release, with its extensions and
-                    // what it cost (#704); the first-extension line below
-                    // stays.
-                    if (_pttHoldFilter.LastDeferredRelease is { } released)
-                        Tracing.TraceLine(Radios.PttHoldFilter.DescribeRelease(released), TraceLevel.Info);
                     _pttController?.PttUp();
                     // The hold is over, so the dialog that keyed it (if one
                     // did) has nothing left to release: drop its
@@ -3702,6 +3697,10 @@ public partial class MainWindow : UserControl
                     // Codex F2). Nothing to do when no dialog holds.
                     DialogTransmitKeys.HoldReleased();
                     EndAppEndedHold("the key was let go");   // a hold the app ended (7a): the release is real
+                    // One line per deferred release, its extensions and what
+                    // it cost (#704), after the unkey so nothing delays it.
+                    if (_pttHoldFilter.LastDeferredRelease is { } released)
+                        Tracing.TraceLine(Radios.PttHoldFilter.DescribeRelease(released), TraceLevel.Info);
                     return;
                 }
 

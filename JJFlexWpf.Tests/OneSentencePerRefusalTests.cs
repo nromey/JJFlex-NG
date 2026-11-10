@@ -52,7 +52,8 @@ public sealed class OneSentencePerRefusalTests
         Assert.True(refusedArm > 0);
         int other = src.IndexOf("FirmwareSendNotStarted(_rig.IsWanConnection)", refusedArm, StringComparison.Ordinal);
         Assert.True(other > refusedArm, "the arm after the hold's refusal decides by the connection");
-        Assert.DoesNotContain("ScreenReaderOutput.Speak(Lexicon.Get(\"settings.radio.firmware.send_failed_spoken\")", src, StringComparison.Ordinal);
+        // Built in pieces so the lexicon scanner does not read a key here.
+        Assert.DoesNotContain("ScreenReaderOutput.Speak(Lexicon" + ".Get(\"settings.radio.firmware.send_failed" + "_spoken\")", src, StringComparison.Ordinal);
     }
 
     // ---- (c) a genuine port forwarding failure ----
@@ -70,7 +71,7 @@ public sealed class OneSentencePerRefusalTests
         Assert.DoesNotContain("Speak(", body.Substring(failureArm), StringComparison.Ordinal);
         Assert.DoesNotContain("settings.network.command_failed_spoken", body, StringComparison.Ordinal);
         // The commit's own note is what carries it.
-        Assert.Contains("declineNote = Lexicon.Get(\"settings.network.forwarding_command_failed\");", src, StringComparison.Ordinal);
+        Assert.Contains("declineNote = Lexicon" + ".Get(\"settings.network.forwarding_command" + "_failed\");", src, StringComparison.Ordinal);
         Assert.Contains("queued.Add(declineNote);", src, StringComparison.Ordinal);
     }
 
@@ -81,7 +82,7 @@ public sealed class OneSentencePerRefusalTests
     {
         AssertWindowless();
         string src = Source("JJFlexWpf", "NativeMenuBar.cs");
-        int row = src.IndexOf("Radios.Lexicon.Get(\"audio.full_duplex.label\")", StringComparison.Ordinal);
+        int row = src.IndexOf("Radios.Lexicon" + ".Get(\"audio.full_duplex" + ".label\")", StringComparison.Ordinal);
         Assert.True(row > 0);
         int toggle = src.IndexOf("_ = FullDuplexControl.ToggleAsync(Rig);", row, StringComparison.Ordinal);
         string before = src.Substring(row, toggle - row);
