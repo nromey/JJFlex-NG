@@ -50,14 +50,6 @@ namespace Radios.Speech
 
         /// <summary>A return code this code does not classify. The detail carries it.</summary>
         Other,
-
-        /// <summary>
-        /// Our own reader cancel landed on this utterance after the call that
-        /// asked for it had returned (#1040; see
-        /// <c>PacedSpeechDelivery.OwnCancelLandedLate</c>). The reader may well
-        /// have spoken it, so it is not re-sent and counts as said.
-        /// </summary>
-        OwnCancelLanded,
     }
 
     /// <summary>

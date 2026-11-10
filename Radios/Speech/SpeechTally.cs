@@ -80,8 +80,8 @@ namespace Radios.Speech
         /// Refused is counted by the delivery check that reports it. The
         /// reasons that re-send through the plain path (no channel, bad SSML,
         /// an unclassified code) are counted by that path, said or refused.
-        /// Timeout, Escaped and OwnCancelLanded count as said: the reader may
-        /// well have spoken, and the pump deliberately does not re-send them.
+        /// Timeout and Escaped count as said: the reader may well have spoken,
+        /// and the pump deliberately does not re-send them.
         /// </remarks>
         internal static PacedCount Classify(SpeechOutcome outcome)
         {
@@ -93,7 +93,6 @@ namespace Radios.Speech
                     return outcome.MarksReached > 0 ? PacedCount.Said : PacedCount.Unheard;
                 default:
                     return outcome.UnknownReason is SpeechUnknownReason.Timeout or SpeechUnknownReason.Escaped
-                        or SpeechUnknownReason.OwnCancelLanded
                         ? PacedCount.Said
                         : PacedCount.CountedElsewhere;
             }
