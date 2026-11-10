@@ -239,12 +239,14 @@ namespace JJFlexWpf
         /// available as that model: the engine follows the choice, so a missing
         /// tag library marks RNNoise only while the tag model is chosen.
         /// </summary>
-        private Unavailability SafeAvailability(DenoiseEngineEntry e)
+        /// <param name="e">The engine.</param>
+        /// <param name="wanted">The model a favourite will land on; null judges the model chosen now.</param>
+        private Unavailability SafeAvailability(DenoiseEngineEntry e, string? wanted = null)
         {
             if (e.Side == DenoiseSide.Pc && e.Settings.FirstOrDefault(d => d.Name == "model") is { Kind: EngineSettingKind.Choice } model
                 && model.Options?.Any(o => o.Probe != null) == true)
             {
-                string? chosen = SlotFor(e) is { } slot ? slot.GetSetting(e.Id, "model").Choice : model.Default.Choice;
+                string? chosen = wanted ?? (SlotFor(e) is { } slot ? slot.GetSetting(e.Id, "model").Choice : model.Default.Choice);
                 if (model.Options.FirstOrDefault(o => o.Name == chosen)?.Probe is { } probe) return SafeProbe(probe, e.Id + "." + chosen);
             }
             try { return e.Availability(); }
