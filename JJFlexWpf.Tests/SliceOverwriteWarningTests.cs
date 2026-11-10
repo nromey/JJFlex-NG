@@ -403,4 +403,37 @@ public sealed class SliceOverwriteWarningTests : IDisposable
         Assert.Contains("e.Key == Key.F11", dialog);
         Assert.Contains("answer != SliceOverwriteAnswer.Cancel && _dontShow.IsChecked == true", dialog);
     }
+
+    // ── Speech around the warning (desk checks on the 8600, 2026-11-09) ──
+
+    [Fact]
+    public void The_warning_leaves_its_opening_line_to_the_screen_reader_and_does_not_say_it_again()
+    {
+        string dialog = Source("JJFlexWpf", "Dialogs", "SliceOverwriteWarningDialog.cs");
+        // The window's description carries it: NVDA reads it with the title as the warning opens.
+        Assert.Contains("AutomationProperties.SetHelpText(this, _opening);", dialog);
+        // No copy of our own, so nothing is left queued to replay after the warning closes.
+        Assert.DoesNotContain("ScreenReaderOutput.Speak", dialog);
+        Assert.DoesNotContain("Loaded +=", dialog);
+    }
+
+    [Fact]
+    public void Cancel_and_Escape_close_the_warning_saying_nothing()
+    {
+        // Escape on "Replace the recording?" already means don't, and Home's own
+        // announcement of the returning focus says where the operator is (#999, C3).
+        // A sentence after the warning could only wait behind that announcement,
+        // 7 to 9 seconds on the 8600, and any key in the gap cancelled it.
+        string controls = Source("JJFlexWpf", "RecorderControls.cs");
+        string confirm = Body(controls, "public static async Task<OverwriteGo> ConfirmOverwriteAsync(");
+        Assert.Contains("SliceOverwriteAnswer.Cancel", confirm);             // the body found is the right one,
+        Assert.DoesNotContain("Speak", confirm);                              // and nothing in it speaks
+        int cancel = confirm.IndexOf("if (reply.Answer == Dialogs.SliceOverwriteAnswer.Cancel)", StringComparison.Ordinal);
+        Assert.True(cancel >= 0, "the Cancel branch was not found; this test no longer sees what it claims to");
+        string branch = confirm.Substring(cancel, confirm.IndexOf(';', cancel) - cancel);
+        Assert.Contains("return new(false, true, target)", branch);
+        Assert.DoesNotContain("AfterWarning", controls);
+        Assert.True(Lexicon.Contains("audio.recorder.overwrite.title"));      // the word list is loaded,
+        Assert.False(Lexicon.Contains("audio.recorder.overwrite.cancelled")); // and the sentence is gone from it
+    }
 }

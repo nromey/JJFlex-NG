@@ -2765,7 +2765,6 @@ namespace Radios.Tests
                 "audio.recorder.overwrite.help.back_up_first",
                 "audio.recorder.overwrite.help.cancel",
                 "audio.recorder.overwrite.help.dont_show",
-                "audio.recorder.overwrite.cancelled",
                 "audio.recorder.listen_refused_transmitting",
                 "audio.recorder.overwrite.setting",
                 "audio.recorder.overwrite.setting_help",

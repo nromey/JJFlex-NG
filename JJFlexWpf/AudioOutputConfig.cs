@@ -132,6 +132,28 @@ namespace JJFlexWpf
         [XmlElement("PendingWarnBeforeSliceRecordingOverwritten")]
         public string PendingSliceOverwriteWarning { get; set; } = "";
 
+        private const string PendingTargetElement = "PendingWarnBeforeSliceRecordingOverwrittenFor";
+
+        /// <summary>
+        /// The serial of the radio the waiting choice above is for (#999 N2), or
+        /// empty when it names none: a choice made while no radio had ever
+        /// connected, or one saved before this field existed. Recorded when a
+        /// connect could not save the choice to its radio, so a later connect of
+        /// another radio cannot take it
+        /// (<see cref="Radios.RadioConfig.PendingWarnChoiceWaiting"/>).
+        /// </summary>
+        /// <remarks>
+        /// Written with the choice and only by
+        /// <see cref="PendingSliceOverwriteWarningStore"/>; every other save carries
+        /// it over from the file, as it does the choice (<see cref="WriteTo"/>).
+        /// Absent from an older audioConfig.xml, which reads as naming no radio.
+        /// A build before N2 reading a newer file skips it, so on a downgrade the
+        /// choice goes by round 4's rule (the radio last connected), and that
+        /// build's next save of this file drops the element.
+        /// </remarks>
+        [XmlElement(PendingTargetElement)]
+        public string PendingSliceOverwriteWarningTarget { get; set; } = "";
+
         /// <summary>
         /// The VOX send box (#835): with VOX on, sends key the radio themselves. Off by
         /// default, and absent from an older audioConfig.xml, which deserializes
@@ -819,8 +841,11 @@ namespace JJFlexWpf
                 string path = Path.Combine(configDir, FileName);
                 // The waiting overwrite-warning choice has one writer (see the
                 // property). Every other save keeps what the file holds.
-                if (!writesPendingSliceOverwriteWarning && PendingSliceOverwriteWarningOnDisk(path) is string held)
+                if (!writesPendingSliceOverwriteWarning && PendingSliceOverwriteWarningOnDisk(path) is var (held, heldFor))
+                {
                     PendingSliceOverwriteWarning = held;
+                    PendingSliceOverwriteWarningTarget = heldFor;
+                }
                 // Anything this build writes is past the four-beat move, so a 5
                 // saved now is a choice and must not be "upgraded" on the next
                 // load, whichever path built this config (2026-10-29).
@@ -838,16 +863,18 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// The waiting overwrite-warning choice as the file at <paramref name="path"/>
-        /// holds it ("" for none), or null when there is no readable file to keep it from.
+        /// The waiting overwrite-warning choice and the radio it is for, as the
+        /// file at <paramref name="path"/> holds them ("" for none), or null when
+        /// there is no readable file to keep them from.
         /// </summary>
-        private static string? PendingSliceOverwriteWarningOnDisk(string path)
+        private static (string Value, string Target)? PendingSliceOverwriteWarningOnDisk(string path)
         {
             if (!File.Exists(path)) return null;
             try
             {
                 var root = System.Xml.Linq.XDocument.Load(path).Root;
-                return root?.Element("PendingWarnBeforeSliceRecordingOverwritten")?.Value ?? "";
+                return (root?.Element("PendingWarnBeforeSliceRecordingOverwritten")?.Value ?? "",
+                        root?.Element(PendingTargetElement)?.Value ?? "");
             }
             catch (Exception ex)
             {
@@ -870,24 +897,34 @@ namespace JJFlexWpf
             /// <param name="directory">The config root, resolved at each use (the app passes <see cref="Radios.RadioConfig.AppDataRoot"/>).</param>
             public PendingSliceOverwriteWarningStore(Func<string> directory) => _directory = directory;
 
-            public bool? Read()
+            /// <summary>
+            /// The waiting choice and the radio it is for. A file written before
+            /// #999 N2 has no radio element, and reads as a choice naming no radio
+            /// (round 4's rule picks the radio); a radio with no choice beside it
+            /// reads as no choice.
+            /// </summary>
+            public Radios.PendingWarnChoice? Read()
             {
                 string dir = _directory();
                 if (string.IsNullOrEmpty(dir)) return null;
-                return Load(dir).PendingSliceOverwriteWarning switch
+                var config = Load(dir);
+                bool? warn = config.PendingSliceOverwriteWarning switch
                 {
                     "true" => true,
                     "false" => false,
                     _ => null,
                 };
+                return warn is bool w ? new Radios.PendingWarnChoice(w, config.PendingSliceOverwriteWarningTarget ?? "") : null;
             }
 
-            public bool Write(bool? value)
+            /// <summary>Write the choice and its radio together; null clears both.</summary>
+            public bool Write(Radios.PendingWarnChoice? value)
             {
                 string dir = _directory();
                 if (string.IsNullOrEmpty(dir)) return false;
                 var config = Load(dir);
-                config.PendingSliceOverwriteWarning = value switch { true => "true", false => "false", null => "" };
+                config.PendingSliceOverwriteWarning = value switch { null => "", { Warn: true } => "true", _ => "false" };
+                config.PendingSliceOverwriteWarningTarget = value?.Target ?? "";
                 return config.WriteTo(CanonicalDir(dir), writesPendingSliceOverwriteWarning: true);
             }
         }

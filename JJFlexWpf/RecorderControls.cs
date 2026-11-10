@@ -238,7 +238,7 @@ public static class RecorderControls
     /// through <see cref="SliceOverwriteGate"/>: nothing asked when the slice is
     /// empty or the warning is turned off. Record goes ahead; Back up first backs
     /// the recording up and then goes ahead, on the same slice, only if the
-    /// backup succeeded; Cancel and Escape go no further and say so. The
+    /// backup succeeded; Cancel and Escape go no further and say nothing. The
     /// warning's "don't show this again" turns the setting off, and only when
     /// the operator went ahead.
     /// </summary>
@@ -264,12 +264,10 @@ public static class RecorderControls
         finally { _asking = false; }
         JJTrace.Tracing.TraceLine("SliceOverwrite: slice " + question.Letter + " backedUp=" + question.BackedUp
             + " answer=" + reply.Answer + " dontShowAgain=" + reply.DontShowAgain, System.Diagnostics.TraceLevel.Info);
-        if (reply.Answer == Dialogs.SliceOverwriteAnswer.Cancel)
-        {
-            // PLACEHOLDER: Codex writes (#999).
-            SpeakAfterWarning(Lexicon.Get("audio.recorder.overwrite.cancelled", ("letter", question.Letter)));
-            return new(false, true, target);
-        }
+        // Cancel and Escape say nothing (#999, question C3): Escape on a
+        // "Replace the recording?" question already means don't, and Home's own
+        // announcement of the returning focus says where the operator is.
+        if (reply.Answer == Dialogs.SliceOverwriteAnswer.Cancel) return new(false, true, target);
         if (reply.DontShowAgain && !RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(facts.Serial, false))
             JJTrace.Tracing.TraceLine("SliceOverwrite: the warning setting could not be saved", System.Diagnostics.TraceLevel.Warning);
         // The same slice the warning named, whichever becomes active meanwhile.
@@ -291,22 +289,6 @@ public static class RecorderControls
         if (owner != null) dialog.Owner = owner;
         dialog.ShowModalDialog();
         return dialog.Reply;
-    }
-
-    /// <summary>Speech flushes on a window change, so a sentence after the warning waits for focus to land.</summary>
-    private static void SpeakAfterWarning(string text)
-    {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (AskOverride != null || dispatcher == null)
-        {
-            ScreenReaderOutput.Speak(text, SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: SpeechSubject.SliceOverwriteWarning);
-            return;
-        }
-        dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
-        {
-            await Task.Delay(300);
-            ScreenReaderOutput.Speak(text, SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: SpeechSubject.SliceOverwriteWarning);
-        }));
     }
 
     /// <summary>

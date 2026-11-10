@@ -99,13 +99,14 @@ public sealed class SliceOverwriteWarningDialog : JJFlexDialog
             if (e.Key == Key.F11 || e.SystemKey == Key.F11) { e.Handled = true; return; }
             if (e.Key == Key.Enter && e.IsRepeat) e.Handled = true;
         };
-        Loaded += (_, _) =>
-        {
-            // Said when the warning opens, after its title (S4). Queued, so the
-            // title and the focused Record button are not cut off.
-            ScreenReaderOutput.Speak(_opening, SpeechIntent.Queue, VerbosityLevel.Terse,
-                subject: SpeechSubject.SliceOverwriteWarning);
-        };
+        // The opening line is said when the warning opens (S4) by the screen
+        // reader itself: it is the window's description (HelpText above), read
+        // with the title as the warning takes focus. We do not also speak it.
+        // Measured on the 8600 desk check, 2026-11-09: our queued copy repeated
+        // the description 1.35 s later, and when Enter or Back up first answered
+        // the warning first, the arbiter salvaged the copy and replayed "press
+        // Enter to record" after the warning had closed, over a recording
+        // already running.
     }
 
     /// <summary>Record has focus when the warning opens (S4).</summary>

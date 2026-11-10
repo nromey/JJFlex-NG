@@ -147,16 +147,41 @@ namespace Radios
     }
 
     /// <summary>
+    /// A waiting "warn before a recording on the radio is overwritten" choice
+    /// (#999): the setting, and the radio it is for.
+    /// </summary>
+    /// <param name="Warn">The setting chosen.</param>
+    /// <param name="Target">The serial of the radio the choice is for (#999 N2),
+    /// recorded once a save to that radio has been refused; "" when it names no
+    /// radio, which is how a choice made while no radio had ever connected waits,
+    /// and how one saved by a build before N2 reads. "" means the rule of round 4
+    /// decides: the radio last connected, else the first radio that connects
+    /// (<see cref="RadioConfig.ApplyPendingWarnBeforeSliceRecordingOverwritten"/>).</param>
+    public readonly record struct PendingWarnChoice(bool Warn, string Target)
+    {
+        private readonly string? _target = Target?.Trim();
+
+        /// <summary>The radio it is for, trimmed; "" for none, never null (a default value included).</summary>
+        public string Target { get => _target ?? ""; init => _target = value?.Trim(); }
+
+        /// <summary>True when the choice is for <paramref name="serial"/> by name, not by rule.</summary>
+        public bool IsFor(string? serial) =>
+            Target.Length > 0 && string.Equals(Target, serial?.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// An app-wide place a choice can wait in across a restart, until a radio
     /// connects (#999 round 3, C5a): see
     /// <see cref="RadioConfig.PendingWarnStore"/>. <see cref="Read"/> returns null
     /// when no choice is waiting; <see cref="Write"/> with null clears it, and
-    /// returns false when the value did not reach disk.
+    /// returns false when the value did not reach disk. The choice carries the
+    /// radio it is for (#999 N2), and a store keeps the two together: a write
+    /// replaces both, so a choice never lands beside another choice's radio.
     /// </summary>
     public interface IPendingChoiceStore
     {
-        bool? Read();
-        bool Write(bool? value);
+        PendingWarnChoice? Read();
+        bool Write(PendingWarnChoice? value);
     }
 
     /// <summary>
@@ -657,10 +682,10 @@ namespace Radios
             Update(radioId, cfg => { cfg.WarnBeforeSliceRecordingOverwritten = warn; });
 
         private static readonly object PendingWarnGate = new();
-        private static bool? _pendingWarnBeforeSliceRecordingOverwritten;
+        private static PendingWarnChoice? _pendingWarnChoice;
 
         /// <summary>
-        /// Where a pending choice (<see cref="PendingWarnBeforeSliceRecordingOverwritten"/>)
+        /// Where a pending choice (<see cref="PendingWarnChoiceWaiting"/>)
         /// is kept across a restart (#999 round 3, ruled C5a by Noel 2026-11-08).
         /// Wired once at startup to the app-wide audio settings,
         /// <c>audioConfig.xml</c> under <see cref="AppDataRoot"/>, which already
@@ -686,8 +711,21 @@ namespace Radios
 
         /// <summary>
         /// The overwrite warning's setting, chosen in Settings when no radio had
-        /// EVER connected (#999: settings are intents, queued and applied). Held
-        /// until a radio ACTUALLY CONNECTS, then saved by
+        /// EVER connected (#999: settings are intents, queued and applied), without
+        /// the radio it is for. Reads <see cref="PendingWarnChoiceWaiting"/>'s
+        /// setting; setting a value makes a choice that names no radio, which is
+        /// what Settings makes when no radio has ever connected, and null clears
+        /// the choice.
+        /// </summary>
+        public static bool? PendingWarnBeforeSliceRecordingOverwritten
+        {
+            get => PendingWarnChoiceWaiting?.Warn;
+            set => PendingWarnChoiceWaiting = value is bool warn ? new PendingWarnChoice(warn, "") : null;
+        }
+
+        /// <summary>
+        /// The waiting overwrite-warning choice and the radio it is for; null when
+        /// none waits. Held until a radio ACTUALLY CONNECTS, then saved by
         /// <see cref="ApplyPendingWarnBeforeSliceRecordingOverwritten"/> and cleared.
         /// A radio that was only discovered never receives it.
         /// </summary>
@@ -698,10 +736,18 @@ namespace Radios
         /// connected (<see cref="KnownRadioRoster.LastConnectedSerial"/>) and saves
         /// an edit to that radio's own config. So a choice waits for "the first
         /// radio that connects" only when none ever had. One that is found waiting
-        /// beside a last-connected radio (left by an older build, or by a connect
-        /// whose save failed) belongs to that radio: Settings shows it against
-        /// that radio and saves it there on OK or Apply, and a connect hands it
-        /// there (<see cref="ApplyPendingWarnBeforeSliceRecordingOverwritten"/>).</para>
+        /// beside a last-connected radio, naming no radio (left by an older build),
+        /// belongs to that radio: Settings shows it against that radio and saves
+        /// it there on OK or Apply, and a connect hands it there
+        /// (<see cref="ApplyPendingWarnBeforeSliceRecordingOverwritten"/>).</para>
+        /// <para><b>The radio is recorded with it (#999 N2, Codex's check of round
+        /// 4).</b> When a connect cannot save the choice to the radio it belongs to
+        /// (that radio's config locked), the choice keeps waiting AND records that
+        /// radio's serial in <see cref="PendingWarnChoice.Target"/>. Every later
+        /// door, a connect, the F11 gate's retry or Settings, saves it there and
+        /// nowhere else. Without the record, the connect that failed is itself
+        /// recorded as the radio last connected, and the next connect handed the
+        /// choice to it.</para>
         /// <para>With <see cref="PendingWarnStore"/> wired, the store is the truth: every
         /// read reads it and every change writes it, so a restart keeps the choice
         /// and a second instance sees one the first has already spent. A store
@@ -709,21 +755,21 @@ namespace Radios
         /// its own setting; one that cannot be written keeps the change in memory
         /// for this run and says so in the trace.</para>
         /// </remarks>
-        public static bool? PendingWarnBeforeSliceRecordingOverwritten
+        public static PendingWarnChoice? PendingWarnChoiceWaiting
         {
             get
             {
                 lock (PendingWarnGate)
                 {
-                    if (_pendingWarnStore == null) return _pendingWarnBeforeSliceRecordingOverwritten;
+                    if (_pendingWarnStore == null) return _pendingWarnChoice;
                     if (_pendingWarnUnsaved)
                     {
                         // The disk still holds what the store refused to replace:
                         // memory is the truth for this run. Try the write again.
-                        if (TryWritePendingWarn(_pendingWarnBeforeSliceRecordingOverwritten)) _pendingWarnUnsaved = false;
-                        return _pendingWarnBeforeSliceRecordingOverwritten;
+                        if (TryWritePendingWarn(_pendingWarnChoice)) _pendingWarnUnsaved = false;
+                        return _pendingWarnChoice;
                     }
-                    try { return _pendingWarnBeforeSliceRecordingOverwritten = _pendingWarnStore.Read(); }
+                    try { return _pendingWarnChoice = _pendingWarnStore.Read(); }
                     catch (Exception ex)
                     {
                         Tracing.TraceLine("RadioConfig: the pending overwrite-warning choice could not be read: " + ex.Message,
@@ -736,20 +782,23 @@ namespace Radios
             {
                 lock (PendingWarnGate)
                 {
-                    _pendingWarnBeforeSliceRecordingOverwritten = value;
+                    _pendingWarnChoice = value;
                     if (_pendingWarnStore == null) return;
                     _pendingWarnUnsaved = !TryWritePendingWarn(value);
                     if (_pendingWarnUnsaved)
                         Tracing.TraceLine(value == null
                             ? "RadioConfig: the spent overwrite-warning choice could not be cleared on disk. It is cleared for this run; the clear is retried at each read, and until one works a restart would find the old choice waiting again."
-                            : "RadioConfig: the overwrite-warning choice (" + value + ") could not be saved. It holds for this run; the save is retried at each read, and until one works a restart would not find it.",
+                            : "RadioConfig: the overwrite-warning choice (" + Describe(value.Value) + ") could not be saved. It holds for this run; the save is retried at each read, and until one works a restart would not find it.",
                             System.Diagnostics.TraceLevel.Warning);
                 }
             }
         }
 
+        private static string Describe(PendingWarnChoice choice) =>
+            choice.Warn + (choice.Target.Length > 0 ? ", for " + choice.Target : "");
+
         /// <summary>Write through the store; false when it refused or threw. Call under <see cref="PendingWarnGate"/>.</summary>
-        private static bool TryWritePendingWarn(bool? value)
+        private static bool TryWritePendingWarn(PendingWarnChoice? value)
         {
             try { return _pendingWarnStore?.Write(value) == true; }
             catch (Exception ex)
@@ -759,6 +808,17 @@ namespace Radios
                 return false;
             }
         }
+
+        /// <summary>
+        /// The radio a waiting choice is saved to: the radio it names
+        /// (<see cref="PendingWarnChoice.Target"/>); else, naming none, the radio
+        /// last connected before this connect; else, with none ever connected, the
+        /// radio connecting now (#999 round 4 and N2).
+        /// </summary>
+        public static string PendingWarnRadioFor(PendingWarnChoice choice, string connectedId, string lastConnectedBefore) =>
+            choice.Target.Length > 0 ? choice.Target
+            : !string.IsNullOrWhiteSpace(lastConnectedBefore) ? lastConnectedBefore.Trim()
+            : connectedId?.Trim() ?? "";
 
         /// <summary>
         /// A radio has connected: save a waiting choice to the radio it waits for,
@@ -772,31 +832,48 @@ namespace Radios
         /// to BEFORE this connect (<see cref="KnownRadioRoster.LastConnectedSerial"/>,
         /// read before the connect is recorded); "" when no radio ever had.</param>
         /// <remarks>
-        /// Ruled C2 and C3 by Noel 2026-11-09 (#999 round 4): a waiting choice
+        /// <para>Ruled C2 and C3 by Noel 2026-11-09 (#999 round 4): a waiting choice
         /// belongs to the radio last connected, and to "the first radio that
         /// connects" only when no radio ever had. So it goes to
         /// <paramref name="connectedId"/> when there was no earlier radio or it was
         /// this one. When an earlier radio was a DIFFERENT one, it goes to THAT
         /// radio's own config, where it takes effect when that radio connects, and
-        /// the radio connecting now is untouched. Leaving it waiting instead would
-        /// hand it to the wrong radio a moment later: once this connect is recorded,
-        /// this radio is the one last connected.
+        /// the radio connecting now is untouched.</para>
+        /// <para><b>A refused save pins the radio (#999 N2).</b> When that radio's
+        /// config cannot be saved (locked), the choice keeps waiting with that
+        /// radio's serial recorded beside it, because this connect is about to be
+        /// recorded as the radio last connected and the rule above would then
+        /// name the wrong radio. A choice that already names its radio goes there
+        /// whichever radio connects and whatever was last connected
+        /// (<see cref="PendingWarnRadioFor"/>).</para>
         /// </remarks>
         public static bool ApplyPendingWarnBeforeSliceRecordingOverwritten(string connectedId, string lastConnectedBefore)
         {
             if (string.IsNullOrWhiteSpace(connectedId)) return false;
-            string radioId = string.IsNullOrWhiteSpace(lastConnectedBefore) ? connectedId : lastConnectedBefore;
             lock (PendingWarnGate)
             {
                 // One lock across read, apply and clear, so two doors cannot both
                 // spend the same choice.
-                bool? pending = PendingWarnBeforeSliceRecordingOverwritten;
-                if (pending is not bool warn) return false;
-                if (!RecordWarnBeforeSliceRecordingOverwritten(radioId, warn)) return false;
-                PendingWarnBeforeSliceRecordingOverwritten = null;
-                Tracing.TraceLine("RadioConfig: the waiting overwrite-warning choice (" + warn + ") is now "
-                    + radioId + "'s" + (string.Equals(radioId, connectedId, StringComparison.OrdinalIgnoreCase)
-                        ? "." : ", the radio last connected; " + connectedId + ", connecting now, is untouched."),
+                if (PendingWarnChoiceWaiting is not PendingWarnChoice pending) return false;
+                string radioId = PendingWarnRadioFor(pending, connectedId, lastConnectedBefore);
+                if (!RecordWarnBeforeSliceRecordingOverwritten(radioId, pending.Warn))
+                {
+                    // Keep it waiting, for THIS radio from now on. A malformed id
+                    // is never recorded: no save to it could ever work.
+                    if (pending.Target.Length == 0 && IsWellFormedRadioId(radioId))
+                    {
+                        PendingWarnChoiceWaiting = pending with { Target = radioId };
+                        Tracing.TraceLine("RadioConfig: the waiting overwrite-warning choice (" + pending.Warn
+                            + ") could not be saved to " + radioId + ". It keeps waiting, for " + radioId + " only.",
+                            System.Diagnostics.TraceLevel.Warning);
+                    }
+                    return false;
+                }
+                PendingWarnChoiceWaiting = null;
+                Tracing.TraceLine("RadioConfig: the waiting overwrite-warning choice (" + pending.Warn + ") is now "
+                    + radioId + "'s" + (string.Equals(radioId, connectedId.Trim(), StringComparison.OrdinalIgnoreCase)
+                        ? "." : (pending.Target.Length > 0 ? ", the radio it was for; " : ", the radio last connected; ")
+                            + connectedId + ", connecting now, is untouched."),
                     System.Diagnostics.TraceLevel.Info);
                 return true;
             }
