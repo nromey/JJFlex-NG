@@ -187,7 +187,15 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// </summary>
     public static void ShowOrFocus(FlexBase? rig)
     {
-        rig ??= RigSource?.Invoke();
+        // Only the shell's current radio (#897). A caller that captured its
+        // radio when it opened (Play takes, the Workshop, the screen fields)
+        // can hand back one that is gone after a reconnect, and switching to
+        // it left the live radio without its teardown. One seam for every
+        // caller, so none of theirs is edited.
+        rig = RadioToShowOn(rig, RigSource, out string? ignored);
+        if (ignored != null)
+            JJTrace.Tracing.TraceLine("CheckYourAudio: the radio handed to it was not the current one ("
+                + ignored + "); it was ignored", System.Diagnostics.TraceLevel.Warning);
         if (_instance == null || !_instance.IsLoaded)
         {
             _instance = new CheckYourAudioDialog();
@@ -203,6 +211,23 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             _instance.FocusFirstControl();
         }
         _instance.Activate();
+    }
+
+    /// <summary>
+    /// The radio this window may be shown on (#897): the shell's current one.
+    /// A handed radio that is not it is ignored and the current one used, with
+    /// <paramref name="ignored"/> saying why. With no source set (the windowless
+    /// tests, and before the shell has wired it) the handed radio is kept, as
+    /// before. Pure but for asking the source.
+    /// </summary>
+    internal static FlexBase? RadioToShowOn(FlexBase? handed, Func<FlexBase?>? source, out string? ignored)
+    {
+        ignored = null;
+        if (source == null) return handed;
+        FlexBase? current = source();
+        if (handed == null || ReferenceEquals(handed, current)) return current;
+        ignored = current == null ? "the shell has no radio now" : "the shell's current radio is another one";
+        return current;
     }
 
     /// <summary>
