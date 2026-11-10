@@ -9,6 +9,76 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-10 (COVERS 2026-11-09 06:26 TO 2026-11-10 06:00, MEASURED FROM `44d85de8`) — THREE MERGES AND #999 ON MAIN, THE WORKER CAP, THEN THE FIFTH NIGHT MODE: JUNK BOX BATCH 3 READY, BATCH 4 BUILT AND REPAIRED TWICE, A MEMORY STOP
+
+*Covers the 2026-11-09 day session, nap mode (16:44 to 21:01) and the fifth night mode (21:01 to 05:55). Noel said "Morning" at 05:55 in the junk box window, which woke the other two; both replied wrapped up by 05:56. Three windows: junk box, Check your audio, sound processing. No build was published. The nightly promote (step 1) was SKIPPED: no debug build was produced, and everything new tonight is on unmerged branches.*
+
+**Main (87 commits since the last seal, 8 on the first-parent line, all unpushed; +14,196/-809 across 188 files):**
+- At Noel's word, the three stacked junk box batches merged at 06:37 (`bf67a655`, `c8e62191`, `757b7e7e`), and CLAUDE.md's merge filter grew by thirteen windowless classes (`a387817a`).
+- #999, the radio's slice recordings (`e55aabac`), and its follow-up (`2826f645`: a waiting overwrite choice keeps its radio, the warning's opening line is said once, Escape and Cancel close it with nothing said). The filter now names seventy-eight classes (`45378515`).
+- **Ruled by Noel 2026-11-09 21:12, in CLAUDE.md and AGENTS.md (`f1d3cc87`):** agent, Codex and bench builds add `-m:4`.
+
+**Junk box:**
+- **Batch 3** (`junkbox/2026-11-09-batch-3`, `fb4da9bb`, 14 commits, +2,699/-129) is ready for Noel's word to merge.
+  - Every check passed: Codex-clean on all eight fixes after two repair rounds; the harness on the 8600 passed (six of six, plus the #897 check); the integration pass found nothing that blocks (six follow-ups filed as #1043).
+  - It merges cleanly with main and with Check your audio's #913 branch, and that combination's tests are green (Radios 8,758 of 8,758).
+  - Codex wrote its help and changelog words (`5426af1f` on `docs/junkbox-1109b3-words`). Four changelog fragments also exist on `docs/junkbox-1109-words`, so they must be joined at merge.
+- **Batch 4** (`junkbox/2026-11-09-batch-4`, `9d414e70`, 26 commits, +5,473/-438) was built from the night's rulings: #517, #1026, #335, #1022, #346, #703 and #405.
+  - Clean: #1026, #335 and #1022 on the first Codex check, and #703 after one repair.
+  - #517, #405 and #346 were repaired twice. Their third Codex checks are written and wait on Noel's word.
+  - Its 37 sentences are in a reading for Noel (J5). #1020, #879 and #518 were held for his answers (J1 to J4).
+- **#913's cause was found by batch 3's harness:** a Play press just after Stop lands as the automatic playback starts, so it stops it. It was handed to Check your audio.
+
+**Check your audio:**
+- `checkaudio/913-play-after-stop` (`c1afc7d6`, 10 commits): Play last take after Stop (#913) and the failed-backup sentence (#1040). It passed on the bench two of two and waits on C4.
+- A round-2 change to the shared speech delivery was BLOCKED by Codex and reverted. It read a late NVDA cancel as ours, so a transmit notice never heard could count as heard. The wider defect is filed as #1049 (memory `project_nvda_cancel_lands_on_our_next_utterance.md`).
+- The countdown stall is explained: NVDA's own focus announcement waits ahead of "4" (#1050, C5; memory `project_nvda_io_log_is_handover_not_speech.md`).
+- A JAWS check ran on the harness with nobody at the keyboard (memory `project_jaws_checks_on_the_harness.md`). Under JAWS, the overwrite warning is read twice (#1042).
+
+**Sound processing (Sprint 49):**
+- Track S repair rounds 3 and 4 merged into `sprint49/integration` (`3974795b`, `724f984d`), Codex-clean and verified on x64 and x86. Nothing went to main.
+- On real off-air LSB (Paderborn, CC BY 4.0), the SSB tuner is 81% within 10 Hz at 3 seconds (memory `project_ssb_tuner_slips_on_real_audio.md`).
+- The WDSP blankers are dropped (#1027 closed).
+- The Track E follow-up brief is drafted and revised and NOT launched (S8 to S12).
+
+**Memory stop, 00:42:** Claude Code's low-memory guard killed three Codex lanes: two junk box lanes and one Check your audio lane, each building and running full suites at once. None was restarted, as the guard requires. `-m:4` caps one build's workers, not how many builds run together. The windows now stagger heavy runs two at a time by agreement; whether that becomes a rule is Noel's call.
+
+**Seal checks:**
+- Step 1 nightly promote: SKIPPED (above).
+- No dependency advisories.
+- Memory drift: 102 path and 60 symbol candidates. Tonight's new entries flag only branch names, NVDA's upstream source and an AppData file.
+- Codex instruction tests 5 of 5; Codex loads AGENTS.md; the sandbox is healthy.
+- NVDA logs archived to JJFlex-private as `2026-11-10-*` (1,249 Speaking lines in the live log).
+- Backups: memory, Claude state, AppData, the dev mirror, and private docs after the AAR.
+- MEMORY.md is 18.1 KB, still over the 12 KB threshold. The trim pass is still owed.
+- Codex evaluation log: the stopped batch 4 re-checks were added at this seal. Every other run was already logged by its window.
+
+**Junk box intake (3c-ter):** 28 entries opened since the last seal (#1023 to #1051, #1027 and #1030 since closed). Every one is targeted, and every JUNKBOX one is prioritized. Three (#1028, #1029, #1035) had the bare `**TARGET:**` line again and were fixed. Regenerated: 553 open, 265 in the junk box, 0 unprioritized. Nothing was closed by a merge.
+
+**Memory written:**
+- By the junk box window: `project_key_traces_cover_home_only.md` and `project_connect_ownership_tests_compile_source_against_stubs.md`, plus additions to the per-GUI-client and build-server entries.
+- By the other windows: `project_application_current_is_null_in_this_app.md`, `project_last_connected_radio_is_the_connection_cache.md`, `project_rtx5060_is_an_external_oculink_gpu.md`, `project_sdr_receive_support_why.md`, `project_wdsp_blankers_useless_after_agc.md`, `project_transmit_nr_bench_recipe.md` and `feedback_cap_workers_and_memory_in_experiment_briefs.md`, as well as the NVDA, JAWS and SSB tuner entries above.
+
+**Cross-surface:**
+- 76 commits on all refs since the last seal (5 with the Codex trailer).
+- JJFlex-private: 37 commits by the windows, plus this seal's.
+- Freight Fate still holds 16 unpushed commits (Noel's call); Civ VI Access none; rigmeter 13 local commits (it has no remote).
+
+**Waiting on Noel:**
+- The push (main is 87 commits ahead of origin, plus this seal).
+- Merging batch 3 with its words, and C4.
+- Restarting batch 4's third checks.
+- J1 to J6, C4, C5, S8 to S12 (`for-noel/2026-11-10-night-questions.md`).
+- The Full duplex refusal by ear, and #1042 under JAWS.
+
+### Rigmeter snapshot — end of 2026-11-10
+
+Main, `rigmeter from 2026-11-09`: 38 commits; work done +9,424/-909 (net +8,515) across 111 files; C# +9,224/-839 in 84 files. This counts from midnight, so it overlaps the last seal's early-morning merges. Measured from the last seal's commit, main is +14,196/-809 across 188 files.
+
+Not counted on main: batch 3 (+2,699/-129), batch 4 (+5,473/-438), #913 (+872/-55).
+
+Snapshot `historical\stats\2026-11-09-2826f645.json`.
+
 ## END-OF-DAY SEAL — 2026-11-09 (COVERS 2026-11-08 07:48 TO 2026-11-09 06:25, MEASURED FROM `ad9791fa`) — THE OPUS-FINDINGS MERGE AND THE BUILD-SERVER RULE, THEN THE FOURTH NIGHT MODE: THREE JUNK BOX BATCHES STACKED AND CHECKED, A WPF EVENT THE TESTS COULD NOT SEE
 
 *Covers the 2026-11-08 day session and nap (07:48 to 19:32) and the fourth night mode (19:32 to 06:10; Noel said "Morning" at 06:10 in the junk box window, which woke the other two; both replied wrapped up). Three windows: junk box, Check your audio, sound processing. No build was published; the nightly promote (step 1) was SKIPPED: no debug build was produced, and everything new tonight is on unmerged branches.*
