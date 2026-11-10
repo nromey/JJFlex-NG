@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Windows.Controls;
+using Keys = System.Windows.Forms.Keys;
 using JJFlexWpf.Tests.Infrastructure;
 using Radios;
 using Xunit;
@@ -103,7 +104,7 @@ public sealed class TuningChordYieldTests
         Assert.DoesNotContain("TuneByStepUnboundDetail", keys, StringComparison.Ordinal);
 
         int dispatch = keys.IndexOf("internal bool DoCommand(Keys k, bool fromDialog)", StringComparison.Ordinal);
-        int yieldAt = keys.IndexOf("if (TuningChordYield.Yields(kt.KeyDef.Id))", dispatch, StringComparison.Ordinal);
+        int yieldAt = keys.IndexOf("if (TuningChordYield.Yields(kt.KeyDef.Id, k, TuningFocusProbe))", dispatch, StringComparison.Ordinal);
         int guard = keys.IndexOf("if (_context.GetRigControl() == null &&", dispatch, StringComparison.Ordinal);
         int consumed = keys.IndexOf("rv = true;", dispatch, StringComparison.Ordinal);
         Assert.True(dispatch > 0 && yieldAt > dispatch && guard > yieldAt && consumed > guard,
@@ -111,6 +112,100 @@ public sealed class TuningChordYieldTests
 
         string say = keys.Substring(keys.IndexOf("private void TuneFromCommand(", StringComparison.Ordinal), 600);
         Assert.Contains("connect.command_needs_radio", say, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// #703 repair one (Codex): the exception is for the arrow chords, not for
+    /// the commands. Up or Down with Ctrl, Shift or both, and no Alt, is given
+    /// back; anything else a tuning command is bound to is not.
+    /// </summary>
+    [Fact]
+    public void Only_Up_and_Down_with_Ctrl_or_Shift_are_given_back()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.True(TuningChordYield.IsLocalArrowChord(Keys.Up | Keys.Control));
+        Assert.True(TuningChordYield.IsLocalArrowChord(Keys.Down | Keys.Control));
+        Assert.True(TuningChordYield.IsLocalArrowChord(Keys.Up | Keys.Shift));
+        Assert.True(TuningChordYield.IsLocalArrowChord(Keys.Down | Keys.Shift));
+        Assert.True(TuningChordYield.IsLocalArrowChord(Keys.Up | Keys.Control | Keys.Shift));
+        Assert.False(TuningChordYield.IsLocalArrowChord(Keys.F8 | Keys.Control | Keys.Alt));   // a key of the operator's own
+        Assert.False(TuningChordYield.IsLocalArrowChord(Keys.Up | Keys.Control | Keys.Alt));
+        Assert.False(TuningChordYield.IsLocalArrowChord(Keys.Left | Keys.Control));
+        Assert.False(TuningChordYield.IsLocalArrowChord(Keys.Up));
+    }
+
+    /// <summary>
+    /// Codex's blocker, through the real <see cref="KeyCommands.DoCommand(Keys, bool)"/>:
+    /// focus on a Home value field, Coarse tune up moved to Ctrl+Alt+F8 the
+    /// way the Hotkey Editor leaves the table, no radio. The default Ctrl+Down
+    /// (Coarse tune down) is left to the value field: not handled, nothing
+    /// said. Ctrl+Alt+F8 at the same field runs its command, which with no
+    /// radio says the slice row's sentence. The control: with focus on
+    /// nothing that keeps the arrows, the same Ctrl+Down runs too, so the
+    /// first press is a yield and not a chord that never reached the table.
+    /// </summary>
+    /// <remarks>
+    /// <b>Desk safety:</b> an MTA thread (asserted), where no window can be
+    /// built; the value field is an uninitialized object handed to the focus
+    /// probe; speech is silenced (asserted) and read back from the recorder;
+    /// the settings tree is the run's throwaway one (asserted). Whether a real
+    /// key reaches DoCommand on Home is the harness's to press.
+    /// </remarks>
+    [Fact]
+    public void At_one_value_field_the_default_arrow_chord_is_left_to_it_and_a_function_key_binding_tunes()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.True(QuietRun.Silenced, "Refusing: " + QuietRun.Describe());
+        Assert.True(TestSettingsRoot.Isolated, "Refusing: " + TestSettingsRoot.Failure);
+        Lexicon.Load(Lexicon.Partitions);
+        var verbosityBefore = ScreenReaderOutput.CurrentVerbosity;
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        try
+        {
+            var valueField = (System.Windows.DependencyObject)System.Runtime.CompilerServices.RuntimeHelpers
+                .GetUninitializedObject(typeof(Controls.ValueFieldControl));
+            System.Windows.DependencyObject? focused = valueField;
+            var commands = new KeyCommands(new KeyCommandContext(), setDefault: true) { TuningFocusProbe = () => focused };
+
+            // Coarse tune up on a key of the operator's own, as the Hotkey Editor leaves it.
+            const Keys custom = Keys.F8 | Keys.Control | Keys.Alt;
+            var entry = commands.Lookup(CommandValues.TuneCoarseUp)!;
+            Assert.True(commands.KeyDictionary.TryGetValue(entry.KeyDef.Key, out var onDefault) && onDefault.Remove(entry));
+            entry.KeyDef.Key = custom;
+            Assert.True(commands.AddToKeyDictionary(entry));
+            Assert.Same(entry, commands.Lookup(custom));
+            Assert.Equal(CommandValues.TuneCoarseDown, commands.Lookup(Keys.Down | Keys.Control)!.KeyDef.Id);
+
+            bool handled = true;
+            string? said = SpokenAfter(() => handled = commands.DoCommand(Keys.Down | Keys.Control, fromDialog: false));
+            Assert.False(handled);            // left to the value field
+            Assert.Null(said);
+
+            said = SpokenAfter(() => handled = commands.DoCommand(custom, fromDialog: false));
+            Assert.True(handled);             // the operator's key runs its command
+            Assert.Equal(CommandValues.TuneCoarseUp, commands.CommandId);
+            Assert.Equal(Lexicon.Get("connect.command_needs_radio"), said);
+
+            // Control: focus on nothing that keeps the arrows, and the default chord runs.
+            focused = null;
+            said = SpokenAfter(() => handled = commands.DoCommand(Keys.Down | Keys.Control, fromDialog: false));
+            Assert.True(handled);
+            Assert.Equal(CommandValues.TuneCoarseDown, commands.CommandId);
+            Assert.Equal(Lexicon.Get("connect.command_needs_radio"), said);
+        }
+        finally
+        {
+            ScreenReaderOutput.CurrentVerbosity = verbosityBefore;
+        }
+    }
+
+    private static string? SpokenAfter(Action press)
+    {
+        string marker = "marker " + Guid.NewGuid().ToString("N");
+        ScreenReaderOutput.Speak(marker, VerbosityLevel.Critical, true);
+        press();
+        string? first = ScreenReaderOutput.RecentMessages.FirstOrDefault();
+        return first == marker ? null : first;
     }
 
     private static void OnSta(Action body)

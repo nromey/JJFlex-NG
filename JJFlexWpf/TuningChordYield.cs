@@ -17,7 +17,9 @@ namespace JJFlexWpf;
 /// <b>Ruled by Noel 2026-11-09 20:40 (night question J4):</b> Ctrl and Shift
 /// with Up and Down tune everywhere in the main window, EXCEPT where the arrows
 /// change the focused thing's own value: Home's field-group values, lists and
-/// text boxes keep their meaning. Logging mode's radio pane is unchanged
+/// text boxes keep their meaning. The exception is for those ARROW chords
+/// only (<see cref="IsLocalArrowChord"/>): a tuning command the operator put
+/// on any other key runs wherever focus is. Logging mode's radio pane is unchanged
 /// (the commands are bound at <see cref="KeyScope.Radio"/>, which Logging mode
 /// does not run), and dialogs keep their own keys (Radio scope never
 /// dispatches from a dialog).
@@ -75,9 +77,38 @@ public static class TuningChordYield
         return false;
     }
 
-    /// <summary>The question DoCommand asks, for the element focused now.</summary>
-    public static bool Yields(CommandValues id) =>
-        IsTuningChord(id) && FocusOwnsArrows(Keyboard.FocusedElement as DependencyObject);
+    /// <summary>
+    /// Whether the pressed chord is Up or Down with Ctrl, Shift or both and
+    /// no Alt: the chords whose arrows the J4 exception gives back. Pure.
+    /// </summary>
+    /// <remarks>
+    /// <b>#703 repair one (Codex, 2026-11-09).</b> The yield first asked only
+    /// which COMMAND the chord ran, so an operator who put a tuning command on
+    /// a key of their own in the Hotkey Editor (Ctrl+Alt+F8, say) found it dead
+    /// on every text box, list, value field and cycle field. The exception
+    /// Noel ruled is for arrows that change the focused thing's own value; a
+    /// function key changes nothing there, so it tunes, as it did before.
+    /// </remarks>
+    public static bool IsLocalArrowChord(System.Windows.Forms.Keys pressed)
+    {
+        var code = pressed & System.Windows.Forms.Keys.KeyCode;
+        var mods = pressed & System.Windows.Forms.Keys.Modifiers;
+        return (code == System.Windows.Forms.Keys.Up || code == System.Windows.Forms.Keys.Down)
+            && (mods & (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Shift)) != 0
+            && (mods & System.Windows.Forms.Keys.Alt) == 0;
+    }
+
+    /// <summary>
+    /// The question DoCommand asks: a tuning command, pressed on one of the
+    /// arrow chords, with focus on something that keeps the arrows. The chord
+    /// is checked before focus is read, so a non-arrow binding never consults
+    /// focus at all. Pure, given the focused element.
+    /// </summary>
+    public static bool Yields(CommandValues id, System.Windows.Forms.Keys pressed, Func<DependencyObject?> focused) =>
+        IsTuningChord(id) && IsLocalArrowChord(pressed) && FocusOwnsArrows(focused());
+
+    /// <summary>The element focused now, as the input manager reports it. UI thread only.</summary>
+    public static DependencyObject? FocusedNow() => Keyboard.FocusedElement as DependencyObject;
 
     private static DependencyObject? ParentOf(DependencyObject d)
     {

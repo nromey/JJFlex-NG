@@ -94,6 +94,13 @@ public class KeyCommands
     /// </summary>
     internal Func<object?> LayerWindowProbe { get; set; } = FocusedWpfWindow;
 
+    /// <summary>
+    /// The focused element the tuning chords' yield asks about (#703). A
+    /// field, like <see cref="LayerWindowProbe"/>, so the window-free tests
+    /// can name a focused control without a window to focus it in.
+    /// </summary>
+    internal Func<System.Windows.DependencyObject?> TuningFocusProbe { get; set; } = TuningChordYield.FocusedNow;
+
     private static object? FocusedWpfWindow()
     {
         // The input manager refuses a thread that is not STA, and the routing
@@ -3383,7 +3390,9 @@ public class KeyCommands
             // before the key is marked handled, because a handler cannot
             // yield: by the time it runs the key is consumed. Not handled, so
             // the key goes on to the focused control.
-            if (TuningChordYield.Yields(kt.KeyDef.Id))
+            // Only on the arrow chords themselves (#703 repair one): a tuning
+            // command on a key of the operator's own still runs here.
+            if (TuningChordYield.Yields(kt.KeyDef.Id, k, TuningFocusProbe))
             {
                 _context.Trace("DoCommand: " + kt.KeyDef.Id + " left to the focused control");
                 return false;
