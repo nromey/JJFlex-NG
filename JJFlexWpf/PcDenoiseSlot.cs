@@ -120,6 +120,8 @@ namespace JJFlexWpf
             DenoiseEngineCatalog catalog)
         {
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
+            // Every engine's default parameters, made here rather than on the audio thread (repair round 1).
+            foreach (var row in catalog.Entries) DefaultParameters(row.Id);
             _choice = new Choice(0, initialId);
             var entry = catalog.Find(initialId);
             _choice.Entry = entry;
@@ -158,9 +160,32 @@ namespace JJFlexWpf
         private Parameters ParametersFor(string id) =>
             _settings.TryGetValue(id, out var p) ? p : DefaultParameters(id);
 
-        /// <summary>An untouched engine's parameters: its default Strength from the one source, no values.</summary>
-        private Parameters DefaultParameters(string id) =>
-            new(NoiseFloor.DefaultStrength(id, Direction), new Dictionary<string, EngineSettingValue>());
+        /// <summary>The one empty, read-only value set every untouched engine shares.</summary>
+        private static readonly IReadOnlyDictionary<string, EngineSettingValue> NoValues =
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, EngineSettingValue>(new Dictionary<string, EngineSettingValue>());
+
+        /// <summary>
+        /// One immutable default <see cref="Parameters"/> per engine, kept APART from
+        /// the store so reading still stores nothing (#1019). Built for every catalog
+        /// engine in the constructor, off the audio thread (repair round 1): the
+        /// audio thread reads an untouched engine's Strength every buffer, and
+        /// <see cref="ApplyParameters"/> compares by reference, so this must hand
+        /// back the same instance every time and allocate nothing.
+        /// </summary>
+        private readonly ConcurrentDictionary<string, Parameters> _defaults = new();
+
+        /// <summary>An untouched engine's parameters: its default Strength from the one source, no values. The same instance on every call.</summary>
+        private Parameters DefaultParameters(string id)
+        {
+            // TryGetValue first: GetOrAdd with a lambda that captures this slot
+            // would allocate a delegate on every call, on the audio thread too.
+            if (_defaults.TryGetValue(id, out var cached)) return cached;
+            var made = new Parameters(NoiseFloor.DefaultStrength(id, Direction), NoValues);
+            return _defaults.GetOrAdd(id, made);
+        }
+
+        /// <summary>Tests only: the parameters an engine reads now, to prove an untouched engine's are one instance.</summary>
+        internal object ParametersForTest(string id) => ParametersFor(id);
 
         /// <summary>The stored wet fraction, 0 to 1. Surfaces show it as a noise floor through <see cref="NoiseController"/>'s lever, never by their own arithmetic.</summary>
         public float GetStrength(string id) => ParametersFor(id).Strength;

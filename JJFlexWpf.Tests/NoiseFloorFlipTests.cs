@@ -168,6 +168,31 @@ public sealed class NoiseFloorFlipTests
     }
 
     [Fact]
+    public void An_untouched_engine_reads_one_default_instance_and_allocates_nothing_on_the_audio_path()
+    {
+        // Repair round 1 (Codex's merge blocker): the defaults read live must be ONE
+        // instance per engine, built off the audio thread, or every buffer allocates
+        // and ApplyParameters' reference check never holds.
+        using var f = new NoiseFixture();
+        foreach (string id in ComputerEngines)
+        {
+            var slot = SlotOf(f, id);
+            Assert.Same(slot.ParametersForTest(id), slot.ParametersForTest(id));
+        }
+        f.Noise.Toggle("rnnoise", "test");
+        f.Settle();
+        var neural = f.Pipeline.NeuralSlot;
+        var audio = new float[960];
+        for (int i = 0; i < 50; i++) { Array.Fill(audio, 0.1f); neural.Process(audio, true, true, false, null); }   // warm
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10_000; i++) _ = neural.GetStrength("rnnoise");
+        for (int i = 0; i < 200; i++) { Array.Fill(audio, 0.1f); neural.Process(audio, true, true, false, null); }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, allocated);
+        Assert.Empty(neural.ExportSettings());   // and reading still stores nothing
+    }
+
+    [Fact]
     public void A_first_setting_on_an_untouched_engine_keeps_its_default_floor()
     {
         using var f = new NoiseFixture();
