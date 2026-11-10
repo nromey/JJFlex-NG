@@ -310,8 +310,17 @@ public partial class CheckYourAudioDialog
                         ("state", ListenbackTakes.StateText(take.State)), ("seconds", seconds));
                     if (take.State != "clean") shortSummary += " " + Lexicon.Get("audio.iq.take_summary_gaps",
                         ("gaps", take.Get("gaps") ?? "0"));
-                    if (!await ListenbackTakes.PlayAfterClickAsync(heardPath, shortSummary + " " + Lexicon.Get("audio.iq.playing"),
-                        _rig, StillWantsPlayback, offAirListeningGain: true)) _pendingAutoPlayback = _pendingAutoPrevious = null;
+                    // The automatic playback is committed here (#913): Play last
+                    // take reads "Stop playing" through the click, and a Stop
+                    // press cancels it, as for the radio's own playback.
+                    var start = BeginTakeStart();
+                    try
+                    {
+                        if (!await ListenbackTakes.PlayAfterClickAsync(heardPath, shortSummary + " " + Lexicon.Get("audio.iq.playing"),
+                            _rig, r => StillWantsPlayback(r) && !start.Cancelled, offAirListeningGain: true))
+                            _pendingAutoPlayback = _pendingAutoPrevious = null;
+                    }
+                    finally { EndTakeStart(start); }
                 }
                 // Analysis and measurements are useful details, but neither
                 // must keep the listener waiting for the already-rendered audio.
@@ -419,19 +428,27 @@ public partial class CheckYourAudioDialog
     }
 
     /// <summary>Play the newest off-air take, through the shared render-and-play rule.</summary>
+    /// <remarks>
+    /// Play last take's Play only (#913): it no longer stops a playing take
+    /// itself. Until then a press arriving here while a take played became a
+    /// Stop; the press is now decided once, by what the button said
+    /// (<see cref="DecidePlayTakePress"/>), and only a Play press reaches here.
+    /// </remarks>
     private async Task PlayIqAsync(string? directory, int detune)
     {
-        if (RecordingPlayer.IsPlaying) { RecordingPlayer.Stop(); return; }
         if (_iqBusy || _iqRun != null || _session?.EscapeStopsTransmit == true || _rig?.Transmit == true) return;
         if (directory == null) { IqStatus(Lexicon.Get("audio.iq.no_take")); return; }
         _iqBusy = true;
+        // On its way while it renders (#913): a Stop press cancels it.
+        var start = BeginTakeStart();
         try
         {
-            string? trouble = await ListenbackTakes.RenderAndPlayAsync(directory, detune, _rig, StillWantsPlayback);
+            string? trouble = await ListenbackTakes.RenderAndPlayAsync(directory, detune, _rig,
+                r => StillWantsPlayback(r) && !start.Cancelled);
             if (trouble != null) IqStatus(trouble, true);
         }
         catch (Exception ex) { IqFailure(ex); }
-        finally { _iqBusy = false; }
+        finally { _iqBusy = false; EndTakeStart(start); }
     }
 
     private async Task PlaySentAsync()
