@@ -39,7 +39,7 @@ namespace JJFlexWpf
         public static void Record(NoiseJournalEntry entry)
         {
             if (entry.Changes.Count == 0) return;
-            Trace.WriteLine("NoiseJournal: " + entry.Kind + (entry.ByJjFlexible ? " by JJ Flexible" : "") + " from " + entry.Source
+            TraceOrHold("NoiseJournal: " + entry.Kind + (entry.ByJjFlexible ? " by JJ Flexible" : "") + " from " + entry.Source
                 + (entry.Label.Length > 0 ? " (" + entry.Label + ")" : "") + ": "
                 + string.Join("; ", entry.Changes.Select(c => c.EngineId + (c.Setting.Length > 0 ? "." + c.Setting : "") + " " + c.OldValue + " -> " + c.NewValue)));
             try { Recorded?.Invoke(entry); }
@@ -48,5 +48,65 @@ namespace JJFlexWpf
 
         public static void Record(NoiseJournalKind kind, string source, string engineId, string setting, string oldValue, string newValue, bool byJjFlexible = false) =>
             Record(new NoiseJournalEntry(kind, source, byJjFlexible, new[] { new NoiseJournalChange(engineId, setting, oldValue, newValue) }));
+
+        // ── Entries made before the diagnostic log has started (repair round 5) ──
+        //
+        // The one-time noise floor move (ReceiveNoiseFloorMove) runs inside the
+        // first AudioOutputConfig.Load, which the main window's constructor makes
+        // during startup, before GetConfigInfo opens the diagnostic log. A trace
+        // line written with no log open is dropped by the trace router (there is
+        // no sink to take it), so on the 2026-11-09 radio walk the move ran and
+        // left no NoiseJournal line, while every later change did. Until the log
+        // has been seen recording once, lines are held here and written when it
+        // is: by the boot sequence right after the log opens, or by the next
+        // entry. After that, nothing is held and every line goes straight out,
+        // exactly as before.
+
+        /// <summary>The most lines held before the log starts; anything past it is dropped, as it always was.</summary>
+        internal const int MostHeldLines = 32;
+
+        private static readonly object _heldGate = new();
+        /// <summary>Lines waiting for the log; null once the log has been seen recording.</summary>
+        private static List<string>? _held = new();
+
+        /// <summary>Whether the diagnostic log is recording now. Read without waiting on a log transition.</summary>
+        internal static Func<bool> LogIsRecording = JJTrace.TraceCoordinator.RecordingWithoutWaiting;
+
+        /// <summary>Tests only: start again as at process start, before the log has been seen recording.</summary>
+        internal static void ResetHeldForTest(Func<bool> logIsRecording)
+        {
+            lock (_heldGate) { _held = new List<string>(); LogIsRecording = logIsRecording; }
+        }
+
+        private static void TraceOrHold(string line)
+        {
+            WriteHeldLines();
+            lock (_heldGate)
+            {
+                if (_held != null && !LogIsRecording())
+                {
+                    if (_held.Count < MostHeldLines) _held.Add(line);
+                    return;
+                }
+            }
+            Trace.WriteLine(line);
+        }
+
+        /// <summary>
+        /// Write any entries made before the diagnostic log started, once it is
+        /// recording. Called by the boot sequence right after the log opens; does
+        /// nothing when the log is not recording yet or nothing is held.
+        /// </summary>
+        public static void WriteHeldLines()
+        {
+            List<string> lines;
+            lock (_heldGate)
+            {
+                if (_held == null || !LogIsRecording()) return;
+                lines = _held;
+                _held = null;
+            }
+            foreach (var line in lines) Trace.WriteLine(line + " (recorded at startup, before the diagnostic log opened)");
+        }
     }
 }
