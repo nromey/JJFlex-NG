@@ -156,9 +156,13 @@ public partial class CheckYourAudioDialog
     /// <summary>Play this window's saved playback take, locally, as Play takes plays one.</summary>
     private async Task PlaySavedTakeAsync(string folder)
     {
+        // On its way from the press until it sounds (#913): the button reads
+        // "Stop playing", and a Stop press in the meantime cancels it.
+        var start = BeginTakeStart();
         try
         {
             var prepared = await ListenbackTakes.PreparePlaybackAsync(folder, 0);
+            if (start.Cancelled) return;
             if (prepared.Trouble != null)
             {
                 ScreenReaderOutput.Speak(prepared.Trouble, Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse,
@@ -167,13 +171,13 @@ public partial class CheckYourAudioDialog
             }
             var rig = _rig;
             await ListenbackTakes.PlayAfterClickAsync(prepared.Path!, Lexicon.Get(prepared.AnnouncementKey), rig,
-                r => !_closing && ReferenceEquals(r, _rig), offAirListeningGain: false);
+                r => !_closing && ReferenceEquals(r, _rig) && !start.Cancelled, offAirListeningGain: false);
         }
         catch (Exception ex)
         {
             JJTrace.Tracing.TraceLine("Check your audio saved take playback: " + ex, System.Diagnostics.TraceLevel.Error);
         }
-        SyncPlayTakeLabel();
+        finally { EndTakeStart(start); }
     }
 
     // DRAFT PROSE: awaiting Noel.

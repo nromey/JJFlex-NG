@@ -282,7 +282,10 @@ public partial class CheckYourAudioDialog
         AutomationProperties.SetName(_playTakeButton, "Play last take");
         // DRAFT PROSE: awaiting Noel. Says the saved take too (Unified takes).
         JJFlexHelp.SetText(_playTakeButton, Lexicon.Get("audio.takes.help.play_last"));
-        _playTakeButton.Click += (s, e) => PlayLastTake();
+        // The press is read as what the button said when it was pressed (#913),
+        // taken here, before anything can await: a playback that began between
+        // the label and the press must not turn a Play into a Stop.
+        _playTakeButton.Click += (s, e) => PlayLastTake(pressedAsStop: _playTakeOffersStop);
         _playTakeButton.GotFocus += (s, e) => SyncPlayTakeLabel();
         _sections.Add(CheckContent, _playTakeButton);
         AddPlayTakesDoor();
@@ -981,24 +984,51 @@ public partial class CheckYourAudioDialog
     private SliceRecorderTarget RadioTakeTarget => _radioTakeTarget ?? SliceRecorderTarget.TransmitSlice;
 
     /// <summary>
-    /// Play the take for the selected method, or stop the one playing. Record
-    /// yourself chooses a slice buffer; Off the air chooses an IQ take. The
-    /// others leave nothing to play, and the button is not shown for them.
+    /// What the Play last take button offered when it was last labelled: true
+    /// while it read "Stop playing". A press means this, whatever has changed
+    /// since (#913). Set only by <see cref="SyncPlayTakeLabel"/>, beside the label.
     /// </summary>
-    private void PlayLastTake()
+    private bool _playTakeOffersStop;
+
+    /// <summary>What a press of Play last take does.</summary>
+    internal enum PlayTakePress { Nothing, Play, Stop }
+
+    /// <summary>
+    /// A press does what the button said when it was pressed (#913). A Play
+    /// press that finds a take playing, or one on its way, leaves it playing and
+    /// starts nothing; a Stop press that finds nothing playing does nothing. A
+    /// Play press never becomes a Stop, and a Stop press never becomes a Play.
+    /// </summary>
+    /// <remarks>
+    /// Until #913 the press asked only "is a take playing now?". After Stop the
+    /// check's automatic playback starts about 1.4 s later while the button
+    /// still read "Play last take", so a press dispatched just after it began
+    /// stopped the take 51 ms in (the junk box's harness, 2026-11-09, check 7).
+    /// </remarks>
+    internal static PlayTakePress DecidePlayTakePress(bool pressedAsStop, bool takePlayingOrOnItsWay) =>
+        pressedAsStop
+            ? (takePlayingOrOnItsWay ? PlayTakePress.Stop : PlayTakePress.Nothing)
+            : (takePlayingOrOnItsWay ? PlayTakePress.Nothing : PlayTakePress.Play);
+
+    /// <summary>
+    /// Play the take for the selected method, or stop the one playing, as the
+    /// button said when it was pressed (<paramref name="pressedAsStop"/>, #913).
+    /// Record yourself chooses a slice buffer; Off the air chooses an IQ take.
+    /// The others leave nothing to play, and the button is not shown for them.
+    /// </summary>
+    private void PlayLastTake(bool pressedAsStop)
     {
+        switch (DecidePlayTakePress(pressedAsStop, TakePlayingOrOnItsWay))
+        {
+            case PlayTakePress.Stop:
+                StopTakePlayback();
+                return;
+            case PlayTakePress.Nothing:
+                // The label was behind the state; it catches up, and nothing else changes.
+                SyncPlayTakeLabel();
+                return;
+        }
         if (!AudioCheckMethods.MakesTake(SelectedMethod, SavedPlaybackOffered(SelectedMethod))) return;
-        // Press again to stop, whichever thing is playing.
-        if (RecordingPlayer.IsPlaying)
-        {
-            RecordingPlayer.Stop();
-            return;
-        }
-        if (_rig != null && _rig.IsSlicePlaying(RadioTakeTarget))
-        {
-            _ = StopRadioTakeAsync();
-            return;
-        }
 
         if (RefusePlayWhileTransmitting()) return;
 
@@ -1124,22 +1154,114 @@ public partial class CheckYourAudioDialog
         var rig = _rig;
         var target = FixedRecorderTarget(rig, RadioTakeTarget);
         if (_closing || !ReferenceEquals(rig, _rig)) return;
-        RecorderControls.Observe(rig);
-        RecorderControls.PlayStartClick();
-        bool underTune = TuneDoors.Up(rig);
-        var outcome = await rig.StartSlicePlayAsync(target);
-        if (outcome.Success)
+        var start = BeginTakeStart();
+        try
         {
-            if (_closing || !ReferenceEquals(rig, _rig))
+            RecorderControls.Observe(rig);
+            RecorderControls.PlayStartClick();
+            bool underTune = TuneDoors.Up(rig);
+            var outcome = await rig.StartSlicePlayAsync(target);
+            if (outcome.Success)
             {
-                await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
-                return;
+                // A Stop press while it was on its way (#913) stops it, quietly.
+                if (_closing || !ReferenceEquals(rig, _rig) || start.Cancelled)
+                {
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
+                    return;
+                }
+                _checkPlayTargets.Add(target);
+                // Said only of a playback still running as it is said (#913).
+                if (rig.IsSlicePlaying(target))
+                    ScreenReaderOutput.Speak(TuneDoors.ForPlay(Lexicon.Get("audio.check.playing_take"), underTune),
+                        Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: outcome.Subject);
             }
-            _checkPlayTargets.Add(target);
-            ScreenReaderOutput.Speak(TuneDoors.ForPlay(Lexicon.Get("audio.check.playing_take"), underTune),
-                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: outcome.Subject);
+            else RecorderControls.Speak(outcome);
         }
-        else RecorderControls.Speak(outcome);
+        finally { EndTakeStart(start); }
+    }
+
+    /// <summary>
+    /// A take this window has asked to play and that is not yet sounding: a
+    /// slice playback awaiting the radio's reply, or a local one being prepared
+    /// (#913). While it exists the button reads "Stop playing", and a Stop press
+    /// cancels it.
+    /// </summary>
+    private sealed class TakeStart
+    {
+        public bool Cancelled { get; set; }
+    }
+
+    private TakeStart? _takeStart;
+
+    private TakeStart BeginTakeStart()
+    {
+        var start = new TakeStart();
+        _takeStart = start;
+        SyncPlayTakeLabel();
+        return start;
+    }
+
+    private void EndTakeStart(TakeStart start)
+    {
+        if (ReferenceEquals(_takeStart, start)) _takeStart = null;
+        SyncPlayTakeLabel();
+    }
+
+    /// <summary>
+    /// The one answer to "is a take playing, or on its way?" for Play last take
+    /// (#913): a local playback or one being prepared, the check's automatic
+    /// playback from the moment Stop commits it, and a slice playback this
+    /// window started or that is on the take's slice. The label and the press
+    /// both ask this, so they cannot disagree about what a press means.
+    /// </summary>
+    private bool TakePlayingOrOnItsWay
+    {
+        get
+        {
+            if (RecordingPlayer.IsPlaying || _takeStart != null) return true;
+            if (_session?.AutoPlaybackOnItsWay == true) return true;
+            var rig = _rig;
+            if (rig == null) return false;
+            if (rig.IsSlicePlaying(RadioTakeTarget)) return true;
+            if (_checkPlayTargets != null)
+                foreach (var target in _checkPlayTargets)
+                    if (rig.IsSlicePlaying(target)) return true;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="SyncPlayTakeLabel"/> on this window's thread, whichever thread
+    /// asks (#913): the session relabels from its unkey and its end, and a
+    /// reference's end reaches the unkey from a continuation. On the window's
+    /// thread it runs at once, so a press after the unkey reads the new label;
+    /// from elsewhere it is posted ahead of input.
+    /// </summary>
+    private void RelabelPlayTake()
+    {
+        var ui = Dispatcher;
+        if (ui == null || ui.CheckAccess()) SyncPlayTakeLabel();
+        else ui.BeginInvoke(new Action(SyncPlayTakeLabel));
+    }
+
+    /// <summary>
+    /// A Stop press on Play last take (#913): cancel a take on its way, stop a
+    /// local playback, abandon or stop the check's automatic playback, or stop
+    /// the slice take playing. Starts nothing.
+    /// </summary>
+    private void StopTakePlayback()
+    {
+        bool cancelledAStart = false;
+        if (_takeStart != null)
+        {
+            _takeStart.Cancelled = true;
+            _takeStart = null;
+            cancelledAStart = true;
+        }
+        if (RecordingPlayer.IsPlaying) RecordingPlayer.Stop();
+        bool sessionHadIt = _session?.AbandonAutoPlayback() == true;
+        if (!sessionHadIt && !cancelledAStart && _rig != null && _rig.IsSlicePlaying(RadioTakeTarget))
+            _ = StopRadioTakeAsync();
         SyncPlayTakeLabel();
     }
 
@@ -1166,7 +1288,9 @@ public partial class CheckYourAudioDialog
     {
         get
         {
-            if (RecordingPlayer.IsPlaying || _toneMonitorSounding) return true;
+            // A take on its way from a Play press counts (#913): Ctrl+Enter then
+            // stops it rather than starting a check it would sound over.
+            if (RecordingPlayer.IsPlaying || _toneMonitorSounding || _takeStart != null) return true;
             if (_rig == null) return false;
             foreach (var target in _checkPlayTargets)
                 if (_rig.IsSlicePlaying(target)) return true;
@@ -1178,6 +1302,13 @@ public partial class CheckYourAudioDialog
     private bool StopCheckPlayback()
     {
         bool stopped = false;
+        if (_takeStart != null)
+        {
+            // A take on its way (#913) is cancelled, and stops itself if it sounds.
+            _takeStart.Cancelled = true;
+            _takeStart = null;
+            stopped = true;
+        }
         if (RecordingPlayer.IsPlaying)
         {
             RecordingPlayer.Stop();
@@ -1223,11 +1354,17 @@ public partial class CheckYourAudioDialog
     /// once a take exists). A button that says "Play last take" while a take is
     /// playing would be a control describing something other than what it does.
     /// </summary>
+    /// <remarks>
+    /// "Playing" includes a take on its way (#913): from the moment Stop commits
+    /// the check's automatic playback, and from a press until the take sounds.
+    /// <see cref="_playTakeOffersStop"/> is set here, beside the label, so a
+    /// press reads what the operator was shown.
+    /// </remarks>
     private void SyncPlayTakeLabel()
     {
+        bool playing = TakePlayingOrOnItsWay;
+        _playTakeOffersStop = playing;
         if (_playTakeButton == null) return;
-        bool playing = RecordingPlayer.IsPlaying ||
-            _rig?.IsSlicePlaying(RadioTakeTarget) == true;
         var selected = SelectTakeForPlayback();
         bool available = AudioCheckMethods.MakesTake(SelectedMethod, SavedPlaybackOffered(SelectedMethod))
             && (playing || selected.Choice != TakePlaybackChoice.None);
@@ -1862,11 +1999,64 @@ public partial class CheckYourAudioDialog
             End(reason);
         }
 
+        /// <summary>
+        /// True from the unkey of a check that plays back (Record and play back,
+        /// Looped back) until its automatic playback has ended or been
+        /// abandoned (#913). The playback is committed at the unkey: from then
+        /// it starts on its own about a second and a half later, so Play last
+        /// take reads "Stop playing" throughout, not only once it sounds.
+        /// </summary>
+        /// <remarks>
+        /// Every way the playback is abandoned ends the session (a Stop press,
+        /// Stop or a new Ctrl+Enter, the window closing, the radio going, a
+        /// start that failed), and <see cref="End"/> relabels the button.
+        /// </remarks>
+        internal bool AutoPlaybackOnItsWay =>
+            Active && !_playbackAbandoned &&
+            ((_phase == Phase.AwaitPlayback && _awaitPlaybackTicks != int.MinValue) || _phase == Phase.PlayingBack);
+
+        /// <summary>Set by a Stop press on Play last take (#913): this check's automatic playback is not wanted.</summary>
+        private bool _playbackAbandoned;
+
+        /// <summary>
+        /// A Stop press on Play last take while this check's automatic playback
+        /// is on its way or playing (#913). Not yet started, or started but not
+        /// yet taken up by the watcher: the check ends here, as Stop ends it in
+        /// that phase, and the stop it sends waits on the radio's recorder
+        /// behind a start already sent, so nothing plays on afterwards and
+        /// "Playing your take." is never said. Already playing back (Looped back,
+        /// or a saved playback): the playback is stopped as a press stops any
+        /// take, and the watcher ends the check once its take has closed.
+        /// True when there was such a playback.
+        /// </summary>
+        internal bool AbandonAutoPlayback()
+        {
+            if (!AutoPlaybackOnItsWay) return false;
+            _playbackAbandoned = true;
+            if (_phase == Phase.PlayingBack && Rig is FlexBase rig)
+            {
+                _ = StopPlayingBackAsync(rig);
+                return true;
+            }
+            ForceEnd(null);
+            return true;
+        }
+
+        private async Task StopPlayingBackAsync(FlexBase rig)
+        {
+            _owner._checkPlayTargets.Remove(_recorderTarget);
+            RecorderControls.Speak(await rig.StopSlicePlayAsync(_recorderTarget));
+            _owner.RelabelPlayTake();
+        }
+
         private void End(string? reason)
         {
             _owner._endingTake = _take;
             _phase = Phase.Done;
             Active = false;
+            // Every ending abandons a playback still on its way (#913): the
+            // button stops offering to stop it.
+            _owner.RelabelPlayTake();
             _watcher.Stop();
             _ptt.SessionTimeoutOverrideSeconds = null;
             _ptt.AudioCheckNarration = false;
@@ -1940,6 +2130,9 @@ public partial class CheckYourAudioDialog
                 _phase = Phase.AwaitPlayback; // reuse the post-unkey path
                 _awaitPlaybackTicks = int.MinValue; // sentinel: no playback wanted
             }
+            // The automatic playback is committed from here (#913): Play last
+            // take says "Stop playing" now, not a second and a half from now.
+            _owner.RelabelPlayTake();
         }
 
         private void Watcher_Tick(object? sender, EventArgs e)
@@ -2073,9 +2266,15 @@ public partial class CheckYourAudioDialog
                 if (played?.Success == true)
                 {
                     _owner._checkPlayTargets.Add(_recorderTarget);
-                    ScreenReaderOutput.Speak(
-                        "Playing your take.",
-                        Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: played.Subject);
+                    // Said only of a playback running as it is said (#913). The
+                    // watcher takes the start up to a second after the radio
+                    // answered, and a playback stopped in that second (a press,
+                    // another door, a short take at its end) used to be
+                    // announced over silence.
+                    if (rig.IsSlicePlaying(_recorderTarget))
+                        ScreenReaderOutput.Speak(
+                            "Playing your take.",
+                            Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: played.Subject);
                     // The Loopback method's take lives on the listening slice,
                     // which goes when the arrangement does. So the check stays
                     // up while it plays, and comes down when it finishes or is
