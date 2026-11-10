@@ -460,21 +460,24 @@ public class KeyCommands
             // ── Tuning by your coarse and fine step (#703, #877) ──
             // The slice you are on, through the Home tuning path
             // (FreqOutHandlers.TuneByStep), so there is one tuning path, not
-            // two. Home's slice row runs these from every field on Control or
-            // Shift with Up or Down. No default flat key yet; see
-            // _unboundNotes. Descriptions and labels are DRAFT wording.
-            new(CommandValues.TuneCoarseUp, KeyTypes.Command, () => _context.GetMainWindow()?.FreqHandlers?.TuneByStep(coarse: true, direction: 1),
+            // two. Bound across the main window on Control or Shift with Up or
+            // Down (Noel, 2026-11-09 20:40, night question J4), except where
+            // the arrows change the focused thing's own value: DoCommand asks
+            // TuningChordYield before it runs these. RunsWithoutRadio so that
+            // with no radio they say the slice row's own sentence, not
+            // DoCommand's generic one. Descriptions and labels are DRAFT.
+            new(CommandValues.TuneCoarseUp, KeyTypes.Command, () => TuneFromCommand(coarse: true, direction: 1),
                 "Tune up by your coarse step", "Coarse tune up", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "tune", "tuning", "coarse", "step", "up", "frequency", "vfo", "control up" }, ShortActionLabel = "tune" },
-            new(CommandValues.TuneCoarseDown, KeyTypes.Command, () => _context.GetMainWindow()?.FreqHandlers?.TuneByStep(coarse: true, direction: -1),
+                { Keywords = new[] { "tune", "tuning", "coarse", "step", "up", "frequency", "vfo", "control up" }, ShortActionLabel = "tune", RunsWithoutRadio = true },
+            new(CommandValues.TuneCoarseDown, KeyTypes.Command, () => TuneFromCommand(coarse: true, direction: -1),
                 "Tune down by your coarse step", "Coarse tune down", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "tune", "tuning", "coarse", "step", "down", "frequency", "vfo", "control down" }, ShortActionLabel = "tune" },
-            new(CommandValues.TuneFineUp, KeyTypes.Command, () => _context.GetMainWindow()?.FreqHandlers?.TuneByStep(coarse: false, direction: 1),
+                { Keywords = new[] { "tune", "tuning", "coarse", "step", "down", "frequency", "vfo", "control down" }, ShortActionLabel = "tune", RunsWithoutRadio = true },
+            new(CommandValues.TuneFineUp, KeyTypes.Command, () => TuneFromCommand(coarse: false, direction: 1),
                 "Tune up by your fine step", "Fine tune up", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "tune", "tuning", "fine", "step", "up", "frequency", "vfo", "shift up" }, ShortActionLabel = "tune" },
-            new(CommandValues.TuneFineDown, KeyTypes.Command, () => _context.GetMainWindow()?.FreqHandlers?.TuneByStep(coarse: false, direction: -1),
+                { Keywords = new[] { "tune", "tuning", "fine", "step", "up", "frequency", "vfo", "shift up" }, ShortActionLabel = "tune", RunsWithoutRadio = true },
+            new(CommandValues.TuneFineDown, KeyTypes.Command, () => TuneFromCommand(coarse: false, direction: -1),
                 "Tune down by your fine step", "Fine tune down", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "tune", "tuning", "fine", "step", "down", "frequency", "vfo", "shift down" }, ShortActionLabel = "tune" },
+                { Keywords = new[] { "tune", "tuning", "fine", "step", "down", "frequency", "vfo", "shift down" }, ShortActionLabel = "tune", RunsWithoutRadio = true },
 
             // ── Mode switching ──
             new(CommandValues.ModeNext, KeyTypes.Command, () => _context.GetMainWindow()?.CycleMode(1),
@@ -1946,12 +1949,23 @@ public class KeyCommands
     public sealed record UnboundNote(UnboundReason Reason, string Detail);
 
     /// <summary>The four tuning-by-step commands share one reason. DRAFT wording.</summary>
-    private const string TuneByStepUnboundDetail =
-        "On JJ Flexible Home's slice row, Control with Up or Down tunes by your coarse step and "
-        + "Shift with Up or Down by your fine step, from every field. A key here would take the "
-        + "same chord everywhere in the main window, including the finer value step Shift gives "
-        + "Home's field groups, so the default waits until that is decided. The Hotkey Editor can "
-        + "bind it now.";
+    /// <summary>
+    /// The four tuning commands (#703 J4): with no radio, the slice row's own
+    /// sentence (<c>connect.command_needs_radio</c>, Critical, as
+    /// FreqOutHandlers.TuneByStepFromField says it); otherwise the one Home
+    /// tuning path, <see cref="FreqOutHandlers.TuneByStep"/>.
+    /// </summary>
+    private void TuneFromCommand(bool coarse, int direction)
+    {
+        if (_context.GetRigControl() == null)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("connect.command_needs_radio"),
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+        _context.GetMainWindow()?.FreqHandlers?.TuneByStep(coarse, direction);
+    }
 
     /// <summary>
     /// Every command that defaults to <c>Keys.None</c>, and why.
@@ -2073,10 +2087,6 @@ public class KeyCommands
         // command and the Hotkey Editor can bind it a flat key.
         // #703 and #877. DRAFT wording: KeyManifest writes the Detail into the
         // key list the operator exports, so no task number goes in it.
-        [CommandValues.TuneCoarseUp] = new(UnboundReason.Reserved, TuneByStepUnboundDetail),
-        [CommandValues.TuneCoarseDown] = new(UnboundReason.Reserved, TuneByStepUnboundDetail),
-        [CommandValues.TuneFineUp] = new(UnboundReason.Reserved, TuneByStepUnboundDetail),
-        [CommandValues.TuneFineDown] = new(UnboundReason.Reserved, TuneByStepUnboundDetail),
         [CommandValues.ToggleVoxSendBox] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Ctrl+K turns on or off whether sends key the radio when VOX is on; K for key. "
             + "The same box is in Home's Transmission group, after VOX gain and delay, and in Settings, PTT."),
@@ -2218,13 +2228,14 @@ public class KeyCommands
         new(Keys.F6 | Keys.Shift, CommandValues.BandJump12, KeyScope.Radio),
         new(Keys.Up | Keys.Alt, CommandValues.BandUp, KeyScope.Radio),
         new(Keys.Down | Keys.Alt, CommandValues.BandDown, KeyScope.Radio),
-        // Tuning by step (#703, #877): held empty until the rest of the
-        // main window is ruled. Home's slice row runs them on Control or
-        // Shift with Up or Down; see _unboundNotes.
-        new(Keys.None, CommandValues.TuneCoarseUp, KeyScope.Radio), // unbound: Reserved — Home slice row, Control+Up
-        new(Keys.None, CommandValues.TuneCoarseDown, KeyScope.Radio), // unbound: Reserved — Home slice row, Control+Down
-        new(Keys.None, CommandValues.TuneFineUp, KeyScope.Radio), // unbound: Reserved — Home slice row, Shift+Up
-        new(Keys.None, CommandValues.TuneFineDown, KeyScope.Radio), // unbound: Reserved — Home slice row, Shift+Down
+        // Tuning by step (#703, #877; J4, Noel 2026-11-09 20:40): across the
+        // main window, yielding where the arrows change the focused thing's
+        // own value (TuningChordYield, asked in DoCommand). Radio scope, so
+        // Logging mode and dialogs are untouched.
+        new(Keys.Up | Keys.Control, CommandValues.TuneCoarseUp, KeyScope.Radio),
+        new(Keys.Down | Keys.Control, CommandValues.TuneCoarseDown, KeyScope.Radio),
+        new(Keys.Up | Keys.Shift, CommandValues.TuneFineUp, KeyScope.Radio),
+        new(Keys.Down | Keys.Shift, CommandValues.TuneFineDown, KeyScope.Radio),
 
         // Mode switching
         new(Keys.M | Keys.Alt, CommandValues.ModeNext, KeyScope.Radio),
@@ -3365,6 +3376,19 @@ public class KeyCommands
         var kt = Lookup(k);
         if (kt != null)
         {
+            // #703 J4 (Noel, 2026-11-09 20:40): the four tuning chords give the
+            // arrows back where they change the focused thing's own value
+            // (a Home value or cycle field, a list, a grid, a tree, a combo
+            // box, a text box). Asked HERE, before the no-radio guard and
+            // before the key is marked handled, because a handler cannot
+            // yield: by the time it runs the key is consumed. Not handled, so
+            // the key goes on to the focused control.
+            if (TuningChordYield.Yields(kt.KeyDef.Id))
+            {
+                _context.Trace("DoCommand: " + kt.KeyDef.Id + " left to the focused control");
+                return false;
+            }
+
             // Radio/Classic/Modern-scope commands need a connected radio.
             // Without one, announce "no radio connected" instead of letting
             // the handler go silent (or worse, open a dialog with no radio,
