@@ -2409,11 +2409,6 @@ Module globals
             If ConfigDirRefusal IsNot Nothing Then
                 Tracing.TraceLine("ConfigLocation: " & ConfigDirRefusal, TraceLevel.Warning)
             End If
-            ' The noise journal's entries made before this log opened, for the
-            ' same reason as the line above: the main window's first config load
-            ' runs the one-time noise floor move (#1019) during startup, and a
-            ' trace line written with no log open is simply dropped.
-            JJFlexWpf.NoiseSettingsJournal.WriteHeldLines()
             ' Whether this machine has a debug monitor registered, and whether
             ' this process can be hurt by one. #434 was a launch that took ten
             ' seconds PER TRACE LINE, diagnosed only by reconstructing tick

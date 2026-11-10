@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -126,54 +125,35 @@ public sealed class NoiseFloorMoveTests : IDisposable
         Assert.Equal(new NoiseJournalChange("rnnoise", "floor", "20", "10"), moved.Changes.Single());
     }
 
-    /// <summary>A trace listener that keeps a line only while the "log" is open, as the trace router does with no sink.</summary>
-    private sealed class OpenLogListener : TraceListener
-    {
-        private readonly Func<bool> _open;
-        public readonly List<string> Lines = new();
-        public OpenLogListener(Func<bool> open) => _open = open;
-        public override void Write(string? message) { }
-        public override void WriteLine(string? message) { if (_open() && message != null) lock (Lines) Lines.Add(message); }
-    }
-
     /// <summary>
-    /// Repair round 5 (#1019; the 2026-11-09 radio walk, finding 6): the move
-    /// runs in the main window's first config load, during startup, before the
-    /// diagnostic log opens, and a line written with no log open is dropped. So
-    /// the move's journal line is held and written once the log is recording,
-    /// exactly once; after that nothing is held. The test above pins the
-    /// journal EVENT, which always fired; this pins the trace line.
+    /// Repair rounds 5 and 6 (#1019; the 2026-11-09 radio walk, finding 6): the
+    /// move runs in the main window's first config load, during startup, before
+    /// any diagnostic log opens, and a line written with no log open is dropped.
+    /// So the journal sends its line by the trace's KEPT route, which holds it
+    /// until a log opens (boot, a later capture, either instance) and keeps its
+    /// order; Radios.Tests' TraceCoordinatorTests pin that route against real
+    /// log files. This pins that the move's line is sent, once, by that route.
+    /// The test above pins the journal EVENT, which always fired; this pins the
+    /// trace line.
     /// </summary>
     [Fact]
-    public void The_moves_journal_line_reaches_the_diagnostic_log_once_it_opens()
+    public void The_moves_journal_line_goes_by_the_kept_route_so_a_log_that_opens_later_still_gets_it()
     {
-        bool open = false;
-        var listener = new OpenLogListener(() => open);
-        var original = NoiseSettingsJournal.LogIsRecording;
-        NoiseSettingsJournal.ResetHeldForTest(() => open);
-        Trace.Listeners.Add(listener);
+        var production = NoiseSettingsJournal.TraceLine;
+        Assert.Equal("JJTrace.Tracing.TraceLineKept", production.Method.DeclaringType!.FullName + "." + production.Method.Name);
+        var lines = new List<string>();
+        NoiseSettingsJournal.TraceLine = l => { lock (lines) lines.Add(l); };
         try
         {
             WriteAsOlderBuild(new AudioOutputConfig { RNNoiseStrength = 0.8f });
-            AudioOutputConfig.Load(_dir);                 // startup: the log is not open yet
+            AudioOutputConfig.Load(_dir);
+            AudioOutputConfig.Load(_dir);                 // the second start moves nothing
             Assert.True(ReceiveNoiseFloorMove.HasRun(_dir)); // positive control: the move ran
-            open = true;                                  // GetConfigInfo opens the log...
-            NoiseSettingsJournal.WriteHeldLines();        // ...and boot writes what was held
-            NoiseSettingsJournal.WriteHeldLines();        // a second call writes nothing more
-            string[] lines; lock (listener.Lines) lines = listener.Lines.ToArray();
-            var moved = Assert.Single(lines, l => l.Contains("NoiseJournal: DefaultMoved"));
-            Assert.Contains("rnnoise.floor 20 -> 10", moved);
-
-            // Once the log has been seen recording, nothing is held: the next entry goes straight out.
-            NoiseSettingsJournal.Record(NoiseJournalKind.Floor, "round five test", "rnnoise", "floor", "10", "15");
-            lock (listener.Lines) lines = listener.Lines.ToArray();
-            Assert.Single(lines, l => l.Contains("NoiseJournal: Floor from round five test"));
         }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-            NoiseSettingsJournal.ResetHeldForTest(original);
-        }
+        finally { NoiseSettingsJournal.TraceLine = production; }
+        string[] sent; lock (lines) sent = lines.ToArray();
+        var moved = Assert.Single(sent, l => l.Contains("NoiseJournal: DefaultMoved"));
+        Assert.Contains("rnnoise.floor 20 -> 10", moved);
     }
 
     [Fact]

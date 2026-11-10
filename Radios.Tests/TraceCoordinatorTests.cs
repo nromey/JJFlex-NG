@@ -129,6 +129,7 @@ namespace Radios.Tests
             TraceArchiveWorker.BeforeArchiveForTests = null;
             TraceRecordingHealth.ResetForTests();
             Tracing.ResetDeferredCountersForTests();
+            Tracing.ResetKeptForTests();
         }
 
         /// <summary>
@@ -3085,6 +3086,171 @@ namespace Radios.Tests
             Assert.True(on2.Reclaimed.Completion.Result.ArchiveCommitted);
             Assert.Equal(TraceSessionOutcome.RecordingFailed,
                 Manifest().Entries.Single(e => e.SessionId == a.SessionId.ToString()).Outcome);
+        }
+
+        // ── Kept lines: a record that must reach a log opened later (#1019, round 6) ──
+        //
+        // The noise journal's one-time move is recorded during startup, before
+        // any log opens. Codex's sixth check proved, against a real sink, that a
+        // held line waited through a later healthy log open until an unrelated
+        // write; that a newer line could overtake the held tail; and that past
+        // the bound lines vanished without a sign. These pin the created states
+        // it named: a later log opened with nothing written since, a log opening
+        // between a line's queueing and its write, and 34 lines.
+
+        private static int CountOf(string text, string needle)
+        {
+            int n = 0, at = 0;
+            while ((at = text.IndexOf(needle, at, StringComparison.Ordinal)) >= 0) { n++; at += needle.Length; }
+            return n;
+        }
+
+        [Theory]
+        [InlineData(false, "JJFlexRadioTrace.txt")]   // the standing log at boot, or switched on later
+        [InlineData(true, "JJFlexRadioTrace.txt")]    // a detailed capture started with no log running
+        [InlineData(false, "JJFlexRadio2Trace.txt")]  // a second instance's log
+        public void A_kept_line_from_before_any_log_lands_in_the_next_log_to_open_with_nothing_written_since(bool asCapture, string fileName)
+        {
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Tracing.TraceLineKept("KEPT-before-any-log");
+            Assert.Equal(1, Tracing.KeptLinesWaiting);         // no log: it waits
+
+            string path = Path.Combine(_dir, fileName);
+            TraceTransitionResult r = TraceCoordinator.Begin(path, TraceLevel.Info, asCapture);
+            Assert.Equal(TraceTransition.Accepted, r.Status);
+            // Nothing else is written: the open itself must have drained it.
+            Assert.Equal(0, Tracing.KeptLinesWaiting);
+            string text = ReadLiveText(path);
+            Assert.Equal(1, CountOf(text, "KEPT-before-any-log"));
+            Assert.Contains("KEPT-before-any-log (recorded before this diagnostic log opened)", text);
+
+            // And once a log is recording, a kept line goes straight in, unlabelled, once.
+            Tracing.TraceLineKept("KEPT-while-recording");
+            Assert.Equal(0, Tracing.KeptLinesWaiting);
+            text = ReadLiveText(path);
+            Assert.Equal(1, CountOf(text, "KEPT-while-recording"));
+            Assert.DoesNotContain("KEPT-while-recording (recorded before", text);
+        }
+
+        [Fact]
+        public void A_kept_line_waits_through_a_failed_open_and_lands_in_the_open_that_succeeds()
+        {
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Tracing.TraceLineKept("KEPT-through-a-failed-open");
+            // A directory where the file should be: the open fails.
+            Directory.CreateDirectory(_livePath);
+            TraceTransitionResult failed = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+            Assert.NotEqual(TraceTransition.Accepted, failed.Status);
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Assert.Equal(1, Tracing.KeptLinesWaiting);          // not dropped for want of a log
+            Directory.Delete(_livePath);
+
+            Open();
+            Assert.Equal(0, Tracing.KeptLinesWaiting);
+            Assert.Equal(1, CountOf(ReadLiveText(_livePath), "KEPT-through-a-failed-open"));
+        }
+
+        [Fact]
+        public void A_log_opening_between_a_lines_queueing_and_its_write_keeps_the_older_lines_first()
+        {
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Tracing.TraceLineKept("ORDER-1 held");
+            Tracing.TraceLineKept("ORDER-2 held");
+            // The newer line is queued, and the log opens before it goes for the
+            // gate: the exact gap two separate health readings could straddle.
+            Tracing.KeptLineProbeForTests = raw =>
+            {
+                if (raw != "ORDER-3 newer") return;
+                Tracing.KeptLineProbeForTests = null;
+                Assert.Equal(TraceTransition.Accepted, TraceCoordinator.Begin(_livePath, TraceLevel.Info, false).Status);
+            };
+            Tracing.TraceLineKept("ORDER-3 newer");
+            Tracing.TraceLineKept("ORDER-4 newest");
+            Assert.NotNull(TraceCoordinator.CurrentHandle);    // positive control: the log opened in the gap
+
+            string text = ReadLiveText(_livePath);
+            int[] at = { text.IndexOf("ORDER-1", StringComparison.Ordinal), text.IndexOf("ORDER-2", StringComparison.Ordinal),
+                         text.IndexOf("ORDER-3", StringComparison.Ordinal), text.IndexOf("ORDER-4", StringComparison.Ordinal) };
+            Assert.All(at, i => Assert.True(i >= 0, "a kept line never reached the log"));
+            Assert.True(at[0] < at[1] && at[1] < at[2] && at[2] < at[3],
+                "kept lines out of order: " + string.Join(", ", at));
+            foreach (var tag in new[] { "ORDER-1", "ORDER-2", "ORDER-3", "ORDER-4" })
+                Assert.Equal(1, CountOf(text, tag));
+        }
+
+        [Fact]
+        public void Kept_lines_from_two_writers_while_a_log_opens_each_arrive_once_and_in_their_own_order()
+        {
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            const int each = 120;
+            using var halfway = new CountdownEvent(2);
+            void Writer(string name)
+            {
+                for (int i = 0; i < each; i++)
+                {
+                    // Eight each with no log, then on only once the open has begun, so
+                    // the rest race the open itself (with no log and no transition the
+                    // 32-line bound applies, which is the next test's subject).
+                    if (i == 8)
+                    {
+                        halfway.Signal();
+                        SpinWait.SpinUntil(() => TraceCoordinator.TransitionInProgress || TraceCoordinator.CurrentHandle != null,
+                            TimeSpan.FromSeconds(10));
+                    }
+                    Tracing.TraceLineKept($"TWO-{name}-{i:D3}");
+                }
+            }
+            var a = new Thread(() => Writer("a"));
+            var b = new Thread(() => Writer("b"));
+            a.Start(); b.Start();
+            Assert.True(halfway.Wait(TimeSpan.FromSeconds(10)));
+            Open();                                            // while both are still writing
+            Assert.True(a.Join(TimeSpan.FromSeconds(30)) && b.Join(TimeSpan.FromSeconds(30)));
+            SpinWait.SpinUntil(() => Tracing.KeptLinesWaiting == 0, TimeSpan.FromSeconds(10));
+            TraceCoordinator.DrainDeferred();
+
+            string text = ReadLiveText(_livePath);
+            foreach (var name in new[] { "a", "b" })
+            {
+                int last = -1;
+                for (int i = 0; i < each; i++)
+                {
+                    string tag = $"TWO-{name}-{i:D3}";
+                    int count = CountOf(text, tag);
+                    Assert.True(count == 1, tag + " arrived " + count + " times");
+                    int here = text.IndexOf(tag, StringComparison.Ordinal);
+                    Assert.True(here > last, tag + " arrived out of order");
+                    last = here;
+                }
+            }
+            Assert.DoesNotContain("TraceKept:", text);       // 16 waited, well under the bound
+        }
+
+        [Fact]
+        public void Past_the_bound_the_log_says_how_many_kept_lines_were_left_out()
+        {
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            for (int i = 0; i < 34; i++) Tracing.TraceLineKept($"BOUND-{i:D2}");
+            Assert.Equal(Tracing.MaxKeptLines, Tracing.KeptLinesWaiting);
+
+            Open();
+            string text = ReadLiveText(_livePath);
+            int last = -1;
+            for (int i = 0; i < 32; i++)
+            {
+                int here = text.IndexOf($"BOUND-{i:D2}", StringComparison.Ordinal);
+                Assert.True(here > last, $"BOUND-{i:D2} missing or out of order");
+                last = here;
+            }
+            Assert.DoesNotContain("BOUND-32", text);
+            Assert.DoesNotContain("BOUND-33", text);
+            int notice = text.IndexOf("TraceKept: 2 more lines were", StringComparison.Ordinal);
+            Assert.True(notice > last, "no notice of the two lines left out, after the 32 kept");
+            Assert.Equal(1, CountOf(text, "TraceKept:"));
+
+            // The count is spent with the drain: a later line brings no second notice.
+            Tracing.TraceLineKept("BOUND-after");
+            Assert.Equal(1, CountOf(ReadLiveText(_livePath), "TraceKept:"));
         }
     }
 }
