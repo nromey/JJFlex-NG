@@ -219,6 +219,145 @@ namespace Radios.Tests
             Assert.True(next.SliceFieldArrowsTune);
         }
 
+        // ---- #517 repair two (Codex, 2026-11-10): switching operators ----
+
+        private const string OpB = "N0CALL_Second_Operator";
+
+        private string FileFor(string op) => Path.Combine(_root, op + "_accessibilityConfig.xml");
+
+        /// <summary>
+        /// Codex's trigger, followed exactly: start as operator A; Radio,
+        /// Operators, select B; Settings, Accessibility, uncheck the Slice
+        /// operations box; OK; no connect between. Settings must show B's
+        /// choices and write B's file, and A's file must be left as A saved it.
+        /// Then a restart as each operator reads that operator's own choices.
+        /// </summary>
+        /// <remarks>
+        /// The operator change is <see cref="AccessibilityConfig.FollowOperator"/>
+        /// with the settings root and the new operator's name, which is what the
+        /// application's operator change handler calls (pinned from the source
+        /// by <see cref="An_operator_switch_is_wired_to_follow_the_operator_with_or_without_a_radio"/>).
+        /// The repair-one tests each used one operator and could not see this.
+        /// </remarks>
+        [Fact]
+        public void After_an_operator_switch_Settings_reads_and_saves_the_new_operators_file_and_leaves_the_previous_one_alone()
+        {
+            // B saved choices of their own in an earlier session.
+            new AccessibilityConfig
+            {
+                HoldsEverySetting = true,
+                DoubleTapTolerance = DoubleTapTolerance.Relaxed,
+                SliceArrowOrder = SliceArrowOrder.BottomToTop,
+            }.Save(_root, OpB);
+
+            // Launch as A; A makes and saves choices of their own.
+            AccessibilityConfig.Load(_root, Op);
+            AccessibilityConfig.Current.DoubleTapTolerance = DoubleTapTolerance.Quick;
+            AccessibilityConfig.Current.SliceOpsFieldArrowsTune = true;
+            AccessibilityConfig.SaveChoices();
+            string aFileBefore = File.ReadAllText(FileFor(Op));
+
+            // Radio, Operators: B.
+            AccessibilityConfig.FollowOperator(_root, OpB);
+
+            // Settings opens on B's choices, not A's.
+            Assert.Equal(DoubleTapTolerance.Relaxed, AccessibilityConfig.Current.DoubleTapTolerance);
+            Assert.Equal(SliceArrowOrder.BottomToTop, AccessibilityConfig.Current.SliceArrowOrder);
+            Assert.True(AccessibilityConfig.Current.SliceOpsFieldArrowsTune);
+
+            // B unchecks the Slice operations box; OK.
+            AccessibilityConfig.Current.SliceOpsFieldArrowsTune = false;
+            AccessibilityConfig.SaveChoices();
+
+            Assert.Equal(aFileBefore, File.ReadAllText(FileFor(Op)));   // A's file untouched
+
+            // Back to A in the same session: A's choices again.
+            AccessibilityConfig.FollowOperator(_root, Op);
+            Assert.Equal(DoubleTapTolerance.Quick, AccessibilityConfig.Current.DoubleTapTolerance);
+            Assert.True(AccessibilityConfig.Current.SliceOpsFieldArrowsTune);
+
+            // Restart as A, then as B: each reads their own.
+            AccessibilityConfig.ForgetHomeForTests();
+            var a = AccessibilityConfig.Load(_root, Op);
+            Assert.Equal(DoubleTapTolerance.Quick, a.DoubleTapTolerance);
+            Assert.Equal(SliceArrowOrder.TopToBottom, a.SliceArrowOrder);
+            Assert.True(a.SliceOpsFieldArrowsTune);
+
+            AccessibilityConfig.ForgetHomeForTests();
+            var b = AccessibilityConfig.Load(_root, OpB);
+            Assert.Equal(DoubleTapTolerance.Relaxed, b.DoubleTapTolerance);
+            Assert.Equal(SliceArrowOrder.BottomToTop, b.SliceArrowOrder);
+            Assert.False(b.SliceOpsFieldArrowsTune);
+        }
+
+        /// <summary>
+        /// The same event also fires for an edit of the current operator. When
+        /// that leaves the operator's name as it was, nothing is re-read: the
+        /// object every reader holds is kept, choices and all.
+        /// </summary>
+        [Fact]
+        public void The_operator_change_event_for_the_operator_already_in_use_changes_nothing()
+        {
+            var loaded = AccessibilityConfig.Load(_root, Op);
+            loaded.SliceFieldArrowsTune = true;   // live, as Settings' Apply leaves it
+            Assert.Same(loaded, AccessibilityConfig.FollowOperator(_root, Op));
+            Assert.Same(loaded, AccessibilityConfig.Current);
+            Assert.True(AccessibilityConfig.Current.SliceFieldArrowsTune);
+        }
+
+        /// <summary>
+        /// A switch before any file has been read this session (no operator at
+        /// launch): choices committed then belong to no operator yet, and the
+        /// operator who becomes current gets them, written into their file, as
+        /// the first connect would have done. They do not go on to a later one.
+        /// </summary>
+        [Fact]
+        public void Choices_held_before_any_operator_go_to_the_first_operator_followed_and_no_further()
+        {
+            AccessibilityConfig.Current.SliceFieldArrowsTune = true;
+            AccessibilityConfig.SaveChoices();                    // held: no file read yet
+
+            Assert.True(AccessibilityConfig.FollowOperator(_root, Op).SliceFieldArrowsTune);
+            Assert.True(File.Exists(FileFor(Op)));
+
+            Assert.False(AccessibilityConfig.FollowOperator(_root, OpB).SliceFieldArrowsTune);
+            Assert.False(File.Exists(FileFor(OpB)), "B's file was written though B chose nothing");
+        }
+
+        /// <summary>
+        /// The application's operator change handler calls
+        /// <see cref="AccessibilityConfig.FollowOperator"/> with the settings
+        /// root and the new current operator's name, and it is wired at
+        /// startup, after <c>InitializeApplication</c> and outside the
+        /// connect-time wiring, so it works with no radio. Radio, Operators'
+        /// switch raises that event. Read from the source: the VB application
+        /// cannot be run here.
+        /// </summary>
+        [Fact]
+        public void An_operator_switch_is_wired_to_follow_the_operator_with_or_without_a_radio()
+        {
+            string repo = RepoRoot();
+            string events = File.ReadAllText(Path.Combine(repo, "ApplicationEvents.vb")).Replace("\r\n", "\n");
+            string lister = File.ReadAllText(Path.Combine(repo, "Lister.vb")).Replace("\r\n", "\n");
+            string personal = File.ReadAllText(Path.Combine(repo, "PersonalData.vb")).Replace("\r\n", "\n");
+
+            int init = events.IndexOf("            InitializeApplication()\n", StringComparison.Ordinal);
+            int follow = events.IndexOf(
+                "Radios.AccessibilityConfig.FollowOperator(BaseConfigDir, PersonalData.UniqueOpName(CurrentOp))",
+                StringComparison.Ordinal);
+            int wire = events.LastIndexOf("AddHandler Operators.ConfigEvent,", follow, StringComparison.Ordinal);
+            int connectWiring = events.IndexOf("WpfMainWindow.FreqOutHandlersWireCallback = Sub(handlers)", StringComparison.Ordinal);
+            Assert.True(init > 0 && follow > init, "FollowOperator must be wired after InitializeApplication");
+            Assert.True(wire > init && wire < follow && follow - wire < 300,
+                "FollowOperator must run in an Operators.ConfigEvent handler");
+            Assert.True(connectWiring > follow, "FollowOperator must be wired at startup, not in the connect-time wiring");
+            Assert.Equal(1, Regex.Matches(events, Regex.Escape("AccessibilityConfig.FollowOperator(")).Count);
+
+            // Radio, Operators' switch raises the event the handler hears.
+            Assert.Matches(new Regex(@"SetCurrentOp\(Operators\(e\.Index\), e\.Index\)[\s\S]{0,200}Operators\.reportEvent\(\)"), lister);
+            Assert.Matches(new Regex(@"Sub reportEvent\(\)\s*\n\s*RaiseEvent ConfigEvent\("), personal);
+        }
+
         private static string RepoRoot()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);

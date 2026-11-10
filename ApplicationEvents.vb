@@ -338,6 +338,19 @@ Namespace My
             ' so auto-connect can find renamed config files.
             InitializeApplication()
 
+            ' #517 repair two: an operator switch makes the accessibility
+            ' choices the new operator's, read from and saved to the new
+            ' operator's file, with or without a radio. Without this, Settings
+            ' showed the previous operator's choices until the next connect and
+            ' saved the new operator's choice into the previous operator's file.
+            If Operators IsNot Nothing Then
+                AddHandler Operators.ConfigEvent,
+                    Sub(evSender, evArgs)
+                        If CurrentOp Is Nothing Then Return
+                        Radios.AccessibilityConfig.FollowOperator(BaseConfigDir, PersonalData.UniqueOpName(CurrentOp))
+                    End Sub
+            End If
+
             ' Wire DoCommandHandler AFTER GetConfigInfo (which creates Commands).
             WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
 

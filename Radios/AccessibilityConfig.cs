@@ -68,7 +68,8 @@ namespace Radios
     ///
     /// XML-serialized per-operator file at
     /// <c>{BaseConfigDir}\{opName}_accessibilityConfig.xml</c>, the settings root.
-    /// Loaded at launch and at the first connect (<see cref="Load"/>), and saved to
+    /// Loaded at launch, at the first connect and when the operator changes
+    /// (<see cref="Load"/>, <see cref="FollowOperator"/>), and saved to
     /// that same file when the Settings dialog commits (<see cref="SaveChoices"/>).
     /// Until the #517 repair the dialog saved it under <c>Radios</c> instead, where
     /// nothing read it; see <see cref="HoldsEverySetting"/>.
@@ -257,7 +258,8 @@ namespace Radios
         /// <see cref="Current"/>. The application's ONE load path: at launch
         /// (globals.vb InitializeApplication) and at the first connect
         /// (ApplicationEvents.vb), both with the settings root and
-        /// <c>PersonalData.UniqueOpName</c>.
+        /// <c>PersonalData.UniqueOpName</c>; and, through
+        /// <see cref="FollowOperator"/>, when the current operator changes.
         /// </summary>
         /// <remarks>
         /// The folder and name are remembered, and every later write goes to
@@ -305,6 +307,49 @@ namespace Radios
 
             Current = config;
             return config;
+        }
+
+        /// <summary>
+        /// The current operator changed (Radio, Operators, or an edit or
+        /// removal that changes who is current): from now on
+        /// <see cref="Current"/> is that operator's, read from that
+        /// operator's file, and the Settings dialog's save and the mode cycle
+        /// write that file. Nothing happens when the operator is the one whose
+        /// file is already in use.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>#517 repair two (Codex, 2026-11-10).</b> <see cref="Load"/>
+        /// remembers the operator it read, and only the launch and each
+        /// connect called it, so between switching operators and the next
+        /// connect <see cref="Current"/> was still the previous operator's,
+        /// Settings showed the previous operator's choices, and
+        /// <see cref="SaveChoices"/> wrote the new operator's choice into the
+        /// previous operator's file, leaving the new one's unwritten. The
+        /// application wires this to the operator change event
+        /// (ApplicationEvents.vb), with or without a radio.
+        /// </para>
+        /// <para>
+        /// <b>Nothing held is lost or misdirected.</b> Once a file has been
+        /// read, every commit is written at once (<see cref="SaveChoices"/>,
+        /// <see cref="ChooseModeCycle"/>), so the previous operator's choices
+        /// are already in the previous operator's file when this runs. Choices
+        /// are held only while no file has been read this session, which means
+        /// they belong to no operator yet; <see cref="Load"/> gives them to the
+        /// operator it reads, exactly as the first connect would have.
+        /// </para>
+        /// </remarks>
+        public static AccessibilityConfig FollowOperator(string configDirectory, string operatorName)
+        {
+            if (_homeDirectory != null && _homeOperator != null
+                && string.Equals(_homeDirectory, configDirectory, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(_homeOperator, operatorName, StringComparison.OrdinalIgnoreCase))
+            {
+                return Current;
+            }
+            System.Diagnostics.Trace.WriteLine(
+                $"AccessibilityConfig: the operator changed to {operatorName}; reading that operator's settings");
+            return Load(configDirectory, operatorName);
         }
 
         /// <summary>The per-radio folder the Settings dialog used to save into, under the settings root.</summary>
