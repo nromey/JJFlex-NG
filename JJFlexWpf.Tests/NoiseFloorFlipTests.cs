@@ -37,18 +37,50 @@ public sealed class NoiseFloorFlipTests
     private static NoiseLever Floor(NoiseFixture f, string id) => f.Noise.FloorLeverOf(id)!;
 
     [Fact]
-    public void Every_computer_engine_has_Advanced_levers_so_the_Audio_menu_offers_its_Advanced_row()
+    public void Every_computer_engine_in_this_build_has_Advanced_levers_so_the_Audio_menu_offers_its_Advanced_row()
     {
         // S7 (ruled 2026-11-09 21:12): NNR and Captured noise keep the floor in
         // Advanced and have no Advanced descriptor of their own; the menu's
-        // Advanced row follows HasAdvancedLevers, so the floor is reachable there.
+        // Advanced row follows the controller's levers, so the floor is reachable
+        // there. Scope (repair round 5): the engines in this build, the ones with
+        // a factory. NVIDIA, listed but not in this version, is the next test's.
         using var f = new NoiseFixture();
         foreach (var id in ComputerEngines)
+        {
             Assert.True(f.Noise.HasAdvancedLevers(id), id);
+            Assert.True(f.Noise.OffersAdvancedRow(id), id);
+        }
         foreach (var id in OwnReduction.Keys)
             Assert.Contains(f.Noise.Levers(id, includeAdvanced: true), l => l.Advanced && l.Kind == NoiseLeverKind.Floor);
         Assert.DoesNotContain(f.Catalog.Find("nnr")!.Settings, d => d.Advanced);
         Assert.DoesNotContain(f.Catalog.Find("spectral_capture")!.Settings, d => d.Advanced);
+    }
+
+    /// <summary>
+    /// Repair round 5 (Codex's fourth check): NVIDIA's row is listed and has no
+    /// factory yet (#768), so nothing an Advanced row opens for it can run. It
+    /// still LISTS Advanced levers (the floor and Listen to what was removed are
+    /// generic), which is how the menu, asking only HasAdvancedLevers, offered
+    /// it the row. A missing library is NOT the same thing and keeps the row
+    /// (#726, ruling 5: nothing is hidden for availability).
+    /// </summary>
+    [Fact]
+    public void An_engine_not_in_this_build_gets_no_Advanced_row_and_an_unavailable_one_keeps_it()
+    {
+        using var f = new NoiseFixture();
+        Assert.Null(f.Catalog.Find("nvidia_afx")!.Factory);
+        Assert.True(f.Noise.HasAdvancedLevers("nvidia_afx"));   // positive control: why the old check offered the row
+        Assert.False(f.Noise.OffersAdvancedRow("nvidia_afx"));
+        f.Unavailable["deepfilternet3"] = Unavailability.LibraryMissing;
+        Assert.True(f.Noise.OffersAdvancedRow("deepfilternet3"));
+        Assert.False(f.Noise.OffersAdvancedRow("radio_nr"));    // a radio engine never had the row
+
+        // And the Audio menu asks exactly that question. A source pin: the menu builder needs a window.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        string menu = File.ReadAllText(Path.Combine(dir!.FullName, "JJFlexWpf", "NativeMenuBar.cs"));
+        Assert.Contains("if (!isRadio && noise.OffersAdvancedRow(id))", menu);
+        Assert.DoesNotContain("noise.HasAdvancedLevers(id)", menu);
     }
 
     // ── The flip itself ──
