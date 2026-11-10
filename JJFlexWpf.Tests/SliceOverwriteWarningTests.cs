@@ -418,37 +418,22 @@ public sealed class SliceOverwriteWarningTests : IDisposable
     }
 
     [Fact]
-    public void The_sentence_after_the_warning_waits_on_the_UI_threads_dispatcher_when_there_is_no_WPF_Application()
+    public void Cancel_and_Escape_close_the_warning_saying_nothing()
     {
-        // This app hosts its WPF content in the WinForms shell, and no WPF Application exists.
-        Assert.Null(System.Windows.Application.Current);
-
-        System.Windows.Threading.Dispatcher? before = null, owned = null, found = null;
-        var thread = new System.Threading.Thread(() =>
-        {
-            before = RecorderControls.DispatcherAfterWarning();              // a thread with none: said at once
-            owned = System.Windows.Threading.Dispatcher.CurrentDispatcher;   // the UI thread owns one
-            found = RecorderControls.DispatcherAfterWarning();
-            owned.InvokeShutdown();
-        });
-        thread.SetApartmentState(System.Threading.ApartmentState.MTA);
-        thread.Start();
-        Assert.True(thread.Join(5000));
-        Assert.Null(before);
-        Assert.NotNull(owned);
-        Assert.Same(owned, found);
-    }
-
-    [Fact]
-    public void The_sentence_after_the_warning_is_queued_behind_the_returning_window_never_an_interrupt()
-    {
-        Assert.Equal(Radios.Speech.SpeechIntent.Queue, RecorderControls.AfterWarningIntent);
+        // Escape on "Replace the recording?" already means don't, and Home's own
+        // announcement of the returning focus says where the operator is (#999, C3).
+        // A sentence after the warning could only wait behind that announcement,
+        // 7 to 9 seconds on the 8600, and any key in the gap cancelled it.
         string controls = Source("JJFlexWpf", "RecorderControls.cs");
-        string speak = Body(controls, "private static void SpeakAfterWarning(string text)");
-        string say = controls.Substring(controls.IndexOf("private static void SayAfterWarning(string text)", StringComparison.Ordinal), 220);
-        Assert.Contains("DispatcherAfterWarning()", speak);
-        Assert.DoesNotContain("Application.Current", speak);
-        Assert.DoesNotContain("SpeechIntent.Interrupt", speak + say);
-        Assert.Contains("AfterWarningIntent", say);
+        string confirm = Body(controls, "public static async Task<OverwriteGo> ConfirmOverwriteAsync(");
+        Assert.Contains("SliceOverwriteAnswer.Cancel", confirm);             // the body found is the right one,
+        Assert.DoesNotContain("Speak", confirm);                              // and nothing in it speaks
+        int cancel = confirm.IndexOf("if (reply.Answer == Dialogs.SliceOverwriteAnswer.Cancel)", StringComparison.Ordinal);
+        Assert.True(cancel >= 0, "the Cancel branch was not found; this test no longer sees what it claims to");
+        string branch = confirm.Substring(cancel, confirm.IndexOf(';', cancel) - cancel);
+        Assert.Contains("return new(false, true, target)", branch);
+        Assert.DoesNotContain("AfterWarning", controls);
+        Assert.True(Lexicon.Contains("audio.recorder.overwrite.title"));      // the word list is loaded,
+        Assert.False(Lexicon.Contains("audio.recorder.overwrite.cancelled")); // and the sentence is gone from it
     }
 }

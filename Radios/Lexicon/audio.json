@@ -1175,7 +1175,6 @@
   "audio.recorder.overwrite.help.back_up_first": {"text": "Saves the current recording on this computer as a take, then starts the new recording on the same slice. The backup takes as long as the current recording. The new recording starts only after a successful backup.", "delivery": null},
   "audio.recorder.overwrite.help.cancel": {"text": "Keeps the current recording without starting a new recording. Escape also cancels.", "delivery": null},
   "audio.recorder.overwrite.help.dont_show": {"text": "Turns off future overwrite warnings for this radio after choosing Record or Back up first. Cancel leaves the warning setting unchanged. The warning can be turned on again in Settings, under Audio, Recorder.", "delivery": null},
-  "audio.recorder.overwrite.cancelled": {"text": "No new recording was started.", "delivery": null},
   "audio.recorder.listen_refused_transmitting": {"text": "The recording on slice {letter} cannot be played for listening while the radio is transmitting or tuning.", "delivery": null},
   "audio.recorder.overwrite.setting": {"text": "Warn before a recording on the radio is overwritten", "delivery": null},
   "audio.recorder.overwrite.setting_help": {"text": "Asks before a new recording replaces a recording already on a slice, even when a backup exists. The warning is on by default and is saved separately for each radio.", "delivery": null},
