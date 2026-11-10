@@ -152,7 +152,7 @@
                 <TextBlock Grid.Column="0" x:Name="PanLowFreq" Text=""
                            VerticalAlignment="Center" Margin="4,0"
                            FontFamily="Consolas" FontSize="11"
-                           AutomationProperties.Name="Low frequency" />
+                           local:StatusTextName.Label="Low frequency" local:StatusTextName.LabelFirst="True" />
 
                 <TextBox Grid.Column="1" x:Name="PanDisplayBox"
                          IsReadOnly="True"
@@ -168,7 +168,7 @@
                 <TextBlock Grid.Column="2" x:Name="PanHighFreq" Text=""
                            VerticalAlignment="Center" Margin="4,0"
                            FontFamily="Consolas" FontSize="11"
-                           AutomationProperties.Name="High frequency" />
+                           local:StatusTextName.Label="High frequency" local:StatusTextName.LabelFirst="True" />
             </Grid>
 
             <!-- Content Area — Phase 8.3: Received/Sent text, rig fields debug view -->

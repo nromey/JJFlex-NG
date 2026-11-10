@@ -37,9 +37,9 @@ namespace JJFlexWpf.Dialogs
 
             InitializeComponent();
 
+            // Named "Radio name, <name>" by StatusTextName's label-then-value
+            // mode (#1022), which follows the text; no direct name write here.
             RadioNameText.Text = radioName;
-            AutomationProperties.SetName(RadioNameText,
-                Radios.Lexicon.Get("settings.auto_connect.radio_name_accessible", ("radioName", radioName)));
             AutoConnectCheckbox.IsChecked = currentAutoConnect;
             LowBandwidthCheckbox.IsChecked = currentLowBandwidth;
         }

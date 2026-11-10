@@ -74,7 +74,6 @@
   "settings.audio.pc_audio_still_off_choose_devices": "Radio audio through this computer is still off. Choose audio devices to turn it on.",
   "settings.audio.pc_output_volume_label": "PC output volume",
   "settings.auto_connect.applied": "Auto-connect settings applied.",
-  "settings.auto_connect.radio_name_accessible": "Radio name: {radioName}",
   "settings.band.digital_segment": "digital segment",
   "settings.band.entering": "Entering {band} band",
   "settings.band.entering_subband": "Entering {subband}",

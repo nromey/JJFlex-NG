@@ -2835,7 +2835,10 @@ namespace Radios.Tests
             // audio.ptt.systemwide_watchdog_unkeyed, replaced by two classified keys.
             // Eight fewer (3061 to 3053): junk box 2026-11-09, fourth batch, reworded
             // and classified the radio setup protection sentences.
-            Assert.Equal(3053, unclassified);
+            // One fewer (3053 to 3052): the same batch retired
+            // settings.auto_connect.radio_name_accessible, a direct name write
+            // StatusTextName's label-then-value mode replaced.
+            Assert.Equal(3052, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
