@@ -113,7 +113,12 @@ internal static class ZeroPowerDoors
         return true;
     }
 
-    private static bool NoCallsign(FlexBase? rig)
+    /// <summary>
+    /// Whether the operator's callsign is missing, asked without saying
+    /// anything. For a door that must know whether the refusal was already
+    /// said elsewhere (Check your audio's keyed refusal, #1023 item 2).
+    /// </summary>
+    internal static bool NoCallsign(FlexBase? rig)
     {
         if (NoCallsignOverride != null) return NoCallsignOverride(rig);
         if (rig == null) return false;

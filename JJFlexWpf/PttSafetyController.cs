@@ -1192,7 +1192,7 @@ namespace JJFlexWpf
         /// refusal branch and never decides the return value, so it cannot
         /// delay or block a release or an unlock, which never come here.
         /// </remarks>
-        private bool RefuseWhileAnotherStationTransmits(string door)
+        internal bool RefuseWhileAnotherStationTransmits(string door)
         {
             if (!AnotherStationTransmitting(SafeRig())) return false;
             Tracing.TraceLine("PTT: " + door + " refused: the radio reports another station transmitting on it, "
