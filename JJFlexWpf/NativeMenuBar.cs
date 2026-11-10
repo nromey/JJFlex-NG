@@ -728,7 +728,10 @@ public class NativeMenuBar : IDisposable
                     () => AfterMenu(n => n.Adjust(l, -1, MenuSource)), !isRadio || radio);
             }
 
-            if (!isRadio && e.Settings.Any(d => d.Advanced))
+            // Every surface reaches the Advanced levers (#1019 S7, ruled 2026-11-09 21:12):
+            // the floor of an engine with its own reduction setting lives there, so the
+            // row follows the controller's levers, not the engine's own descriptors.
+            if (!isRadio && noise.HasAdvancedLevers(id))
                 AddWired(sub, Radios.Lexicon.Get("audio.noise_menu.advanced"),
                     () => _window.OpenNoiseOnHome(id, advanced: true));
 

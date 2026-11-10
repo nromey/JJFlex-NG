@@ -87,6 +87,9 @@ namespace JJFlexWpf
             return list;
         }
 
+        /// <summary>Whether an engine has any Advanced lever: the floor of an engine with its own reduction setting, its Advanced settings, or listening to the removed audio.</summary>
+        public bool HasAdvancedLevers(string id) => Levers(id, includeAdvanced: true).Any(l => l.Advanced);
+
         private bool Shown(DenoiseEngineEntry e, EngineSettingDescriptor d)
         {
             if (d.ShownWhen is not (string setting, string choice)) return true;

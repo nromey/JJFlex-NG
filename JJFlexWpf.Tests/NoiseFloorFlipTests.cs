@@ -36,6 +36,21 @@ public sealed class NoiseFloorFlipTests
 
     private static NoiseLever Floor(NoiseFixture f, string id) => f.Noise.FloorLeverOf(id)!;
 
+    [Fact]
+    public void Every_computer_engine_has_Advanced_levers_so_the_Audio_menu_offers_its_Advanced_row()
+    {
+        // S7 (ruled 2026-11-09 21:12): NNR and Captured noise keep the floor in
+        // Advanced and have no Advanced descriptor of their own; the menu's
+        // Advanced row follows HasAdvancedLevers, so the floor is reachable there.
+        using var f = new NoiseFixture();
+        foreach (var id in ComputerEngines)
+            Assert.True(f.Noise.HasAdvancedLevers(id), id);
+        foreach (var id in OwnReduction.Keys)
+            Assert.Contains(f.Noise.Levers(id, includeAdvanced: true), l => l.Advanced && l.Kind == NoiseLeverKind.Floor);
+        Assert.DoesNotContain(f.Catalog.Find("nnr")!.Settings, d => d.Advanced);
+        Assert.DoesNotContain(f.Catalog.Find("spectral_capture")!.Settings, d => d.Advanced);
+    }
+
     // ── The flip itself ──
 
     [Fact]

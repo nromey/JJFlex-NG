@@ -135,7 +135,10 @@ namespace JJFlexWpf
             if (e == null) return;
             Current = e.Id; CurrentLeverIndex = 0;
 
-            if (!CanRun(e, out Action speakWhy)) { speakWhy(); return; }
+            // Judged on the model the favourite lands on, not the one chosen now, so a
+            // favourite on a healthy model recovers from a missing one, and one on a
+            // missing model says why rather than switching to it.
+            if (!CanRun(e, out Action speakWhy, to.Model)) { speakWhy(); return; }
 
             if (from != null && from.EngineId == to.EngineId)
             {
@@ -192,7 +195,7 @@ namespace JJFlexWpf
         }
 
         /// <summary>Whether stepping onto an engine can turn it on here; when not, the action that says why (Terse form).</summary>
-        private bool CanRun(DenoiseEngineEntry e, out Action speakWhy)
+        private bool CanRun(DenoiseEngineEntry e, out Action speakWhy, string? model = null)
         {
             speakWhy = () => { };
             if (e.Side == DenoiseSide.Radio)
@@ -208,7 +211,7 @@ namespace JJFlexWpf
                 speakWhy = () => Say(L("audio.noise_surface.not_in_version", ("engine", Lexicon.Get(e.LabelKey))), SpeechSubject.NoiseUnavailable);
                 return false;
             }
-            var reason = SafeAvailability(e);
+            var reason = SafeAvailability(e, model);
             if (reason is Unavailability.None or Unavailability.HelperNotRunning) return true; // not running yet: choosing it starts it
             speakWhy = () => SpeakUnavailable(e, reason, kept: false);
             return false;

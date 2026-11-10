@@ -232,6 +232,65 @@ public sealed class RnnoiseModelSettingTests
         }
     }
 
+    // ── Repair round 3 (#1019): a favourite is judged on the model it lands on ──
+
+    /// <summary>Runs the body with only the newest and v0.1.1 libraries present: the tag model's library is missing.</summary>
+    private static void WithTagLibraryMissing(Action<NoiseFixture> body)
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "jjflex-49s-fav-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        string native = Path.Combine(RepoPaths.RequireRoot(), "runtimes", Environment.Is64BitProcess ? "win-x64" : "win-x86", "native");
+        File.Copy(Path.Combine(native, RnnoiseEngine.LibraryFileName), Path.Combine(folder, RnnoiseEngine.LibraryFileName));
+        File.Copy(Path.Combine(native, RnnoiseVoiceDetector.LibraryFileName), Path.Combine(folder, RnnoiseVoiceDetector.LibraryFileName));
+        var previous = RnnoiseEngine.LibraryLocator;
+        try
+        {
+            RnnoiseEngine.LibraryLocator = file => Path.Combine(folder, file);
+            using var f = new NoiseFixture();
+            body(f);
+        }
+        finally
+        {
+            RnnoiseEngine.LibraryLocator = previous;
+            try { Directory.Delete(folder, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
+    public void A_favourite_on_a_healthy_model_recovers_from_a_chosen_model_whose_library_is_missing()
+    {
+        WithTagLibraryMissing(f =>
+        {
+            var model = ModelLever(f);
+            f.Noise.Toggle("rnnoise", "test");
+            f.Noise.Set(model, null, RnnoiseModels.Tag, "test");          // kept, unavailable
+            Assert.NotNull(f.Noise.Marker("rnnoise"));
+            f.Config.NoiseFavourites.Add(new NoiseFavourite { EngineId = "rnnoise", Model = RnnoiseModels.Newest });
+            f.Noise.Step(+1, "test");
+            Assert.Equal(RnnoiseModels.Newest, f.Noise.ChoiceOf(model));
+            Assert.True(f.Noise.IsOn("rnnoise"));
+            Assert.Equal(SpeechSubject.NoiseEngineSwitch, f.Spoken.Said[^1].Subject);
+            Assert.Null(f.Noise.Marker("rnnoise"));
+        });
+    }
+
+    [Fact]
+    public void A_favourite_on_a_model_whose_library_is_missing_says_why_and_leaves_the_healthy_model_running()
+    {
+        WithTagLibraryMissing(f =>
+        {
+            var model = ModelLever(f);
+            f.Noise.Toggle("rnnoise", "test");
+            Assert.Equal(RnnoiseModels.Newest, f.Noise.ChoiceOf(model));
+            f.Config.NoiseFavourites.Add(new NoiseFavourite { EngineId = "rnnoise", Model = RnnoiseModels.Tag });
+            f.Noise.Step(+1, "test");
+            Assert.Equal(RnnoiseModels.Newest, f.Noise.ChoiceOf(model));
+            Assert.Equal(SpeechSubject.NoiseUnavailable, f.Spoken.Said[^1].Subject);
+            Assert.StartsWith(Radios.Lexicon.Get("audio.noise_surface.unavailable.librarymissing", f.Spoken.Verbosity,
+                ("engine", Radios.Lexicon.Get("audio.denoise.rnnoise"))), f.Spoken.Last);
+        });
+    }
+
     /// <summary>An operator's preset store in memory, with Balanced capture still to be offered.</summary>
     private sealed class MemoryPresets : INoisePresetStore
     {
