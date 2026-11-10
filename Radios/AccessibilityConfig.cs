@@ -66,9 +66,12 @@ namespace Radios
     /// this with just DoubleTapTolerance; future phases may add hold-to-repeat delay,
     /// announcement timing defaults, etc.).
     ///
-    /// Follows the PttConfig persistence pattern: XML-serialized per-operator file at
-    /// <c>{BaseConfigDir}\{opName}_accessibilityConfig.xml</c>. Loaded at app start
-    /// (ApplicationEvents.vb), saved when user commits Settings dialog changes.
+    /// XML-serialized per-operator file at
+    /// <c>{BaseConfigDir}\{opName}_accessibilityConfig.xml</c>, the settings root.
+    /// Loaded at launch and at the first connect (<see cref="Load"/>), and saved to
+    /// that same file when the Settings dialog commits (<see cref="SaveChoices"/>).
+    /// Until the #517 repair the dialog saved it under <c>Radios</c> instead, where
+    /// nothing read it; see <see cref="HoldsEverySetting"/>.
     ///
     /// A static <see cref="Current"/> reference exposes the active config to any
     /// consumer that doesn't want to thread the object through its call chain — useful
@@ -211,6 +214,36 @@ namespace Radios
         public string[]? ModeCycleModes { get; set; }
 
         /// <summary>
+        /// True in a settings-root file written by <see cref="SaveChoices"/>
+        /// or brought home by <see cref="Load"/>: every field in it is the
+        /// operator's. False in any older file, whose fields other than the
+        /// mode cycle were never written by an operator's choice.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why it exists (#517 repair one, 2026-11-09).</b> From Sprint 28
+        /// until this repair the Settings dialog saved this object into the
+        /// per-radio folder it is handed (<c>Radios</c> under the settings
+        /// root), while every load read the settings root. So the
+        /// operator's double-tap tolerance, slice arrow order, focus watchdog
+        /// switch and slice-field arrow boxes all lived in
+        /// <c>Radios\&lt;operator&gt;_accessibilityConfig.xml</c>, and the
+        /// root file held only the mode cycle (written there by
+        /// <see cref="ChooseModeCycle"/> since #263) over defaults. An
+        /// operator's live tree on 2026-11-09 held ONLY the Radios copy.
+        /// </para>
+        /// <para>
+        /// A root file without this mark is therefore merged with that copy
+        /// once (see <see cref="Load"/>) and written back with the mark, after
+        /// which the Radios copy is never read again. An older build that
+        /// rewrites the root file drops the element it does not know, so going
+        /// back to one and forward again merges afresh, from whatever that
+        /// build saved.
+        /// </para>
+        /// </remarks>
+        public bool HoldsEverySetting { get; set; }
+
+        /// <summary>
         /// The active (most recently loaded or saved) accessibility config. UI-layer
         /// consumers that don't take an AccessibilityConfig parameter (e.g., double-tap
         /// detectors in FreqOutHandlers or ScreenFieldsPanel) read this. Updated by
@@ -219,23 +252,51 @@ namespace Radios
         /// </summary>
         public static AccessibilityConfig Current { get; private set; } = new AccessibilityConfig();
 
+        /// <summary>
+        /// Read the operator's file from the settings root and make it
+        /// <see cref="Current"/>. The application's ONE load path: at launch
+        /// (globals.vb InitializeApplication) and at the first connect
+        /// (ApplicationEvents.vb), both with the settings root and
+        /// <c>PersonalData.UniqueOpName</c>.
+        /// </summary>
+        /// <remarks>
+        /// The folder and name are remembered, and every later write goes to
+        /// that same file: <see cref="SaveChoices"/> for the Settings dialog,
+        /// <see cref="ChooseModeCycle"/> for the mode cycle. A root file
+        /// written before the #517 repair is first merged with the copy the
+        /// Settings dialog used to save under <c>Radios</c> (see
+        /// <see cref="HoldsEverySetting"/> and <see cref="ReadHome"/>).
+        /// </remarks>
         public static AccessibilityConfig Load(string configDirectory, string operatorName)
         {
-            var config = ReadFile(GetFilePath(configDirectory, operatorName)) ?? CreateDefault();
+            var config = ReadHome(configDirectory, operatorName);
 
-            // Remember where the operator's file was read from, so a setting
-            // that must survive a restart can be written back to THIS file
-            // (see ChooseModeCycle). The Settings dialog's own save goes to the
-            // per-radio folder it is given, which this Load never reads.
+            // Remember where the operator's file was read from, so the
+            // Settings dialog's save and the mode cycle write back to THIS
+            // file, the one this Load reads at the next start.
             _homeDirectory = configDirectory;
             _homeOperator = operatorName;
 
-            // A mode cycle chosen before this file was first read (Settings
-            // opened before the first connect of the session) wins over the
-            // file, and is written into it now, so it is neither lost here nor
-            // at the next start.
-            if (_modeCyclePending)
+            if (_pendingChoices != null)
             {
+                // Settings was committed before this file was first read this
+                // session. The operator's choices win over the file (they were
+                // made after it was last written), and are written into it now,
+                // so they survive this load, which is the first connect's, and
+                // the next start. They carry any mode cycle chosen in the same
+                // commit, so the held cycle below is spent with them.
+                config = _pendingChoices;
+                _pendingChoices = null;
+                _modeCyclePending = false;
+                _pendingModeCycle = null;
+                WriteHome(configDirectory, operatorName, config);
+            }
+            else if (_modeCyclePending)
+            {
+                // A mode cycle chosen before this file was first read (Settings
+                // opened before the first connect of the session) wins over the
+                // file, and is written into it now, so it is neither lost here
+                // nor at the next start.
                 config.ModeCycleModes = _pendingModeCycle;
                 _modeCyclePending = false;
                 _pendingModeCycle = null;
@@ -244,6 +305,101 @@ namespace Radios
 
             Current = config;
             return config;
+        }
+
+        /// <summary>The per-radio folder the Settings dialog used to save into, under the settings root.</summary>
+        internal const string FormerSettingsFolder = "Radios";
+
+        /// <summary>
+        /// The operator's settings, from the settings-root file, merged ONCE
+        /// with the copy the Settings dialog used to save under
+        /// <see cref="FormerSettingsFolder"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>A root file marked <see cref="HoldsEverySetting"/> wins
+        /// outright</b>: everything in it was written by this repair's save
+        /// path, and the Radios copy is stale from then on.
+        /// </para>
+        /// <para>
+        /// <b>An unmarked root file or none:</b> every field except the mode
+        /// cycle comes from the Radios copy when there is one, because until
+        /// this repair that copy was the ONLY place the Settings dialog saved
+        /// them, and the root file's values for them were defaults no operator
+        /// chose. The mode cycle comes from the root file when there is one,
+        /// because that is where <see cref="ChooseModeCycle"/> has written it
+        /// since #263, including from a Settings commit with no radio, which
+        /// never reached the Radios copy. The merged result is written to the
+        /// root, marked, at once, so the next load and every later write
+        /// start from it. Nothing is deleted: the Radios copy stays where it
+        /// is, unread.
+        /// </para>
+        /// <para>
+        /// The Radios copy is looked for under the same operator name. The
+        /// dialog saved it under the operator file's base name, which is
+        /// <c>UniqueOpName</c> plus <c>.xml</c> for every operator added or
+        /// edited since the callsign naming (<c>PersonalData.opFileName</c>),
+        /// and <c>MigrateConfigFiles</c> renames the Radios folder's legacy
+        /// names to it at launch.
+        /// </para>
+        /// </remarks>
+        private static AccessibilityConfig ReadHome(string configDirectory, string operatorName)
+        {
+            string rootPath = GetFilePath(configDirectory, operatorName);
+            var root = ReadFile(rootPath);
+            if (root != null && root.HoldsEverySetting) return root;
+
+            var former = ReadFile(GetFilePath(Path.Combine(configDirectory, FormerSettingsFolder), operatorName));
+            if (root == null && former == null) return CreateDefault();
+
+            var merged = former ?? root!;
+            if (former != null && root != null) merged.ModeCycleModes = root.ModeCycleModes;
+            if (former != null)
+                System.Diagnostics.Trace.WriteLine(
+                    $"AccessibilityConfig: {operatorName}'s settings brought home from the {FormerSettingsFolder} folder");
+            WriteHome(configDirectory, operatorName, merged);
+            return merged;
+        }
+
+        /// <summary>
+        /// The Settings dialog's save (OK or Apply): write <see cref="Current"/>,
+        /// whole, to the file <see cref="Load"/> reads.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>#517 repair one (Codex and the second check, 2026-11-09).</b>
+        /// The dialog used to call <see cref="Save"/> with the per-radio
+        /// folder it is handed, and the application loads from the settings
+        /// root, so every choice on the Accessibility tab was live until the
+        /// next start (or, made before the first connect, until that connect)
+        /// and then gone. This writes where the load reads, with or without a
+        /// radio.
+        /// </para>
+        /// <para>
+        /// Before that file has been read this session there is nowhere to
+        /// write: the choices are held, and the load applies them over the
+        /// file and writes them, as <see cref="ChooseModeCycle"/> does for the
+        /// cycle.
+        /// </para>
+        /// </remarks>
+        public static void SaveChoices()
+        {
+            if (_homeDirectory != null && _homeOperator != null)
+            {
+                _pendingChoices = null;
+                WriteHome(_homeDirectory, _homeOperator, Current);
+            }
+            else
+            {
+                _pendingChoices = Current;
+            }
+        }
+
+        /// <summary>Write a whole config to the operator's settings-root file, marked as holding every setting.</summary>
+        private static void WriteHome(string configDirectory, string operatorName, AccessibilityConfig config)
+        {
+            config.HoldsEverySetting = true;
+            config.Save(configDirectory, operatorName);
         }
 
         /// <summary>Read one operator file, or null when it is missing or unreadable.</summary>
@@ -269,6 +425,7 @@ namespace Radios
         private static string? _homeOperator;
         private static bool _modeCyclePending;
         private static string[]? _pendingModeCycle;
+        private static AccessibilityConfig? _pendingChoices;
 
         /// <summary>
         /// The operator chose a mode cycle (Settings, OK or Apply): make it
@@ -276,12 +433,14 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The Settings dialog saves this object under the folder it is handed,
-        /// the per-radio one (<c>Radios</c> under the settings root), while the
-        /// application loads it from the settings root itself. So a setting
-        /// that relied on that save was live until the next start and then
-        /// gone. This writes the one field into the file the load reads,
-        /// leaving every other field there as it was.
+        /// Written for #263, when the Settings dialog saved this object under
+        /// the per-radio folder it is handed (<c>Radios</c> under the settings
+        /// root) while the application loaded it from the settings root, so a
+        /// setting that relied on that save was live until the next start and
+        /// then gone. This writes the one field into the file the load reads,
+        /// leaving every other field there as it was. Since the #517 repair the
+        /// dialog's whole save (<see cref="SaveChoices"/>) goes to that same
+        /// file, just after this, so the two agree.
         /// </para>
         /// <para>
         /// Before that file has been read this session there is no file to
@@ -328,8 +487,16 @@ namespace Radios
             _homeOperator = null;
             _modeCyclePending = false;
             _pendingModeCycle = null;
+            _pendingChoices = null;
         }
 
+        /// <summary>
+        /// Write this object to <paramref name="configDirectory"/>. The
+        /// application's own saves go through <see cref="SaveChoices"/> and
+        /// <see cref="ChooseModeCycle"/>, which choose the folder the load
+        /// reads; nothing in the application calls this with a folder of its
+        /// own any more.
+        /// </summary>
         public void Save(string configDirectory, string operatorName)
         {
             Validate();

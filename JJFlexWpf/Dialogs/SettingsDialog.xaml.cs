@@ -1640,10 +1640,12 @@ namespace JJFlexWpf.Dialogs
             // which is the safe direction for a rescue.
             AccessibilityConfig.Current.ReclaimStolenForeground =
                 ReclaimForegroundCheckbox.IsChecked ?? true;
-            if (!string.IsNullOrEmpty(ConfigDirectory) && !string.IsNullOrEmpty(OperatorName))
-            {
-                AccessibilityConfig.Current.Save(ConfigDirectory, OperatorName);
-            }
+            // #517 repair one: into the file the application LOADS (the
+            // settings root), with or without a radio. This was
+            // Current.Save(ConfigDirectory, OperatorName), and ConfigDirectory
+            // is the per-radio Radios folder, which nothing reads: every box on
+            // this tab came back at the next start.
+            AccessibilityConfig.SaveChoices();
 
             // Sprint 29 Track D — Updates tab.
             SaveUpdaterSettingsFromUi();
