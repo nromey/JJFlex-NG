@@ -52,6 +52,27 @@ namespace JJFlexWpf.Dialogs;
 public partial class CheckYourAudioDialog : JJFlexDialog
 {
     private FlexBase? _rig;
+
+    /// <summary>
+    /// A radio the shell has torn down while this window still holds it
+    /// (#897, repair two): set by <see cref="NotifyRigDeparting"/>, cleared by
+    /// the next <see cref="SetRig"/>. <see cref="_rig"/> itself is kept, so an
+    /// off-air take still finishing on that radio finishes exactly as before.
+    /// </summary>
+    private FlexBase? _departedRig;
+
+    /// <summary>
+    /// The attached radio while the shell still has it; null once it has
+    /// departed. Availability, the poll, Mic Gain, Start, the Fix tool and Play
+    /// takes ask this, so nothing is written to, or confirmed on, a radio that
+    /// is gone. Work already finishing on the radio (an off-air take, a
+    /// reference end) compares against <see cref="_rig"/>. Escape and the tune
+    /// key still read <see cref="_rig"/> as before: they read its last state and
+    /// write nothing to it, handing any unkey to the PTT controller and any tune
+    /// to the shell.
+    /// </summary>
+    private FlexBase? LiveRig => _rig != null && ReferenceEquals(_rig, _departedRig) ? null : _rig;
+
     private bool _polling;
     private readonly DispatcherTimer _pollTimer;
     private static CheckYourAudioDialog? _instance;
@@ -139,7 +160,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             Content = CheckContent
         };
 
-        _gain = new TransmitGainControls(Dispatcher, () => _rig, () => _polling,
+        _gain = new TransmitGainControls(Dispatcher, () => LiveRig, () => _polling,
             () => AudioWorkshopDialog.AudioDevicesPath?.Invoke(), host: "Check your audio");
 
         BuildCheckDialog();
@@ -447,6 +468,46 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     public static void NotifyRigGone() =>
         DialogSections.PostRigChange(_instance, w => w.SetRig(null), onlyIfLoaded: false);
 
+    /// <summary>
+    /// The shell has disposed <paramref name="rig"/> (#897, repair two): a
+    /// Disconnect from the Radio menu, a radio switch, the app closing, or a
+    /// connect attempt thrown away. Called from <c>CloseTheRadio</c> and
+    /// <c>ReleaseRigControl</c> in <c>globals.vb</c>, straight after the dispose
+    /// and before the shell lets go of the reference, so after
+    /// <see cref="EndCheckBeforeTeardown"/> has ended any check. Safe from any
+    /// thread; a no-op when the window is closed or holds another radio.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="NotifyRigGone"/> on purpose. <c>SetRig(null)</c>
+    /// also finishes an off-air take still on this window, its tone and its
+    /// result, which after a menu Disconnect today happens later: when the
+    /// take's stream ends, or at the next attach. This notice ends nothing. It
+    /// only marks the radio departed, so the window can no longer reach it.
+    /// </remarks>
+    public static void NotifyRigDeparting(FlexBase? rig)
+    {
+        if (rig == null) return;
+        DialogSections.PostRigChange(_instance, w => w.RigDeparting(rig), onlyIfLoaded: false);
+    }
+
+    /// <summary>
+    /// <see cref="NotifyRigDeparting"/> on this window's own thread: the radio-only
+    /// controls become unavailable, the poll stops, and <see cref="LiveRig"/> is
+    /// null, so Mic Gain neither writes nor confirms and Start says no radio is
+    /// connected. <see cref="_rig"/>, a running off-air take and its watch are
+    /// left exactly as they were. True when this window held that radio.
+    /// </summary>
+    internal bool RigDeparting(FlexBase rig)
+    {
+        if (_rig == null || !ReferenceEquals(_rig, rig) || ReferenceEquals(_departedRig, rig)) return false;
+        _departedRig = rig;
+        _pollTimer.Stop();
+        UpdateRadioControlAvailability();
+        JJTrace.Tracing.TraceLine("CheckYourAudio: its radio was disposed; the radio controls are unavailable and the poll "
+            + "is stopped, and anything already finishing keeps that radio", System.Diagnostics.TraceLevel.Info);
+        return true;
+    }
+
     private bool _closing;
 
     /// <summary>
@@ -697,7 +758,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// GroupBox cascades to its children without touching their own IsEnabled,
     /// so state a section manages for its own reasons survives.
     /// </summary>
-    private void UpdateRadioControlAvailability() => _sections.SetRadioAvailable(_rig != null);
+    private void UpdateRadioControlAvailability() => _sections.SetRadioAvailable(LiveRig != null);
 
     public void SetRig(FlexBase? rig)
     {
@@ -737,6 +798,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         if (oldRig != null && !ReferenceEquals(oldRig, rig))
             _ = oldRig.StopSliceRecorderOwnedByAsync(this);
         _rig = rig;
+        // Any attachment, null included, is the shell's answer now (#897, repair two).
+        _departedRig = null;
         UpdateRadioControlAvailability();
         if (rig != null)
         {
@@ -788,13 +851,14 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// <summary>One pass of everything the 2 Hz poll keeps honest.</summary>
     private void PollTimer_Tick(object? sender, EventArgs e)
     {
-        if (_rig == null) return;
+        // A tick already queued when the radio departed reads nothing (#897, repair two).
+        if (LiveRig == null) return;
         PollOnce();
     }
 
     private void PollOnce()
     {
-        var rig = _rig;
+        var rig = LiveRig;
         if (rig == null) return;
 
         // The test tone and the reference follow the ENGINE every tick: the

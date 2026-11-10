@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using JJFlexWpf.Dialogs;
+using JJFlexWpf.Tests.Infrastructure;
 using Radios;
 using Xunit;
 
@@ -18,7 +19,11 @@ namespace JJFlexWpf.Tests;
 /// <b>Desk safety.</b> No window: the decision is a static function, and the
 /// radios are unconnected <see cref="FlexBase"/> objects on an MTA thread,
 /// asserted in every test. <c>ShowOrFocus</c> itself opens a window and is
-/// read from source only.
+/// read from source only. The repair-two tests (a Disconnect, then a direct
+/// return) need real WPF controls, so they run on a private STA thread: the
+/// dialog is an uninitialized object whose constructor never runs, and the
+/// controls are never put in a window, asserted by their having no
+/// presentation source. Speech is recorded, never rendered (<c>QuietRun</c>).
 /// </remarks>
 public sealed class CheckWindowCurrentRadioTests : IDisposable
 {
@@ -128,9 +133,10 @@ public sealed class CheckWindowCurrentRadioTests : IDisposable
         Assert.Same(_gone, window.Attached);
         window.Given.Clear();
 
-        // Radio > Disconnect: CloseTheRadio clears the shell's radio and tells
-        // this window nothing (it never reaches NotifyRigGone). The window is
-        // still on the departed radio until something asks it again.
+        // Radio > Disconnect: CloseTheRadio clears the shell's radio. It tells
+        // this window only that the radio departed (NotifyRigDeparting, repair
+        // two, tested below), never NotifyRigGone, so the attachment itself is
+        // still the departed radio until something asks it again.
         shell = null;
         Assert.Same(_gone, window.Attached);
 
@@ -189,6 +195,195 @@ public sealed class CheckWindowCurrentRadioTests : IDisposable
         Assert.DoesNotContain("rig ??= RigSource?.Invoke();", body, StringComparison.Ordinal);
         // The conditional that kept a departed radio: a null was never applied.
         Assert.DoesNotContain("if (rig != null && !ReferenceEquals(_instance._rig, rig))", body, StringComparison.Ordinal);
+    }
+
+    // ---- the still-open window after a menu Disconnect (repair two) ----
+    //
+    // Codex's B2: Disconnect, then Alt+Tab straight back to the open window.
+    // Nothing calls ShowOrFocus, so the reopen repair above never runs. These
+    // tests build the window's real parts (its sections, its Mic Gain with its
+    // real handler, its poll timer) on a private STA thread, never put in a
+    // window, and drive the real departure and the real arrow.
+
+    [Fact]
+    public void A_Disconnect_then_a_direct_return_finds_the_radio_controls_unavailable_the_poll_stopped_and_no_gain_confirmed()
+    {
+        RunOnSta(parts =>
+        {
+            var (dialog, gain, poll, offAirWatch, rig) = parts;
+
+            // Connected, as SetRig leaves it: available, polling, and the arrow
+            // on Mic Gain writes and confirms. The positive control.
+            Assert.True(gain.MicGain.IsEnabled);
+            Assert.True(poll.IsEnabled);
+            Arrow(gain, from: 37);
+            Assert.Contains(GainConfirmation(38), ScreenReaderOutput.RecentMessages);
+
+            // Radio > Disconnect: CloseTheRadio disposes the radio, then tells the window.
+            rig.Dispose();
+            Assert.True(dialog.RigDeparting(rig));
+
+            // Straight back to the window, no ShowOrFocus: nothing to reach.
+            Assert.False(gain.MicGain.IsEnabled, "Mic Gain is unavailable once its radio has departed");
+            Assert.False(poll.IsEnabled, "the poll stops with the radio");
+            Assert.Null(LiveRig(dialog));
+            Arrow(gain, from: 38);
+            Assert.DoesNotContain(GainConfirmation(39), ScreenReaderOutput.RecentMessages);
+
+            // And the off-air finish is left exactly as it was: the attachment
+            // FinishIqAsync compares against is still that radio, and the take's
+            // own watch still runs. Nothing about the take ended at the notice.
+            Assert.Same(rig, Get(dialog, "_rig"));
+            Assert.True(offAirWatch.IsEnabled, "the off-air take's watch keeps running");
+
+            // A second notice, or one for a radio this window does not hold, does nothing.
+            Assert.False(dialog.RigDeparting(rig));
+            using var other = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            Assert.False(dialog.RigDeparting(other));
+        });
+    }
+
+    [Fact]
+    public void The_next_attachment_is_live_whatever_the_departed_radio_was()
+    {
+        RunOnSta(parts =>
+        {
+            var (dialog, _, _, _, rig) = parts;
+            Assert.True(dialog.RigDeparting(rig));
+            Assert.Null(LiveRig(dialog));
+            // A new radio attached is live even before anything clears the mark:
+            // the mark names the departed radio, not "departed" in general.
+            Put(dialog, "_rig", _live);
+            Assert.Same(_live, LiveRig(dialog));
+        });
+    }
+
+    [Fact]
+    public void The_shell_tells_the_window_at_every_dispose_and_the_window_reads_the_live_radio()
+    {
+        AssertWindowless();
+        string vb = Source("globals.vb");
+        // At the dispose, while the shell still holds the reference. After it,
+        // not before, so CloseTheRadio's opening stays inside the 400-character
+        // window KeyDropWithConnectionTests reads for its own ordering.
+        string close = Between(vb, "Friend Sub CloseTheRadio()", "End Sub");
+        int dispose = close.IndexOf("RigControl.Dispose()", StringComparison.Ordinal);
+        int notice = close.IndexOf("JJFlexWpf.Dialogs.CheckYourAudioDialog.NotifyRigDeparting(RigControl)", StringComparison.Ordinal);
+        int letGo = close.IndexOf("RigControl = Nothing", StringComparison.Ordinal);
+        Assert.True(dispose > 0 && notice > dispose && letGo > notice, "CloseTheRadio tells the window at the dispose");
+        string release = Between(vb, "Private Sub ReleaseRigControl(why As String)", "End Sub");
+        dispose = release.IndexOf("old.Dispose()", StringComparison.Ordinal);
+        notice = release.IndexOf("JJFlexWpf.Dialogs.CheckYourAudioDialog.NotifyRigDeparting(old)", StringComparison.Ordinal);
+        letGo = release.IndexOf("RigControl = Nothing", StringComparison.Ordinal);
+        Assert.True(dispose > 0 && notice > dispose && letGo > notice, "ReleaseRigControl tells the window at the dispose");
+
+        string src = Source("JJFlexWpf", "Dialogs", "CheckYourAudioDialog.cs");
+        // Mic Gain's handler asks the live radio; the tests above build it the same way.
+        Assert.Contains("_gain = new TransmitGainControls(Dispatcher, () => LiveRig,", src, StringComparison.Ordinal);
+        Assert.Contains("private void UpdateRadioControlAvailability() => _sections.SetRadioAvailable(LiveRig != null);", src, StringComparison.Ordinal);
+        // The departure ends nothing: no SetRig, no take finish, no session end.
+        string departing = Between(src, "internal bool RigDeparting(FlexBase rig)", "\n    }");
+        foreach (string ends in new[] { "SetRig(", "FinishIqAsync", "_iqRun", "_iqWatch", "_session", "Disarm" })
+            Assert.DoesNotContain(ends, departing, StringComparison.Ordinal);
+        // Every attachment clears the mark, before availability is worked out.
+        string setRig = Between(src, "public void SetRig(FlexBase? rig)", "RefreshOfferedMethods();");
+        int assign = setRig.IndexOf("_rig = rig;", StringComparison.Ordinal);
+        int clear = setRig.IndexOf("_departedRig = null;", StringComparison.Ordinal);
+        int avail = setRig.IndexOf("UpdateRadioControlAvailability();", StringComparison.Ordinal);
+        Assert.True(assign > 0 && clear > assign && avail > clear, "SetRig clears the departure mark before availability");
+        // Start's door refuses a departed radio as no radio.
+        string check = Source("JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs");
+        string start = Between(check, "if (LiveRig == null)", "return;");
+        Assert.Contains("no_radio_connected", start, StringComparison.Ordinal);
+    }
+
+    private const System.Reflection.BindingFlags Private =
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+    private static FlexBase? LiveRig(CheckYourAudioDialog dialog) =>
+        (FlexBase?)typeof(CheckYourAudioDialog).GetProperty("LiveRig", Private)!.GetValue(dialog);
+
+    private static object? Get(object target, string name) =>
+        typeof(CheckYourAudioDialog).GetField(name, Private)!.GetValue(target);
+
+    private static void Put(object target, string name, object? value) =>
+        typeof(CheckYourAudioDialog).GetField(name, Private)!.SetValue(target, value);
+
+    private static string GainConfirmation(int value) => Lexicon.Get("audio.tx.mic_gain", ("value", value));
+
+    /// <summary>One press of the arrow on Mic Gain: the control's own adjustment path, which raises ValueChanged.</summary>
+    private static void Arrow(TransmitGainControls gain, int from)
+    {
+        gain.MicGain.Value = from;   // the polling path: no event
+        typeof(JJFlexWpf.Controls.ValueFieldControl).GetMethod("AdjustValue", Private)!.Invoke(gain.MicGain, new object[] { 1 });
+        Assert.Equal(from + 1, gain.MicGain.Value);
+    }
+
+    /// <summary>
+    /// The window's parts as SetRig leaves them on a connected radio, built on a
+    /// private STA thread with no presentation source. The dialog is an
+    /// uninitialized object, so its constructor (a Window) never runs; Mic Gain
+    /// is a real <see cref="TransmitGainControls"/> whose radio is the window's
+    /// own <c>LiveRig</c>, as the constructor wires it.
+    /// </summary>
+    private static void RunOnSta(Action<(CheckYourAudioDialog dialog, TransmitGainControls gain,
+        System.Windows.Threading.DispatcherTimer poll, System.Windows.Threading.DispatcherTimer offAirWatch, FlexBase rig)> body)
+    {
+        Exception? failure = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            var verbosity = ScreenReaderOutput.CurrentVerbosity;
+            TransmitGainControls? gain = null;
+            System.Windows.Threading.DispatcherTimer? poll = null, watch = null;
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                Assert.True(QuietRun.Silenced, "Refusing: " + QuietRun.Describe());
+                Lexicon.Load(Lexicon.Partitions);
+                ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+                var dialog = (CheckYourAudioDialog)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(CheckYourAudioDialog));
+                var sections = new DialogSections();
+                gain = new TransmitGainControls(System.Windows.Threading.Dispatcher.CurrentDispatcher,
+                    () => LiveRig(dialog), () => false, () => null, host: "a test");
+                sections.Open(new System.Windows.Controls.StackPanel(), "Levels");
+                sections.AddRadio(new System.Windows.Controls.StackPanel(), gain.MicGain);
+                poll = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
+                watch = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
+                Put(dialog, "_sections", sections);
+                Put(dialog, "_gain", gain);
+                Put(dialog, "_pollTimer", poll);
+                Put(dialog, "_iqWatch", watch);
+                Put(dialog, "_rig", rig);
+                typeof(CheckYourAudioDialog).GetMethod("UpdateRadioControlAvailability", Private)!.Invoke(dialog, null);
+                poll.Start();
+                watch.Start();
+                Assert.Null(System.Windows.PresentationSource.FromVisual(gain.MicGain));
+                body((dialog, gain, poll, watch, rig));
+            }
+            catch (System.Reflection.TargetInvocationException ex) { failure = ex.InnerException ?? ex; }
+            catch (Exception ex) { failure = ex; }
+            finally
+            {
+                poll?.Stop();
+                watch?.Stop();
+                gain?.Dispose();
+                rig.Dispose();
+                ScreenReaderOutput.CurrentVerbosity = verbosity;
+            }
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(20)), "The test thread did not finish.");
+        if (failure != null) throw failure;
+    }
+
+    private static string Between(string text, string start, string end)
+    {
+        int at = text.IndexOf(start, StringComparison.Ordinal);
+        Assert.True(at >= 0, "not found: " + start);
+        int stop = text.IndexOf(end, at + start.Length, StringComparison.Ordinal);
+        Assert.True(stop > at, "no end after: " + start);
+        return text.Substring(at, stop - at);
     }
 
     private static string Source(params string[] parts)

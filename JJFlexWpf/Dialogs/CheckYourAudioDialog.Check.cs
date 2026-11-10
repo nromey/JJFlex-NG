@@ -49,7 +49,7 @@ public partial class CheckYourAudioDialog
     private void OpenFixTool()
     {
         if (!HandOffToFixTool("Check your audio")) return;
-        FixerDialog.Show(() => _rig ?? RigSource?.Invoke(), this);
+        FixerDialog.Show(() => LiveRig ?? RigSource?.Invoke(), this);
     }
 
     /// <summary>What a Fix tool door may do, given what else is using the transmitter or the microphone.</summary>
@@ -784,7 +784,9 @@ public partial class CheckYourAudioDialog
             return;
         }
 
-        if (_rig == null)
+        // A radio the shell has disposed is no radio (#897, repair two): it
+        // keeps _rig only so a take already finishing on it can finish.
+        if (LiveRig == null)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;

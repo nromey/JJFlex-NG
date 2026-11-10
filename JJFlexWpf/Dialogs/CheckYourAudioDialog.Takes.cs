@@ -30,7 +30,7 @@ public partial class CheckYourAudioDialog
         };
         AutomationProperties.SetName(_playTakesButton, Lexicon.Get("audio.takes.open_button"));
         JJFlexHelp.SetText(_playTakesButton, Lexicon.Get("audio.takes.help.open_button"));
-        _playTakesButton.Click += (s, e) => PlayTakesDialog.Show(_rig);
+        _playTakesButton.Click += (s, e) => PlayTakesDialog.Show(LiveRig);
         _sections.Add(CheckContent, _playTakesButton);
     }
 }

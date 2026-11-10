@@ -5797,6 +5797,8 @@ RadioConnected:
         Catch ex As Exception
             Tracing.TraceLine("ReleaseRigControl(" & why & "): dispose threw: " & ex.Message, TraceLevel.Error)
         End Try
+        ' As CloseTheRadio does (#897): an open Check your audio stops reaching it.
+        JJFlexWpf.Dialogs.CheckYourAudioDialog.NotifyRigDeparting(old)
         RigControl = Nothing
         If WpfMainWindow IsNot Nothing AndAlso WpfMainWindow.RigControl Is old Then
             WpfMainWindow.RigControl = Nothing
@@ -5820,6 +5822,10 @@ RadioConnected:
         If RigControl IsNot Nothing Then
             Power = False
             RigControl.Dispose()
+            ' An open Check your audio stops reaching the disposed radio (#897):
+            ' its radio controls go unavailable and its poll stops. Nothing it
+            ' is finishing is ended here.
+            JJFlexWpf.Dialogs.CheckYourAudioDialog.NotifyRigDeparting(RigControl)
             RigControl = Nothing
             If WpfMainWindow IsNot Nothing Then
                 WpfMainWindow.RigControl = Nothing
