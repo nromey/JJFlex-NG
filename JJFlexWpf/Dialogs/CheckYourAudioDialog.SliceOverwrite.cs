@@ -37,7 +37,20 @@ public partial class CheckYourAudioDialog
         if (rig == null) return;
         var target = CheckRecorderTarget(rig);
         var go = await RecorderControls.ConfirmOverwriteAsync(rig, target, owner: this);
-        if (!go.Proceed || _closing || !ReferenceEquals(rig, _rig)) return;
+        if (!go.Proceed)
+        {
+            // Back up first did not finish (#1040): the backup door has said why,
+            // and this says the check did not start, once, queued behind it so
+            // it cuts nothing. Cancel and Escape stay silent (#999, C3); the
+            // outcome tells the two apart.
+            if (go.BackupUnfinished && !_closing && ReferenceEquals(rig, _rig))
+                // PLACEHOLDER: Codex writes (#1040).
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.not_started_backup_unfinished"),
+                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.CheckNotStartedBackupUnfinished);
+            return;
+        }
+        if (_closing || !ReferenceEquals(rig, _rig)) return;
         // Answered for this slice only: if the transmit slice moved meanwhile,
         // the next start asks about the slice it would really record over.
         _overwriteAnsweredForNextStart =

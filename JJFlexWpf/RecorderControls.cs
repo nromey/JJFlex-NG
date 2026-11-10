@@ -210,7 +210,16 @@ public static class RecorderControls
     public sealed record SliceOverwriteQuestion(bool BackedUp, string Letter, double Seconds);
 
     /// <summary>What <see cref="ConfirmOverwriteAsync"/> decided: go ahead or not, whether it asked, and the slice to record on.</summary>
-    public readonly record struct OverwriteGo(bool Proceed, bool Asked, SliceRecorderTarget Target);
+    public readonly record struct OverwriteGo(bool Proceed, bool Asked, SliceRecorderTarget Target)
+    {
+        /// <summary>
+        /// True only when the operator chose Back up first and the backup did not
+        /// finish, so nothing goes ahead (#1040). Cancel and Escape leave it
+        /// false: a door can tell "the backup stopped this" from "the operator
+        /// said no" by the outcome, without guessing.
+        /// </summary>
+        public bool BackupUnfinished { get; init; }
+    }
 
     /// <summary>
     /// Seam for tests: answers the warning instead of showing it, so no window
@@ -277,7 +286,7 @@ public static class RecorderControls
             var backup = BackUpOverride != null ? await BackUpOverride(rig, slice) : await SliceBackupDoor.BackUpAsync(rig, slice);
             // A backup that did not finish leaves the recording unprotected, so
             // nothing records over it; the backup door has said why.
-            if (backup?.BackedUp != true) return new(false, true, target);
+            if (backup?.BackedUp != true) return new(false, true, target) { BackupUnfinished = true };
         }
         return new(true, true, slice);
     }
