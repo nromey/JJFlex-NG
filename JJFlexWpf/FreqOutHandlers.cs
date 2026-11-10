@@ -2151,6 +2151,14 @@ public class FreqOutHandlers
             || (ch == 'V' && Keyboard.Modifiers == ModifierKeys.None))
         {
             var newState = Rig.ToggleOffOn(Rig.Vox);
+            // No callsign, no VOX (#335, J8): asked before the write, so the
+            // field does not then announce "VOX on". Simple VOX only; break-in
+            // in CW is not refused (J4). Turning VOX off is never asked.
+            if (newState == FlexBase.OffOnValues.on && ZeroPowerDoors.RefuseVoxOn(Rig, "the VOX field"))
+            {
+                e.Handled = true;
+                return;
+            }
             if (newState == FlexBase.OffOnValues.on && (Rig.TxToneEngaged || Rig.TxReferenceArmed))
             {
                 Radios.ScreenReaderOutput.Speak(Rig.TxReferenceArmed

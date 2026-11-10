@@ -35,6 +35,8 @@ namespace JJFlexWpf;
 /// own gate, the Transmit family, and the sentence is Terse, so each answers to
 /// the operator's own setting and either can be silenced. The trace line is
 /// written regardless, so a silenced refusal is still on record.
+/// The callsign refusal is the one exception: its sentence is Critical
+/// (ruled 2026-11-09, night question J9), see <see cref="RefuseNoCallsign"/>.
 /// </para>
 /// <para>
 /// <b>One press gets one answer.</b> A refusal leaves the state idle, so under a
@@ -105,12 +107,55 @@ internal static class ZeroPowerDoors
     internal static bool RefuseNoCallsign(FlexBase? rig, string door, bool afterMenu = false)
     {
         if (!NoCallsign(rig)) return false;
-        // Told the usual way, as the zero-power refusal is (Noel, 2026-11-01:
-        // "we notify the usual way, verbosity gated for tone and text"): the
-        // tone through its own gate, the sentence at Terse, the trace always.
+        // Said at Critical, so no verbosity setting silences it (ruled by Noel
+        // 2026-11-09 20:29, night question J9): no key works until a callsign
+        // is entered, so the operator must always hear why. The zero-power
+        // refusal stays at Terse (2026-11-01); this differs on purpose. The
+        // tone still answers to its own gate, and the trace is always written.
         Answer("callsign: " + door, FlexBase.NoCallsignRefusal, afterMenu,
-            SpeechSubject.TransmitKeyRefused, "refused with no operator callsign: ");
+            SpeechSubject.TransmitKeyRefused, "refused with no operator callsign: ",
+            VerbosityLevel.Critical);
         return true;
+    }
+
+    /// <summary>For tests: stands in for <see cref="FlexBase.VoxOnWouldTurnOnSimpleVox"/>.</summary>
+    internal static Func<FlexBase?, bool>? SimpleVoxOverride { get; set; }
+
+    /// <summary>
+    /// Turning VOX ON with no callsign (#335, ruled by Noel 2026-11-09 20:28,
+    /// night question J8): refused with the same sentence, asked by each door
+    /// before it writes, so a menu press speaks after the menu closes and a
+    /// checkbox can be put back. True when refused: the caller must not turn
+    /// VOX on. Ask it only on the way ON; turning VOX off is never refused.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Simple VOX only.</b> In CW the same control switches break-in,
+    /// which is not refused (night question J4 is open). Which of the two a
+    /// press would switch is the radio's one answer,
+    /// <see cref="FlexBase.VoxOnWouldTurnOnSimpleVox"/>, read from the
+    /// TRANSMIT slice, the slice <see cref="FlexBase.Vox"/>'s setter writes
+    /// through, and never from the selected slice's mode.</para>
+    /// <para>The setter asks the same question again
+    /// (<c>RefusedForNoCallsign("VOX")</c>), so a route with no door of its
+    /// own is refused too. The radio's own front-panel VOX is left alone.</para>
+    /// </remarks>
+    internal static bool RefuseVoxOn(FlexBase? rig, string door, bool afterMenu = false)
+    {
+        if (!NoCallsign(rig)) return false;
+        if (!WouldTurnOnSimpleVox(rig)) return false;
+        return RefuseNoCallsign(rig, door, afterMenu);
+    }
+
+    private static bool WouldTurnOnSimpleVox(FlexBase? rig)
+    {
+        if (SimpleVoxOverride != null) return SimpleVoxOverride(rig);
+        if (rig == null) return false;
+        try { return rig.VoxOnWouldTurnOnSimpleVox; }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ZeroPowerDoors: VOX: " + ex.Message, TraceLevel.Warning);
+            return false;   // the setter asks again, from the radio's own answer
+        }
     }
 
     /// <summary>
@@ -188,24 +233,27 @@ internal static class ZeroPowerDoors
         }
     }
 
+    /// <param name="level">The sentence's verbosity: Terse, the usual way, for
+    /// the zero-power refusals; Critical for the callsign refusal (J9).</param>
     private static void Answer(string door, string sentence, bool afterMenu,
-        string subject = SpeechSubject.ZeroPowerRefused, string traceWhy = "refused at 0 watts: ")
+        string subject = SpeechSubject.ZeroPowerRefused, string traceWhy = "refused at 0 watts: ",
+        VerbosityLevel level = VerbosityLevel.Terse)
     {
         if (!NewPress(door)) return;
         Answered?.Invoke(door);
         Tracing.TraceLine("ZeroPowerDoors: " + traceWhy + door, TraceLevel.Info);
         EarconPlayer.ATUFailTone();   // the refusal tone, through its own gate, with no admission
-        if (afterMenu) _ = SayAfterMenuAsync(sentence, subject);
-        else Say(sentence, subject);
+        if (afterMenu) _ = SayAfterMenuAsync(sentence, subject, level);
+        else Say(sentence, subject, level);
     }
 
-    private static async Task SayAfterMenuAsync(string sentence, string subject)
+    private static async Task SayAfterMenuAsync(string sentence, string subject, VerbosityLevel level)
     {
         await Task.Delay(AfterMenuMs);
-        Say(sentence, subject);
+        Say(sentence, subject, level);
     }
 
-    private static void Say(string sentence, string subject) =>
-        ScreenReaderOutput.Speak(sentence, SpeechIntent.Interrupt, VerbosityLevel.Terse,
+    private static void Say(string sentence, string subject, VerbosityLevel level) =>
+        ScreenReaderOutput.Speak(sentence, SpeechIntent.Interrupt, level,
             subject: subject);
 }

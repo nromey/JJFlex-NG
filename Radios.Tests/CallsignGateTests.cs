@@ -167,6 +167,62 @@ public sealed class CallsignGateTests : IDisposable
         c.F.Rig.TxFileStop();
     }
 
+    /// <summary>
+    /// Turning VOX on with no callsign (#335, ruled by Noel 2026-11-09 20:28,
+    /// night question J8): simple VOX is refused at the setter, turning it off
+    /// never is, and a callsign lets the same press through.
+    /// </summary>
+    [Fact]
+    public void Simple_VOX_on_is_refused_and_VOX_off_is_not()
+    {
+        using var c = NoCallsign();
+        Assert.True(c.F.Rig.VoxOnWouldTurnOnSimpleVox);   // a USB transmit slice
+        c.F.Rig.Vox = FlexBase.OffOnValues.on;
+        Assert.Equal(0, c.F.Rig.q.Count);                 // nothing queued: refused at the setter
+        RunQueue(c);
+        Assert.Equal(0, Sent(c, "vox_enable=1"));
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+
+        // Off is never refused, even with no callsign.
+        c.F.Vendor.Radio.SimpleVOXEnable = true;
+        c.F.Rig.Vox = FlexBase.OffOnValues.off;
+        Assert.Equal(1, c.F.Rig.q.Count);
+        RunQueue(c);
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+
+        // Positive control: with a callsign the same press turns VOX on.
+        _call = FakeCall;
+        c.F.Rig.Vox = FlexBase.OffOnValues.on;
+        RunQueue(c);
+        Assert.True(c.F.Vendor.Radio.SimpleVOXEnable);
+    }
+
+    /// <summary>
+    /// In CW the same setter switches break-in, which is NOT refused tonight
+    /// (night question J4). Told apart by the TRANSMIT slice's mode, the one
+    /// answer the doors share.
+    /// </summary>
+    [Fact]
+    public void Break_in_on_a_CW_transmit_slice_is_not_refused()
+    {
+        using var c = NoCallsign();
+        Field(c.Tx, "_demodMode", "CW");
+        Assert.False(c.F.Rig.VoxOnWouldTurnOnSimpleVox);
+        c.F.Rig.Vox = FlexBase.OffOnValues.on;
+        RunQueue(c);
+        Assert.True(c.F.Vendor.Radio.CWBreakIn);
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+    }
+
+    [Fact]
+    public void With_no_transmit_slice_nothing_is_simple_VOX()
+    {
+        Assert.False(FlexBase.TurnsOnSimpleVox(null!));
+        using var c = NoCallsign();
+        Field(c.F.Rig, "_TXVFO", -1);
+        Assert.False(c.F.Rig.VoxOnWouldTurnOnSimpleVox);
+    }
+
     // ── Wiring, from source ─────────────────────────────────────────────
 
     private static string Src(string relative) =>
@@ -205,6 +261,7 @@ public sealed class CallsignGateTests : IDisposable
         Assert.Contains("if (RefusedForNoCallsign(\"CW typing\")) return false;", flex, StringComparison.Ordinal);
         string audio = Src("Radios/FlexBase.RemoteAudio.cs");
         Assert.Contains("if (RefusedForNoCallsign(\"a recording for VOX\")) return;", audio, StringComparison.Ordinal);
+        Assert.Contains("if (val && simpleVox && RefusedForNoCallsign(\"VOX\")) return;", flex, StringComparison.Ordinal);
     }
 
     /// <summary>

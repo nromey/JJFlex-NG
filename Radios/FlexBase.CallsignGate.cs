@@ -81,6 +81,31 @@ namespace Radios
         /// </summary>
         public static string NoCallsignRefusal => Lexicon.Get("settings.operators.no_callsign_transmit");
 
+        /// <summary>
+        /// Whether turning VOX on now would turn the radio's SIMPLE VOX on,
+        /// rather than CW break-in (#335, night question J8). Read from the
+        /// TRANSMIT slice, the slice <see cref="Vox"/>'s setter writes through:
+        /// false with no transmit slice (the setter then writes nothing) and
+        /// false when it is in CW, where the same control switches break-in.
+        /// </summary>
+        /// <remarks>
+        /// <para>The one answer the setter's chokepoint and every door share,
+        /// so a door can never let simple VOX through to a setter that refuses
+        /// it silently, nor refuse break-in the setter would have allowed.
+        /// The selected slice's mode (<see cref="Mode"/>) is NOT this answer:
+        /// with a CW slice selected and an SSB transmit slice, or the reverse,
+        /// it disagrees with what the setter writes.</para>
+        /// <para>Break-in is not refused for a missing callsign tonight: that is
+        /// night question J4, unruled.</para>
+        /// </remarks>
+        public bool VoxOnWouldTurnOnSimpleVox => TurnsOnSimpleVox(VFOToSlice(TXVFO));
+
+        /// <summary>The decision, given the transmit slice: simple VOX unless
+        /// there is none or it is in CW. Pure, so the setter and the property
+        /// cannot tell the two apart differently.</summary>
+        internal static bool TurnsOnSimpleVox(Flex.Smoothlake.FlexLib.Slice txSlice)
+            => txSlice != null && txSlice.DemodMode != "CW";
+
         private long _lastNoCallsignSpokenMs;
 
         /// <summary>
