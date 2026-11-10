@@ -238,6 +238,19 @@ nothing lingers. Noel: *"especially when multiple agents work on stuff. That's
 where things build up."* Put the flags in every brief's build command, not just
 this paragraph: an agent copies the command it is shown.
 
+**And `-m:4`, to cap how many build workers run at once. Ruled by Noel
+2026-11-09 21:12** (*"Yes, cap at 4"*). The build-server rule stops processes
+from staying after a build; it does not limit how many run DURING one. Without a
+cap, MSBuild starts one worker per processor core, about sixteen here, using
+about 1.7 GB while it compiles, and two or three windows building at once are
+enough to run the machine short. So the full set for an agent, Codex or bench
+`dotnet build` or `dotnet test` is
+`--disable-build-servers -nodeReuse:false -m:4`. A build takes a little longer
+and uses about a quarter of the memory. Noel's desk builds keep the default
+here too. This is a margin, not the cause of the 2026-11-09 17:40 low-memory
+kill, which was a ten-worker Python sweep: **a script that fans out workers
+caps them for the same reason.**
+
 ### WARNING: `--no-incremental` Does NOT Guarantee Fresh Builds
 
 **Do NOT rely on `--no-incremental` to produce fresh binaries.** It only disables incremental *compilation* but the build system can still skip projects entirely if it believes outputs are up-to-date. This means:
