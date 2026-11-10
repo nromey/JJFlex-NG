@@ -207,10 +207,36 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         }
         else
         {
-            if (rig != null && !ReferenceEquals(_instance._rig, rig)) _instance.SetRig(rig);
-            _instance.FocusFirstControl();
+            var inst = _instance;
+            ReattachExisting(inst._rig, rig, RigSource != null, inst.SetRig);
+            inst.FocusFirstControl();
         }
         _instance.Activate();
+    }
+
+    /// <summary>
+    /// The already-open window's radio after <see cref="ShowOrFocus"/> has
+    /// resolved which one it may be shown on (#897, repair one): whenever the
+    /// resolved radio differs from the one attached, <paramref name="setRig"/>
+    /// is given it, INCLUDING null. A Disconnect from the Radio menu clears the
+    /// shell's radio without telling this window, so a reopen afterwards
+    /// resolves to null; the window used to keep the departed radio, its poll
+    /// and its radio-only controls, because only a non-null radio was applied.
+    /// <c>SetRig(null)</c> is the departure the window already owns: it ends any
+    /// session, stops the poll and lets the old radio's tone and reference go.
+    /// With no source wired (the windowless tests, and before the shell is up)
+    /// a null resolution is no decision, and the attachment is kept as before.
+    /// True when <paramref name="setRig"/> was called.
+    /// </summary>
+    internal static bool ReattachExisting(FlexBase? attached, FlexBase? resolved, bool sourceWired, Action<FlexBase?> setRig)
+    {
+        if (ReferenceEquals(attached, resolved)) return false;
+        if (resolved == null && !sourceWired) return false;
+        if (resolved == null)
+            JJTrace.Tracing.TraceLine("CheckYourAudio: the shell has no radio now; the open window lets go of the one it had",
+                System.Diagnostics.TraceLevel.Info);
+        setRig(resolved);
+        return true;
     }
 
     /// <summary>

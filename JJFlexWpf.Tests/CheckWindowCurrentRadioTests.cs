@@ -76,18 +76,119 @@ public sealed class CheckWindowCurrentRadioTests : IDisposable
         Assert.Null(ignored);
     }
 
+    // ---- the already-open window (repair one): a resolved null detaches ----
+
+    /// <summary>
+    /// Stands in for the open window: what it is attached to, and every radio
+    /// its SetRig was given. The real SetRig(null) is the departure the window
+    /// already owns (it ends any session and stops the poll); what is tested
+    /// here is that the reopen GIVES it the null.
+    /// </summary>
+    private sealed class OpenWindow
+    {
+        public FlexBase? Attached;
+        public readonly System.Collections.Generic.List<FlexBase?> Given = new();
+        public void SetRig(FlexBase? rig) { Given.Add(rig); Attached = rig; }
+    }
+
+    /// <summary>ShowOrFocus's existing-window branch, in order: resolve, then reattach.</summary>
+    private static void Reopen(OpenWindow window, FlexBase? handed, Func<FlexBase?>? source)
+    {
+        var resolved = CheckYourAudioDialog.RadioToShowOn(handed, source, out _);
+        CheckYourAudioDialog.ReattachExisting(window.Attached, resolved, source != null, window.SetRig);
+    }
+
     [Fact]
-    public void Both_branches_of_ShowOrFocus_use_the_decision()
+    public void An_open_window_on_a_departed_radio_lets_it_go_when_the_shell_has_none()
+    {
+        AssertWindowless();
+        var window = new OpenWindow { Attached = _gone };
+        // The JJ key and the Audio menu hand the shell's radio, which is null
+        // now; Play takes and the Workshop hand the one they captured.
+        Reopen(window, null, () => null);
+        Assert.Null(window.Attached);
+        Assert.Equal(new FlexBase?[] { null }, window.Given);
+
+        var stale = new OpenWindow { Attached = _gone };
+        Reopen(stale, _gone, () => null);
+        Assert.Null(stale.Attached);
+    }
+
+    [Fact]
+    public void A_Disconnect_from_the_menu_then_a_reopen_leaves_no_radio_attached_and_a_reconnect_attaches_the_new_one()
+    {
+        AssertWindowless();
+        // As the shell wires it: the source reads the shell's radio when asked.
+        FlexBase? shell = _gone;
+        Func<FlexBase?> source = () => shell;
+        var window = new OpenWindow();
+
+        // Connected, and the window opened on that radio.
+        window.SetRig(CheckYourAudioDialog.RadioToShowOn(null, source, out _));
+        Assert.Same(_gone, window.Attached);
+        window.Given.Clear();
+
+        // Radio > Disconnect: CloseTheRadio clears the shell's radio and tells
+        // this window nothing (it never reaches NotifyRigGone). The window is
+        // still on the departed radio until something asks it again.
+        shell = null;
+        Assert.Same(_gone, window.Attached);
+
+        // Reopened through the JJ key or the Audio menu.
+        Reopen(window, shell, source);
+        Assert.Null(window.Attached);
+        Assert.Equal(new FlexBase?[] { null }, window.Given);
+
+        // Reopening again changes nothing more.
+        Reopen(window, shell, source);
+        Assert.Single(window.Given);
+
+        // A new connection: the shell's ready notice attaches the new radio,
+        // and a stale caller handing the old one cannot take it back.
+        shell = _live;
+        window.SetRig(_live);
+        Reopen(window, _gone, source);
+        Assert.Same(_live, window.Attached);
+    }
+
+    [Fact]
+    public void The_same_radio_resolved_again_is_not_set_twice()
+    {
+        AssertWindowless();
+        var window = new OpenWindow { Attached = _live };
+        Reopen(window, _live, () => _live);
+        Reopen(window, null, () => _live);
+        Assert.Empty(window.Given);
+    }
+
+    [Fact]
+    public void With_no_source_an_open_windows_radio_is_kept_when_none_is_handed()
+    {
+        AssertWindowless();
+        // Before the shell wires the source a null is no decision: as before.
+        var window = new OpenWindow { Attached = _live };
+        Reopen(window, null, null);
+        Assert.Same(_live, window.Attached);
+        Assert.Empty(window.Given);
+    }
+
+    [Fact]
+    public void Both_branches_of_ShowOrFocus_use_the_decision_and_the_open_window_takes_a_null()
     {
         AssertWindowless();
         string src = Source("JJFlexWpf", "Dialogs", "CheckYourAudioDialog.cs");
         int at = src.IndexOf("public static void ShowOrFocus(FlexBase? rig)", StringComparison.Ordinal);
         Assert.True(at > 0);
-        int decide = src.IndexOf("rig = RadioToShowOn(rig, RigSource, out string? ignored);", at, StringComparison.Ordinal);
-        int newWindow = src.IndexOf("_instance.SetRig(rig);", at, StringComparison.Ordinal);
-        int switchRig = src.IndexOf("if (rig != null && !ReferenceEquals(_instance._rig, rig)) _instance.SetRig(rig);", at, StringComparison.Ordinal);
-        Assert.True(decide > at && newWindow > decide && switchRig > decide, "decided before either branch sets the radio");
-        Assert.DoesNotContain("rig ??= RigSource?.Invoke();", src.Substring(at, switchRig - at), StringComparison.Ordinal);
+        int end = src.IndexOf("_instance.Activate();", at, StringComparison.Ordinal);
+        Assert.True(end > at);
+        string body = src.Substring(at, end - at);
+        int decide = body.IndexOf("rig = RadioToShowOn(rig, RigSource, out string? ignored);", StringComparison.Ordinal);
+        int newWindow = body.IndexOf("_instance.SetRig(rig);", StringComparison.Ordinal);
+        int existing = body.IndexOf("ReattachExisting(inst._rig, rig, RigSource != null, inst.SetRig);", StringComparison.Ordinal);
+        Assert.True(decide > 0 && newWindow > decide && existing > decide, "decided before either branch sets the radio");
+        Assert.DoesNotContain("rig ??= RigSource?.Invoke();", body, StringComparison.Ordinal);
+        // The conditional that kept a departed radio: a null was never applied.
+        Assert.DoesNotContain("if (rig != null && !ReferenceEquals(_instance._rig, rig))", body, StringComparison.Ordinal);
     }
 
     private static string Source(params string[] parts)
