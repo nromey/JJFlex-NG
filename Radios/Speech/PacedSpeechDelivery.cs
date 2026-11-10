@@ -106,6 +106,9 @@ namespace Radios.Speech
             public bool CancelRequested;
 
             public Stopwatch? Started;
+
+            /// <summary>When this item was handed to the reader, as <see cref="Stopwatch.GetTimestamp"/>; see <see cref="OwnCancelLandedLate"/>.</summary>
+            public long StartedAt;
             public long LastMarkAtMs = -1;
             public int Marks;
         }
@@ -133,6 +136,26 @@ namespace Radios.Speech
         /// produced as "the interrupter sometimes says nothing".
         /// </summary>
         private int _cancelInProgress;
+
+        /// <summary>
+        /// How close to our own reader cancel an utterance must begin, and how
+        /// quickly it must come back cancelled at word zero, for that cancel to
+        /// be read as OURS landing late rather than as something outside the
+        /// application (#1040). See <see cref="OwnCancelLandedLate"/>.
+        /// </summary>
+        /// <remarks>
+        /// Set from the one capture that showed it (the 8600 bench,
+        /// 2026-11-09): every such utterance began 0 to 2 ms after our cancel
+        /// went out and came back in 0 to 36 ms, while the reader went on to
+        /// speak it. 150 ms is margin over that, not a measurement of NVDA. A
+        /// window too wide means a key pressed inside it, before the reader's
+        /// first word, no longer withdraws what is queued behind; one too
+        /// narrow is the defect.
+        /// </remarks>
+        internal const int LateOwnCancelWindowMs = 150;
+
+        /// <summary>When we last asked the reader to cancel (<see cref="Stopwatch.GetTimestamp"/>), or <see cref="long.MinValue"/>.</summary>
+        private long _lastOwnCancelAt = long.MinValue;
 
         /// <param name="fallbackSpeak">
         /// The plain path — Prism's speak, under the backend lock — for
@@ -346,6 +369,7 @@ namespace Radios.Speech
             // including its own announcements. Same semantics as before.
             // The worker is held off the head of the queue until this has
             // gone out — see _cancelInProgress.
+            Volatile.Write(ref _lastOwnCancelAt, Stopwatch.GetTimestamp());
             try { channel.Cancel(); } catch (Exception ex) { Tracing.TraceLine($"PacedDelivery: cancel threw: {ex.Message}", TraceLevel.Warning); }
             finally
             {
@@ -395,6 +419,7 @@ namespace Radios.Speech
             }
             if (cut != null)
             {
+                Volatile.Write(ref _lastOwnCancelAt, Stopwatch.GetTimestamp());
                 try { cut.Channel.Cancel(); } catch { /* best effort */ }
                 finally
                 {
@@ -471,6 +496,7 @@ namespace Radios.Speech
                         _queue.RemoveAt(0);
                         _inFlight = item;
                         item.Started = Stopwatch.StartNew();
+                        item.StartedAt = Stopwatch.GetTimestamp();
                         _returned.Reset();
                     }
 
@@ -540,6 +566,7 @@ namespace Radios.Speech
                     // itself, by a cause nobody here can name, and the arbiter
                     // pauses it rather than letting the next unrelated
                     // interrupt replay it.
+                    outcome = OwnCancelLandedLate(item, outcome);
                     if (outcome.Kind == SpeechOutcomeKind.Cancelled && !outcome.CancelledByUs)
                         WithdrawForForeignCancel(item.Ticket);
 
@@ -560,6 +587,51 @@ namespace Radios.Speech
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Our own cancel, landing on the NEXT utterance (#1040). Returns the
+        /// outcome to report: unchanged, or, when the cut is ours landing late,
+        /// <see cref="SpeechUnknownReason.OwnCancelLanded"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>What the bench showed</b> (the 8600, 2026-11-09, two of
+        /// two). An interrupt cancels the reader and then hands it the
+        /// interrupter. The reader answered the interrupter "cancelled at word
+        /// 0 of 21 after 0 ms", with nothing of ours in flight to explain it
+        /// and no key within 240 ms, and NVDA's own log shows it speaking that
+        /// very sentence 13 ms AFTER the answer reached us. So the reader's
+        /// cancel is carried out after our call to it has returned, and can
+        /// still land on the utterance handed over next. That answer looked
+        /// like someone else's cut, and the foreign-cancel rule (#182) withdrew
+        /// everything queued behind it: Check your audio's sentence saying the
+        /// check did not start, queued behind the backup's ending, was
+        /// withdrawn unspoken and expired 64 seconds later, never begun.</para>
+        /// <para><b>Read as ours when</b> the utterance began within
+        /// <see cref="LateOwnCancelWindowMs"/> of our last cancel and came back
+        /// cancelled, not by us, at word zero, within the same window. It is
+        /// then reported Unknown, not Cancelled: the reader may well have said
+        /// it (the bench says it did), so it is not re-sent and not owed, and
+        /// nothing queued behind it is withdrawn. A cancel of any other shape
+        /// is still foreign and still means silence.</para>
+        /// </remarks>
+        private SpeechOutcome OwnCancelLandedLate(Item item, SpeechOutcome outcome)
+        {
+            if (outcome.Kind != SpeechOutcomeKind.Cancelled || outcome.CancelledByUs || outcome.MarksReached != 0)
+                return outcome;
+            long cancelAt = Volatile.Read(ref _lastOwnCancelAt);
+            if (cancelAt == long.MinValue) return outcome;
+            double beganAfterMs = (item.StartedAt - cancelAt) * 1000.0 / Stopwatch.Frequency;
+            if (beganAfterMs < 0 || beganAfterMs > LateOwnCancelWindowMs || outcome.ElapsedMs > LateOwnCancelWindowMs)
+                return outcome;
+            Tracing.TraceLine(
+                $"PacedDelivery: #{item.Ticket} came back cancelled at word 0 after {outcome.ElapsedMs} ms, "
+                + $"{beganAfterMs:F0} ms after our own reader cancel: read as that cancel landing late, not as "
+                + "someone else's, so nothing queued behind it is withdrawn; its outcome is unknown, the reader may have said it",
+                TraceLevel.Info);
+            return SpeechOutcome.Unknown(SpeechUnknownReason.OwnCancelLanded,
+                $"our own cancel landed late, {beganAfterMs:F0} ms after it was sent", outcome.ElapsedMs,
+                marksReached: 0, markCount: outcome.MarkCount);
         }
 
         /// <summary>Hand one item to the reader (or to the plain path) and return what happened. Runs on the worker, outside the lock.</summary>
