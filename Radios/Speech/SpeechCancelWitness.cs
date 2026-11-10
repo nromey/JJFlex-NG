@@ -125,13 +125,7 @@ namespace Radios.Speech
                     if (after > WindowMs) { _waiting.RemoveAt(i); continue; }
                     if (after < 0) continue;
                     if (after < w.NamedDistanceMs)
-                    {
-                        (late ??= new List<string>()).Add(
-                            $"SpeechCancel: #{w.Ticket} ({w.What}): {Describe(seen)}, {after} ms after the reader's answer"
-                            + (w.NamedDistanceMs == long.MaxValue
-                                ? "."
-                                : $", nearer than the {w.NamedDistanceMs} ms event its line named."));
-                    }
+                        (late ??= new List<string>()).Add(LateLine(w.Ticket, w.What, seen, after, w.NamedDistanceMs));
                     _waiting.RemoveAt(i);
                 }
             }
@@ -152,30 +146,62 @@ namespace Radios.Speech
         {
             Seen? nearest = null;
             long distance = long.MaxValue;
+            Seen? firstAfter = null;
+            long firstAfterMs = long.MaxValue;
+            string? late = null;
             lock (_gate)
             {
                 for (int i = 0; i < _count; i++)
                 {
                     var s = _ring[i];
                     long before = answeredAtMs - s.AtMs;
-                    if (before < 0 || before > WindowMs) continue;
-                    if (before < distance) { distance = before; nearest = s; }
+                    if (before >= 0)
+                    {
+                        if (before <= WindowMs && before < distance) { distance = before; nearest = s; }
+                    }
+                    else if (-before <= WindowMs && -before < firstAfterMs)
+                    {
+                        firstAfterMs = -before;
+                        firstAfter = s;
+                    }
                 }
-                _waiting.Add(new Waiting
+
+                // An event already recorded AFTER the answer, noted between
+                // the reader's answer being stamped and this call: no Waiting
+                // record existed for it to find, so it is judged here, under
+                // the same lock that registers the answer, exactly as NoteAt
+                // would have judged it. The first such event settles the
+                // delivery, as in NoteAt; nothing is left waiting.
+                if (firstAfter is Seen fa)
                 {
-                    Ticket = ticket,
-                    AnsweredAtMs = answeredAtMs,
-                    NamedDistanceMs = distance,
-                    What = what ?? string.Empty,
-                });
-                // A delivery nobody follows up is let go: keep the list small.
-                if (_waiting.Count > Capacity) _waiting.RemoveAt(0);
+                    if (firstAfterMs < distance)
+                        late = LateLine(ticket, what ?? string.Empty, fa, firstAfterMs, distance);
+                }
+                else
+                {
+                    _waiting.Add(new Waiting
+                    {
+                        Ticket = ticket,
+                        AnsweredAtMs = answeredAtMs,
+                        NamedDistanceMs = distance,
+                        What = what ?? string.Empty,
+                    });
+                    // A delivery nobody follows up is let go: keep the list small.
+                    if (_waiting.Count > Capacity) _waiting.RemoveAt(0);
+                }
             }
+            if (late != null) _trace(late);
             return nearest is Seen n
                 ? $"nearest event: {Describe(n)}, {distance} ms before the reader's answer"
                 : $"no key, focus change or loss of the foreground seen in the {WindowMs} ms before the reader's answer; "
                   + "one in the " + WindowMs + " ms after is traced on its own SpeechCancel line";
         }
+
+        private static string LateLine(long ticket, string what, Seen seen, long afterMs, long namedDistanceMs) =>
+            $"SpeechCancel: #{ticket} ({what}): {Describe(seen)}, {afterMs} ms after the reader's answer"
+            + (namedDistanceMs == long.MaxValue
+                ? "."
+                : $", nearer than the {namedDistanceMs} ms event its line named.");
 
         private static string Describe(Seen s)
         {

@@ -250,9 +250,18 @@ namespace Radios.Speech
             // subject rules get to decide whether it earns another hearing @
             // which for a progress line means the newer one supersedes it, and
             // for the connect lead means the salvage may offer it again.
+            //
+            // What the line may claim: only that the speech system did not ask
+            // for that cancel. CancelledByUs false means the completion channel's
+            // own Cancel was not called, nothing more; our own focus handling
+            // can interrupt the reader too (a focus return to Home after a
+            // dialog closes), so "outside this application" would be a cause
+            // nobody established. The cancelled delivery's own line says what
+            // was seen near it. DRAFT wording, trace only.
             foreach (var w in withdrawnItems)
                 ReportWithdrawn(w, byUs: false,
-                    $"withdrawn unspoken: delivery #{afterTicket} ahead of it was cancelled by something outside this application");
+                    $"withdrawn unspoken: delivery #{afterTicket} ahead of it was cancelled, and the speech system "
+                    + "did not ask for that cancel; that delivery's own line says what was seen near it");
 
             // **The cause is UNKNOWN, and this line used to assert one
             // (#606).** It said "The operator asked for quiet" about an event
@@ -309,8 +318,9 @@ namespace Radios.Speech
         /// </summary>
         private void ReportWithdrawn(Item item, bool byUs, string? why = null)
         {
-            // why: for a withdrawal that follows someone else's cancel, the
-            // line says so instead of claiming its own unknown cause. Most
+            // why: for a withdrawal that follows a cancel the speech system
+            // did not ask for, the line says so instead of claiming its own
+            // unknown cause. Most
             // "word 0 of N after 0 ms, NOT by us" lines in a capture are these
             // (#709 item 2): ONE foreign cancel of the item in flight, then
             // every item queued behind it (#182).

@@ -140,11 +140,77 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_withdrawal_after_a_foreign_cancel_names_the_delivery_ahead_of_it()
+        public void A_withdrawal_after_a_cancel_our_own_focus_return_was_nearest_to_does_not_blame_another_program()
         {
-            string src = Source("Radios", "Speech", "PacedSpeechDelivery.cs");
-            Assert.Contains("ReportWithdrawn(w, byUs: false,", src, StringComparison.Ordinal);
-            Assert.Contains("delivery #{afterTicket} ahead of it was cancelled by something outside this application", src, StringComparison.Ordinal);
+            // The delivery in flight is cancelled with CancelledByUs false, and
+            // what its line names is OUR OWN focus return: the speech system
+            // did not ask for the cancel, but this application's focus handling
+            // was right beside it. The item withdrawn behind it may say the
+            // first and must not claim the cause was outside this application.
+            // Driven through the real pump, against the fake reader.
+            var witness = Witness();
+            witness.NoteAt(SpeechCancelWitness.EventKind.OwnFocusReturn, "Home, after a dialog closed", 20_000);
+            string named = witness.Attribute(1, 20_000, "cancelled at word 1 of 6");
+            Assert.Contains("our own focus return", named, StringComparison.Ordinal);
+
+            var ch = new FakeCompletionChannel();
+            var outcomes = new List<(long Ticket, SpeechOutcome Outcome)>();
+            using var reported = new System.Threading.AutoResetEvent(false);
+            using var pump = new PacedSpeechDelivery(
+                (text, interrupt) => SpeechDelivery.Accepted,
+                (ticket, text, outcome) => { lock (outcomes) outcomes.Add((ticket, outcome)); reported.Set(); },
+                _ => 2000, 300, 300, 300);
+            try
+            {
+                long a = pump.Enqueue(ch, "Connected to the radio, four slices.");
+                long b = pump.Enqueue(ch, "PC audio on.");
+                var call = ch.WaitForCall();
+                call.Result = SpeechOutcome.Cancelled(1, 6, byUs: false, 40).WithAttribution(named);
+                call.Done.Set();
+
+                SpeechOutcome inFlight = WaitFor(outcomes, reported, a);
+                SpeechOutcome withdrawn = WaitFor(outcomes, reported, b);
+
+                Assert.Contains("our own focus return", inFlight.ToString(), StringComparison.Ordinal);
+                string line = withdrawn.ToString();
+                Assert.Equal(0, withdrawn.MarksReached);
+                Assert.False(withdrawn.CancelledByUs);
+                Assert.Contains($"withdrawn unspoken: delivery #{a} ahead of it was cancelled, and the speech system did not ask for that cancel", line, StringComparison.Ordinal);
+                Assert.DoesNotContain("outside this application", line, StringComparison.Ordinal);
+                Assert.Equal(0, ch.CancelCalls);
+            }
+            finally { ch.ReleaseAll(); }
+        }
+
+        [Fact]
+        public void A_key_noted_after_the_answer_but_before_it_was_registered_is_still_traced()
+        {
+            // The answer is stamped, a key lands a millisecond later, and only
+            // then does the delivery thread register the answer. Nothing was
+            // waiting when the key was noted, so registering must look at it.
+            var w = Witness();
+            w.NoteAt(SpeechCancelWitness.EventKind.Key, "LeftCtrl", 1_001);
+            string a = w.Attribute(7, 1_000, "cancelled at word 0 of 9");
+            Assert.StartsWith("no key, focus change or loss of the foreground seen in the 150 ms before", a);
+            Assert.Equal(new[] { "SpeechCancel: #7 (cancelled at word 0 of 9): a key (LeftCtrl), 1 ms after the reader's answer." }, _late);
+            // It settled the delivery, as a key noted after registration does: once only.
+            w.NoteAt(SpeechCancelWitness.EventKind.Key, "Space", 1_002);
+            Assert.Single(_late);
+        }
+
+        private static SpeechOutcome WaitFor(List<(long Ticket, SpeechOutcome Outcome)> outcomes,
+            System.Threading.AutoResetEvent reported, long ticket)
+        {
+            var deadline = Environment.TickCount64 + 5000;
+            while (true)
+            {
+                lock (outcomes)
+                    foreach (var o in outcomes)
+                        if (o.Ticket == ticket) return o.Outcome;
+                int remaining = (int)(deadline - Environment.TickCount64);
+                if (remaining <= 0) throw new TimeoutException($"no outcome for #{ticket}");
+                reported.WaitOne(remaining);
+            }
         }
 
         [Fact]

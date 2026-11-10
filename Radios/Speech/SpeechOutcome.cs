@@ -104,12 +104,14 @@ namespace Radios.Speech
 
         /// <summary>
         /// For Cancelled: true when the cut was OUR cancel (an interrupt, a
-        /// Silence, an Urgent), false when something outside this application
-        /// cancelled NVDA — the operator's own keystroke does that on every
-        /// press, and so do a focus change and another program taking the
-        /// foreground. The arbiter's interrupt path has already accounted for
+        /// Silence, an Urgent), false when NVDA was cancelled by anything the
+        /// speech system did not ask for — the operator's own keystroke does
+        /// that on every press, and so do a focus change (our own included: a
+        /// focus return to Home after a dialog closes) and another program
+        /// taking the foreground. False does NOT mean the cause was outside
+        /// this application. The arbiter's interrupt path has already accounted for
         /// the first kind; the second is new information, and WHICH of those
-        /// outside events it was is not knowable here. The arbiter treats it
+        /// events it was is not knowable here. The arbiter treats it
         /// as unknown rather than picking one (#606).
         /// </summary>
         public bool CancelledByUs { get; }
