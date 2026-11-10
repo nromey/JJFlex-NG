@@ -3698,7 +3698,10 @@ public partial class MainWindow : UserControl
                     DialogTransmitKeys.HoldReleased();
                     EndAppEndedHold("the key was let go");   // a hold the app ended (7a): the release is real
                     // One line per deferred release, its extensions and what
-                    // it cost (#704), after the unkey so nothing delays it.
+                    // it cost (#704), after PttUp so nothing delays it. It
+                    // records the filter's decision only: PttUp unkeys only a
+                    // hold, and the app may already have ended this one (a
+                    // reference recording's end) or it may have become a lock.
                     if (_pttHoldFilter.LastDeferredRelease is { } released)
                         Tracing.TraceLine(Radios.PttHoldFilter.DescribeRelease(released), TraceLevel.Info);
                     return;

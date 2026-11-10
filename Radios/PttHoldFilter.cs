@@ -235,9 +235,17 @@ public sealed class PttHoldFilter
 
     /// <summary>
     /// What one deferred release cost: how many times the probe extended it,
-    /// how long the hold lasted from its first key-down, how long the release
-    /// waited from the reader's up to the unkey, and whether the extensions
-    /// ran out rather than the key being seen up.
+    /// how long the key had been down from its first key-down to the decision,
+    /// how long the decision waited from the reader's up, and whether the
+    /// extensions ran out rather than the key being seen up.
+    ///
+    /// <para>It is the FILTER's decision that the key was let go, and nothing
+    /// more. Whether that release unkeyed anything is the transmitter's
+    /// business: the app may already have ended the hold (a reference
+    /// recording reaching its end leaves the controller idle and the filter
+    /// still judging the key), or the hold may have become a lock, and in both
+    /// the release changes nothing on the air. So the line never says
+    /// "unkeyed".</para>
     /// </summary>
     public readonly record struct DeferredRelease(int Extensions, long HeldMs, long WaitedMs, bool CapReached);
 
@@ -250,11 +258,12 @@ public sealed class PttHoldFilter
     public DeferredRelease? LastDeferredRelease { get; private set; }
 
     /// <summary>The trace line for a deferred release. Pure.</summary>
+    /// <remarks>DRAFT wording, trace only.</remarks>
     public static string DescribeRelease(DeferredRelease r) =>
-        "PTT: a deferred release unkeyed after " + r.Extensions + " probe extension(s)"
-        + (r.CapReached ? " (the most allowed, " + MaxProbeExtensions + ", so it unkeyed without the key seen up)" : "")
-        + "; the hold lasted " + r.HeldMs + " ms from its first key-down, and the release waited "
-        + r.WaitedMs + " ms from the reader's key-up.";
+        "PTT: a deferred key-up was resolved as the key let go, after " + r.Extensions + " probe extension(s)"
+        + (r.CapReached ? " (the most allowed, " + MaxProbeExtensions + ", so it was resolved without the key seen up)" : "")
+        + "; the key had been down " + r.HeldMs + " ms from its first key-down, and the decision came "
+        + r.WaitedMs + " ms after the reader's key-up. This records the key's release, not the transmitter's state.";
 
     private bool _holding;
     private long _downMs;

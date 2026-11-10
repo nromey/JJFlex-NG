@@ -397,6 +397,9 @@ namespace Radios.Tests
             string line = PttHoldFilter.DescribeRelease(r);
             Assert.Contains("after 2 probe extension(s)", line);
             Assert.DoesNotContain("the most allowed", line);
+            // The filter's decision, never an unkey: the controller may
+            // already be idle (an app-ended hold) or locked (#704 repair one).
+            Assert.DoesNotContain("unkeyed", line);
         }
 
         [Fact]
@@ -435,7 +438,7 @@ namespace Radios.Tests
             int traced = main.IndexOf("Tracing.TraceLine(Radios.PttHoldFilter.DescribeRelease(released)", StringComparison.Ordinal);
             int up = main.IndexOf("_pttController?.PttUp();", elapsed, StringComparison.Ordinal);
             int done = main.IndexOf("return;", up, StringComparison.Ordinal);
-            Assert.True(elapsed > 0 && up > elapsed && traced > up && traced < done, "traced on the release, after the unkey");
+            Assert.True(elapsed > 0 && up > elapsed && traced > up && traced < done, "traced on the release, after PttUp");
         }
 
         [Fact]
