@@ -298,7 +298,9 @@ namespace JJFlexWpf
             ms = null;
             var e = _catalog.Find(id);
             if (e == null || e.Side == DenoiseSide.Radio) return false;
-            if (SlotFor(e) is { } slot && slot.RunningEngineId == id && slot.RunningLatencySamples > 0)
+            // Measured only when the running bank was built from today's choice: a
+            // model chosen while no audio flows has not been carried in yet.
+            if (SlotFor(e) is { } slot && slot.RunningIsCurrent(id) && slot.RunningLatencySamples > 0)
                 ms = (int)Math.Round(slot.RunningLatencySamples / 48.0);
             else
             {

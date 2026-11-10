@@ -170,6 +170,21 @@ public sealed class RnnoiseModelSettingTests
         Assert.Equal(Radios.Lexicon.Get("audio.noise_surface.delay_figure", ("ms", 10)), f.Noise.DelayFigure("rnnoise"));
     }
 
+    [Fact]
+    public void A_model_chosen_while_no_audio_flows_reads_its_expected_delay_not_the_old_builds()
+    {
+        // Walk 2026-11-09 22:31: with PC audio off, the startup engine (newest model,
+        // 960 samples) kept answering after the original model was chosen, so
+        // Settings said about 20 ms. The readout now measures only a current build.
+        using var f = new NoiseFixture(rnnoiseLatency: 960);
+        Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.RunningEngineId);
+        Assert.Equal(Radios.Lexicon.Get("audio.noise_surface.delay_figure", ("ms", 20)), f.Noise.DelayFigure("rnnoise"));
+        f.Noise.Set(ModelLever(f), null, RnnoiseModels.V011, "test");
+        Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.RunningEngineId);      // no audio yet: the old build still runs
+        Assert.False(f.Pipeline.NeuralSlot.RunningIsCurrent("rnnoise"));
+        Assert.Equal(Radios.Lexicon.Get("audio.noise_surface.delay_figure", ("ms", 10)), f.Noise.DelayFigure("rnnoise"));
+    }
+
     // ── A model whose library is missing: listed, marked, refused with its reason, audio passed through ──
 
     [Fact]
