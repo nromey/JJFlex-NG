@@ -3689,6 +3689,11 @@ public partial class MainWindow : UserControl
                 _pttDeferTimer!.Stop();
                 if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))
                 {
+                    // One line per deferred release, with its extensions and
+                    // what it cost (#704); the first-extension line below
+                    // stays.
+                    if (_pttHoldFilter.LastDeferredRelease is { } released)
+                        Tracing.TraceLine(Radios.PttHoldFilter.DescribeRelease(released), TraceLevel.Info);
                     _pttController?.PttUp();
                     // The hold is over, so the dialog that keyed it (if one
                     // did) has nothing left to release: drop its
@@ -3715,8 +3720,8 @@ public partial class MainWindow : UserControl
                             + " rather than unkeyed. This is the operating system's key state"
                             + " disagreeing with the screen reader's event stream, which is"
                             + " exactly what was predicted — and it is the first evidence that"
-                            + " the physical key state survives a synthesising reader. Further"
-                            + " extensions counted, not logged.",
+                            + " the physical key state survives a synthesising reader. Each"
+                            + " deferred release's extensions are traced when it unkeys.",
                             TraceLevel.Error);
                     }
                     StartPttDeferTimer(_pttHoldFilter.NextRecheckMs);

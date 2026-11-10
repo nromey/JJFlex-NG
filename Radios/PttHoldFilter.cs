@@ -233,8 +233,32 @@ public sealed class PttHoldFilter
     /// <summary>How many times a probe has extended a deferral. Zero when the probe never fires.</summary>
     public int ProbeExtensions { get; private set; }
 
+    /// <summary>
+    /// What one deferred release cost: how many times the probe extended it,
+    /// how long the hold lasted from its first key-down, how long the release
+    /// waited from the reader's up to the unkey, and whether the extensions
+    /// ran out rather than the key being seen up.
+    /// </summary>
+    public readonly record struct DeferredRelease(int Extensions, long HeldMs, long WaitedMs, bool CapReached);
+
+    /// <summary>
+    /// The last deferred release, read by the host's trace (#704: one line per
+    /// release, so a session's trace says how many releases needed extensions
+    /// and how long they cost). Captured before the release's resets run.
+    /// Null before any.
+    /// </summary>
+    public DeferredRelease? LastDeferredRelease { get; private set; }
+
+    /// <summary>The trace line for a deferred release. Pure.</summary>
+    public static string DescribeRelease(DeferredRelease r) =>
+        "PTT: a deferred release unkeyed after " + r.Extensions + " probe extension(s)"
+        + (r.CapReached ? " (the most allowed, " + MaxProbeExtensions + ", so it unkeyed without the key seen up)" : "")
+        + "; the hold lasted " + r.HeldMs + " ms from its first key-down, and the release waited "
+        + r.WaitedMs + " ms from the reader's key-up.";
+
     private bool _holding;
     private long _downMs;
+    private long _holdStartMs;
     private bool _pendingRelease;
     private long _pendingUpMs;
     private bool _inRepeatStream;
@@ -289,6 +313,7 @@ public sealed class PttHoldFilter
 
         _holding = true;
         _downMs = nowMs;
+        _holdStartMs = nowMs;
         return DownAction.Press;
     }
 
@@ -384,6 +409,12 @@ public sealed class PttHoldFilter
             LastProbeSaidDown = null;
         }
 
+        // Read before the resets below (#704).
+        LastDeferredRelease = new DeferredRelease(
+            _extensionsThisRelease,
+            nowMs - _holdStartMs,
+            nowMs - _pendingUpMs,
+            CapReached: probe != null && _extensionsThisRelease >= MaxProbeExtensions);
         _pendingRelease = false;
         _extensionsThisRelease = 0;
         _holding = false;
