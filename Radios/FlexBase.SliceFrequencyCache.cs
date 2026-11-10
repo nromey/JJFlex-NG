@@ -299,10 +299,13 @@ namespace Radios
         }
 
         /// <summary>
-        /// Whether the calling thread's last <see cref="RXFrequency"/> set was
-        /// admitted as a tune (integration fix): true, false when it was refused
-        /// (a locked or gone slice, no slice, a loop that will not run it), null
-        /// before any. A tuning key speaks the new frequency only when true.
+        /// Whether the calling thread's last frequency set (<see cref="RXFrequency"/>,
+        /// <see cref="TXFrequency"/>, <see cref="Frequency"/> or
+        /// <see cref="VirtualRXFrequency"/>) was admitted as a tune (integration
+        /// fix): true, false when it was refused (a locked or gone slice, no slice,
+        /// a loop that will not run it, the radio transmitting), null before any.
+        /// A tuning key speaks the new frequency only when true; a band jump or a
+        /// 60 m channel stop names its arrival only when true.
         /// </summary>
         public bool? TuneAdmittedHere => t_tuneAdmitted;
         [System.ThreadStatic] private static bool? t_tuneAdmitted;

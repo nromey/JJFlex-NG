@@ -365,6 +365,57 @@ namespace Radios.Tests
             Assert.Equal(true, b.Rig.TuneAdmittedHere);
         }
 
+        // ── #790: every refusal leaves the admission false, never the
+        //    previous tune's answer ──
+
+        [Fact]
+        public void A_tune_refused_while_transmitting_is_not_admitted_whichever_setter_took_it()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.RXFrequency = 14_100_100;                 // admitted, the answer a stale flag kept
+            Assert.Equal(true, b.Rig.TuneAdmittedHere);
+            Drain(b.Rig);
+            int sent = Tunes(b).Count;
+
+            Set(b.Rig, "_Transmit", true);
+            b.Rig.VirtualRXFrequency = 14_100_200;          // Home's tuning keys come this way
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+            b.Rig.RXFrequency = 14_100_100;                 // admitted again in between
+            b.Rig.Frequency = 5_332_000;                    // the 60 m channel stop's way
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+            Drain(b.Rig);
+            Assert.Equal(sent + 1, Tunes(b).Count);         // only the RXFrequency in between went out
+
+            // Control: not transmitting, the same setters admit it.
+            Set(b.Rig, "_Transmit", false);
+            b.Rig.VirtualRXFrequency = 14_100_300;
+            Assert.Equal(true, b.Rig.TuneAdmittedHere);
+            b.Rig.Frequency = 14_100_400;
+            Assert.Equal(true, b.Rig.TuneAdmittedHere);
+        }
+
+        [Fact]
+        public void The_transmit_frequency_keeps_its_own_answer()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+            b.Rig.TXVFO = 0;
+            b.Rig.TXFrequency = 14_100_100;
+            Assert.Equal(true, b.Rig.TuneAdmittedHere);
+
+            Set(a, "_lock", true);
+            b.Rig.TXFrequency = 14_100_200;                 // a locked transmit slice refuses it
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+
+            Set(a, "_lock", false);
+            b.Rig.RXFrequency = 14_100_300;                 // admitted
+            Assert.Equal(true, b.Rig.TuneAdmittedHere);
+            typeof(FlexBase).GetField("_TXVFO", Private)!.SetValue(b.Rig, -1);
+            b.Rig.TXFrequency = 14_100_400;                 // no valid transmit slice: an early bail
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+        }
+
         [Fact]
         public void A_tune_the_command_loop_will_not_run_is_not_admitted_and_reads_where_the_slice_is()
         {

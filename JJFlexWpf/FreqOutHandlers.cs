@@ -879,6 +879,19 @@ public class FreqOutHandlers
         return Rig?.TuneAdmittedHere != false;
     }
 
+    /// <summary>
+    /// A band jump or a 60 m channel stop the radio was not given: the refusal
+    /// sound and "Unable to tune this frequency", the typed entry's refusal,
+    /// and nothing about where it would have gone. A single tuning STEP refused
+    /// says nothing, as a step refused on a locked slice always has.
+    /// </summary>
+    internal void SayTuneRefused(string what)
+    {
+        Tracing.TraceLine("FreqOut: " + what + " was not admitted (a locked slice, the radio transmitting, or no slice); "
+            + "no arrival, band memory or mode change", TraceLevel.Info);
+        SayTypedTuneSpeech(TypedTuneSpeech(FlexBase.TuneAnswer.Refused, Radios.ScreenReaderOutput.CurrentVerbosity));
+    }
+
     private void RoundToKHz()
     {
         if (Rig == null || GetRXFrequency == null || SetRXFrequency == null) return;
@@ -4049,7 +4062,16 @@ public class FreqOutHandlers
             }
         }
 
-        SetRXFrequency(targetFreq);
+        // Only an admitted tune names its arrival, moves the band memory or
+        // asks 60 m for its mode, the rule SayTypedTuneAnswer states: a band
+        // jump refused (a locked slice, the radio transmitting, no slice)
+        // changed nothing, and used to say a band the operator was not on.
+        // The current frequency saved above stays saved; it is true.
+        if (!TuneTo(targetFreq))
+        {
+            SayTuneRefused("band jump to " + targetBand);
+            return;
+        }
         _lastBand = targetBand;
 
         string bandName = BandDisplayName(targetBand);

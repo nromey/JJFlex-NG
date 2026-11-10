@@ -7784,17 +7784,27 @@ public partial class MainWindow : UserControl
         // did.
         var stop = SixtyMeterChannels.Rotate(country, _sixtyMeterChannelIndex, direction, RigControl.Mode);
         if (stop == null) return;
-        _sixtyMeterChannelIndex = stop.Index;
 
         // Frequency first, then mode, the order this method and the band jump
         // have always used.
         RigControl.Frequency = stop.FrequencyHz;
+        // Only an admitted stop moves the rotation, names the channel or asks
+        // for its mode (#790, #1023): a stop refused on a locked slice still
+        // changed the mode (LSB to USB on 40 m) and announced the channel.
+        // Every refusal, transmitting included, now leaves the admission
+        // false. Refused, it says "Unable to tune this frequency" and nothing
+        // else, and the next press offers the same stop again.
+        if (RigControl.TuneAdmittedHere == false)
+        {
+            _freqOutHandlers?.SayTuneRefused("60 meter channel stop");
+            return;
+        }
+        _sixtyMeterChannelIndex = stop.Index;
         // The band notices' memory follows the stop, so a typed frequency
         // afterwards is not judged against the band this came from. Only a
         // stop the slice actually took (repair one): the receive frequency is
-        // read back after the write, because a locked slice refuses the tune
-        // and the setter returns normally, and while transmitting the setter
-        // returns before the admission flag is even reset.
+        // read back after the write, a second check behind the admission
+        // above (a tune admitted but answered with a different frequency).
         _freqOutHandlers?.FollowChannelStop(stop.FrequencyHz, RigControl.RXFrequency);
 
         if (stop.Correction == null)
