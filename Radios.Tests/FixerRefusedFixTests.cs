@@ -18,7 +18,7 @@ namespace Radios.Tests
     public sealed class FixerRefusedFixTests
     {
         private const string HoldsSentence =
-            "Change nothing is on for this radio, so JJ Flexible did not load a profile. The setting is in Settings, under Radios.";
+            "JJ Flexible Radio Access did not load the profile. Radio setup protection is on for this radio. The setting is in Settings, under Radios.";
 
         private static FixerRun RunWith(FixerFixOutcome outcome)
         {

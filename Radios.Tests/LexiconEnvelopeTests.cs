@@ -1197,6 +1197,18 @@ namespace Radios.Tests
                 // This Radio. Said only in answer to the operator's choice:
                 // TextOnly. DRAFT PROSE.
                 "settings.profile_guest.ask_next_connect",
+                // Junk box 2026-11-09, fourth batch: radio setup protection.
+                // Eight sentences that named the setting "Change nothing" were
+                // reworded to Codex's family B, chosen by Noel, and classified.
+                // Each is spoken or shown as the answer to one event: TextOnly.
+                "settings.guard.connected",
+                "settings.guard.firmware_blocked",
+                "settings.guard.layout_save_blocked",
+                "settings.guard.mic_stays",
+                "settings.profile.describe_change_nothing",
+                "settings.profile.rename_held",
+                "settings.profile.saved_rem_on_held",
+                "settings.restore_export.saved_no_walk",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
@@ -2821,7 +2833,9 @@ namespace Radios.Tests
             // classified settings.profile.remote_firmware_allowed_warning.
             // One fewer (3062 to 3061): junk box 2026-11-08 (#704) retired
             // audio.ptt.systemwide_watchdog_unkeyed, replaced by two classified keys.
-            Assert.Equal(3061, unclassified);
+            // Eight fewer (3061 to 3053): junk box 2026-11-09, fourth batch, reworded
+            // and classified the radio setup protection sentences.
+            Assert.Equal(3053, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

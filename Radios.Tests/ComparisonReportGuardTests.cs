@@ -341,7 +341,7 @@ namespace Radios.Tests
 
             rig.SetChangeNothingActive(true);
             Assert.False(ProfileReporter.ComparisonMayLoadProfiles(rig));
-            Assert.Contains("Change nothing is on for this radio", ProfileReporter.GenerateReport(rig));
+            Assert.Contains("Radio setup protection is on for this radio", ProfileReporter.GenerateReport(rig));
         }
 
         // ------------------------------------------------------------------
@@ -940,8 +940,8 @@ namespace Radios.Tests
             string none = ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(0, 0, 0)));
             Assert.Equal("Capturing settings for restore. No stored profiles could be read from the radio, so the radio's settings are not changed.", none);
             string held = ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(false, Lists(3, 3, 3)));
-            Assert.Equal("Capturing settings for restore. Change nothing is on for this radio, so the radio's settings are not changed, "
-                + "and the file holds live settings only.", held);
+            Assert.Equal("Capturing settings for restore. Radio setup protection is on for this radio, so stored profiles will not be loaded. "
+                + "The file will contain current settings, without stored profile contents. The setting is in Settings, under Radios.", held);
             foreach (string sentence in new[] { none, held })
                 Assert.DoesNotContain("loaded on the radio", sentence);
 

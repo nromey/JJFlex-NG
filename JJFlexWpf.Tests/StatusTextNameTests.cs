@@ -34,7 +34,7 @@ public sealed class StatusTextNameTests
     public void The_name_is_the_text_whenever_there_is_text()
     {
         AssertWindowless();
-        const string warning = "Change nothing is on for this radio. Nothing you do here is sent to it.";
+        const string warning = "Radio setup protection is on for this radio. Nothing you do here is sent to it.";
         Assert.Equal(warning, StatusTextName.NameFor("Radio profile status", warning));
         Assert.Equal("Ready", StatusTextName.NameFor("Test status", "  Ready  "));
     }
@@ -87,7 +87,7 @@ public sealed class StatusTextNameTests
             line.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent, line));
             try
             {
-                const string warning = "Change nothing is on for this radio. Nothing you do here is sent to it.";
+                const string warning = "Radio setup protection is on for this radio. Nothing you do here is sent to it.";
                 line.Text = warning;
                 Assert.Equal(warning, System.Windows.Automation.AutomationProperties.GetName(line));
                 line.Text = "Ready";
