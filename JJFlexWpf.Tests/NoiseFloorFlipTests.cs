@@ -193,6 +193,40 @@ public sealed class NoiseFloorFlipTests
     }
 
     [Fact]
+    public void A_floor_change_on_an_engine_with_a_stored_model_is_applied_with_no_allocation()
+    {
+        // Repair round 2 (Codex's second check): once RNNoise holds a stored model
+        // (a model choice or Return to defaults stores one), every floor change
+        // makes a new Parameters record, and applying it on the audio thread must
+        // allocate nothing. The scenario is Codex's: choose the default model
+        // explicitly, let the bank be replaced, warm up, set Strength, then count.
+        using var f = new NoiseFixture();
+        var neural = f.Pipeline.NeuralSlot;
+        f.Noise.Toggle("rnnoise", "test");
+        f.Settle();
+        int built = f.Built.Count(b => b == "rnnoise");
+        Assert.True(neural.TrySetSetting("rnnoise", "model", new(0, RnnoiseModels.Newest)));
+        var audio = new float[960];
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (f.Built.Count(b => b == "rnnoise") <= built && clock.ElapsedMilliseconds < 5000)
+        {
+            Array.Fill(audio, 0.1f); neural.Process(audio, true, true, false, null);
+            System.Threading.Thread.Sleep(1);
+        }
+        for (int i = 0; i < 400; i++) { Array.Fill(audio, 0.1f); neural.Process(audio, true, true, false, null); }   // the handover and warm-up
+        long allocated = 0;
+        foreach (float strength in new[] { 0.85f, 0.8f, 0.75f })
+        {
+            neural.SetStrength("rnnoise", strength);                    // the control side makes the new record
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 20; i++) { Array.Fill(audio, 0.1f); neural.Process(audio, true, true, false, null); }
+            allocated += GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        Assert.Equal(RnnoiseModels.Newest, neural.GetSetting("rnnoise", "model").Choice);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void A_first_setting_on_an_untouched_engine_keeps_its_default_floor()
     {
         using var f = new NoiseFixture();

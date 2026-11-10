@@ -23,7 +23,27 @@ namespace JJFlexWpf
     /// </summary>
     public sealed class PcDenoiseSlot
     {
-        private sealed record Parameters(float Strength, IReadOnlyDictionary<string, EngineSettingValue> Values);
+        /// <summary>
+        /// An engine's stored Strength and values. <paramref name="Live"/> is the
+        /// values a RUNNING instance takes (every value but a rebuild setting's),
+        /// worked out once on the control side when the record is made (repair
+        /// round 2), so <see cref="ApplyParameters"/> walks an array on the audio
+        /// thread with no enumerator, no LINQ and no allocation. Make one with
+        /// <see cref="MakeParameters"/> whenever <paramref name="Values"/> changes;
+        /// a <c>with</c> that changes only the Strength keeps the same Live.
+        /// </summary>
+        private sealed record Parameters(float Strength, IReadOnlyDictionary<string, EngineSettingValue> Values,
+            KeyValuePair<string, EngineSettingValue>[] Live);
+
+        /// <summary>A record for these values, with its live settings worked out here, off the audio thread.</summary>
+        private Parameters MakeParameters(string id, float strength, IReadOnlyDictionary<string, EngineSettingValue> values)
+        {
+            var settings = SettingsFor(id);
+            var live = new List<KeyValuePair<string, EngineSettingValue>>(values.Count);
+            foreach (var pair in values)
+                if (!settings.Any(s => s.Name == pair.Key && s.NeedsRebuild)) live.Add(pair);
+            return new Parameters(strength, values, live.ToArray());
+        }
         private sealed record Choice(long Generation, string Id, DenoiseDirection Direction = DenoiseDirection.Receive)
         {
             internal int BuildClaim;
@@ -180,7 +200,7 @@ namespace JJFlexWpf
             // TryGetValue first: GetOrAdd with a lambda that captures this slot
             // would allocate a delegate on every call, on the audio thread too.
             if (_defaults.TryGetValue(id, out var cached)) return cached;
-            var made = new Parameters(NoiseFloor.DefaultStrength(id, Direction), NoValues);
+            var made = new Parameters(NoiseFloor.DefaultStrength(id, Direction), NoValues, Array.Empty<KeyValuePair<string, EngineSettingValue>>());
             return _defaults.GetOrAdd(id, made);
         }
 
@@ -216,8 +236,8 @@ namespace JJFlexWpf
             // (#1019): this used to create the entry at Strength 1 whatever the
             // engine, so choosing RNNoise's model on a fresh setup would have
             // silently set its floor to 0.
-            _settings.AddOrUpdate(id, key => DefaultParameters(key) with { Values = new Dictionary<string, EngineSettingValue> { [name] = value } },
-                (_, p) => p with { Values = new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value } });
+            _settings.AddOrUpdate(id, key => MakeParameters(key, DefaultParameters(key).Strength, new Dictionary<string, EngineSettingValue> { [name] = value }),
+                (key, p) => MakeParameters(key, p.Strength, new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value }));
             // A rebuild setting (a new delay, or NR4's estimator) only takes
             // effect in a new instance, built under the warm-up cross-fade.
             if (descriptor.NeedsRebuild && ChosenEngineId == id) Select(id, out _, force: true);
@@ -323,10 +343,11 @@ namespace JJFlexWpf
         {
             var p = ParametersFor(id);
             if (ReferenceEquals(p, applied)) return;
+            // On the audio thread: an array and two for loops, nothing else (repair round 2).
+            var live = p.Live;
             for (int ch = 0; ch < bank.Channels; ch++)
-                foreach (var setting in p.Values)
-                    if (!SettingsFor(id).Any(s => s.Name == setting.Key && s.NeedsRebuild))
-                        bank.EngineFor(ch).TrySetSetting(setting.Key, setting.Value);
+                for (int i = 0; i < live.Length; i++)
+                    bank.EngineFor(ch).TrySetSetting(live[i].Key, live[i].Value);
             applied = p;
         }
 
@@ -543,7 +564,8 @@ namespace JJFlexWpf
                 // stored is silently reset to a default. A name this build does
                 // not know is kept as it was, for a newer build to read back.
                 var descriptors = row.Settings;
-                _settings[record.EngineId] = new Parameters(float.IsFinite(record.Strength) ? Math.Clamp(record.Strength, 0, 1) : ParametersFor(record.EngineId).Strength,
+                _settings[record.EngineId] = MakeParameters(record.EngineId,
+                    float.IsFinite(record.Strength) ? Math.Clamp(record.Strength, 0, 1) : ParametersFor(record.EngineId).Strength,
                     record.Values.GroupBy(v => v.Name).ToDictionary(v => v.Key, v =>
                     {
                         var stored = new EngineSettingValue(v.Last().Number, v.Last().Choice);
