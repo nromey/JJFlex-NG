@@ -2782,6 +2782,9 @@ namespace Radios.Tests
                 "audio.takes.stop_backup",
                 "audio.takes.help.back_up",
                 "audio.takes.help.slice_play",
+                // #1040: Check your audio did not start because Back up first did not
+                // finish. A PLACEHOLDER: Codex writes it; classified when written.
+                "audio.check.not_started_backup_unfinished",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
