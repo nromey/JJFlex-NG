@@ -1218,6 +1218,20 @@ public partial class CheckYourAudioDialog
     }
 
     /// <summary>
+    /// <see cref="SyncPlayTakeLabel"/> on this window's thread, whichever thread
+    /// asks (#913): the session relabels from its unkey and its end, and a
+    /// reference's end reaches the unkey from a continuation. On the window's
+    /// thread it runs at once, so a press after the unkey reads the new label;
+    /// from elsewhere it is posted ahead of input.
+    /// </summary>
+    private void RelabelPlayTake()
+    {
+        var ui = Dispatcher;
+        if (ui == null || ui.CheckAccess()) SyncPlayTakeLabel();
+        else ui.BeginInvoke(new Action(SyncPlayTakeLabel));
+    }
+
+    /// <summary>
     /// A Stop press on Play last take (#913): cancel a take on its way, stop a
     /// local playback, abandon or stop the check's automatic playback, or stop
     /// the slice take playing. Starts nothing.
@@ -1261,7 +1275,9 @@ public partial class CheckYourAudioDialog
     {
         get
         {
-            if (RecordingPlayer.IsPlaying || _toneMonitorSounding) return true;
+            // A take on its way from a Play press counts (#913): Ctrl+Enter then
+            // stops it rather than starting a check it would sound over.
+            if (RecordingPlayer.IsPlaying || _toneMonitorSounding || _takeStart != null) return true;
             if (_rig == null) return false;
             foreach (var target in _checkPlayTargets)
                 if (_rig.IsSlicePlaying(target)) return true;
@@ -1273,6 +1289,13 @@ public partial class CheckYourAudioDialog
     private bool StopCheckPlayback()
     {
         bool stopped = false;
+        if (_takeStart != null)
+        {
+            // A take on its way (#913) is cancelled, and stops itself if it sounds.
+            _takeStart.Cancelled = true;
+            _takeStart = null;
+            stopped = true;
+        }
         if (RecordingPlayer.IsPlaying)
         {
             RecordingPlayer.Stop();
@@ -1996,7 +2019,7 @@ public partial class CheckYourAudioDialog
         {
             _owner._checkPlayTargets.Remove(_recorderTarget);
             RecorderControls.Speak(await rig.StopSlicePlayAsync(_recorderTarget));
-            _owner.SyncPlayTakeLabel();
+            _owner.RelabelPlayTake();
         }
 
         private void End(string? reason)
@@ -2006,7 +2029,7 @@ public partial class CheckYourAudioDialog
             Active = false;
             // Every ending abandons a playback still on its way (#913): the
             // button stops offering to stop it.
-            _owner.SyncPlayTakeLabel();
+            _owner.RelabelPlayTake();
             _watcher.Stop();
             _ptt.SessionTimeoutOverrideSeconds = null;
             _ptt.AudioCheckNarration = false;
@@ -2082,7 +2105,7 @@ public partial class CheckYourAudioDialog
             }
             // The automatic playback is committed from here (#913): Play last
             // take says "Stop playing" now, not a second and a half from now.
-            _owner.SyncPlayTakeLabel();
+            _owner.RelabelPlayTake();
         }
 
         private void Watcher_Tick(object? sender, EventArgs e)

@@ -96,7 +96,7 @@ namespace Radios.Tests
         [Fact]
         public void PlayLastTakeFollowsTheMethodAndMonitorHidesTheButton()
         {
-            string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
+            string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake(bool pressedAsStop)");
             string selection = MethodBody(ReadWorkshop("AudioCheck"),
                 "private (AudioCheckListenMethods Method, TakePlaybackChoice Choice,");
             string radioChoice = MethodBody(ReadWorkshop("AudioCheck"),
@@ -171,8 +171,18 @@ namespace Radios.Tests
                 + "then has no way at all to play it, which is half of what task #455 was: the "
                 + "only button offering to play a take could not reach the files.");
 
-            string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
-            Assert.Contains("RecordingPlayer", body, StringComparison.Ordinal);
+            // Since #913 the press is decided once and its Stop lives in
+            // StopTakePlayback, so Play last take reaches the player through
+            // its two local doors, which play through ListenbackTakes into it.
+            string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake(bool pressedAsStop)");
+            Assert.Contains("PlaySavedTakeAsync(", body, StringComparison.Ordinal);
+            Assert.Contains("PlayIqAsync(", body, StringComparison.Ordinal);
+            Assert.Contains("ListenbackTakes.PlayAfterClickAsync(",
+                MethodBody(ReadWorkshop("SaveTakes"), "private async Task PlaySavedTakeAsync(string folder)"), StringComparison.Ordinal);
+            Assert.Contains("ListenbackTakes.RenderAndPlayAsync(",
+                MethodBody(ReadWorkshop("OffAir"), "private async Task PlayIqAsync(string? directory, int detune)"), StringComparison.Ordinal);
+            Assert.Contains("RecordingPlayer.Play(path",
+                MethodBody(ReadWorkshop("Listenback"), "internal static async Task<bool> PlayAfterClickAsync("), StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -182,7 +192,7 @@ namespace Radios.Tests
         [Fact]
         public void PlayLastTakeDoesNotRefuseWhenNoRadioIsConnected()
         {
-            string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
+            string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake(bool pressedAsStop)");
             Assert.DoesNotContain("audio.no_radio_connected", body, StringComparison.Ordinal);
         }
 
