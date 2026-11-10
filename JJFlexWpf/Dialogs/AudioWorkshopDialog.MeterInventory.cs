@@ -265,7 +265,7 @@ public partial class AudioWorkshopDialog
 
         MeterInventory? inv = _boundInventory;
         string text;
-        if (_rig == null || inv == null)
+        if (LiveRig == null || inv == null)
         {
             text = "No radio is connected, so the radio has not told us what it "
                  + "can measure. Connect a radio and press Refresh.";
@@ -305,7 +305,7 @@ public partial class AudioWorkshopDialog
 
         string text;
         MeterInventory? inv = _boundInventory;
-        if (_rig == null || inv == null)
+        if (LiveRig == null || inv == null)
         {
             text = "No radio connected, so there is no meter list to show.";
         }
@@ -338,9 +338,9 @@ public partial class AudioWorkshopDialog
 
         string body = _inventoryReportBox?.Text ?? "";
         string header = "Meter inventory";
-        if (_rig != null)
+        if (LiveRig != null)
         {
-            string model = _rig.RadioModel ?? "";
+            string model = LiveRig.RadioModel ?? "";
             if (model.Length != 0) header += " — " + model;
         }
         header += ", " + DateTime.Now.ToString("yyyy-MM-dd HH:mm");

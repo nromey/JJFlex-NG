@@ -484,11 +484,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// take's stream ends, or at the next attach. This notice ends nothing. It
     /// only marks the radio departed, so the window can no longer reach it.
     /// </remarks>
-    public static void NotifyRigDeparting(FlexBase? rig)
-    {
-        if (rig == null) return;
-        DialogSections.PostRigChange(_instance, w => w.RigDeparting(rig), onlyIfLoaded: false);
-    }
+    public static void NotifyRigDeparting(FlexBase? rig) =>
+        DialogSections.PostRigDeparting(_instance, rig, (w, r) => w.RigDeparting(r));
 
     /// <summary>
     /// <see cref="NotifyRigDeparting"/> on this window's own thread: the radio-only

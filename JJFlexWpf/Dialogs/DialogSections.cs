@@ -102,4 +102,17 @@ internal sealed class DialogSections
         if (window.Dispatcher.CheckAccess()) change(window);
         else window.Dispatcher.BeginInvoke(() => change(window));
     }
+
+    /// <summary>
+    /// The shell has disposed <paramref name="rig"/>: hand it to a singleton
+    /// window's own departure handler on the window's thread, whether or not
+    /// the window is showing. Nothing when there is no radio. One home for the
+    /// notice Check your audio and the Audio Workshop both take from
+    /// <c>CloseTheRadio</c> and <c>ReleaseRigControl</c>.
+    /// </summary>
+    public static void PostRigDeparting<T>(T? window, Radios.FlexBase? rig, Action<T, Radios.FlexBase> departing) where T : Window
+    {
+        if (rig == null) return;
+        PostRigChange(window, w => departing(w, rig), onlyIfLoaded: false);
+    }
 }

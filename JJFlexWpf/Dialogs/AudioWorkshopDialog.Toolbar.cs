@@ -119,13 +119,13 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(cancelBtn, "Cancel");
         okBtn.Click += (s2, e2) =>
         {
-            if (listBox.SelectedIndex >= 0 && _rig != null)
+            if (listBox.SelectedIndex >= 0 && LiveRig != null)
             {
                 var preset = presets.Presets[listBox.SelectedIndex];
                 // ApplyTo reports what could not be applied faithfully — an
                 // EQ the radio has not reported, a preset tuned for a
                 // different input (#51). Those ride the load announcement.
-                string note = preset.ApplyTo(_rig);
+                string note = preset.ApplyTo(LiveRig);
                 PollTxAudio();
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("audio.preset.loaded", ("preset", preset.Name)) +
@@ -149,7 +149,7 @@ public partial class AudioWorkshopDialog
 
     private void SavePreset_Click(object sender, RoutedEventArgs e)
     {
-        if (_rig == null)
+        if (LiveRig == null)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
@@ -180,7 +180,7 @@ public partial class AudioWorkshopDialog
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.please_enter_a_name"), VerbosityLevel.Terse);
                 return;
             }
-            var preset = AudioChainPreset.CaptureFrom(_rig, name, ReadSavedPcInputName());
+            var preset = AudioChainPreset.CaptureFrom(LiveRig, name, ReadSavedPcInputName());
             var presets = GetPresetsCallback?.Invoke() ?? AudioChainPresets.CreateDefaults();
             presets.Presets.Add(preset);
             if (PersistPresets(presets))
@@ -204,7 +204,7 @@ public partial class AudioWorkshopDialog
 
     private void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (_rig == null)
+        if (LiveRig == null)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
@@ -219,7 +219,7 @@ public partial class AudioWorkshopDialog
 
         if (sfd.ShowDialog() == true)
         {
-            var preset = AudioChainPreset.CaptureFrom(_rig,
+            var preset = AudioChainPreset.CaptureFrom(LiveRig,
                 System.IO.Path.GetFileNameWithoutExtension(sfd.FileName),
                 ReadSavedPcInputName());
             // Save reports whether the file landed. A failed write announced
@@ -306,7 +306,7 @@ public partial class AudioWorkshopDialog
 
     private void Reset_Click(object sender, RoutedEventArgs e)
     {
-        if (_rig == null)
+        if (LiveRig == null)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
@@ -325,7 +325,7 @@ public partial class AudioWorkshopDialog
             return;
 
         var defaults = new AudioChainPreset();
-        _ = defaults.ApplyTo(_rig); // a default preset carries no EQ or input notes
+        _ = defaults.ApplyTo(LiveRig); // a default preset carries no EQ or input notes
         PollTxAudio();
         ScreenReaderOutput.Speak(Lexicon.Get("audio.preset.reset_to_defaults"), VerbosityLevel.Terse);
     }

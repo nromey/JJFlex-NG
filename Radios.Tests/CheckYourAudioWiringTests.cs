@@ -110,7 +110,7 @@ namespace Radios.Tests
             Assert.DoesNotContain("HearYourselfTab", xaml);
             Assert.Contains("Click=\"CheckYourAudio_Click\"", xaml);
             string shell = Dialog("AudioWorkshopDialog.xaml");
-            Assert.Contains("private void CheckYourAudio_Click(object sender, RoutedEventArgs e) =>\n        CheckYourAudioDialog.ShowOrFocus(_rig);", shell);
+            Assert.Contains("private void CheckYourAudio_Click(object sender, RoutedEventArgs e) =>\n        CheckYourAudioDialog.ShowOrFocus(LiveRig);", shell);
             Assert.DoesNotContain("case Key.Enter:", Body(shell, "protected override void OnPreviewKeyDown(KeyEventArgs e)"));
             Assert.False(File.Exists(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.AudioCheck.cs")));
             foreach (string file in Directory.GetFiles(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs"), "AudioWorkshopDialog*.cs"))

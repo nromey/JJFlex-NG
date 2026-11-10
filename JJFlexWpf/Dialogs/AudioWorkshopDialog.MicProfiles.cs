@@ -50,10 +50,10 @@ public partial class AudioWorkshopDialog
     /// <summary>How to name the current radio in a question about it.</summary>
     private string CurrentRadioLabel()
     {
-        string serial = _rig?.SelectedRadioSerial ?? "";
+        string serial = LiveRig?.SelectedRadioSerial ?? "";
         if (string.IsNullOrEmpty(serial)) return Lexicon.Get("audio.micprofile.this_radio");
         string name = RadioConfig.LoadForRadio(serial).DisplayName;
-        if (string.IsNullOrWhiteSpace(name)) name = _rig?.RadioNickname ?? "";
+        if (string.IsNullOrWhiteSpace(name)) name = LiveRig?.RadioNickname ?? "";
         return string.IsNullOrWhiteSpace(name) ? Lexicon.Get("audio.micprofile.this_radio") : name;
     }
 
@@ -192,7 +192,7 @@ public partial class AudioWorkshopDialog
     {
         if (_silentTxNote == null) return;
 
-        string? advisory = _rig?.SilentTxMicProfileAdvisory();
+        string? advisory = LiveRig?.SilentTxMicProfileAdvisory();
         if (string.IsNullOrEmpty(advisory))
         {
             if (_silentTxNote.Visibility != Visibility.Collapsed)
@@ -221,8 +221,8 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void ShowSilentTxFixButton()
     {
-        if (_silentTxFixButton == null || _rig == null) return;
-        string pick = _rig.SuggestedMicProfileName;
+        if (_silentTxFixButton == null || LiveRig == null) return;
+        string pick = LiveRig.SuggestedMicProfileName;
         if (string.IsNullOrEmpty(pick)) { HideSilentTxFixButton(); return; }
 
         // Naming the profile in the label is the difference between "press
@@ -275,14 +275,14 @@ public partial class AudioWorkshopDialog
     /// </remarks>
     private void LoadMicProfileForSilentTx()
     {
-        if (_rig == null)
+        if (LiveRig == null)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
 
-        string pick = _rig.SuggestedMicProfileName;
-        string radioId = _rig.SelectedRadioSerial ?? "";
+        string pick = LiveRig.SuggestedMicProfileName;
+        string radioId = LiveRig.SelectedRadioSerial ?? "";
         if (string.IsNullOrEmpty(pick))
         {
             ScreenReaderOutput.Speak(
@@ -317,7 +317,7 @@ public partial class AudioWorkshopDialog
             }
         }
 
-        var selected = _rig.SelectMicProfileIfPresent(pick);
+        var selected = LiveRig.SelectMicProfileIfPresent(pick);
         if (selected == GuardedOutcome.Done)
         {
             JJTrace.Tracing.TraceLine(
@@ -399,7 +399,7 @@ public partial class AudioWorkshopDialog
         }
 
         var capture = ApplyCaptureHalf(profile.Capture);
-        var radioResult = profile.ApplyRadioHalf(_rig, _rig?.SelectedRadioSerial ?? "");
+        var radioResult = profile.ApplyRadioHalf(LiveRig, LiveRig?.SelectedRadioSerial ?? "");
         if (radioResult.RadioHalfApplied) PollTxAudio();
 
         // Queued, never interrupting: under the change-nothing hold the
@@ -495,8 +495,8 @@ public partial class AudioWorkshopDialog
         };
         panel.Children.Add(choiceLabel);
 
-        string radioProfileName = _rig?.CurrentMicProfileName ?? "";
-        bool haveRig = _rig != null;
+        string radioProfileName = LiveRig?.CurrentMicProfileName ?? "";
+        bool haveRig = LiveRig != null;
 
         RadioButton? referenceOption = null;
         RadioButton? createOption = null;
@@ -512,7 +512,7 @@ public partial class AudioWorkshopDialog
         // create-on-radio option is not offered, and the conservative choice
         // becomes the default (#94).
         bool notMyRadio = haveRig
-            && RadioConfig.LoadForRadio(_rig!.SelectedRadioSerial).Ownership
+            && RadioConfig.LoadForRadio(LiveRig!.SelectedRadioSerial).Ownership
                == RadioOwnership.SomeoneElses;
 
         if (haveRig)
@@ -630,15 +630,15 @@ public partial class AudioWorkshopDialog
             profile.Capture = CaptureCurrentPcSettings();
 
             string radioHalfSpoken = "";
-            string radioId = _rig?.SelectedRadioSerial ?? "";
-            if (_rig != null && !string.IsNullOrEmpty(radioId))
+            string radioId = LiveRig?.SelectedRadioSerial ?? "";
+            if (LiveRig != null && !string.IsNullOrEmpty(radioId))
             {
                 if (referenceOption?.IsChecked == true)
                 {
                     profile.SetSetupFor(new RadioProfileReference
                     {
                         RadioId = radioId,
-                        RadioModel = _rig.RadioModel,
+                        RadioModel = LiveRig.RadioModel,
                         ProfileName = radioProfileName,
                     });
                     radioHalfSpoken = Lexicon.Get("audio.micprofile.references_radio_profile",
@@ -658,11 +658,11 @@ public partial class AudioWorkshopDialog
                         // SelectProfile's mic case creates the profile on the
                         // radio when it is missing and loads it; the radio
                         // autosaves its current TX settings into it from here on.
-                        _rig.SelectProfile(new Profile_t(name, ProfileTypes.mic, false));
+                        LiveRig.SelectProfile(new Profile_t(name, ProfileTypes.mic, false));
                         profile.SetSetupFor(new RadioProfileReference
                         {
                             RadioId = radioId,
-                            RadioModel = _rig.RadioModel,
+                            RadioModel = LiveRig.RadioModel,
                             ProfileName = name,
                         });
                         radioHalfSpoken = Lexicon.Get("audio.micprofile.created_on_radio", ("profile", name));
@@ -681,8 +681,8 @@ public partial class AudioWorkshopDialog
                     profile.SetSetupFor(new RadioTxValues
                     {
                         RadioId = radioId,
-                        RadioModel = _rig.RadioModel,
-                        Values = AudioChainPreset.CaptureFrom(_rig, name, ReadSavedPcInputName()),
+                        RadioModel = LiveRig.RadioModel,
+                        Values = AudioChainPreset.CaptureFrom(LiveRig, name, ReadSavedPcInputName()),
                     });
                     radioHalfSpoken = Lexicon.Get("audio.micprofile.snapshotted");
                 }

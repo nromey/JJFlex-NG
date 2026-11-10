@@ -124,7 +124,7 @@ public partial class AudioWorkshopDialog
 
     private void SetToggle(string label, Action<FlexBase.OffOnValues> setter, bool isOn)
     {
-        if (_polling || _rig == null) return;
+        if (_polling || LiveRig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
         ToggleFeedback.Announce(label, isOn);
     }

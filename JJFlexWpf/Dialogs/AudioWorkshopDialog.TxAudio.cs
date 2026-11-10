@@ -131,10 +131,10 @@ public partial class AudioWorkshopDialog
         _micSourceControl = MakeCycle("Transmit audio from", new[] { "(waiting for radio)" });
         _micSourceControl.SelectionChanged += (s, idx) =>
         {
-            if (_rig == null || _polling) return;
+            if (LiveRig == null || _polling) return;
             string choice = _micSourceControl!.SelectedOption;
             if (!string.IsNullOrEmpty(choice) && choice[0] != '(')
-                _rig.MicSource = choice;
+                LiveRig.MicSource = choice;
         };
         // Ctrl+F1 explanations (#73). On-demand only — JJFlexHelp.Text is
         // invisible to the screen reader on focus; see JJFlexHelp.
@@ -158,8 +158,8 @@ public partial class AudioWorkshopDialog
         AddToSection(TransmitSettingsContent, _gain.PcLevelNote);
 
         _micBoostCheck = MakeToggle(MicBoostLabel);
-        _micBoostCheck.Checked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, true);
-        _micBoostCheck.Unchecked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, false);
+        _micBoostCheck.Checked += (s, e) => SetToggle("Mic Boost", v => { if (LiveRig != null) LiveRig.MicBoost = v; }, true);
+        _micBoostCheck.Unchecked += (s, e) => SetToggle("Mic Boost", v => { if (LiveRig != null) LiveRig.MicBoost = v; }, false);
         JJFlexHelp.SetText(_micBoostCheck,
             "Adds a fixed twenty decibel lift ahead of Mic Gain, for quiet "
             + "dynamic microphones. If the mic check only reaches Good with "
@@ -169,8 +169,8 @@ public partial class AudioWorkshopDialog
         AddRadioControl(TransmitSettingsContent, _micBoostCheck);
 
         _micBiasCheck = MakeToggle(MicBiasLabel);
-        _micBiasCheck.Checked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
-        _micBiasCheck.Unchecked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, false);
+        _micBiasCheck.Checked += (s, e) => SetToggle("Mic Bias", v => { if (LiveRig != null) LiveRig.MicBias = v; }, true);
+        _micBiasCheck.Unchecked += (s, e) => SetToggle("Mic Bias", v => { if (LiveRig != null) LiveRig.MicBias = v; }, false);
         JJFlexHelp.SetText(_micBiasCheck,
             "Sends the radio's low-voltage electret power up the mic cable. "
             + "Some headsets and desk mics need it to produce any audio at "
@@ -190,12 +190,12 @@ public partial class AudioWorkshopDialog
         _companderCheck = MakeToggle("Compander");
         _companderCheck.Checked += (s, e) =>
         {
-            SetToggle("Compander", v => { if (_rig != null) _rig.Compander = v; }, true);
+            SetToggle("Compander", v => { if (LiveRig != null) LiveRig.Compander = v; }, true);
             if (_companderLevelControl != null) _companderLevelControl.Visibility = Visibility.Visible;
         };
         _companderCheck.Unchecked += (s, e) =>
         {
-            SetToggle("Compander", v => { if (_rig != null) _rig.Compander = v; }, false);
+            SetToggle("Compander", v => { if (LiveRig != null) LiveRig.Compander = v; }, false);
             if (_companderLevelControl != null) _companderLevelControl.Visibility = Visibility.Collapsed;
         };
         JJFlexHelp.SetText(_companderCheck,
@@ -209,9 +209,9 @@ public partial class AudioWorkshopDialog
         _companderLevelControl.Visibility = Visibility.Collapsed;
         _companderLevelControl.ValueChanged += (s, v) =>
         {
-            if (_rig != null && !_polling)
+            if (LiveRig != null && !_polling)
             {
-                _rig.CompanderLevel = v;
+                LiveRig.CompanderLevel = v;
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.compander_level", ("value", v)), VerbosityLevel.Terse);
             }
         };
@@ -224,12 +224,12 @@ public partial class AudioWorkshopDialog
         _processorCheck = MakeToggle("Speech Processor");
         _processorCheck.Checked += (s, e) =>
         {
-            SetToggle("Speech Processor", v => { if (_rig != null) _rig.ProcessorOn = v; }, true);
+            SetToggle("Speech Processor", v => { if (LiveRig != null) LiveRig.ProcessorOn = v; }, true);
             if (_processorSettingControl != null) _processorSettingControl.Visibility = Visibility.Visible;
         };
         _processorCheck.Unchecked += (s, e) =>
         {
-            SetToggle("Speech Processor", v => { if (_rig != null) _rig.ProcessorOn = v; }, false);
+            SetToggle("Speech Processor", v => { if (LiveRig != null) LiveRig.ProcessorOn = v; }, false);
             if (_processorSettingControl != null) _processorSettingControl.Visibility = Visibility.Collapsed;
         };
         JJFlexHelp.SetText(_processorCheck,
@@ -243,13 +243,13 @@ public partial class AudioWorkshopDialog
         _processorSettingControl.Visibility = Visibility.Collapsed;
         _processorSettingControl.SelectionChanged += (s, idx) =>
         {
-            if (_rig != null && !_polling)
+            if (LiveRig != null && !_polling)
             {
                 // No Speak here. The cycle control announces its own value
                 // through the accessibility tree since 2026-08-13; saying it
                 // again would be the double-speak the old design's interrupt
                 // was quietly masking.
-                _rig.ProcessorSetting = (FlexBase.ProcessorSettings)idx;
+                LiveRig.ProcessorSetting = (FlexBase.ProcessorSettings)idx;
             }
         };
         JJFlexHelp.SetText(_processorSettingControl,
@@ -264,7 +264,7 @@ public partial class AudioWorkshopDialog
         _txFilterLowControl = MakeValue("TX Filter Low", 0, 9950, 50);
         _txFilterLowControl.ValueChanged += (s, v) =>
         {
-            if (_rig != null && !_polling)
+            if (LiveRig != null && !_polling)
             {
                 // #747 round nine: the field says nothing of its own; the
                 // applied result is said by _workshopTxFilter, the one speaker.
@@ -284,7 +284,7 @@ public partial class AudioWorkshopDialog
         _txFilterHighControl = MakeValue("TX Filter High", 50, 10000, 50);
         _txFilterHighControl.ValueChanged += (s, v) =>
         {
-            if (_rig != null && !_polling)
+            if (LiveRig != null && !_polling)
             {
                 _workshopTxFilter.Write(lowField: false, v);
             }
@@ -319,13 +319,13 @@ public partial class AudioWorkshopDialog
         _monitorCheck = MakeToggle("TX Monitor");
         _monitorCheck.Checked += (s, e) =>
         {
-            SetToggle("TX Monitor", v => { if (_rig != null) _rig.Monitor = v; }, true);
+            SetToggle("TX Monitor", v => { if (LiveRig != null) LiveRig.Monitor = v; }, true);
             if (_monitorLevelControl != null) _monitorLevelControl.Visibility = Visibility.Visible;
             if (_monitorPanControl != null) _monitorPanControl.Visibility = Visibility.Visible;
         };
         _monitorCheck.Unchecked += (s, e) =>
         {
-            SetToggle("TX Monitor", v => { if (_rig != null) _rig.Monitor = v; }, false);
+            SetToggle("TX Monitor", v => { if (LiveRig != null) LiveRig.Monitor = v; }, false);
             if (_monitorLevelControl != null) _monitorLevelControl.Visibility = Visibility.Collapsed;
             if (_monitorPanControl != null) _monitorPanControl.Visibility = Visibility.Collapsed;
         };
@@ -340,9 +340,9 @@ public partial class AudioWorkshopDialog
         _monitorLevelControl.Visibility = Visibility.Collapsed;
         _monitorLevelControl.ValueChanged += (s, v) =>
         {
-            if (_rig != null && !_polling)
+            if (LiveRig != null && !_polling)
             {
-                _rig.SBMonitorLevel = v;
+                LiveRig.SBMonitorLevel = v;
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.monitor_level", ("value", v)), VerbosityLevel.Terse);
             }
         };
@@ -355,9 +355,9 @@ public partial class AudioWorkshopDialog
         _monitorPanControl.Visibility = Visibility.Collapsed;
         _monitorPanControl.ValueChanged += (s, v) =>
         {
-            if (_rig != null && !_polling)
+            if (LiveRig != null && !_polling)
             {
-                _rig.SBMonitorPan = v;
+                LiveRig.SBMonitorPan = v;
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.monitor_pan", ("value", v)), VerbosityLevel.Terse);
             }
         };
@@ -529,15 +529,15 @@ public partial class AudioWorkshopDialog
     private TxFilterFields _workshopTxFilter => _workshopTxFilterOwner ??= new TxFilterFields(
         Radios.Speech.SpeechSubject.ValueField("TX filter, Audio Workshop"),
         "TX Filter Low", "TX Filter High",
-        () => _rig, () => _workshopOpenForTxFilter,
+        () => LiveRig, () => _workshopOpenForTxFilter,
         refresh: stillCurrent => Dispatcher.BeginInvoke(() =>
         {
             // Re-checked HERE, when the window gets to it (round eleven), and
             // the pair read HERE, so the fields copy only what is still true
             // (round twelve).
-            if (!stillCurrent() || _rig == null) return;
+            if (!stillCurrent() || LiveRig == null) return;
             _polling = true;
-            try { SetWorkshopTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh); }
+            try { SetWorkshopTxFilterFields(LiveRig.TXFilterLow, LiveRig.TXFilterHigh); }
             finally { _polling = false; }
         }));
 
@@ -574,38 +574,38 @@ public partial class AudioWorkshopDialog
 
     private void PollTxAudio()
     {
-        if (_rig == null) return;
+        if (LiveRig == null) return;
         _polling = true;
         try
         {
             PollMicSource();
-            if (_micBoostCheck != null) _micBoostCheck.IsChecked = _rig.MicBoost == FlexBase.OffOnValues.on;
-            if (_micBiasCheck != null) _micBiasCheck.IsChecked = _rig.MicBias == FlexBase.OffOnValues.on;
+            if (_micBoostCheck != null) _micBoostCheck.IsChecked = LiveRig.MicBoost == FlexBase.OffOnValues.on;
+            if (_micBiasCheck != null) _micBiasCheck.IsChecked = LiveRig.MicBias == FlexBase.OffOnValues.on;
 
-            bool companderOn = _rig.Compander == FlexBase.OffOnValues.on;
+            bool companderOn = LiveRig.Compander == FlexBase.OffOnValues.on;
             if (_companderCheck != null) _companderCheck.IsChecked = companderOn;
             if (_companderLevelControl != null)
             {
                 _companderLevelControl.Visibility = companderOn ? Visibility.Visible : Visibility.Collapsed;
-                if (companderOn) _companderLevelControl.Value = _rig.CompanderLevel;
+                if (companderOn) _companderLevelControl.Value = LiveRig.CompanderLevel;
             }
 
-            bool processorOn = _rig.ProcessorOn == FlexBase.OffOnValues.on;
+            bool processorOn = LiveRig.ProcessorOn == FlexBase.OffOnValues.on;
             if (_processorCheck != null) _processorCheck.IsChecked = processorOn;
             if (_processorSettingControl != null)
             {
                 _processorSettingControl.Visibility = processorOn ? Visibility.Visible : Visibility.Collapsed;
-                if (processorOn) _processorSettingControl.SelectedIndex = (int)_rig.ProcessorSetting;
+                if (processorOn) _processorSettingControl.SelectedIndex = (int)LiveRig.ProcessorSetting;
             }
 
-            SetWorkshopTxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh);
+            SetWorkshopTxFilterFields(LiveRig.TXFilterLow, LiveRig.TXFilterHigh);
 
             // Mode-aware monitor header — phone modes only. CW mode keeps
             // today's behavior untouched (CW monitor work is deferred behind
             // the CW pipeline rewrite).
             if (_monitorHeader != null)
             {
-                string mode = _rig.Mode ?? "";
+                string mode = LiveRig.Mode ?? "";
                 bool isCW = mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase);
                 string hdr = (isCW || string.IsNullOrEmpty(mode))
                     ? "TX Monitor"
@@ -617,17 +617,17 @@ public partial class AudioWorkshopDialog
                 }
             }
 
-            bool monitorOn = _rig.Monitor == FlexBase.OffOnValues.on;
+            bool monitorOn = LiveRig.Monitor == FlexBase.OffOnValues.on;
             if (_monitorCheck != null) _monitorCheck.IsChecked = monitorOn;
             if (_monitorLevelControl != null)
             {
                 _monitorLevelControl.Visibility = monitorOn ? Visibility.Visible : Visibility.Collapsed;
-                if (monitorOn) _monitorLevelControl.Value = _rig.SBMonitorLevel;
+                if (monitorOn) _monitorLevelControl.Value = LiveRig.SBMonitorLevel;
             }
             if (_monitorPanControl != null)
             {
                 _monitorPanControl.Visibility = monitorOn ? Visibility.Visible : Visibility.Collapsed;
-                if (monitorOn) _monitorPanControl.Value = _rig.SBMonitorPan;
+                if (monitorOn) _monitorPanControl.Value = LiveRig.SBMonitorPan;
             }
 
             // Track I: PC Cleanup controls and status.
@@ -657,9 +657,9 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void PollMicSource()
     {
-        if (_rig == null || _micSourceControl == null) return;
+        if (LiveRig == null || _micSourceControl == null) return;
 
-        var list = _rig.MicSourceList;
+        var list = LiveRig.MicSourceList;
         if (list.Count > 0)
         {
             bool changed = list.Count != _micSourceOptions.Length;
@@ -677,7 +677,7 @@ public partial class AudioWorkshopDialog
                 _micSourceControl.SuppressEvents = false;
             }
 
-            string current = _rig.MicSource;
+            string current = LiveRig.MicSource;
             int idx = Array.FindIndex(_micSourceOptions,
                 o => string.Equals(o, current, StringComparison.OrdinalIgnoreCase));
             if (idx >= 0 && idx != _micSourceControl.SelectedIndex)
@@ -696,7 +696,7 @@ public partial class AudioWorkshopDialog
         // operator to solve their problem with it. Mic Gain and the Windows
         // level that stands in for it are TransmitGainControls' (#835); Mic
         // Boost and Mic Bias follow the same flip here.
-        if (_gain.Poll(_rig, () => _micSourceControl?.Focus()))
+        if (_gain.Poll(LiveRig, () => _micSourceControl?.Focus()))
         {
             bool pc = _gain.PcSourceActive;
             // Never leave a control about to hide holding focus.

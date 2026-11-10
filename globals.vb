@@ -5799,6 +5799,8 @@ RadioConnected:
         End Try
         ' As CloseTheRadio does (#897): an open Check your audio stops reaching it.
         JJFlexWpf.Dialogs.CheckYourAudioDialog.NotifyRigDeparting(old)
+        ' And an open Audio Workshop, the same way.
+        JJFlexWpf.Dialogs.AudioWorkshopDialog.NotifyRigDeparting(old)
         RigControl = Nothing
         If WpfMainWindow IsNot Nothing AndAlso WpfMainWindow.RigControl Is old Then
             WpfMainWindow.RigControl = Nothing
@@ -5826,6 +5828,9 @@ RadioConnected:
             ' its radio controls go unavailable and its poll stops. Nothing it
             ' is finishing is ended here.
             JJFlexWpf.Dialogs.CheckYourAudioDialog.NotifyRigDeparting(RigControl)
+            ' And an open Audio Workshop, the same way: a bench take still
+            ' running there finishes as before.
+            JJFlexWpf.Dialogs.AudioWorkshopDialog.NotifyRigDeparting(RigControl)
             RigControl = Nothing
             If WpfMainWindow IsNot Nothing Then
                 WpfMainWindow.RigControl = Nothing

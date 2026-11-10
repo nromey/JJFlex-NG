@@ -344,7 +344,7 @@ public sealed class ListenbackRoundThreeTests : IDisposable
         Assert.Contains("ListenbackTakes.PostClosedNotice(", offAir);
         Assert.Contains("ListenbackTakes.PostClosedNotice(", bench);
         Assert.Contains("await ListenbackRecoveryPrompt.ReviewAsync(_rig)", offAir);
-        Assert.Contains("await ListenbackRecoveryPrompt.ReviewAsync(_rig)", bench);
+        Assert.Contains("await ListenbackRecoveryPrompt.ReviewAsync(rig)", bench);   // the live radio, read once just above it (#1039)
         Assert.Contains("await ReviewAsync(rig)", prompt);
         Assert.Equal(1, prompt.Split("ListenbackRecoveryAcknowledgement.Offer(").Length - 1);
     }

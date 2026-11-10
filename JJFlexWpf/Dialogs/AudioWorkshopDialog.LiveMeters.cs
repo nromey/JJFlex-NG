@@ -81,7 +81,7 @@ public partial class AudioWorkshopDialog
 
     private void MeterTimer_Tick(object? sender, EventArgs e)
     {
-        if (_rig == null) return;
+        if (LiveRig == null) return;
 
         // The test tone, reference recording, take playback and mic reading
         // housekeeping ran here on every tick until #835; it runs in Check
@@ -119,7 +119,7 @@ public partial class AudioWorkshopDialog
 
     private void PollMeters()
     {
-        if (_rig == null) return;
+        if (LiveRig == null) return;
 
         // SMeterReading owns the arithmetic (Radios/SMeterReading.cs). This
         // was a fifth independent copy of a rule that has already shipped
@@ -127,32 +127,32 @@ public partial class AudioWorkshopDialog
         // structure. Compact rather than Display because this is a readout,
         // not speech: "S9+5 dB" reads fine on a screen and the spoken surfaces
         // say "plus" from the same numbers.
-        SetMeterText(_sMeterBox, "S-Meter: " + SMeterReading.Compact(_rig.SMeter));
+        SetMeterText(_sMeterBox, "S-Meter: " + SMeterReading.Compact(LiveRig.SMeter));
 
         // dBm AND watts. dBm is the honest raw figure the bench notes are
         // written in; watts is what an operator sets power in. Showing both
         // means nobody converts in their head at the moment they are trying
         // to read an instrument — and it is the readout the transverter
         // session lives on, where drive is measured in milliwatts.
-        SetMeterText(_fwdPowerBox, $"Forward Power: {_rig.PowerDBM:F1} dBm"
-            + $" ({FlexBase.FormatForwardPowerSpoken(_rig.ForwardPowerWatts)})");
+        SetMeterText(_fwdPowerBox, $"Forward Power: {LiveRig.PowerDBM:F1} dBm"
+            + $" ({FlexBase.FormatForwardPowerSpoken(LiveRig.ForwardPowerWatts)})");
 
         // ComputedSWR, not the raw SWRValue meter (see SwrReadout): a number
         // when there is one, "SWR not measured" when there is not.
-        SetMeterText(_swrBox, SwrReadout.MeterBoxText(_rig.ComputedSWR));
+        SetMeterText(_swrBox, SwrReadout.MeterBoxText(LiveRig.ComputedSWR));
 
         // TX drive is SW ALC, not HWALC (the external-amp jack the old readout
         // showed — always ~0). Mic audio is SC_MIC, honest for PC audio AND the
         // analog mic, where the old "Mic Level" (COD-/MIC) read -120 for PC.
-        SetMeterText(_alcBox, $"TX drive (ALC): {_rig.SwAlcDb:F1} dBFS");
+        SetMeterText(_alcBox, $"TX drive (ALC): {LiveRig.SwAlcDb:F1} dBFS");
 
-        SetMeterText(_ampAlcBox, $"Amp ALC: {_rig.ALC:F2}");
+        SetMeterText(_ampAlcBox, $"Amp ALC: {LiveRig.ALC:F2}");
 
-        SetMeterText(_micAudioBox, $"Mic audio: {_rig.ScMicDb:F1} dBFS ({MicAudioReport.Verdict(_rig.ScMicMaxDb)})");
+        SetMeterText(_micAudioBox, $"Mic audio: {LiveRig.ScMicDb:F1} dBFS ({MicAudioReport.Verdict(LiveRig.ScMicMaxDb)})");
 
-        SetMeterText(_paTempBox, $"PA Temperature: {_rig.PATemp:F1} °C");
+        SetMeterText(_paTempBox, $"PA Temperature: {LiveRig.PATemp:F1} °C");
 
-        SetMeterText(_voltsBox, $"Supply Voltage: {_rig.Volts:F1} V");
+        SetMeterText(_voltsBox, $"Supply Voltage: {LiveRig.Volts:F1} V");
     }
 
     /// <summary>

@@ -294,7 +294,7 @@ public partial class AudioWorkshopDialog
         // check, a take or this page's diagnostic take, and stops a computer
         // microphone check listening in Check your audio.
         if (!CheckYourAudioDialog.HandOffToFixTool("the Audio Workshop's Diagnostics page")) return;
-        FixerDialog.Show(() => _rig ?? CheckYourAudioDialog.RigSource?.Invoke(), this);
+        FixerDialog.Show(() => LiveRig ?? CheckYourAudioDialog.RigSource?.Invoke(), this);
     }
 
     /// <summary>
@@ -365,7 +365,7 @@ public partial class AudioWorkshopDialog
             // collapsing the third into the first is the worst available
             // collapse. The analyzer has always produced the right sentence for
             // it; this call site threw it away.
-            ReceiveCheckResult rx = ReceiveAudioCheck.Run(_rig!);
+            ReceiveCheckResult rx = ReceiveAudioCheck.Run(LiveRig!);
             _lastRxReport = rx.Report;
 
             // The verdict first, because a screen reader entering this box
@@ -413,7 +413,7 @@ public partial class AudioWorkshopDialog
         TransmitCheckResult walk;
         try
         {
-            FlexBase? rig = _rig;
+            FlexBase? rig = LiveRig;
 
             // Subscribe BEFORE reading anything, and clear the stale flag
             // first, so a meter arriving mid-collection is caught rather than
@@ -556,7 +556,7 @@ public partial class AudioWorkshopDialog
         // The shared check owns the fallback too: a station or build line that
         // throws must not cost the whole block, and half an evidence block is
         // still worth sending where an exception is not.
-        string body = walk.EvidenceForSupport(TxChainFacts.StationLines(_rig),
+        string body = walk.EvidenceForSupport(TxChainFacts.StationLines(LiveRig),
                                               TxChainPcFacts.BuildLines());
 
         // A pointer rather than a copy. This block quotes only the readings
