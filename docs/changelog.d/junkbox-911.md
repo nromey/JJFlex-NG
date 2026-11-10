@@ -1,0 +1,1 @@
+- When the radio reports another station transmitting, push to talk and the transmit lock now refuse and tell you why; holding either key gives the refusal once.

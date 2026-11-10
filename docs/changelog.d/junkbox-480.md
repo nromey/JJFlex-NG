@@ -1,0 +1,2 @@
+- The Audio Workshop's Reset button now asks before restoring the live transmit audio settings to their defaults.
+- You can now type exact values for the Earcon Explorer's level, pan, repeat count and gap between sounds.

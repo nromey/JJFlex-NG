@@ -1,0 +1,3 @@
+- The Change nothing setting now covers changes to port forwarding, the front panel display, the network address and private connections right up to the moment each change would be sent.
+- The full duplex refusal now says that full duplex did not change.
+- The Slice menu now refuses a mode your radio does not support, even if the radio's mode list arrived after the menu was built.

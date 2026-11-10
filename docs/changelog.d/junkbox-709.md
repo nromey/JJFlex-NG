@@ -1,0 +1,1 @@
+- The remote firmware update warning is shorter and now leads with the advice to leave remote updates off unless they are your only option.

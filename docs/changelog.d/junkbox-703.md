@@ -1,0 +1,1 @@
+- Ctrl+Up and Ctrl+Down now tune by your coarse step, and Shift+Up and Shift+Down by your fine step, from every field on Home's slice row in Classic and Modern tuning. Coarse and fine tuning commands are also available to assign in the Hotkey Editor.

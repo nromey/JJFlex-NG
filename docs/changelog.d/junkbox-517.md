@@ -1,0 +1,2 @@
+- Heads-up: Up and Down on the Slice and Slice operations fields now tune by your coarse step; use the slice letters to select a slice, and the JJ key's audio layer for volume and pan.
+- Heads-up: Page Up, Page Down and Home no longer pan from the Slice fields; Page Up and Page Down on the slice row tell you where pan moved.

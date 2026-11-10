@@ -1,0 +1,1 @@
+- The Status window's filter preset line now shows the same detail at every speech verbosity setting.

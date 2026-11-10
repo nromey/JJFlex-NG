@@ -25,7 +25,7 @@ Some settings describe a radio that is not connected right now — a radio name,
 
 ## Key Settings Tabs
 
-- **PTT** — transmit timeout and warning timing.
+- **PTT** — transmit-lock timeout and warning timing.
 - **Tuning** — tuning step defaults, band memory, and tuning speech debounce (see below).
 - **License** — license class, country selection, and transmit rule enforcement (see below).
 - **Audio** — the radio's own outputs, radio audio through this computer, alert sounds, meter tones, the recorder, the countdown before a check keys, and the braille status line.
@@ -35,7 +35,7 @@ Some settings describe a radio that is not connected right now — a radio name,
 - **Notifications** — speech verbosity, alert sounds, and connection progress announcements.
 - **Accessibility** — the Double-Tap Tolerance setting and other accessibility controls live here.
 - **Updates** — update channel and automatic update checking.
-- **Diagnostics** — the diagnostic log, detailed captures, saved sessions, problem report bundles, and disk space controls. The full story is on the Diagnostic Log help page; Tools, then Diagnostics, jumps straight to this tab.
+- **Diagnostics** — the diagnostic log, detailed captures, saved sessions, problem report bundles, and disk space controls. The **Diagnostic Log** item on the **Tools** menu opens this tab. Press the JJ key, `Ctrl+J`, then `Ctrl+D`, to start or stop a detailed capture from anywhere in JJ Flexible. Starting a capture announces how to stop it. See [The Diagnostic Log](DiagnosticLog.md).
 
 ## The Radios Tab — Reaching This Radio From Away
 

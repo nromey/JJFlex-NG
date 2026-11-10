@@ -1,0 +1,3 @@
+- Tuning within 60 meters no longer repeats the announcement that you are entering the band after you have reached a channel.
+- Cancel and default buttons no longer hand your screen reader a stray Escape or Enter character.
+- Typing a number into a value field no longer brings back the old value between your digits.

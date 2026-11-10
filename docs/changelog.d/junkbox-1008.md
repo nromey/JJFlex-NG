@@ -1,0 +1,1 @@
+- The radio list now updates when SmartLink reports a radio has gone away, including the online count, and the displayed and spoken rows use the same current information.

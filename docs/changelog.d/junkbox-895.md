@@ -1,0 +1,1 @@
+- Connecting to a different radio now closes Home's field groups; reconnecting to the same radio keeps them as you left them.

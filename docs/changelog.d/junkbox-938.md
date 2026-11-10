@@ -1,0 +1,1 @@
+- A detailed capture started with Ctrl+J, Ctrl+D now tells you to press that chord again to stop the capture.

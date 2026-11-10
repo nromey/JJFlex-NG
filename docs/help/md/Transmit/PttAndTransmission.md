@@ -12,7 +12,17 @@ JJ Flexible Radio Access includes safety features designed to help you stay in c
 
 ## PTT (Push to Talk)
 
-PTT works through your radio's standard PTT input — a footswitch, a hand microphone's PTT button, or VOX (voice-operated transmit). The application monitors the PTT state and announces when you key up and when you unkey.
+Enter an operator callsign through the **Radio** menu's **Operators** item before transmitting. JJ Flexible refuses to start a transmission without that callsign, whether the request comes from push to talk, the transmit lock, a voice or CW send, tune, or a check. The refusal says where to enter the callsign. The radio's own microphone PTT and a footswitch connected to the radio are unaffected.
+
+Hold `Ctrl+Space` to transmit from JJ Flexible Home, its field groups, or the application's dialogs. Release the key to return to receive. The default push-to-talk key from another program is `Ctrl+Alt+Space`.
+
+NVDA normally passes a held push-to-talk key through as one hold. JAWS may deliver a held key as repeated presses and releases instead. JJ Flexible tries to keep those pairs together as one hold. Use the transmit lock for a long transmission if held push to talk repeatedly keys and unkeys the radio.
+
+Press `Shift+Space` from Home or its field groups to lock the transmitter on, and press the key again to return to receive. The default transmit-lock key from another program is `Alt+Shift+Space`. The lock's timeout and warning timing are set on the **PTT** tab in Settings. A locked transmission ends after fifteen minutes at the latest. These time limits belong to the lock; held push to talk inside JJ Flexible has no time limit.
+
+JJ Flexible refuses push to talk and the transmit lock when the radio reports that another station is transmitting on the same radio. The refusal is announced once while the key is held, rather than on every repeat.
+
+PTT also works through the radio's standard PTT input — a footswitch, a hand microphone's PTT button, or VOX (voice-operated transmit). The application monitors the PTT state and announces when you key up and when you unkey.
 
 ## Full duplex
 
