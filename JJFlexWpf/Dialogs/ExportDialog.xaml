@@ -11,14 +11,14 @@
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="From:" Width="50" VerticalAlignment="Center"/>
             <TextBlock x:Name="FromName" VerticalAlignment="Center"
-                       AutomationProperties.Name="Source log file"/>
+                       local:StatusTextName.Label="Source log file" local:StatusTextName.LabelFirst="True"/>
         </StackPanel>
 
         <!-- Destination file -->
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="To:" Width="50" VerticalAlignment="Center"/>
             <TextBlock x:Name="ToName" VerticalAlignment="Center"
-                       AutomationProperties.Name="Destination file"/>
+                       local:StatusTextName.Label="Destination file" local:StatusTextName.LabelFirst="True"/>
         </StackPanel>
 
         <!-- Status -->

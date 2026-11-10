@@ -140,28 +140,32 @@ namespace Radios.Tests
             Assert.Matches(new Regex(@"case Key\.Up:\s*_inStepEntry = false;\s*TuneFreq\(step\);"), body);
         }
 
+        /// <summary>
+        /// The four tuning commands carry their default chords across the main
+        /// window (#703 J4, ruled by Noel 2026-11-09 20:40), at Radio scope.
+        /// This test said the opposite until then ("no default key, and say
+        /// why"): J4 reversed it. Where they yield is TuningChordYield's, held
+        /// by JJFlexWpf.Tests.TuningChordYieldTests.
+        /// </summary>
         [Fact]
-        public void The_four_tuning_commands_are_in_the_table_with_no_default_key_and_say_why()
+        public void The_four_tuning_commands_are_bound_across_the_main_window()
         {
             string keys = FieldKeyMapScan.ReadSource("JJFlexWpf/KeyCommands.cs").Replace("\r\n", "\n");
-            var expected = new (string Id, string Call)[]
+            var expected = new (string Id, string Call, string Chord)[]
             {
-                ("TuneCoarseUp", "TuneByStep(coarse: true, direction: 1)"),
-                ("TuneCoarseDown", "TuneByStep(coarse: true, direction: -1)"),
-                ("TuneFineUp", "TuneByStep(coarse: false, direction: 1)"),
-                ("TuneFineDown", "TuneByStep(coarse: false, direction: -1)"),
+                ("TuneCoarseUp", "TuneFromCommand(coarse: true, direction: 1)", "Keys.Up | Keys.Control"),
+                ("TuneCoarseDown", "TuneFromCommand(coarse: true, direction: -1)", "Keys.Down | Keys.Control"),
+                ("TuneFineUp", "TuneFromCommand(coarse: false, direction: 1)", "Keys.Up | Keys.Shift"),
+                ("TuneFineDown", "TuneFromCommand(coarse: false, direction: -1)", "Keys.Down | Keys.Shift"),
             };
-            foreach (var (id, call) in expected)
+            foreach (var (id, call, chord) in expected)
             {
-                Assert.Contains("new(CommandValues." + id + ", KeyTypes.Command, () => _context.GetMainWindow()?.FreqHandlers?." + call,
-                    keys, StringComparison.Ordinal);
-                Assert.Contains("new(Keys.None, CommandValues." + id + ", KeyScope.Radio), // unbound: Reserved", keys, StringComparison.Ordinal);
-                Assert.Contains("[CommandValues." + id + "] = new(UnboundReason.Reserved, TuneByStepUnboundDetail)", keys, StringComparison.Ordinal);
-                // No flat key: a default would take the chord across the whole
-                // main window, Shift's finer value step in the field groups
-                // included, and that is not ruled.
-                Assert.DoesNotMatch(new Regex(@"new\(Keys\.(?!None)[^,]*, CommandValues\." + id + @"\b"), keys);
+                Assert.Contains("new(CommandValues." + id + ", KeyTypes.Command, () => " + call, keys, StringComparison.Ordinal);
+                Assert.Contains("new(" + chord + ", CommandValues." + id + ", KeyScope.Radio),", keys, StringComparison.Ordinal);
+                Assert.DoesNotContain("[CommandValues." + id + "] = new(UnboundReason", keys, StringComparison.Ordinal);
             }
+            // The one tuning path.
+            Assert.Contains("_context.GetMainWindow()?.FreqHandlers?.TuneByStep(coarse, direction);", keys, StringComparison.Ordinal);
         }
 
         [Fact]

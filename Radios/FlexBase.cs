@@ -11062,6 +11062,17 @@ namespace Radios
                 }
                 if (s != null)
                 {
+                    // No callsign, no VOX (#335, night question J8): turning
+                    // simple VOX ON is refused with the one sentence, ahead of
+                    // the operator-change notes below, so a refused press is
+                    // not counted as the operator changing the setting. CW
+                    // break-in is not refused (night question J4), and the two
+                    // are told apart by the transmit slice, through the one
+                    // predicate every door asks (TurnsOnSimpleVox). Off is
+                    // never refused. VoxHold's restore writes the radio
+                    // directly and never comes through here.
+                    bool simpleVox = TurnsOnSimpleVox(s);
+                    if (val && simpleVox && RefusedForNoCallsign("VOX")) return;
                     // The operator's own change voids every restore of this
                     // setting owed before it (integration fix 3, Codex's #596
                     // B3), told BEFORE the write is queued so the restore's
@@ -11071,9 +11082,9 @@ namespace Radios
                     // would otherwise swallow the operator's change.
                     if (!AppScopeOpenOnThisThread)
                         System.Threading.Volatile.Read(ref _voxPauses)?.OperatorChanged(
-                            s.DemodMode == "CW" ? VoxSetting.CwBreakIn : VoxSetting.SimpleVox);
+                            simpleVox ? VoxSetting.SimpleVox : VoxSetting.CwBreakIn);
                     NoteOperatorChangedRadioSetting("Vox");
-                    if (s.DemodMode == "CW")
+                    if (!simpleVox)
                     {
                         q.Enqueue((FunctionDel)(() => { theRadio.CWBreakIn = val; }), "BreakIn");
                     }

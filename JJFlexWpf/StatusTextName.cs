@@ -25,6 +25,14 @@ namespace JJFlexWpf;
 /// text, and the label only while the line is empty (<see cref="NameFor"/>).
 /// </para>
 /// <para>
+/// <b>Label then value.</b> A line that shows a field's value beside a
+/// visible label ("Radio:", "From:") also sets
+/// <c>local:StatusTextName.LabelFirst="True"</c>: its name is the label, a
+/// comma, then the text ("Low frequency, 14.100"), and the label alone while
+/// it is empty (#1022, ruled by Noel 2026-11-09 20:35). Same rule, same
+/// <see cref="NameFor(string?, string?, bool)"/>.
+/// </para>
+/// <para>
 /// <b>Never renamed under focus.</b> A screen reader announces a name change
 /// on the focused element, so while the line has keyboard focus its name is
 /// left alone and caught up when focus leaves it. The text itself still
@@ -44,6 +52,21 @@ public static class StatusTextName
 
     public static void SetLabel(DependencyObject element, string? value) => element.SetValue(LabelProperty, value);
 
+    /// <summary>
+    /// True for a line that is a field's value: its name is read label first,
+    /// then the value. Meaningful only beside <see cref="LabelProperty"/>.
+    /// </summary>
+    public static readonly DependencyProperty LabelFirstProperty =
+        DependencyProperty.RegisterAttached(
+            "LabelFirst",
+            typeof(bool),
+            typeof(StatusTextName),
+            new PropertyMetadata(false, OnLabelFirstChanged));
+
+    public static bool GetLabelFirst(DependencyObject element) => (bool)element.GetValue(LabelFirstProperty);
+
+    public static void SetLabelFirst(DependencyObject element, bool value) => element.SetValue(LabelFirstProperty, value);
+
     private static readonly DependencyPropertyDescriptor TextDescriptor =
         DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock));
 
@@ -52,7 +75,18 @@ public static class StatusTextName
     /// label. Pure, so the rule is tested without a window.
     /// </summary>
     internal static string NameFor(string? label, string? text)
-        => string.IsNullOrWhiteSpace(text) ? (label ?? string.Empty) : text.Trim();
+        => NameFor(label, text, labelFirst: false);
+
+    /// <summary>
+    /// The same rule with the label-then-value mode: with
+    /// <paramref name="labelFirst"/> and both present, "label, text". Pure.
+    /// </summary>
+    internal static string NameFor(string? label, string? text, bool labelFirst)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return label ?? string.Empty;
+        if (!labelFirst || string.IsNullOrWhiteSpace(label)) return text.Trim();
+        return label.Trim() + ", " + text.Trim();
+    }
 
     /// <summary>
     /// Whether a change of text renames the line now: not while it holds
@@ -73,6 +107,13 @@ public static class StatusTextName
         line.LostKeyboardFocus += OnLostKeyboardFocus;
         if (line.IsLoaded) TextDescriptor.AddValueChanged(line, OnTextChanged);
         Apply(line);
+    }
+
+    private static void OnLabelFirstChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        // The label's own hook-up does the watching; this only renames a line
+        // that already has its label, so the order XAML sets them in is moot.
+        if (d is TextBlock line && GetLabel(line) != null) Apply(line);
     }
 
     // Watched only while loaded: the descriptor holds the line strongly, so a
@@ -98,7 +139,7 @@ public static class StatusTextName
 
     private static void Apply(TextBlock line)
     {
-        string name = NameFor(GetLabel(line), line.Text);
+        string name = NameFor(GetLabel(line), line.Text, GetLabelFirst(line));
         if (!string.Equals(AutomationProperties.GetName(line), name, StringComparison.Ordinal))
             AutomationProperties.SetName(line, name);
     }

@@ -461,6 +461,8 @@ public sealed class ConnectOwnershipTests : IDisposable
             public bool IsLive => Paths.IsLive;
             public bool HasPathToTry => Paths.HasPathToTry;
             public string BoundAccount = "", LastSeenViaAccount = "";
+            // #405 repair two: Enter words a remembered account as one.
+            public bool NamedFromHistoryOnly;
             public List<ConnectPathKind> EffectiveChain = new() { ConnectPathKind.Local, ConnectPathKind.SmartLink };
         }
         public class Timer { public bool Stopped; public void Stop() => Stopped = true; }

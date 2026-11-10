@@ -1315,9 +1315,9 @@ namespace Radios
                 sb.AppendLine(new string('=', 60));
                 if (rig.ChangeNothingActive)
                 {
-                    sb.AppendLine("Change nothing is on for this radio. Comparing profiles");
-                    sb.AppendLine("means loading each one on the radio in turn, so that part");
-                    sb.AppendLine("of the report was left out. The setting is in Settings,");
+                    sb.AppendLine("Radio setup protection is on for this radio. Comparing");
+                    sb.AppendLine("profiles requires loading each profile on the radio, so");
+                    sb.AppendLine("the comparison was left out. The setting is in Settings,");
                     sb.AppendLine("under Radios.");
                 }
                 else
@@ -2465,9 +2465,9 @@ namespace Radios
                 // loading every profile on a radio the operator asked us to
                 // leave alone. The file still holds everything readable.
                 sb.AppendLine("[profile walk skipped]");
-                sb.AppendLine("reason = change nothing is on for this radio, and walking means loading every stored profile on it");
+                sb.AppendLine("reason = radio setup protection is on for this radio, so stored profiles were not loaded");
                 sb.AppendLine("this file holds = live settings only; no profile contents");
-                sb.AppendLine("to capture profiles = turn the setting off in Settings, under Radios, then run this export again");
+                sb.AppendLine("to capture profiles = turn off Protect this radio's setup in Settings, under Radios, then run this export again");
                 sb.AppendLine();
                 Tracing.TraceLine("RestoreGradeExport: walk skipped — change nothing is on for this radio", TraceLevel.Warning);
                 result.WalkRan = false;

@@ -328,12 +328,20 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         string answer = Body(src, "private static void Answer(");
         int trace = answer.IndexOf("Tracing.TraceLine(", StringComparison.Ordinal);
         int tone = answer.IndexOf("EarconPlayer.ATUFailTone();", StringComparison.Ordinal);
-        // "Say(sentence, subject)" since #335 shared this path with the
-        // callsign refusal, which speaks under its own subject.
-        int say = answer.IndexOf("Say(sentence, subject)", StringComparison.Ordinal);
+        // "Say(sentence, subject, level)" since #335 shared this path with the
+        // callsign refusal, which speaks under its own subject and, since the
+        // 2026-11-09 J9 ruling, at its own level.
+        int say = answer.IndexOf("Say(sentence, subject, level)", StringComparison.Ordinal);
         Assert.True(trace > 0 && tone > trace && say > tone);
         Assert.DoesNotContain("AdmitWarnings", src);
-        Assert.DoesNotContain("VerbosityLevel.Critical", src);
+        // The zero-power sentences stay Terse (2026-11-01): the level defaults
+        // to Terse, and the ONE Critical passed is the callsign refusal's (J9,
+        // ruled 2026-11-09 20:29). This line said DoesNotContain(Critical)
+        // until J9 reversed it for the callsign sentence alone.
+        Assert.Contains("VerbosityLevel level = VerbosityLevel.Terse)", Body(src, "private static void Answer("));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(src, @"^\s+VerbosityLevel\.Critical\);",
+            System.Text.RegularExpressions.RegexOptions.Multiline));
+        Assert.Contains("VerbosityLevel.Critical);", Body(src, "internal static bool RefuseNoCallsign("));
 
         string earcon = Body(Source("JJFlexWpf", "EarconPlayer.cs"), "public static void ATUFailTone()");
         Assert.Contains("if (!Gate(EarconCategory.Transmit)) return;", earcon);

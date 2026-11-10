@@ -249,12 +249,69 @@ namespace JJFlexWpf.Dialogs
         /// context-menu-set). Empty means automatic.</summary>
         public string PreferredAccount { get; set; } = "";
 
-        /// <summary>Which account reaches this radio: the choice if made,
-        /// otherwise the observation. Empty when neither exists — the
+        /// <summary>
+        /// The saved account this radio belongs to by the connect's own plan
+        /// (<see cref="Radios.FlexBase.RadioListAccountFor"/>): the account a
+        /// connect would use, or, once every saved account's list has answered
+        /// without the radio, the saved account the plan would otherwise sign
+        /// in as. Stamped at roster paint outside the list lock. Empty when
+        /// neither the chosen nor the last-seen account is saved here.
+        /// </summary>
+        /// <remarks>
+        /// #405 repair one (Codex B1): this was the connect's answer alone,
+        /// which is empty in both of those last two cases, so a radio every
+        /// saved list had ruled out read as "neither account saved" and named
+        /// the unsaved chosen account. Telling the two apart lives in Radios,
+        /// beside the plan, not here.
+        /// </remarks>
+        public string ConnectAccount { get; set; } = "";
+
+        /// <summary>
+        /// True when <see cref="ConnectAccount"/> was named only because every
+        /// saved account's list has answered without this radio
+        /// (<see cref="Radios.FlexBase.RadioListAccountFor(string, out bool, System.Collections.Generic.IEnumerable{string})"/>).
+        /// Stamped with it, outside the list lock.
+        /// </summary>
+        public bool EverySavedListRuledItOut { get; set; }
+
+        /// <summary>
+        /// The row's account is a remembered one: every saved list has answered
+        /// without the radio, and the account named is not the operator's
+        /// choice, so it is the account the radio was last seen under. The row
+        /// and Enter then say so, and never that the radio is registered to it
+        /// or uses it, which no current list establishes.
+        /// </summary>
+        /// <remarks>
+        /// #405 repair two (Codex, 2026-11-10). One answer, read by
+        /// <see cref="WhereText"/> and by Enter. A chosen account keeps its own
+        /// wording ("preferred account"), which claims only the choice.
+        /// </remarks>
+        public bool NamedFromHistoryOnly =>
+            EverySavedListRuledItOut
+            && !string.IsNullOrWhiteSpace(BoundAccount)
+            && !string.Equals(BoundAccount, PreferredAccount, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Which account reaches this radio: the one a connect would
+        /// use when the plan names one (#405, ruled by Noel 2026-11-08 J6 and
+        /// 2026-11-09 J10: "the account connecting will actually use"), so a
+        /// chosen account not saved on this computer gives way to a saved
+        /// last-seen one; otherwise the choice if made, then the observation,
+        /// as before. Empty when none exists — the
         /// preferred-account-for-new-connections covers that case at connect
         /// time.</summary>
-        public string BoundAccount =>
-            !string.IsNullOrWhiteSpace(PreferredAccount) ? PreferredAccount : LastSeenViaAccount;
+        public string BoundAccount => AccountInPlay(ConnectAccount, PreferredAccount, LastSeenViaAccount);
+
+        /// <summary>The rule behind <see cref="BoundAccount"/>, pure.</summary>
+        internal static string AccountInPlay(string? connectAccount, string? preferred, string? lastSeen)
+            => !string.IsNullOrWhiteSpace(connectAccount) ? connectAccount
+                : !string.IsNullOrWhiteSpace(preferred) ? preferred
+                : lastSeen ?? "";
+
+        /// <summary>Whether a row bound to <paramref name="bound"/> belongs to
+        /// another account than the one the selector is working with. Pure.</summary>
+        internal static bool BoundElsewhere(string? bound, string? selectorAccount)
+            => !string.IsNullOrWhiteSpace(bound)
+               && !string.Equals(bound, selectorAccount, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>True when this row is bound to an account other than
         /// the one the selector is working with (or bound while no account is
@@ -478,13 +535,25 @@ namespace JJFlexWpf.Dialogs
                 // radios got their account named: inverted relative to need.
                 // A set preference is a choice and reads as one; a bare
                 // observation reads as what it is.
+                // The account named is the one a connect would use (#405 J10):
+                // said as the chosen account when it is the chosen one, and as
+                // registered to otherwise, which is the saved last-seen account
+                // when the chosen one is not saved here.
+                // ...except when every saved list has answered without the
+                // radio: then the account is only where it was last known,
+                // said in the cached rows' own words, never "registered to"
+                // (#405 repair two).
                 if (ForeignAccount && !string.IsNullOrWhiteSpace(BoundAccount))
                 {
-                    return !string.IsNullOrWhiteSpace(PreferredAccount)
-                        ? Lexicon.Get("connect.row.offline_preferred_account",
-                            ("preferredAccount", PreferredAccount), ("age", age))
-                        : Lexicon.Get("connect.row.offline_registered_to",
-                            ("lastSeenViaAccount", LastSeenViaAccount), ("age", age));
+                    if (string.Equals(BoundAccount, PreferredAccount, StringComparison.OrdinalIgnoreCase))
+                        return Lexicon.Get("connect.row.offline_preferred_account",
+                            ("preferredAccount", BoundAccount), ("age", age));
+                    if (NamedFromHistoryOnly)
+                        return Lexicon.Get("connect.row.offline_last_known_for",
+                            ("lastSeenViaAccount", BoundAccount), ("age", age),
+                            ("refreshing", RefreshInFlight ? Lexicon.Get("connect.row.refreshing_suffix") : ""));
+                    return Lexicon.Get("connect.row.offline_registered_to",
+                        ("lastSeenViaAccount", BoundAccount), ("age", age));
                 }
 
                 if (FromAccountCache && !string.IsNullOrWhiteSpace(LastSeenViaAccount))
@@ -1221,10 +1290,20 @@ namespace JJFlexWpf.Dialogs
             // careful to avoid. Memoized, so a re-paint costs nothing.
             var learnedBySerial = new Dictionary<string, ConnectPathKind?>(
                 StringComparer.OrdinalIgnoreCase);
+            // The account a connect would use, per radio (#405 J10), asked here
+            // for the same reason: it reads the radio's record and the held
+            // sessions, and its own remarks say to ask it outside any list lock.
+            var connectBySerial = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // And whether that account is only remembered (#405 repair two).
+            var ruledOutBySerial = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var k in known)
             {
                 if (!string.IsNullOrWhiteSpace(k.Serial))
+                {
                     learnedBySerial[k.Serial] = LearnedPathFor(k.Serial);
+                    connectBySerial[k.Serial] = Radios.FlexBase.RadioListAccountFor(k.Serial, out bool ruledOut);
+                    if (ruledOut) ruledOutBySerial.Add(k.Serial);
+                }
             }
 
             bool changed = false;
@@ -1236,10 +1315,18 @@ namespace JJFlexWpf.Dialogs
                     if (!string.IsNullOrWhiteSpace(k.Serial))
                         learnedBySerial.TryGetValue(k.Serial, out learned);
 
+                    string connect = !string.IsNullOrWhiteSpace(k.Serial)
+                        && connectBySerial.TryGetValue(k.Serial, out var planned) ? planned : "";
+                    bool ruledOutEverywhere = !string.IsNullOrWhiteSpace(k.Serial)
+                        && ruledOutBySerial.Contains(k.Serial);
+
                     var existing = _radiosList.FirstOrDefault(
                         r => string.Equals(r.Serial, k.Serial, StringComparison.OrdinalIgnoreCase));
-                    bool foreign = !string.IsNullOrWhiteSpace(k.ResolvedAccount)
-                        && !string.Equals(k.ResolvedAccount, accountEmail, StringComparison.OrdinalIgnoreCase);
+                    // Foreign by the account a connect would use (#405 J10),
+                    // the same answer BoundAccount gives, so the row names the
+                    // account Enter will switch to.
+                    bool foreign = RadioListItem.BoundElsewhere(
+                        RadioListItem.AccountInPlay(connect, k.PreferredAccount, k.LastSeenViaAccount), accountEmail);
 
                     if (existing != null)
                     {
@@ -1252,6 +1339,8 @@ namespace JJFlexWpf.Dialogs
                         existing.UserLabel = k.UserNickname;
                         existing.IsFavorite = k.IsFavorite;
                         existing.PreferredAccount = k.PreferredAccount;
+                        existing.ConnectAccount = connect;
+                        existing.EverySavedListRuledItOut = ruledOutEverywhere;
                         existing.PathChain = k.PathChain ?? new List<ConnectPathKind>();
                         existing.LearnedPath = learned;
                         existing.ForeignAccount = foreign;
@@ -1272,6 +1361,8 @@ namespace JJFlexWpf.Dialogs
                         LastSeenText = KnownRadioRoster.DescribeAge(k.LastSeenUtc),
                         LastSeenViaAccount = k.LastSeenViaAccount,
                         PreferredAccount = k.PreferredAccount,
+                        ConnectAccount = connect,
+                        EverySavedListRuledItOut = ruledOutEverywhere,
                         FromAccountCache = k.InAccountCache,
                         // Bound to some other account than the one in play (or
                         // bound while no account is chosen) — the row names
@@ -2878,9 +2969,14 @@ namespace JJFlexWpf.Dialogs
                     return;
                 }
 
+                // A remembered account is said as one (#405 repair two): the
+                // radio was last seen under it, not "uses" it.
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    Lexicon.Get("connect.selector.switching_account",
-                        ("radioName", radioName), ("email", target.Email)), true);
+                    radio.NamedFromHistoryOnly
+                        ? Lexicon.Get("connect.selector.switching_to_last_seen_account",
+                            ("radioName", radioName), ("email", target.Email))
+                        : Lexicon.Get("connect.selector.switching_account",
+                            ("radioName", radioName), ("email", target.Email)), true);
 
                 // ***** TASK #203: ONE ENTER DOES THE WHOLE JOB. *****
                 //
@@ -3741,9 +3837,12 @@ namespace JJFlexWpf.Dialogs
             }
 
             radio.PreferredAccount = email;
+            // The connect's answer changes with the choice (#405 J10): asked
+            // again now the choice is saved, outside the list lock.
+            radio.ConnectAccount = Radios.FlexBase.RadioListAccountFor(radio.Serial, out bool ruledOut);
+            radio.EverySavedListRuledItOut = ruledOut;
             var current = CurrentAccountEmail();
-            radio.ForeignAccount = !string.IsNullOrWhiteSpace(radio.BoundAccount)
-                && !string.Equals(radio.BoundAccount, current, StringComparison.OrdinalIgnoreCase);
+            radio.ForeignAccount = RadioListItem.BoundElsewhere(radio.BoundAccount, current);
 
             var rowName = RowName(radio);
             _callbacks.ScreenReaderSpeak?.Invoke(

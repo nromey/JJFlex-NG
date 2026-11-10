@@ -1071,6 +1071,15 @@ public partial class ScreenFieldsPanel : UserControl
         _voxCheck.Checked += (s, e) =>
         {
             if (_polling) return;
+            // No callsign, no VOX (#335, J8): the box is put back and nothing
+            // is written. Simple VOX only (break-in in CW is J4).
+            if (ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX box"))
+            {
+                _polling = true;
+                try { _voxCheck.IsChecked = false; }
+                finally { _polling = false; }
+                return;
+            }
             if (_rig?.TxToneEngaged == true)
             {
                 _polling = true;

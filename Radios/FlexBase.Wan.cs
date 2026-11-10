@@ -2678,6 +2678,84 @@ namespace Radios
         }
 
         /// <summary>
+        /// The saved account the radio list binds this radio's row to: the
+        /// account a connect would use (<see cref="ConnectAccountFor"/>), or,
+        /// when every saved account's list has answered without the radio,
+        /// the saved account the plan would otherwise have signed in as. EMPTY
+        /// when neither the radio's chosen nor its last-seen account is saved
+        /// here and no live list names it, and on any error.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>#405 repair one (Codex B1, 2026-11-09).</b> The plan's
+        /// "no saved account lists it" verdict
+        /// (<see cref="SmartLinkSignInPlanKind.NotListedByAnySavedAccount"/>)
+        /// names no account, so <see cref="ConnectAccountFor"/> is empty there,
+        /// and the row read that empty as "neither recorded account is saved"
+        /// and named the UNSAVED chosen account, whose Enter then said the radio
+        /// was registered to it. The two empties mean different things. This
+        /// keeps them apart HERE, beside the plan, rather than in the window:
+        /// the verdict is untouched (the connect, its announcement and
+        /// <see cref="ConnectAccountFor"/> still name no account), and the
+        /// account's identity is the plan's own tier walk
+        /// (<see cref="AccountPicture.FirstSaved"/> over the chosen then the
+        /// last-seen account), not a copy of it.</para>
+        /// <para>Reads the radio's record from disk and the held sessions, so a
+        /// caller painting many rows asks it outside any list lock.</para>
+        /// </remarks>
+        /// <param name="savedAccounts">The saved accounts; null reads the account manager.</param>
+        public static string RadioListAccountFor(string serial, IEnumerable<string> savedAccounts = null)
+            => RadioListAccountFor(serial, out _, savedAccounts);
+
+        /// <summary>
+        /// <see cref="RadioListAccountFor(string, IEnumerable{string})"/>, also
+        /// saying whether the account was named only because every saved
+        /// account's list has answered WITHOUT the radio
+        /// (<paramref name="everySavedListRuledItOut"/>). Then the account is
+        /// a remembered one, not a current registration, and the radio list
+        /// must not word it as one.
+        /// </summary>
+        /// <remarks>
+        /// #405 repair two (Codex, 2026-11-10): in that state the row said
+        /// "registered to" the saved last-seen account and Enter said the radio
+        /// "uses" it, though no current list had it (a radio transferred away
+        /// since that sighting is the falsifier). The state is the plan's own
+        /// verdict, read once, here, from the same picture as the account.
+        /// </remarks>
+        public static string RadioListAccountFor(string serial, out bool everySavedListRuledItOut,
+            IEnumerable<string> savedAccounts = null)
+        {
+            everySavedListRuledItOut = false;
+            if (string.IsNullOrWhiteSpace(serial)) return "";
+            try
+            {
+                var saved = savedAccounts ?? AccountManager.Accounts.Where(a => a != null).Select(a => a.Email);
+                return RadioListAccount(TakeAccountPictureFor(serial, saved: saved), out everySavedListRuledItOut);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RadioListAccountFor({serial}): {ex.Message}", TraceLevel.Warning);
+                everySavedListRuledItOut = false;
+                return "";
+            }
+        }
+
+        /// <summary>The rule behind <see cref="RadioListAccountFor(string, out bool, IEnumerable{string})"/>,
+        /// from one picture. Pure. The flag is true only when the plan says no
+        /// saved account lists the radio AND a saved account is named.</summary>
+        internal static string RadioListAccount(AccountPicture picture, out bool everySavedListRuledItOut)
+        {
+            var plan = PlanSmartLinkSignIn(picture);
+            if (plan.Kind == SmartLinkSignInPlanKind.NotListedByAnySavedAccount)
+            {
+                var remembered = picture.FirstSaved(picture.Preferred, picture.LastSeen);
+                everySavedListRuledItOut = !string.IsNullOrEmpty(remembered);
+                return remembered;
+            }
+            everySavedListRuledItOut = false;
+            return RadiosOwnAccount(plan);
+        }
+
+        /// <summary>
         /// Whether the active SmartLink session is live AND its current list
         /// names <paramref name="serial"/>: the state the old fast path stood
         /// on. It no longer decides anything (Codex F2 on the 2026-11-06

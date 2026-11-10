@@ -18,7 +18,7 @@
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
             <TextBlock Text="Radio:" Style="{StaticResource DialogLabel}"/>
             <TextBlock x:Name="RadioNameText" FontWeight="Bold"
-                       AutomationProperties.Name="Radio name"/>
+                       local:StatusTextName.Label="Radio name" local:StatusTextName.LabelFirst="True"/>
         </StackPanel>
 
         <!-- Checkboxes -->

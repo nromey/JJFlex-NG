@@ -806,9 +806,72 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// Callback to wire FreqOutHandlers delegate properties from VB.NET globals.
-    /// Set by ApplicationEvents.vb. Called when handlers are first created in SetupFreqout().
+    /// Set by ApplicationEvents.vb. Called when handlers are first created in
+    /// SetupFreqout(), or, when they were created first, at the moment it is set.
     /// </summary>
-    public Action<FreqOutHandlers>? FreqOutHandlersWireCallback { get; set; }
+    /// <remarks>
+    /// #346 repair one (Codex N1): ApplicationEvents.vb sets this after
+    /// InitializeApplication returns, and that call starts the first connect,
+    /// whose power-on can reach the UI thread and create the handlers before
+    /// it does. The handlers were then never wired for the whole session: no
+    /// saved steps loaded, nothing saved, no filter presets, no band memory.
+    /// Replaying on assignment makes the order not matter; the callback still
+    /// runs exactly once per handler object.
+    /// </remarks>
+    public Action<FreqOutHandlers>? FreqOutHandlersWireCallback
+    {
+        get => _freqOutHandlersWireCallback;
+        set
+        {
+            _freqOutHandlersWireCallback = value;
+            if (value != null && _freqOutHandlers != null) value(_freqOutHandlers);
+        }
+    }
+
+    private Action<FreqOutHandlers>? _freqOutHandlersWireCallback;
+
+    /// <summary>
+    /// The operator's remembered tuning steps (#346), set by ApplicationEvents.vb
+    /// at startup, before any connect. With a radio the handlers' steps are the
+    /// live ones and save through it; with none, Settings reads and writes the
+    /// steps here, on the operator's record, which the next connect loads.
+    /// </summary>
+    public StepSizeMemory? StepMemory { get; set; }
+
+    /// <summary>Settings' fallback when there is neither a radio nor an operator: as before.</summary>
+    internal const int SettingsFallbackCoarseStep = 1000, SettingsFallbackFineStep = 10;
+
+    /// <summary>
+    /// The steps Settings shows: the handlers' with a radio, the operator's
+    /// saved ones without (#346 repair one, Codex B1: this was the handlers'
+    /// or 1000 Hz and 10 Hz, so with no radio Settings showed numbers nobody
+    /// chose and the next connect would not use).
+    /// </summary>
+    internal (int Coarse, int Fine) StepSizesForSettings()
+    {
+        if (_freqOutHandlers != null) return (_freqOutHandlers.CoarseTuneStep, _freqOutHandlers.FineTuneStep);
+        return StepMemory?.CurrentSteps() ?? (SettingsFallbackCoarseStep, SettingsFallbackFineStep);
+    }
+
+    /// <summary>
+    /// The steps Settings committed: to the handlers with a radio (which saves
+    /// them), else onto the operator's record, which the next connect loads
+    /// (#346 repair one, Codex B1; settings are intents, kept with or without
+    /// a radio). A step that is not positive keeps what was there, as the
+    /// handlers' own setters do.
+    /// </summary>
+    internal void ApplyStepSizesFromSettings(int coarseStep, int fineStep)
+    {
+        if (_freqOutHandlers != null)
+        {
+            _freqOutHandlers.ApplyStepSizes(coarseStep, fineStep, speak: false);
+            return;
+        }
+        var saved = StepMemory?.CurrentSteps();
+        if (saved == null) return;   // no operator: nowhere to keep them
+        StepMemory!.Note(coarseStep > 0 ? coarseStep : saved.Value.Coarse,
+                         fineStep > 0 ? fineStep : saved.Value.Fine);
+    }
 
     /// <summary>
     /// Callback to set filter presets on the NativeMenuBar.
@@ -1137,16 +1200,18 @@ public partial class MainWindow : UserControl
         if (CurrentPttConfig != null)
             _pttController?.UpdateConfig(CurrentPttConfig);
 
-        // Apply tuning steps and band memory setting
+        // Through ApplyStepSizes rather than assigning the two properties
+        // and invoking the save callback here: #302 gave the steps a
+        // picker and a pair of ladder keys, and three surfaces writing the
+        // same two fields is how one of them quietly grows a different
+        // idea of what "apply" means. Settings does not speak — the dialog
+        // just closed and the operator knows what they chose. With no radio
+        // the steps go onto the operator's record (#346 repair one).
+        ApplyStepSizesFromSettings(coarseStep, fineStep);
+
+        // Band memory setting
         if (_freqOutHandlers != null)
         {
-            // Through ApplyStepSizes rather than assigning the two properties
-            // and invoking the save callback here: #302 gave the steps a
-            // picker and a pair of ladder keys, and three surfaces writing the
-            // same two fields is how one of them quietly grows a different
-            // idea of what "apply" means. Settings does not speak — the dialog
-            // just closed and the operator knows what they chose.
-            _freqOutHandlers.ApplyStepSizes(coarseStep, fineStep, speak: false);
             _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig?.BandMemoryEnabled ?? true;
             _freqOutHandlers.FrequencyUnits = CurrentPttConfig?.FrequencyDisplayUnits ?? Radios.FrequencyUnits.Hz;
         }
