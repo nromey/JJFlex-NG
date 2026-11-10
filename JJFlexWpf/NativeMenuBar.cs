@@ -639,11 +639,28 @@ public class NativeMenuBar : IDisposable
     private void SetGuestProfileIntent(Radios.ProfileGuestIntent intent)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
-        Rig.RecordProfileIntent(intent);
-        EarconPlayer.ToggleTone(intent != Radios.ProfileGuestIntent.LeaveAlone);
+        if (intent == Radios.ProfileGuestIntent.NotAnswered)
+        {
+            // "Ask me at the next connect" (#680, defect 2): back to
+            // unanswered, with the saved marker that keeps a known radio of
+            // the operator's from being pre-answered at that connect. Not
+            // RecordProfileIntent: on a radio already unanswered it writes
+            // nothing, and the marker is the point. The low tone, because the
+            // next connect loads nothing.
+            Rig.AskProfileQuestionAtNextConnect();
+            EarconPlayer.ToggleTone(false);
+        }
+        else
+        {
+            Rig.RecordProfileIntent(intent);
+            EarconPlayer.ToggleTone(intent != Radios.ProfileGuestIntent.LeaveAlone);
+        }
 
         switch (intent)
         {
+            case Radios.ProfileGuestIntent.NotAnswered:
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.ask_next_connect"));
+                break;
             case Radios.ProfileGuestIntent.UseMyTransmitAudio:
                 var chosen = Rig.LocalTransmitAudioProfileChoice;
                 var saved = Rig.LocalTransmitAudioProfileNames();
@@ -2041,7 +2058,23 @@ public class NativeMenuBar : IDisposable
 
         if (Rig.FullDuplexAvailable == true)
             AddChecked(parent, Radios.Lexicon.Get("audio.full_duplex.label") + "\tCtrl+J, Ctrl+X",
-                () => _ = FullDuplexControl.ToggleAsync(Rig), () => Rig?.FullDuplexEnabled == true);
+                () =>
+                {
+                    // From the MENU the hold's refusal is said after the menu
+                    // closes (#486, #1022): spoken at once, the return to Home
+                    // cut it at word 0. The same sentence and trace the hold
+                    // gives; Ctrl+J, Ctrl+X keeps its own path, which is heard.
+                    if (Rig?.ChangeNothingActive == true)
+                    {
+                        Tracing.TraceLine("ChangeNothing: refused settings.guard.action.full_duplex "
+                            + "(from the Transmit menu, said after the menu closes)", TraceLevel.Warning);
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.guard.refused",
+                            ("action", Radios.Lexicon.Get("settings.guard.action.full_duplex"))),
+                            Radios.VerbosityLevel.Critical);
+                        return;
+                    }
+                    _ = FullDuplexControl.ToggleAsync(Rig);
+                }, () => Rig?.FullDuplexEnabled == true);
         else AddWired(parent, Radios.Lexicon.Get("audio.full_duplex.not_reported"),
                 () => SpeakAfterMenuClose(Radios.Lexicon.Get("audio.full_duplex.not_reported")));
 
@@ -2213,7 +2246,7 @@ public class NativeMenuBar : IDisposable
         {
             var profilesSub = AddSubmenu(radio, "Profiles on This Radio");
 
-            // The three answers, mutually exclusive. Checkmark only; the row
+            // The four answers, mutually exclusive. Checkmark only; the row
             // text is never rewritten with a state suffix. AddRadioChecked is
             // what makes that true (#680): AddChecked appended ": On" and
             // ": Off", so the reader called these three toggles, and a
@@ -2238,6 +2271,15 @@ public class NativeMenuBar : IDisposable
             AddRadioChecked(profilesSub, "Leave This Radio's Profiles Alone",
                 () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LeaveAlone),
                 () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LeaveAlone);
+            // The fourth answer, back to unanswered (#680, defect 2, ruled
+            // 2026-11-08): an accidental answer can be undone, and the next
+            // connect asks whoever owns the radio. Checked only while that
+            // choice stands, not for every radio never answered: a radio of
+            // the operator's with a connection history is pre-answered at
+            // its next connect unless this row was chosen. DRAFT label.
+            AddRadioChecked(profilesSub, "Ask Me at the Next Connect",
+                () => SetGuestProfileIntent(Radios.ProfileGuestIntent.NotAnswered),
+                () => Rig?.ProfileQuestionWaitsForNextConnect == true);
 
             // Which of the operator's transmit-audio profiles to use: one
             // answer out of the list, so a radio group, checkmark only, the

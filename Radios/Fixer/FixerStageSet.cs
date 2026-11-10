@@ -432,17 +432,34 @@ namespace Radios.Fixer
     {
         public bool Succeeded { get; }
 
+        /// <summary>
+        /// True when nothing was attempted because a hold refused it (the
+        /// change-nothing hold), and the hold has ALREADY said why. Not a
+        /// success, and not a failure of the fix either. The Fix tool records
+        /// the refusal as the stage's notice and says nothing more, so the
+        /// hold's one sentence is not followed by "That fix did not succeed"
+        /// (#486).
+        /// </summary>
+        public bool Refused { get; }
+
         /// <summary>What the setting became, in words — "WASAPI (Audient EVO8)".
-        /// On failure, why it could not be done.</summary>
+        /// On failure, why it could not be done; on a refusal, the hold's own
+        /// sentence.</summary>
         public string WhatItBecame { get; }
 
-        private FixerFixOutcome(bool ok, string became)
-        { Succeeded = ok; WhatItBecame = became ?? ""; }
+        private FixerFixOutcome(bool ok, string became, bool refused = false)
+        { Succeeded = ok; WhatItBecame = became ?? ""; Refused = refused && !ok; }
 
         public static FixerFixOutcome Done(string whatItBecame)
             => new FixerFixOutcome(true, whatItBecame);
 
         public static FixerFixOutcome Failed(string why)
             => new FixerFixOutcome(false, why);
+
+        /// <summary>A hold refused the fix and has already spoken;
+        /// <paramref name="theHoldsSentence"/> is what it said, kept so the
+        /// stage's notice can be re-read.</summary>
+        public static FixerFixOutcome RefusedByHold(string theHoldsSentence)
+            => new FixerFixOutcome(false, theHoldsSentence, refused: true);
     }
 }

@@ -104,9 +104,19 @@ namespace Radios.Fixer
         /// <summary>What it became — or, on failure, why it could not be done.</summary>
         public string WhatItBecame { get; }
 
+        /// <summary>
+        /// True when a hold refused the fix and has already said so
+        /// (<see cref="FixerFixOutcome.Refused"/>). In memory only: the saved
+        /// run format is unchanged, so a run read back from disk shows a
+        /// refusal as a fix that did not succeed, with the hold's sentence.
+        /// </summary>
+        public bool Refused { get; }
+
         internal FixerFixRecord(string runId, string stageId, string findingId, DateTime atUtc,
-                                int sequence, bool succeeded, string whatWasWrong, string whatItBecame)
+                                int sequence, bool succeeded, string whatWasWrong, string whatItBecame,
+                                bool refused = false)
         {
+            Refused = refused && !succeeded;
             RunId = runId ?? "";
             StageId = stageId ?? "";
             FindingId = findingId ?? "";
@@ -431,11 +441,12 @@ namespace Radios.Fixer
 
             var record = new FixerFixRecord(RunId, stageId, finding.Id, _clock(), ++_sequence,
                                             applied.Succeeded, finding.WhatIsWrong,
-                                            applied.WhatItBecame);
+                                            applied.WhatItBecame, applied.Refused);
             _fixes.Add(record);
 
             Tracing.TraceLine("FixerRun " + RunId + ": fix '" + finding.FixActionId + "' on "
-                + "stage '" + stageId + "' " + (applied.Succeeded ? "applied — " : "FAILED — ")
+                + "stage '" + stageId + "' "
+                + (applied.Succeeded ? "applied — " : applied.Refused ? "REFUSED by a hold — " : "FAILED — ")
                 + applied.WhatItBecame, applied.Succeeded ? TraceLevel.Info : TraceLevel.Warning);
 
             return record;

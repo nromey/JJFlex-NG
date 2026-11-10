@@ -120,7 +120,7 @@ public class Host
         // stale recorder speech].
         // Repair round 1: the place changed during the count (#863 B2), or the
         // link dropped during it (#596 B2): [keys while counting, keys, counts, said].
-        if (scenario is "place-changed-during-count" or "link-dropped-during-count")
+        if (scenario is "place-changed-during-count" or "link-dropped-during-count" or "another-station-during-count")
         {
             h.Countdown = new TaskCompletionSource<bool>();
             var s = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1);
@@ -128,6 +128,7 @@ public class Host
             await Task.Delay(20);
             int whileCounting = h.ptt.Keys;
             if (scenario == "place-changed-during-count") h.PlaceStands = false;
+            else if (scenario == "another-station-during-count") h.ptt.AnotherStation = true;
             else h._rig.IsConnected = false;
             h.Countdown.SetResult(true);
             await pending;
@@ -322,8 +323,10 @@ public class FakeRun { public bool Stopped; public void OwnKeying(bool b) { }
 public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir);
 public static class EarconPlayer { public static void FeatureOnTone() { } }
 public static class TuneDoors { public static bool Up(FlexBase rig) => rig.Tuning; public static void RefuseStart() { RecorderControls.Spoken++; } }
+public static class ZeroPowerDoors { public static bool NoCallsign(FlexBase rig) => false; }
 public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds; public Action Keyed;
     public void KeyForCheck() { Keys++; IsTransmitting=true; Keyed?.Invoke(); } public void EscapeUnlock() { IsTransmitting=false; }
+    public bool AnotherStation; public bool RefuseWhileAnotherStationTransmits(string door) { if (!AnotherStation) return false; RecorderControls.Spoken++; return true; }
     public bool AwaitingRadioReceive; public bool LastReleaseFoundRadioTransmitting;
     public static string RadioStillTransmittingSentence(bool audioCheck, VerbosityLevel level) => audioCheck ? "audio.check.radio_still_transmitting" : "audio.ptt.radio_still_transmitting"; }
 public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir, MicTest, Loopback }

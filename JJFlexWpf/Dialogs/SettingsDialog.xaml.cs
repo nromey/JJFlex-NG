@@ -1031,9 +1031,12 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
+                // Nothing spoken here (#486, #1022): the one caller turns a
+                // failure into the commit's own note ("The port forwarding
+                // command failed"), which the Apply summary or the OK advisory
+                // says. Speaking "Command failed." here as well said the
+                // failure twice, the first cut by the close on OK.
                 NetworkCurrentStateText.Text = Lexicon.Get("settings.network.command_failed");
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.command_failed_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
             }
             return outcome;
         }

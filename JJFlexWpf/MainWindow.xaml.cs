@@ -2295,6 +2295,10 @@ public partial class MainWindow : UserControl
                 // The shell, read off our own visual tree - the last caller of
                 // Process.MainWindowHandle outside JJFlexDialog's harness
                 // fallback went here (Sprint 45 Track A2).
+                // #709 item 3: our own focus hand-back, named in the speech
+                // trace when a delivery is cancelled near it.
+                Radios.Speech.SpeechCancelWitness.Shared.Note(
+                    Radios.Speech.SpeechCancelWitness.EventKind.OwnFocusReturn, "Home, after a dialog closed");
                 Radios.WindowActivation.EnsureForeground(ShellHandle());
                 FocusHome();
             }
@@ -3693,6 +3697,13 @@ public partial class MainWindow : UserControl
                     // Codex F2). Nothing to do when no dialog holds.
                     DialogTransmitKeys.HoldReleased();
                     EndAppEndedHold("the key was let go");   // a hold the app ended (7a): the release is real
+                    // One line per deferred release, its extensions and what
+                    // it cost (#704), after PttUp so nothing delays it. It
+                    // records the filter's decision only: PttUp unkeys only a
+                    // hold, and the app may already have ended this one (a
+                    // reference recording's end) or it may have become a lock.
+                    if (_pttHoldFilter.LastDeferredRelease is { } released)
+                        Tracing.TraceLine(Radios.PttHoldFilter.DescribeRelease(released), TraceLevel.Info);
                     return;
                 }
 
@@ -3711,8 +3722,8 @@ public partial class MainWindow : UserControl
                             + " rather than unkeyed. This is the operating system's key state"
                             + " disagreeing with the screen reader's event stream, which is"
                             + " exactly what was predicted — and it is the first evidence that"
-                            + " the physical key state survives a synthesising reader. Further"
-                            + " extensions counted, not logged.",
+                            + " the physical key state survives a synthesising reader. Each"
+                            + " deferred release's extensions are traced when it unkeys.",
                             TraceLevel.Error);
                     }
                     StartPttDeferTimer(_pttHoldFilter.NextRecheckMs);
@@ -7780,17 +7791,27 @@ public partial class MainWindow : UserControl
         // did.
         var stop = SixtyMeterChannels.Rotate(country, _sixtyMeterChannelIndex, direction, RigControl.Mode);
         if (stop == null) return;
-        _sixtyMeterChannelIndex = stop.Index;
 
         // Frequency first, then mode, the order this method and the band jump
         // have always used.
         RigControl.Frequency = stop.FrequencyHz;
+        // Only an admitted stop moves the rotation, names the channel or asks
+        // for its mode (#790, #1023): a stop refused on a locked slice still
+        // changed the mode (LSB to USB on 40 m) and announced the channel.
+        // Every refusal, transmitting included, now leaves the admission
+        // false. Refused, it says "Unable to tune this frequency" and nothing
+        // else, and the next press offers the same stop again.
+        if (RigControl.TuneAdmittedHere == false)
+        {
+            _freqOutHandlers?.SayTuneRefused("60 meter channel stop");
+            return;
+        }
+        _sixtyMeterChannelIndex = stop.Index;
         // The band notices' memory follows the stop, so a typed frequency
         // afterwards is not judged against the band this came from. Only a
         // stop the slice actually took (repair one): the receive frequency is
-        // read back after the write, because a locked slice refuses the tune
-        // and the setter returns normally, and while transmitting the setter
-        // returns before the admission flag is even reset.
+        // read back after the write, a second check behind the admission
+        // above (a tune admitted but answered with a different frequency).
         _freqOutHandlers?.FollowChannelStop(stop.FrequencyHz, RigControl.RXFrequency);
 
         if (stop.Correction == null)

@@ -147,6 +147,7 @@ namespace Radios.Speech
             var sw = Stopwatch.StartNew();
             uint rc = NvdaControllerClient.SpeakSsml(ssml, NvdaControllerClient.SpeechPriorityNormal);
             sw.Stop();
+            long answeredAtMs = SpeechCancelWitness.Now;
 
             int marks;
             bool byUs;
@@ -161,6 +162,13 @@ namespace Radios.Speech
             }
 
             var outcome = NvdaControllerClient.Classify(rc, marks, markCount, byUs, (int)sw.ElapsedMilliseconds);
+
+            // A cancel that was not ours: say what was seen near the answer,
+            // captured now rather than when the line is formatted (#709 item
+            // 3). Diagnostic text only; nothing decides on it.
+            if (outcome.Kind == SpeechOutcomeKind.Cancelled && !outcome.CancelledByUs)
+                outcome = outcome.WithAttribution(SpeechCancelWitness.Shared.Attribute(
+                    ticket, answeredAtMs, $"cancelled at word {outcome.MarksReached} of {outcome.MarkCount}"));
 
             // Two return codes say the channel itself is not viable on this
             // NVDA, and a session should not keep asking: an interface it

@@ -371,6 +371,76 @@ namespace Radios.Tests
             Assert.False(f.LastProbeSaidDown);
         }
 
+        // ── #704: one trace line per deferred release, its extensions and cost ──
+
+        [Fact]
+        public void A_deferred_release_records_its_extensions_and_what_it_cost_before_the_reset()
+        {
+            var f = ArmedFilter();
+            int calls = 0;
+            f.PhysicalKeyDown = () => ++calls <= 2;     // down twice, then up
+
+            f.NoteDown(170_000);
+            f.NoteUp(170_600);
+            long t = 170_600 + f.DeferMs;
+            Assert.False(f.DeferralElapsed(t));
+            t += f.NextRecheckMs;
+            Assert.False(f.DeferralElapsed(t));
+            t += f.NextRecheckMs;
+            Assert.True(f.DeferralElapsed(t));
+
+            var r = Assert.IsType<PttHoldFilter.DeferredRelease>(f.LastDeferredRelease);
+            Assert.Equal(2, r.Extensions);              // read before the release reset it
+            Assert.Equal(t - 170_000, r.HeldMs);
+            Assert.Equal(t - 170_600, r.WaitedMs);
+            Assert.False(r.CapReached);
+            string line = PttHoldFilter.DescribeRelease(r);
+            Assert.Contains("after 2 probe extension(s)", line);
+            Assert.DoesNotContain("the most allowed", line);
+            // The filter's decision, never an unkey: the controller may
+            // already be idle (an app-ended hold) or locked (#704 repair one).
+            Assert.DoesNotContain("unkeyed", line);
+        }
+
+        [Fact]
+        public void A_release_whose_extensions_ran_out_says_so()
+        {
+            var f = ArmedFilter();
+            f.PhysicalKeyDown = () => true;
+            f.NoteDown(180_000);
+            f.NoteUp(180_005);
+            long t = 180_005 + f.DeferMs;
+            while (!f.DeferralElapsed(t)) t += f.NextRecheckMs;
+            var r = f.LastDeferredRelease!.Value;
+            Assert.Equal(PttHoldFilter.MaxProbeExtensions, r.Extensions);
+            Assert.True(r.CapReached);
+            Assert.Contains("the most allowed", PttHoldFilter.DescribeRelease(r));
+        }
+
+        [Fact]
+        public void A_release_the_reader_never_deferred_records_nothing()
+        {
+            // An NVDA-shaped hold: one down, one up, released at once.
+            var f = new PttHoldFilter();
+            f.NoteDown(190_000);
+            Assert.Equal(PttHoldFilter.UpAction.ReleaseNow, f.NoteUp(192_000));
+            Assert.Null(f.LastDeferredRelease);
+        }
+
+        [Fact]
+        public void The_host_traces_each_deferred_release()
+        {
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            string main = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "MainWindow.xaml.cs"));
+            int elapsed = main.IndexOf("if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))", StringComparison.Ordinal);
+            int traced = main.IndexOf("Tracing.TraceLine(Radios.PttHoldFilter.DescribeRelease(released)", StringComparison.Ordinal);
+            int up = main.IndexOf("_pttController?.PttUp();", elapsed, StringComparison.Ordinal);
+            int done = main.IndexOf("return;", up, StringComparison.Ordinal);
+            Assert.True(elapsed > 0 && up > elapsed && traced > up && traced < done, "traced on the release, after PttUp");
+        }
+
         [Fact]
         public void A_probe_that_throws_is_treated_as_no_answer_and_never_holds_the_key()
         {

@@ -719,13 +719,18 @@ namespace JJFlexWpf
                             Radios.Speech.SpeechSubject.SystemWidePttWatchdog);
                         break;
 
-                    // KEPT, though ruled 2026-10-07 as duplication of the
-                    // controller's own timeout and hard kill. Those run on the
-                    // UI thread's timers, so with the window frozen (#402) this
-                    // poll thread is the only thing left that drops a carrier
-                    // held from another program; Noel kept it on that reading
-                    // (2026-11-08). Its old sentence said the release was not
-                    // seen, which is false here: the key is still down.
+                    // KEPT (Noel, 2026-11-08). It was ruled on 2026-10-07 as
+                    // duplicating the controller's own transmit timeout and
+                    // hard kill, and that premise was wrong: both start only
+                    // when the controller enters Locked (StartWarningTimer and
+                    // StartHardKillTimer, from EnterLocked), and a HELD push to
+                    // talk is never Locked. So a held key has neither, and this
+                    // backstop is the ONLY ceiling on a system-wide key held
+                    // from another program, with the window healthy or frozen
+                    // (#402). (Found by the 2026-11-08 second check; a held key
+                    // having no time limit at all is #1020.) Its old sentence
+                    // said the release was not seen, which is false here: the
+                    // key is still down.
                     case SystemWidePttWatch.Verdict.KillHoldTooLong:
                         Tracing.TraceLine("SystemWideKeys: push to talk has been held for "
                             + SystemWidePttWatch.MaxHoldMs / 1000 + " s. Dropping the carrier.", TraceLevel.Error);

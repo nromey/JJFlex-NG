@@ -49,7 +49,7 @@ public partial class CheckYourAudioDialog
     private void OpenFixTool()
     {
         if (!HandOffToFixTool("Check your audio")) return;
-        FixerDialog.Show(() => _rig ?? RigSource?.Invoke(), this);
+        FixerDialog.Show(() => LiveRig ?? RigSource?.Invoke(), this);
     }
 
     /// <summary>What a Fix tool door may do, given what else is using the transmitter or the microphone.</summary>
@@ -784,7 +784,9 @@ public partial class CheckYourAudioDialog
             return;
         }
 
-        if (_rig == null)
+        // A radio the shell has disposed is no radio (#897, repair two): it
+        // keeps _rig only so a take already finishing on it can finish.
+        if (LiveRig == null)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
@@ -804,6 +806,17 @@ public partial class CheckYourAudioDialog
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
+
+        // Every method from here keys the radio (the computer microphone left
+        // above, keying nothing), so the two refusals that keyed checks used
+        // to meet only after the countdown are said BEFORE it, once each, with
+        // their own sentence, and before any question about this start: no
+        // callsign (#335, J1), and another station holding the transmitter
+        // (#910), whose keyed gate a check's own key skips. Test your
+        // microphone keys too, at zero, so it is asked both. The keyed gates
+        // stay where they are.
+        if (ZeroPowerDoors.RefuseNoCallsign(_rig, "Check your audio's start")) return;
+        if (ptt.RefuseWhileAnotherStationTransmits("Check your audio's start")) return;
 
         // A check keys the radio, so it cannot start over a tune carrier. It used
         // to run its countdown and then stop at the session's own transmit test
@@ -1471,6 +1484,10 @@ public partial class CheckYourAudioDialog
                 TuneDoors.RefuseStart();
                 return false;
             }
+            // Another station took the transmitter during the count (#910).
+            // The controller leaves a check's own key to this start path, so
+            // it is asked here, after the count and before the recorder arms.
+            if (_ptt.RefuseWhileAnotherStationTransmits("Check your audio, after its count")) return false;
             // The door asked before the count; a reconnect can have happened
             // since, and nothing below may treat this power as a reading until
             // the radio has given one (#859). Before the recorder arms, so a
@@ -1652,8 +1669,18 @@ public partial class CheckYourAudioDialog
                 RestoreWhenReceiving(rig);
                 if (Records && !recorderAlreadyRunning)
                     await RecorderControls.ReportStopFailureAsync(rig.StopSliceRecordAsync(_recorderTarget));
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.could_not_start"),
-                    VerbosityLevel.Critical);
+                // The reason was said, or is said now, and "could not start ...
+                // the Fix tool" is not added behind it: it cut the callsign
+                // sentence 78 ms in and pointed at a tool that refuses for the
+                // same reason (#1023 item 2). The state changed during the
+                // count, so the two questions are asked again here: a missing
+                // callsign was said by the lock key's own gate; another station
+                // is said now, since the controller skips it for a check.
+                if (ZeroPowerDoors.NoCallsign(rig)) { }
+                else if (_ptt.RefuseWhileAnotherStationTransmits("Check your audio, at its key")) { }
+                else
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.check.could_not_start"),
+                        VerbosityLevel.Critical);
                 return false;
             }
 

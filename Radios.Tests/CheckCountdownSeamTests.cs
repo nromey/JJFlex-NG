@@ -65,6 +65,9 @@ public sealed class CheckCountdownSeamTests
     [Theory]
     [InlineData("place-changed-during-count", 1)]
     [InlineData("link-dropped-during-count", 0)]
+    // Another station took the transmitter during the count (#910): refused
+    // after the count with its sentence, nothing keyed.
+    [InlineData("another-station-during-count", 1)]
     public async Task A_start_whose_place_changed_or_whose_link_dropped_keys_nothing(string scenario, int said)
     {
         int[] result = await RunHost(scenario);

@@ -9693,6 +9693,10 @@ namespace Radios
             }
             set
             {
+                // Refused until RequestTune admits it: each bail below leaves
+                // the calling thread's admission false, never the previous
+                // tune's answer (TuneAdmittedHere, as RXFrequency does).
+                t_tuneAdmitted = false;
 
                 // A REFUSED WRITE MUST NOT LEAVE ITS VALUE BEHIND. Both bails
                 // below used to return with _TXFrequency holding a frequency
@@ -9738,7 +9742,7 @@ namespace Radios
                 // value goes in every cache that describes it (PublishTuning
                 // holds it as a transmit fact only when the slice is
                 // designated).
-                RequestTune(slice, value, selectedTune: false, "TXFreq");
+                t_tuneAdmitted = RequestTune(slice, value, selectedTune: false, "TXFreq");
             }
         }
 
@@ -9750,6 +9754,10 @@ namespace Radios
             get { return (Transmit) ? TXFrequency : RXFrequency; }
             set
             {
+                // A tune refused while transmitting is not admitted: a step
+                // read as admitted spoke a frequency the radio was not given
+                // (TuneAdmittedHere kept the previous tune's answer).
+                t_tuneAdmitted = false;
                 // Don't set if transmitting.
                 if (Transmit)
                 {
@@ -9779,6 +9787,7 @@ namespace Radios
             }
             set
             {
+                t_tuneAdmitted = false; // refused unless the set below admits it
                 if (Transmit) return; // disallow set
                 if (ShowingXmitFrequency) TXFrequency = value;
                 else RXFrequency = value;

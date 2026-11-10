@@ -847,7 +847,7 @@
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,8"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="What the radio reports about its reachability"/>
+                                       local:StatusTextName.Label="What the radio reports about its reachability"/>
                             <Button Content="Refresh what the radio reports"
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,8"
                                     AutomationProperties.Name="Re-read the radio's reachability status"
@@ -1276,7 +1276,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="These steps get a radio ready to reach from somewhere else. Work down them in order the first time. Any step can be re-run on its own later, and each one reports where it currently stands."/>
+                               Text="These steps help you set your radio up so that it can be reached through the network from anywhere. Work down them in order the first time. Any step can be re-run on its own later, and each one reports where it currently stands."/>
 
                     <Button x:Name="RadioSetupRefreshButton"
                             Content="_Refresh all steps"
@@ -1295,7 +1295,7 @@
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Connect status"/>
+                                       local:StatusTextName.Label="Connect status"/>
                         </StackPanel>
                     </GroupBox>
 
@@ -1344,7 +1344,7 @@
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Registration status"/>
+                                       local:StatusTextName.Label="Registration status"/>
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="SetupRegisterButton"
                                         Content="Re_gister this radio"
@@ -1376,7 +1376,7 @@
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Firmware status"/>
+                                       local:StatusTextName.Label="Firmware status"/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                 <Button x:Name="SetupGetFirmwareButton"
                                         Content="_Download firmware for this radio"
@@ -1414,13 +1414,13 @@
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        Visibility="Collapsed"
-                                       AutomationProperties.Name="Firmware download bytes transferred"/>
+                                       local:StatusTextName.Label="Firmware download bytes transferred"/>
                             <TextBlock x:Name="SetupFirmwareFileText"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Chosen firmware file"/>
+                                       local:StatusTextName.Label="Chosen firmware file"/>
                             <Button x:Name="SetupSuppressVersionWarningButton"
                                     Content="Stop reporting the version mismatch"
                                     HorizontalAlignment="Left" Padding="12,4"
@@ -1440,7 +1440,7 @@
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Address status"/>
+                                       local:StatusTextName.Label="Address status"/>
                             <controls:StaticIpControl x:Name="SetupStaticIpControl"/>
                         </StackPanel>
                     </GroupBox>
@@ -1456,7 +1456,7 @@
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Internet access status"/>
+                                       local:StatusTextName.Label="Internet access status"/>
                             <Button x:Name="SetupGoToNetworkButton"
                                     Content="Open Net_work settings"
                                     HorizontalAlignment="Left" Padding="12,4"
@@ -1478,7 +1478,7 @@
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Outside check status"/>
+                                       local:StatusTextName.Label="Outside check status"/>
                             <Button x:Name="SetupTestNetworkButton"
                                     Content="Run the network _test"
                                     HorizontalAlignment="Left" Padding="12,4"
@@ -1499,7 +1499,7 @@
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Restart status"/>
+                                       local:StatusTextName.Label="Restart status"/>
                             <Button x:Name="SetupRebootButton"
                                     Content="R_estart the radio"
                                     HorizontalAlignment="Left" Padding="12,4"
@@ -1912,7 +1912,7 @@
                                 <TextBlock x:Name="SilencedCountText" TextWrapping="Wrap" Margin="0,0,0,8"
                                            Style="{StaticResource DialogLabel}"
                                            Focusable="True"
-                                           AutomationProperties.Name="How many messages are silenced"/>
+                                           local:StatusTextName.Label="How many messages are silenced"/>
                                 <Button x:Name="ReviewSilencedButton"
                                         Content="_Review silenced messages..."
                                         HorizontalAlignment="Left" Padding="12,0" Height="26"
@@ -2115,7 +2115,7 @@
                             <TextBlock x:Name="UpdateLastCheckText"
                                        Text="Last check: never"
                                        Margin="0,0,0,8"
-                                       AutomationProperties.Name="Last update check timestamp"/>
+                                       local:StatusTextName.Label="Last update check timestamp"/>
 
                             <Button x:Name="UpdateCheckNowButton"
                                     Content="Check for updates now"
@@ -2160,7 +2160,7 @@
                                TextWrapping="Wrap" FontWeight="SemiBold"
                                Margin="0,0,0,10"
                                Text="Diagnostic log state is not available."
-                               AutomationProperties.Name="Diagnostic log status"/>
+                               local:StatusTextName.Label="Diagnostic log status"/>
 
                     <!-- Sprint 31 Track Q (#100) — the count that makes the
                          Problems list discoverable without knowing the chord.
@@ -2174,7 +2174,7 @@
                             <TextBlock x:Name="DiagProblemCountText"
                                        TextWrapping="Wrap" Margin="0,4,0,6"
                                        Text="No problems recorded this session."
-                                       AutomationProperties.Name="Problems recorded this session"/>
+                                       local:StatusTextName.Label="Problems recorded this session"/>
                             <Button x:Name="DiagShowProblemsButton"
                                     Content="Show recorded problems..."
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
@@ -2250,7 +2250,7 @@
                             <TextBlock x:Name="DiagPathText"
                                        TextWrapping="Wrap" Margin="0,4,0,6"
                                        Text="The live log location is not available."
-                                       AutomationProperties.Name="Where the diagnostic log is kept"/>
+                                       local:StatusTextName.Label="Where the diagnostic log is kept"/>
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="DiagCopyPathButton"
                                         Content="Copy log file path"
@@ -2360,11 +2360,11 @@
                             <TextBlock x:Name="DiagStorageText"
                                        TextWrapping="Wrap" Margin="0,4,0,6"
                                        Text="Choose Measure now to see what the settings folder is holding."
-                                       AutomationProperties.Name="Settings folder size"/>
+                                       local:StatusTextName.Label="Settings folder size"/>
                             <TextBlock x:Name="DiagCrashText"
                                        TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="Crash reports have not been counted yet."
-                                       AutomationProperties.Name="Saved crash reports"/>
+                                       local:StatusTextName.Label="Saved crash reports"/>
                             <Button x:Name="DiagMeasureButton"
                                     Content="Measure now"
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"

@@ -27,6 +27,8 @@ namespace Radios.Tests
             "Use My Transmit Audio Here",
             "Load All My Profiles Here",
             "Leave This Radio's Profiles Alone",
+            // The fourth, back to unanswered (#680, defect 2).
+            "Ask Me at the Next Connect",
         };
 
         private static string MenuSource()

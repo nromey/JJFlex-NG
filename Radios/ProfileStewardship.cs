@@ -1270,9 +1270,21 @@ namespace Radios
         /// can choose. An unset radio with a long history is still unset:
         /// history is evidence of use, not of ownership.
         /// </para>
+        /// <para>
+        /// <b>Not while the operator asked to be asked.</b> "Ask me at the next
+        /// connect" under Profiles on This Radio (<paramref name="askAtNextConnect"/>,
+        /// the saved marker <c>RadioConfig.ProfileAskAtNextConnect</c>) returns a
+        /// radio to unanswered on purpose. Pre-answering it again at that very
+        /// connect would undo the choice the moment it was made, so the
+        /// question is asked instead: the connect loads nothing and runs no
+        /// owner setup, and the operator answers. This is the marker's only
+        /// reader; the connect plan, the ownership ruling and the shared-state
+        /// gates are unchanged by it.
+        /// </para>
         /// </remarks>
         public static ProfileGuestIntent? PreAnswerForKnownRadio(
-            RadioOwnership ownership, bool hasConnectedBefore, ProfileGuestIntent current, bool holdArmed = false)
+            RadioOwnership ownership, bool hasConnectedBefore, ProfileGuestIntent current, bool holdArmed = false,
+            bool askAtNextConnect = false)
         {
             // The hold outranks the migration as it outranks everything else:
             // a pre-answer is a persisted change to what this radio's records
@@ -1280,6 +1292,7 @@ namespace Radios
             // none. The question stays unanswered; it is asked again when the
             // hold is lifted (Track G review, step 2).
             if (holdArmed) return null;
+            if (askAtNextConnect) return null;
             if (current != ProfileGuestIntent.NotAnswered) return null;
             if (ownership != RadioOwnership.Mine) return null;
             if (!hasConnectedBefore) return null;

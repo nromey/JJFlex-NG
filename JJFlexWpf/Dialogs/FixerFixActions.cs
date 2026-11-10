@@ -329,11 +329,11 @@ internal static class FixerFixActions
         var selected = rig.SelectMicProfileIfPresent(candidate);
         // The change-nothing hold refused it and has said so. The outcome
         // carries the hold's own sentence rather than "stopped listing",
-        // which was untrue (#486). The Fix tool still says every outcome, so
-        // the operator hears the refusal again behind "That fix did not
-        // succeed"; a silent outcome needs a Refused form of FixerFixOutcome.
+        // which was untrue (#486), as a REFUSAL: the Fix tool records it as
+        // the stage's notice and says nothing more, so the operator hears the
+        // hold's one sentence and not "That fix did not succeed" behind it.
         if (selected == GuardedOutcome.Refused)
-            return FixerFixOutcome.Failed(Lexicon.Get("settings.guard.refused",
+            return FixerFixOutcome.RefusedByHold(Lexicon.Get("settings.guard.refused",
                 ("action", Lexicon.Get("settings.guard.action.profile_load"))));
         if (selected != GuardedOutcome.Done)
             return FixerFixOutcome.Failed("The radio stopped listing \"" + candidate + "\" before "
@@ -492,7 +492,8 @@ internal static class FixerFixActions
                     + " Run the audio setup stage again to see where things stand.");
             }
             Tracing.TraceLine("FixerFixActions: '" + fixId + "' "
-                + (outcome.Succeeded ? "done — " : "FAILED — ") + outcome.WhatItBecame,
+                + (outcome.Succeeded ? "done — " : outcome.Refused ? "REFUSED by a hold — " : "FAILED — ")
+                + outcome.WhatItBecame,
                 outcome.Succeeded ? TraceLevel.Info : TraceLevel.Warning);
             return outcome;
         };

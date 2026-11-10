@@ -74,7 +74,6 @@ namespace JJFlexWpf.Dialogs
 
                 bool valid = ResultLow >= 0 && ResultHigh > ResultLow;
                 ApplyButton.IsEnabled = valid;
-                System.Windows.Automation.AutomationProperties.SetName(ResultText, ResultText.Text);
             }
             else
             {

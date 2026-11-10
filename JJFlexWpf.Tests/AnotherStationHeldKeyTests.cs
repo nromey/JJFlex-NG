@@ -154,7 +154,9 @@ public sealed class AnotherStationHeldKeyTests : IDisposable
     {
         Guard();
         string src = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "PttSafetyController.cs"));
-        int at = src.IndexOf("private bool RefuseWhileAnotherStationTransmits(string door)", StringComparison.Ordinal);
+        // Internal since the third 2026-11-09 junk box batch: Check your
+        // audio's start path calls it with its own door names (#910).
+        int at = src.IndexOf("internal bool RefuseWhileAnotherStationTransmits(string door)", StringComparison.Ordinal);
         Assert.True(at > 0);
         string body = src.Substring(at, src.IndexOf("\n        }", at, StringComparison.Ordinal) - at);
         Assert.Contains("if (!AnotherStationRefusalIsNew(door)) return true;", body, StringComparison.Ordinal);

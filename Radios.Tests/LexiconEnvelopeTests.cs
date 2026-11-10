@@ -1192,6 +1192,11 @@ namespace Radios.Tests
                 // Junk box 2026-11-08 (#911): push to talk or the lock refused
                 // while another station transmits on the radio. DRAFT PROSE.
                 "audio.ptt.another_station_transmitting",
+                // Junk box 2026-11-09, third batch (#680, defect 2): the
+                // receipt for "Ask Me at the Next Connect" under Profiles on
+                // This Radio. Said only in answer to the operator's choice:
+                // TextOnly. DRAFT PROSE.
+                "settings.profile_guest.ask_next_connect",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

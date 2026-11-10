@@ -47,7 +47,6 @@ namespace JJFlexWpf.Dialogs
                 ? $"{displayName} is not available.\n\nWhat would you like to do?"
                 : $"{displayName} is not available.\n\n{trimmedAdvice}\n\nWhat would you like to do?";
             AutomationProperties.SetName(this, $"Auto-connect failed. {displayName} is not available.");
-            AutomationProperties.SetName(MessageText, MessageText.Text.Replace("\n\n", " "));
 
             _screenReaderSpeak?.Invoke(
                 trimmedAdvice == null
