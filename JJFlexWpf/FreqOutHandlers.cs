@@ -217,22 +217,16 @@ public class FreqOutHandlers
     /// Callback to persist step sizes to the operator profile.
     /// </summary>
     /// <remarks>
-    /// <b>NOTHING ASSIGNS THIS.</b> Verified 2026-08-27: the property is
-    /// declared here, invoked from <c>MainWindow.ApplySettingsChanges</c> and
-    /// from <see cref="ApplyStepSizes"/>, and set nowhere in any .cs, .vb or
-    /// .xaml file. <c>PersonalData.CoarseTuneStep</c> and
-    /// <c>FineTuneStep</c> exist on the operator record and are likewise read
-    /// and written by nothing. So a step size chosen in Settings — and now a
-    /// step size chosen with a key — lives for the session and is gone at
-    /// exit. The doc comment here used to say "Set by ApplicationEvents.vb",
-    /// which was description drift.
-    /// <para>Left as found rather than wired, because connecting it is a
-    /// decision, not a repair: a ladder key can fire many times a second
-    /// under key repeat, and <c>PersonalData.Write</c> serialises the whole
-    /// operator record synchronously. Whoever connects it needs a save policy
-    /// (debounce, or save on exit) and needs Noel's ruling on whether a
-    /// mid-QSO step change should become the permanent default. Reported as
-    /// an out-of-scope finding of #302.</para>
+    /// Wired by ApplicationEvents.vb's FreqOutHandlersWireCallback to
+    /// <see cref="StepSizeMemory.Note"/> (#346 J2, ruled by Noel 2026-11-09
+    /// 20:38: the step last chosen, by any route, is the step the operator
+    /// starts with next time, on every radio). The operator's saved steps
+    /// (<c>PersonalData.CoarseTuneStep</c> and <c>FineTuneStep</c>) are loaded
+    /// through <see cref="ApplyStepSizes"/> BEFORE this is assigned, and with
+    /// it unassigned at an operator switch, because <see cref="ApplyStepSizes"/>
+    /// always invokes it. The write is debounced there, so a key-repeat walk
+    /// does not serialise the operator record on every repeat. Until
+    /// 2026-11-09 nothing assigned this, and a chosen step was gone at exit.
     /// </remarks>
     public Action<int, int>? SaveStepSizes { get; set; }
 

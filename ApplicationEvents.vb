@@ -32,6 +32,13 @@ Namespace My
         ''' </summary>
         Friend Shared FactIssuer As Radios.Facts.FactAuthorityRegistry
 
+        ''' <summary>
+        ''' The operator's last tuning steps, kept (#346 J2): wired to
+        ''' FreqOutHandlers.SaveStepSizes in FreqOutHandlersWireCallback, flushed
+        ''' at an operator switch and at shutdown.
+        ''' </summary>
+        Private Shared _stepMemory As JJFlexWpf.StepSizeMemory
+
         Private Sub MyApplication_Startup(sender As Object, e As ApplicationServices.StartupEventArgs) Handles Me.Startup
             ' The Startup thread IS the UI thread: this same thread goes on to
             ' create ShellForm and run the message loop. Record its identity
@@ -501,6 +508,52 @@ Namespace My
                     ' threading the config through their call chains.
                     Radios.AccessibilityConfig.Load(BaseConfigDir, opName)
                 End If
+
+                ' #346 J2 (Noel, 2026-11-09 20:38): the step last chosen, by any
+                ' route, is the step you start with next time, on every radio.
+                ' Loaded BEFORE SaveStepSizes is wired, because ApplyStepSizes
+                ' always invokes it: so the load cannot save.
+                If CurrentOp IsNot Nothing Then
+                    handlers.ApplyStepSizes(CurrentOp.CoarseTuneStep, CurrentOp.FineTuneStep, speak:=False)
+                End If
+                ' Debounced on the UI thread: the record in memory changes at
+                ' once, its file a moment after the steps stop changing, so a
+                ' key-repeat walk does not write the operator record on every
+                ' repeat. The record is captured when the step changes, and a
+                ' record an Operators dialog edit has since replaced is not
+                ' written (that edit already saved the steps, through the copy).
+                _stepMemory = New JJFlexWpf.StepSizeMemory(
+                    Function() CurrentOp,
+                    Sub(record, coarse, fine)
+                        Dim op = DirectCast(record, PersonalData.personal_v1)
+                        op.CoarseTuneStep = coarse
+                        op.FineTuneStep = fine
+                    End Sub,
+                    Sub(record)
+                        Dim op = DirectCast(record, PersonalData.personal_v1)
+                        If Operators IsNot Nothing AndAlso Operators.ops IsNot Nothing AndAlso Operators.ops.Contains(op) Then
+                            Operators.Write(op)
+                        End If
+                    End Sub)
+                handlers.SaveStepSizes = AddressOf _stepMemory.Note
+
+                ' An operator switch (or an edit) writes the pending step to its
+                ' own operator's file first, then loads the steps of the operator
+                ' now current, with SaveStepSizes unwired for the load.
+                If Operators IsNot Nothing Then
+                    AddHandler Operators.ConfigEvent,
+                        Sub(evSender, evArgs)
+                            _stepMemory?.Flush()
+                            If CurrentOp Is Nothing Then Return
+                            Dim save = handlers.SaveStepSizes
+                            handlers.SaveStepSizes = Nothing
+                            Try
+                                handlers.ApplyStepSizes(CurrentOp.CoarseTuneStep, CurrentOp.FineTuneStep, speak:=False)
+                            Finally
+                                handlers.SaveStepSizes = save
+                            End Try
+                        End Sub
+                End If
             End Sub
         End Sub
 
@@ -550,6 +603,12 @@ Namespace My
             ' A modal fighting a teardown is how an app ends up with no exit path
             ' at all, and teardown is exactly when late failures arrive.
             JJFlexWpf.DiagnosticOffer.BeginShutdown()
+            ' #346 J2: the operator's last tuning steps, saved at close.
+            Try
+                _stepMemory?.Flush()
+            Catch ex As Exception
+                JJTrace.Tracing.TraceLine("Shutdown: tuning step save threw: " & ex.Message)
+            End Try
             ' Permanent teardown telemetry (Sprint 32 merge fix). A field report of
             ' "no CW goodbye" is undiagnosable after the fact without knowing which
             ' guard condition held and what else was sounding — the 2026-08-19
