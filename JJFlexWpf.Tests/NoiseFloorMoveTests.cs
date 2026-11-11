@@ -125,6 +125,37 @@ public sealed class NoiseFloorMoveTests : IDisposable
         Assert.Equal(new NoiseJournalChange("rnnoise", "floor", "20", "10"), moved.Changes.Single());
     }
 
+    /// <summary>
+    /// Repair rounds 5 and 6 (#1019; the 2026-11-09 radio walk, finding 6): the
+    /// move runs in the main window's first config load, during startup, before
+    /// any diagnostic log opens, and a line written with no log open is dropped.
+    /// So the journal sends its line by the trace's KEPT route, which holds it
+    /// until a log opens (boot, a later capture, either instance) and keeps its
+    /// order; Radios.Tests' TraceCoordinatorTests pin that route against real
+    /// log files. This pins that the move's line is sent, once, by that route.
+    /// The test above pins the journal EVENT, which always fired; this pins the
+    /// trace line.
+    /// </summary>
+    [Fact]
+    public void The_moves_journal_line_goes_by_the_kept_route_so_a_log_that_opens_later_still_gets_it()
+    {
+        var production = NoiseSettingsJournal.TraceLine;
+        Assert.Equal("JJTrace.Tracing.TraceLineKept", production.Method.DeclaringType!.FullName + "." + production.Method.Name);
+        var lines = new List<string>();
+        NoiseSettingsJournal.TraceLine = l => { lock (lines) lines.Add(l); };
+        try
+        {
+            WriteAsOlderBuild(new AudioOutputConfig { RNNoiseStrength = 0.8f });
+            AudioOutputConfig.Load(_dir);
+            AudioOutputConfig.Load(_dir);                 // the second start moves nothing
+            Assert.True(ReceiveNoiseFloorMove.HasRun(_dir)); // positive control: the move ran
+        }
+        finally { NoiseSettingsJournal.TraceLine = production; }
+        string[] sent; lock (lines) sent = lines.ToArray();
+        var moved = Assert.Single(sent, l => l.Contains("NoiseJournal: DefaultMoved"));
+        Assert.Contains("rnnoise.floor 20 -> 10", moved);
+    }
+
     [Fact]
     public void A_brand_new_setup_has_the_new_default_and_moves_nothing()
     {

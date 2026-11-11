@@ -90,6 +90,18 @@ namespace JJFlexWpf
         /// <summary>Whether an engine has any Advanced lever: the floor of an engine with its own reduction setting, its Advanced settings, or listening to the removed audio.</summary>
         public bool HasAdvancedLevers(string id) => Levers(id, includeAdvanced: true).Any(l => l.Advanced);
 
+        /// <summary>
+        /// Whether the Audio menu offers this engine an Advanced settings row: a
+        /// computer engine in this build (it has a factory) with any Advanced lever
+        /// (repair round 5, Codex's fourth check). An engine not in this version
+        /// (NVIDIA until Track G, #768) still lists Advanced levers, but nothing it
+        /// opens can run, so it gets no row. Availability on this computer (a
+        /// missing library) does not remove the row: nothing is greyed or hidden
+        /// for availability (#726, ruling 5).
+        /// </summary>
+        public bool OffersAdvancedRow(string id) =>
+            _catalog.Find(id) is { Side: DenoiseSide.Pc, Factory: not null } && HasAdvancedLevers(id);
+
         private bool Shown(DenoiseEngineEntry e, EngineSettingDescriptor d)
         {
             if (d.ShownWhen is not (string setting, string choice)) return true;
@@ -299,9 +311,12 @@ namespace JJFlexWpf
             var e = _catalog.Find(id);
             if (e == null || e.Side == DenoiseSide.Radio) return false;
             // Measured only when the running bank was built from today's choice: a
-            // model chosen while no audio flows has not been carried in yet.
-            if (SlotFor(e) is { } slot && slot.RunningIsCurrent(id) && slot.RunningLatencySamples > 0)
-                ms = (int)Math.Round(slot.RunningLatencySamples / 48.0);
+            // model chosen while no audio flows has not been carried in yet. One
+            // read of one snapshot, so the engine, its build and the delay are the
+            // same bank's even during a swap (repair round 5).
+            int samples = SlotFor(e)?.CurrentLatencySamples(id) ?? 0;
+            if (samples > 0)
+                ms = (int)Math.Round(samples / 48.0);
             else
             {
                 string? model = e.Settings.Any(d => d.Name == "model") ? SlotFor(e)?.GetSetting(id, "model").Choice : null;

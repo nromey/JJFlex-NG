@@ -135,7 +135,7 @@ namespace JJTrace
     /// on a task — all of which would take the framework's trace lock in the
     /// opposite order. Faults are collected and published afterwards.</para>
     /// </summary>
-    public static class TraceCoordinator
+    public static partial class TraceCoordinator
     {
         /// <summary>
         /// The gate. Shared with <see cref="TraceRouterListener"/>, which is
@@ -1006,12 +1006,25 @@ namespace JJTrace
 
         private static void DrainDeferredLocked()
         {
-            bool any = false;
+            // Kept lines held for want of a log first (#1019, repair round 7):
+            // they were taken from the head of this queue, so they are older
+            // than anything still in it. Every transition ends here, so
+            // whichever one opened a log writes them before anything else.
+            bool any = WriteHeldKeptLocked();
             Guid current = _session?.SessionId ?? Guid.Empty;
             int budget = Tracing.DeferredLinesQueued;
             while (budget-- > 0 && Tracing.TryDequeueDeferred(out DeferredTraceLine line))
             {
                 any = true;
+                if (line.Keep)
+                {
+                    // In queue order with every other deferred line. No live
+                    // sink: held for the next one (bounded and counted), not
+                    // dropped. A sink failure on it is counted, not retried.
+                    if (SinkLiveLocked()) WriteKeptLocked(line);
+                    else HoldKeptLocked(line);
+                    continue;
+                }
                 if (_sink == null) continue;   // nothing recording: as a direct write would be, dropped
                 if (line.BoundSession == Guid.Empty || line.BoundSession == current)
                 {

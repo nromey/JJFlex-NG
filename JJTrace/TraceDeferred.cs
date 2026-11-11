@@ -19,13 +19,26 @@ namespace JJTrace
     /// </remarks>
     internal readonly struct DeferredTraceLine
     {
-        internal DeferredTraceLine(Guid boundSession, string text, bool newLine, TraceRecordKind kind = null)
+        internal DeferredTraceLine(Guid boundSession, string text, bool newLine, TraceRecordKind kind = null,
+                                   bool keep = false, long generation = 0)
         {
             BoundSession = boundSession;
             Text = text;
             NewLine = newLine;
             Kind = kind;
+            Keep = keep;
+            Generation = generation;
         }
+
+        /// <summary>
+        /// A KEPT line (<see cref="Tracing.TraceLineKept"/>): with no live sink
+        /// at the drain it is held for the next one rather than dropped. Always
+        /// unbound and a whole line.
+        /// </summary>
+        internal bool Keep { get; }
+
+        /// <summary>For a kept line, the sink generation live when it was recorded; 0 when none was.</summary>
+        internal long Generation { get; }
 
         /// <summary>The session this line may be written into, or
         /// <see cref="Guid.Empty"/> for whichever is current at the drain.</summary>
@@ -211,9 +224,11 @@ namespace JJTrace
             if (Volatile.Read(ref _deferredCount) >= MaxDeferredLines)
             {
                 Interlocked.Increment(ref _deferredDroppedAtCap);
+                if (line.Keep) NoteKeptRefusedAtQueueCap();   // reported by the next drain with a log
                 return;
             }
             Interlocked.Increment(ref _deferredCount);
+            if (line.Keep) NoteKeptQueued();
             _deferred.Enqueue(line);
             if (Interlocked.CompareExchange(ref _deferredDrainScheduled, 1, 0) == 0)
             {
@@ -232,6 +247,7 @@ namespace JJTrace
             if (_deferred.TryDequeue(out line))
             {
                 Interlocked.Decrement(ref _deferredCount);
+                if (line.Keep) NoteKeptDequeued();
                 return true;
             }
             return false;
