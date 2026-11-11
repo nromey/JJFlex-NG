@@ -121,6 +121,7 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
                     [--risk safe|mutates|transmits] [--transmit-clearance FILE]
   jjprobe act       [--pid N] --op invoke|toggle|select|expand|focus|value|listitems
                     (--id ID | --name NAME | --class CLASS) [--index N] [--value V]
+                    (--op value SETS the value: it needs --armed and --value)
   jjprobe value     [--pid N] (--id ID | --name NAME | --class CLASS) [--index N]
                     (reads a control's value and range value; changes nothing)
   jjprobe inventory [--pid N | --appdir DIR] [--json]
@@ -296,7 +297,7 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
     {
         int pid = ResolvePid(a);
         Console.WriteLine(Act.Perform(pid, a.Str("op") ?? "invoke", a.Str("id"), a.Str("name"),
-            a.Str("class"), a.Int("index", 0), a.Str("value")));
+            a.Str("class"), a.Int("index", 0), a.Str("value"), armed: a.Flag("armed")));
         return 0;
     }
 

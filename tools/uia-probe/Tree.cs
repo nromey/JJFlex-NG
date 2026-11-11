@@ -218,8 +218,21 @@ internal static class Act
     }
 
     public static string Perform(int pid, string op, string? automationId, string? name, string? className,
-        int index, string? value)
+        int index, string? value, bool armed = false)
     {
+        // Setting a value changes the app, and with no --value it would blank
+        // the field, so it is refused unless armed and given a value (#989).
+        // Checked before the search, so a refusal touches nothing.
+        if (string.Equals(op, "value", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!armed)
+                return "REFUSED: --op value SETS the control's value. Add --armed to set it, or use "
+                    + "`jjprobe value` to read it without changing anything.";
+            if (value == null)
+                return "REFUSED: --op value needs --value. Without one it would blank the field. "
+                    + "To set it empty on purpose, pass --value \"\".";
+        }
+
         AutomationElement? el = Find(pid, automationId, name, className, index, out int matchCount, out string notFound);
         if (el == null) return notFound;
 
@@ -257,7 +270,7 @@ internal static class Act
                 el.SetFocus();
                 sb.AppendLine("FOCUSED"); break;
             case "value":
-                ((ValuePattern)el.GetCurrentPattern(ValuePattern.Pattern)).SetValue(value ?? "");
+                ((ValuePattern)el.GetCurrentPattern(ValuePattern.Pattern)).SetValue(value!);
                 sb.AppendLine($"SET '{value}'"); break;
             case "listitems":
                 var itemCond = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem);

@@ -11,7 +11,8 @@ namespace Radios.Tests
     /// <summary>
     /// #989: jjprobe reads a named control's value, changing nothing, and a
     /// read that finds nothing says what it did not find instead of printing
-    /// an empty line.
+    /// an empty line. And the setter it already had, <c>act --op value</c>,
+    /// no longer runs unarmed or blanks a field when no value was given.
     /// </summary>
     /// <remarks>
     /// The tool has no test project and is not referenced here, so this
@@ -108,6 +109,22 @@ namespace Radios.Tests
             Assert.Contains("Observe.ReadValue(el)", body, StringComparison.Ordinal);
             Assert.DoesNotContain("SetValue", body, StringComparison.Ordinal);
             Assert.DoesNotContain(".Invoke(", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Setting_a_value_needs_armed_and_a_value_and_is_refused_before_anything_is_found()
+        {
+            string tree = Read("Tree.cs");
+            int perform = tree.IndexOf("public static string Perform(", StringComparison.Ordinal);
+            int armed = tree.IndexOf("if (!armed)", perform, StringComparison.Ordinal);
+            int missing = tree.IndexOf("if (value == null)", perform, StringComparison.Ordinal);
+            int find = tree.IndexOf("Find(pid, automationId, name, className, index,", perform, StringComparison.Ordinal);
+            Assert.True(armed > perform && missing > armed && find > missing,
+                "act --op value must refuse unarmed, and refuse with no --value, before it touches any control");
+            Assert.DoesNotContain("SetValue(value ?? \"\")", tree, StringComparison.Ordinal);
+
+            string program = Read("Program.cs");
+            Assert.Contains("armed: a.Flag(\"armed\")", program, StringComparison.Ordinal);
         }
     }
 }

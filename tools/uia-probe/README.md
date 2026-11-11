@@ -73,6 +73,9 @@ Default process name is `jjflexible`. Every command takes `--pid N` or
   position, *not* for verifying key bindings: invoking a button proves the
   button works and proves nothing about the key meant to reach it.
   **And see the next section before you use `--op toggle` for anything.**
+  `--op value` SETS a value, so it is refused without `--armed`, and refused
+  without `--value` (it used to blank the field). Pass `--value ""` to set it
+  empty on purpose.
 - `value (--id ID | --name NAME | --class CLASS) [--index N]` — read a
   control's value without focusing or changing it (#989): ValuePattern, and
   RangeValuePattern where the control has one. It finds the control the way
