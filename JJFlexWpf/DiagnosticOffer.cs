@@ -117,6 +117,12 @@ namespace JJFlexWpf
     public static class DiagnosticOffer
     {
         private static readonly HashSet<FailureKind> _announced = new();
+
+        /// <summary>
+        /// The subjects whose report was announced (#636). A second report
+        /// about one of them is recorded and not spoken.
+        /// </summary>
+        private static readonly HashSet<string> _subjectsSaid = new(StringComparer.Ordinal);
         private static readonly object _gate = new();
         private static bool _installed;
         private static bool _shuttingDown;
@@ -151,7 +157,7 @@ namespace JJFlexWpf
         /// <summary>Test and diagnostic hook: forget what has already been announced.</summary>
         public static void ResetSessionState()
         {
-            lock (_gate) { _announced.Clear(); }
+            lock (_gate) { _announced.Clear(); _subjectsSaid.Clear(); }
         }
 
         private static void OnFailureReported(object? sender, OperationFailureEventArgs e)
@@ -185,7 +191,7 @@ namespace JJFlexWpf
                 if (e.IsUpdate && ProblemLog.Update(e.Key!, e.What, e.Detail)) return;
                 ProblemLog.Record(e.Kind, e.What, e.Detail, e.Key);
 
-                if (!ShouldAnnounce(e.Kind)) return;
+                if (!ShouldAnnounce(e)) return;
 
                 // Marshal to the UI thread when we have one. Failures are
                 // reported from wherever they happen — config writes, connect
@@ -200,7 +206,7 @@ namespace JJFlexWpf
             catch { /* an announcement that cannot be made must not become a second failure */ }
         }
 
-        private static bool ShouldAnnounce(FailureKind kind)
+        private static bool ShouldAnnounce(OperationFailureEventArgs e)
         {
             if (_shuttingDown) return false;
 
@@ -208,12 +214,37 @@ namespace JJFlexWpf
             try { if (IsTransmitting?.Invoke() == true) return false; }
             catch { }
 
+            bool secondAboutASubjectSaid;
             lock (_gate)
             {
-                // First of each kind only. Add returns false when the kind is
-                // already present, which is the whole rule.
-                return _announced.Add(kind);
+                // A second sentence about an event the operator has just
+                // heard about stays silent (#636, Noel 2026-09-26: "I'd
+                // silence the second"): the diagnostic log's own file stopping
+                // is announced, and "an earlier recording may be missing its
+                // last lines" about that same file is not. Decided on the
+                // SUBJECT, before the kind is counted, so a silenced sentence
+                // does not use up its kind's one announcement and a problem
+                // of the same kind about another file is still said. Both
+                // stay in the Problems list; that was recorded above.
+                secondAboutASubjectSaid = e.FollowsSubject && e.Subject != null && _subjectsSaid.Contains(e.Subject);
+                if (!secondAboutASubjectSaid)
+                {
+                    // First of each kind only. Add returns false when the kind
+                    // is already present, which is the whole rule.
+                    if (!_announced.Add(e.Kind)) return false;
+                    if (e.Subject != null) _subjectsSaid.Add(e.Subject);
+                    return true;
+                }
             }
+
+            try
+            {
+                JJTrace.Tracing.TraceLine(
+                    $"DiagnosticOffer: recorded and not announced, a second report about {e.Subject} ({e.Kind})",
+                    System.Diagnostics.TraceLevel.Info);
+            }
+            catch { }
+            return false;
         }
 
         private static void Announce(OperationFailureEventArgs e)
