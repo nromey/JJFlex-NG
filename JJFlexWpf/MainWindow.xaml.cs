@@ -408,6 +408,9 @@ public partial class MainWindow : UserControl
                     (Radios.FrequencyKeySlices)Math.Clamp(userConfig.FrequencyKeyReads, 0, 2);
                 Radios.TransmitSliceNotice.Setting =
                     (Radios.TransmitElsewhereNotice)Math.Clamp(userConfig.TransmitElsewhereNotice, 0, 2);
+                // #979: "hertz" on spoken filter widths, so a session that
+                // never connects reads widths the way the operator chose.
+                Radios.HertzSpeech.SpeakUnits = userConfig.FilterWidthUnits;
             }
         }
         catch (Exception ex)
@@ -1152,8 +1155,6 @@ public partial class MainWindow : UserControl
             _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig?.BandMemoryEnabled ?? true;
             _freqOutHandlers.FrequencyUnits = CurrentPttConfig?.FrequencyDisplayUnits ?? Radios.FrequencyUnits.Hz;
         }
-        // The word "hertz" on spoken filter widths (#979), live at once.
-        if (CurrentPttConfig != null) Radios.HertzSpeech.SpeakUnits = CurrentPttConfig.FilterWidthUnits;
 
         // Save PttConfig to disk
         if (CurrentPttConfig != null && OpenParms != null)
@@ -5954,8 +5955,6 @@ public partial class MainWindow : UserControl
                 _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig.BandMemoryEnabled;
                 _freqOutHandlers.FrequencyUnits = CurrentPttConfig.FrequencyDisplayUnits;
             }
-            // The operator's switch for "hertz" on spoken filter widths (#979).
-            Radios.HertzSpeech.SpeakUnits = CurrentPttConfig.FilterWidthUnits;
         }
 
         // Load audio config and initialize meter tones

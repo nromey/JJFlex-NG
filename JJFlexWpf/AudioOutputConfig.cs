@@ -417,6 +417,21 @@ namespace JJFlexWpf
         public int TransmitElsewhereNotice { get; set; } = (int)Radios.TransmitElsewhereNotice.SpeakAndTone;
 
         /// <summary>
+        /// The word "hertz" on SPOKEN filter widths (#979; ruled by Noel
+        /// 2026-11-11: one switch for every verbosity, starting on). True, the
+        /// default for new operators and for every file written before it
+        /// existed, says it; false leaves it off. Made live through
+        /// <see cref="Radios.HertzSpeech.SpeakUnits"/>. Shown on the Tuning tab
+        /// beside Frequency units, but kept HERE, with the operator's other
+        /// speech preferences, and not in the push-to-talk settings beside
+        /// Frequency units: those exist only while a radio is connected, so a
+        /// change made before the first connection was lost (repair one). Root
+        /// decides it, with a radio or without (<see cref="TakeOperatorChoicesFrom"/>,
+        /// <see cref="PersistUserScope"/>).
+        /// </summary>
+        public bool FilterWidthUnits { get; set; } = true;
+
+        /// <summary>
         /// The preferences that describe the OPERATOR rather than a radio and
         /// were added without a per-radio meaning: copied from the root config
         /// over a per-radio one, so the root (written by every Settings OK,
@@ -429,6 +444,7 @@ namespace JJFlexWpf
             if (root == null) return;
             FrequencyKeyReads = root.FrequencyKeyReads;
             TransmitElsewhereNotice = root.TransmitElsewhereNotice;
+            FilterWidthUnits = root.FilterWidthUnits;   // #979
         }
 
         /// <summary>Per-slot meter tone configurations. LEGACY: retained so old
@@ -821,6 +837,9 @@ namespace JJFlexWpf
             // connected applied live and was gone when Settings reopened.
             rootConfig.FrequencyKeyReads = chosen.FrequencyKeyReads;
             rootConfig.TransmitElsewhereNotice = chosen.TransmitElsewhereNotice;
+            // #979: "hertz" on spoken filter widths, the same way: chosen
+            // before the first connection, it is kept.
+            rootConfig.FilterWidthUnits = chosen.FilterWidthUnits;
             rootConfig.Save(rootConfigDir);
         }
 
@@ -1114,6 +1133,9 @@ namespace JJFlexWpf
             // one (#863), the same way.
             Radios.TransmitSliceNotice.Setting =
                 (Radios.TransmitElsewhereNotice)Math.Clamp(TransmitElsewhereNotice, 0, 2);
+
+            // The word "hertz" on spoken filter widths (#979), the same way.
+            Radios.HertzSpeech.SpeakUnits = FilterWidthUnits;
 
             // #128: restoring saved state is not a toggle. The engine's
             // operator booleans tone in their setters (so every road answers

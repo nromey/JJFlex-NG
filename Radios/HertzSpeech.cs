@@ -66,8 +66,8 @@ namespace Radios
         /// Chatty's readout is "width 2750 hertz" on and "width 2750" off.
         /// Starts ON, which gives Terse "500 hertz" where J30 gave the bare
         /// "500". Displayed widths are not speech and are not on it. Set from
-        /// the operator's <c>PttConfig.FilterWidthUnits</c> at connect and
-        /// after Settings.
+        /// the operator's <c>AudioOutputConfig.FilterWidthUnits</c> at startup,
+        /// at connect and after Settings, with a radio or without.
         /// </summary>
         public static bool SpeakUnits { get; set; } = true;
 

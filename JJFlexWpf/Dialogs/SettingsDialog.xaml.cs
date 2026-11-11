@@ -332,7 +332,7 @@ namespace JJFlexWpf.Dialogs
             FilterUnitsCheckbox.Content = Lexicon.Get("settings.filter.units_label");
             System.Windows.Automation.AutomationProperties.SetName(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_label"));
             JJFlexHelp.SetText(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_help"));
-            FilterUnitsCheckbox.IsChecked = _pttConfig.FilterWidthUnits;
+            FilterUnitsCheckbox.IsChecked = _audioConfig.FilterWidthUnits;
 
             // License tab — populate from LicenseConfig
             foreach (var (label, _) in LicenseClassMap)
@@ -1475,7 +1475,9 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.BandMemoryEnabled = BandMemoryEnabled;
             if (FreqUnitsCombo.SelectedIndex >= 0)
                 _pttConfig.FrequencyDisplayUnits = (Radios.FrequencyUnits)FreqUnitsCombo.SelectedIndex;
-            _pttConfig.FilterWidthUnits = FilterUnitsCheckbox.IsChecked != false;   // #979
+            // #979: with the audio settings, so it is kept with no radio
+            // connected; made live by _audioConfig.Apply() below.
+            _audioConfig.FilterWidthUnits = FilterUnitsCheckbox.IsChecked != false;
 
             // Tuning debounce
             _audioConfig.TuneDebounceEnabled = TuneDebounceCheckbox.IsChecked == true;

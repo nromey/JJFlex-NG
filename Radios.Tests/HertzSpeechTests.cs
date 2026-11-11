@@ -243,7 +243,9 @@ namespace Radios.Tests
         [Fact]
         public void The_switch_starts_on_and_the_readouts_follow_it()
         {
-            Assert.True(new PttConfig().FilterWidthUnits, "the switch must start on (ruled 2026-11-11 11:58)");
+            // The stored default (on) is pinned where it is stored, with the
+            // audio settings: FilterUnitsWithNoRadioTests (#979 repair one).
+            Assert.True(HertzSpeech.SpeakUnits, "the switch must start on (ruled 2026-11-11 11:58)");
             bool before = HertzSpeech.SpeakUnits;
             try
             {
@@ -277,29 +279,24 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_switch_is_saved_with_the_operators_settings_and_made_live_at_connect_and_after_Settings()
+        public void The_switch_is_on_the_Tuning_tab_and_kept_with_the_audio_settings_not_push_to_talk()
         {
-            string dir = Path.Combine(Path.GetTempPath(), "jjflex-979-" + Guid.NewGuid().ToString("N"));
-            try
-            {
-                new PttConfig { FilterWidthUnits = false }.Save(dir, "op");
-                Assert.False(PttConfig.Load(dir, "op").FilterWidthUnits);
-                new PttConfig { FilterWidthUnits = true }.Save(dir, "op");
-                Assert.True(PttConfig.Load(dir, "op").FilterWidthUnits);
-            }
-            finally { try { Directory.Delete(dir, true); } catch { } }
-
+            // #979 repair one: the push-to-talk settings exist only with a
+            // radio connected, so a switch kept there was lost when changed
+            // before the first connection. Its save, load and live wiring are
+            // FilterUnitsWithNoRadioTests', in JJFlexWpf.Tests.
+            Assert.Null(typeof(PttConfig).GetProperty("FilterWidthUnits"));
             string dialog = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs"));
-            Assert.Contains("FilterUnitsCheckbox.IsChecked = _pttConfig.FilterWidthUnits;", dialog);
-            Assert.Contains("_pttConfig.FilterWidthUnits = FilterUnitsCheckbox.IsChecked != false;", dialog);
+            Assert.Contains("FilterUnitsCheckbox.IsChecked = _audioConfig.FilterWidthUnits;", dialog);
+            Assert.Contains("_audioConfig.FilterWidthUnits = FilterUnitsCheckbox.IsChecked != false;", dialog);
             string xaml = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "SettingsDialog.xaml"));
             int tuning = xaml.IndexOf("Header=\"Tuning\"", StringComparison.Ordinal);
             int license = xaml.IndexOf("Header=\"License\"", StringComparison.Ordinal);
             int box = xaml.IndexOf("x:Name=\"FilterUnitsCheckbox\"", StringComparison.Ordinal);
             Assert.True(tuning >= 0 && box > tuning && box < license, "the units switch is not on the Tuning tab");
             string main = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "MainWindow.xaml.cs"));
-            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(main,
-                @"Radios\.HertzSpeech\.SpeakUnits = CurrentPttConfig\.FilterWidthUnits;").Count);
+            Assert.DoesNotContain("CurrentPttConfig.FilterWidthUnits", main);
+            Assert.Contains("Radios.HertzSpeech.SpeakUnits = userConfig.FilterWidthUnits;", main);
         }
 
         [Fact]
