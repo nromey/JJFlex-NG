@@ -2210,9 +2210,10 @@ public class FreqOutHandlers
             || (ch == 'V' && Keyboard.Modifiers == ModifierKeys.None))
         {
             var newState = Rig.ToggleOffOn(Rig.Vox);
-            // No callsign, no VOX (#335, J8): asked before the write, so the
-            // field does not then announce "VOX on". Simple VOX only; break-in
-            // in CW is not refused (J4). Turning VOX off is never asked.
+            // No callsign, no VOX (#335, J8), and in CW no break-in (J4):
+            // asked before the write, so the field does not then announce
+            // "VOX on", and before the tone refusal, because the callsign
+            // refusal comes first at every door. Turning VOX off is never asked.
             if (newState == FlexBase.OffOnValues.on && ZeroPowerDoors.RefuseVoxOn(Rig, "the VOX field"))
             {
                 e.Handled = true;

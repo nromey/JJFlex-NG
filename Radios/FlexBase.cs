@@ -11149,6 +11149,21 @@ namespace Radios
             {
                 Slice s = VFOToSlice(TXVFO); // also tests the VFO
                 bool val = (value == OffOnValues.on) ? true : false;
+                // No callsign, no VOX and no break-in (#335): turning simple
+                // VOX ON (night question J8) or, on a CW transmit slice, CW
+                // break-in ON (J4, ruled 2026-11-11) is refused with the one
+                // sentence. Asked FIRST, ahead of the tone refusal below and
+                // of the operator-change notes, so the callsign refusal is
+                // the one heard wherever both apply (one rule at every door
+                // and here), and a refused press is not counted as the
+                // operator changing the setting. The two are told apart by
+                // the transmit slice, through the predicates every door asks
+                // (TurnsOnSimpleVox, TurnsOnBreakIn). Off is never refused.
+                // VoxHold's restore puts back the radio's OWN value by writing
+                // the radio directly and never comes through here, so the
+                // radio's front panel is left alone.
+                if (val && TurnsOnSimpleVox(s) && RefusedForNoCallsign("VOX")) return;
+                if (val && TurnsOnBreakIn(s) && RefusedForNoCallsign("CW break-in")) return;
                 if (val && (TxToneEngaged || TxReferenceArmed))
                 {
                     ScreenReaderOutput.Speak(TxReferenceArmed
@@ -11158,17 +11173,8 @@ namespace Radios
                 }
                 if (s != null)
                 {
-                    // No callsign, no VOX (#335, night question J8): turning
-                    // simple VOX ON is refused with the one sentence, ahead of
-                    // the operator-change notes below, so a refused press is
-                    // not counted as the operator changing the setting. CW
-                    // break-in is not refused (night question J4), and the two
-                    // are told apart by the transmit slice, through the one
-                    // predicate every door asks (TurnsOnSimpleVox). Off is
-                    // never refused. VoxHold's restore writes the radio
-                    // directly and never comes through here.
+                    // The callsign was asked above, ahead of the tone.
                     bool simpleVox = TurnsOnSimpleVox(s);
-                    if (val && simpleVox && RefusedForNoCallsign("VOX")) return;
                     // The operator's own change voids every restore of this
                     // setting owed before it (integration fix 3, Codex's #596
                     // B3), told BEFORE the write is queued so the restore's

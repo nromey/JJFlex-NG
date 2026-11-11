@@ -121,28 +121,40 @@ internal static class ZeroPowerDoors
     /// <summary>For tests: stands in for <see cref="FlexBase.VoxOnWouldTurnOnSimpleVox"/>.</summary>
     internal static Func<FlexBase?, bool>? SimpleVoxOverride { get; set; }
 
+    /// <summary>For tests: stands in for <see cref="FlexBase.VoxOnWouldTurnOnBreakIn"/>.</summary>
+    internal static Func<FlexBase?, bool>? BreakInOverride { get; set; }
+
     /// <summary>
     /// Turning VOX ON with no callsign (#335, ruled by Noel 2026-11-09 20:28,
-    /// night question J8): refused with the same sentence, asked by each door
-    /// before it writes, so a menu press speaks after the menu closes and a
-    /// checkbox can be put back. True when refused: the caller must not turn
-    /// VOX on. Ask it only on the way ON; turning VOX off is never refused.
+    /// night question J8), and in CW turning break-in ON (ruled 2026-11-11
+    /// 11:51, night question J4): refused with the same sentence, asked by
+    /// each door before it writes, so a menu press speaks after the menu
+    /// closes and a checkbox can be put back. True when refused: the caller
+    /// must not turn VOX on. Ask it only on the way ON; turning VOX or
+    /// break-in off is never refused.
     /// </summary>
     /// <remarks>
-    /// <para><b>Simple VOX only.</b> In CW the same control switches break-in,
-    /// which is not refused (night question J4 is open). Which of the two a
-    /// press would switch is the radio's one answer,
-    /// <see cref="FlexBase.VoxOnWouldTurnOnSimpleVox"/>, read from the
-    /// TRANSMIT slice, the slice <see cref="FlexBase.Vox"/>'s setter writes
-    /// through, and never from the selected slice's mode.</para>
+    /// <para><b>Both of the control's meanings.</b> In CW the same control
+    /// switches break-in. Which of the two a press would switch is the
+    /// radio's answer, <see cref="FlexBase.VoxOnWouldTurnOnSimpleVox"/> and
+    /// its sibling <see cref="FlexBase.VoxOnWouldTurnOnBreakIn"/>, read from
+    /// the TRANSMIT slice, the slice <see cref="FlexBase.Vox"/>'s setter
+    /// writes through, and never from the selected slice's mode. With no
+    /// transmit slice neither is true and nothing is refused (the setter
+    /// writes nothing).</para>
+    /// <para><b>The callsign refusal comes first, at every door.</b> Each
+    /// door asks this before its "tone running" refusal, and the setter asks
+    /// in the same order, so when both apply the operator hears the callsign
+    /// sentence whichever way the press came.</para>
     /// <para>The setter asks the same question again
-    /// (<c>RefusedForNoCallsign("VOX")</c>), so a route with no door of its
-    /// own is refused too. The radio's own front-panel VOX is left alone.</para>
+    /// (<c>RefusedForNoCallsign</c>), so a route with no door of its own is
+    /// refused too. The radio's own front-panel VOX and break-in are left
+    /// alone.</para>
     /// </remarks>
     internal static bool RefuseVoxOn(FlexBase? rig, string door, bool afterMenu = false)
     {
         if (!NoCallsign(rig)) return false;
-        if (!WouldTurnOnSimpleVox(rig)) return false;
+        if (!WouldTurnOnSimpleVox(rig) && !WouldTurnOnBreakIn(rig)) return false;
         return RefuseNoCallsign(rig, door, afterMenu);
     }
 
@@ -154,6 +166,18 @@ internal static class ZeroPowerDoors
         catch (Exception ex)
         {
             Tracing.TraceLine("ZeroPowerDoors: VOX: " + ex.Message, TraceLevel.Warning);
+            return false;   // the setter asks again, from the radio's own answer
+        }
+    }
+
+    private static bool WouldTurnOnBreakIn(FlexBase? rig)
+    {
+        if (BreakInOverride != null) return BreakInOverride(rig);
+        if (rig == null) return false;
+        try { return rig.VoxOnWouldTurnOnBreakIn; }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ZeroPowerDoors: break-in: " + ex.Message, TraceLevel.Warning);
             return false;   // the setter asks again, from the radio's own answer
         }
     }
