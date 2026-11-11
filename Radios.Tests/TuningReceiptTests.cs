@@ -395,6 +395,45 @@ namespace Radios.Tests
             Assert.Equal(true, b.Rig.TuneAdmittedHere);
         }
 
+        /// <summary>
+        /// #1043 F3: a refused set records WHY beside the admission, so a band
+        /// jump or a 60 m stop can say it; an admitted one clears it.
+        /// </summary>
+        [Fact]
+        public void A_refused_tune_records_its_cause_and_an_admitted_one_clears_it()
+        {
+            Bench b = NewBench();
+            Slice a = Add(b, 0, tx: true, active: true, mhz: 14.100);
+
+            Set(a, "_lock", true);
+            b.Rig.VirtualRXFrequency = 14_100_100;          // the band jump's way
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+            Assert.Equal(FlexBase.TuneRefusal.SliceLocked, b.Rig.TuneRefusedBecause);
+            b.Rig.Frequency = 5_332_000;                    // the 60 m stop's way, on the same locked slice
+            Assert.Equal(FlexBase.TuneRefusal.SliceLocked, b.Rig.TuneRefusedBecause);
+
+            Set(a, "_lock", false);
+            b.Rig.VirtualRXFrequency = 14_100_200;          // admitted: no cause left behind
+            Assert.Equal(true, b.Rig.TuneAdmittedHere);
+            Assert.Equal(FlexBase.TuneRefusal.None, b.Rig.TuneRefusedBecause);
+
+            Set(b.Rig, "_Transmit", true);
+            b.Rig.VirtualRXFrequency = 14_100_300;
+            Assert.Equal(FlexBase.TuneRefusal.Transmitting, b.Rig.TuneRefusedBecause);
+            b.Rig.RXFrequency = 14_100_400;                 // admitted in between, while keyed
+            Assert.Equal(FlexBase.TuneRefusal.None, b.Rig.TuneRefusedBecause);
+            b.Rig.Frequency = 5_332_000;
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+            Assert.Equal(FlexBase.TuneRefusal.Transmitting, b.Rig.TuneRefusedBecause);
+            Set(b.Rig, "_Transmit", false);
+
+            // Any other refusal is neither a lock nor transmitting.
+            typeof(FlexBase).GetField("_TXVFO", Private)!.SetValue(b.Rig, -1);
+            b.Rig.TXFrequency = 14_100_500;                 // no valid transmit slice
+            Assert.Equal(false, b.Rig.TuneAdmittedHere);
+            Assert.Equal(FlexBase.TuneRefusal.Other, b.Rig.TuneRefusedBecause);
+        }
+
         [Fact]
         public void The_transmit_frequency_keeps_its_own_answer()
         {

@@ -1214,6 +1214,12 @@ namespace Radios.Tests
                 // last seen under (every saved list answered without it).
                 // Said only in answer to Enter: TextOnly. DRAFT PROSE.
                 "connect.selector.switching_to_last_seen_account",
+                // Junk box batch 5 (2026-11-10), #1043 F3: a band jump or a
+                // 60 m channel stop refused on a locked slice, or while the
+                // radio is transmitting, names that cause. Said only in answer
+                // to the operator's own press: TextOnly. DRAFT PROSE.
+                "settings.tuning.refused_slice_locked",
+                "settings.tuning.refused_transmitting",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

@@ -9627,6 +9627,7 @@ namespace Radios
                 // time it runs.
                 Slice slice = ValidVFO(RXVFO) ? VFOToSlice(RXVFO) : null;
                 t_tuneAdmitted = false;
+                t_tuneRefusal = TuneRefusal.Other;   // RequestTune names a lock, or admits it
                 if (slice == null)
                 {
                     CommitSliceFacts(null, () => SetRxCache(null, value));
@@ -9714,6 +9715,7 @@ namespace Radios
                 // the calling thread's admission false, never the previous
                 // tune's answer (TuneAdmittedHere, as RXFrequency does).
                 t_tuneAdmitted = false;
+                t_tuneRefusal = TuneRefusal.Other;   // RequestTune names a lock, or admits it
 
                 // A REFUSED WRITE MUST NOT LEAVE ITS VALUE BEHIND. Both bails
                 // below used to return with _TXFrequency holding a frequency
@@ -9778,6 +9780,7 @@ namespace Radios
                 // Don't set if transmitting.
                 if (Transmit)
                 {
+                    t_tuneRefusal = TuneRefusal.Transmitting;
                     Tracing.TraceLine("Frequency:can't set it now", TraceLevel.Error);
                     return;
                 }
@@ -9805,7 +9808,7 @@ namespace Radios
             set
             {
                 t_tuneAdmitted = false; // refused unless the set below admits it
-                if (Transmit) return; // disallow set
+                if (Transmit) { t_tuneRefusal = TuneRefusal.Transmitting; return; } // disallow set
                 if (ShowingXmitFrequency) TXFrequency = value;
                 else RXFrequency = value;
             }

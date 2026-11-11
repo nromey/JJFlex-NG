@@ -1197,6 +1197,9 @@
     },
     "delivery": null
   },
+  "_note_1043_f3": "Junk box batch 5 (2026-11-10) added settings.tuning.refused_slice_locked and refused_transmitting: what a band jump or a 60 meter channel stop says when it is refused on a locked slice or while the radio is transmitting. DRAFT PROSE for review; a typed frequency keeps settings.tuning.unable_to_tune.",
+  "settings.tuning.refused_slice_locked": {"text": "Unable to tune: this slice is locked.", "delivery": null},
+  "settings.tuning.refused_transmitting": {"text": "Unable to tune while the radio is transmitting.", "delivery": null},
   "settings.tuning_mode.in_logging_mode": "In Logging mode. Press Control Shift L to return to tuning.",
   "settings.txslice.cleared": "Transmit slice cleared. No slice will key the radio.",
   "settings.txslice.none_set": "No transmit slice is set",
