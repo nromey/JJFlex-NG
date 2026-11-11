@@ -30,18 +30,42 @@
                                  Margin="0,0,0,4"/>
         <ListBox x:Name="CoarseList"
                  Height="120"
-                 Margin="0,0,0,12"
+                 Margin="0,0,0,8"
                  AutomationProperties.Name="Coarse tuning step"
                  local:JJFlexHelp.Text="The step Up and Down move the frequency by. From the frequency field you can also walk this list with Alt and the left and right arrows, without opening this window."/>
+
+        <!-- #346 part two: edit the coarse list here, the list S opens (ruled
+             J3). Labels set from the lexicon in code (DRAFT, for Codex). -->
+        <controls:DecorativeText x:Name="CoarseNewLabel"
+                                 Style="{StaticResource DialogLabel}"
+                                 Margin="0,0,0,2"/>
+        <TextBox x:Name="CoarseNewBox" Margin="0,0,0,4"/>
+        <WrapPanel Orientation="Horizontal" Margin="0,0,0,12">
+            <Button x:Name="CoarseAddButton" MinWidth="90" Height="28" Margin="0,0,8,0" Click="CoarseAddButton_Click"/>
+            <Button x:Name="CoarseRemoveButton" MinWidth="90" Height="28" Margin="0,0,8,0" Click="CoarseRemoveButton_Click"/>
+            <Button x:Name="CoarseStartingButton" MinWidth="90" Height="28" Click="CoarseStartingButton_Click"/>
+        </WrapPanel>
 
         <controls:DecorativeText Text="Fine step — Shift plus Up and Down tune by this:"
                                  Style="{StaticResource DialogLabel}"
                                  Margin="0,0,0,4"/>
         <ListBox x:Name="FineList"
                  Height="120"
-                 Margin="0,0,0,12"
+                 Margin="0,0,0,8"
                  AutomationProperties.Name="Fine tuning step"
                  local:JJFlexHelp.Text="The step Shift plus Up and Down move the frequency by. From the frequency field you can also walk this list with Shift and the left and right arrows, without opening this window."/>
+
+        <!-- #346 part two: edit the fine list here, the list S opens (ruled
+             J3). Labels set from the lexicon in code (DRAFT, for Codex). -->
+        <controls:DecorativeText x:Name="FineNewLabel"
+                                 Style="{StaticResource DialogLabel}"
+                                 Margin="0,0,0,2"/>
+        <TextBox x:Name="FineNewBox" Margin="0,0,0,4"/>
+        <WrapPanel Orientation="Horizontal" Margin="0,0,0,12">
+            <Button x:Name="FineAddButton" MinWidth="90" Height="28" Margin="0,0,8,0" Click="FineAddButton_Click"/>
+            <Button x:Name="FineRemoveButton" MinWidth="90" Height="28" Margin="0,0,8,0" Click="FineRemoveButton_Click"/>
+            <Button x:Name="FineStartingButton" MinWidth="90" Height="28" Click="FineStartingButton_Click"/>
+        </WrapPanel>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="OkButton"

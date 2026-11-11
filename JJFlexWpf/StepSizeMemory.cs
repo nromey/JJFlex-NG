@@ -46,6 +46,7 @@ public sealed class StepSizeMemory
     private readonly Func<object, (int Coarse, int Fine)>? _read;
     private readonly Action _arm;
     private readonly Action _disarm;
+    private readonly Action<object, int[]?, int[]?>? _rememberLists;
 
     private object? _pendingRecord;
 
@@ -53,9 +54,11 @@ public sealed class StepSizeMemory
     /// <param name="remember">Puts the two steps on a record, in memory only.</param>
     /// <param name="write">Writes a record to its own file.</param>
     /// <param name="read">Reads the two steps a record holds.</param>
+    /// <param name="rememberLists">Puts the two step lists on a record, in memory only (#346 part two); null keeps no lists.</param>
     public StepSizeMemory(Func<object?> currentOperator, Action<object, int, int> remember, Action<object> write,
-        Func<object, (int Coarse, int Fine)> read)
+        Func<object, (int Coarse, int Fine)> read, Action<object, int[]?, int[]?>? rememberLists = null)
     {
+        _rememberLists = rememberLists;
         _currentOperator = currentOperator ?? throw new ArgumentNullException(nameof(currentOperator));
         _remember = remember ?? throw new ArgumentNullException(nameof(remember));
         _write = write ?? throw new ArgumentNullException(nameof(write));
@@ -68,8 +71,10 @@ public sealed class StepSizeMemory
 
     /// <summary>For tests: the timer stood in for, so nothing needs a dispatcher.</summary>
     internal StepSizeMemory(Func<object?> currentOperator, Action<object, int, int> remember, Action<object> write,
-        Action arm, Action disarm, Func<object, (int Coarse, int Fine)>? read = null)
+        Action arm, Action disarm, Func<object, (int Coarse, int Fine)>? read = null,
+        Action<object, int[]?, int[]?>? rememberLists = null)
     {
+        _rememberLists = rememberLists;
         _currentOperator = currentOperator;
         _remember = remember;
         _write = write;
@@ -110,6 +115,25 @@ public sealed class StepSizeMemory
         _remember(record, coarseHz, fineHz);
         _pendingRecord = record;
         _arm();
+    }
+
+    /// <summary>
+    /// The operator's step lists changed (#346 part two, edited in the list S
+    /// opens): remember them on the current operator's record now, where
+    /// <c>Radios.TuningSteps</c> reads them at once, and write the record
+    /// with the steps' own debounce. Null for a list means the starting list.
+    /// False when nothing could remember them (no operator, or no lists kept),
+    /// so the caller can say so rather than lose them silently.
+    /// </summary>
+    public bool NoteLists(int[]? coarseHz, int[]? fineHz)
+    {
+        object? record = _currentOperator();
+        if (record == null || _rememberLists == null) return false;
+        if (_pendingRecord != null && !ReferenceEquals(_pendingRecord, record)) Flush();
+        _rememberLists(record, coarseHz, fineHz);
+        _pendingRecord = record;
+        _arm();
+        return true;
     }
 
     /// <summary>Write the pending record now, if there is one. Idempotent.</summary>

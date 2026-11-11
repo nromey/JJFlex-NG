@@ -535,6 +535,14 @@ namespace Radios.Speech
         public const string LoggingRadioPane = "logging-radio-pane";
 
         /// <summary>
+        /// The answer to an edit of a tuning step list in the list S opens
+        /// (#346 part two): a step added, removed, refused, or the starting
+        /// list put back. Each is covered by the next edit's answer, from the
+        /// same dialog about the same list.
+        /// </summary>
+        public const string TuningStepListEdit = "tuning-step-list-edit";
+
+        /// <summary>
         /// The outcome of an edit in the Memories dialog that the dialog's own
         /// controls cannot convey — the radio did not add a memory, or a typed
         /// frequency was refused and the old one kept. Covered by the next such

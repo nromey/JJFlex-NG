@@ -24,6 +24,7 @@ public sealed class StepSizeMemoryTests
     private sealed class Record
     {
         public int Coarse = 5000, Fine = 100;
+        public int[]? CoarseList, FineList;
     }
 
     private object? _current = new Record();
@@ -36,7 +37,8 @@ public sealed class StepSizeMemoryTests
         r => _written.Add((r, ((Record)r).Coarse, ((Record)r).Fine)),
         () => _armed++,
         () => _disarmed++,
-        r => (((Record)r).Coarse, ((Record)r).Fine));
+        r => (((Record)r).Coarse, ((Record)r).Fine),
+        (r, c, f) => { var rec = (Record)r; rec.CoarseList = c; rec.FineList = f; });
 
     [Fact]
     public void A_key_repeat_walk_writes_the_record_once_with_where_it_landed()
@@ -243,5 +245,31 @@ public sealed class StepSizeMemoryTests
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
         Assert.NotNull(dir);
         return File.ReadAllText(Path.Combine(dir!.FullName, Path.Combine(parts))).Replace("\r\n", "\n");
+    }
+
+    /// <summary>
+    /// #346 part two: the step lists are kept on the current operator's
+    /// record at once (where the table reads them) and written with the
+    /// steps' own debounce; with no operator they are not kept, and the
+    /// caller is told so it can say it.
+    /// </summary>
+    [Fact]
+    public void The_step_lists_are_kept_on_the_operators_record_with_the_same_debounce()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var memory = Memory();
+        Assert.True(memory.NoteLists(new[] { 250, 3000 }, null));
+        var rec = (Record)_current!;
+        Assert.Equal(new[] { 250, 3000 }, rec.CoarseList);
+        Assert.Null(rec.FineList);                      // the starting list
+        Assert.Empty(_written);
+        Assert.True(memory.Pending);
+        Assert.Equal(1, _armed);
+        memory.Flush();
+        Assert.Same(rec, Assert.Single(_written).Record);
+
+        _current = null;
+        Assert.False(memory.NoteLists(new[] { 500 }, null));
+        Assert.False(memory.Pending);
     }
 }

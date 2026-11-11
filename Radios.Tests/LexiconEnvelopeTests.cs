@@ -1252,6 +1252,33 @@ namespace Radios.Tests
                 // Connect" receipt while radio setup protection is on. Said
                 // only in answer to the operator's choice: TextOnly. DRAFT PROSE.
                 "settings.profile_guest.ask_after_protection",
+                // Junk box batch 9, #346 part two (J3): the step list editor in
+                // the list S opens. Labels, and sentences said only in answer
+                // to the operator's own edit: TextOnly. DRAFT PROSE.
+                "settings.tuning.steps_list_new_coarse",
+                "settings.tuning.steps_list_new_fine",
+                "settings.tuning.steps_list_add_coarse",
+                "settings.tuning.steps_list_add_fine",
+                "settings.tuning.steps_list_remove_coarse",
+                "settings.tuning.steps_list_remove_fine",
+                "settings.tuning.steps_list_starting_coarse",
+                "settings.tuning.steps_list_starting_fine",
+                "settings.tuning.steps_list_added",
+                "settings.tuning.steps_list_removed",
+                "settings.tuning.steps_list_removed_current",
+                "settings.tuning.steps_list_not_in_list",
+                "settings.tuning.steps_list_already",
+                "settings.tuning.steps_list_not_a_step",
+                "settings.tuning.steps_list_coarse_range",
+                "settings.tuning.steps_list_fine_range",
+                "settings.tuning.steps_list_last_stays",
+                "settings.tuning.steps_list_starting_title",
+                "settings.tuning.steps_list_starting_coarse_body",
+                "settings.tuning.steps_list_starting_fine_body",
+                "settings.tuning.steps_list_starting_question",
+                "settings.tuning.steps_list_starting_coarse_back",
+                "settings.tuning.steps_list_starting_fine_back",
+                "settings.tuning.steps_list_not_kept",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

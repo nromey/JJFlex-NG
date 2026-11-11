@@ -1,0 +1,1 @@
+- You can now make the tuning step lists your own. In the list S opens, type a new coarse or fine step with Hz or kHz and add it, remove a step you never use, or put the starting steps back. The arrow keys and Settings use your lists, and they are kept with your other operator settings.
