@@ -5,7 +5,6 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using JJFlexWpf.Dialogs;
 using Xunit;
 
 namespace JJFlexWpf.Tests;
@@ -40,16 +39,29 @@ public sealed class DialogLoadedFocusKeptTests
 {
     private const BindingFlags AnyInstance = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
 
+    /// <remarks>
+    /// The dialogs are named as strings, never as types. Radios.Tests'
+    /// <c>DialogReachabilityTests</c> reads every source file in the repository
+    /// for a dialog's name to decide whether something opens it, and a test
+    /// that named <c>ListerDialog</c>, <c>ManageGroupsDialog</c>,
+    /// <c>MemoryGroupDialog</c> or <c>MenusDialog</c> would make those
+    /// unwired dialogs look reachable. They are not: the first three are WPF
+    /// replacements whose WinForms originals are still the live ones, and the
+    /// Menus pair is dead on both sides. Their fix waits for the day they are
+    /// wired.
+    /// </remarks>
     [Theory]
-    [InlineData(typeof(ListerDialog), "ScreenList", "list")]
-    [InlineData(typeof(ManageGroupsDialog), "GroupsListBox", "list")]
-    [InlineData(typeof(MemoryGroupDialog), "GroupsListBox", "list")]
-    [InlineData(typeof(MemoriesDialog), "MemoryList", "list")]
-    [InlineData(typeof(MenusDialog), "MenuListBox", "list")]
-    [InlineData(typeof(ShowHelpDialog), "HelpListBox", "list with rows")]
-    [InlineData(typeof(LogCharacteristicsDialog), "NameBox", "text")]
-    public void Focus_after_the_window_renders_is_where_loaded_put_it(Type dialogType, string target, string kind)
+    [InlineData("ListerDialog", "ScreenList", "list")]
+    [InlineData("ManageGroupsDialog", "GroupsListBox", "list")]
+    [InlineData("MemoryGroupDialog", "GroupsListBox", "list")]
+    [InlineData("MemoriesDialog", "MemoryList", "list")]
+    [InlineData("MenusDialog", "MenuListBox", "list")]
+    [InlineData("ShowHelpDialog", "HelpListBox", "list with rows")]
+    [InlineData("LogCharacteristicsDialog", "NameBox", "text")]
+    public void Focus_after_the_window_renders_is_where_loaded_put_it(string dialogName, string target, string kind)
     {
+        Type dialogType = typeof(JJFlexDialog).Assembly.GetType("JJFlexWpf.Dialogs." + dialogName)
+            ?? throw new InvalidOperationException("JJFlexWpf has no dialog " + dialogName);
         OnSta(() =>
         {
             object dialog = RuntimeHelpers.GetUninitializedObject(dialogType);
