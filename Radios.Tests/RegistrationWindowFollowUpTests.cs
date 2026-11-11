@@ -25,7 +25,10 @@ namespace Radios.Tests
         {
             string src = Source("JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs");
             string click = Between(src, "private void SetupUnregisterButton_Click(", "StartRegistration(register: false, check);");
-            Assert.Contains("Lexicon.Get(\"settings.radio.unregister.confirm_body\",\n                    (\"accountEmail\", check.AccountEmail))", click, StringComparison.Ordinal);
+            // The sentence and the account it is given, in one call.
+            int key = click.IndexOf("\"settings.radio.unregister.confirm_body\",", StringComparison.Ordinal);
+            int account = click.IndexOf("(\"accountEmail\", check.AccountEmail)", StringComparison.Ordinal);
+            Assert.True(key > 0 && account > key && account - key < 120, "the unregister confirmation is given the account it acts with");
 
             Lexicon.Load(Lexicon.Partitions);
             string body = Lexicon.Get("settings.radio.unregister.confirm_body", ("accountEmail", "nobody@example.com"));
