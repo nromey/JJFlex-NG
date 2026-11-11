@@ -205,6 +205,25 @@ namespace Radios
                     _releasePostedAtMs = null;   // honoured; nothing in flight
                     return Verdict.Quiet;
                 }
+
+                // The ceiling holds here too (#1020 repair one). A screen
+                // reader that delivers a held key as down-then-up pairs leaves
+                // the watch in THIS branch for nearly all of every 250 ms, and
+                // each synthetic up restarts the grace below, so a ceiling
+                // checked only while _held was reached on one poll phase in
+                // fifty. While the controller still reports the hold, the
+                // carrier is up for the hold the span counts from its first
+                // press, whatever the key did a moment ago. A hold the
+                // controller has let go of was answered just above, so a real
+                // release, and a hold the controller ended itself, are never
+                // killed here.
+                if (_span.HeldMs(nowMs) >= MaxHoldMs)
+                {
+                    _span.Forget();
+                    _releasePostedAtMs = nowMs;
+                    return Verdict.KillHoldTooLong;
+                }
+
                 if (nowMs - _releasePostedAtMs.Value >= ReleaseGraceMs)
                 {
                     _releasePostedAtMs = null;
