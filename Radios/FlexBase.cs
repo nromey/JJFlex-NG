@@ -7706,6 +7706,21 @@ namespace Radios
 
         /// <summary>The radio reported a key-down: restart the spoken
         /// transmit-audio figures unless our own key already did (#651).</summary>
+        /// <summary>
+        /// True while the radio's interlock reads UnkeyRequested: the radio is
+        /// carrying out an unkey. A Mox rise reported then is the momentary
+        /// Mox:True inside that unkey's status batch (UnkeyRequested, Mox:True,
+        /// Ready, Mox:False; the 8600 bench of 2026-11-06, Fail 5), not a
+        /// key-down. Narrow on purpose: an ordinary key-down's Mox can arrive
+        /// before its own interlock report, so only "the radio says it is
+        /// unkeying" counts. Never throws.
+        /// </summary>
+        private bool RadioReportsUnkeying()
+        {
+            try { return theRadio?.InterlockState == Flex.Smoothlake.FlexLib.InterlockState.UnkeyRequested; }
+            catch { return false; }
+        }
+
         private void restartAudioSampleOnRadioKeyDown()
         {
             // Not a key-down: the radio's status batch for an unkey reads
@@ -7714,15 +7729,11 @@ namespace Radios
             // threw away the transmission's peak just as it ended. The rule is
             // narrow on purpose: an ordinary key-down's Mox can arrive before its
             // own interlock report, so only "the radio says it is unkeying" counts.
-            try
+            if (RadioReportsUnkeying())
             {
-                if (theRadio?.InterlockState == Flex.Smoothlake.FlexLib.InterlockState.UnkeyRequested)
-                {
-                    Tracing.TraceLine("Mox: a momentary key-down inside the radio's unkey; the audio sample is kept", TraceLevel.Info);
-                    return;
-                }
+                Tracing.TraceLine("Mox: a momentary key-down inside the radio's unkey; the audio sample is kept", TraceLevel.Info);
+                return;
             }
-            catch { }
             long now = Environment.TickCount64;
             long own = Interlocked.Exchange(ref _ownAudioSampleStartMs, 0);
             if (ShouldRestartAudioSampleOnRadioKeyDown(own, now))
@@ -8141,16 +8152,29 @@ namespace Radios
         private void noteRadioMox(bool mox)
         {
             bool oldTransmit = _Transmit;
+            // A KEY-DOWN, as the key-down hooks below mean it (#957, applying
+            // #651's rule): a rise while the radio's interlock reads
+            // UnkeyRequested is the momentary Mox:True inside the radio's own
+            // unkey batch, not a carrier rising. Without this, our own unkey on
+            // the 8600 began a transmit episode, moved the falling tone's
+            // origin, opened a new txMeters evidence window and re-armed the
+            // reference's restart, for a transmission that never happened.
+            // _Transmit and TransmitChange still follow the radio's Mox for the
+            // blip; that is reported, not changed here.
+            bool keyDown = mox && !oldTransmit && !RadioReportsUnkeying();
+            if (mox && !oldTransmit && !keyDown)
+                Tracing.TraceLine("Mox: a momentary key-down inside the radio's unkey; no transmission begins", TraceLevel.Info);
             // A carrier rising that we did not ask for through EnqueueKeyOn
             // (VOX, a hand mic, another client) begins an episode too (#863 N1).
-            if (mox && !oldTransmit) NoteTransmitEpisodeBegins();
+            if (keyDown) NoteTransmitEpisodeBegins();
             // And the origin of whatever falling tone this carrier will owe
             // (repair round 7, #863 S2): recorded here, where the radio reports
             // the rise, not when a deferred notification of it is handled.
-            if (mox && !oldTransmit) NoteCarrierRose();
-            if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
+            if (keyDown) NoteCarrierRose();
+            if (keyDown && !_tuneCycleActive) beginTxLineWindow();
+            // Asks the same rule itself, with its own trace (#651).
             if (mox && !oldTransmit) restartAudioSampleOnRadioKeyDown();
-            if (mox && !oldTransmit && TxReferenceArmed)
+            if (keyDown && TxReferenceArmed)
                 txFilePlayer.RestartOnNextBuffer();
             _Transmit = mox;
             if (oldTransmit && !mox)
