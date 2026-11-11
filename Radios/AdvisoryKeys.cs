@@ -36,6 +36,7 @@ namespace Radios
         private const string SmartLinkSetupValue = "smartlink-setup";
         private const string NoPhysicalAccessCascadeValue = "no-physical-access-cascade-v1";
         private const string StillRunningAtExitValue = "still-running-at-exit-v1";
+        private const string StationSaveExplanationValue = "station-save-explanation-v1";
         private const string RegisterPrefix = "register|";
         private const string OwnershipPrefix = "radio-ownership|";
         private const string OwnershipVersion = "-v1";
@@ -100,6 +101,19 @@ namespace Radios
             Lexicon.Get("settings.silenced.still_running"));
 
         /// <summary>
+        /// The explanation before the station is saved to the radio (Radio,
+        /// Save Station Setup to Radio; #776, ruled by Noel 2026-10-19). Once
+        /// hidden, Save saves at once and speaks its receipt; hidden on every
+        /// radio. Safe because the save is refused on a radio that is not the
+        /// operator's before any explanation, and again at the write (#777).
+        /// Per computer, as every message here is.
+        /// </summary>
+        // DRAFT: the review-list label is Codex's to word.
+        public static AdvisoryKey StationSaveExplanation => new(
+            StationSaveExplanationValue,
+            Lexicon.Get("settings.silenced.station_save"));
+
+        /// <summary>
         /// The words for a key that is already in the store — the same table
         /// read backwards.
         /// </summary>
@@ -120,6 +134,7 @@ namespace Radios
                 case SmartLinkSetupValue: return SmartLinkSetup.Label;
                 case NoPhysicalAccessCascadeValue: return NoPhysicalAccessCascade.Label;
                 case StillRunningAtExitValue: return StillRunningAtExit.Label;
+                case StationSaveExplanationValue: return StationSaveExplanation.Label;
             }
 
             if (key.StartsWith(OwnershipPrefix, StringComparison.Ordinal)

@@ -84,8 +84,15 @@ namespace Radios.Tests
                 MethodBody(profiles, "public bool ShouldOfferStationLayoutSave("));
 
             string menu = Read(Menu);
-            Assert.Contains("Rig.StationLayoutSaveBlocker();",
+            // #776 moved the menu save's order into StationSaveFlow, so its
+            // "don't show again" can be driven by a test: the menu hands the
+            // blocker in, and the flow asks it before anything else.
+            Assert.Contains("rig.StationLayoutSaveBlocker,",
                 MethodBody(menu, "private void SaveStationSetupFromMenu("));
+            string flow = MethodBody(menu, "internal static (string Sentence, Radios.VerbosityLevel Level) StationSaveFlow(");
+            int asked = flow.IndexOf("string? refused = blocker();", StringComparison.Ordinal);
+            Assert.True(asked >= 0 && asked < flow.IndexOf("explanationHidden()", StringComparison.Ordinal),
+                "the menu save does not ask the blocker before the explanation");
             Assert.Contains("rig.SaveCurrentStationLayout();",
                 MethodBody(menu, "private void OfferStationSaveBeforeDisconnect("));
         }

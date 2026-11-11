@@ -4458,16 +4458,63 @@ public class NativeMenuBar : IDisposable
     private void SaveStationSetupFromMenu()
     {
         if (Rig == null) { SpeakNoRadio(); return; }
+        var rig = Rig;
+        var (sentence, level) = StationSaveFlow(
+            rig.StationLayoutSaveBlocker,
+            () => rig.CurrentGlobalProfileName,
+            () => Radios.AdvisorySuppression.IsSuppressed(Radios.AdvisoryKeys.StationSaveExplanation),
+            ConfirmStationSave,
+            rig.SaveCurrentStationLayout);
+        SpeakAfterMenuClose(sentence, level);
+    }
 
-        var blocker = Rig.StationLayoutSaveBlocker();
-        if (blocker != null)
+    /// <summary>
+    /// Saving the station to the radio, in order (#776): the guard first, then
+    /// the explanation unless the operator has hidden it, then the save, which
+    /// asks the ownership guard again at the write (#777). Returns what to say
+    /// and at what level. Pure of windows, so a test drives every branch.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both guards stay ahead of the explanation, hidden or not.</b>
+    /// <see cref="Radios.FlexBase.StationLayoutSaveBlocker"/> refuses a radio
+    /// that is not the operator's, or another operator present, before
+    /// anything is shown, and <see cref="Radios.FlexBase.SaveCurrentStationLayout"/>
+    /// asks it again. So hiding the explanation can only ever skip it on the
+    /// operator's own radio, and the receipt is still said: the receipt is not
+    /// the warning (ruled by Noel 2026-10-19).
+    /// </remarks>
+    internal static (string Sentence, Radios.VerbosityLevel Level) StationSaveFlow(
+        Func<string?> blocker,
+        Func<string?> profileName,
+        Func<bool> explanationHidden,
+        Func<string?, bool> confirm,
+        Func<string?> save)
+    {
+        string? refused = blocker();
+        if (refused != null) return (refused, Radios.VerbosityLevel.Critical);
+
+        string? name = profileName();
+        if (explanationHidden())
         {
-            SpeakAfterMenuClose(blocker, Radios.VerbosityLevel.Critical);
-            return;
+            Tracing.TraceLine("SaveStationSetup: the explanation is hidden (don't show again); saving at once", TraceLevel.Info);
+        }
+        else if (!confirm(name))
+        {
+            return (Radios.Lexicon.Get("settings.station_layout.nothing_saved"), Radios.VerbosityLevel.Terse);
         }
 
-        string profileName = Rig.CurrentGlobalProfileName;
+        string? error = save();
+        return (error ?? Radios.Lexicon.Get("settings.station_layout.saved", ("profileName", name)),
+            Radios.VerbosityLevel.Critical);
+    }
 
+    /// <summary>
+    /// The explanation before the save, with its "don't show this again"
+    /// (#776). The shared question box is unchanged; only this caller passes
+    /// it a key. Hiding is honoured on Yes only, the dialog's own rule.
+    /// </summary>
+    private static bool ConfirmStationSave(string? profileName)
+    {
         // ── APPROVED BY NOEL, 2026-08-20 (Sprint 33 Track K) ──
         // THIS ROUTE CARRIES THE SHARED-STATE SENTENCE and the disconnect offer
         // does not. That split is deliberate: the disconnect prompt interrupts
@@ -4495,19 +4542,10 @@ public class NativeMenuBar : IDisposable
             question: Radios.Lexicon.Get("settings.station_layout.menu_question",
                 ("profileName", profileName)),
             yesLabel: Radios.Lexicon.Get("settings.station_layout.menu_yes_label"),
-            noLabel: Radios.Lexicon.Get("settings.station_layout.menu_no_label"));
+            noLabel: Radios.Lexicon.Get("settings.station_layout.menu_no_label"),
+            suppressKey: Radios.AdvisoryKeys.StationSaveExplanation);
 
-        if (confirm.ShowDialog() != true)
-        {
-            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.station_layout.nothing_saved"));
-            return;
-        }
-
-        var error = Rig.SaveCurrentStationLayout();
-        SpeakAfterMenuClose(
-            error ?? Radios.Lexicon.Get("settings.station_layout.saved",
-                ("profileName", profileName)),
-            Radios.VerbosityLevel.Critical);
+        return confirm.ShowDialog() == true;
     }
 
     /// <summary>

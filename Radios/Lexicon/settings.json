@@ -1032,6 +1032,8 @@
   "settings.silenced.restored_one": "Restored. {label} will be shown again.",
   "settings.silenced.reversible_help": "Nothing you silence is lost. Everything is listed under Settings, Notifications, Messages You Have Silenced, where you can bring any of it back.",
   "settings.silenced.smartlink_setup": "The offer to set up SmartLink on this computer",
+  "_note_776": "Junk box #776 (2026-11-11) added settings.silenced.station_save below: how Messages You Have Silenced names the explanation before saving the station to the radio. A DRAFT FOR CODEX TO WORD.",
+  "settings.silenced.station_save": {"text": "The explanation before saving the station to the radio", "delivery": null},
   "settings.silenced.still_running": "The reminder on the way out that something is still running",
   "settings.silenced.unrecognised": "A message this version of JJ Flexible does not recognise, recorded as {key}",
   "settings.slice.active": "Slice {letter} active",

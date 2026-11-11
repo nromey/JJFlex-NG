@@ -2803,6 +2803,9 @@ namespace Radios.Tests
                 "settings.filter.width_named",
                 "settings.filter.units_label",
                 "settings.filter.units_help",
+                // Junk box #776 (2026-11-11): the silenced-messages label for the
+                // station save's explanation. DRAFT for Codex.
+                "settings.silenced.station_save",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
