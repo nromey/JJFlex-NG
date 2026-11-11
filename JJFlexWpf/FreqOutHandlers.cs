@@ -1569,7 +1569,7 @@ public class FreqOutHandlers
                 switch (key)
                 {
                     // The bare arrows are the operator's choice (#517, ruled by
-                    // Noel 2026-11-09 21:01): "Arrows tune on the Slice field"
+                    // Noel 2026-11-09 21:01): "Tune with Up and Down on the Slice field"
                     // in Settings, Accessibility, Slice list. Unchecked (the
                     // default, AccessibilityConfig's initialiser) they switch
                     // slices in the slice arrow order, as before the

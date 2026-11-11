@@ -82,7 +82,7 @@ namespace Radios.Tests
 
         /// <summary>
         /// #517, ruled by Noel 2026-11-09 20:50 and 21:01: the Slice field's
-        /// arrows switch slices again, unless "Arrows tune on the Slice field"
+        /// arrows switch slices again, unless "Tune with Up and Down on the Slice field"
         /// is checked, and while they switch slices they honour this setting.
         /// The Slice operations field never walked the slice list, so it never
         /// reads the setting. This test said "no arrow key cycles slices on
