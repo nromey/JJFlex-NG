@@ -1,0 +1,1 @@
+- You can now set your keyer speed in Settings, on the Tuning tab, in words per minute. It is saved as yours: with no radio connected it is set on your radio the next time you connect, and on a radio that is not yours your speed is saved but that radio's keyer is left alone.

@@ -6163,6 +6163,14 @@ RadioConnected:
             Radios.AccessibilityConfig.Load(BaseConfigDir, PersonalData.UniqueOpName(CurrentOp))
         End If
 
+        ' The keyer speed's Settings field works with no radio connected: it
+        ' saves into the operator's own keyer file, the folder the radio layer
+        ' names OperatorsDirectory (ConfigDirectory plus currentOperatorName),
+        ' and the radio layer applies it at the next connect to their own
+        ' radio. Asked when used, so a change of operator is followed.
+        Radios.KeyerSpeedStore.OperatorDirectory =
+            Function() If(CurrentOp Is Nothing, Nothing, BaseConfigDir & "\Radios\" & currentOperatorName())
+
         openTheRadio(True)
 
         ' Sprint 30 Track A — the arriving window carries the state.

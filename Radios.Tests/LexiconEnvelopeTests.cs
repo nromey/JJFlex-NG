@@ -2790,6 +2790,14 @@ namespace Radios.Tests
                 // #1040: Check your audio did not start because Back up first did not
                 // finish. A PLACEHOLDER: Codex writes it; classified when written.
                 "audio.check.not_started_backup_unfinished",
+                // Junk box #879 (2026-11-11): the keyer speed field on the Tuning
+                // tab. The label is Noel's; the rest are DRAFTS for Codex.
+                "settings.keyer.speed_label",
+                "settings.keyer.speed_help",
+                "settings.keyer.speed_out_of_range",
+                "settings.keyer.speed_waits_for_radio",
+                "settings.keyer.speed_not_this_radio",
+                "settings.keyer.speed_not_saved",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
