@@ -91,6 +91,9 @@ namespace Radios
         /// ownership was never answered
         /// (<see cref="KeyerSpeedStore.Outcome.SavedOwnershipUnknown"/>), or no
         /// radio is connected (<see cref="KeyerSpeedStore.Outcome.SavedForNextConnect"/>).
+        /// <see cref="KeyerSpeedStore.Outcome.NotSaved"/> when the operator's
+        /// keyer file could not be written, whatever happened at the radio
+        /// (#879 repair two): never a success it did not have.
         /// </summary>
         public KeyerSpeedStore.Outcome SetOperatorKeyerSpeed(int wordsPerMinute)
         {
@@ -99,12 +102,25 @@ namespace Radios
             var refusal = KeyerSpeedWriteRefusal(out string whose);
             if (refusal == StationLayoutSaveRefusal.None)
             {
-                KeyerSpeed = wpm;
+                // What the KeyerSpeed setter does, with the save's answer kept.
+                cfgData.KeyerSpeed = wpm;
+                bool written = issue7620(true);
+                i_KeyerSpeed = wpm;
+                if (!written)
+                {
+                    Tracing.TraceLine("Keyer speed: " + wpm + " WPM written to the radio, but NOT saved for the operator: their keyer file could not be written", TraceLevel.Error);
+                    return KeyerSpeedStore.Outcome.NotSaved;
+                }
                 Tracing.TraceLine("Keyer speed: " + wpm + " WPM, saved for the operator and written to the radio", TraceLevel.Info);
                 return KeyerSpeedStore.Outcome.WrittenToRadio;
             }
             cfgData.KeyerSpeed = wpm;
-            issue7620(true);
+            if (!issue7620(true))
+            {
+                Tracing.TraceLine("Keyer speed: " + wpm + " WPM NOT saved: the operator's keyer file could not be written; the radio's keyer was left alone ("
+                    + whose + ")", TraceLevel.Error);
+                return KeyerSpeedStore.Outcome.NotSaved;
+            }
             Tracing.TraceLine("Keyer speed: " + wpm + " WPM, saved for the operator only; the radio's keyer was left alone ("
                 + whose + "). It is applied at a later connect to a radio of the operator's own, when that connect puts the operator's settings on it.", TraceLevel.Info);
             switch (refusal)

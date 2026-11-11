@@ -284,7 +284,14 @@ namespace Radios
             public int KeyerSpeed = 20;
         }
         private cfg7620 cfgData = new cfg7620();
-        private void issue7620(bool writeFlag)
+
+        /// <summary>
+        /// Read the current operator's keyer setup into cfgData, or write it
+        /// out. True unless a WRITE did not land on disk (#879 repair two):
+        /// refused by the cross-operator guard, or failed. A read always
+        /// answers true; its failures leave the defaults, as they always did.
+        /// </summary>
+        private bool issue7620(bool writeFlag)
         {
             string operatorFolder = OperatorsDirectory;
             string fileName = operatorFolder + '\\' + "issue7620.xml";
@@ -302,12 +309,16 @@ namespace Radios
                 {
                     Tracing.TraceLine("issue7620:write refused: the keyer setup held is " + _keyerSetupFolder
                         + "'s, not " + operatorFolder + "'s", TraceLevel.Error);
-                    return;
+                    return false;
                 }
                 _keyerSetupFolder = operatorFolder;
                 Tracing.TraceLine("issue7620:write", TraceLevel.Info);
                 try
                 {
+                    // The operator's own folder may not exist yet: an operator
+                    // made and chosen while connected, who has never connected,
+                    // has none until something writes it (#879 repair two).
+                    Directory.CreateDirectory(operatorFolder);
                     cfgStream = File.Open(fileName, FileMode.Create);
                     XmlSerializer xs = new XmlSerializer(typeof(cfg7620));
                     xs.Serialize(cfgStream, cfgData);
@@ -315,6 +326,7 @@ namespace Radios
                 catch (Exception ex)
                 {
                     Tracing.TraceLine("issue7620:write:exception:" + ex.Message, TraceLevel.Error);
+                    return false;
                 }
                 finally
                 {
@@ -355,6 +367,7 @@ namespace Radios
                     }
                 }
             }
+            return true;
         }
 
         /// <summary>

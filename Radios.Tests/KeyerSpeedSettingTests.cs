@@ -363,5 +363,55 @@ namespace Radios.Tests
                 Assert.DoesNotContain("set on your own radio when you connect", text, StringComparison.OrdinalIgnoreCase);
             }
         }
+
+        // ── repair two: a new operator's first save, with no folder yet ──
+
+        [Theory]
+        [InlineData(RadioOwnership.Mine, KeyerSpeedStore.Outcome.WrittenToRadio)]
+        [InlineData(RadioOwnership.SomeoneElses, KeyerSpeedStore.Outcome.SavedNotThisRadio)]
+        [InlineData(null, KeyerSpeedStore.Outcome.SavedOwnershipUnknown)]
+        public void A_new_operators_first_connected_save_makes_their_folder_and_their_file(
+            RadioOwnership? ownership, KeyerSpeedStore.Outcome expected)
+        {
+            // The 2026-11-11 recheck's case: connected as A, an operator made
+            // and chosen through Radio, Operators who has never connected has
+            // no folder under Radios. The save said it was saved and wrote
+            // nothing. This test does NOT make the folder.
+            if (ownership is RadioOwnership o) Declare(o);
+            WriteSetup(OperatorDir(), SetupA());
+            using var c = new Connected(_scope.PathTo("Radios"));
+            string fresh = _scope.PathTo("Radios", "FreshOperator");
+            Assert.False(Directory.Exists(fresh), "positive control: the new operator has no folder");
+
+            c.Operator = "FreshOperator";
+            Assert.Equal(KeyerSpeedStore.DefaultWpm, KeyerSpeedStore.Read(c.F.Rig, fresh));
+            Assert.False(Directory.Exists(fresh), "reading the field must write nothing");
+
+            Assert.Equal(expected, KeyerSpeedStore.Commit(c.F.Rig, fresh, 31));
+            Assert.True(File.Exists(Path.Combine(fresh, KeyerSpeedStore.FileName)), "the save said it saved, and no file was written");
+            AssertSetup(new FlexBase.cfg7620 { KeyerSpeed = 31 }, ReadSetup(fresh), "the new operator's file");
+            AssertSetup(SetupA(), ReadSetup(OperatorDir()), "A's file");
+        }
+
+        [Theory]
+        [InlineData(RadioOwnership.SomeoneElses, 0)]
+        [InlineData(RadioOwnership.Mine, 1)]   // the operating edit still reaches their own radio
+        public void A_connected_save_that_cannot_be_written_says_it_was_not_saved(RadioOwnership ownership, int sentToRadio)
+        {
+            // Something in the way of the folder: a FILE where the new
+            // operator's folder would go. Nothing can create the folder, so
+            // nothing may report the speed as saved.
+            Declare(ownership);
+            WriteSetup(OperatorDir(), SetupA());
+            using var c = new Connected(_scope.PathTo("Radios"));
+            string blocked = _scope.PathTo("Radios", "BlockedOperator");
+            File.WriteAllText(blocked, "not a folder");
+
+            c.Operator = "BlockedOperator";
+            Assert.Equal(KeyerSpeedStore.Outcome.NotSaved, KeyerSpeedStore.Commit(c.F.Rig, blocked, 31));
+            c.RunQueue();
+            Assert.Equal(sentToRadio, c.Sent("cw wpm 31"));
+            Assert.Equal("not a folder", File.ReadAllText(blocked));
+        }
     }
 }
