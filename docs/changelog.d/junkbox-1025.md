@@ -1,1 +1,1 @@
-- The Command Finder now lists the digital modes as "switch to digital USB" and "switch to digital LSB", matching how USB and LSB are said. Searching for "upper" or "lower" still finds them.
+- The Command Finder now lists the digital modes as "switch to digital USB" and "switch to digital LSB", matching how USB and LSB are said, and searching for "USB" or "LSB" finds them. Searching for "upper" or "lower" still does too.

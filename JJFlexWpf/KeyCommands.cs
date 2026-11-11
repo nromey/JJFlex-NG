@@ -499,11 +499,11 @@ public class KeyCommands
                 "Switch to FM mode", "FM", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "fm", "frequency", "modulation", "repeater" }, ShortActionLabel = "switch to F M" },
             new(CommandValues.ModeDIGU, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGU"),
-                "Switch to DIGU mode", "DIGU", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "digu", "digital", "upper", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital USB" },
+                "Switch to digital USB", "DIGU", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "digu", "digital", "usb", "upper", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital USB" },
             new(CommandValues.ModeDIGL, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGL"),
-                "Switch to DIGL mode", "DIGL", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "digl", "digital", "lower", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital LSB" },
+                "Switch to digital LSB", "DIGL", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "digl", "digital", "lsb", "lower", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital LSB" },
 
             // ── TX Filter ──
             new(CommandValues.TXFilterLowDown, KeyTypes.Command, TXFilterLowDownHandler,

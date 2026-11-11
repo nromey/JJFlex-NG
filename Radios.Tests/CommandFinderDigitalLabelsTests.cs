@@ -6,11 +6,14 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// #1025, the remainder (ruled by Noel 2026-11-11 11:55): the Command
-    /// Finder says the digital modes the way the plain sidebands are said,
-    /// "switch to digital USB" and "switch to digital LSB", beside "switch to
-    /// USB" and "switch to LSB"; and "upper" and "lower" stay as search words,
-    /// so the old words still find them. Read from the key table's own rows.
+    /// #1025, the remainder (ruled by Noel 2026-11-11 11:55): the digital
+    /// modes are said the way the plain sidebands are, "switch to digital USB"
+    /// and "switch to digital LSB", beside "switch to USB" and "switch to LSB";
+    /// and "upper" and "lower" stay as search words. Read from the key table's
+    /// own rows. These are the SHORT ACTION LABELS, which the no-radio refusal
+    /// says; the Command Finder's rows are built from each row's help text and
+    /// searched by its matcher, and are tested through both in
+    /// JJFlexWpf.Tests' CommandFinderDigitalRowsTests (repair one).
     /// </summary>
     public class CommandFinderDigitalLabelsTests
     {
