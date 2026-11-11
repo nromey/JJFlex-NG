@@ -99,6 +99,11 @@ namespace Radios.Tests
             ["ReverseBeaconDialog"] = new("WPF replacement; WinForms original still live.", "ReverseBeacon.vb"),
             ["ScanDialog"] = new("WPF replacement; WinForms original still live.", "scan.vb"),
             ["SelectScanDialog"] = new("WPF replacement; WinForms original still live.", "SelectScan.vb"),
+            // Read as reachable until #1061 only because the enum member
+            // CommandValues.LogCharacteristicsDialog shares its name. The Log
+            // Characteristics command reaches globals.vb's
+            // ShowLogCharacteristicsDialog, which opens the WinForms original.
+            ["LogCharacteristicsDialog"] = new("WPF replacement; WinForms original still live.", "LogCharacteristics.vb"),
             ["WelcomeDialog"] = new(
                 "WPF replacement; the WinForms original is still live as a VB default form "
                 + "instance — `Welcome.ShowDialog` at globals.vb:1987, which is why a `new` "
@@ -240,13 +245,69 @@ namespace Radios.Tests
 
             // Known dead, and deliberately so.
             Assert.Contains("WattMeterConfigDialog", unreachable);
+
+            // Reached through a static member, not `new`: the enum rule must
+            // not take these with it (#1061).
+            Assert.False(unreachable.Contains("AudioDevicesDialog"),
+                "AudioDevicesDialog is opened through AudioDevicesDialog.ShowPicker and the scan called it dead.");
+            Assert.False(unreachable.Contains("KeyExplorerDialog"),
+                "KeyExplorerDialog is opened through KeyExplorerDialog.Open and the scan called it dead.");
+
+            // Named only by an enum member, so not a door (#1061).
+            Assert.Contains("LogCharacteristicsDialog", unreachable);
+        }
+
+        /// <summary>
+        /// The enum rule, both ways, on text the test owns: an enum member and
+        /// an enum member access are not uses of a dialog's name; construction,
+        /// a static member, a generic argument and a XAML element still are.
+        /// </summary>
+        [Fact]
+        public void An_enum_member_is_not_a_door_but_every_other_use_still_is()
+        {
+            var sources = new Dictionary<string, string>
+            {
+                ["CommandTypes.cs"] = "public enum CommandValues : int { FooDialog = 56, Other }",
+                ["Legacy.vb"] = "Public Enum Picks\n    BarDialog\nEnd Enum\n",
+            };
+            var enums = EnumTypes(sources);
+            Assert.Contains("CommandValues", enums);
+            Assert.Contains("Picks", enums);
+
+            var foo = new Regex(@"\bFooDialog\b");
+            var bar = new Regex(@"\bBarDialog\b");
+
+            // Positive control: before the rule, the enum case reads as a use.
+            Assert.Matches(foo, sources["CommandTypes.cs"]);
+            Assert.Matches(foo, "Run(CommandValues.FooDialog);");
+
+            // The rule removes exactly the enum cases.
+            Assert.DoesNotMatch(foo, WithoutEnumMembers(sources["CommandTypes.cs"], enums));
+            Assert.DoesNotMatch(bar, WithoutEnumMembers(sources["Legacy.vb"], enums));
+            Assert.DoesNotMatch(foo, WithoutEnumMembers("Run(KeyCommands.CommandValues.FooDialog);", enums));
+            Assert.DoesNotMatch(bar, WithoutEnumMembers("Select Case p : Case Picks.BarDialog", enums));
+
+            // And leaves every other route.
+            Assert.Matches(foo, WithoutEnumMembers("var d = new FooDialog(owner);", enums));
+            Assert.Matches(foo, WithoutEnumMembers("FooDialog.ShowPicker(this, path);", enums));
+            Assert.Matches(foo, WithoutEnumMembers("Show<FooDialog>();", enums));
+            Assert.Matches(foo, WithoutEnumMembers("<local:FooDialog x:Name=\"d\"/>", enums));
         }
 
         // ────────────────────────────────────────────────────────────────
 
         private static IEnumerable<string> Unreachable()
         {
-            var sources = SourceFiles().ToDictionary(p => p, p => Strip(File.ReadAllText(p), Path.GetExtension(p)));
+            var raw = SourceFiles().ToDictionary(p => p, p => Strip(File.ReadAllText(p), Path.GetExtension(p)));
+            // An enum member that shares a dialog's name is not a door to the
+            // dialog (#1061): CommandValues.LogCharacteristicsDialog made the
+            // never-constructed WPF LogCharacteristicsDialog read as reachable.
+            // So enum bodies, and member accesses through any enum type, are
+            // taken out before the name is looked for. Nothing else is: a
+            // dialog reached through a static member (AudioDevicesDialog.ShowPicker,
+            // KeyExplorerDialog.Open) still names its type, and still counts.
+            var enumTypes = EnumTypes(raw);
+            var sources = raw.ToDictionary(kv => kv.Key, kv => WithoutEnumMembers(kv.Value, enumTypes));
 
             // Concrete JJFlexDialog subclasses. Abstract ones are skipped: an
             // abstract class is never constructed by anyone, so a construction
@@ -279,6 +340,40 @@ namespace Radios.Tests
                 bool named = sources.Any(kv => !own.Contains(kv.Key) && word.IsMatch(kv.Value));
                 if (!named) yield return name;
             }
+        }
+
+        private static readonly Regex CSharpEnum = new(
+            @"\benum\s+(\w+)\s*(?::\s*[\w.]+\s*)?\{[^{}]*\}", RegexOptions.CultureInvariant);
+
+        private static readonly Regex VbEnum = new(
+            @"^[ \t]*(?:(?:Public|Private|Friend|Protected|Shadows)\s+)*Enum\s+(\w+)\b.*?^[ \t]*End\s+Enum\b",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Singleline);
+
+        /// <summary>Every enum type declared in the sources, C# and VB.</summary>
+        internal static HashSet<string> EnumTypes(IEnumerable<KeyValuePair<string, string>> sources)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (path, text) in sources)
+            {
+                Regex enumShape = path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase) ? VbEnum : CSharpEnum;
+                foreach (Match m in enumShape.Matches(text)) names.Add(m.Groups[1].Value);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// The text with every enum's member declarations, and every member
+        /// access through an enum type, removed. Only those: any other use of
+        /// a name still counts as a use.
+        /// </summary>
+        internal static string WithoutEnumMembers(string text, ISet<string> enumTypes)
+        {
+            text = CSharpEnum.Replace(text, m => "enum " + m.Groups[1].Value + " { }");
+            text = VbEnum.Replace(text, m => "Enum " + m.Groups[1].Value + " : End Enum");
+            if (enumTypes.Count == 0) return text;
+            var access = new Regex(@"\b(?:" + string.Join("|", enumTypes.Select(Regex.Escape)) + @")\s*\.\s*\w+",
+                RegexOptions.CultureInvariant);
+            return access.Replace(text, "");
         }
 
         /// <summary>
