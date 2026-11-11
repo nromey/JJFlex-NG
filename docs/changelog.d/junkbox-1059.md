@@ -1,0 +1,1 @@
+- In the radio list, a radio reached through a SmartLink account now says checking while that account is signed in but its radio list has not arrived yet, instead of saying it has not been heard from.
