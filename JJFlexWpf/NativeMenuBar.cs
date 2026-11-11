@@ -639,6 +639,9 @@ public class NativeMenuBar : IDisposable
     private void SetGuestProfileIntent(Radios.ProfileGuestIntent intent)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
+        // Whether the choice was saved (#1043 F4). Both writers answer false
+        // only when nothing was saved; an unchanged choice is a saved no-op.
+        bool stored;
         if (intent == Radios.ProfileGuestIntent.NotAnswered)
         {
             // "Ask me at the next connect" (#680, defect 2): back to
@@ -647,13 +650,22 @@ public class NativeMenuBar : IDisposable
             // RecordProfileIntent: on a radio already unanswered it writes
             // nothing, and the marker is the point. The low tone, because the
             // next connect loads nothing.
-            Rig.AskProfileQuestionAtNextConnect();
-            EarconPlayer.ToggleTone(false);
+            stored = Rig.AskProfileQuestionAtNextConnect();
+            if (stored) EarconPlayer.ToggleTone(false);
         }
         else
         {
-            Rig.RecordProfileIntent(intent);
-            EarconPlayer.ToggleTone(intent != Radios.ProfileGuestIntent.LeaveAlone);
+            stored = Rig.RecordProfileIntent(intent);
+            if (stored) EarconPlayer.ToggleTone(intent != Radios.ProfileGuestIntent.LeaveAlone);
+        }
+        // A choice that did not save gets no tone and no receipt, whichever of
+        // the four it was: the receipt would promise what will not happen.
+        if (!stored)
+        {
+            Tracing.TraceLine("Profiles on This Radio: " + intent + " was not saved", TraceLevel.Warning);
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.not_saved"),
+                subject: Radios.Speech.SpeechSubject.ProfileGuestOutcome);
+            return;   // nothing changed, so the menu's marks stand
         }
 
         switch (intent)
@@ -3620,7 +3632,7 @@ public class NativeMenuBar : IDisposable
     /// picks up the speech after the menu closes and focus returns to the main window.
     /// </summary>
     private void SpeakAfterMenuClose(string message,
-        Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse, Func<bool>? stillTrue = null)
+        Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse, Func<bool>? stillTrue = null, string? subject = null)
     {
         _window.Dispatcher.BeginInvoke(async () =>
         {
@@ -3636,7 +3648,7 @@ public class NativeMenuBar : IDisposable
                 Tracing.TraceLine("SpeakAfterMenuClose: not said, no longer true: " + message, TraceLevel.Info);
                 return;
             }
-            Radios.ScreenReaderOutput.Speak(message, level, interrupt: true);
+            Radios.ScreenReaderOutput.Speak(message, level, interrupt: true, subject: subject);
         });
     }
 

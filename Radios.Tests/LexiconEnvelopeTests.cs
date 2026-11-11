@@ -1221,6 +1221,11 @@ namespace Radios.Tests
                 // to the operator's own press: TextOnly. DRAFT PROSE.
                 "settings.tuning.refused_slice_locked",
                 "settings.tuning.refused_transmitting",
+                // Junk box batch 5, #1043 F4: a choice under Profiles on This
+                // Radio that could not be saved, said in place of its receipt.
+                // Said only in answer to the operator's choice: TextOnly.
+                // DRAFT PROSE.
+                "settings.profile_guest.not_saved",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

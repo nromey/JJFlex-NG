@@ -813,6 +813,8 @@
   "settings.profile_guest.opted_in": "JJ Flexible will load your profiles on this radio from the next time you connect, and put the radio's own back when you leave.",
   "settings.profile_guest.opted_in_mine": "JJ Flexible will load your profiles on this radio from the next time you connect.",
   "settings.profile_guest.opted_out": "JJ Flexible will leave this radio's profiles alone.",
+  "_note_1043_f4": "Junk box batch 5 (2026-11-10) added settings.profile_guest.not_saved: what Profiles on This Radio says when a choice could not be saved, in place of its receipt and tone. DRAFT PROSE for review.",
+  "settings.profile_guest.not_saved": {"text": "Could not save your choice for this radio's profiles, so nothing was changed.", "delivery": null},
   "settings.profile_guest.ask_next_connect": {"text": "JJ Flexible will ask about this radio's profiles the next time you connect, and load nothing until you answer.", "delivery": null},
   "settings.profile_guest.pre_answered": "Your profiles load on this radio, as they always have. Change that under Profiles on This Radio in the Radio menu.",
   "settings.profile_guest.live_audio_chosen": "JJ Flexible will put your {preset} transmit audio on this radio from the next time you connect, changing nothing else and saving nothing on it. The radio gets its own settings back when you leave.",
