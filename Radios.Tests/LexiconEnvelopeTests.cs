@@ -1242,6 +1242,12 @@ namespace Radios.Tests
                 // tense. TextOnly, DRAFT PROSE.
                 "connect.identity.last_listed",
                 "connect.identity.last_listed_ports_not_arrived",
+                // Junk box batch 9 (2026-11-11), #405 J6: a Radio Associations
+                // row for a radio no saved account lists right now. Row text,
+                // read only when the operator reads the list: TextOnly. The
+                // second is a fragment of the first. DRAFT PROSE.
+                "settings.associations.last_seen_under",
+                "settings.associations.not_listed_now",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

@@ -30,10 +30,19 @@ public partial class RadioAssociationsDialog : JJFlexDialog
 
         /// <summary>
         /// The account a connect to this radio would use, by the connect's own
-        /// plan (<see cref="FlexBase.ConnectAccountFor"/>), read once when the
-        /// list loads; empty when the plan names none (#405).
+        /// plan, read once when the list loads; empty when the plan names none
+        /// (#405).
         /// </summary>
         public string ConnectAccount { get; init; } = "";
+
+        /// <summary>
+        /// The saved account the radio list binds this radio's row to when
+        /// every saved account's list has answered without the radio; empty
+        /// otherwise (#405, night question J6, ruled 2026-11-11 11:54). Read
+        /// with <see cref="ConnectAccount"/>, from the radio list's own
+        /// resolver, so the two windows agree.
+        /// </summary>
+        public string NotListedAccount { get; init; } = "";
 
         public override string ToString()
         {
@@ -45,7 +54,8 @@ public partial class RadioAssociationsDialog : JJFlexDialog
             var bound = Entry.ResolvedAccount;
             string account = AccountWords(ConnectAccount, Entry.PreferredAccount, Entry.LastSeenViaAccount,
                 boundNotSaved: !string.IsNullOrWhiteSpace(bound)
-                    && FlexBase.SharedAccountManager.GetAccountByEmail(bound) == null);
+                    && FlexBase.SharedAccountManager.GetAccountByEmail(bound) == null,
+                notListedAccount: NotListedAccount);
 
             return Lexicon.Get("settings.associations.row",
                 ("name", name), ("model", model), ("account", account));
@@ -65,8 +75,27 @@ public partial class RadioAssociationsDialog : JJFlexDialog
     /// this machine does not hold: DRAFT for Noel's sheet, because naming an
     /// account there would name one connecting will not use.
     /// </summary>
-    internal static string AccountWords(string connectAccount, string preferred, string lastSeen, bool boundNotSaved)
+    /// <remarks>
+    /// <para><b>When every saved list has answered without the radio</b>
+    /// (<paramref name="notListedAccount"/> named; ruled by Noel 2026-11-11
+    /// 11:54, night question J6), the row names the saved account the radio
+    /// list names for it, marked as not listed right now, so the two windows
+    /// agree: said as the chosen account when it is the chosen one, and as
+    /// the account it was last seen under otherwise. It carries no
+    /// not-on-this-computer note, because that account is saved here by
+    /// definition. DRAFT wording, for Codex.</para>
+    /// </remarks>
+    internal static string AccountWords(string connectAccount, string preferred, string lastSeen, bool boundNotSaved,
+        string notListedAccount = "")
     {
+        if (!string.IsNullOrWhiteSpace(notListedAccount))
+        {
+            string named = string.Equals(notListedAccount, preferred, StringComparison.OrdinalIgnoreCase)
+                ? Lexicon.Get("settings.associations.preferred_account", ("account", notListedAccount))
+                : Lexicon.Get("settings.associations.last_seen_under", ("account", notListedAccount));
+            return named + Lexicon.Get("settings.associations.not_listed_now");
+        }
+
         if (!string.IsNullOrWhiteSpace(connectAccount))
         {
             return string.Equals(connectAccount, preferred, StringComparison.OrdinalIgnoreCase)
@@ -87,6 +116,21 @@ public partial class RadioAssociationsDialog : JJFlexDialog
         if (boundNotSaved)
             account += Lexicon.Get("settings.associations.account_not_on_this_computer");
         return account;
+    }
+
+    /// <summary>
+    /// A row's two accounts, from the radio list's own resolver
+    /// (<see cref="FlexBase.RadioListAccountFor(string, out bool, IEnumerable{string})"/>),
+    /// asked once: the account a connect would use, or, when every saved
+    /// account's list has answered without the radio, the saved account the
+    /// radio list names for it instead (#405 J6). Never a second rule: the
+    /// resolver's answer outside that state is the connect's own plan
+    /// (<see cref="FlexBase.ConnectAccountFor"/>).
+    /// </summary>
+    internal static (string Connect, string NotListed) RowAccounts(string serial)
+    {
+        string account = FlexBase.RadioListAccountFor(serial, out bool everySavedListRuledItOut);
+        return everySavedListRuledItOut ? ("", account) : (account, "");
     }
 
     private static string AutomaticLabel => Lexicon.Get("settings.associations.automatic_label");
@@ -113,10 +157,12 @@ public partial class RadioAssociationsDialog : JJFlexDialog
         RadioList.Items.Clear();
         foreach (var entry in known)
         {
+            var (connect, notListed) = RowAccounts(entry.Serial ?? "");
             RadioList.Items.Add(new RadioRow
             {
                 Entry = entry,
-                ConnectAccount = FlexBase.ConnectAccountFor(entry.Serial ?? ""),
+                ConnectAccount = connect,
+                NotListedAccount = notListed,
             });
         }
 
