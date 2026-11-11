@@ -146,7 +146,7 @@ namespace Radios.Tests
             Assert.Contains("ReleaseRigForTeardown(\"the PTT controller is going away\");", Body(ctl, "public void Dispose()"));
 
             // And the immediate write is a direct FlexLib write, the pattern
-            // setupFromScratch already uses for these two properties.
+            // the old scratch setup (removed with #59) used for these two properties.
             string vox = ReadSource("Radios/FlexBase.VoxHold.cs");
             Assert.Contains("if (immediate)", vox);
             Assert.Contains("radio.SimpleVOXEnable = on;", vox);

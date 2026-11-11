@@ -31,8 +31,8 @@ namespace Radios
     /// <para>
     /// <b>Two ways to write, because of teardown.</b> The ordinary write goes
     /// through the command queue like every other setter here. The IMMEDIATE
-    /// write sets the FlexLib property on the calling thread, which
-    /// <c>setupFromScratch</c> already does for these same two properties:
+    /// write sets the FlexLib property on the calling thread, as the old
+    /// scratch setup (removed with #59) did for these same two properties:
     /// <c>FlexBase.Dispose</c> stops the command loop and disconnects, so a
     /// queued restore made as the radio is being closed may never run (B3).
     /// <c>MainWindow.UnwireRadioEvents</c> runs before <c>CloseTheRadio</c>

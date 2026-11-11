@@ -266,11 +266,15 @@ namespace Radios
         //
         // #117 is the persistence receipt. Releasing a slice succeeds, sounds
         // successful, and is silently discarded at disconnect, because THE
-        // SLICES ARE NOT OURS: this application contains zero slice-creation
-        // calls, and the radio restores its slice layout from its own global
-        // profile on the next connect. Slice create and delete work correctly —
-        // the defect is that nothing tells the operator the change is
-        // provisional.
+        // LAYOUT IS NOT OURS TO KEEP: the radio restores its slice layout from
+        // its own global profile on the next connect, whatever this session
+        // did. This application does create slices — NewSlice() requests a
+        // panafall when the operator asks for one, and the station coordinator
+        // has a bounded allocator for a connect that restores nothing — but it
+        // no longer pads a restored station on connect (that allocator was
+        // removed 2026-09-21, #587, #588; #59), so what comes back is the
+        // radio's profile. Slice create and delete work correctly — the defect
+        // is that nothing tells the operator the change is provisional.
         //
         // The receipt is deliberately NOT a prompt at disconnect, for two
         // reasons that were both worked out before any code was written. First,

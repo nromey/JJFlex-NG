@@ -1014,7 +1014,8 @@ namespace Radios
         /// establish the station under the coordinator, then read transmit and
         /// microphone facts FRESH and decide them, then the live transmit-audio
         /// path, then the silent-microphone assessment last. Returns the
-        /// honest outcome; nothing here ever calls setupFromScratch.
+        /// honest outcome; nothing here builds a scratch setup (the old
+        /// setupFromScratch had no caller and was removed, #59).
         /// </summary>
         internal StationResult EstablishStationOnConnect(bool postImport)
         {
