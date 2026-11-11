@@ -1,1 +1,1 @@
-- You can now set your keyer speed in Settings, on the Tuning tab, in words per minute. It is saved as yours. Changed while you are connected to your own radio, it is set on that radio at once; otherwise your radio gets it when a connect puts your settings on it. On a radio you have marked as someone else's, or have not yet said is yours, your speed is saved but that radio's keyer is left unchanged.
+- Your keyer speed now has its own field in Settings, under Tuning; I've kept it separate from the CW notification speed.

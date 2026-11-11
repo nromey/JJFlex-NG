@@ -354,7 +354,7 @@ namespace Radios.Tests
             { Ownership = RadioOwnership.Mine, Intent = ProfileGuestIntent.LoadMineAndPutBack }));
 
             // So nothing Settings says may promise the next connect outright
-            // (the words are DRAFTS; whatever Codex makes of them must stay conditional).
+            // (Codex worded them 2026-11-11; any later wording must stay conditional).
             foreach (var key in new[] { "settings.keyer.speed_waits_for_radio", "settings.keyer.speed_help" })
             {
                 string text = LexiconText(key);

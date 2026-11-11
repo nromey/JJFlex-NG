@@ -8,7 +8,7 @@
 
     <StackPanel Margin="12">
 
-        <!-- One line saying a change reaches the radio as it is made (#609).
+        <!-- One line explaining that adjustments can be tried before Finished (#609).
              A line in the window, not a second spoken sentence racing the
              title the base class speaks on arrival. Plain text on purpose:
              DecorativeText is what a screen reader is told to skip. Its words

@@ -108,7 +108,7 @@ namespace Radios
         /// operator's before any explanation, and again at the write (#777).
         /// Per computer, as every message here is.
         /// </summary>
-        // DRAFT: the review-list label is Codex's to word.
+        // The review-list label is Codex's wording (2026-11-11).
         public static AdvisoryKey StationSaveExplanation => new(
             StationSaveExplanationValue,
             Lexicon.Get("settings.silenced.station_save"));

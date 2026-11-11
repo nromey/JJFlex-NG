@@ -161,7 +161,7 @@ namespace Radios
         {
             string digits = hz.ToString(CultureInfo.CurrentCulture);
             if (!SpeaksKiloForm(level))
-                // DRAFT PROSE (#979): the "off" form, as Noel was told it at 11:59.
+                // #979: the "off" form, as Noel was told it at 11:59; Codex kept it.
                 return units
                     ? Lexicon.Get("settings.filter.width_named_hertz", ("width", digits))
                     : Lexicon.Get("settings.filter.width_named", ("width", digits));

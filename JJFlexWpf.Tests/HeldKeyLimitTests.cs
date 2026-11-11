@@ -193,23 +193,23 @@ public sealed class HeldKeyLimitTests : IDisposable
 
         At(first, KillMs - 30_000);
         Assert.Equal(PttSafetyController.PttState.Warning1, _controller.HoldStage);
-        Assert.Equal(1, Said("audio.ptt.timeout_approaching"));
+        Assert.Equal(1, Said("audio.ptt.hold_limit_approaching"));
         Assert.Equal(Hold, _controller.State);       // a stage of the hold, never a state of its own
 
         At(first, KillMs - 15_000);
         Assert.Equal(PttSafetyController.PttState.Warning2, _controller.HoldStage);
-        Assert.Equal(1, Said("audio.ptt.timeout_soon"));
+        Assert.Equal(1, Said("audio.ptt.hold_limit_soon"));
 
         At(first, KillMs - 5_000);
         Assert.Equal(PttSafetyController.PttState.OhCrap, _controller.HoldStage);
-        Assert.Equal(1, Said("audio.ptt.timeout_ending_now"));
+        Assert.Equal(1, Said("audio.ptt.hold_limit_ending"));
 
         At(first, KillMs - 1);
         Assert.Equal(Hold, _controller.State);
         At(first, KillMs);
         Assert.Equal(Idle, _controller.State);
         Assert.False(RfOn, "the hold was not unkeyed at its limit");
-        Assert.Equal(1, Said("audio.ptt.hard_limit"));
+        Assert.Equal(1, Said("audio.ptt.hold_limit_released"));
     }
 
     [Fact]
@@ -404,7 +404,7 @@ public sealed class HeldKeyLimitTests : IDisposable
         }
         Assert.Equal(1, controllerEnds);
         Assert.Equal(0, watchdogVerdicts);
-        Assert.Equal(1, Said("audio.ptt.hard_limit"));
+        Assert.Equal(1, Said("audio.ptt.hold_limit_released"));
     }
 
     // ── the hold's timer never acts on another connection ──
@@ -425,7 +425,7 @@ public sealed class HeldKeyLimitTests : IDisposable
         // Even if its tick still ran, it does nothing.
         _now = first + KillMs;
         Tick(holdTimer);
-        Assert.Equal(0, Said("audio.ptt.hard_limit"));
+        Assert.Equal(0, Said("audio.ptt.hold_limit_released"));
         Assert.True(RfOn, "a stale limit unkeyed");
     }
 
@@ -444,7 +444,7 @@ public sealed class HeldKeyLimitTests : IDisposable
         Tick(holdTimer);
         Assert.Equal(Hold, _controller.State);
         Assert.True(RfOn, "the old hold's limit unkeyed the new radio");
-        Assert.Equal(0, Said("audio.ptt.hard_limit"));
+        Assert.Equal(0, Said("audio.ptt.hold_limit_released"));
         Assert.False(holdTimer.IsEnabled);
     }
 }

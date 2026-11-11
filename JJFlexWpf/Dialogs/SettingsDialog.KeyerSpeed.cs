@@ -40,7 +40,7 @@ namespace JJFlexWpf.Dialogs
             string label = Lexicon.Get("settings.keyer.speed_label");
             KeyerSpeedLabel.Text = label + ":";
             AutomationProperties.SetName(KeyerSpeedBox, label);
-            // DRAFT PROSE (#879): Codex words it.
+            // #879: worded by Codex 2026-11-11.
             JJFlexHelp.SetText(KeyerSpeedBox, Lexicon.Get("settings.keyer.speed_help",
                 ("min", KeyerSpeedStore.MinWpm), ("max", KeyerSpeedStore.MaxWpm)));
             RefreshKeyerSpeedFromRig();
@@ -81,7 +81,7 @@ namespace JJFlexWpf.Dialogs
             if (int.TryParse(KeyerSpeedBox.Text, out int wpm)
                 && wpm >= KeyerSpeedStore.MinWpm && wpm <= KeyerSpeedStore.MaxWpm)
                 return true;
-            // DRAFT PROSE (#879): Codex words it.
+            // #879: worded by Codex 2026-11-11.
             MessageBox.Show(Lexicon.Get("settings.keyer.speed_out_of_range",
                     ("min", KeyerSpeedStore.MinWpm), ("max", KeyerSpeedStore.MaxWpm)),
                 Lexicon.Get("settings.dialog_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -104,20 +104,18 @@ namespace JJFlexWpf.Dialogs
                 case KeyerSpeedStore.Outcome.WrittenToRadio:
                     break;
                 case KeyerSpeedStore.Outcome.SavedForNextConnect:
-                    // DRAFT PROSE (#879).
                     queued.Add(Lexicon.Get("settings.keyer.speed_waits_for_radio"));
                     break;
                 case KeyerSpeedStore.Outcome.SavedNotThisRadio:
-                    // DRAFT PROSE (#879, #686): the operator marked it someone else's.
+                    // #879, #686: the operator marked it someone else's.
                     queued.Add(Lexicon.Get("settings.keyer.speed_not_this_radio"));
                     break;
                 case KeyerSpeedStore.Outcome.SavedOwnershipUnknown:
-                    // DRAFT PROSE (#879 repair one): never answered is not
+                    // #879 repair one: never answered is not
                     // someone else's, and is not described as it.
                     queued.Add(Lexicon.Get("settings.keyer.speed_ownership_unknown"));
                     break;
                 default:
-                    // DRAFT PROSE (#879).
                     applied.Add(Lexicon.Get("settings.keyer.speed_not_saved"));
                     return;
             }

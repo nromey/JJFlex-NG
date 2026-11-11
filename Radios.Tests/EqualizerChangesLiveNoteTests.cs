@@ -6,8 +6,8 @@ namespace Radios.Tests
 {
     /// <summary>
     /// #609, the ruled half only: one sentence inside the equalizer window
-    /// saying a change reaches the radio as it is made (ruled worth doing
-    /// 2026-09-24; the words are a DRAFT for Codex and Noel). A line in the
+    /// explaining that adjustments can be tried before Finished (ruled worth doing
+    /// 2026-09-24; the words are Codex's, 2026-11-11). A line in the
     /// window, first in it, and not a second spoken announcement racing the
     /// title the dialog speaks on arrival. Whether NVDA reads it on opening is
     /// a harness step, not something a source test can show.

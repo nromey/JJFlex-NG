@@ -2401,10 +2401,17 @@ namespace JJFlexWpf
             SoundWarning1();
         }
 
-        /// <summary>The first warning's sentence, trace and beeps: the lock's and, since #1020, a held key's.</summary>
-        private void SoundWarning1()
+        /// <summary>
+        /// The first warning's sentence, trace and beeps: the lock's and, since
+        /// #1020, a held key's, which says its own sentence (Codex's words) and
+        /// is otherwise delivered the same way.
+        /// </summary>
+        private void SoundWarning1(bool held = false)
         {
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.timeout_approaching"), VerbosityLevel.Critical);
+            string sentence = held
+                ? Lexicon.Get("audio.ptt.hold_limit_approaching")
+                : Lexicon.Get("audio.ptt.timeout_approaching");
+            ScreenReaderOutput.Speak(sentence, VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning1 (10s beeps)", TraceLevel.Info);
 
             RestartBeeps(TimeSpan.FromSeconds(10));
@@ -2417,15 +2424,17 @@ namespace JJFlexWpf
             SoundWarning2();
         }
 
-        /// <summary>The second warning's sentence, trace and beeps: the lock's and a held key's (#1020).</summary>
-        private void SoundWarning2()
+        /// <summary>The second warning's sentence, trace and beeps: the lock's and a held key's, in its own words (#1020).</summary>
+        private void SoundWarning2(bool held = false)
         {
             // Was QUEUED, which meant this could wait behind stale slider or
             // meter values while the operator was locked down and had no idea
             // a timeout was coming. A warning that arrives after the thing it
             // warns about is not a warning.
-            ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.ptt.timeout_soon"), Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
+            string sentence = held
+                ? Lexicon.Get("audio.ptt.hold_limit_soon")
+                : Lexicon.Get("audio.ptt.timeout_soon");
+            ScreenReaderOutput.Speak(sentence, Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning2 (5s beeps)", TraceLevel.Info);
 
             RestartBeeps(TimeSpan.FromSeconds(5));
@@ -2438,8 +2447,8 @@ namespace JJFlexWpf
             SoundOhCrap();
         }
 
-        /// <summary>The last warning's sentence, trace and beeps: the lock's and a held key's (#1020).</summary>
-        private void SoundOhCrap()
+        /// <summary>The last warning's sentence, trace and beeps: the lock's and a held key's, in its own words (#1020).</summary>
+        private void SoundOhCrap(bool held = false)
         {
             // URGENT: interrupt AND flush. Plain interrupt stops what is being
             // spoken but leaves the queue standing, so a stale meter or slider
@@ -2456,8 +2465,11 @@ namespace JJFlexWpf
             // "About to end" is about THIS transmission while it is running;
             // its outcome supersedes it by subject, and a new transmission
             // withdraws an unheard copy the same way the cut's is (blocker 6).
+            string sentence = held
+                ? Lexicon.Get("audio.ptt.hold_limit_ending")
+                : Lexicon.Get("audio.ptt.timeout_ending_now");
             ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.ptt.timeout_ending_now"), Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical,
+                sentence, Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical,
                 subject: Radios.Speech.SpeechSubject.TransmitTimeLimit,
                 stillValid: _transmitEpisode.StillThisTransmission());
             Tracing.TraceLine("PTT: OhCrap (1s beeps)", TraceLevel.Info);
@@ -2676,23 +2688,23 @@ namespace JJFlexWpf
             else if (held >= kill - PttConfig.HeldKeyLastWarningSecondsBeforeKill * 1000L && _holdStage < PttState.OhCrap)
             {
                 _holdStage = PttState.OhCrap;
-                SoundOhCrap();
+                SoundOhCrap(held: true);
             }
             else if (held >= kill - PttConfig.HeldKeyWarning2SecondsBeforeKill * 1000L && _holdStage < PttState.Warning2)
             {
                 _holdStage = PttState.Warning2;
-                SoundWarning2();
+                SoundWarning2(held: true);
             }
             else if (held >= kill - PttConfig.HeldKeyWarning1SecondsBeforeKill * 1000L && _holdStage < PttState.Warning1)
             {
                 _holdStage = PttState.Warning1;
-                SoundWarning1();
+                SoundWarning1(held: true);
             }
         }
 
         /// <summary>
-        /// Fifteen minutes from the hold's first press: end it, with the lock's
-        /// hard-limit sentence under the time-limit subject, so it covers the
+        /// Fifteen minutes from the hold's first press: end it, with the held
+        /// key's own limit sentence under the time-limit subject, so it covers the
         /// last warning rather than queueing behind it. Then MainWindow latches
         /// the hold (#1020, trap 2), because the key may still be down.
         /// </summary>
@@ -2701,7 +2713,7 @@ namespace JJFlexWpf
             Tracing.TraceLine("PTT: HARD KILL (a held push to talk, " + PttConfig.HardKillSeconds
                 + " s from its first press)", TraceLevel.Warning);
             EarconPlayer.HardKillTone();
-            GoIdle(Lexicon.Get("audio.ptt.hard_limit"), forceSpeech: true,
+            GoIdle(Lexicon.Get("audio.ptt.hold_limit_released"), forceSpeech: true,
                    subject: Radios.Speech.SpeechSubject.TransmitTimeLimit);
             try { HoldEndedByApp?.Invoke("the held push to talk reached its " + (PttConfig.HardKillSeconds / 60) + "-minute limit"); }
             catch (Exception ex)

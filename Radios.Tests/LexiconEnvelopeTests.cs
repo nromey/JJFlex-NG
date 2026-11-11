@@ -2791,7 +2791,7 @@ namespace Radios.Tests
                 // finish. A PLACEHOLDER: Codex writes it; classified when written.
                 "audio.check.not_started_backup_unfinished",
                 // Junk box #879 (2026-11-11): the keyer speed field on the Tuning
-                // tab. The label is Noel's; the rest are DRAFTS for Codex.
+                // tab. The label is Noel's; the rest are worded by Codex.
                 "settings.keyer.speed_label",
                 "settings.keyer.speed_help",
                 "settings.keyer.speed_out_of_range",
@@ -2800,15 +2800,21 @@ namespace Radios.Tests
                 "settings.keyer.speed_ownership_unknown",
                 "settings.keyer.speed_not_saved",
                 // Junk box #979 (2026-11-11): one switch for the word hertz on
-                // spoken filter widths. DRAFTS for Codex.
+                // spoken filter widths. Worded by Codex.
                 "settings.filter.width_named",
                 "settings.filter.units_label",
                 "settings.filter.units_help",
                 // Junk box #776 (2026-11-11): the silenced-messages label for the
-                // station save's explanation. DRAFT for Codex.
+                // station save's explanation. Worded by Codex.
                 "settings.silenced.station_save",
-                // Junk box #609 (2026-11-11): the equalizer's one line. DRAFT for Codex.
+                // Junk box #609 (2026-11-11): the equalizer's one line. Worded by Codex.
                 "audio.eq.changes_live",
+                // Junk box #1020 (2026-11-11): a held push to talk's own warnings
+                // and limit outcome, worded by Codex; the lock keeps its own.
+                "audio.ptt.hold_limit_approaching",
+                "audio.ptt.hold_limit_soon",
+                "audio.ptt.hold_limit_ending",
+                "audio.ptt.hold_limit_released",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

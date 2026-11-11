@@ -1,1 +1,1 @@
-- The Fix tool's report no longer prints a "Firmware this app expects" line under your radio's firmware version. It showed an old number that was never a requirement and read like a mismatch warning.
+- The Fix tool's report now shows your radio's firmware version without the misleading “Firmware this app expects” line.

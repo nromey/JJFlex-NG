@@ -1,1 +1,1 @@
-- A held push to talk now has the same fifteen-minute limit as the transmit lock, counted from when you first pressed it, with the warning beeps 30, 15 and 5 seconds before. The lock's own shorter timeout still applies to the lock only.
+- A held push to talk now warns you 30, 15 and 5 seconds before its fifteen-minute limit, counted from the first press, then releases the transmit key.

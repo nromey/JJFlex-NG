@@ -1,1 +1,1 @@
-- When a window you are holding push to talk in closes or loses focus, the hold ends and stays ended until you really let go of the key, so a screen reader that repeats a held key can no longer key the radio again in the next window.
+- A push to talk hold in a dialog now stays released when that dialog closes or loses focus, even if your screen reader repeats the held key.

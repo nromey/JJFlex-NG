@@ -328,7 +328,7 @@ namespace JJFlexWpf.Dialogs
             FreqUnitsCombo.Items.Add(Lexicon.Get("settings.tuning.frequency_units_megahertz"));
             FreqUnitsCombo.SelectedIndex = (int)_pttConfig.FrequencyDisplayUnits;
 
-            // One switch for "hertz" on spoken filter widths (#979). DRAFT PROSE: Codex words it.
+            // One switch for "hertz" on spoken filter widths (#979), worded by Codex.
             FilterUnitsCheckbox.Content = Lexicon.Get("settings.filter.units_label");
             System.Windows.Automation.AutomationProperties.SetName(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_label"));
             JJFlexHelp.SetText(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_help"));
