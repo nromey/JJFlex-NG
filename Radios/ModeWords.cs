@@ -10,9 +10,10 @@ namespace Radios
     /// <remarks>
     /// <para><b><see cref="Spoken"/>, ruled by Noel 2026-11-07 (J41, then
     /// 06:55):</b> change the spoken form only where a synthesizer mangles or
-    /// blurs it. DIGL and DIGU are "Digital lower" and "Digital upper" (option
-    /// (c): Eloquence ran "digl" together and buried the last letter that
-    /// tells them apart); SAM is "Synchronous AM" (read as the name "Sam");
+    /// blurs it. DIGL and DIGU are "Digital LSB" and "Digital USB" (ruled by
+    /// Noel 2026-11-09, replacing option (c), "Digital lower" and "Digital
+    /// upper", which answered Eloquence running "digl" together: the plain
+    /// modes are said USB and LSB, so the digital ones add "Digital"); SAM is "Synchronous AM" (read as the name "Sam");
     /// NFM is "Narrow FM". USB, LSB, AM, FM, CW, DSB and RTTY stay letters.
     /// The same at Terse and Chatty. Anything else is said as the radio
     /// names it.</para>

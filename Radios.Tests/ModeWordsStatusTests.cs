@@ -18,7 +18,7 @@ namespace Radios.Tests
     /// <remarks>
     /// <para>The defect: <see cref="RadioStatusBuilder"/> put the raw mode
     /// into the status key's sentence (Ctrl+Shift+S) and Home's return status,
-    /// so on a digital mode the same session said "Digital upper" on the mode
+    /// so on a digital mode the same session said "Digital USB" on the mode
     /// key and "DIGU" on the status key. The builder is shared with the Status
     /// dialog, whose Slices rows and At connect reference are displayed, so the
     /// spoken form could not go into the shared string unsplit.</para>
@@ -49,8 +49,8 @@ namespace Radios.Tests
         }
 
         [Theory]
-        [InlineData("DIGU", "Digital upper")]
-        [InlineData("DIGL", "Digital lower")]
+        [InlineData("DIGU", "Digital USB")]
+        [InlineData("DIGL", "Digital LSB")]
         [InlineData("SAM", "Synchronous AM")]
         [InlineData("NFM", "Narrow FM")]
         [InlineData("DFM", "Digital FM")]
@@ -86,7 +86,7 @@ namespace Radios.Tests
         }
 
         [Theory]
-        [InlineData("DIGU", "Digital upper")]
+        [InlineData("DIGU", "Digital USB")]
         [InlineData("SAM", "Synchronous AM")]
         [InlineData("DFM", "Digital FM")]
         public void Homes_return_status_says_the_mode_in_words(string mode, string words)
@@ -106,7 +106,7 @@ namespace Radios.Tests
             FlexBase rig = OneSlice("DIGL");
 
             Assert.Equal(RadioStatusBuilder.BuildSpokenStatus(rig), RadioStatusBuilder.BuildFullSliceStatus(rig));
-            Assert.Contains(", Digital lower", RadioStatusBuilder.BuildFullSliceStatus(rig));
+            Assert.Contains(", Digital LSB", RadioStatusBuilder.BuildFullSliceStatus(rig));
             Assert.Contains(", DIGL", RadioStatusBuilder.BuildFullSliceStatusForDisplay(rig));
         }
 

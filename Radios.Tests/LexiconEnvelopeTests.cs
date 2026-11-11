@@ -1110,7 +1110,8 @@ namespace Radios.Tests
                 // the refusal a direct mode key gives for a mode the radio
                 // does not list. Fragments, or a sentence spoken only in
                 // answer to the operator's own press: TextOnly. DRAFT PROSE
-                // except Digital upper and lower, Noel's option (c).
+                // except Digital USB and Digital LSB, Noel's ruling of
+                // 2026-11-09 (it replaced his option (c), Digital upper and lower).
                 "settings.mode.spoken.digu",
                 "settings.mode.spoken.digl",
                 "settings.mode.spoken.sam",
