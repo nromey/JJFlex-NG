@@ -2006,14 +2006,14 @@
                                     <RadioButton x:Name="SliceOrderTopToBottomRadio"
                                                  GroupName="SliceArrowOrder"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Down arrow moves toward slice B"
+                                                 AutomationProperties.Name="Down arrow goes A to B to C (recommended)"
                                                  Checked="SliceArrowOrderRadio_Checked">
                                         <TextBlock Text="Down arrow goes A to B to C (recommended)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="SliceOrderBottomToTopRadio"
                                                  GroupName="SliceArrowOrder"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Up arrow moves toward slice B"
+                                                 AutomationProperties.Name="Up arrow goes A to B to C (previous behaviour)"
                                                  Checked="SliceArrowOrderRadio_Checked">
                                         <TextBlock Text="Up arrow goes A to B to C (previous behaviour)"/>
                                     </RadioButton>

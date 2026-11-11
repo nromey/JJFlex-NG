@@ -367,6 +367,11 @@ class Panel
             "NAME-EXCEEDS-LABEL ScreenFieldsPanel.xaml.cs · Noise profiles: capture settings, save, load, and manage",
             "NAME-EXCEEDS-LABEL SmartLinkSignUpDialog.cs · Send a password reset email to the address above, for the ac…",
             "NAME-IS-LONG AudioWorkshopDialog.MicProfiles.cs · Why creating a mic profile on the radio is not offered",
+            // #1069 (2026-11-11): the slice arrow choice is announced by the
+            // words it shows, as the label-in-name rule requires. The visible
+            // text is ten words because it names the order AND the old
+            // behaviour; shortening it is a wording change, Codex's to make.
+            "NAME-IS-LONG SettingsDialog.xaml · Up arrow goes A to B to C (previous behaviour)",
 
             // ── Three menu items that differ ONLY in the tail ─────────────
             // "Connect", "Connect Locally" and "Connect over SmartLink" sit
