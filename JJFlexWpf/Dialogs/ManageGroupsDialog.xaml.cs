@@ -59,7 +59,7 @@ namespace JJFlexWpf.Dialogs
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             RefreshGroups();
-            GroupsListBox.Focus();
+            ListNaming.FocusRow(GroupsListBox, GroupsListBox.SelectedIndex);
         }
 
         /// <summary>
@@ -68,8 +68,10 @@ namespace JJFlexWpf.Dialogs
         /// once the window has rendered, and the buttons come first, so
         /// without this the operator arrived on Add Group (#996, as #935 fixed
         /// the Command Finder).
+        /// It lands on the selected row, as Memories and the Keys Listing do;
+        /// on the list itself when nothing is selected.
         /// </summary>
-        protected override void FocusFirstControl() => GroupsListBox.Focus();
+        protected override void FocusFirstControl() => ListNaming.FocusRow(GroupsListBox, GroupsListBox.SelectedIndex);
 
         private void RefreshGroups()
         {

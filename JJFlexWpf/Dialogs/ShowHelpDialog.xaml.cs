@@ -112,7 +112,10 @@ namespace JJFlexWpf.Dialogs
             {
                 int startIndex = string.IsNullOrEmpty(HelpTitle) ? 0 : (HelpListBox.Items.Count > 1 ? 1 : 0);
                 HelpListBox.SelectedIndex = startIndex;
-                HelpListBox.Focus();
+                // On the selected row, not the list itself, so the reader
+                // lands on the first key; the same place FocusFirstControl
+                // puts it once the window has rendered.
+                ListNaming.FocusRow(HelpListBox, startIndex);
             }
 
             // Set accessible name to include item count
@@ -121,15 +124,19 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Focus starts in the list when it has rows, as <see cref="OnLoaded"/>
-        /// puts it. The base class moves focus to the first control in tab
+        /// Focus starts on the list's selected row, the first key, when the
+        /// list has rows, as <see cref="OnLoaded"/> puts it (#1018 item 3,
+        /// ruled 2026-11-09: focus on the first key, Tab still reaches the
+        /// buttons). The base class moves focus to the first control in tab
         /// order again once the window has rendered, and the buttons come
-        /// first, so without this the operator arrived on Close (#996, as #935
-        /// fixed the Command Finder). An empty list leaves the base's choice.
+        /// first, so without this the operator arrived on the secondary button
+        /// ("Explore the JJ key") on a layer's list, or on Close where there is
+        /// no secondary button, the per-field Home help (#996, as #935 fixed
+        /// the Command Finder). An empty list leaves the base's choice.
         /// </summary>
         protected override void FocusFirstControl()
         {
-            if (HelpListBox.Items.Count > 0) HelpListBox.Focus();
+            if (HelpListBox.Items.Count > 0) ListNaming.FocusRow(HelpListBox, HelpListBox.SelectedIndex);
             else base.FocusFirstControl();
         }
 

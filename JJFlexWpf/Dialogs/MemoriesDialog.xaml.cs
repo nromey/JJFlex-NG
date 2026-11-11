@@ -156,17 +156,23 @@ public partial class MemoriesDialog : JJFlexDialog
         if (SelectedMemoryRef != null)
             ShowMemoryDetails(SelectedMemoryRef);
 
-        MemoryList.Focus();
+        // On the selected memory, not the list itself; the list when there
+        // are no memories (RefreshMemoryList selects the first row whenever
+        // there is one).
+        ListNaming.FocusRow(MemoryList, MemoryList.SelectedIndex);
     }
 
     /// <summary>
-    /// Focus starts in the memory list, as <see cref="MemoriesDialog_Loaded"/>
+    /// Focus starts on the selected memory, as <see cref="MemoriesDialog_Loaded"/>
     /// puts it. The base class moves focus to the first control in tab order
     /// again once the window has rendered, and the Add, Delete and Done
     /// buttons come first, so without this the operator arrived on Add (#996,
-    /// as #935 fixed the Command Finder).
+    /// as #935 fixed the Command Finder). With no memory selected, the list
+    /// itself: Loaded selects the first row whenever there is one, so that
+    /// means an empty list, and selecting a row here would show (and
+    /// let Enter tune to) a memory the operator did not choose.
     /// </summary>
-    protected override void FocusFirstControl() => MemoryList.Focus();
+    protected override void FocusFirstControl() => ListNaming.FocusRow(MemoryList, MemoryList.SelectedIndex);
 
     private object? SelectedMemoryRef
     {
