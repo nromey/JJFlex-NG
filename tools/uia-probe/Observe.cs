@@ -98,16 +98,50 @@ internal static class Observe
         };
     }
 
-    private static string TryValue(AutomationElement el)
+    /// <summary>
+    /// The focused element's value as it has always been reported: the
+    /// ValuePattern value, or the empty string. Unchanged text, because
+    /// <see cref="Press"/> compares it before and after a key.
+    /// </summary>
+    private static string TryValue(AutomationElement el) => ValueRead.FocusText(ReadValue(el));
+
+    /// <summary>
+    /// Read a control's value without changing anything: ValuePattern and,
+    /// where present, RangeValuePattern (#989). Tells "no value pattern" apart
+    /// from "an empty value", which the focus line above never needed to.
+    /// </summary>
+    internal static ValueReading ReadValue(AutomationElement el)
     {
+        bool hasValue = false, hasRange = false;
+        string? value = null;
+        double range = 0, min = 0, max = 0;
         try
         {
             if (el.TryGetCurrentPattern(ValuePattern.Pattern, out object p))
-                return ((ValuePattern)p).Current.Value ?? "";
+            {
+                hasValue = true;
+                value = ((ValuePattern)p).Current.Value ?? "";
+            }
+        }
+        catch (InvalidOperationException ex) { return new ValueReading(false, null, false, 0, 0, 0, ex.Message); }
+        catch (ElementNotAvailableException) { return new ValueReading(false, null, false, 0, 0, 0, "the control went away while it was being read"); }
+
+        // Its own try, so a range read that fails never costs the focus line
+        // the plain value it has always shown.
+        try
+        {
+            if (el.TryGetCurrentPattern(RangeValuePattern.Pattern, out object r))
+            {
+                var cur = ((RangeValuePattern)r).Current;
+                range = cur.Value;
+                min = cur.Minimum;
+                max = cur.Maximum;
+                hasRange = true;
+            }
         }
         catch (InvalidOperationException) { }
         catch (ElementNotAvailableException) { }
-        return "";
+        return new ValueReading(hasValue, value, hasRange, range, min, max);
     }
 
     private static string TryToggle(AutomationElement el)

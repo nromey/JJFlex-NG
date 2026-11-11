@@ -159,8 +159,15 @@ internal static class Act
         + "runs no handler. Assert on the CONSEQUENCE — a transcript event, a config write, "
         + "a tone — or drive it with a real Space press instead. See task #176.";
 
-    public static string Perform(int pid, string op, string? automationId, string? name, string? className,
-        int index, string? value)
+    /// <summary>
+    /// Find one control by automation id, name or class (the first of the
+    /// three given), in any of the process's top-level windows. Shared by
+    /// <see cref="Perform"/> and <see cref="ReadValue"/> so the two can never
+    /// disagree about which control a selector means.
+    /// </summary>
+    /// <returns>The control, or null with <paramref name="notFound"/> saying why.</returns>
+    internal static AutomationElement? Find(int pid, string? automationId, string? name, string? className,
+        int index, out int matchCount, out string notFound)
     {
         var byPid = new PropertyCondition(AutomationElement.ProcessIdProperty, pid);
         AutomationElementCollection windows = AutomationElement.RootElement.FindAll(TreeScope.Children, byPid);
@@ -177,14 +184,47 @@ internal static class Act
             foreach (AutomationElement f in w.FindAll(TreeScope.Descendants, cond)) matches.Add(f);
             if (!string.IsNullOrEmpty(automationId) && w.Current.AutomationId == automationId) matches.Add(w);
         }
-        if (matches.Count == 0) return "NOT FOUND";
-        if (index >= matches.Count) return $"index out of range: {matches.Count} match(es)";
+        matchCount = matches.Count;
+        notFound = "";
+        if (matches.Count == 0) { notFound = "NOT FOUND"; return null; }
+        if (index >= matches.Count) { notFound = $"index out of range: {matches.Count} match(es)"; return null; }
+        return matches[index];
+    }
 
-        AutomationElement el = matches[index];
+    private static string Describe(AutomationElement el, int index, int matchCount) =>
+        $"target: [{el.Current.ControlType.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal)}] "
+        + $"name='{el.Current.Name}' id='{el.Current.AutomationId}' class='{el.Current.ClassName}' "
+        + $"(match {index + 1} of {matchCount})";
+
+    /// <summary>
+    /// Read a control's value, changing nothing (#989): ValuePattern and,
+    /// where present, RangeValuePattern. A read that finds nothing says so —
+    /// <see cref="ValueRead.NoSuchControl"/> or
+    /// <see cref="ValueRead.NoValuePattern"/> — never an empty string.
+    /// </summary>
+    /// <returns>0 when a value was read, 4 for no such control, 7 for no value pattern or a failed read.</returns>
+    public static int ReadValue(int pid, string? automationId, string? name, string? className, int index,
+        out string report)
+    {
+        AutomationElement? el = Find(pid, automationId, name, className, index, out int count, out string notFound);
+        if (el == null)
+        {
+            report = ValueRead.NoSuchControl + (notFound == "NOT FOUND" ? "" : " (" + notFound + ")");
+            return 4;
+        }
+        ValueReading reading = Observe.ReadValue(el);
+        report = Describe(el, index, count) + Environment.NewLine + ValueRead.Describe(reading);
+        return reading.Failure == null && (reading.HasValuePattern || reading.HasRangeValue) ? 0 : 7;
+    }
+
+    public static string Perform(int pid, string op, string? automationId, string? name, string? className,
+        int index, string? value)
+    {
+        AutomationElement? el = Find(pid, automationId, name, className, index, out int matchCount, out string notFound);
+        if (el == null) return notFound;
+
         var sb = new StringBuilder();
-        sb.AppendLine($"target: [{el.Current.ControlType.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal)}] "
-            + $"name='{el.Current.Name}' id='{el.Current.AutomationId}' class='{el.Current.ClassName}' "
-            + $"(match {index + 1} of {matches.Count})");
+        sb.AppendLine(Describe(el, index, matchCount));
 
         switch (op.ToLowerInvariant())
         {
