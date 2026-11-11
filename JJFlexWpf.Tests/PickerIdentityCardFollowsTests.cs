@@ -47,8 +47,8 @@ public sealed class PickerIdentityCardFollowsTests
     /// <summary>
     /// A roster row highlighted before its SmartLink reply; the reply arrives
     /// and updates the row in place; a later list changes its ports; then the
-    /// radio leaves the list. The card says each in turn, with the highlight
-    /// never moving. Before anything has asked SmartLink, and after the radio
+    /// radio is last seen after a SmartLink drop; then it leaves the list. The
+    /// card says each in turn, with the highlight never moving. Before anything has asked SmartLink, and after the radio
     /// leaves the list while no session is live, it denies nothing (repair
     /// two); only once a live session's list has answered without the radio
     /// does it say SmartLink does not list it.
@@ -97,6 +97,20 @@ public sealed class PickerIdentityCardFollowsTests
             Assert.Same(second, row.WanSighting);
             Assert.Contains("external TCP 31443, external UDP 31444", card.IdentityText.Text);
             Assert.DoesNotContain("21443", card.IdentityText.Text);
+
+            // SmartLink drops: the list that carried the radio is no longer
+            // current, so the reconcile keeps the row's SmartLink flag and
+            // marks it last seen (#619). The card gives the same numbers in
+            // the past tense, never "This is how SmartLink lists this radio"
+            // (repair two, the integration pass's F2).
+            session.Current = false;
+            Invoke(dialog, "RefreshRadiosList", false);
+            Assert.True(row.WanAvailable);
+            Assert.True(row.WanUnconfirmed);
+            Assert.Contains(Lexicon.Get("connect.identity.last_listed"), card.IdentityText.Text);
+            Assert.DoesNotContain(Lexicon.Get("connect.identity.listed_not_connected"), card.IdentityText.Text);
+            Assert.Contains("external TCP 31443, external UDP 31444", card.IdentityText.Text);
+            session.Current = true;
 
             // The radio leaves the list: the reconcile clears the row's
             // SmartLink flag and keeps its last sighting. Discovery has
@@ -320,7 +334,9 @@ public sealed class PickerIdentityCardFollowsTests
             Array.Empty<Flex.Smoothlake.FlexLib.Radio>(), DateTime.UtcNow,
             SessionConnected: true, ArrivedOnTheLiveConnection: true, ConnectionGeneration: 1, SessionId: SessionId)
         { ListRevision = 1 };
-        public bool ListIsCurrent(long connectionGeneration) => connectionGeneration == 1;
+        /// <summary>Whether connection 1's list is still current; false after a drop.</summary>
+        public bool Current { get; set; } = true;
+        public bool ListIsCurrent(long connectionGeneration) => Current && connectionGeneration == 1;
 #pragma warning disable CS0067 // events the test never raises
         public event EventHandler? ListCurrencyMayHaveChanged;
         public event EventHandler<Radios.SmartLink.SessionStatus>? StatusChanged;

@@ -387,12 +387,13 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>
         /// What the Network identity card may say about whether a SmartLink
-        /// list carries this radio (#398, repair two): the row's own
-        /// "we have not asked yet" states, read by the one rule in
+        /// list carries this radio (#398, repair two): whether that list is
+        /// still current, and the row's own "we have not asked yet" states,
+        /// read by the one rule in
         /// <see cref="Radios.NetworkIdentityInfo.PickerListingFor"/>.
         /// </summary>
         public Radios.PickerListing SmartLinkListing =>
-            Radios.NetworkIdentityInfo.PickerListingFor(WanAvailable, DiscoverySettled, RefreshInFlight,
+            Radios.NetworkIdentityInfo.PickerListingFor(WanAvailable, WanUnconfirmed, DiscoverySettled, RefreshInFlight,
                 BoundAccountHasLiveSession, BoundAccountSessionComingUp, AnySmartLinkSessionLive);
 
         /// <summary>

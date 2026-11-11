@@ -114,6 +114,35 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// Repair two (the integration pass's F2): a row last seen on
+        /// SmartLink gives the numbers as SmartLink last listed them, in the
+        /// past tense, and never says SmartLink lists the radio now.
+        /// </summary>
+        [Fact]
+        public void A_radio_last_seen_on_SmartLink_is_described_in_the_past_tense()
+        {
+            var lines = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Shack", "FLEX-6300", PickerListing.LastListed,
+                new SmartLinkAdvertised(4993, 4994, portForwardOn: true, requiresHolePunch: false));
+            Assert.Equal(new[]
+            {
+                "Radio: FLEX-6300, name Shack",
+                "Serial: " + Serial,
+                Lexicon.Get("connect.identity.last_listed"),
+                "Path: forwarded ports — external TCP 4993, external UDP 4994. Radio reports port forwarding on.",
+            }, lines);
+
+            var noNumbers = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Shack", "FLEX-6300", PickerListing.LastListed, null);
+            Assert.Equal(Lexicon.Get("connect.identity.last_listed_ports_not_arrived"), noNumbers[^1]);
+
+            foreach (var said in lines.Concat(noNumbers))
+            {
+                Assert.NotEqual(Lexicon.Get("connect.identity.listed_not_connected"), said);
+                Assert.NotEqual(Lexicon.Get("connect.identity.listed_ports_not_arrived"), said);
+                Assert.DoesNotContain("SmartLink lists", said, StringComparison.Ordinal);
+            }
+        }
+
+        /// <summary>
         /// Repair two (F1): the card's verdict reads every one of the row's
         /// "we have not asked yet" states, each on its own. With every state
         /// answered, a row no list carries is not listed; flip any one of them
@@ -127,29 +156,34 @@ namespace Radios.Tests
             // row's account (if any) signed in, no sign-in pending, and a
             // session live.
             Assert.Equal(PickerListing.NotListed, NetworkIdentityInfo.PickerListingFor(
-                wanAvailable: false, discoverySettled: true, refreshInFlight: false,
+                wanAvailable: false, wanUnconfirmed: false, discoverySettled: true, refreshInFlight: false,
                 boundAccountHasLiveSession: true, boundAccountSessionComingUp: false, anySessionLive: true));
 
             // The row says "checking".
             Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, discoverySettled: false, false, true, false, true));
+                false, false, discoverySettled: false, false, true, false, true));
             // A pass is in flight: "rechecking now" or "refreshing".
             Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, true, refreshInFlight: true, true, false, true));
+                false, false, true, refreshInFlight: true, true, false, true));
             // The row's account is not signed in: "not checked, not signed in to ...".
             Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, true, false, boundAccountHasLiveSession: false, false, true));
+                false, false, true, false, boundAccountHasLiveSession: false, false, true));
             // Its session is coming up: "signing in".
             Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, true, false, true, boundAccountSessionComingUp: true, true));
+                false, false, true, false, true, boundAccountSessionComingUp: true, true));
             // No session live at all: an operator who never signs in to
             // SmartLink, whose rows bind no account.
             Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, true, false, true, false, anySessionLive: false));
+                false, false, true, false, true, false, anySessionLive: false));
+
+            // The list that carried it is no longer current: last listed,
+            // whatever else is still settling (repair two, F2).
+            Assert.Equal(PickerListing.LastListed, NetworkIdentityInfo.PickerListingFor(
+                true, wanUnconfirmed: true, true, false, true, false, true));
 
             // A list carries it: listed, whatever else is still settling.
             Assert.Equal(PickerListing.Listed, NetworkIdentityInfo.PickerListingFor(
-                true, false, true, false, true, false));
+                true, false, false, true, false, true, false));
         }
 
         /// <summary>

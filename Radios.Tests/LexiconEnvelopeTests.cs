@@ -1238,6 +1238,10 @@ namespace Radios.Tests
                 // Repair two: a radio nothing has asked SmartLink about yet.
                 // TextOnly, DRAFT PROSE.
                 "connect.identity.not_asked",
+                // Repair two: a radio last seen on SmartLink, in the past
+                // tense. TextOnly, DRAFT PROSE.
+                "connect.identity.last_listed",
+                "connect.identity.last_listed_ports_not_arrived",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

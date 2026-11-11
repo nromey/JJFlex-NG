@@ -159,15 +159,20 @@ namespace Radios
         /// safe direction: the card says less, never something false.
         /// </remarks>
         /// <param name="wanAvailable">The row's SmartLink flag: a SmartLink list carries the radio.</param>
+        /// <param name="wanUnconfirmed">The row's <c>WanUnconfirmed</c>: that list is no longer current, so the radio was last seen there.</param>
         /// <param name="discoverySettled">The row's <c>DiscoverySettled</c>.</param>
         /// <param name="refreshInFlight">The row's <c>RefreshInFlight</c>: a SmartLink pass we started has not landed.</param>
         /// <param name="boundAccountHasLiveSession">The row's <c>BoundAccountHasLiveSession</c> (true when the row names no account).</param>
         /// <param name="boundAccountSessionComingUp">The row's <c>BoundAccountSessionComingUp</c>.</param>
         /// <param name="anySessionLive">Whether any SmartLink session is live at all.</param>
-        public static PickerListing PickerListingFor(bool wanAvailable, bool discoverySettled, bool refreshInFlight,
-            bool boundAccountHasLiveSession, bool boundAccountSessionComingUp, bool anySessionLive)
+        public static PickerListing PickerListingFor(bool wanAvailable, bool wanUnconfirmed, bool discoverySettled,
+            bool refreshInFlight, bool boundAccountHasLiveSession, bool boundAccountSessionComingUp, bool anySessionLive)
         {
-            if (wanAvailable) return PickerListing.Listed;
+            // Last seen (repair two, the integration pass's F2): after a
+            // SmartLink drop the flag stays on and the row says the radio was
+            // last seen there, so the card must not speak of the listing in
+            // the present tense.
+            if (wanAvailable) return wanUnconfirmed ? PickerListing.LastListed : PickerListing.Listed;
             if (!discoverySettled
                 || refreshInFlight
                 || boundAccountSessionComingUp
@@ -187,7 +192,8 @@ namespace Radios
         /// have not reached the picker, says it is listed and that they have
         /// not arrived; a row nothing has asked SmartLink about yet says only
         /// that; a row the asked lists answered without says SmartLink does
-        /// not list it. Nothing here probes anything: the list's numbers are
+        /// not list it; and a row last seen on SmartLink gives what the list
+        /// said when SmartLink last listed it, in the past tense. Nothing here probes anything: the list's numbers are
         /// the address the radio is handing out, which no port probe can stand
         /// in for.
         /// </summary>
@@ -232,12 +238,17 @@ namespace Radios
                 lines.Add(Lexicon.Get("connect.identity.not_listed"));
                 return lines;
             }
+            bool lastListed = listing == PickerListing.LastListed;
             if (advertised == null)
             {
-                lines.Add(Lexicon.Get("connect.identity.listed_ports_not_arrived"));
+                lines.Add(lastListed
+                    ? Lexicon.Get("connect.identity.last_listed_ports_not_arrived")
+                    : Lexicon.Get("connect.identity.listed_ports_not_arrived"));
                 return lines;
             }
-            lines.Add(Lexicon.Get("connect.identity.listed_not_connected"));
+            lines.Add(lastListed
+                ? Lexicon.Get("connect.identity.last_listed")
+                : Lexicon.Get("connect.identity.listed_not_connected"));
             lines.Add(PathLine(advertised.RequiresHolePunch, advertised.TlsPort, advertised.UdpPort, advertised.PortForwardOn, 0));
             return lines;
         }
@@ -284,8 +295,16 @@ namespace Radios
     /// </summary>
     public enum PickerListing
     {
-        /// <summary>A SmartLink list carries the radio.</summary>
+        /// <summary>A current SmartLink list carries the radio.</summary>
         Listed,
+
+        /// <summary>
+        /// A SmartLink list carried the radio, but that list is no longer the
+        /// session's current knowledge (the row's <c>WanUnconfirmed</c>, #619):
+        /// the row says the radio was last seen on SmartLink, and the card
+        /// gives the numbers as they were when SmartLink last listed it.
+        /// </summary>
+        LastListed,
 
         /// <summary>
         /// Nothing has asked SmartLink about the radio yet, or the answer has
