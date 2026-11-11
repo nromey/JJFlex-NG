@@ -375,6 +375,27 @@ namespace JJFlexWpf.Dialogs
         public bool BoundAccountSessionComingUp { get; set; }
 
         /// <summary>
+        /// Whether any SmartLink session at all is live right now, stamped by
+        /// the dialog on every refresh from the same snapshot as
+        /// <see cref="BoundAccountHasLiveSession"/> (#398, repair two). Only
+        /// the Network identity card reads it: with no session live, nothing
+        /// has asked SmartLink about a radio no account has listed, so the card
+        /// must not say SmartLink does not list it. <b>Defaults to false</b>,
+        /// so a row nothing has stamped says less, never a denial.
+        /// </summary>
+        public bool AnySmartLinkSessionLive { get; set; }
+
+        /// <summary>
+        /// What the Network identity card may say about whether a SmartLink
+        /// list carries this radio (#398, repair two): the row's own
+        /// "we have not asked yet" states, read by the one rule in
+        /// <see cref="Radios.NetworkIdentityInfo.PickerListingFor"/>.
+        /// </summary>
+        public Radios.PickerListing SmartLinkListing =>
+            Radios.NetworkIdentityInfo.PickerListingFor(WanAvailable, DiscoverySettled, RefreshInFlight,
+                BoundAccountHasLiveSession, BoundAccountSessionComingUp, AnySmartLinkSessionLive);
+
+        /// <summary>
         /// Whether connecting to this row travels the SmartLink path.
         /// Derived from <see cref="ChosenPath"/>, never stored — and unlike
         /// the old derivation, the operator's stored chain is consulted for
@@ -2615,6 +2636,10 @@ namespace JJFlexWpf.Dialogs
                         !r.BoundAccountHasLiveSession
                         && presenceSettling
                         && Radios.SmartLink.SmartLinkPresenceService.IsHolding(r.BoundAccount);
+                    // ...and whether any session is live at all, which only
+                    // the identity card reads (#398, repair two): with none,
+                    // nothing has asked SmartLink about this radio.
+                    r.AnySmartLinkSessionLive = liveAccounts.Count > 0;
                     // ...and which account a SmartLink connect would broker
                     // through, when that is not the one in play — resolved
                     // above, outside this lock. Cleared for every row it does
@@ -2844,7 +2869,9 @@ namespace JJFlexWpf.Dialogs
         /// changes a row in place reaches the list through that refresh, and
         /// none of them moves the highlight.
         /// Whether a SmartLink list carries the radio is the row's own flag,
-        /// never the presence of numbers (Codex B1).
+        /// never the presence of numbers (Codex B1); and a flag that is off
+        /// is a denial only once something has asked, read from the row's
+        /// own "not asked yet" states (repair two).
         /// </remarks>
         private void RefreshIdentityCard()
         {
@@ -2854,7 +2881,7 @@ namespace JJFlexWpf.Dialogs
                 var row = GetSelectedRadio();
                 if (row == null) { IdentityCard.Rig = current; return; }
                 IdentityCard.ShowLines(Radios.NetworkIdentityInfo.BuildPickerLines(current, row.Serial, row.Name,
-                    row.ModelName, row.WanAvailable, (row.WanSighting as FlexBase.RigData)?.Advertised));
+                    row.ModelName, row.SmartLinkListing, (row.WanSighting as FlexBase.RigData)?.Advertised));
             }
             catch (Exception ex)
             {

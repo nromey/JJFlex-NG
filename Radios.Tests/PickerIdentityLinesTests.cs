@@ -32,15 +32,15 @@ namespace Radios.Tests
         public void With_no_row_highlighted_the_card_describes_the_current_radio_as_before()
         {
             Assert.Equal(NetworkIdentityInfo.BuildLines(_current),
-                NetworkIdentityInfo.BuildPickerLines(_current, null, null, null, false, null));
+                NetworkIdentityInfo.BuildPickerLines(_current, null, null, null, PickerListing.NotListed, null));
             Assert.Equal(NetworkIdentityInfo.BuildLines(null),
-                NetworkIdentityInfo.BuildPickerLines(null, "", null, null, false, null));
+                NetworkIdentityInfo.BuildPickerLines(null, "", null, null, PickerListing.NotListed, null));
         }
 
         [Fact]
         public void A_SmartLink_listed_radio_shows_its_advertised_ports_without_a_connect()
         {
-            var lines = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Shack", "FLEX-6300", true,
+            var lines = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Shack", "FLEX-6300", PickerListing.Listed,
                 new SmartLinkAdvertised(4993, 4994, portForwardOn: true, requiresHolePunch: false));
             Assert.Equal(new[]
             {
@@ -55,7 +55,7 @@ namespace Radios.Tests
         [Fact]
         public void A_listed_radio_that_needs_a_hole_punch_says_so_as_the_connected_card_does()
         {
-            var lines = NetworkIdentityInfo.BuildPickerLines(null, Serial, "", "FLEX-6300", true,
+            var lines = NetworkIdentityInfo.BuildPickerLines(null, Serial, "", "FLEX-6300", PickerListing.Listed,
                 new SmartLinkAdvertised(0, 0, portForwardOn: false, requiresHolePunch: true));
             Assert.Equal("Radio: FLEX-6300", lines[0]);
             Assert.Equal("Path: hole punch. No forwarded ports are configured at the radio's site.", lines[^1]);
@@ -64,7 +64,7 @@ namespace Radios.Tests
         [Fact]
         public void A_radio_SmartLink_does_not_list_says_there_is_nothing_advertised()
         {
-            var lines = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Bench", "FLEX-8600", false, null);
+            var lines = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Bench", "FLEX-8600", PickerListing.NotListed, null);
             Assert.Equal(new[]
             {
                 "Radio: FLEX-8600, name Bench",
@@ -84,14 +84,72 @@ namespace Radios.Tests
         [Fact]
         public void Whether_SmartLink_lists_the_radio_is_the_rows_flag_not_the_presence_of_numbers()
         {
-            var listedNoNumbers = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Bench", "FLEX-8600", true, null);
+            var listedNoNumbers = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Bench", "FLEX-8600", PickerListing.Listed, null);
             Assert.Equal(Lexicon.Get("connect.identity.listed_ports_not_arrived"), listedNoNumbers[^1]);
             Assert.DoesNotContain(Lexicon.Get("connect.identity.not_listed"), listedNoNumbers);
 
-            var leftTheList = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Bench", "FLEX-8600", false,
+            var leftTheList = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Bench", "FLEX-8600", PickerListing.NotListed,
                 new SmartLinkAdvertised(4993, 4994, portForwardOn: true, requiresHolePunch: false));
             Assert.Equal(Lexicon.Get("connect.identity.not_listed"), leftTheList[^1]);
             Assert.DoesNotContain(leftTheList, l => l.Contains("4993", StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// Repair two (the integration pass's F1): a row nothing has asked
+        /// SmartLink about yet gets neither the denial nor any numbers, even
+        /// when its last SmartLink sighting still holds them.
+        /// </summary>
+        [Fact]
+        public void A_row_nothing_has_asked_SmartLink_about_says_so_and_denies_nothing()
+        {
+            var lines = NetworkIdentityInfo.BuildPickerLines(_current, Serial, "Bench", "FLEX-8600", PickerListing.NotAsked,
+                new SmartLinkAdvertised(4993, 4994, portForwardOn: true, requiresHolePunch: false));
+            Assert.Equal(new[]
+            {
+                "Radio: FLEX-8600, name Bench",
+                "Serial: " + Serial,
+                Lexicon.Get("connect.identity.not_asked"),
+            }, lines);
+            Assert.DoesNotContain(Lexicon.Get("connect.identity.not_listed"), lines);
+        }
+
+        /// <summary>
+        /// Repair two (F1): the card's verdict reads every one of the row's
+        /// "we have not asked yet" states, each on its own. With every state
+        /// answered, a row no list carries is not listed; flip any one of them
+        /// and nothing may be denied. A row a list carries is listed whatever
+        /// the rest say, because the list itself is the answer.
+        /// </summary>
+        [Fact]
+        public void The_card_denies_a_listing_only_once_SmartLink_has_been_asked()
+        {
+            // Everything answered: discovery settled, no pass in flight, the
+            // row's account (if any) signed in, no sign-in pending, and a
+            // session live.
+            Assert.Equal(PickerListing.NotListed, NetworkIdentityInfo.PickerListingFor(
+                wanAvailable: false, discoverySettled: true, refreshInFlight: false,
+                boundAccountHasLiveSession: true, boundAccountSessionComingUp: false, anySessionLive: true));
+
+            // The row says "checking".
+            Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
+                false, discoverySettled: false, false, true, false, true));
+            // A pass is in flight: "rechecking now" or "refreshing".
+            Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
+                false, true, refreshInFlight: true, true, false, true));
+            // The row's account is not signed in: "not checked, not signed in to ...".
+            Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
+                false, true, false, boundAccountHasLiveSession: false, false, true));
+            // Its session is coming up: "signing in".
+            Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
+                false, true, false, true, boundAccountSessionComingUp: true, true));
+            // No session live at all: an operator who never signs in to
+            // SmartLink, whose rows bind no account.
+            Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
+                false, true, false, true, false, anySessionLive: false));
+
+            // A list carries it: listed, whatever else is still settling.
+            Assert.Equal(PickerListing.Listed, NetworkIdentityInfo.PickerListingFor(
+                true, false, true, false, true, false));
         }
 
         /// <summary>
@@ -137,7 +195,7 @@ namespace Radios.Tests
             string src = Source("JJFlexWpf", "Dialogs", "RigSelectorDialog.xaml.cs");
             int at = src.IndexOf("private void RefreshIdentityCard()", StringComparison.Ordinal);
             string body = src.Substring(at, src.IndexOf("catch (Exception ex)", at, StringComparison.Ordinal) - at);
-            Assert.Contains("row.WanAvailable, (row.WanSighting as FlexBase.RigData)?.Advertised", body, StringComparison.Ordinal);
+            Assert.Contains("row.SmartLinkListing, (row.WanSighting as FlexBase.RigData)?.Advertised", body, StringComparison.Ordinal);
             Assert.Contains("NetworkIdentityInfo.BuildPickerLines(current, row.Serial,", body, StringComparison.Ordinal);
             Assert.Contains("if (row == null) { IdentityCard.Rig = current; return; }", body, StringComparison.Ordinal);
             // The Status dialog's copy of the card still describes its radio.

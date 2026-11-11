@@ -136,6 +136,48 @@ namespace Radios
         }
 
         /// <summary>
+        /// Whether the picker's card may say a SmartLink list carries the
+        /// highlighted radio, that none does, or neither (#398, repair two).
+        /// The row beside the card reaches its own SmartLink verdict only after
+        /// its "we have not asked yet" states, and so does the card: while
+        /// local discovery is still settling (the row says "checking"), while a
+        /// pass is in flight ("rechecking now", "refreshing"), while the
+        /// session for the row's account is coming up ("signing in"), while
+        /// that account has no live session ("not checked, not signed in"),
+        /// and whenever no SmartLink session is live at all, a denial would
+        /// assert an absence nothing looked for. Nothing has answered YET is
+        /// not the same as nothing is there (Noel, 2026-08-17; #340, #382).
+        /// </summary>
+        /// <remarks>
+        /// Wider than the row's own guards on purpose. The row names an
+        /// account only on some branches, so it guards the account states only
+        /// there; the card's denial is about SmartLink as a whole, so it is
+        /// withheld whenever any of them holds. A radio no account has ever
+        /// listed has no bound account, so its session flag is true, and it
+        /// reads as not asked only because no session is live: which is every
+        /// row for an operator who never signs in to SmartLink. Wrong in the
+        /// safe direction: the card says less, never something false.
+        /// </remarks>
+        /// <param name="wanAvailable">The row's SmartLink flag: a SmartLink list carries the radio.</param>
+        /// <param name="discoverySettled">The row's <c>DiscoverySettled</c>.</param>
+        /// <param name="refreshInFlight">The row's <c>RefreshInFlight</c>: a SmartLink pass we started has not landed.</param>
+        /// <param name="boundAccountHasLiveSession">The row's <c>BoundAccountHasLiveSession</c> (true when the row names no account).</param>
+        /// <param name="boundAccountSessionComingUp">The row's <c>BoundAccountSessionComingUp</c>.</param>
+        /// <param name="anySessionLive">Whether any SmartLink session is live at all.</param>
+        public static PickerListing PickerListingFor(bool wanAvailable, bool discoverySettled, bool refreshInFlight,
+            bool boundAccountHasLiveSession, bool boundAccountSessionComingUp, bool anySessionLive)
+        {
+            if (wanAvailable) return PickerListing.Listed;
+            if (!discoverySettled
+                || refreshInFlight
+                || boundAccountSessionComingUp
+                || !boundAccountHasLiveSession
+                || !anySessionLive)
+                return PickerListing.NotAsked;
+            return PickerListing.NotListed;
+        }
+
+        /// <summary>
         /// The card's lines in the radio picker (#398): the HIGHLIGHTED row,
         /// so a SmartLink radio's advertised ports can be read without
         /// connecting. With no row highlighted, or the connected radio
@@ -143,9 +185,11 @@ namespace Radios
         /// dialog shows them. A row a SmartLink list carries, not connected,
         /// shows what the list says about reaching it, or, when its numbers
         /// have not reached the picker, says it is listed and that they have
-        /// not arrived; a row no list carries says SmartLink does not list it.
-        /// Nothing here probes anything: the list's numbers are the address
-        /// the radio is handing out, which no port probe can stand in for.
+        /// not arrived; a row nothing has asked SmartLink about yet says only
+        /// that; a row the asked lists answered without says SmartLink does
+        /// not list it. Nothing here probes anything: the list's numbers are
+        /// the address the radio is handing out, which no port probe can stand
+        /// in for.
         /// </summary>
         /// <remarks>
         /// <b>Whether a list carries the radio is asked separately from its
@@ -156,15 +200,20 @@ namespace Radios
         /// said it was available on SmartLink. The converse holds too: a
         /// row's last SmartLink sighting is kept after the radio leaves the
         /// list, so its numbers are shown only while a list carries it.
+        /// <para><b>And a flag that is off is not a denial</b> (repair two).
+        /// Until then the card said SmartLink does not list the radio for any
+        /// row whose flag was off, including rows nothing had asked about yet,
+        /// while the row beside it said "checking" or "not checked, not signed
+        /// in". See <see cref="PickerListingFor"/>.</para>
         /// </remarks>
         /// <param name="current">The app's current radio, or null.</param>
         /// <param name="rowSerial">The highlighted row's serial, or null when none is highlighted.</param>
         /// <param name="rowName">The highlighted row's radio name.</param>
         /// <param name="rowModel">The highlighted row's model.</param>
-        /// <param name="listedOnSmartLink">The row's own SmartLink flag: a SmartLink list carries the radio.</param>
+        /// <param name="listing">What SmartLink has said about the row, from <see cref="PickerListingFor"/>.</param>
         /// <param name="advertised">What that list says about reaching the radio, or null when the picker holds no numbers for it.</param>
         public static List<string> BuildPickerLines(FlexBase? current, string? rowSerial, string? rowName,
-            string? rowModel, bool listedOnSmartLink, SmartLinkAdvertised? advertised)
+            string? rowModel, PickerListing listing, SmartLinkAdvertised? advertised)
         {
             if (string.IsNullOrEmpty(rowSerial)) return BuildLines(current);
             if (current != null && current.IsConnected
@@ -173,7 +222,12 @@ namespace Radios
 
             var lines = new List<string>();
             AddIdentityLines(lines, rowModel ?? "", rowName ?? "", rowSerial!);
-            if (!listedOnSmartLink)
+            if (listing == PickerListing.NotAsked)
+            {
+                lines.Add(Lexicon.Get("connect.identity.not_asked"));
+                return lines;
+            }
+            if (listing == PickerListing.NotListed)
             {
                 lines.Add(Lexicon.Get("connect.identity.not_listed"));
                 return lines;
@@ -220,6 +274,28 @@ namespace Radios
         }
 
         private static string YesNo(bool? v) => v switch { true => "yes", false => "no", null => "unknown" };
+    }
+
+    /// <summary>
+    /// What the radio picker's Network identity card may say about whether a
+    /// SmartLink list carries the highlighted radio (#398, repair two). Decided
+    /// from the row's own facts by <see cref="NetworkIdentityInfo.PickerListingFor"/>,
+    /// never from whether the row holds any numbers.
+    /// </summary>
+    public enum PickerListing
+    {
+        /// <summary>A SmartLink list carries the radio.</summary>
+        Listed,
+
+        /// <summary>
+        /// Nothing has asked SmartLink about the radio yet, or the answer has
+        /// not arrived: the card says neither that a list carries it nor that
+        /// none does.
+        /// </summary>
+        NotAsked,
+
+        /// <summary>The lists that were asked answered without it.</summary>
+        NotListed,
     }
 
     /// <summary>

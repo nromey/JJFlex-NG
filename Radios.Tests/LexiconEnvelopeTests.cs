@@ -1235,6 +1235,9 @@ namespace Radios.Tests
                 // Repair one: a listed radio whose numbers have not reached
                 // the picker. TextOnly, DRAFT PROSE.
                 "connect.identity.listed_ports_not_arrived",
+                // Repair two: a radio nothing has asked SmartLink about yet.
+                // TextOnly, DRAFT PROSE.
+                "connect.identity.not_asked",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

@@ -48,7 +48,10 @@ public sealed class PickerIdentityCardFollowsTests
     /// A roster row highlighted before its SmartLink reply; the reply arrives
     /// and updates the row in place; a later list changes its ports; then the
     /// radio leaves the list. The card says each in turn, with the highlight
-    /// never moving.
+    /// never moving. Before anything has asked SmartLink, and after the radio
+    /// leaves the list while no session is live, it denies nothing (repair
+    /// two); only once a live session's list has answered without the radio
+    /// does it say SmartLink does not list it.
     /// </summary>
     [Fact]
     public void The_card_follows_the_highlighted_row_when_its_sighting_changes_in_place()
@@ -64,8 +67,15 @@ public sealed class PickerIdentityCardFollowsTests
             Rows(dialog).Add(row);
             list.Items.Add(row);
             list.SelectedItem = row;
-            Invoke(dialog, "RefreshIdentityCard");
-            Assert.EndsWith(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
+
+            // Before any reply, with discovery still settling: the row says
+            // "checking", and the card must not say SmartLink does not list
+            // the radio (repair two, the integration pass's F1). Until then
+            // this step asserted that denial.
+            Invoke(dialog, "RefreshRadiosList", false);
+            Assert.Equal(Lexicon.Get("connect.row.checking"), row.WhereText);
+            Assert.EndsWith(Lexicon.Get("connect.identity.not_asked"), card.IdentityText.Text);
+            Assert.DoesNotContain(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
 
             // The SmartLink reply: the row is updated in place, the
             // highlight does not move.
@@ -89,14 +99,37 @@ public sealed class PickerIdentityCardFollowsTests
             Assert.DoesNotContain("21443", card.IdentityText.Text);
 
             // The radio leaves the list: the reconcile clears the row's
-            // SmartLink flag and keeps its last sighting. The card says it is
-            // not listed, not the old numbers.
-            availability = (false, false, null);
-            Invoke(dialog, "RefreshRadiosList", false);
-            Assert.False(row.WanAvailable);
-            Assert.Same(second, row.WanSighting);
-            Assert.EndsWith(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
-            Assert.DoesNotContain("31443", card.IdentityText.Text);
+            // SmartLink flag and keeps its last sighting. Discovery has
+            // settled, but no SmartLink session is live, so nothing has asked:
+            // the card denies nothing and shows no old numbers (repair two).
+            Put(dialog, "_localSettled", true);
+            var coordinatorBefore = Radios.SmartLink.SmartLinkServices.Coordinator;
+            try
+            {
+                Radios.SmartLink.SmartLinkServices.Override(
+                    new Radios.SmartLink.SmartLinkSessionCoordinator(_ => session));
+                availability = (false, false, null);
+                Invoke(dialog, "RefreshRadiosList", false);
+                Assert.False(row.WanAvailable);
+                Assert.Same(second, row.WanSighting);
+                Assert.False(row.AnySmartLinkSessionLive);
+                Assert.EndsWith(Lexicon.Get("connect.identity.not_asked"), card.IdentityText.Text);
+                Assert.DoesNotContain("31443", card.IdentityText.Text);
+
+                // A session is live and its list answered without the radio:
+                // now the card says it is not listed, not the old numbers.
+                var asked = new Radios.SmartLink.SmartLinkSessionCoordinator(_ => session);
+                asked.GetOrCreateSession(session.AccountId);
+                Radios.SmartLink.SmartLinkServices.Override(asked);
+                Invoke(dialog, "RefreshRadiosList", false);
+                Assert.True(row.AnySmartLinkSessionLive);
+                Assert.EndsWith(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
+                Assert.DoesNotContain("31443", card.IdentityText.Text);
+            }
+            finally
+            {
+                Radios.SmartLink.SmartLinkServices.Override(coordinatorBefore);
+            }
 
             // A rebuild: another radio arrives, so the list is rebuilt, in the
             // same refresh that the reconcile puts the highlighted radio back
