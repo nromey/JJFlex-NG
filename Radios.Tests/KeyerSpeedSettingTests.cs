@@ -114,18 +114,28 @@ namespace Radios.Tests
         {
             public readonly RigOnVendorRadio F;
 
+            /// <summary>The current operator, as the application's delegate answers it; change it to switch operators.</summary>
+            public string Operator = "TestOperator";
+
             public Connected(string operatorParent)
             {
                 F = new RigOnVendorRadio(Serial);
                 F.Rig.q.MainLoop = true;   // parked: run by hand
                 typeof(FlexBase).GetField("_IsConnected", Private)!.SetValue(F.Rig, true);
-                // The rig's own operator folder, as OpenParms gives it.
+                // The rig's own operator folder, as OpenParms gives it: the
+                // application's delegate follows the CURRENT operator.
                 F.Rig.Callouts.ConfigDirectory = operatorParent;
-                F.Rig.Callouts.GetOperatorName = () => "TestOperator";
+                F.Rig.Callouts.GetOperatorName = () => Operator;
                 // The operator's folder exists by the time a radio is connected.
                 Directory.CreateDirectory(Path.Combine(operatorParent, "TestOperator"));
+                // What the connect itself does: read the operator's keyer
+                // setup into the rig (the main thread's issue7620(false)).
+                Issue7620(false);
                 Assert.True(F.Rig.IsConnected, "positive control: the rig reads as connected");
             }
+
+            public void Issue7620(bool write) =>
+                typeof(FlexBase).GetMethod("issue7620", Private)!.Invoke(F.Rig, new object[] { write });
 
             public void RunQueue()
             {
@@ -155,13 +165,14 @@ namespace Radios.Tests
         }
 
         [Theory]
-        [InlineData(RadioOwnership.SomeoneElses)]
-        [InlineData(null)]   // never answered: ownership unknown
-        public void On_a_radio_that_is_not_the_operators_the_speed_is_saved_for_them_and_the_radio_is_left_alone(RadioOwnership? ownership)
+        [InlineData(RadioOwnership.SomeoneElses, KeyerSpeedStore.Outcome.SavedNotThisRadio)]
+        [InlineData(null, KeyerSpeedStore.Outcome.SavedOwnershipUnknown)]   // never answered: ownership unknown
+        public void On_a_radio_that_is_not_the_operators_the_speed_is_saved_for_them_and_the_radio_is_left_alone(
+            RadioOwnership? ownership, KeyerSpeedStore.Outcome expected)
         {
             if (ownership is RadioOwnership o) Declare(o);
             using var c = new Connected(_scope.PathTo("Radios"));
-            Assert.Equal(KeyerSpeedStore.Outcome.SavedNotThisRadio, KeyerSpeedStore.Commit(c.F.Rig, OperatorDir(), 33));
+            Assert.Equal(expected, KeyerSpeedStore.Commit(c.F.Rig, OperatorDir(), 33));
             c.RunQueue();
             Assert.Equal(0, c.Sent("cw wpm"));
             Assert.Equal(33, ReadSetup(OperatorDir()).KeyerSpeed);
@@ -206,6 +217,151 @@ namespace Radios.Tests
             WriteSetup(OperatorDir(), new FlexBase.cfg7620 { KeyerSpeed = 41 });   // written behind the rig's back
             Assert.Equal(c.F.Rig.OperatorKeyerSpeed, KeyerSpeedStore.Read(c.F.Rig, OperatorDir()));
             Assert.NotEqual(41, KeyerSpeedStore.Read(c.F.Rig, OperatorDir()));
+        }
+
+        // ── repair one: the operator who holds the setup, and receipts that are true ──
+
+        private string OtherOperatorDir() => _scope.PathTo("Radios", "OtherOperator");
+
+        private static FlexBase.cfg7620 SetupA() => new FlexBase.cfg7620
+        {
+            KeyerSpeed = 33, BreakinDelay = 300, SidetonePitch = 600, Keyer = FlexBase.IambicValues.off, CWReverse = false,
+        };
+
+        private static FlexBase.cfg7620 SetupB() => new FlexBase.cfg7620
+        {
+            KeyerSpeed = 55, BreakinDelay = 750, SidetonePitch = 900, Keyer = FlexBase.IambicValues.iambicB, CWReverse = true,
+        };
+
+        private static void AssertSetup(FlexBase.cfg7620 expected, FlexBase.cfg7620 actual, string whose)
+        {
+            Assert.True(expected.KeyerSpeed == actual.KeyerSpeed, whose + ": speed " + actual.KeyerSpeed);
+            Assert.True(expected.BreakinDelay == actual.BreakinDelay, whose + ": break-in delay " + actual.BreakinDelay);
+            Assert.True(expected.SidetonePitch == actual.SidetonePitch, whose + ": sidetone pitch " + actual.SidetonePitch);
+            Assert.True(expected.Keyer == actual.Keyer, whose + ": keyer " + actual.Keyer);
+            Assert.True(expected.CWReverse == actual.CWReverse, whose + ": reverse paddles " + actual.CWReverse);
+        }
+
+        [Fact]
+        public void An_operator_switch_while_connected_reads_and_saves_the_new_operators_own_keyer_setup()
+        {
+            // The 2026-11-11 check's reproduction: connected as A, switch to
+            // B through Radio, Operators, then change the speed. The field
+            // showed A's speed and the save wrote A's WHOLE setup into B's file.
+            Declare(RadioOwnership.Mine);
+            WriteSetup(OperatorDir(), SetupA());
+            WriteSetup(OtherOperatorDir(), SetupB());
+            using var c = new Connected(_scope.PathTo("Radios"));
+            Assert.Equal(33, c.F.Rig.OperatorKeyerSpeed);   // positive control: connected as A
+
+            c.Operator = "OtherOperator";
+            Assert.Equal(55, KeyerSpeedStore.Read(c.F.Rig, OtherOperatorDir()));
+            Assert.Equal(KeyerSpeedStore.Outcome.WrittenToRadio, KeyerSpeedStore.Commit(c.F.Rig, OtherOperatorDir(), 56));
+            c.RunQueue();
+            Assert.Equal(1, c.Sent("cw wpm 56"));
+
+            var b = SetupB();
+            b.KeyerSpeed = 56;
+            AssertSetup(b, ReadSetup(OtherOperatorDir()), "B's file");
+            AssertSetup(SetupA(), ReadSetup(OperatorDir()), "A's file");
+        }
+
+        [Fact]
+        public void An_operator_with_no_keyer_file_starts_from_the_defaults_not_the_last_operators()
+        {
+            Declare(RadioOwnership.SomeoneElses);
+            WriteSetup(OperatorDir(), SetupA());
+            using var c = new Connected(_scope.PathTo("Radios"));
+            Assert.Equal(33, c.F.Rig.OperatorKeyerSpeed);
+
+            c.Operator = "OtherOperator";
+            Directory.CreateDirectory(OtherOperatorDir());
+            Assert.Equal(KeyerSpeedStore.DefaultWpm, c.F.Rig.OperatorKeyerSpeed);
+            Assert.Equal(KeyerSpeedStore.Outcome.SavedNotThisRadio, KeyerSpeedStore.Commit(c.F.Rig, OtherOperatorDir(), 30));
+
+            var expected = new FlexBase.cfg7620 { KeyerSpeed = 30 };
+            AssertSetup(expected, ReadSetup(OtherOperatorDir()), "B's new file");
+            AssertSetup(SetupA(), ReadSetup(OperatorDir()), "A's file");
+        }
+
+        [Fact]
+        public void The_last_line_never_writes_one_operators_keyer_setup_into_anothers_folder()
+        {
+            // Any keyer write (the rig rewrites the whole file on every keyer
+            // change) after the operator changed, with nothing having read the
+            // new operator's setup first: B's file is not replaced by A's.
+            WriteSetup(OperatorDir(), SetupA());
+            WriteSetup(OtherOperatorDir(), SetupB());
+            using var c = new Connected(_scope.PathTo("Radios"));
+
+            // Positive control: for the operator whose setup it holds, the write happens.
+            File.Delete(Path.Combine(OperatorDir(), KeyerSpeedStore.FileName));
+            c.Issue7620(true);
+            AssertSetup(SetupA(), ReadSetup(OperatorDir()), "A's file, rewritten");
+
+            c.Operator = "OtherOperator";
+            c.Issue7620(true);
+            AssertSetup(SetupB(), ReadSetup(OtherOperatorDir()), "B's file");
+        }
+
+        [Fact]
+        public void An_operator_change_reads_the_new_operators_keyer_setup_at_once()
+        {
+            string rig = Source("Radios", "FlexBase.cs");
+            int handler = rig.IndexOf("public void OperatorChangeHandler()", StringComparison.Ordinal);
+            int ensure = rig.IndexOf("EnsureKeyerSetupIsCurrentOperators();", handler, StringComparison.Ordinal);
+            int end = rig.IndexOf("FilterObj.OperatorChangeHandler();", handler, StringComparison.Ordinal);
+            Assert.True(handler > 0 && ensure > handler && ensure < end,
+                "an operator change does not bring the rig's keyer setup up to the new operator");
+        }
+
+        private static string LexiconText(string key)
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(Source("Radios", "Lexicon", "settings.json"));
+            return doc.RootElement.GetProperty(key).GetProperty("text").GetString()!;
+        }
+
+        [Fact]
+        public void Never_answered_ownership_has_its_own_receipt_and_is_never_called_someone_elses()
+        {
+            string elses = LexiconText("settings.keyer.speed_not_this_radio");
+            string unknown = LexiconText("settings.keyer.speed_ownership_unknown");
+            Assert.NotEqual(elses, unknown);
+            Assert.DoesNotContain("not yours", unknown, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("someone else", unknown, StringComparison.OrdinalIgnoreCase);
+
+            string dialog = Source("JJFlexWpf", "Dialogs", "SettingsDialog.KeyerSpeed.cs");
+            int unknownCase = dialog.IndexOf("case KeyerSpeedStore.Outcome.SavedOwnershipUnknown:", StringComparison.Ordinal);
+            int unknownWords = dialog.IndexOf("settings.keyer.speed_ownership_unknown", StringComparison.Ordinal);
+            int nextCase = dialog.IndexOf("default:", unknownCase, StringComparison.Ordinal);
+            Assert.True(unknownCase > 0 && unknownWords > unknownCase && unknownWords < nextCase,
+                "Settings does not give never-answered ownership its own receipt");
+        }
+
+        [Fact]
+        public void A_save_with_no_radio_promises_no_connect_the_gate_would_refuse()
+        {
+            // The restore runs only inside the full automatic-write gate. These
+            // are the gate's own answers, unchanged by this field: an owned
+            // radio the operator set to be left alone, or with the
+            // change-nothing hold armed, gets nothing at connect...
+            Assert.False(ProfileStewardship.MayWriteSharedStateAutomatically(new ProfileSituation
+            { Ownership = RadioOwnership.Mine, Intent = ProfileGuestIntent.LeaveAlone }));
+            Assert.False(ProfileStewardship.MayWriteSharedStateAutomatically(new ProfileSituation
+            { Ownership = RadioOwnership.Mine, Intent = ProfileGuestIntent.LoadMineAndPutBack, ChangeNothingArmed = true }));
+            // ...and the positive control: loading the operator's settings is what applies it.
+            Assert.True(ProfileStewardship.MayWriteSharedStateAutomatically(new ProfileSituation
+            { Ownership = RadioOwnership.Mine, Intent = ProfileGuestIntent.LoadMineAndPutBack }));
+
+            // So nothing Settings says may promise the next connect outright
+            // (the words are DRAFTS; whatever Codex makes of them must stay conditional).
+            foreach (var key in new[] { "settings.keyer.speed_waits_for_radio", "settings.keyer.speed_help" })
+            {
+                string text = LexiconText(key);
+                Assert.DoesNotContain("next connect", text, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("when you connect to it", text, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("set on your own radio when you connect", text, StringComparison.OrdinalIgnoreCase);
+            }
         }
     }
 }

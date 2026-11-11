@@ -21,7 +21,8 @@ namespace JJFlexWpf.Dialogs
     /// </para>
     /// <para>
     /// <b>A setting is an intent</b>: it works with no radio, saving into the
-    /// operator's own keyer file for the next connect to their own radio;
+    /// operator's own keyer file, which a connect to their own radio applies
+    /// when that connect puts their settings on it (never promised outright);
     /// while connected it goes through the radio layer, which writes the radio
     /// only when it is the operator's own (#686). See <see cref="KeyerSpeedStore"/>.
     /// Committed only when the operator changed the number, so opening and
@@ -107,8 +108,13 @@ namespace JJFlexWpf.Dialogs
                     queued.Add(Lexicon.Get("settings.keyer.speed_waits_for_radio"));
                     break;
                 case KeyerSpeedStore.Outcome.SavedNotThisRadio:
-                    // DRAFT PROSE (#879, #686): the radio was left alone.
+                    // DRAFT PROSE (#879, #686): the operator marked it someone else's.
                     queued.Add(Lexicon.Get("settings.keyer.speed_not_this_radio"));
+                    break;
+                case KeyerSpeedStore.Outcome.SavedOwnershipUnknown:
+                    // DRAFT PROSE (#879 repair one): never answered is not
+                    // someone else's, and is not described as it.
+                    queued.Add(Lexicon.Get("settings.keyer.speed_ownership_unknown"));
                     break;
                 default:
                     // DRAFT PROSE (#879).

@@ -286,11 +286,25 @@ namespace Radios
         private cfg7620 cfgData = new cfg7620();
         private void issue7620(bool writeFlag)
         {
-            string fileName = OperatorsDirectory + '\\' + "issue7620.xml";
+            string operatorFolder = OperatorsDirectory;
+            string fileName = operatorFolder + '\\' + "issue7620.xml";
             Stream cfgStream = null;
 
             if (writeFlag)
             {
+                // Never one operator's keyer setup into another's folder
+                // (#879 repair one): the folder follows the CURRENT operator,
+                // and cfgData is whoever's it was read for. The keyer speed
+                // field brings it up to date first
+                // (EnsureKeyerSetupIsCurrentOperators), and so does an
+                // operator change; this is the last line.
+                if (!KeyerSetupBelongsTo(operatorFolder))
+                {
+                    Tracing.TraceLine("issue7620:write refused: the keyer setup held is " + _keyerSetupFolder
+                        + "'s, not " + operatorFolder + "'s", TraceLevel.Error);
+                    return;
+                }
+                _keyerSetupFolder = operatorFolder;
                 Tracing.TraceLine("issue7620:write", TraceLevel.Info);
                 try
                 {
@@ -310,6 +324,11 @@ namespace Radios
             else
             {
                 Tracing.TraceLine("issue7620:read:" + File.Exists(fileName).ToString(), TraceLevel.Info);
+                // Another operator's setup held, and nothing readable for this
+                // one: this operator starts from the defaults, never from the
+                // last operator's keyer (#879 repair one).
+                if (!KeyerSetupBelongsTo(operatorFolder)) cfgData = new cfg7620();
+                _keyerSetupFolder = operatorFolder;
                 if (File.Exists(fileName))
                 {
                     try

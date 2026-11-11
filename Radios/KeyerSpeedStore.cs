@@ -19,8 +19,13 @@ namespace Radios
     /// <c>&lt;settings root&gt;\Radios\&lt;operator&gt;</c>, the file the
     /// connected <see cref="FlexBase"/> keeps (<c>FlexBase.cfg7620</c>) and the
     /// owner-only restore applies at connect (<c>ApplyKeyerRestoreToRadio</c>).
-    /// So a speed set with no radio reaches the operator's radio at the next
-    /// connect with nothing new on that path.
+    /// So a speed set with no radio reaches the operator's radio at a connect
+    /// that puts their settings on it, with nothing new on that path. That
+    /// restore runs only inside the full automatic-write gate (the radio
+    /// theirs, the change-nothing hold off, settings set to be loaded at
+    /// connect), and this field does not loosen it: so what Settings says
+    /// after a save with no radio is conditional, never "at the next
+    /// connect" (#879 repair one).
     /// </para>
     /// <para>
     /// <b>Connected: through the rig, never the file.</b> The rig holds the
@@ -62,11 +67,26 @@ namespace Radios
             /// <summary>Saved for the operator and written to their own connected radio.</summary>
             WrittenToRadio,
 
-            /// <summary>No radio connected: saved, and applied at the next connect to their own radio.</summary>
+            /// <summary>
+            /// No radio connected: saved. A later connect puts it on their own
+            /// radio only when that connect puts the operator's settings on the
+            /// radio at all (ApplyKeyerRestoreToRadio runs inside the owner's
+            /// full automatic-write gate: the radio declared theirs, the
+            /// change-nothing hold off, and settings set to be loaded at
+            /// connect), so nothing may promise the next connect outright.
+            /// </summary>
             SavedForNextConnect,
 
             /// <summary>Connected to a radio that is not the operator's: saved for them only; that radio was left alone.</summary>
             SavedNotThisRadio,
+
+            /// <summary>
+            /// Connected to a radio whose ownership was never answered: saved
+            /// for them only; that radio was left alone, because nobody has
+            /// said it is theirs (#879 repair one). Not the same as someone
+            /// else's, and not described as it.
+            /// </summary>
+            SavedOwnershipUnknown,
 
             /// <summary>Nowhere to save it: no operator folder is known.</summary>
             NotSaved,
@@ -84,7 +104,7 @@ namespace Radios
         {
             int wpm = Math.Clamp(wordsPerMinute, MinWpm, MaxWpm);
             if (rig != null && rig.IsConnected)
-                return rig.SetOperatorKeyerSpeed(wpm) ? Outcome.WrittenToRadio : Outcome.SavedNotThisRadio;
+                return rig.SetOperatorKeyerSpeed(wpm);
             if (string.IsNullOrEmpty(operatorDirectory))
             {
                 Tracing.TraceLine("Keyer speed: " + wpm + " WPM not saved; no operator folder is known", TraceLevel.Warning);
@@ -143,7 +163,7 @@ namespace Radios
                 using var s = File.Open(path, FileMode.Create);
                 new XmlSerializer(typeof(FlexBase.cfg7620)).Serialize(s, cfg);
                 Tracing.TraceLine("Keyer speed: " + wpm + " WPM saved for the operator with no radio connected; "
-                    + "applied at the next connect to a radio of their own", TraceLevel.Info);
+                    + "applied at a connect to a radio of their own that puts their settings on it", TraceLevel.Info);
                 return true;
             }
             catch (Exception ex)

@@ -2797,6 +2797,7 @@ namespace Radios.Tests
                 "settings.keyer.speed_out_of_range",
                 "settings.keyer.speed_waits_for_radio",
                 "settings.keyer.speed_not_this_radio",
+                "settings.keyer.speed_ownership_unknown",
                 "settings.keyer.speed_not_saved",
                 // Junk box #979 (2026-11-11): one switch for the word hertz on
                 // spoken filter widths. DRAFTS for Codex.

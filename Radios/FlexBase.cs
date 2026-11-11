@@ -14126,6 +14126,9 @@ namespace Radios
         /// </summary>
         public void OperatorChangeHandler()
         {
+            // The keyer setup held is the last operator's: read the new one's
+            // before anything changes or saves it (#879 repair one).
+            EnsureKeyerSetupIsCurrentOperators();
             FilterObj.OperatorChangeHandler();
         }
         #endregion

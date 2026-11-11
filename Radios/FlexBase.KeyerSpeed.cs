@@ -36,46 +36,101 @@ namespace Radios
     /// </remarks>
     public partial class FlexBase
     {
-        /// <summary>The operator's own keyer speed, in words per minute: the one saved and applied at connect.</summary>
-        public int OperatorKeyerSpeed => cfgData.KeyerSpeed;
+        /// <summary>
+        /// The operator folder <c>cfgData</c> was read from or written to: whose
+        /// keyer setup this object holds (#879 repair one). Null until the
+        /// first read or write. The folder itself follows the CURRENT operator
+        /// (<c>OperatorsDirectory</c>), and an operator can change while a radio
+        /// stays connected, so the two can part.
+        /// </summary>
+        private string _keyerSetupFolder;
+
+        /// <summary>True when the setup held is this folder's, or nobody's yet.</summary>
+        private bool KeyerSetupBelongsTo(string operatorFolder) =>
+            _keyerSetupFolder == null
+            || string.Equals(_keyerSetupFolder, operatorFolder, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Set the operator's keyer speed from Settings: saved as theirs, and
-        /// written to the radio only when the radio is declared theirs. True
-        /// when it was written to the radio; false when it was saved for the
-        /// operator only.
+        /// Bring the held keyer setup up to the current operator's before it is
+        /// read or changed: when the operator has changed since it was read,
+        /// read the new operator's own file (or start them from the defaults).
+        /// Writes nothing.
         /// </summary>
-        public bool SetOperatorKeyerSpeed(int wordsPerMinute)
+        internal void EnsureKeyerSetupIsCurrentOperators()
+        {
+            string folder;
+            try { folder = OperatorsDirectory; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Keyer setup: the operator's folder is not available: " + ex.Message, TraceLevel.Warning);
+                return;
+            }
+            if (_keyerSetupFolder != null && KeyerSetupBelongsTo(folder)) return;
+            if (_keyerSetupFolder != null)
+                Tracing.TraceLine("Keyer setup: the operator changed (" + _keyerSetupFolder + " to " + folder
+                    + "); reading the new operator's own keyer setup", TraceLevel.Info);
+            issue7620(false);
+        }
+
+        /// <summary>The current operator's own keyer speed, in words per minute: the one saved and applied at connect.</summary>
+        public int OperatorKeyerSpeed
+        {
+            get
+            {
+                EnsureKeyerSetupIsCurrentOperators();
+                return cfgData.KeyerSpeed;
+            }
+        }
+
+        /// <summary>
+        /// Set the current operator's keyer speed from Settings: saved as
+        /// theirs, and written to the radio only when the radio is declared
+        /// theirs. Says which: <see cref="KeyerSpeedStore.Outcome.WrittenToRadio"/>,
+        /// or saved for the operator only because the radio is someone else's
+        /// (<see cref="KeyerSpeedStore.Outcome.SavedNotThisRadio"/>), its
+        /// ownership was never answered
+        /// (<see cref="KeyerSpeedStore.Outcome.SavedOwnershipUnknown"/>), or no
+        /// radio is connected (<see cref="KeyerSpeedStore.Outcome.SavedForNextConnect"/>).
+        /// </summary>
+        public KeyerSpeedStore.Outcome SetOperatorKeyerSpeed(int wordsPerMinute)
         {
             int wpm = Math.Clamp(wordsPerMinute, KeyerSpeedMin, KeyerSpeedMax);
-            if (KeyerSpeedWriteIsOurs(out string whose))
+            EnsureKeyerSetupIsCurrentOperators();
+            var refusal = KeyerSpeedWriteRefusal(out string whose);
+            if (refusal == StationLayoutSaveRefusal.None)
             {
                 KeyerSpeed = wpm;
                 Tracing.TraceLine("Keyer speed: " + wpm + " WPM, saved for the operator and written to the radio", TraceLevel.Info);
-                return true;
+                return KeyerSpeedStore.Outcome.WrittenToRadio;
             }
             cfgData.KeyerSpeed = wpm;
             issue7620(true);
             Tracing.TraceLine("Keyer speed: " + wpm + " WPM, saved for the operator only; the radio's keyer was left alone ("
-                + whose + "). It is applied at the next connect to a radio of the operator's own.", TraceLevel.Info);
-            return false;
+                + whose + "). It is applied at a later connect to a radio of the operator's own, when that connect puts the operator's settings on it.", TraceLevel.Info);
+            switch (refusal)
+            {
+                case StationLayoutSaveRefusal.NotOurRadio: return KeyerSpeedStore.Outcome.SavedNotThisRadio;
+                case StationLayoutSaveRefusal.OwnershipUnknown: return KeyerSpeedStore.Outcome.SavedOwnershipUnknown;
+                default: return KeyerSpeedStore.Outcome.SavedForNextConnect;
+            }
         }
 
         /// <summary>
         /// May the operator's keyer speed be written to this radio? Only a
-        /// connected radio declared the operator's.
+        /// connected radio declared the operator's:
+        /// <see cref="StationLayoutSaveRefusal.None"/>. Otherwise why not.
         /// </summary>
-        private bool KeyerSpeedWriteIsOurs(out string whose)
+        private StationLayoutSaveRefusal KeyerSpeedWriteRefusal(out string whose)
         {
             var radio = theRadio;
             if (radio == null || !IsConnected)
             {
                 whose = "no radio is connected";
-                return false;
+                return StationLayoutSaveRefusal.NoRadio;
             }
             var refusal = StationLayoutSaveGuard.OwnershipRefusal(RadioConfig.OwnershipOf(radio.Serial));
             whose = refusal == StationLayoutSaveRefusal.None ? "the operator's own radio" : "radio " + radio.Serial + ": " + refusal;
-            return refusal == StationLayoutSaveRefusal.None;
+            return refusal;
         }
     }
 }
