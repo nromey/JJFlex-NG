@@ -39,15 +39,8 @@ namespace Radios
             }
 
             // ── Identity ──
-            string model = rig.RadioModel;
-            string nickname = rig.RadioNickname;
-            lines.Add(string.IsNullOrWhiteSpace(nickname)
-                ? $"Radio: {model}"
-                : $"Radio: {model}, name {nickname}");
-
             string serial = rig.ConnectedSerial ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(serial))
-                lines.Add($"Serial: {serial}");
+            AddIdentityLines(lines, rig.RadioModel, rig.RadioNickname, serial);
 
             string firmware = rig.RadioFirmwareVersion;
             if (!string.IsNullOrWhiteSpace(firmware))
@@ -98,17 +91,13 @@ namespace Radios
 
             if (rig.RadioRequiresHolePunch)
             {
-                int punchPort = rig.LastHolePunchPort;
-                lines.Add(punchPort > 0
-                    ? $"Path: hole punch, negotiated on port {punchPort} this session. No forwarded ports are configured at the radio's site."
-                    : "Path: hole punch. No forwarded ports are configured at the radio's site.");
+                lines.Add(PathLine(holePunch: true, rig.RadioPublicTlsPort, rig.RadioPublicUdpPort,
+                    rig.RadioPortForwardActive, rig.LastHolePunchPort));
             }
             else
             {
-                int tcp = rig.RadioPublicTlsPort;
-                int udp = rig.RadioPublicUdpPort;
-                string fwdState = rig.RadioPortForwardActive ? "on" : "off";
-                lines.Add($"Path: forwarded ports — external TCP {tcp}, external UDP {udp}. Radio reports port forwarding {fwdState}.");
+                lines.Add(PathLine(holePunch: false, rig.RadioPublicTlsPort, rig.RadioPublicUdpPort,
+                    rig.RadioPortForwardActive, 0));
 
                 // The verbatim rule, so nobody ever has to reconstruct it.
                 string? rule = rig.BuildRouterRuleText();
@@ -146,6 +135,62 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The card's lines in the radio picker (#398): the HIGHLIGHTED row,
+        /// so a SmartLink radio's advertised ports can be read without
+        /// connecting. With no row highlighted, or the connected radio
+        /// highlighted, the connected radio's own lines, exactly as the Status
+        /// dialog shows them. A SmartLink-listed row that is not connected
+        /// shows what the SmartLink list says about reaching it; any other row
+        /// says SmartLink does not list it. Nothing here probes anything: the
+        /// list's numbers are the address the radio is handing out, which no
+        /// port probe can stand in for.
+        /// </summary>
+        /// <param name="current">The app's current radio, or null.</param>
+        /// <param name="rowSerial">The highlighted row's serial, or null when none is highlighted.</param>
+        /// <param name="rowName">The highlighted row's radio name.</param>
+        /// <param name="rowModel">The highlighted row's model.</param>
+        /// <param name="listed">What the SmartLink list says about reaching the row's radio, or null when no list has.</param>
+        public static List<string> BuildPickerLines(FlexBase? current, string? rowSerial, string? rowName,
+            string? rowModel, SmartLinkAdvertised? listed)
+        {
+            if (string.IsNullOrEmpty(rowSerial)) return BuildLines(current);
+            if (current != null && current.IsConnected
+                && string.Equals(current.ConnectedSerial, rowSerial, StringComparison.OrdinalIgnoreCase))
+                return BuildLines(current);
+
+            var lines = new List<string>();
+            AddIdentityLines(lines, rowModel ?? "", rowName ?? "", rowSerial!);
+            if (listed == null)
+            {
+                lines.Add(Lexicon.Get("connect.identity.not_listed"));
+                return lines;
+            }
+            lines.Add(Lexicon.Get("connect.identity.listed_not_connected"));
+            lines.Add(PathLine(listed.RequiresHolePunch, listed.TlsPort, listed.UdpPort, listed.PortForwardOn, 0));
+            return lines;
+        }
+
+        private static void AddIdentityLines(List<string> lines, string model, string nickname, string serial)
+        {
+            lines.Add(string.IsNullOrWhiteSpace(nickname)
+                ? $"Radio: {model}"
+                : $"Radio: {model}, name {nickname}");
+            if (!string.IsNullOrWhiteSpace(serial))
+                lines.Add($"Serial: {serial}");
+        }
+
+        /// <summary>The path line, one wording for the connected radio and a listed one.</summary>
+        private static string PathLine(bool holePunch, int tcp, int udp, bool forwardOn, int punchPort)
+        {
+            if (holePunch)
+                return punchPort > 0
+                    ? $"Path: hole punch, negotiated on port {punchPort} this session. No forwarded ports are configured at the radio's site."
+                    : "Path: hole punch. No forwarded ports are configured at the radio's site.";
+            string fwdState = forwardOn ? "on" : "off";
+            return $"Path: forwarded ports — external TCP {tcp}, external UDP {udp}. Radio reports port forwarding {fwdState}.";
+        }
+
         private static string AgeSuffix(DateTime timestampUtc)
         {
             var age = DateTime.UtcNow - timestampUtc;
@@ -158,5 +203,28 @@ namespace Radios
         }
 
         private static string YesNo(bool? v) => v switch { true => "yes", false => "no", null => "unknown" };
+    }
+
+    /// <summary>
+    /// What a SmartLink radio list says about reaching one radio, as it was
+    /// received (#398): the public TCP and UDP ports it advertises, whether it
+    /// reports port forwarding on, and whether it needs a hole punch. Carried
+    /// on a SmartLink sighting (<see cref="FlexBase.RigData.Advertised"/>) so
+    /// the radio picker can show it without a connect.
+    /// </summary>
+    public sealed class SmartLinkAdvertised
+    {
+        public SmartLinkAdvertised(int tlsPort, int udpPort, bool portForwardOn, bool requiresHolePunch)
+        {
+            TlsPort = tlsPort;
+            UdpPort = udpPort;
+            PortForwardOn = portForwardOn;
+            RequiresHolePunch = requiresHolePunch;
+        }
+
+        public int TlsPort { get; }
+        public int UdpPort { get; }
+        public bool PortForwardOn { get; }
+        public bool RequiresHolePunch { get; }
     }
 }

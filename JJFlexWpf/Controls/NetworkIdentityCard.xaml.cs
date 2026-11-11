@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Windows.Controls;
 using Radios;
 
@@ -39,7 +40,20 @@ namespace JJFlexWpf.Controls
         public FlexBase? Rig
         {
             get => _rig;
-            set { _rig = value; Refresh(); }
+            set { _rig = value; _lines = null; Refresh(); }
+        }
+
+        private IReadOnlyList<string>? _lines;
+
+        /// <summary>
+        /// Show these lines in place of a radio's own: the radio picker's
+        /// highlighted row (#398). Setting <see cref="Rig"/> returns the card
+        /// to describing a radio. The Status dialog never calls this.
+        /// </summary>
+        public void ShowLines(IReadOnlyList<string> lines)
+        {
+            _lines = lines;
+            Refresh();
         }
 
         public NetworkIdentityCard()
@@ -61,7 +75,7 @@ namespace JJFlexWpf.Controls
             if (IdentityText.IsKeyboardFocusWithin) return;
 
             IdentityText.Text = string.Join(Environment.NewLine,
-                NetworkIdentityInfo.BuildLines(_rig));
+                _lines ?? NetworkIdentityInfo.BuildLines(_rig));
         }
     }
 }

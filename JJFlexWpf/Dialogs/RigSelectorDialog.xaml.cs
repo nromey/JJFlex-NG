@@ -2818,15 +2818,22 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Point the identity card at the app's current rig and re-render.
-        /// Setting <see cref="Controls.NetworkIdentityCard.Rig"/> refreshes;
-        /// the card itself guards against stealing focus mid-read.
+        /// Point the identity card at the HIGHLIGHTED row (#398): a SmartLink
+        /// radio's advertised ports, port forwarding and hole punch, as its
+        /// SmartLink list sighting carries them, read without a connect. With
+        /// no row highlighted, or the connected radio highlighted, the app's
+        /// current radio, as before. The card guards against stealing focus
+        /// mid-read.
         /// </summary>
         private void RefreshIdentityCard()
         {
             try
             {
-                IdentityCard.Rig = _callbacks.GetCurrentRig?.Invoke();
+                var current = _callbacks.GetCurrentRig?.Invoke();
+                var row = GetSelectedRadio();
+                if (row == null) { IdentityCard.Rig = current; return; }
+                IdentityCard.ShowLines(Radios.NetworkIdentityInfo.BuildPickerLines(current, row.Serial, row.Name,
+                    row.ModelName, (row.WanSighting as FlexBase.RigData)?.Advertised));
             }
             catch (Exception ex)
             {

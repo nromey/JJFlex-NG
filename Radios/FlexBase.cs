@@ -155,6 +155,16 @@ namespace Radios
                 Array.Empty<string>();
 
             /// <summary>
+            /// What the SmartLink list said about reaching this radio, on a
+            /// sighting raised from a WAN radio (#398): its advertised public
+            /// ports, port forwarding and hole punch. Null on a local sighting.
+            /// The radio picker's identity card reads it from the row's
+            /// SmartLink sighting, so the number the radio hands out can be read
+            /// without attempting a connect.
+            /// </summary>
+            public SmartLinkAdvertised Advertised { get; internal set; }
+
+            /// <summary>
             /// The SmartLink list this sighting was raised from — the session
             /// and the connection generation the list was born on — when the
             /// WAN intake raised it, or when the picker's replay re-raises a
@@ -830,6 +840,10 @@ namespace Radios
             {
                 rd.GuiClientStations = r.GuiClients.Select(c => c.Station ?? "").ToList();
             }
+            // What the SmartLink list says about reaching it (#398), from the
+            // list's own radio object. Read only; nothing is probed.
+            if (r.IsWan)
+                rd.Advertised = new SmartLinkAdvertised(r.PublicTlsPort, r.PublicUdpPort, r.IsPortForwardOn, r.RequiresHolePunch);
             // One counted line per hop the occupancy fact travels (#394): a
             // dropped baton along this chain reads exactly like "nobody is on
             // it", and the 2026-08-30 field trace is what a silent drop costs.

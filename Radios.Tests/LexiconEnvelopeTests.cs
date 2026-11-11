@@ -1226,6 +1226,12 @@ namespace Radios.Tests
                 // Said only in answer to the operator's choice: TextOnly.
                 // DRAFT PROSE.
                 "settings.profile_guest.not_saved",
+                // Junk box batch 5, #398: the radio picker's Network identity
+                // card for a highlighted radio that is not connected. Card
+                // text, read only when the operator reads the card: TextOnly.
+                // DRAFT PROSE.
+                "connect.identity.listed_not_connected",
+                "connect.identity.not_listed",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
