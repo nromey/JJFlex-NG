@@ -56,11 +56,16 @@ public sealed class SameFileStopSaidOnceTests : IDisposable
     /// <summary>
     /// The speech arbiter is process-wide; start and end from nothing so an
     /// earlier test's waiting speech cannot stand in for, or hide, these
-    /// announcements. Internal to Radios, so reached by name, here only.
+    /// announcements. Internal to Radios, so reached by name, here only; a
+    /// rename fails with the method's name, not a bare null reference.
     /// </summary>
-    private static void ResetSpeechState() =>
-        typeof(ScreenReaderOutput).GetMethod("ResetTransientSpeechStateForTest", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, null);
+    private static void ResetSpeechState()
+    {
+        var reset = typeof(ScreenReaderOutput).GetMethod("ResetTransientSpeechStateForTest",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(reset != null, "ScreenReaderOutput.ResetTransientSpeechStateForTest is missing");
+        reset!.Invoke(null, null);
+    }
 
     private static void AssertTheDeskIsSafe()
     {
