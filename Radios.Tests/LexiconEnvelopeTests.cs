@@ -1006,12 +1006,17 @@ namespace Radios.Tests
                 // Junk box #691 items 1 and 7 (2026-11-11, batch 6). Rewording
                 // a frozen key takes it off the manifest, so both are
                 // classified here (as #944 did). delivery: null - TextOnly -
-                // for both: the not-in-list title is the advisory window's
-                // title, read with the window, and the unanswered-check line
-                // is Radio Setup's step 2 status text, read where it stands;
-                // the application never says either on its own account. The
-                // status line is Noel's own sentence (2026-10-02); the title
-                // is a DRAFT after his example of the shape.
+                // for both, because neither is a standalone message. The
+                // not-in-list title is the advisory window's title: it IS
+                // spoken, on arrival, as every dialog's is (AdvisoryDialog
+                // keeps SpeaksOwnTitle, so JJFlexDialog's Loaded handler says
+                // the Title under SpeechSubject.DialogArrival), but as the
+                // window's own name, which is interface identity, not a fact
+                // the application reports. The unanswered-check line is Radio
+                // Setup's step 2 status text, read where it stands; it is set
+                // as the text and not spoken by the application. The status
+                // line is Noel's own sentence (2026-10-02); the title is a
+                // DRAFT after his example of the shape.
                 "connect.smartlink.not_in_list_title",
                 "settings.radio.register.check_unanswered",
                 // Junk box 2026-11-09, second batch: the Fix tool's transmitter
