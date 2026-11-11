@@ -267,5 +267,20 @@ if /i "%PUBMODE%"=="release" set "RELEASE_FLAG=-Release"
 
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0publish-to-nas.ps1" -ProjectRoot "%~dp0." -Version "%APPVER%" -Archs !ARCH_LIST! %RELEASE_FLAG%
+REM The publish's exit code is checked, and checked as "not zero" rather than
+REM with "if errorlevel 1": that is a greater-than-or-equal test, and a
+REM powershell -File that fails before the script runs exits with a NEGATIVE
+REM code, which sails straight past it. The script exits 1 when any requested
+REM architecture was not published and 2 when the NAS was not reachable.
+set "PUBRC=!ERRORLEVEL!"
+if not "!PUBRC!"=="0" (
+    echo.
+    echo ============================================
+    echo The installers were built, but the NAS publish FAILED ^(exit code !PUBRC!^).
+    echo They are NOT on the NAS. The lines above say which were not published, and why.
+    echo ============================================
+    endlocal
+    exit /b 4
+)
 
 endlocal
