@@ -275,6 +275,16 @@ namespace JJFlexWpf.Dialogs
         public bool EverySavedListRuledItOut { get; set; }
 
         /// <summary>
+        /// True once <see cref="ConnectAccount"/> and
+        /// <see cref="EverySavedListRuledItOut"/> have been asked of the
+        /// connect's plan (the roster paint, a changed choice). Only these rows
+        /// are asked again when the lists move; a row discovery alone made
+        /// keeps the empty account it has always had.
+        /// </summary>
+        /// <remarks>#405 repair three (Codex, 2026-11-10).</remarks>
+        public bool AccountAskedOfThePlan { get; set; }
+
+        /// <summary>
         /// The row's account is a remembered one: every saved list has answered
         /// without the radio, and the account named is not the operator's
         /// choice, so it is the account the radio was last seen under. The row
@@ -1373,6 +1383,7 @@ namespace JJFlexWpf.Dialogs
                         existing.PreferredAccount = k.PreferredAccount;
                         existing.ConnectAccount = connect;
                         existing.EverySavedListRuledItOut = ruledOutEverywhere;
+                        existing.AccountAskedOfThePlan = !string.IsNullOrWhiteSpace(k.Serial);
                         existing.PathChain = k.PathChain ?? new List<ConnectPathKind>();
                         existing.LearnedPath = learned;
                         existing.ForeignAccount = foreign;
@@ -1395,6 +1406,7 @@ namespace JJFlexWpf.Dialogs
                         PreferredAccount = k.PreferredAccount,
                         ConnectAccount = connect,
                         EverySavedListRuledItOut = ruledOutEverywhere,
+                        AccountAskedOfThePlan = !string.IsNullOrWhiteSpace(k.Serial),
                         FromAccountCache = k.InAccountCache,
                         // Bound to some other account than the one in play (or
                         // bound while no account is chosen) — the row names
@@ -2431,6 +2443,82 @@ namespace JJFlexWpf.Dialogs
             return lists;
         }
 
+        /// <summary>
+        /// What the lists looked like the last time the painted rows' accounts
+        /// were asked again: every held session's account and list snapshot,
+        /// then the saved accounts. Null until the first ask. UI thread only.
+        /// </summary>
+        private List<object>? _rowAccountsAskedAt;
+
+        /// <summary>
+        /// The plan's account and history flag for every row whose account came
+        /// from the plan (<see cref="RadioListItem.AccountAskedOfThePlan"/>),
+        /// asked again only when the lists have moved since the last ask; an
+        /// empty map otherwise. Called outside <c>_radiosLock</c>.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>#405 repair three (Codex, 2026-11-10).</b> The resolver is
+        /// <see cref="Radios.FlexBase.RadioListAccountFor(string, out bool, IEnumerable{string})"/>,
+        /// the one the paint asks; this adds no rule, only WHEN to ask.</para>
+        /// <para><b>When the lists have moved.</b> Each session's
+        /// <see cref="Radios.SmartLink.SessionRadioListSnapshot"/> is compared
+        /// whole, by its own equality: it carries every list fact the plan's
+        /// picture reads (connected, arrived, connection, revision, the list
+        /// itself), so a change the plan could see always reads as moved. The
+        /// saved accounts are compared too, since the plan reads them. The one
+        /// input not compared is the radio's own record (its chosen and
+        /// last-seen accounts): the operator's choice in this window restamps
+        /// its row itself. Comparing first means a LAN radio's once-a-second
+        /// repaint does not read every radio's record from disk.</para>
+        /// <para>The comparison is taken BEFORE the asks, so a list that lands
+        /// while they run reads as moved on the next refresh: asked once too
+        /// often, never once too few. If the sessions cannot be read the rows
+        /// are asked every time.</para>
+        /// </remarks>
+        private Dictionary<string, (string Account, bool RuledOut)> ReplanRowAccountsIfTheListsMoved()
+        {
+            var answers = new Dictionary<string, (string Account, bool RuledOut)>(StringComparer.OrdinalIgnoreCase);
+
+            List<object>? now = new();
+            try
+            {
+                foreach (var session in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
+                {
+                    if (session == null) continue;
+                    now.Add(session.AccountId ?? "");
+                    now.Add(session.RadioListSnapshot);
+                }
+                foreach (var account in Radios.FlexBase.SharedAccountManager.Accounts)
+                    now.Add(account?.Email ?? "");
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RigSelector.ReplanRowAccountsIfTheListsMoved: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                now = null;
+            }
+            if (now != null && _rowAccountsAskedAt != null && now.SequenceEqual(_rowAccountsAskedAt))
+                return answers;
+
+            List<string> serials;
+            lock (_radiosLock)
+            {
+                serials = _radiosList
+                    .Where(r => r.AccountAskedOfThePlan && !string.IsNullOrWhiteSpace(r.Serial))
+                    .Select(r => r.Serial)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            foreach (var serial in serials)
+            {
+                string account = Radios.FlexBase.RadioListAccountFor(serial, out bool ruledOut);
+                answers[serial] = (account, ruledOut);
+            }
+
+            _rowAccountsAskedAt = now;
+            return answers;
+        }
+
         // ------------------------------------------------------------------
         // Presence engagement (#382) — the gate, and the window it opens
         // ------------------------------------------------------------------
@@ -2671,6 +2759,17 @@ namespace JJFlexWpf.Dialogs
                     ? broker : "";
             }
 
+            // The account each painted row names, and whether it is only
+            // remembered, asked of the plan again whenever the lists have moved
+            // (#405 repair three, Codex 2026-11-10). The paint asks once; a
+            // picker opened before the saved accounts' first lists arrive
+            // painted "a list is still to come", and nothing asked again when
+            // every list then answered without the radio, so the row kept
+            // "registered to" and Enter kept "uses account". Same resolver as
+            // the paint, asked here OUTSIDE _radiosLock for the same reason:
+            // it reads the radio's record and the held sessions.
+            var replanned = ReplanRowAccountsIfTheListsMoved();
+
             // Occupancy for WAN rows no sighting has fed, from the same bank
             // that made them live. Field-proven gap (2026-08-30, trace 17:20):
             // presence pushes are consumed by exactly one rig, a teardown can
@@ -2713,6 +2812,19 @@ namespace JJFlexWpf.Dialogs
                 foreach (var r in _radiosList)
                 {
                     r.DiscoverySettled = _localSettled;
+                    // The plan's account and its history flag, together, from
+                    // the one answer asked above, and the foreign flag from
+                    // the same rule the paint uses, so the row and Enter name
+                    // the account the lists now support. First, because
+                    // everything below reads BoundAccount.
+                    if (r.AccountAskedOfThePlan
+                        && r.Serial != null
+                        && replanned.TryGetValue(r.Serial, out var plan))
+                    {
+                        r.ConnectAccount = plan.Account;
+                        r.EverySavedListRuledItOut = plan.RuledOut;
+                        r.ForeignAccount = RadioListItem.BoundElsewhere(r.BoundAccount, currentAccount);
+                    }
                     r.BoundAccountHasLiveSession =
                         string.IsNullOrWhiteSpace(r.BoundAccount)
                         || liveAccounts.Contains(r.BoundAccount);
@@ -3984,6 +4096,7 @@ namespace JJFlexWpf.Dialogs
             // again now the choice is saved, outside the list lock.
             radio.ConnectAccount = Radios.FlexBase.RadioListAccountFor(radio.Serial, out bool ruledOut);
             radio.EverySavedListRuledItOut = ruledOut;
+            radio.AccountAskedOfThePlan = !string.IsNullOrWhiteSpace(radio.Serial);
             var current = CurrentAccountEmail();
             radio.ForeignAccount = RadioListItem.BoundElsewhere(radio.BoundAccount, current);
 

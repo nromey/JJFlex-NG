@@ -168,7 +168,7 @@ public static class KeyInventory
         // operations they pan again (2026-11-09 20:51), and those fields' own
         // rows say so: this row is appended to their Ctrl+F1 list too, so it
         // names the fields it covers. DRAFT PROSE: awaiting Noel.
-        new("Home", "Any Home field", "Page Up / Page Down", "On fields other than Slice and Slice operations, say where pan went: the audio layer, JJ key A then P",
+        new("Home", "Any Home field", "Page Up / Page Down", "On Home fields other than Slice and Slice operations, announces the pan shortcut: press the JJ key, A, then P",
             new[] { "pan", "stereo", "balance", "audio layer", "page up", "page down" }),
         new("Home", "Any Home field", "M", "Mute or unmute the active slice",
             new[] { "mute", "unmute", "audio", "slice" }),
@@ -205,10 +205,10 @@ public static class KeyInventory
             new[] { "slice", "next", "cycle" }),
         // The bare arrows are a choice in Settings (#517, Noel 2026-11-09
         // 21:01): by default they switch slices in the slice arrow order;
-        // with "Arrows tune on the Slice field" checked they tune by the
+        // with "Tune with Up and Down on the Slice field" checked they tune by the
         // coarse step. Static wording naming both, so the default lives only
         // in AccessibilityConfig. DRAFT PROSE.
-        new("Slice", "Slice field", "Up / Down", "Next or previous slice, or tune by your coarse step if Arrows tune on the Slice field is checked in Settings, Accessibility",
+        new("Slice", "Slice field", "Up / Down", "Tunes by your coarse step when ‘Tune with Up and Down on the Slice field’ is checked in Settings, under Accessibility; switches slices when it is unchecked",
             new[] { "slice", "next", "previous", "cycle", "tune", "tuning", "coarse", "step" }),
         // 0-9, not 0-7: the handler answers every digit, and a digit past
         // your last slice says "no such slice" instead of going quiet (#358).
@@ -229,10 +229,10 @@ public static class KeyInventory
 
         // ── Slice operations field ──
         // The bare arrows are a choice in Settings (#517, Noel 2026-11-09
-        // 21:01): by default they tune by the coarse step; with "Arrows tune
-        // on the Slice operations field" unchecked they change the slice's
+        // 21:01): by default they tune by the coarse step; with "Tune with Up
+        // and Down in Slice operations" unchecked they change the slice's
         // volume. Static wording naming both. DRAFT PROSE.
-        new("SliceOps", "Slice operations field", "Up / Down", "Tune by your coarse step, or adjust volume if Arrows tune on the Slice operations field is unchecked in Settings, Accessibility",
+        new("SliceOps", "Slice operations field", "Up / Down", "Tunes by your coarse step when ‘Tune with Up and Down in Slice operations’ is checked in Settings, under Accessibility; adjusts the slice's volume when it is unchecked",
             new[] { "tune", "tuning", "coarse", "step", "frequency", "volume", "gain" }),
         // Pan is back on this field (#517, Noel 2026-11-09 20:51).
         new("SliceOps", "Slice operations field", "Page Up / Page Down", "Pan right or left",

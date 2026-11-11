@@ -1984,7 +1984,7 @@
                               AutomationProperties.Name="Slice list">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="What the up and down arrows do on the Slice field and the Slice operations field, and which way they walk the slice letters on the Slice field while they switch slices there."/>
+                                       Text="Choose whether Up and Down tune or switch slices on the Slice field, and whether they tune or adjust volume on the Slice operations field. The direction setting applies only when the arrows switch slices."/>
 
                             <!-- #517, ruled by Noel 2026-11-09 21:01: one box per
                                  field. Labels DRAFT for Codex. Unchecked, the
@@ -1992,12 +1992,12 @@
                                  direction below; the Slice operations field's
                                  change the slice's volume. -->
                             <CheckBox x:Name="SliceFieldArrowsTuneCheckbox" Margin="0,0,0,4"
-                                      AutomationProperties.Name="Arrows tune on the Slice field">
-                                <TextBlock Text="Arrows tune on the Slice field" TextWrapping="Wrap"/>
+                                      AutomationProperties.Name="Tune with Up and Down on the Slice field">
+                                <TextBlock Text="Tune with Up and Down on the Slice field" TextWrapping="Wrap"/>
                             </CheckBox>
                             <CheckBox x:Name="SliceOpsFieldArrowsTuneCheckbox" Margin="0,0,0,8"
-                                      AutomationProperties.Name="Arrows tune on the Slice operations field">
-                                <TextBlock Text="Arrows tune on the Slice operations field" TextWrapping="Wrap"/>
+                                      AutomationProperties.Name="Tune with Up and Down in Slice operations">
+                                <TextBlock Text="Tune with Up and Down in Slice operations" TextWrapping="Wrap"/>
                             </CheckBox>
 
                             <GroupBox Header="Slice arrow direction" Margin="0,0,0,8"
