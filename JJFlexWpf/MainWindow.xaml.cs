@@ -948,8 +948,10 @@ public partial class MainWindow : UserControl
     /// </para>
     /// <para>
     /// <b>It never outlives the input state.</b> <see cref="ResetPttInput"/>
-    /// clears it, so Escape, a dialog's window loss, the radio turning transmit
-    /// off on its own and the radio closing all take it with them.
+    /// clears it, so Escape, the radio turning transmit off on its own and the
+    /// radio closing all take it with them. A dialog's window loss does NOT
+    /// (#900): it latches the hold it ends, because under JAWS the next
+    /// synthetic down of the same held key lands in the next window.
     /// </para>
     /// </remarks>
     private bool _pttHoldEndedByApp;
@@ -3412,10 +3414,12 @@ public partial class MainWindow : UserControl
     /// only when the hold in flight is the dialog door's (round two, Codex
     /// F2): a hold Home or the system-wide chord keyed after the dialog's
     /// ended is not the dialog's to release, however late its window event
-    /// arrives. Then drops the edges' input state and unkeys at once. A hold
-    /// the app already ended under the dialog's key (round five, 7a) is
-    /// latched rather than held; its window going clears that latch the same
-    /// way (round five repair, 7h-3).
+    /// arrives. Then unkeys at once and latches the hold as one the app ended
+    /// (#900), keeping what the hold filter knows about the key, so a screen
+    /// reader's next synthetic down in the next window keys nothing until the
+    /// filter confirms a real release. A hold the app already ended under the
+    /// dialog's key (round five, 7a) keeps its latch the same way; until #900
+    /// its window going cleared it (round five repair, 7h-3).
     /// </summary>
     internal void HandleDialogHoldLost()
     {
@@ -3438,8 +3442,25 @@ public partial class MainWindow : UserControl
                 + _pttLatchDoor + ", not the dialog (7h-3)", TraceLevel.Info);
             return;
         }
-        ResetPttInput();
-        if (holding) _pttController.PttUp();
+        // #900: the window going is not the key coming up. Under JAWS a held
+        // key is a stream of down/up pairs, and the next down lands in the
+        // next window, where it used to key the radio again as a fresh press.
+        // So the hold the window loss ended is latched as an app-ended hold
+        // (round five, 7a), and everything the hold filter knows about the key
+        // stays: a deferred release goes on running, a pending one still
+        // claims the next down as the hold continuing. The latch ends at the
+        // release the filter confirms, or at a press it reads as fresh, so a
+        // real new press after a real release keys as normal; under NVDA the
+        // operator's real up ends it at once. Only the repeat guard goes, since
+        // the up it waits for may never reach us. A latch a reference's end
+        // left under this dialog's key stays the same way, rather than going
+        // with the window as it did after 7h-3.
+        if (holding)
+        {
+            _pttController.PttUp();
+            LatchAppEndedHold("the dialog that keyed it lost the keyboard before the key came up");
+        }
+        _pttKeyDown = false;
     }
 
     /// <summary>
