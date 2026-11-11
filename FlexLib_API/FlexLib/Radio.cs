@@ -10538,7 +10538,9 @@ namespace Flex.Smoothlake.FlexLib
 
                             if (!b)
                             {
-                                Debug.WriteLine("Radio::ParseTransmitStatus - max_power_level: Invalid value (" + kv + ")");
+                                // JJFlex patch: Trace, not Debug, so a Release build keeps this line
+                                // in the diagnostic log; parsing is unchanged (MIGRATION.md item 28).
+                                Trace.WriteLine("Radio::ParseTransmitStatus - max_power_level: Invalid value (" + kv + ")");
                             }
 
                             if (temp < 0) temp = 0;
@@ -10551,7 +10553,9 @@ namespace Flex.Smoothlake.FlexLib
                         {
                             if (!int.TryParse(value, out var temp))
                             {
-                                Debug.WriteLine("Radio::ParseTransmitStatus - max_internal_pa_power: Invalid value (" + kv + ")");
+                                // JJFlex patch: Trace, not Debug, so a Release build keeps this line
+                                // in the diagnostic log; parsing is unchanged (MIGRATION.md item 28).
+                                Trace.WriteLine("Radio::ParseTransmitStatus - max_internal_pa_power: Invalid value (" + kv + ")");
                                 continue;
                             }
 
@@ -10565,7 +10569,9 @@ namespace Flex.Smoothlake.FlexLib
 
                             if (!b)
                             {
-                                Debug.WriteLine("Radio::ParseTransmitStatus - rfpower: Invalid value (" + kv + ")");
+                                // JJFlex patch: Trace, not Debug, so a Release build keeps this line
+                                // in the diagnostic log; parsing is unchanged (MIGRATION.md item 28).
+                                Trace.WriteLine("Radio::ParseTransmitStatus - rfpower: Invalid value (" + kv + ")");
                                 continue;
                             }
 
@@ -10585,7 +10591,9 @@ namespace Flex.Smoothlake.FlexLib
 
                             if (!b)
                             {
-                                Debug.WriteLine("Radio::ParseTransmitStatus - tunepower: Invalid value (" + kv + ")");
+                                // JJFlex patch: Trace, not Debug, so a Release build keeps this line
+                                // in the diagnostic log; parsing is unchanged (MIGRATION.md item 28).
+                                Trace.WriteLine("Radio::ParseTransmitStatus - tunepower: Invalid value (" + kv + ")");
                                 continue;
                             }
 

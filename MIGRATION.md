@@ -480,6 +480,30 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     carries 24, so 27 cannot collide when the two batches merge. Remove it if
     a FlexLib release sends the clamped edge itself.
 
+28. **A transmit power value FlexLib cannot parse is logged (2026-11-11)**:
+    keep the four comment-marked JJFlex patches in
+    `FlexLib_API/FlexLib/Radio.cs`, in `ParseTransmitStatus`'s
+    `max_power_level`, `max_internal_pa_power`, `rfpower` and `tunepower`
+    cases. Each reads its value with `int.TryParse` and, on a failure, stock
+    code wrote only `Debug.WriteLine`, which a Release build compiles out, so
+    the installed app dropped a fractional reading with no trace at all. The
+    patch writes the same line with `Trace.WriteLine` instead. FlexLib defines
+    TRACE in both configurations (the SDK default; the project sets no
+    constants), and `Trace` output goes through `Trace.Listeners`, where
+    `JJTrace`'s `TraceRouterListener` hands it to the diagnostic log whenever
+    a log session is running. A Debug build already got these lines: .NET
+    gives `Debug` output to the same listeners (shown with a listener on the
+    unpatched code before the patch). Parsing is unchanged: the three fields
+    that skip a bad value still keep the previous one, and `max_power_level`
+    still carries on with zero, as stock code does. **Scope, deliberately:**
+    these four fields only, out of about three hundred `Debug.WriteLine`
+    discards in `Radio.cs`; a vendor patch stays minimal. Every occurrence is
+    logged. Pinned by `Radios.Tests/TransmitStatusDiscardTraceTests` (a
+    source pin on the four case blocks, this entry, and the lines reaching
+    `Trace.Listeners` with parsing unchanged). Remove it if a FlexLib release
+    logs these through `Trace` itself or parses the power family as a
+    fraction.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the
