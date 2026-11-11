@@ -58,6 +58,7 @@ namespace JJFlexWpf.Dialogs
                 _diagWired = true;
             }
             RefreshDiagnosticsTab();
+            RefreshAlarmJournalLine();
         }
 
         /// <summary>
@@ -70,6 +71,7 @@ namespace JJFlexWpf.Dialogs
         {
             if (e.NewValue is not true) return;
             RefreshDiagnosticsTab();
+            RefreshAlarmJournalLine();
             try
             {
                 // The problem count leads when there IS one. Someone arriving on
@@ -85,6 +87,52 @@ namespace JJFlexWpf.Dialogs
                 DiagnosticsBridge.Speak?.Invoke(spoken);
             }
             catch { }
+        }
+
+        /// <summary>Which read of the alarm journal is the newest, so a slow one cannot overwrite a later one.</summary>
+        private int _alarmJournalReadGeneration;
+
+        /// <summary>
+        /// The alarm journal's line (#595): whether a journal is running and, if
+        /// one is, its rate and what it has written and dropped. Worked out each
+        /// time the tab is shown, not on a timer, and never spoken by the app:
+        /// it is status the operator reads.
+        /// </summary>
+        /// <remarks>
+        /// Off the UI thread on purpose. <c>AlarmJournal.Stats</c> waits on the
+        /// lock the journal holds while it writes a batch to disk, so a slow disk
+        /// would otherwise stall the dialog. The text is marshalled back.
+        /// </remarks>
+        private void RefreshAlarmJournalLine()
+        {
+            if (DiagAlarmJournalText == null) return; // called before the tab realized
+            int generation = ++_alarmJournalReadGeneration;
+            Radios.Alarms.AlarmService? service = OperatorAlarmHost.Service;
+            Radios.Alarms.AlarmJournal? journal = OperatorAlarmHost.Journal;
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                string line;
+                try
+                {
+                    line = Radios.Alarms.AlarmJournalReadout.Sentence(service != null,
+                        service?.RecordedMetersResolved.Count ?? 0, journal?.Stats());
+                }
+                catch (Exception ex)
+                {
+                    JJTrace.Tracing.TraceLine("SettingsDialog: the alarm journal line could not be read, "
+                        + ex.Message, System.Diagnostics.TraceLevel.Warning);
+                    line = Radios.Lexicon.Get("settings.diagnostics.not_available");
+                }
+                try
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        if (generation == _alarmJournalReadGeneration && DiagAlarmJournalText != null)
+                            DiagAlarmJournalText.Text = line;
+                    });
+                }
+                catch { /* a closing dialog refusing the update is not an error */ }
+            });
         }
 
         private void OnCrashVerdictRecorded() => OnDiagnosticStateChanged(null, EventArgs.Empty);
