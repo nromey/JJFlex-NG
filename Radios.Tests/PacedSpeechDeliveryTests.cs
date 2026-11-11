@@ -285,10 +285,26 @@ namespace Radios.Tests
             Assert.Equal(0, p.AbandonedThreads);
         }
 
+        /// <summary>
+        /// Two stuck calls freed by the RPC cancel turn the channel off, for
+        /// the right reason ("twice"). The "escape" is the pump freeing a hung
+        /// NVDA speech call, not the Escape key.
+        /// </summary>
+        /// <remarks>
+        /// #601 and #701: this failed under load at line 303, six times on
+        /// record, every time with the abandon reason ("did not return 300 ms
+        /// after an accepted RPC cancel"): the freed call was given 300 ms to
+        /// come back where production gives
+        /// <see cref="PacedSpeechDelivery.EscapeGraceMs"/> (2000 ms), and a
+        /// freed worker that the machine did not schedule within 300 ms was
+        /// counted as abandoned. So the pump now waits as production does: up
+        /// to 2000 ms for the freed call to report back, and then the test
+        /// waits up to 2000 ms more for the channel to be turned off.
+        /// </remarks>
         [Fact]
         public void SecondEscape_TurnsTheChannelOff()
         {
-            var p = NewPump(deadlineMs: 300);
+            var p = NewPump(deadlineMs: 300, escapeGraceMs: PacedSpeechDelivery.EscapeGraceMs);
             long a = p.Enqueue(_ch, "First hang.");
             _ch.WaitForCall();
             WaitForOutcome(a);
@@ -301,6 +317,33 @@ namespace Radios.Tests
             while (_ch.CanReportCompletion && Environment.TickCount64 < until) Thread.Sleep(10);
             Assert.False(_ch.CanReportCompletion);
             Assert.Contains("twice", _ch.DisabledReason);
+        }
+
+        /// <summary>
+        /// #601's condition on purpose: the second freed call takes 700 ms to
+        /// come back out of the reader, as a freed worker on a loaded machine
+        /// can. Within production's grace it is still a call that came back,
+        /// so two of them turn the channel off as "twice". With the old 300 ms
+        /// test grace the same run fails at the "twice" check with the
+        /// abandon reason, exactly as the recorded failures did.
+        /// </summary>
+        [Fact]
+        public void SecondEscape_ACallThatReportsBackLateWithinTheGraceStillCountsAsFreed()
+        {
+            var p = NewPump(deadlineMs: 300, escapeGraceMs: PacedSpeechDelivery.EscapeGraceMs);
+            long a = p.Enqueue(_ch, "First hang.");
+            _ch.WaitForCall();
+            WaitForOutcome(a);
+            // The second freed call comes back late, as in every recorded failure.
+            _ch.ReturnDelayAfterEscapeMs = 700;
+            long b = p.Enqueue(_ch, "Second hang.");
+            _ch.WaitForCall();
+            WaitForOutcome(b);
+            var until = Environment.TickCount64 + 2000;
+            while (_ch.CanReportCompletion && Environment.TickCount64 < until) Thread.Sleep(10);
+            Assert.False(_ch.CanReportCompletion);
+            Assert.Contains("twice", _ch.DisabledReason);
+            Assert.Equal(0, p.AbandonedThreads);
         }
 
         [Fact]
