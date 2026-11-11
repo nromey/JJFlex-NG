@@ -143,47 +143,43 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Repair two (F1): the card's verdict reads every one of the row's
-        /// "we have not asked yet" states, each on its own. With every state
-        /// answered, a row no list carries is not listed; flip any one of them
-        /// and nothing may be denied. A row a list carries is listed whatever
-        /// the rest say, because the list itself is the answer.
+        /// Repairs two (F1) and three (B1): the card's verdict reads the row's
+        /// own passes and whether SmartLink has ANSWERED without the radio,
+        /// each on its own. With both passes settled and an answer in, a row
+        /// no list carries is not listed; flip any one of them and nothing
+        /// may be denied. A row a list carries is listed whatever the rest
+        /// say, because the list itself is the answer. Whether a list has
+        /// answered is decided from the sessions' own snapshots, held by
+        /// <see cref="PickerAnsweredListTests"/>.
         /// </summary>
         [Fact]
         public void The_card_denies_a_listing_only_once_SmartLink_has_been_asked()
         {
-            // Everything answered: discovery settled, no pass in flight, the
-            // row's account (if any) signed in, no sign-in pending, and a
-            // session live.
+            // Everything answered: discovery settled, no pass in flight, and
+            // the lists that bear on the row answered without it.
             Assert.Equal(PickerListing.NotListed, NetworkIdentityInfo.PickerListingFor(
                 wanAvailable: false, wanUnconfirmed: false, discoverySettled: true, refreshInFlight: false,
-                boundAccountHasLiveSession: true, boundAccountSessionComingUp: false, anySessionLive: true));
+                smartLinkAnsweredWithoutIt: true));
 
             // The row says "checking".
             Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, false, discoverySettled: false, false, true, false, true));
+                false, false, discoverySettled: false, false, true));
             // A pass is in flight: "rechecking now" or "refreshing".
             Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, false, true, refreshInFlight: true, true, false, true));
-            // The row's account is not signed in: "not checked, not signed in to ...".
+                false, false, true, refreshInFlight: true, true));
+            // No list has answered: no session, a session signing in, or a
+            // session connected whose list has not arrived (repair three).
             Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, false, true, false, boundAccountHasLiveSession: false, false, true));
-            // Its session is coming up: "signing in".
-            Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, false, true, false, true, boundAccountSessionComingUp: true, true));
-            // No session live at all: an operator who never signs in to
-            // SmartLink, whose rows bind no account.
-            Assert.Equal(PickerListing.NotAsked, NetworkIdentityInfo.PickerListingFor(
-                false, false, true, false, true, false, anySessionLive: false));
+                false, false, true, false, smartLinkAnsweredWithoutIt: false));
 
             // The list that carried it is no longer current: last listed,
             // whatever else is still settling (repair two, F2).
             Assert.Equal(PickerListing.LastListed, NetworkIdentityInfo.PickerListingFor(
-                true, wanUnconfirmed: true, true, false, true, false, true));
+                true, wanUnconfirmed: true, true, false, true));
 
             // A list carries it: listed, whatever else is still settling.
             Assert.Equal(PickerListing.Listed, NetworkIdentityInfo.PickerListingFor(
-                true, false, false, true, false, true, false));
+                true, false, false, true, false));
         }
 
         /// <summary>

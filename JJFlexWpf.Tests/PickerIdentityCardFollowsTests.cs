@@ -2,6 +2,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -126,7 +128,7 @@ public sealed class PickerIdentityCardFollowsTests
                 Invoke(dialog, "RefreshRadiosList", false);
                 Assert.False(row.WanAvailable);
                 Assert.Same(second, row.WanSighting);
-                Assert.False(row.AnySmartLinkSessionLive);
+                Assert.False(row.SmartLinkAnsweredWithoutIt);
                 Assert.EndsWith(Lexicon.Get("connect.identity.not_asked"), card.IdentityText.Text);
                 Assert.DoesNotContain("31443", card.IdentityText.Text);
 
@@ -136,7 +138,7 @@ public sealed class PickerIdentityCardFollowsTests
                 asked.GetOrCreateSession(session.AccountId);
                 Radios.SmartLink.SmartLinkServices.Override(asked);
                 Invoke(dialog, "RefreshRadiosList", false);
-                Assert.True(row.AnySmartLinkSessionLive);
+                Assert.True(row.SmartLinkAnsweredWithoutIt);
                 Assert.EndsWith(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
                 Assert.DoesNotContain("31443", card.IdentityText.Text);
             }
@@ -165,6 +167,134 @@ public sealed class PickerIdentityCardFollowsTests
             Assert.Contains("external TCP 31443, external UDP 31444", card.IdentityText.Text);
             Assert.DoesNotContain(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
         });
+    }
+
+    /// <summary>
+    /// #398, repair three (Codex's re-check of repair two, B1, first trigger):
+    /// a SmartLink session that is CONNECTED but whose first list has not
+    /// arrived has answered nothing, so the card says SmartLink has not been
+    /// checked, never that it does not list the radio. Then a genuine empty
+    /// list arrives, and that arrival alone (no row changes, so no sighting or
+    /// removal repaints anything) brings the card to the denial, which now has
+    /// an answer behind it. Repair two read "connected" as "answered", and this
+    /// test's first card assertion is the denial it then gave.
+    /// </summary>
+    [Fact]
+    public void A_connected_session_whose_list_has_not_arrived_has_not_been_asked_until_its_list_answers()
+    {
+        OnStaThread(() =>
+        {
+            Lexicon.Load(Lexicon.Partitions);
+            var session = new CurrentSession { Arrived = false };
+            var (dialog, list, card) = NewPicker(_ => (false, false, null));
+            var row = Highlighted(dialog, list);
+            Put(dialog, "_localSettled", true);
+
+            var coordinatorBefore = Radios.SmartLink.SmartLinkServices.Coordinator;
+            var coordinator = new Radios.SmartLink.SmartLinkSessionCoordinator(_ => session);
+            coordinator.GetOrCreateSession(session.AccountId);
+            Radios.SmartLink.SmartLinkServices.Override(coordinator);
+            using var wired = Wire(dialog, coordinator);
+            try
+            {
+                Assert.True(session.IsConnected);
+                Assert.False(session.RadioListSnapshot.ArrivedOnTheLiveConnection);
+                Assert.Null(session.RadioListSnapshot.ReceivedUtc);
+
+                Invoke(dialog, "RefreshRadiosList", false);
+                Assert.EndsWith(Lexicon.Get("connect.identity.not_asked"), card.IdentityText.Text);
+                Assert.DoesNotContain(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
+
+                // A genuine empty list arrives on the live connection. Until
+                // the queued re-ask runs, nothing has repainted the card.
+                session.Arrived = true;
+                session.RaiseListReceived();
+                Assert.EndsWith(Lexicon.Get("connect.identity.not_asked"), card.IdentityText.Text);
+                Pump();
+                Assert.False(row.WanAvailable);
+                Assert.EndsWith(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
+            }
+            finally
+            {
+                Radios.SmartLink.SmartLinkServices.Override(coordinatorBefore);
+            }
+        });
+    }
+
+    /// <summary>
+    /// #398, repair three (Codex's re-check of repair two, B1, second
+    /// trigger): the picker is settled on a remembered row SmartLink has
+    /// answered without, so the card denies the listing. The last session goes.
+    /// No row had a live SmartLink half, so nothing is withdrawn, and the
+    /// re-ask used to return there without repainting: the card went on
+    /// denying a listing with no session left, for as long as the picker
+    /// stayed open. Now the session event repaints it.
+    /// </summary>
+    [Fact]
+    public void A_session_event_that_withdraws_no_row_still_repaints_the_card()
+    {
+        OnStaThread(() =>
+        {
+            Lexicon.Load(Lexicon.Partitions);
+            var session = new CurrentSession();
+            var (dialog, list, card) = NewPicker(_ => (false, false, null));
+            var row = Highlighted(dialog, list);
+            Put(dialog, "_localSettled", true);
+
+            var coordinatorBefore = Radios.SmartLink.SmartLinkServices.Coordinator;
+            var coordinator = new Radios.SmartLink.SmartLinkSessionCoordinator(_ => session);
+            coordinator.GetOrCreateSession(session.AccountId);
+            Radios.SmartLink.SmartLinkServices.Override(coordinator);
+            using var wired = Wire(dialog, coordinator);
+            try
+            {
+                // Positive control: the list answered without the radio, so
+                // the denial is true here.
+                Invoke(dialog, "RefreshRadiosList", false);
+                Assert.EndsWith(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
+
+                // An earlier session event has already been re-asked, so the
+                // one below is not riding on a re-ask still queued: each event
+                // gets its own repaint.
+                session.RaiseListReceived();
+                Pump();
+                Assert.EndsWith(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
+
+                // The session goes, through the real coordinator, which
+                // forwards the session's own currency event to the picker.
+                coordinator.DisconnectSession(session.SessionId);
+                Assert.Empty(coordinator.AllSessions);
+                Assert.Equal(1, wired.CurrencyEvents);
+                Pump();
+
+                // Nothing was withdrawn: the row never had a SmartLink half.
+                Assert.False(row.WanAvailable);
+                Assert.False(row.WanUnconfirmed);
+                Assert.False(row.SmartLinkAnsweredWithoutIt);
+                Assert.EndsWith(Lexicon.Get("connect.identity.not_asked"), card.IdentityText.Text);
+                Assert.DoesNotContain(Lexicon.Get("connect.identity.not_listed"), card.IdentityText.Text);
+            }
+            finally
+            {
+                Radios.SmartLink.SmartLinkServices.Override(coordinatorBefore);
+            }
+        });
+    }
+
+    /// <summary>
+    /// The picker subscribes to both session events it repaints from, and lets
+    /// go of both on closing. The tests above deliver the events through the
+    /// real coordinator to handlers wired the way the constructor wires them;
+    /// this holds that the constructor does.
+    /// </summary>
+    [Fact]
+    public void The_picker_listens_for_a_list_arriving_and_for_list_currency_and_lets_go_of_both()
+    {
+        string src = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "RigSelectorDialog.xaml.cs"));
+        Assert.Contains("_listCurrencySource.SessionListCurrencyMayHaveChanged += OnWanListCurrencyMayHaveChanged;", src, StringComparison.Ordinal);
+        Assert.Contains("_listCurrencySource.SessionRadioListReceived += OnWanListReceived;", src, StringComparison.Ordinal);
+        Assert.Contains("_listCurrencySource.SessionListCurrencyMayHaveChanged -= OnWanListCurrencyMayHaveChanged;", src, StringComparison.Ordinal);
+        Assert.Contains("_listCurrencySource.SessionRadioListReceived -= OnWanListReceived;", src, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -207,6 +337,80 @@ public sealed class PickerIdentityCardFollowsTests
     // ------------------------------------------------------------------
     // Harness
     // ------------------------------------------------------------------
+
+    /// <summary>A remembered row, highlighted, with no sighting yet.</summary>
+    private static RadioListItem Highlighted(RigSelectorDialog dialog, ListBox list)
+    {
+        var row = new RadioListItem { Serial = Serial, Name = "Shack", ModelName = "FLEX-6300", RigData = null! };
+        Rows(dialog).Add(row);
+        list.Items.Add(row);
+        list.SelectedItem = row;
+        return row;
+    }
+
+    /// <summary>
+    /// Subscribes the dialog's own session handlers to the coordinator, as its
+    /// constructor does for the process coordinator, and counts the currency
+    /// events delivered. Disposing unsubscribes.
+    /// </summary>
+    private static Wiring Wire(RigSelectorDialog dialog, Radios.SmartLink.SmartLinkSessionCoordinator coordinator)
+    {
+        var currency = typeof(RigSelectorDialog).GetMethod("OnWanListCurrencyMayHaveChanged", Private);
+        var received = typeof(RigSelectorDialog).GetMethod("OnWanListReceived", Private);
+        Assert.True(currency != null, "RigSelectorDialog.OnWanListCurrencyMayHaveChanged is not where this test wires it.");
+        Assert.True(received != null, "RigSelectorDialog.OnWanListReceived is not where this test wires it.");
+        return new Wiring(coordinator,
+            (EventHandler<Radios.SmartLink.IWanSessionOwner>)Delegate.CreateDelegate(
+                typeof(EventHandler<Radios.SmartLink.IWanSessionOwner>), dialog, currency!),
+            (EventHandler<Radios.SmartLink.SessionRadioListEventArgs>)Delegate.CreateDelegate(
+                typeof(EventHandler<Radios.SmartLink.SessionRadioListEventArgs>), dialog, received!));
+    }
+
+    private sealed class Wiring : IDisposable
+    {
+        private readonly Radios.SmartLink.SmartLinkSessionCoordinator _coordinator;
+        private readonly EventHandler<Radios.SmartLink.IWanSessionOwner> _currency;
+        private readonly EventHandler<Radios.SmartLink.SessionRadioListEventArgs> _received;
+        private readonly EventHandler<Radios.SmartLink.IWanSessionOwner> _count;
+        public int CurrencyEvents;
+
+        public Wiring(Radios.SmartLink.SmartLinkSessionCoordinator coordinator,
+            EventHandler<Radios.SmartLink.IWanSessionOwner> currency,
+            EventHandler<Radios.SmartLink.SessionRadioListEventArgs> received)
+        {
+            _coordinator = coordinator;
+            _currency = currency;
+            _received = received;
+            _count = (_, _) => CurrencyEvents++;
+            coordinator.SessionListCurrencyMayHaveChanged += _currency;
+            coordinator.SessionListCurrencyMayHaveChanged += _count;
+            coordinator.SessionRadioListReceived += _received;
+        }
+
+        public void Dispose()
+        {
+            _coordinator.SessionListCurrencyMayHaveChanged -= _currency;
+            _coordinator.SessionListCurrencyMayHaveChanged -= _count;
+            _coordinator.SessionRadioListReceived -= _received;
+        }
+    }
+
+    /// <summary>Runs everything queued on this thread's dispatcher at normal priority.</summary>
+    private static void Pump()
+    {
+        var frame = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background,
+            new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
+    }
 
     private static (RigSelectorDialog dialog, ListBox list, NetworkIdentityCard card) NewPicker(
         Func<string, (bool lan, bool wan, FlexBase.RigData? wanSighting)> availability)
@@ -317,36 +521,51 @@ public sealed class PickerIdentityCardFollowsTests
 
     /// <summary>
     /// A connected session whose list on connection 1 is current: only what
-    /// <see cref="FlexBase.RigData.StillCurrent"/> asks is real; the rest refuses.
+    /// <see cref="FlexBase.RigData.StillCurrent"/> and the picker's session
+    /// reads ask is real; the rest refuses. Its list holds no radio.
+    /// <see cref="Arrived"/> false is a session connected before its first
+    /// list; <see cref="Disconnect"/> raises its currency event, as the real
+    /// owner does.
     /// </summary>
     private sealed class CurrentSession : Radios.SmartLink.IWanSessionOwner
     {
         public string SessionId => "s-picker-398";
         public string AccountId => "picker-398@example.com";
-        public bool IsConnected => true;
-        public Radios.SmartLink.SessionStatus Status => Radios.SmartLink.SessionStatus.Connected;
+        public bool Connected { get; set; } = true;
+        public bool Arrived { get; set; } = true;
+        public bool IsConnected => Connected;
+        public Radios.SmartLink.SessionStatus Status
+            => Connected ? Radios.SmartLink.SessionStatus.Connected : Radios.SmartLink.SessionStatus.Disconnected;
         public Exception? LastError => null;
         public int ReconnectAttemptCount => 0;
         public IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> AvailableRadios
             => Array.Empty<Flex.Smoothlake.FlexLib.Radio>();
-        public DateTime? LastRadioListUtc => DateTime.UtcNow;
+        public DateTime? LastRadioListUtc => Arrived ? DateTime.UtcNow : null;
         public Radios.SmartLink.SessionRadioListSnapshot RadioListSnapshot => new(
-            Array.Empty<Flex.Smoothlake.FlexLib.Radio>(), DateTime.UtcNow,
-            SessionConnected: true, ArrivedOnTheLiveConnection: true, ConnectionGeneration: 1, SessionId: SessionId)
-        { ListRevision = 1 };
+            Array.Empty<Flex.Smoothlake.FlexLib.Radio>(), LastRadioListUtc,
+            SessionConnected: Connected, ArrivedOnTheLiveConnection: Connected && Arrived,
+            ConnectionGeneration: Arrived ? 1 : -1, SessionId: SessionId)
+        { ListRevision = Arrived ? 1 : 0 };
+        public void RaiseListReceived()
+            => RadioListReceived?.Invoke(this, new Radios.SmartLink.WanRadioListReceivedEventArgs(
+                Array.Empty<Flex.Smoothlake.FlexLib.Radio>(), 1) { ListRevision = 1 });
         /// <summary>Whether connection 1's list is still current; false after a drop.</summary>
         public bool Current { get; set; } = true;
         public bool ListIsCurrent(long connectionGeneration) => Current && connectionGeneration == 1;
-#pragma warning disable CS0067 // events the test never raises
         public event EventHandler? ListCurrencyMayHaveChanged;
+        public event EventHandler<Radios.SmartLink.WanRadioListReceivedEventArgs>? RadioListReceived;
+#pragma warning disable CS0067 // events the test never raises
         public event EventHandler<Radios.SmartLink.SessionStatus>? StatusChanged;
         public event EventHandler<Radios.SmartLink.SignalThresholdEventArgs>? SignalThresholdCrossed;
-        public event EventHandler<Radios.SmartLink.WanRadioListReceivedEventArgs>? RadioListReceived;
         public event EventHandler<Radios.SmartLink.NetworkDiagnosticReport>? NetworkReportReady;
 #pragma warning restore CS0067
         public Radios.SmartLink.ISessionAudioSink AudioSink => throw new NotSupportedException();
         public void Connect() => throw new NotSupportedException();
-        public void Disconnect() => throw new NotSupportedException();
+        public void Disconnect()
+        {
+            Connected = false;
+            ListCurrencyMayHaveChanged?.Invoke(this, EventArgs.Empty);
+        }
         public void ReRegister(string programName, string platform, string jwt) => throw new NotSupportedException();
         public void EnableAutoRegistration(Func<bool, string?> jwtProvider, string programName, string platform = "Win10")
             => throw new NotSupportedException();

@@ -137,49 +137,99 @@ namespace Radios
 
         /// <summary>
         /// Whether the picker's card may say a SmartLink list carries the
-        /// highlighted radio, that none does, or neither (#398, repair two).
-        /// The row beside the card reaches its own SmartLink verdict only after
-        /// its "we have not asked yet" states, and so does the card: while
-        /// local discovery is still settling (the row says "checking"), while a
-        /// pass is in flight ("rechecking now", "refreshing"), while the
-        /// session for the row's account is coming up ("signing in"), while
-        /// that account has no live session ("not checked, not signed in"),
-        /// and whenever no SmartLink session is live at all, a denial would
-        /// assert an absence nothing looked for. Nothing has answered YET is
-        /// not the same as nothing is there (Noel, 2026-08-17; #340, #382).
+        /// highlighted radio, that none does, or neither (#398, repairs two
+        /// and three). A row a list carries is listed, or last listed once
+        /// that list is no longer current. A row no list carries is a denial
+        /// only when a list has actually ANSWERED without it
+        /// (<paramref name="smartLinkAnsweredWithoutIt"/>, from
+        /// <see cref="SmartLinkAnsweredWithout"/>), and not while the row's
+        /// own passes are still running: local discovery settling (the row
+        /// says "checking") or a pass in flight ("rechecking now",
+        /// "refreshing"). Nothing has answered YET is not the same as nothing
+        /// is there (Noel, 2026-08-17; #340, #382).
         /// </summary>
         /// <remarks>
-        /// Wider than the row's own guards on purpose. The row names an
-        /// account only on some branches, so it guards the account states only
-        /// there; the card's denial is about SmartLink as a whole, so it is
-        /// withheld whenever any of them holds. A radio no account has ever
-        /// listed has no bound account, so its session flag is true, and it
-        /// reads as not asked only because no session is live: which is every
-        /// row for an operator who never signs in to SmartLink. Wrong in the
-        /// safe direction: the card says less, never something false.
+        /// Repair two read the session flags the row reads (an account with a
+        /// live session, a sign-in coming up, any session live). A live session
+        /// is not an answer: a session is connected before its first list
+        /// arrives, and again after every reconnect until the new connection's
+        /// list lands, and in that window the card denied the listing with
+        /// nothing behind it (Codex's re-check of repair two, B1). Those flags
+        /// are subsumed by the answered-list evidence (a session coming up, or
+        /// none at all, has answered nothing), so they are no longer read here:
+        /// one fact, not two that can disagree.
         /// </remarks>
         /// <param name="wanAvailable">The row's SmartLink flag: a SmartLink list carries the radio.</param>
         /// <param name="wanUnconfirmed">The row's <c>WanUnconfirmed</c>: that list is no longer current, so the radio was last seen there.</param>
         /// <param name="discoverySettled">The row's <c>DiscoverySettled</c>.</param>
         /// <param name="refreshInFlight">The row's <c>RefreshInFlight</c>: a SmartLink pass we started has not landed.</param>
-        /// <param name="boundAccountHasLiveSession">The row's <c>BoundAccountHasLiveSession</c> (true when the row names no account).</param>
-        /// <param name="boundAccountSessionComingUp">The row's <c>BoundAccountSessionComingUp</c>.</param>
-        /// <param name="anySessionLive">Whether any SmartLink session is live at all.</param>
+        /// <param name="smartLinkAnsweredWithoutIt">The lists that bear on the row answered on their live connections and none names the radio (<see cref="SmartLinkAnsweredWithout"/>).</param>
         public static PickerListing PickerListingFor(bool wanAvailable, bool wanUnconfirmed, bool discoverySettled,
-            bool refreshInFlight, bool boundAccountHasLiveSession, bool boundAccountSessionComingUp, bool anySessionLive)
+            bool refreshInFlight, bool smartLinkAnsweredWithoutIt)
         {
             // Last seen (repair two, the integration pass's F2): after a
             // SmartLink drop the flag stays on and the row says the radio was
             // last seen there, so the card must not speak of the listing in
             // the present tense.
             if (wanAvailable) return wanUnconfirmed ? PickerListing.LastListed : PickerListing.Listed;
-            if (!discoverySettled
-                || refreshInFlight
-                || boundAccountSessionComingUp
-                || !boundAccountHasLiveSession
-                || !anySessionLive)
+            if (!discoverySettled || refreshInFlight || !smartLinkAnsweredWithoutIt)
                 return PickerListing.NotAsked;
             return PickerListing.NotListed;
+        }
+
+        /// <summary>
+        /// Whether SmartLink has ANSWERED without the radio (#398, repair
+        /// three): the lists that bear on it arrived on their sessions' live
+        /// connections, and none names it. The evidence is each session's
+        /// <see cref="SmartLink.SessionRadioListSnapshot"/>, read once, and
+        /// "answers" is the predicate the connect's own plan uses for "every
+        /// saved list has answered without the radio"
+        /// (<c>FlexBase.AccountListView.Answers</c>: connected, and the list
+        /// arrived on that connection), so the card and the plan cannot
+        /// disagree about what has answered.
+        /// </summary>
+        /// <remarks>
+        /// <list type="bullet">
+        /// <item>A session that is not connected is not asking, and is passed
+        /// over: its last list is history (#619).</item>
+        /// <item>A connected session whose live connection has not yet sent a
+        /// list (before the first list, or after a reconnect) is asking, so
+        /// nothing may be denied until it answers. The card's denial is about
+        /// SmartLink as a whole, so this holds whichever account that session
+        /// is.</item>
+        /// <item>Any answering list that names the radio: not an answer
+        /// without it, whatever the row has caught up with yet.</item>
+        /// <item>With <paramref name="boundAccount"/> named, that account's own
+        /// list must be one of the answers; otherwise any answer will do.</item>
+        /// </list>
+        /// Every doubt falls to false, so the card says less, never something
+        /// untrue.
+        /// </remarks>
+        /// <param name="serial">The row's serial.</param>
+        /// <param name="boundAccount">The account the row's visibility runs through, or empty when none.</param>
+        /// <param name="lists">Every held session's account and list snapshot, read once.</param>
+        public static bool SmartLinkAnsweredWithout(string? serial, string? boundAccount,
+            IEnumerable<(string Account, SmartLink.SessionRadioListSnapshot List)>? lists)
+        {
+            if (string.IsNullOrWhiteSpace(serial) || lists == null) return false;
+            bool bound = !string.IsNullOrWhiteSpace(boundAccount);
+            bool relevantAnswered = false;
+            foreach (var (account, list) in lists)
+            {
+                if (!list.SessionConnected) continue;
+                if (!list.ArrivedOnTheLiveConnection) return false;
+                if (list.Radios != null)
+                {
+                    foreach (var radio in list.Radios)
+                    {
+                        if (radio != null && string.Equals(radio.Serial, serial, StringComparison.OrdinalIgnoreCase))
+                            return false;
+                    }
+                }
+                if (!bound || string.Equals(account, boundAccount, StringComparison.OrdinalIgnoreCase))
+                    relevantAnswered = true;
+            }
+            return relevantAnswered;
         }
 
         /// <summary>
@@ -206,11 +256,13 @@ namespace Radios
         /// said it was available on SmartLink. The converse holds too: a
         /// row's last SmartLink sighting is kept after the radio leaves the
         /// list, so its numbers are shown only while a list carries it.
-        /// <para><b>And a flag that is off is not a denial</b> (repair two).
-        /// Until then the card said SmartLink does not list the radio for any
-        /// row whose flag was off, including rows nothing had asked about yet,
-        /// while the row beside it said "checking" or "not checked, not signed
-        /// in". See <see cref="PickerListingFor"/>.</para>
+        /// <para><b>And a flag that is off is not a denial</b> (repairs two
+        /// and three). Until then the card said SmartLink does not list the
+        /// radio for any row whose flag was off, including rows nothing had
+        /// asked about yet, while the row beside it said "checking" or "not
+        /// checked, not signed in"; and after repair two, for a session that
+        /// was connected but whose list had not arrived. See
+        /// <see cref="PickerListingFor"/>.</para>
         /// </remarks>
         /// <param name="current">The app's current radio, or null.</param>
         /// <param name="rowSerial">The highlighted row's serial, or null when none is highlighted.</param>
