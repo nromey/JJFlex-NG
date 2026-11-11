@@ -1735,7 +1735,7 @@ public class FreqOutHandlers
         switch (key)
         {
             // The bare arrows are the operator's choice (#517, ruled by Noel
-            // 2026-11-09 21:01): "Arrows tune on the Slice operations field"
+            // 2026-11-09 21:01): "Tune with Up and Down in Slice operations"
             // in Settings, Accessibility, Slice list. Checked (the default,
             // AccessibilityConfig's initialiser) they tune by the coarse step;
             // unchecked they change this slice's volume, as before the

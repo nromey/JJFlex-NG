@@ -1996,8 +1996,8 @@
                                 <TextBlock Text="Tune with Up and Down on the Slice field" TextWrapping="Wrap"/>
                             </CheckBox>
                             <CheckBox x:Name="SliceOpsFieldArrowsTuneCheckbox" Margin="0,0,0,8"
-                                      AutomationProperties.Name="Arrows tune on the Slice operations field">
-                                <TextBlock Text="Arrows tune on the Slice operations field" TextWrapping="Wrap"/>
+                                      AutomationProperties.Name="Tune with Up and Down in Slice operations">
+                                <TextBlock Text="Tune with Up and Down in Slice operations" TextWrapping="Wrap"/>
                             </CheckBox>
 
                             <GroupBox Header="Slice arrow direction" Margin="0,0,0,8"
