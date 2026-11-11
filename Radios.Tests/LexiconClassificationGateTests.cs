@@ -123,6 +123,35 @@ namespace Radios.Tests
                 + string.Join("\n  ", stillListed));
         }
 
+        /// <summary>
+        /// What to do with a ghost line, said by the gate itself the way the
+        /// other gates here say theirs (#629). Internal so the wording can be
+        /// checked without manufacturing a ghost.
+        /// </summary>
+        internal static readonly string GhostRecipe =
+            "\n\nWhat to do: DELETE each of these lines from " + LexiconSchema.ManifestPath + ". Do not comment "
+            + "them out: LegacyUnclassifiedQuarantineTests refuses a commented line for anything but Track I's "
+            + "alarm keys. If a key was renamed rather than retired, the new name fails "
+            + "EveryShippedEntryIsEitherClassifiedOrFrozenInTheManifest, which prints what to do with it."
+            + "\n\nDeleting a ghost line does NOT move the unclassified count pinned in LexiconEnvelopeTests "
+            + "(TheMigrationHasClassifiedExactlyTheFactsSurfaceSoFar). That count is of SHIPPED unclassified "
+            + "entries, so it changes when a shipped unclassified key is added or removed, not when a manifest "
+            + "line is. If it is failing too, that is the key's removal, and the count moves for that.";
+
+        [Fact]
+        public void A_ghost_lines_failure_says_what_to_do_and_names_the_right_files()
+        {
+            Assert.Contains(LexiconSchema.ManifestPath, GhostRecipe, StringComparison.Ordinal);
+            Assert.Contains("_legacy-unclassified.tsv", GhostRecipe, StringComparison.Ordinal);
+            Assert.Contains("TheMigrationHasClassifiedExactlyTheFactsSurfaceSoFar", GhostRecipe, StringComparison.Ordinal);
+            Assert.Contains("Do not comment", GhostRecipe, StringComparison.Ordinal);
+            // The names it cites must still exist, or the recipe sends the next
+            // author to nothing.
+            Assert.NotNull(typeof(LexiconEnvelopeTests).GetMethod("TheMigrationHasClassifiedExactlyTheFactsSurfaceSoFar"));
+            Assert.NotNull(typeof(LegacyUnclassifiedQuarantineTests));
+            Assert.NotNull(typeof(LexiconClassificationGateTests).GetMethod("EveryShippedEntryIsEitherClassifiedOrFrozenInTheManifest"));
+        }
+
         [Fact]
         public void TheManifestNamesNoKeyThatNoLongerExists()
         {
@@ -135,7 +164,8 @@ namespace Radios.Tests
 
             Assert.True(ghosts.Count == 0,
                 "The manifest exempts keys that are no longer in any partition, so it is "
-                + "describing a corpus that has moved on:\n  " + string.Join("\n  ", ghosts));
+                + "describing a corpus that has moved on:\n  " + string.Join("\n  ", ghosts)
+                + GhostRecipe);
         }
 
         [Fact]
