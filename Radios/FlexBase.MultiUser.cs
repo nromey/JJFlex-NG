@@ -71,26 +71,35 @@ namespace Radios
         /// FlexLib's MaxSlices reports available-remaining which can be 0 at startup
         /// when a profile loads all slots. This gives the true model capacity.
         /// </summary>
-        public int TotalMaxSlices
+        public int TotalMaxSlices => TotalMaxSlicesFor(theRadio?.Model ?? string.Empty, theRadio?.MaxSlices ?? 0);
+
+        /// <summary>
+        /// The model table behind <see cref="TotalMaxSlices"/>, as a pure
+        /// function so it can be checked against FlexLib's own ModelInfo table
+        /// without a radio (#429). An unnamed model falls back to what
+        /// discovery reported, or two.
+        /// </summary>
+        internal static int TotalMaxSlicesFor(string model, int discoveryMaxSlices) => model switch
         {
-            get
-            {
-                string model = theRadio?.Model ?? string.Empty;
-                return model switch
-                {
-                    "FLEX-6300" => 2,
-                    "FLEX-6400" or "FLEX-6400M" => 2,
-                    "FLEX-6500" => 4,
-                    "FLEX-6600" or "FLEX-6600M" => 4,
-                    "FLEX-6700" or "FLEX-6700R" => 8,
-                    "FLEX-8400" or "FLEX-8400M" => 2,
-                    "FLEX-8600" or "FLEX-8600M" => 4,
-                    "AU-510" or "AU-510M" => 2,
-                    "AU-520" or "AU-520M" => 4,
-                    _ => theRadio?.MaxSlices > 0 ? theRadio.MaxSlices : 2 // safe fallback
-                };
-            }
-        }
+            "FLEX-6300" => 2,
+            "FLEX-6400" or "FLEX-6400M" => 2,
+            "FLEX-6500" => 4,
+            "FLEX-6600" or "FLEX-6600M" => 4,
+            "FLEX-6700" or "FLEX-6700R" => 8,
+            "FLEX-8400" or "FLEX-8400M" => 2,
+            "FLEX-8600" or "FLEX-8600M" => 4,
+            "AU-510" or "AU-510M" => 2,
+            "AU-520" or "AU-520M" => 4,
+            _ => discoveryMaxSlices > 0 ? discoveryMaxSlices : 2 // safe fallback
+        };
+
+        /// <summary>Every model <see cref="TotalMaxSlicesFor"/> names, for the cross-check test.</summary>
+        internal static readonly string[] ModelsWithKnownSliceCounts =
+        {
+            "FLEX-6300", "FLEX-6400", "FLEX-6400M", "FLEX-6500", "FLEX-6600", "FLEX-6600M",
+            "FLEX-6700", "FLEX-6700R", "FLEX-8400", "FLEX-8400M", "FLEX-8600", "FLEX-8600M",
+            "AU-510", "AU-510M", "AU-520", "AU-520M",
+        };
 
         internal List<Slice> mySlices = new List<Slice>();
 

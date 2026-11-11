@@ -1080,6 +1080,13 @@ namespace Radios
 
             if (theRadio != null) _TotalNumSlices = theRadio.SliceList.Count;
 
+            // Once per connect, and only now (#429): the station has been
+            // established, so the radio has answered the connect's info,
+            // profile and slice requests and diversity is the radio's word
+            // rather than a default. Not on the post-import re-entry, and not
+            // on any later census. Trace only.
+            if (!postImport) ModelCapabilityCheck.TraceForConnect(theRadio);
+
             if (postImport && theRadio != null)
             {
                 // Two facts, kept apart (review section 8): the IMPORT
