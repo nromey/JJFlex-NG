@@ -1232,6 +1232,9 @@ namespace Radios.Tests
                 // DRAFT PROSE.
                 "connect.identity.listed_not_connected",
                 "connect.identity.not_listed",
+                // Repair one: a listed radio whose numbers have not reached
+                // the picker. TextOnly, DRAFT PROSE.
+                "connect.identity.listed_ports_not_arrived",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

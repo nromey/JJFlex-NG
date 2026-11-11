@@ -2676,6 +2676,18 @@ namespace JJFlexWpf.Dialogs
                 // have gone offline or come back: the list's "{count} listed,
                 // {live} online" name is recomputed whatever (#1008). It used
                 // to return here and keep the old count until a rebuild.
+                //
+                // ...and the identity card, for the same reason (#398, repair
+                // one, Codex B2): this branch keeps the same rows and the same
+                // selection and raises no SelectionChanged, so a sighting that
+                // changed the HIGHLIGHTED row in place reached the card only
+                // when the highlight next moved. Every in-place change lands
+                // here: the comparison above sets each row against itself, so
+                // only a row added, removed or reordered rebuilds the list, and
+                // a rebuild re-raises SelectionChanged itself (Items.Clear drops
+                // the selection and the restore sets it again), which refreshes
+                // the card through its own handler.
+                RefreshIdentityCard();
                 UpdateListAutomationName();
                 return;
             }
@@ -2823,8 +2835,17 @@ namespace JJFlexWpf.Dialogs
         /// SmartLink list sighting carries them, read without a connect. With
         /// no row highlighted, or the connected radio highlighted, the app's
         /// current radio, as before. The card guards against stealing focus
-        /// mid-read.
+        /// mid-read, and catches up when the reader leaves it.
         /// </summary>
+        /// <remarks>
+        /// Called when the highlight moves, and by every
+        /// <see cref="RefreshRadiosList"/> that keeps the rows as they were
+        /// (repair one, Codex B2): every sighting, reconcile and removal that
+        /// changes a row in place reaches the list through that refresh, and
+        /// none of them moves the highlight.
+        /// Whether a SmartLink list carries the radio is the row's own flag,
+        /// never the presence of numbers (Codex B1).
+        /// </remarks>
         private void RefreshIdentityCard()
         {
             try
@@ -2833,7 +2854,7 @@ namespace JJFlexWpf.Dialogs
                 var row = GetSelectedRadio();
                 if (row == null) { IdentityCard.Rig = current; return; }
                 IdentityCard.ShowLines(Radios.NetworkIdentityInfo.BuildPickerLines(current, row.Serial, row.Name,
-                    row.ModelName, (row.WanSighting as FlexBase.RigData)?.Advertised));
+                    row.ModelName, row.WanAvailable, (row.WanSighting as FlexBase.RigData)?.Advertised));
             }
             catch (Exception ex)
             {

@@ -140,19 +140,31 @@ namespace Radios
         /// so a SmartLink radio's advertised ports can be read without
         /// connecting. With no row highlighted, or the connected radio
         /// highlighted, the connected radio's own lines, exactly as the Status
-        /// dialog shows them. A SmartLink-listed row that is not connected
-        /// shows what the SmartLink list says about reaching it; any other row
-        /// says SmartLink does not list it. Nothing here probes anything: the
-        /// list's numbers are the address the radio is handing out, which no
-        /// port probe can stand in for.
+        /// dialog shows them. A row a SmartLink list carries, not connected,
+        /// shows what the list says about reaching it, or, when its numbers
+        /// have not reached the picker, says it is listed and that they have
+        /// not arrived; a row no list carries says SmartLink does not list it.
+        /// Nothing here probes anything: the list's numbers are the address
+        /// the radio is handing out, which no port probe can stand in for.
         /// </summary>
+        /// <remarks>
+        /// <b>Whether a list carries the radio is asked separately from its
+        /// numbers</b> (repair one, Codex B1). Missing numbers are not
+        /// evidence that SmartLink does not list the radio: until the repair a
+        /// listed radio that local discovery found first reached here with no
+        /// numbers, and the card said SmartLink does not list it while its row
+        /// said it was available on SmartLink. The converse holds too: a
+        /// row's last SmartLink sighting is kept after the radio leaves the
+        /// list, so its numbers are shown only while a list carries it.
+        /// </remarks>
         /// <param name="current">The app's current radio, or null.</param>
         /// <param name="rowSerial">The highlighted row's serial, or null when none is highlighted.</param>
         /// <param name="rowName">The highlighted row's radio name.</param>
         /// <param name="rowModel">The highlighted row's model.</param>
-        /// <param name="listed">What the SmartLink list says about reaching the row's radio, or null when no list has.</param>
+        /// <param name="listedOnSmartLink">The row's own SmartLink flag: a SmartLink list carries the radio.</param>
+        /// <param name="advertised">What that list says about reaching the radio, or null when the picker holds no numbers for it.</param>
         public static List<string> BuildPickerLines(FlexBase? current, string? rowSerial, string? rowName,
-            string? rowModel, SmartLinkAdvertised? listed)
+            string? rowModel, bool listedOnSmartLink, SmartLinkAdvertised? advertised)
         {
             if (string.IsNullOrEmpty(rowSerial)) return BuildLines(current);
             if (current != null && current.IsConnected
@@ -161,13 +173,18 @@ namespace Radios
 
             var lines = new List<string>();
             AddIdentityLines(lines, rowModel ?? "", rowName ?? "", rowSerial!);
-            if (listed == null)
+            if (!listedOnSmartLink)
             {
                 lines.Add(Lexicon.Get("connect.identity.not_listed"));
                 return lines;
             }
+            if (advertised == null)
+            {
+                lines.Add(Lexicon.Get("connect.identity.listed_ports_not_arrived"));
+                return lines;
+            }
             lines.Add(Lexicon.Get("connect.identity.listed_not_connected"));
-            lines.Add(PathLine(listed.RequiresHolePunch, listed.TlsPort, listed.UdpPort, listed.PortForwardOn, 0));
+            lines.Add(PathLine(advertised.RequiresHolePunch, advertised.TlsPort, advertised.UdpPort, advertised.PortForwardOn, 0));
             return lines;
         }
 

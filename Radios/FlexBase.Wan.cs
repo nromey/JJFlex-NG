@@ -848,7 +848,11 @@ namespace Radios
                         // LAN found it first) killed the loop on the first
                         // iteration. `continue` is what was meant.
                         UpdateRadioDiscoveryFields(r, oldRadio, accountId);
-                        RaiseRadioFound(null, BuildRigData(oldRadio, provenance));
+                        // The list's own radio rides along, so the sighting
+                        // carries what this list advertises for it (#398,
+                        // repair one): oldRadio is the LAN object when local
+                        // discovery found the radio first.
+                        RaiseRadioFound(null, BuildRigData(oldRadio, provenance, r));
                     }
                 }
 

@@ -699,6 +699,8 @@
   "_note_398": "Junk box batch 5 (2026-11-10) added connect.identity.listed_not_connected and not_listed: the radio picker's Network identity card describing a highlighted radio that is not connected, before the path line SmartLink lists for it, or saying SmartLink lists none. DRAFT PROSE for review.",
   "connect.identity.listed_not_connected": {"text": "Not connected. This is how SmartLink lists this radio:", "delivery": null},
   "connect.identity.not_listed": {"text": "Not connected. SmartLink does not list this radio, so there are no advertised ports to show.", "delivery": null},
+  "_note_398_repair_one": "Junk box batch 5 repair one (2026-11-10) added connect.identity.listed_ports_not_arrived: the picker's Network identity card for a highlighted radio a SmartLink list carries whose advertised ports have not reached the picker. Missing numbers no longer read as not listed. DRAFT PROSE for review.",
+  "connect.identity.listed_ports_not_arrived": {"text": "Not connected. SmartLink lists this radio, but its advertised ports have not arrived yet.", "delivery": null},
   "connect.status.clipboard_network_section": "--- Network identity ---",
   "connect.status.clipboard_title": "JJ Flexible Radio Access — Status Snapshot",
   "connect.status.connect_hint": "Connect to a radio to see status here.",

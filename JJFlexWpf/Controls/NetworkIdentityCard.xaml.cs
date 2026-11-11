@@ -59,23 +59,68 @@ namespace JJFlexWpf.Controls
         public NetworkIdentityCard()
         {
             InitializeComponent();
+            ReaderInside = () => IdentityText.IsKeyboardFocusWithin;
+            // The reader has left: pay a refresh the guard below held back
+            // (#398, repair one, Codex B2).
+            IdentityText.IsKeyboardFocusWithinChanged += (_, e) =>
+            {
+                if (e.NewValue is false) ReaderLeft();
+            };
             Refresh();
         }
+
+        /// <summary>
+        /// Whether the operator's focus is inside the card's text, so a rewrite
+        /// would move their reading position. Asks the text box; settable only
+        /// so the windowless suite can stand a reader inside a card that has no
+        /// window to focus. Nothing in the app sets it.
+        /// </summary>
+        internal Func<bool> ReaderInside { get; set; }
+
+        /// <summary>
+        /// A refresh the focused-reader guard held back, owed until the reader
+        /// leaves the card (#398, repair one, Codex B2). Before the repair a
+        /// held-back refresh was simply lost, which a card refreshed on a timer
+        /// (the Status dialog) recovered from at the next tick and a card
+        /// refreshed on an event (the radio picker) never did.
+        /// </summary>
+        private bool _refreshOwed;
 
         /// <summary>
         /// Rebuild the lines from current radio state. Safe to call on a
         /// timer; a rebuild is skipped while the user's focus is inside the
         /// card so the refresh never steals their reading position — that
         /// guard is why arrowing through the card survives a refresh, and
-        /// it must outlive any future control-type change.
+        /// it must outlive any future control-type change. A skipped rebuild
+        /// is owed, and made when focus leaves the card
+        /// (<see cref="ReaderLeft"/>), so the text the reader comes back to is
+        /// current.
         /// </summary>
         public void Refresh()
         {
             if (IdentityText == null) return; // before InitializeComponent completes
-            if (IdentityText.IsKeyboardFocusWithin) return;
+            if (ReaderInside?.Invoke() == true)
+            {
+                _refreshOwed = true;
+                return;
+            }
+            _refreshOwed = false;
 
-            IdentityText.Text = string.Join(Environment.NewLine,
+            string text = string.Join(Environment.NewLine,
                 _lines ?? NetworkIdentityInfo.BuildLines(_rig));
+            // Unchanged text is not rewritten: the radio picker asks on every
+            // list refresh.
+            if (!string.Equals(IdentityText.Text, text, StringComparison.Ordinal))
+                IdentityText.Text = text;
+        }
+
+        /// <summary>
+        /// Focus has left the card's text: make the refresh the guard held
+        /// back, if one is owed. Nothing is spoken; the card is not focused.
+        /// </summary>
+        internal void ReaderLeft()
+        {
+            if (_refreshOwed) Refresh();
         }
     }
 }

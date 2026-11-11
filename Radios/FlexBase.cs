@@ -155,13 +155,28 @@ namespace Radios
                 Array.Empty<string>();
 
             /// <summary>
-            /// What the SmartLink list said about reaching this radio, on a
-            /// sighting raised from a WAN radio (#398): its advertised public
-            /// ports, port forwarding and hole punch. Null on a local sighting.
-            /// The radio picker's identity card reads it from the row's
-            /// SmartLink sighting, so the number the radio hands out can be read
-            /// without attempting a connect.
+            /// What the SmartLink list said about reaching this radio (#398):
+            /// its advertised public ports, port forwarding and hole punch, on
+            /// EVERY sighting a SmartLink list speaks for. That is a sighting
+            /// of the list's own radio object, the intake's merge of a list
+            /// into a radio local discovery found first (a LAN object raised
+            /// with the list's provenance), and the WAN bank's sighting. Null
+            /// on a local sighting. The radio picker's identity card reads it
+            /// from the row's SmartLink sighting, so the number the radio hands
+            /// out can be read without attempting a connect.
             /// </summary>
+            /// <remarks>
+            /// <b>Taken from the list's radio, never from the object the
+            /// sighting describes</b> (repair one, Codex B1). When local
+            /// discovery found the radio first, the intake folds the list into
+            /// that LAN object and raises the sighting from it, so
+            /// <c>IsWan</c> is false there although a list speaks for it; and
+            /// the bank's sighting was built lean, without these. Both left
+            /// this null on a listed radio, and the card then said SmartLink
+            /// does not list it. A null here therefore never means "not
+            /// listed" on its own: whether a list carries the radio is the
+            /// row's own SmartLink flag.
+            /// </remarks>
             public SmartLinkAdvertised Advertised { get; internal set; }
 
             /// <summary>
@@ -399,7 +414,23 @@ namespace Radios
             WanAvailable = true,
             FromWanList = from,
             HeldWithoutAList = from == null,
+            // The list's own numbers (#398, repair one): the bank's sighting
+            // is the one the picker's reconcile hands a row, so it carries
+            // them as the intake's sightings do.
+            Advertised = AdvertisedBy(r),
         };
+
+        /// <summary>
+        /// What a SmartLink list's radio object says about reaching the radio
+        /// (#398): its advertised public ports, port forwarding and hole punch.
+        /// Null for a radio local discovery found, which no list described.
+        /// Read only; nothing is probed.
+        /// </summary>
+        private static SmartLinkAdvertised AdvertisedBy(Radio listed) =>
+            listed != null && listed.IsWan
+                ? new SmartLinkAdvertised(listed.PublicTlsPort, listed.PublicUdpPort,
+                    listed.IsPortForwardOn, listed.RequiresHolePunch)
+                : null;
 
         /// <summary>
         /// The banked SmartLink handle for this serial and the sighting that
@@ -819,7 +850,13 @@ namespace Radios
         /// <param name="fromWanList">The SmartLink list this sighting speaks
         /// for, when the WAN intake is raising it; null for every other
         /// sighting. See <see cref="RigData.StillCurrent"/>.</param>
-        private static RigData BuildRigData(Radio r, WanListProvenance? fromWanList = null)
+        /// <param name="listed">The SmartLink list's own radio object, when
+        /// the intake has folded that list into a different object
+        /// (<paramref name="r"/>, the radio local discovery found first) and
+        /// raises the sighting from that one. The list's advertised path is
+        /// read from it (#398, repair one). Null when <paramref name="r"/> is
+        /// itself the list's radio, or no list speaks for the sighting.</param>
+        private static RigData BuildRigData(Radio r, WanListProvenance? fromWanList = null, Radio listed = null)
         {
             var rd = new RigData();
             rd.FromWanList = fromWanList;
@@ -841,9 +878,10 @@ namespace Radios
                 rd.GuiClientStations = r.GuiClients.Select(c => c.Station ?? "").ToList();
             }
             // What the SmartLink list says about reaching it (#398), from the
-            // list's own radio object. Read only; nothing is probed.
-            if (r.IsWan)
-                rd.Advertised = new SmartLinkAdvertised(r.PublicTlsPort, r.PublicUdpPort, r.IsPortForwardOn, r.RequiresHolePunch);
+            // list's own radio object: this one when it is the list's, or the
+            // one the intake merged into a LAN object (repair one, Codex B1).
+            // Read only; nothing is probed.
+            rd.Advertised = AdvertisedBy(r.IsWan ? r : listed);
             // One counted line per hop the occupancy fact travels (#394): a
             // dropped baton along this chain reads exactly like "nobody is on
             // it", and the 2026-08-30 field trace is what a silent drop costs.
