@@ -1186,7 +1186,7 @@ namespace Radios.Tests
                 // watchdog's two spoken outcomes, replacing the one shared
                 // sentence (audio.ptt.systemwide_watchdog_unkeyed, retired) that
                 // was false on both. release_not_honoured is Noel's ruled
-                // sentence; held_too_long is DRAFT PROSE.
+                // sentence; held_too_long was worded by Codex 2026-11-11.
                 "audio.ptt.systemwide_release_not_honoured",
                 "audio.ptt.systemwide_held_too_long",
                 // Junk box 2026-11-08 (#911): push to talk or the lock refused

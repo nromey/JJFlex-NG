@@ -742,8 +742,7 @@ namespace JJFlexWpf
                             + SystemWidePttWatch.MaxHoldMs / 1000 + " s. Dropping the carrier.", TraceLevel.Error);
                         Post(() => PttEdge?.Invoke(false));
                         controller?.KillTransmitNow("system-wide push to talk watchdog (hold too long)",
-                            Lexicon.Get("audio.ptt.systemwide_held_too_long",
-                                ("minutes", SystemWidePttWatch.MaxHoldMs / 60000)),
+                            Lexicon.Get("audio.ptt.systemwide_held_too_long"),
                             Radios.Speech.SpeechSubject.SystemWidePttWatchdog);
                         break;
                 }
