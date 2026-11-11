@@ -10,6 +10,9 @@ namespace Radios.Tests.Alarms
     /// sentence (#595, ruled by Noel 2026-09-22), and says plainly when no
     /// journal is running.
     /// </summary>
+    // Lexicon resolves the process-wide settings root for its overlay, so
+    // this class runs with the others that own that state (#232).
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class AlarmJournalReadoutTests
     {
         private static AlarmJournalStats Stats(long written = 4512, long dropped = 0, int ring = 1201,
