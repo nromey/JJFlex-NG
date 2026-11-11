@@ -31,8 +31,19 @@ public sealed class HostedDispatcherTests
     {
         AssertWindowless();
         // A thread with no dispatcher has none, and asking does not create one.
-        Assert.Null(HostedDispatcher.OfThisThread());
-        Assert.Null(Dispatcher.FromThread(Thread.CurrentThread));
+        // A fresh thread of our own: the runner's threads are shared with other
+        // tests, which may already have given one a dispatcher.
+        Dispatcher? onBare = null, afterAsking = null;
+        var bare = new Thread(() =>
+        {
+            onBare = HostedDispatcher.OfThisThread();
+            afterAsking = Dispatcher.FromThread(Thread.CurrentThread);
+        });
+        bare.SetApartmentState(ApartmentState.MTA);
+        bare.Start();
+        Assert.True(bare.Join(TimeSpan.FromSeconds(10)), "The bare thread did not finish.");
+        Assert.Null(onBare);
+        Assert.Null(afterAsking);
 
         Exception? failure = null;
         Dispatcher? found = null, own = null;
