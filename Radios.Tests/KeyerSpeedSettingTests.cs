@@ -390,6 +390,7 @@ namespace Radios.Tests
             Assert.Equal(expected, KeyerSpeedStore.Commit(c.F.Rig, fresh, 31));
             Assert.True(File.Exists(Path.Combine(fresh, KeyerSpeedStore.FileName)), "the save said it saved, and no file was written");
             AssertSetup(new FlexBase.cfg7620 { KeyerSpeed = 31 }, ReadSetup(fresh), "the new operator's file");
+            Assert.DoesNotContain("<Keyer>", File.ReadAllText(Path.Combine(fresh, KeyerSpeedStore.FileName)));   // repair three: the speed alone
             AssertSetup(SetupA(), ReadSetup(OperatorDir()), "A's file");
         }
 
@@ -412,6 +413,87 @@ namespace Radios.Tests
             c.RunQueue();
             Assert.Equal(sentToRadio, c.Sent("cw wpm 31"));
             Assert.Equal("not a folder", File.ReadAllText(blocked));
+        }
+
+        // ── repair three: a first save records the speed alone, and the restore writes only that ──
+
+        private static readonly MethodInfo RestoreMethod =
+            typeof(FlexBase).GetMethod("ApplyKeyerRestoreToRadio", Private)!;
+
+        private static string FileText(string dir) => File.ReadAllText(Path.Combine(dir, KeyerSpeedStore.FileName));
+
+        /// <summary>The radio's keyer as the operator really has it: iambic B, a break-in delay of 123, pitch 700.</summary>
+        private static void SetTheRadiosOwnKeyer(Connected c)
+        {
+            var r = c.F.Vendor.Radio;
+            r.CWIambic = true;
+            r.CWIambicModeA = false;
+            r.CWIambicModeB = true;
+            r.CWDelay = 123;
+            r.CWPitch = 700;
+            Assert.True(r.CWIambic && r.CWIambicModeB && r.CWDelay == 123 && r.CWPitch == 700,
+                "positive control: the fake radio holds the keyer it was given");
+        }
+
+        [Fact]
+        public void A_first_save_with_no_radio_records_the_speed_alone_and_the_restore_writes_only_the_speed()
+        {
+            // The 2026-11-11 bench's finding: with no file, a no-radio save
+            // created issue7620.xml from the defaults (keyer off, break-in
+            // delay 300), and the owner restore at a later connect would have
+            // turned the operator's keyer off.
+            Declare(RadioOwnership.Mine);
+            string dir = OperatorDir();
+            Assert.False(File.Exists(Path.Combine(dir, KeyerSpeedStore.FileName)));
+            Assert.Equal(KeyerSpeedStore.Outcome.SavedForNextConnect, KeyerSpeedStore.Commit(null, dir, 30));
+
+            string xml = FileText(dir);
+            Assert.Contains("<KeyerSpeed>30</KeyerSpeed>", xml);
+            foreach (var other in new[] { "<Keyer>", "<BreakinDelay>", "<SidetonePitch>", "<SidetoneGain>", "<TXCWMonitorGain>", "<CWReverse>", "<CWLEnabled>" })
+                Assert.DoesNotContain(other, xml);
+            Assert.Equal(30, KeyerSpeedStore.Read(null, dir));
+
+            using var c = new Connected(_scope.PathTo("Radios"));
+            SetTheRadiosOwnKeyer(c);
+            RestoreMethod.Invoke(c.F.Rig, new object[] { c.F.Vendor.Radio });
+
+            var r = c.F.Vendor.Radio;
+            Assert.Equal(30, r.CWSpeed);
+            Assert.True(r.CWIambic, "the restore turned the operator's keyer off");
+            Assert.True(r.CWIambicModeB, "the restore changed the operator's iambic mode");
+            Assert.Equal(123, r.CWDelay);
+            Assert.Equal(700, r.CWPitch);
+        }
+
+        [Fact]
+        public void A_file_from_an_earlier_version_is_restored_whole_as_before()
+        {
+            // Every field named: all of it is the operator's, and all of it is put on the radio.
+            Declare(RadioOwnership.Mine);
+            string dir = OperatorDir();
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, KeyerSpeedStore.FileName),
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?><cfg7620>"
+                + "<BreakinDelay>300</BreakinDelay><SidetonePitch>600</SidetonePitch><SidetoneGain>55</SidetoneGain>"
+                + "<TXCWMonitorGain>55</TXCWMonitorGain><CWReverse>false</CWReverse><CWLEnabled>false</CWLEnabled>"
+                + "<Keyer>off</Keyer><KeyerSpeed>18</KeyerSpeed></cfg7620>");
+
+            using var c = new Connected(_scope.PathTo("Radios"));
+            SetTheRadiosOwnKeyer(c);
+            RestoreMethod.Invoke(c.F.Rig, new object[] { c.F.Vendor.Radio });
+
+            var r = c.F.Vendor.Radio;
+            Assert.Equal(18, r.CWSpeed);
+            Assert.False(r.CWIambic);
+            Assert.Equal(300, r.CWDelay);
+            Assert.Equal(600, r.CWPitch);
+
+            // And a save into that file keeps every field it named.
+            Assert.Equal(KeyerSpeedStore.Outcome.WrittenToRadio, KeyerSpeedStore.Commit(c.F.Rig, dir, 22));
+            string xml = FileText(dir);
+            Assert.Contains("<KeyerSpeed>22</KeyerSpeed>", xml);
+            Assert.Contains("<Keyer>off</Keyer>", xml);
+            Assert.Contains("<BreakinDelay>300</BreakinDelay>", xml);
         }
     }
 }

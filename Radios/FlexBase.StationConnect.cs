@@ -1310,18 +1310,24 @@ namespace Radios
             issue7620(false);                      // reads the file into cfgData; writes nothing
             var cfg = cfgData;
             if (cfg == null) return;
-            r.CWDelay = cfg.BreakinDelay;
-            r.TXCWMonitorGain = cfg.SidetoneGain;
-            r.CWPitch = cfg.SidetonePitch;
-            r.CWSwapPaddles = cfg.CWReverse;
-            r.CWL_Enabled = cfg.CWLEnabled;
-            r.CWIambic = cfg.Keyer != IambicValues.off;
-            if (cfg.Keyer != IambicValues.off)
+            // Only what the operator's file actually holds (#879 repair three):
+            // a field with no value of theirs is left as the radio has it,
+            // never set to a default they did not choose.
+            if (cfg.BreakinDelaySpecified) r.CWDelay = cfg.BreakinDelay;
+            if (cfg.SidetoneGainSpecified) r.TXCWMonitorGain = cfg.SidetoneGain;
+            if (cfg.SidetonePitchSpecified) r.CWPitch = cfg.SidetonePitch;
+            if (cfg.CWReverseSpecified) r.CWSwapPaddles = cfg.CWReverse;
+            if (cfg.CWLEnabledSpecified) r.CWL_Enabled = cfg.CWLEnabled;
+            if (cfg.KeyerSpecified)
             {
-                r.CWIambicModeA = cfg.Keyer == IambicValues.iambicA;
-                r.CWIambicModeB = cfg.Keyer == IambicValues.iambicB;
+                r.CWIambic = cfg.Keyer != IambicValues.off;
+                if (cfg.Keyer != IambicValues.off)
+                {
+                    r.CWIambicModeA = cfg.Keyer == IambicValues.iambicA;
+                    r.CWIambicModeB = cfg.Keyer == IambicValues.iambicB;
+                }
             }
-            r.CWSpeed = cfg.KeyerSpeed;
+            if (cfg.KeyerSpeedSpecified) r.CWSpeed = cfg.KeyerSpeed;
         }
 
         /// <summary>Everything is said, then the assessment, last. Repair only

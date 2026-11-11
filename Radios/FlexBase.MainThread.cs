@@ -272,16 +272,45 @@ namespace Radios
             // accepted: characters are admitted cwText items (integration fix).
         }
 
+        /// <summary>
+        /// The operator's saved CW keyer setup (issue7620.xml). Each field
+        /// carries a <c>...Specified</c> flag (XmlSerializer's own pattern):
+        /// true once the operator's file or a setter gave it a value, false
+        /// for a default nobody chose. Only specified fields are written to the
+        /// file, so a file saved with nothing but the speed holds the speed
+        /// alone, and the owner restore (<c>ApplyKeyerRestoreToRadio</c>) writes
+        /// only specified fields (#879 repair three). Before this, a first
+        /// save created the file from these defaults (keyer off, break-in delay
+        /// 300), and a restore would have turned the operator's keyer off. A
+        /// file written by an earlier version names every field, so all of it
+        /// is specified and restored as before.
+        /// </summary>
         public class cfg7620
         {
-            public int BreakinDelay = 300;
-            public int SidetonePitch = 600;
-            public int SidetoneGain = 55;
-            public int TXCWMonitorGain = 55;
-            public bool CWReverse = false;
-            public bool CWLEnabled = false;
-            public IambicValues Keyer = IambicValues.off;
-            public int KeyerSpeed = 20;
+            private int _breakinDelay = 300;
+            public int BreakinDelay { get => _breakinDelay; set { _breakinDelay = value; BreakinDelaySpecified = true; } }
+            [XmlIgnore] public bool BreakinDelaySpecified;
+            private int _sidetonePitch = 600;
+            public int SidetonePitch { get => _sidetonePitch; set { _sidetonePitch = value; SidetonePitchSpecified = true; } }
+            [XmlIgnore] public bool SidetonePitchSpecified;
+            private int _sidetoneGain = 55;
+            public int SidetoneGain { get => _sidetoneGain; set { _sidetoneGain = value; SidetoneGainSpecified = true; } }
+            [XmlIgnore] public bool SidetoneGainSpecified;
+            private int _tXCWMonitorGain = 55;
+            public int TXCWMonitorGain { get => _tXCWMonitorGain; set { _tXCWMonitorGain = value; TXCWMonitorGainSpecified = true; } }
+            [XmlIgnore] public bool TXCWMonitorGainSpecified;
+            private bool _cWReverse = false;
+            public bool CWReverse { get => _cWReverse; set { _cWReverse = value; CWReverseSpecified = true; } }
+            [XmlIgnore] public bool CWReverseSpecified;
+            private bool _cWLEnabled = false;
+            public bool CWLEnabled { get => _cWLEnabled; set { _cWLEnabled = value; CWLEnabledSpecified = true; } }
+            [XmlIgnore] public bool CWLEnabledSpecified;
+            private IambicValues _keyer = IambicValues.off;
+            public IambicValues Keyer { get => _keyer; set { _keyer = value; KeyerSpecified = true; } }
+            [XmlIgnore] public bool KeyerSpecified;
+            private int _keyerSpeed = 20;
+            public int KeyerSpeed { get => _keyerSpeed; set { _keyerSpeed = value; KeyerSpeedSpecified = true; } }
+            [XmlIgnore] public bool KeyerSpeedSpecified;
         }
         private cfg7620 cfgData = new cfg7620();
 
