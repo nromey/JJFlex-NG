@@ -991,26 +991,20 @@ namespace JJPortaudio
             uint bufSZ;
             if (useOpus)
             {
-                POpusCodec.Enums.SamplingRate oRate;
-                switch (openRate)
+                // The rate table lives in OpusEncodeProfile.TryGetSamplingRate
+                // now, so the no-microphone transmit path builds its encoder
+                // through the same one rather than a copy.
+                if (!OpusEncodeProfile.TryGetSamplingRate(openRate, out POpusCodec.Enums.SamplingRate oRate))
                 {
-                    // 8000 was written `800` here, a rate no device reports and
-                    // nothing could ever match.
-                    case 8000: oRate = POpusCodec.Enums.SamplingRate.Sampling08000; break;
-                    case 12000: oRate = POpusCodec.Enums.SamplingRate.Sampling12000; break;
-                    case 16000: oRate = POpusCodec.Enums.SamplingRate.Sampling16000; break;
-                    case 24000: oRate = POpusCodec.Enums.SamplingRate.Sampling24000; break;
-                    case 48000: oRate = POpusCodec.Enums.SamplingRate.Sampling48000; break;
-                    default:
-                        // Was a silent fall-through to 48 kHz. Negotiation only
-                        // ever hands back an Opus-legal rate, so arriving here
-                        // means the device accepted nothing at all — and
-                        // encoding at a rate the stream is not running is the
-                        // defect, not the fallback.
-                        Tracing.TraceLine("Audio.Open:" + openRate
-                            + " Hz is not a rate Opus can encode; refusing to open",
-                            TraceLevel.Error);
-                        return false;
+                    // Was a silent fall-through to 48 kHz. Negotiation only
+                    // ever hands back an Opus-legal rate, so arriving here
+                    // means the device accepted nothing at all — and
+                    // encoding at a rate the stream is not running is the
+                    // defect, not the fallback.
+                    Tracing.TraceLine("Audio.Open:" + openRate
+                        + " Hz is not a rate Opus can encode; refusing to open",
+                        TraceLevel.Error);
+                    return false;
                 }
                 // Track J, 2026-09-01 (#460): every encoder decision now comes
                 // from one profile instead of three literals written here.

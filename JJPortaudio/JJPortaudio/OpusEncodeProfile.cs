@@ -113,6 +113,32 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// The Opus mode for a sample rate in hertz, or false when Opus has no
+        /// mode for it.
+        /// </summary>
+        /// <remarks>
+        /// Extracted from <c>Audio.Open</c> so the transmit path that runs with
+        /// no microphone builds its encoder through the same table rather than
+        /// a second copy of it. A false here is a refusal, never a fall-through
+        /// to 48 kHz: encoding at a rate the stream is not running is the
+        /// defect, not the fallback.
+        /// </remarks>
+        public static bool TryGetSamplingRate(uint hz, out SamplingRate rate)
+        {
+            switch (hz)
+            {
+                // 8000 was written `800` in Audio.Open once, a rate no device
+                // reports and nothing could ever match.
+                case 8000: rate = SamplingRate.Sampling08000; return true;
+                case 12000: rate = SamplingRate.Sampling12000; return true;
+                case 16000: rate = SamplingRate.Sampling16000; return true;
+                case 24000: rate = SamplingRate.Sampling24000; return true;
+                case 48000: rate = SamplingRate.Sampling48000; return true;
+                default: rate = SamplingRate.Sampling48000; return false;
+            }
+        }
+
+        /// <summary>
         /// Build an encoder for this profile at a settled sample rate.
         /// </summary>
         /// <remarks>

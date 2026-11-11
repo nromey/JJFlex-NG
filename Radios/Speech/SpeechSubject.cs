@@ -131,6 +131,14 @@ namespace Radios.Speech
         public const string NoTransmitAudio = "no-transmit-audio";
 
         /// <summary>
+        /// The test tone is going out with no microphone open: the microphone
+        /// could not be opened this session, and the tone has a transmit path
+        /// of its own. Said once per connection, the first time the tone goes
+        /// out that way. Nothing else says it, so nothing else retires it.
+        /// </summary>
+        public const string ToneWithoutMicrophone = "tone-without-microphone";
+
+        /// <summary>
         /// A transmit key pressed in a dialog while something else owns the
         /// transmitter (#778c): an Audio Check session is running, so the
         /// dialog door refuses push to talk and the lock with the layer's own

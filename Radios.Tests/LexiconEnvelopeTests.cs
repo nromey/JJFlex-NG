@@ -1192,6 +1192,13 @@ namespace Radios.Tests
                 // Junk box 2026-11-08 (#911): push to talk or the lock refused
                 // while another station transmits on the radio. DRAFT PROSE.
                 "audio.ptt.another_station_transmitting",
+                // Junk box 2026-11-11, batch 7 (#210): the test tone going out
+                // in a session whose microphone could not be opened, said once
+                // per connection. Written here, so classified (#720). delivery
+                // null like audio.ptt.systemwide_held_too_long above: the call
+                // site decides its delivery (queued, Terse, its own subject).
+                // DRAFT PROSE.
+                "audio.mic.tone_without_microphone",
                 // Junk box 2026-11-09, third batch (#680, defect 2): the
                 // receipt for "Ask Me at the Next Connect" under Profiles on
                 // This Radio. Said only in answer to the operator's choice:
