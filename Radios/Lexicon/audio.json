@@ -179,6 +179,8 @@
   "audio.eq.band_khz": "{khz} kHz",
   "audio.eq.button_receive": "Receive Equalizer",
   "audio.eq.button_transmit": "Transmit Equalizer",
+  "_note_609": "Junk box #609 (2026-11-11) added audio.eq.changes_live below: one sentence inside the equalizer window saying a change reaches the radio as it is made. A DRAFT FOR CODEX TO WORD; Noel approves the wording.",
+  "audio.eq.changes_live": {"text": "Changes reach the radio as you make them.", "delivery": null},
   "audio.eq.cleared": "All bands flat",
   "audio.eq.enabled_label": "Equalizer",
   "audio.eq.name_receive": "Receive equalizer",

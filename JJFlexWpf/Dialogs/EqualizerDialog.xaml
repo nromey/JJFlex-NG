@@ -8,6 +8,13 @@
 
     <StackPanel Margin="12">
 
+        <!-- One line saying a change reaches the radio as it is made (#609).
+             A line in the window, not a second spoken sentence racing the
+             title the base class speaks on arrival. Plain text on purpose:
+             DecorativeText is what a screen reader is told to skip. Its words
+             come from the lexicon (audio.eq.changes_live), set in code. -->
+        <TextBlock x:Name="ChangesLiveNote" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
         <!-- Whether the equalizer is switched on at all. First in the tab
              order on purpose: bands set on a switched-off equalizer change
              nothing the operator can hear, and finding that out last is the

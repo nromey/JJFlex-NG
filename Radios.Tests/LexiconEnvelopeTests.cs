@@ -2806,6 +2806,8 @@ namespace Radios.Tests
                 // Junk box #776 (2026-11-11): the silenced-messages label for the
                 // station save's explanation. DRAFT for Codex.
                 "settings.silenced.station_save",
+                // Junk box #609 (2026-11-11): the equalizer's one line. DRAFT for Codex.
+                "audio.eq.changes_live",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

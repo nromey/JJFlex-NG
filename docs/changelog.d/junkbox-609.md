@@ -1,0 +1,1 @@
+- The equalizer window now says, in one line at the top, that a change reaches the radio as you make it, so you do not have to close the window before a change takes effect.
