@@ -3181,49 +3181,95 @@ namespace Radios.Tests
         [Fact]
         public void Kept_lines_from_two_writers_while_a_log_opens_each_arrive_once_and_in_their_own_order()
         {
+            // Three phases, each one forced rather than hoped for: eight lines
+            // each with no log; then on while a log opens; then a restart held
+            // open while both write into the queue, released while they are
+            // still writing, so the drain at its end races them.
             Assert.Null(TraceCoordinator.CurrentHandle);
             const int each = 120;
-            using var halfway = new CountdownEvent(2);
-            void Writer(string name)
+            int progressA = 0, progressB = 0;
+            var noLogDone = new CountdownEvent(2);
+            var restartPhase = new CountdownEvent(2);
+            var restartHeld = new ManualResetEventSlim(false);
+            var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            void Writer(string name, Action<int> progress)
             {
-                for (int i = 0; i < each; i++)
+                try
                 {
-                    // Eight each with no log, then on only once the open has begun, so
-                    // the rest race the open itself (with no log and no transition the
-                    // 32-line bound applies, which is the next test's subject).
-                    if (i == 8)
+                    for (int i = 0; i < each; i++)
                     {
-                        halfway.Signal();
-                        SpinWait.SpinUntil(() => TraceCoordinator.TransitionInProgress || TraceCoordinator.CurrentHandle != null,
-                            TimeSpan.FromSeconds(10));
+                        if (i == 8)
+                        {
+                            noLogDone.Signal();
+                            if (!SpinWait.SpinUntil(() => TraceCoordinator.TransitionInProgress || TraceCoordinator.CurrentHandle != null,
+                                    TimeSpan.FromSeconds(10)))
+                                failures.Enqueue(name + ": the log never began opening");
+                        }
+                        if (i == 60)
+                        {
+                            restartPhase.Signal();
+                            if (!restartHeld.Wait(TimeSpan.FromSeconds(10))) failures.Enqueue(name + ": the restart was never held");
+                        }
+                        Tracing.TraceLineKept($"TWO-{name}-{i:D3}");
+                        progress(i + 1);
                     }
-                    Tracing.TraceLineKept($"TWO-{name}-{i:D3}");
                 }
+                catch (Exception ex) { failures.Enqueue(name + ": " + ex.Message); }
             }
-            var a = new Thread(() => Writer("a"));
-            var b = new Thread(() => Writer("b"));
-            a.Start(); b.Start();
-            Assert.True(halfway.Wait(TimeSpan.FromSeconds(10)));
-            Open();                                            // while both are still writing
-            Assert.True(a.Join(TimeSpan.FromSeconds(30)) && b.Join(TimeSpan.FromSeconds(30)));
-            SpinWait.SpinUntil(() => Tracing.KeptLinesWaiting == 0, TimeSpan.FromSeconds(10));
-            TraceCoordinator.DrainDeferred();
+            var a = new Thread(() => Writer("a", n => Volatile.Write(ref progressA, n))) { IsBackground = true };
+            var b = new Thread(() => Writer("b", n => Volatile.Write(ref progressB, n))) { IsBackground = true };
+            try
+            {
+                a.Start(); b.Start();
+                Assert.True(noLogDone.Wait(TimeSpan.FromSeconds(10)));
+                TraceSessionHandle first = Open();                 // while both are still writing
+                Assert.True(restartPhase.Wait(TimeSpan.FromSeconds(10)));
+                WithRestartHeldAt("archive:detached", first, () =>
+                {
+                    restartHeld.Set();
+                    Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref progressA) >= 80 && Volatile.Read(ref progressB) >= 80,
+                        TimeSpan.FromSeconds(10)), "the writers never wrote into the held restart");
+                    Assert.True(Tracing.KeptLinesWaiting >= 40);  // positive control: they really are queued behind it
+                });
+            }
+            finally
+            {
+                restartHeld.Set();
+                Assert.True(a.Join(TimeSpan.FromSeconds(30)) && b.Join(TimeSpan.FromSeconds(30)), "a writer never finished");
+            }
+            Assert.Empty(failures);
+            Tracing.FlushDeferred();
+            Assert.Equal(0, Tracing.KeptLinesWaiting);
 
-            string text = ReadLiveText(_livePath);
+            // The first log took the no-log lines and those written before the
+            // restart; the successor (same live path) took the rest. Every line
+            // arrives exactly once across the two, each writer's in its own order.
+            Assert.True(TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(60)));
+            string archived = string.Concat(Directory.GetFiles(_archiveDir, "*.zip", SearchOption.AllDirectories)
+                .Select(z => File.ReadAllText(SessionArchive.ExtractTraceText(z, Path.Combine(_dir, "x-" + Guid.NewGuid().ToString("N"))))));
+            string text = archived + ReadLiveText(_livePath);
             foreach (var name in new[] { "a", "b" })
             {
-                int last = -1;
+                int lastInFirst = -1, lastInSecond = -1;
+                bool reachedSecond = false;
                 for (int i = 0; i < each; i++)
                 {
                     string tag = $"TWO-{name}-{i:D3}";
                     int count = CountOf(text, tag);
                     Assert.True(count == 1, tag + " arrived " + count + " times");
                     int here = text.IndexOf(tag, StringComparison.Ordinal);
-                    Assert.True(here > last, tag + " arrived out of order");
-                    last = here;
+                    // Within each file, each writer's lines are in order.
+                    // and none goes back to the earlier log once one has reached the later.
+                    if (here < archived.Length)
+                    {
+                        Assert.False(reachedSecond, tag + " landed in the earlier log after a line before it reached the later one");
+                        Assert.True(here > lastInFirst, tag + " out of order");
+                        lastInFirst = here;
+                    }
+                    else { reachedSecond = true; Assert.True(here > lastInSecond, tag + " out of order"); lastInSecond = here; }
                 }
             }
-            Assert.DoesNotContain("TraceKept:", text);       // 16 waited, well under the bound
+            Assert.DoesNotContain("TraceKept:", text);       // nothing lost, nothing to report
         }
 
         [Fact]
@@ -3251,6 +3297,189 @@ namespace Radios.Tests
             // The count is spent with the drain: a later line brings no second notice.
             Tracing.TraceLineKept("BOUND-after");
             Assert.Equal(1, CountOf(ReadLiveText(_livePath), "TraceKept:"));
+        }
+
+        // ── Round 7: Codex's seventh check, as standing tests ──
+
+        /// <summary>
+        /// Hold an archive that restarts the log at <paramref name="point"/>, run
+        /// <paramref name="whileHeld"/>, then let it finish. Returns the archive's result.
+        /// </summary>
+        private TraceTransitionResult WithRestartHeldAt(string point, TraceSessionHandle old, Action whileHeld)
+        {
+            var inside = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            TraceCoordinator.TransitionProbeForTests = p =>
+            {
+                if (p != point) return;
+                inside.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            TraceTransitionResult result = null;
+            Thread restarter = null;
+            try
+            {
+                restarter = new Thread(() => result = TraceCoordinator.TryArchive(new TraceArchiveRequest
+                {
+                    Expected = old, OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
+                })) { IsBackground = true };
+                restarter.Start();
+                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the restart never reached " + point);
+                whileHeld();
+            }
+            finally
+            {
+                release.Set();
+                TraceCoordinator.TransitionProbeForTests = null;
+                restarter?.Join(TimeSpan.FromSeconds(10));
+            }
+            Assert.NotNull(result);
+            Assert.Equal(TraceTransition.Accepted, result.Status);
+            return result;
+        }
+
+        /// <summary>
+        /// Codex's first probe: 256 kept lines written while a transition holds
+        /// the gate left 253 drain callbacks pending, each about to block on the
+        /// gate. Drain work is now the deferred queue's one coalesced item.
+        /// </summary>
+        [Fact]
+        public void Kept_lines_written_while_a_transition_holds_the_gate_queue_bounded_drain_work_and_all_arrive()
+        {
+            TraceSessionHandle old = Open();
+            long pendingBefore = -1, pendingDuring = -1;
+            WithRestartHeldAt("archive:detached", old, () =>
+            {
+                pendingBefore = ThreadPool.PendingWorkItemCount;
+                for (int i = 0; i < 256; i++) Tracing.TraceLineKept($"HELD-{i:D3}");
+                pendingDuring = ThreadPool.PendingWorkItemCount;
+                Assert.Equal(256, Tracing.KeptLinesWaiting);   // every line kept while it waits
+            });
+            Assert.True(pendingDuring - pendingBefore <= 8,
+                $"drain work grew by {pendingDuring - pendingBefore} items for 256 waiting lines");
+
+            Tracing.FlushDeferred();
+            Assert.Equal(0, Tracing.KeptLinesWaiting);
+            string text = ReadLiveText(_livePath);
+            int last = -1;
+            for (int i = 0; i < 256; i++)
+            {
+                string tag = $"HELD-{i:D3}";
+                Assert.Equal(1, CountOf(text, tag));
+                int here = text.IndexOf(tag, StringComparison.Ordinal);
+                Assert.True(here > last, tag + " out of order");
+                last = here;
+            }
+        }
+
+        /// <summary>
+        /// Codex's second probe: during a held restart, ordinary MIX-1, kept
+        /// MIX-2, ordinary MIX-3 came out 2, 1, 3, because the kept queue was
+        /// drained ahead of the ordinary one. One queue now, one order.
+        /// </summary>
+        [Fact]
+        public void Ordinary_and_kept_lines_written_during_a_held_restart_arrive_in_the_order_written()
+        {
+            TraceSessionHandle old = Open();
+            WithRestartHeldAt("archive:detached", old, () =>
+            {
+                Write("MIX-1 ordinary");
+                Tracing.TraceLineKept("MIX-2 kept");
+                Write("MIX-3 ordinary");
+            });
+            Tracing.FlushDeferred();
+            string text = ReadLiveText(_livePath);
+            int one = text.IndexOf("MIX-1", StringComparison.Ordinal);
+            int two = text.IndexOf("MIX-2", StringComparison.Ordinal);
+            int three = text.IndexOf("MIX-3", StringComparison.Ordinal);
+            Assert.True(one >= 0 && two >= 0 && three >= 0, $"a line is missing: {one}, {two}, {three}");
+            Assert.True(one < two && two < three, $"written 1, 2, 3; read at {one}, {two}, {three}");
+        }
+
+        /// <summary>
+        /// Codex's third probe: two kept lines queued, the sink then fails, and
+        /// the drain used to remove the whole batch and its loss count before
+        /// writing, so the next good log recovered neither and counted neither.
+        /// Now the line the sink failed on is counted (whether its bytes landed
+        /// is unknowable, so it is not written again), and the line never
+        /// attempted waits for the next healthy log.
+        /// </summary>
+        [Fact]
+        public void A_sink_failure_mid_drain_counts_the_failed_kept_line_and_keeps_the_unattempted_one_for_the_next_log()
+        {
+            Open();
+            RotatingTraceListener live = Tracing.LiveListener;
+            Assert.NotNull(live);
+            object gate = typeof(TraceCoordinator)
+                .GetField("_gate", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                .GetValue(null)!;
+            var held = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            var holder = new Thread(() =>
+            {
+                Monitor.Enter(gate);
+                try { held.Set(); release.Wait(TimeSpan.FromSeconds(30)); }
+                finally { Monitor.Exit(gate); }
+            }) { IsBackground = true };
+            try
+            {
+                holder.Start();
+                Assert.True(held.Wait(TimeSpan.FromSeconds(10)));
+                // Another writer holds the gate: both lines wait in the queue.
+                Tracing.TraceLineKept("FAULT-1 kept");
+                Tracing.TraceLineKept("FAULT-2 kept");
+                Assert.Equal(2, Tracing.KeptLinesWaiting);
+                // The disk stops accepting writes before the drain gets in.
+                var writer = (StreamWriter)typeof(RotatingTraceListener)
+                    .GetField("_writer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                    .GetValue(live)!;
+                writer.Dispose();
+            }
+            finally
+            {
+                release.Set();
+                holder.Join(TimeSpan.FromSeconds(10));
+            }
+            Tracing.FlushDeferred();
+            Assert.True(SpinWait.SpinUntil(() => TraceCoordinator.CurrentHandle == null, TimeSpan.FromSeconds(10)),
+                        "the faulted session was never retired");   // positive control: the sink really failed
+            Assert.True(TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(60)));
+            Assert.Equal(1, Tracing.KeptLinesWaiting);             // the unattempted line waits
+
+            Open();                                                // the operator's on-again
+            string text = ReadLiveText(_livePath);
+            Assert.Equal(1, CountOf(text, "FAULT-2 kept"));
+            Assert.DoesNotContain("FAULT-1 kept", text);           // never written twice
+            Assert.Contains("TraceKept: 1 kept line may not have reached an earlier diagnostic log", text);
+            Assert.True(text.IndexOf("FAULT-2 kept", StringComparison.Ordinal)
+                        < text.IndexOf("TraceKept: 1 kept line may not", StringComparison.Ordinal));
+            Assert.Equal(0, Tracing.KeptLinesWaiting);
+        }
+
+        /// <summary>
+        /// Codex's smaller finding: the overflow notice always named the no-log
+        /// bound of 32, even when the loss came from the queue's own limit of
+        /// 100,000 while a transition held the gate. Each kind of loss now names
+        /// its own limit.
+        /// </summary>
+        [Fact]
+        public void Kept_lines_refused_by_a_full_queue_are_reported_against_the_queues_own_limit()
+        {
+            TraceSessionHandle old = Open();
+            WithRestartHeldAt("archive:detached", old, () =>
+            {
+                Assert.Equal(0, Tracing.DeferredLinesQueued);
+                for (int i = 0; i < Tracing.MaxDeferredLines + 2; i++) Tracing.TraceLineKept("CAP-" + i + "|");
+                Assert.Equal(Tracing.MaxDeferredLines, Tracing.DeferredLinesQueued);   // positive control: the queue is full
+            });
+            Tracing.FlushDeferred();
+            string text = ReadLiveText(_livePath);
+            Assert.Contains("TraceKept: 2 kept lines were left out because the queue of lines waiting for the log was full; at most "
+                + Tracing.MaxDeferredLines + " wait.", text);
+            Assert.DoesNotContain("are kept.", text);                                // not the no-log bound
+            Assert.Contains("CAP-" + (Tracing.MaxDeferredLines - 1) + "|", text);
+            Assert.DoesNotContain("CAP-" + Tracing.MaxDeferredLines + "|", text);
         }
     }
 }

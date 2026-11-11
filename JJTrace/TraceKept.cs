@@ -8,64 +8,47 @@ namespace JJTrace
     {
         // ── Kept lines: a record that must reach a log even if none is open yet ──
         //
-        // Sprint 49 Track S, repair rounds 5 and 6 (#1019). The one-time noise
-        // floor move runs inside the main window's first settings load, which
-        // happens during startup before any diagnostic log opens, and a line
-        // written with no sink is dropped by the router. Round 5 held such lines
-        // in the noise journal and drained them from the boot sequence; Codex's
-        // sixth check found three holes in that: a log opened LATER (a detailed
-        // capture, the standing log switched on, a retry after a failed first
-        // log) never drained them; a newer line could overtake the held tail;
-        // and a full hold dropped lines without a sign. So the hold lives here,
-        // beside the gate it depends on.
+        // Sprint 49 Track S, repair rounds 5 to 7 (#1019). The one-time noise
+        // floor move runs inside the main window's first settings load, during
+        // startup, before any diagnostic log opens, and a line written with no
+        // sink is dropped. A KEPT line is one that must survive that.
         //
-        // One ordering rule, held by the coordinator's gate: every kept line is
-        // QUEUED first, and the queue is consumed only by the gate's holder,
-        // only into a live sink, front to back. A line never decides "write or
-        // hold" on its own, from a health reading that can change before it
-        // acts. So:
+        // Round 7 (Codex's seventh check): ONE queue. A kept line is an ordinary
+        // deferred line with Keep set: it joins the same FIFO the router defers
+        // into while a transition holds the gate, so it shares that queue's
+        // order with every other deferred line, its coalesced pool drain (at
+        // most one drain item waits, however many writers contend), and its
+        // drain at the end of every transition. Round 6 had a second queue
+        // beside it, drained first, which let a kept line overtake an earlier
+        // ordinary line, and queued one blocking pool item per contended write.
         //
-        //  - With a log recording, the writer takes the gate and drains the
-        //    queue, its own line last: exactly where a direct write would land.
-        //  - With none, the line waits. EVERY transition drains on its way out
-        //    (EndTransitionLocked, through DrainDeferredLocked), so whichever
-        //    one opens a log — boot, a capture, a settings change, a restart,
-        //    either instance — writes the queue before anything else can enter.
-        //  - A writer that cannot take the gate hands the drain to a pool item
-        //    that waits for it, so nothing is stranded behind a transition that
-        //    had already drained when the line was queued.
+        // The one difference is what happens with no live sink. The drain drops
+        // an ordinary line then, as a direct write would be dropped; a kept line
+        // moves to a short list owned by the gate (TraceCoordinator, at most
+        // MaxKeptLines) and is written ahead of the queue by the next drain that
+        // finds a live sink. Everything on that list was taken from the head of
+        // the queue, so it is older than anything still queued, and order holds.
         //
-        // Lock order: the gate, then this queue's lock. The writer takes the
-        // queue's lock alone and releases it before going for the gate; the
-        // drain never calls Trace.WriteLine, so the framework's trace lock is
-        // never taken under the gate.
+        // With no log all session, kept lines stay on that list until one opens:
+        // the move happens once, and a capture started later is the only place
+        // its evidence can still land. Never discarded on a timer; lost at
+        // process exit like every line.
         //
-        // While no log opens all session, the lines are KEPT, at most
-        // MaxKeptLines, until one does: a detailed capture started later still
-        // gets the evidence, which is the point of keeping it (the move happens
-        // once, so it cannot be recorded again). They are never discarded on a
-        // timer; a process that never opens a log loses them at exit, as it
-        // loses every line. Past the bound, lines are counted, and the drain
-        // writes one line saying how many were left out, so a partial history
-        // never reads as complete.
+        // Losses are counted and written as TraceKept lines by the next drain
+        // with a live sink: lines past the no-log bound; lines refused because
+        // the deferred queue itself was full; and lines whose write or flush the
+        // sink failed on. A failed line is NOT written again (whether its bytes
+        // reached the disk is unknowable); lines after it that were never
+        // attempted wait for the next healthy sink.
 
-        /// <summary>The most lines kept while no log can take them.</summary>
+        /// <summary>The most kept lines held while no log can take them.</summary>
         internal const int MaxKeptLines = 32;
 
-        private readonly struct KeptLine
-        {
-            internal KeptLine(string text, long generation) { Text = text; Generation = generation; }
-            internal string Text { get; }
-            /// <summary>The sink generation live when it was recorded; 0 when none was.</summary>
-            internal long Generation { get; }
-        }
+        private static int _keptQueued;
+        private static long _keptRefusedAtQueueCap;
 
-        private static readonly object _keptLock = new object();
-        private static readonly Queue<KeptLine> _kept = new Queue<KeptLine>();
-        private static int _keptLeftOut;
-
-        /// <summary>Lines kept right now, waiting for a log.</summary>
-        public static int KeptLinesWaiting { get { lock (_keptLock) return _kept.Count; } }
+        /// <summary>Kept lines waiting right now: in the deferred queue, or held for a log.</summary>
+        public static int KeptLinesWaiting => Volatile.Read(ref _keptQueued) + TraceCoordinator.KeptHeldCount;
 
         /// <summary>
         /// Trace a line that must reach a diagnostic log: written now when one is
@@ -79,22 +62,13 @@ namespace JJTrace
             if (str == null) return;
             try
             {
-                string text = TracePrefix() + str;
-                long generation = TraceCoordinator.LiveSinkGenerationWithoutWaiting();
-                // The bound is for lines with NO log to go to. With a log live
-                // or a transition under way (one may be opening a log), the
-                // queue is only waiting for the gate and empties when it frees,
-                // so it gets the deferred queue's far larger guard instead: a
-                // burst during an open must not be cut to 32. This reading only
-                // sets the bound; it never decides where or when a line is written.
-                int bound = generation != 0 || TraceCoordinator.TransitionInProgress ? MaxDeferredLines : MaxKeptLines;
-                lock (_keptLock)
-                {
-                    if (_kept.Count >= bound) _keptLeftOut++;
-                    else _kept.Enqueue(new KeptLine(text, generation));
-                }
+                Enqueue(new DeferredTraceLine(Guid.Empty, TracePrefix() + str, newLine: true,
+                    keep: true, generation: TraceCoordinator.LiveSinkGenerationWithoutWaiting()));
                 KeptLineProbeForTests?.Invoke(str);
-                TraceCoordinator.DrainKeptSoon();
+                // Written now if the gate is free; otherwise the queue's own
+                // coalesced drain (scheduled by Enqueue) or the transition holding
+                // the gate writes it, in queue order.
+                TraceCoordinator.DrainDeferredIfFree();
             }
             catch
             {
@@ -109,32 +83,33 @@ namespace JJTrace
         /// </summary>
         internal static Action<string> KeptLineProbeForTests;
 
-        /// <summary>
-        /// Take every kept line and the count left out, as one step. Called ONLY
-        /// with the coordinator's gate held, so no other drain can interleave.
-        /// </summary>
-        internal static List<(string Text, long Generation)> TakeKept(out int leftOut)
-        {
-            lock (_keptLock)
-            {
-                var lines = new List<(string, long)>(_kept.Count);
-                while (_kept.Count > 0) { var k = _kept.Dequeue(); lines.Add((k.Text, k.Generation)); }
-                leftOut = _keptLeftOut;
-                _keptLeftOut = 0;
-                return lines;
-            }
-        }
+        internal static void NoteKeptQueued() => Interlocked.Increment(ref _keptQueued);
+        internal static void NoteKeptDequeued() => Interlocked.Decrement(ref _keptQueued);
+        internal static void NoteKeptRefusedAtQueueCap() => Interlocked.Increment(ref _keptRefusedAtQueueCap);
+        internal static long KeptRefusedAtQueueCap => Interlocked.Read(ref _keptRefusedAtQueueCap);
+        internal static void SpendKeptRefusedAtQueueCap(long n) => Interlocked.Add(ref _keptRefusedAtQueueCap, -n);
 
-        /// <summary>Tests only: forget every kept line and the count left out.</summary>
+        /// <summary>Tests only: forget every held kept line and every loss count.</summary>
         internal static void ResetKeptForTests()
         {
-            lock (_keptLock) { _kept.Clear(); _keptLeftOut = 0; }
+            TraceCoordinator.ResetKeptForTests();
+            Interlocked.Exchange(ref _keptRefusedAtQueueCap, 0);
             KeptLineProbeForTests = null;
         }
     }
 
     public static partial class TraceCoordinator
     {
+        /// <summary>Kept lines taken from the queue while no sink was live. Owned by the gate.</summary>
+        private static readonly List<DeferredTraceLine> _keptHeld = new List<DeferredTraceLine>();
+        private static volatile int _keptHeldCount;
+        /// <summary>Kept lines past the no-log bound. Owned by the gate.</summary>
+        private static long _keptLeftOutNoLog;
+        /// <summary>Kept lines whose write or flush the sink failed on. Owned by the gate.</summary>
+        private static long _keptFailedWrites;
+
+        internal static int KeptHeldCount => _keptHeldCount;
+
         /// <summary>
         /// The generation of a live, open sink, read without the gate; 0 when
         /// none is. Only labels a kept line; never decides where it goes.
@@ -146,47 +121,99 @@ namespace JJTrace
         }
 
         /// <summary>
-        /// Drain the kept lines now if the gate is free, or hand the drain to a
-        /// pool item that waits for it. Never waits on a transition itself.
+        /// Drain the deferred queue now if the gate is free. If it is not, the
+        /// queue's own coalesced pool drain or the transition holding the gate
+        /// does it; nothing extra is scheduled here.
         /// </summary>
-        internal static void DrainKeptSoon()
+        internal static void DrainDeferredIfFree()
         {
-            if (TryEnterForWrite())
-            {
-                try { DrainKeptLocked(); }
-                finally { Monitor.Exit(_gate); }
-                return;
-            }
-            // A transition (or a stalled writer) holds the gate. A transition
-            // drains on its way out, but it may already have drained before this
-            // line was queued, so a pool item drains once the gate is free.
-            ThreadPool.UnsafeQueueUserWorkItem(_ =>
-            {
-                try { lock (_gate) { DrainKeptLocked(); } }
-                catch { /* as any trace write: never the thing that fails */ }
-            }, null);
+            if (!TryEnterForWrite()) return;
+            try { DrainDeferredLocked(); }
+            finally { Monitor.Exit(_gate); }
+        }
+
+        private static bool SinkLiveLocked() => _sink != null && !_sink.IsClosed;
+
+        /// <summary>Caller holds the gate, no sink is live: keep this kept line for the next one, within the bound.</summary>
+        private static void HoldKeptLocked(DeferredTraceLine line)
+        {
+            if (_keptHeld.Count >= Tracing.MaxKeptLines) { _keptLeftOutNoLog++; return; }
+            _keptHeld.Add(line);
+            _keptHeldCount = _keptHeld.Count;
         }
 
         /// <summary>
-        /// Caller holds the gate. With a live sink, write every kept line in the
-        /// order it was recorded, then one line for any left out at the bound.
-        /// With none, leave them kept: unlike a deferred line, a kept line is
-        /// not dropped for want of a log.
+        /// Caller holds the gate and the sink is live. Write one kept line and
+        /// flush it, so its outcome is known on its own. Returns false when the
+        /// sink failed on it: the line is counted as a failed write, not retried.
         /// </summary>
-        private static void DrainKeptLocked()
+        private static bool WriteKeptLocked(DeferredTraceLine line)
         {
-            if (_sink == null || _sink.IsClosed) return;
-            var lines = Tracing.TakeKept(out int leftOut);
-            if (lines.Count == 0 && leftOut == 0) return;
-            foreach (var (text, generation) in lines)
-                _sink.WriteLine(generation == _sinkGeneration ? text : text + " (recorded before this diagnostic log opened)");
-            if (leftOut > 0)
-                _sink.WriteLine(Tracing.TracePrefix() + "TraceKept: " + leftOut
-                    + (leftOut == 1 ? " more line was" : " more lines were")
-                    + " recorded while no diagnostic log could take them and left out; at most "
-                    + Tracing.MaxKeptLines + " are kept.");
+            _sink.WriteLine(line.Generation == _sinkGeneration ? line.Text : line.Text + " (recorded before this diagnostic log opened)");
             _sink.Flush();
-            NoticeSinkFaultLocked();
+            if (!_sink.IsClosed) return true;
+            _keptFailedWrites++;
+            return false;
+        }
+
+        /// <summary>
+        /// Caller holds the gate. With a live sink, write the held kept lines
+        /// (older than anything queued), then one line per kind of loss counted
+        /// since the last such report. Stops at a sink failure, leaving the lines
+        /// it never attempted held. Returns true when it wrote anything.
+        /// </summary>
+        private static bool WriteHeldKeptLocked()
+        {
+            if (!SinkLiveLocked()) return false;
+            long refused = Tracing.KeptRefusedAtQueueCap;
+            if (_keptHeld.Count == 0 && _keptLeftOutNoLog == 0 && _keptFailedWrites == 0 && refused == 0) return false;
+            int written = 0;
+            while (written < _keptHeld.Count)
+            {
+                bool ok = WriteKeptLocked(_keptHeld[written]);
+                written++;               // attempted: a failed one is counted, not retried
+                if (!ok) break;
+            }
+            _keptHeld.RemoveRange(0, written);
+            _keptHeldCount = _keptHeld.Count;
+            if (!SinkLiveLocked()) return true;
+
+            if (_keptLeftOutNoLog > 0 && WriteLossLocked(_keptLeftOutNoLog
+                    + (_keptLeftOutNoLog == 1 ? " more line was" : " more lines were")
+                    + " recorded while no diagnostic log could take them and left out; at most "
+                    + Tracing.MaxKeptLines + " are kept."))
+                _keptLeftOutNoLog = 0;
+            if (refused > 0 && WriteLossLocked(refused
+                    + (refused == 1 ? " kept line was" : " kept lines were")
+                    + " left out because the queue of lines waiting for the log was full; at most "
+                    + Tracing.MaxDeferredLines + " wait."))
+                Tracing.SpendKeptRefusedAtQueueCap(refused);
+            if (_keptFailedWrites > 0 && WriteLossLocked(_keptFailedWrites
+                    + (_keptFailedWrites == 1 ? " kept line" : " kept lines")
+                    + " may not have reached an earlier diagnostic log: it failed while writing them."))
+                _keptFailedWrites = 0;
+            return true;
+        }
+
+        /// <summary>Caller holds the gate, the sink is live. One loss line, flushed; true when the sink took it.</summary>
+        private static bool WriteLossLocked(string what)
+        {
+            if (!SinkLiveLocked()) return false;
+            _sink.WriteLine(Tracing.TracePrefix() + "TraceKept: " + what);
+            _sink.Flush();
+            return !_sink.IsClosed;
+        }
+
+        /// <summary>Tests only: forget every held kept line and the counts the gate owns.</summary>
+        internal static void ResetKeptForTests()
+        {
+            lock (_gate)
+            {
+                _keptHeld.Clear();
+                _keptHeldCount = 0;
+                _keptLeftOutNoLog = 0;
+                _keptFailedWrites = 0;
+            }
         }
     }
 }
