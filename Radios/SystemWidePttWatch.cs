@@ -28,9 +28,11 @@ namespace Radios
     /// processing it, so drop the carrier from this thread, the way
     /// <see cref="TransmitKillSwitch"/> does.
     /// <see cref="Verdict.KillHoldTooLong"/>: nobody holds push to talk for
-    /// fifteen minutes; the in-app lock already dies there
-    /// (<see cref="PttConfig.HardKillSeconds"/>), and a held key from another
-    /// program gets the same ceiling.
+    /// fifteen minutes. Since #1020 the controller ends every held key there
+    /// itself (<see cref="PttConfig.HardKillSeconds"/>, counted from the first
+    /// press), so this one is the backstop for a window that cannot: it sits
+    /// a grace beyond the controller's limit and acts only while the
+    /// controller still reports the hold.
     /// </para>
     /// <para>
     /// <b>The missed-release window is sized from the JAWS absorber, not
@@ -85,14 +87,30 @@ namespace Radios
             + PttHoldFilter.MaxProbeExtensions * PttHoldFilter.ProbeRecheckMs
             + 400;
 
-        /// <summary>The ceiling on any held push to talk, in milliseconds.</summary>
-        public static readonly int MaxHoldMs = PttConfig.HardKillSeconds * 1000;
+        /// <summary>
+        /// The ceiling on any held push to talk, in milliseconds, counted from
+        /// the hold's FIRST press (#1020). It sits <see cref="ReleaseGraceMs"/>
+        /// beyond the controller's own limit (<see cref="PttConfig.HardKillSeconds"/>),
+        /// so in a window that is working the controller always ends the hold
+        /// first, with its own sentence; this ceiling is for a window that is
+        /// not. And <see cref="Poll"/> acts on it only while the controller
+        /// still reports the hold, so a hold the controller has already ended
+        /// is never unkeyed or spoken about a second time. One hold, one kill.
+        /// </summary>
+        public static readonly int MaxHoldMs = PttConfig.HardKillSeconds * 1000 + ReleaseGraceMs;
 
         /// <summary>How often the host should poll while anything is in flight.</summary>
         public const int PollMs = 50;
 
         private bool _held;
-        private long _downAtMs;
+
+        /// <summary>
+        /// The hold's first press (#1020): kept across an up-down gap shorter
+        /// than <see cref="PttHoldSpan.ContinuesWithinMs"/>, so a screen reader's
+        /// release-and-press pairs are one hold and the ceiling can be reached.
+        /// Until #1020 every down restamped it, and under JAWS it never was.
+        /// </summary>
+        private readonly PttHoldSpan _span = new PttHoldSpan();
         private long? _physicallyUpSinceMs;
         private long? _releasePostedAtMs;
 
@@ -103,7 +121,7 @@ namespace Radios
         public void NoteDown(long nowMs)
         {
             _held = true;
-            _downAtMs = nowMs;
+            _span.NoteDown(nowMs);
             _physicallyUpSinceMs = null;
             _releasePostedAtMs = null;
         }
@@ -111,6 +129,7 @@ namespace Radios
         /// <summary>The hook saw the push-to-talk key come up and posted the release.</summary>
         public void NoteUp(long nowMs)
         {
+            _span.NoteRelease(nowMs);
             _held = false;
             _physicallyUpSinceMs = null;
             _releasePostedAtMs = nowMs;
@@ -149,8 +168,12 @@ namespace Radios
         {
             if (_held)
             {
-                if (nowMs - _downAtMs >= MaxHoldMs)
+                // Only while the controller still holds (#1020): a hold it has
+                // ended itself at its own limit is not this ceiling's to end
+                // again, and the key still being down is the latch's business.
+                if (controllerHolding && _span.HeldMs(nowMs) >= MaxHoldMs)
                 {
+                    _span.Forget();
                     _held = false;
                     _physicallyUpSinceMs = null;
                     _releasePostedAtMs = nowMs;
@@ -166,6 +189,7 @@ namespace Radios
                 _physicallyUpSinceMs ??= nowMs;
                 if (nowMs - _physicallyUpSinceMs.Value >= MissedReleaseMs)
                 {
+                    _span.Forget();
                     _held = false;
                     _physicallyUpSinceMs = null;
                     _releasePostedAtMs = nowMs;
@@ -194,6 +218,7 @@ namespace Radios
         /// <summary>Forget everything in flight. Used at teardown.</summary>
         public void Reset()
         {
+            _span.Forget();
             _held = false;
             _physicallyUpSinceMs = null;
             _releasePostedAtMs = null;

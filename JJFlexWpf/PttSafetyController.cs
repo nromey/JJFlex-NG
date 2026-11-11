@@ -549,6 +549,9 @@ namespace JJFlexWpf
         /// </remarks>
         public void ReleaseRigForTeardown(string why)
         {
+            // The held key's limit is bound to this connection (#1020): it can
+            // never act on the next one, held or not.
+            EndHoldLimit("the radio is being torn down (" + why + ")");
             EndReleaseLifetime(why);
             _cutHold.Abandon(why, Environment.TickCount64, immediate: true);
             lock (_cutHoldWiring) EndCutHoldWiringLocked();
@@ -1076,6 +1079,10 @@ namespace JJFlexWpf
                 // while every check was about an unattended lock, and stops
                 // being fine the moment one of them is about the hardware.
                 StartAlcTimer();
+                // And a held key has the lock's limit now (#1020): warnings
+                // 30, 15 and 5 seconds before fifteen minutes from its first
+                // press, then the kill.
+                BeginHoldLimit();
                 Tracing.TraceLine("PTT: Hold started", TraceLevel.Info);
             }
             // If already locked/warning, ignore key-down (don't double-TX)
@@ -1092,7 +1099,17 @@ namespace JJFlexWpf
                 // means the screen reader is synthesising pairs (#216). The
                 // release still happens — detection only, no behaviour change.
                 NotePttRelease();
-                GoIdle(ReceivingWords(), confirmReceive: true);
+                // A release, so a down inside the hold filter's longest bridge
+                // continues this hold's clock (#1020): a screen reader's
+                // release-and-press pair is one hold. In a warning or not, a
+                // release always unkeys: the hold's warnings are a stage of
+                // the hold, never a state of their own, so this branch is
+                // the only one a released key needs (trap 1 of #1020).
+                _holdSpan.NoteRelease(HoldClockMs());
+                _holdStageAtRelease = _holdStage;
+                _holdReleasing = true;
+                try { GoIdle(ReceivingWords(), confirmReceive: true); }
+                finally { _holdReleasing = false; }
             }
             // If locked/warning, key-up does nothing (still locked)
         }
@@ -1842,6 +1859,11 @@ namespace JJFlexWpf
             }
 
             bool fromIdle = State == PttState.Idle;
+            // A held key becoming the lock leaves the hold's own limit behind
+            // (#1020): the lock's ladder and a FRESH fifteen-minute kill start
+            // below, as they always have. Locking is a deliberate act, so a
+            // hold locked at minute 14 runs up to about 29 minutes in all.
+            if (!fromIdle) EndHoldLimit("the held key became the lock");
             if (fromIdle)
             {
                 Keyings++;
@@ -1942,6 +1964,17 @@ namespace JJFlexWpf
             string levelAdvice = forceSpeech || quiet ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
 
             StopAllTimers();
+            // The held key's limit goes with the transmission (#1020). Only a
+            // release (PttUp) leaves its clock for a down inside the hold
+            // filter's longest bridge to continue; every other way a hold
+            // ends (the kill, Escape, a cut, a teardown) starts the next one
+            // afresh.
+            _holdStage = PttState.PttHold;
+            if (!_holdReleasing)
+            {
+                _holdSpan.Forget();
+                _holdStageAtRelease = PttState.PttHold;
+            }
             _lockClock.Reset();
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
@@ -2365,17 +2398,28 @@ namespace JJFlexWpf
         private void EnterWarning1()
         {
             State = PttState.Warning1;
+            SoundWarning1();
+        }
+
+        /// <summary>The first warning's sentence, trace and beeps: the lock's and, since #1020, a held key's.</summary>
+        private void SoundWarning1()
+        {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.timeout_approaching"), VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning1 (10s beeps)", TraceLevel.Info);
 
-            _beepTimer!.Interval = TimeSpan.FromSeconds(10);
-            _beepTimer.Start();
+            RestartBeeps(TimeSpan.FromSeconds(10));
             EarconPlayer.Warning1Beep();
         }
 
         private void EnterWarning2()
         {
             State = PttState.Warning2;
+            SoundWarning2();
+        }
+
+        /// <summary>The second warning's sentence, trace and beeps: the lock's and a held key's (#1020).</summary>
+        private void SoundWarning2()
+        {
             // Was QUEUED, which meant this could wait behind stale slider or
             // meter values while the operator was locked down and had no idea
             // a timeout was coming. A warning that arrives after the thing it
@@ -2384,15 +2428,19 @@ namespace JJFlexWpf
                 Lexicon.Get("audio.ptt.timeout_soon"), Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning2 (5s beeps)", TraceLevel.Info);
 
-            _beepTimer!.Stop();
-            _beepTimer.Interval = TimeSpan.FromSeconds(5);
-            _beepTimer.Start();
+            RestartBeeps(TimeSpan.FromSeconds(5));
             EarconPlayer.Warning2Beep();
         }
 
         private void EnterOhCrap()
         {
             State = PttState.OhCrap;
+            SoundOhCrap();
+        }
+
+        /// <summary>The last warning's sentence, trace and beeps: the lock's and a held key's (#1020).</summary>
+        private void SoundOhCrap()
+        {
             // URGENT: interrupt AND flush. Plain interrupt stops what is being
             // spoken but leaves the queue standing, so a stale meter or slider
             // readout could still play out ON TOP of a warning that the radio
@@ -2414,9 +2462,7 @@ namespace JJFlexWpf
                 stillValid: _transmitEpisode.StillThisTransmission());
             Tracing.TraceLine("PTT: OhCrap (1s beeps)", TraceLevel.Info);
 
-            _beepTimer!.Stop();
-            _beepTimer.Interval = TimeSpan.FromSeconds(1);
-            _beepTimer.Start();
+            RestartBeeps(TimeSpan.FromSeconds(1));
             EarconPlayer.OhCrapBeep();
         }
 
@@ -2431,11 +2477,29 @@ namespace JJFlexWpf
                    subject: Radios.Speech.SpeechSubject.TransmitTimeLimit);
         }
 
+        /// <summary>
+        /// The warning beeps at a new interval. The lock's ladder creates the
+        /// beep timer when it starts; a held key's never ran that, so it is
+        /// made here when it is missing (#1020).
+        /// </summary>
+        private void RestartBeeps(TimeSpan interval)
+        {
+            if (_beepTimer == null)
+            {
+                _beepTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher);
+                _beepTimer.Tick += BeepTimerTick;
+            }
+            _beepTimer.Stop();
+            _beepTimer.Interval = interval;
+            _beepTimer.Start();
+        }
+
         private void BeepTimerTick(object? sender, EventArgs e)
         {
             if (State == PttState.Idle) return;
 
-            switch (State)
+            // A held key's warning is a stage of the hold, not a state (#1020).
+            switch (State == PttState.PttHold ? _holdStage : State)
             {
                 case PttState.Warning1: EarconPlayer.Warning1Beep(); break;
                 case PttState.Warning2: EarconPlayer.Warning2Beep(); break;
@@ -2465,6 +2529,185 @@ namespace JJFlexWpf
                 }
             };
             _hardKillTimer.Start();
+        }
+
+        // -------------------------------------------------------------------
+        // The held key's limit (#1020)
+        // -------------------------------------------------------------------
+        //
+        // Ruled by Noel 2026-11-09 20:27 and 2026-11-11 11:41: every held push
+        // to talk (Ctrl+Space on Home, a dialog's hold, the system-wide key)
+        // warns 30, 15 and 5 seconds before fifteen minutes and is then ended,
+        // counted from its FIRST press, so a screen reader's release-and-press
+        // pairs are one hold. The lock's timeout (180 s by default) is the
+        // lock's only. Until this, a held key had no limit at all: the ladder
+        // and the hard kill started only from EnterLocked.
+        //
+        // The warnings are a STAGE of the hold (_holdStage), never a state of
+        // their own: State stays PttHold, so a release in a warning unkeys
+        // through PttUp's one branch, and every reader of "is a hold in
+        // flight" (the edges, the dialog door, the system-wide watchdog) still
+        // sees one. The sentences and beeps are the lock's, shared.
+        //
+        // One timer, ticking each second against an injectable clock, so a
+        // test reaches minute fifteen without waiting for it. It is bound to
+        // the rig, connection and controller lifetime the hold keyed, and
+        // stops at teardown, so it can never act on the next connection.
+
+        /// <summary>The held key's clock, in milliseconds. Replaced by tests.</summary>
+        internal Func<long> HoldClockMs { get; set; } = () => Environment.TickCount64;
+
+        /// <summary>
+        /// Told when this controller ends a hold the operator may still be
+        /// pressing (#1020, its limit): MainWindow latches it as an app-ended
+        /// hold (round five, 7a), so a key still down, or a screen reader's
+        /// next synthetic down, keys nothing until the hold filter confirms a
+        /// real release.
+        /// </summary>
+        internal Action<string>? HoldEndedByApp { get; set; }
+
+        /// <summary>The held key's warning stage: PttHold before any warning, then Warning1, Warning2, OhCrap; Idle when no hold.</summary>
+        internal PttState HoldStage => State == PttState.PttHold ? _holdStage : PttState.Idle;
+
+        private DispatcherTimer? _holdTimer;
+        private readonly Radios.PttHoldSpan _holdSpan = new Radios.PttHoldSpan();
+        private PttState _holdStage = PttState.PttHold;
+        private PttState _holdStageAtRelease = PttState.PttHold;
+        private bool _holdReleasing;
+        private ReleaseConnection? _holdOn;
+        private int _holdLifetime;
+
+        /// <summary>A hold began: count it, from its first press, and start its limit.</summary>
+        private void BeginHoldLimit()
+        {
+            long now = HoldClockMs();
+            bool continued = _holdSpan.NoteDown(now);
+            _holdStage = continued ? _holdStageAtRelease : PttState.PttHold;
+            _holdStageAtRelease = PttState.PttHold;
+            _holdOn = ConnectionNow();
+            _holdLifetime = _lifetime;
+            if (continued)
+                Tracing.TraceLine("PTT: this press came inside the hold filter's longest bridge after the last release, "
+                    + "so it continues that hold: its limit is still counted from the first press, "
+                    + (_holdSpan.HeldMs(now) / 1000) + " s ago", TraceLevel.Info);
+            // A continued hold already in a warning keeps its beeps.
+            switch (_holdStage)
+            {
+                case PttState.Warning1: RestartBeeps(TimeSpan.FromSeconds(10)); break;
+                case PttState.Warning2: RestartBeeps(TimeSpan.FromSeconds(5)); break;
+                case PttState.OhCrap: RestartBeeps(TimeSpan.FromSeconds(1)); break;
+            }
+            try
+            {
+                _holdTimer?.Stop();
+                _holdTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher)
+                {
+                    Interval = TimeSpan.FromSeconds(1),
+                };
+                _holdTimer.Tick += HoldTimerTick;
+                _holdTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("PTT: the held key's limit could not start: " + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// The held key's limit stops without ending anything: the hold became
+        /// the lock, or the radio is being torn down. Thread-affine like every
+        /// timer here, so stopped where it lives.
+        /// </summary>
+        private void EndHoldLimit(string why)
+        {
+            var t = _holdTimer;
+            _holdTimer = null;
+            _holdSpan.Forget();
+            _holdStage = PttState.PttHold;
+            _holdStageAtRelease = PttState.PttHold;
+            if (t == null) return;
+            try
+            {
+                if (_dispatcher.CheckAccess()) t.Stop();
+                else _dispatcher.BeginInvoke(new Action(t.Stop));
+            }
+            catch { }
+            Tracing.TraceLine("PTT: the held key's limit stood down: " + why, TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// Why the hold this timer counts is no longer this controller's to
+        /// end, or null while it is: the same rig, connection and lifetime the
+        /// hold keyed on.
+        /// </summary>
+        private string? WhyHoldNotCurrent()
+        {
+            if (_disposed || _holdLifetime != _lifetime) return "the radio was torn down or the controller is gone";
+            if (_holdOn is not { } on) return "no connection was recorded for the hold";
+            var now = ConnectionNow();
+            if (!on.SameRig(now)) return "a different radio";
+            if (!on.SameConnection(now)) return "a different connection";
+            return null;
+        }
+
+        private void HoldTimerTick(object? sender, EventArgs e)
+        {
+            if (State != PttState.PttHold)
+            {
+                (sender as DispatcherTimer)?.Stop();
+                return;
+            }
+            if (WhyHoldNotCurrent() is { } stale)
+            {
+                // Never act on a radio this hold did not key: stop, say
+                // nothing, unkey nothing (the class of #915, kept out of the
+                // held key's own timer).
+                (sender as DispatcherTimer)?.Stop();
+                Tracing.TraceLine("PTT: the held key's limit stood down without acting: " + stale, TraceLevel.Warning);
+                return;
+            }
+
+            long held = _holdSpan.HeldMs(HoldClockMs());
+            long kill = PttConfig.HardKillSeconds * 1000L;
+            if (held >= kill)
+            {
+                EndHoldAtLimit();
+            }
+            else if (held >= kill - PttConfig.HeldKeyLastWarningSecondsBeforeKill * 1000L && _holdStage < PttState.OhCrap)
+            {
+                _holdStage = PttState.OhCrap;
+                SoundOhCrap();
+            }
+            else if (held >= kill - PttConfig.HeldKeyWarning2SecondsBeforeKill * 1000L && _holdStage < PttState.Warning2)
+            {
+                _holdStage = PttState.Warning2;
+                SoundWarning2();
+            }
+            else if (held >= kill - PttConfig.HeldKeyWarning1SecondsBeforeKill * 1000L && _holdStage < PttState.Warning1)
+            {
+                _holdStage = PttState.Warning1;
+                SoundWarning1();
+            }
+        }
+
+        /// <summary>
+        /// Fifteen minutes from the hold's first press: end it, with the lock's
+        /// hard-limit sentence under the time-limit subject, so it covers the
+        /// last warning rather than queueing behind it. Then MainWindow latches
+        /// the hold (#1020, trap 2), because the key may still be down.
+        /// </summary>
+        private void EndHoldAtLimit()
+        {
+            Tracing.TraceLine("PTT: HARD KILL (a held push to talk, " + PttConfig.HardKillSeconds
+                + " s from its first press)", TraceLevel.Warning);
+            EarconPlayer.HardKillTone();
+            GoIdle(Lexicon.Get("audio.ptt.hard_limit"), forceSpeech: true,
+                   subject: Radios.Speech.SpeechSubject.TransmitTimeLimit);
+            try { HoldEndedByApp?.Invoke("the held push to talk reached its " + (PttConfig.HardKillSeconds / 60) + "-minute limit"); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("PTT: latching the hold the limit ended failed: " + ex.Message, TraceLevel.Error);
+            }
         }
 
         // -------------------------------------------------------------------
@@ -2938,6 +3181,7 @@ namespace JJFlexWpf
 
         private void StopAllTimers()
         {
+            _holdTimer?.Stop();
             _warningTimer?.Stop();
             _beepTimer?.Stop();
             _hardKillTimer?.Stop();

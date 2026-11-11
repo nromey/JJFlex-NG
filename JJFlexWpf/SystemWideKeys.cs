@@ -728,7 +728,13 @@ namespace JJFlexWpf
                     // backstop is the ONLY ceiling on a system-wide key held
                     // from another program, with the window healthy or frozen
                     // (#402). (Found by the 2026-11-08 second check; a held key
-                    // having no time limit at all is #1020.) Its old sentence
+                    // having no time limit at all is #1020.) SINCE #1020 the
+                    // controller ends every held key itself at fifteen minutes
+                    // from its first press, so this is the backstop for a
+                    // window that cannot: the watch reaches this verdict only
+                    // a grace beyond the controller's limit, and only while the
+                    // controller still reports the hold, so a hold already
+                    // ended is never unkeyed or announced twice. Its old sentence
                     // said the release was not seen, which is false here: the
                     // key is still down.
                     case SystemWidePttWatch.Verdict.KillHoldTooLong:

@@ -52,6 +52,22 @@ namespace Radios
         public static readonly int HardKillSeconds = 900;
 
         /// <summary>
+        /// A HELD push to talk's warnings, in seconds before
+        /// <see cref="HardKillSeconds"/> counted from its first press (#1020;
+        /// ruled by Noel 2026-11-11 11:41: "a held key warns 30, 15 and 5
+        /// seconds before the 15-minute kill"). Fixed on purpose, not the
+        /// operator's configurable offsets above: those are clamped against
+        /// the lock's timeout, which the ruling says applies to the lock only.
+        /// </summary>
+        public const int HeldKeyWarning1SecondsBeforeKill = 30;
+
+        /// <summary>The held key's second warning; see <see cref="HeldKeyWarning1SecondsBeforeKill"/>.</summary>
+        public const int HeldKeyWarning2SecondsBeforeKill = 15;
+
+        /// <summary>The held key's last warning; see <see cref="HeldKeyWarning1SecondsBeforeKill"/>.</summary>
+        public const int HeldKeyLastWarningSecondsBeforeKill = 5;
+
+        /// <summary>
         /// ALC zero-signal auto-release threshold in seconds.
         /// If ALC reads 0 for this many consecutive seconds while locked, auto-release TX.
         /// Set to 0 to disable ALC auto-release.

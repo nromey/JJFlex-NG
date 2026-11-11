@@ -5907,6 +5907,11 @@ public partial class MainWindow : UserControl
                 CurrentPttConfig,
                 text => StatusTx.Text = text);
 
+            // A held key the controller ends at its fifteen-minute limit may
+            // still be down (#1020): latched as an app-ended hold, so it keys
+            // nothing again until the hold filter confirms a real release.
+            _pttController.HoldEndedByApp = LatchAppEndedHold;
+
             // Wire license-aware TX lockout (Sprint 17 Track C)
             _pttController.CanTransmitHereCheck = () =>
                 _freqOutHandlers?.CanTransmitHere() ?? true;
