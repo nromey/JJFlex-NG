@@ -232,17 +232,17 @@ namespace JJFlexWpf.Dialogs
                         Lexicon.Get("settings.radio.register.not_in_account_list",
                             ("accountEmail", regCheck.AccountEmail)),
                     // The check has finished and established nothing, and
-                    // no new one is starting. Says only that — nothing about
-                    // whether the radio is registered, because nothing was
-                    // learned. FIRST DRAFT: the words are Noel's to rule, and
-                    // the line waits on his review with the other registration
-                    // wording from Sol's reviews.
+                    // no new one is starting. The status line says the state
+                    // and stops: Noel's words, 2026-10-02, "'Ready to
+                    // register radio to' the account, period, done", with
+                    // nothing about how the check went and no radio state
+                    // after it. Explanation belongs in the step's own
+                    // instructions, not in a status line (#691 item 7).
                     _ when !startARegistrationCheck
                            && !_registrationCheck.InFlight
                            && _registrationCheck.FinishedWithoutAnAnswerFor(serial) =>
                         Lexicon.Get("settings.radio.register.check_unanswered",
-                            ("accountEmail", regCheck.AccountEmail),
-                            ("state", _rig.RegistrationStateText)),
+                            ("accountEmail", regCheck.AccountEmail)),
                     _ =>
                         Lexicon.Get("settings.radio.register.checking",
                             ("accountEmail", regCheck.AccountEmail),

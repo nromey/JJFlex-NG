@@ -486,11 +486,28 @@ namespace Radios.Tests
             using var doc = System.Text.Json.JsonDocument.Parse(lexicon);
             Assert.True(doc.RootElement.TryGetProperty("settings.radio.register.check_unanswered", out var settled),
                 "The settled line's key is not in settings.json, so the operator would hear the key read out.");
-            Assert.False(string.IsNullOrWhiteSpace(settled.GetString()));
+            // The entry carries its delivery envelope since #691 item 7
+            // reworded it, so its words are the envelope's text.
+            static string? Words(System.Text.Json.JsonElement e) =>
+                e.ValueKind == System.Text.Json.JsonValueKind.Object ? e.GetProperty("text").GetString() : e.GetString();
+            Assert.False(string.IsNullOrWhiteSpace(Words(settled)));
             Assert.NotEqual(
-                doc.RootElement.GetProperty("settings.radio.register.checking").GetString(),
-                settled.GetString());
+                Words(doc.RootElement.GetProperty("settings.radio.register.checking")),
+                Words(settled));
+
+            // #691 item 7, Noel 2026-10-02: "'Ready to register radio to' the
+            // account, period, done." The line is his sentence and stops:
+            // nothing about how the check went, and no radio state after it,
+            // so the call passes the account and nothing else.
+            int call = src.IndexOf("\"settings.radio.register.check_unanswered\",", StringComparison.Ordinal);
+            Assert.True(call >= 0, "the unanswered-check line's call is missing");
+            int callEnd = src.IndexOf(")),", call, StringComparison.Ordinal);
+            string args = src.Substring(call, callEnd - call);
+            Assert.Contains("regCheck.AccountEmail", args, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"state\"", args, StringComparison.Ordinal);
+            Assert.DoesNotContain("RegistrationStateText", args, StringComparison.Ordinal);
         }
+
     }
 
     /// <summary>
@@ -1084,6 +1101,33 @@ namespace Radios.Tests
         /// second. The label may not lean on a word that has to be resolved
         /// from context a blind operator cannot see.
         /// </summary>
+        /// <summary>
+        /// #691 item 7 as the operator reads it: Noel's sentence with the
+        /// account in it, and nothing after it (2026-10-02: "period done").
+        /// </summary>
+        [Fact]
+        public void An_unanswered_check_says_only_that_the_radio_is_ready_to_register()
+        {
+            Assert.Equal("Ready to register radio to operator@example.com.",
+                Lexicon.Get("settings.radio.register.check_unanswered", ("accountEmail", "operator@example.com")));
+        }
+
+        /// <summary>
+        /// #691 item 1, Noel 2026-10-02: the title describes the error "rather
+        /// than acts as part of the error". It names the kind of problem; the
+        /// body states the case. So it makes no claim about the radio.
+        /// </summary>
+        [Fact]
+        public void The_title_names_the_kind_of_problem_and_makes_no_claim()
+        {
+            string title = Lexicon.Get("connect.smartlink.not_in_list_title");
+            Assert.Contains("SmartLink", title, StringComparison.Ordinal);
+            Assert.Contains("list", title, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("offering", title, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotMatch(@"not", title);
+            Assert.False(title.TrimEnd().EndsWith(".", StringComparison.Ordinal), "a title is not a sentence");
+        }
+
         [Fact]
         public void The_settling_button_does_not_say_here()
         {

@@ -1003,6 +1003,17 @@ namespace Radios.Tests
                 // never says either on its own account. DRAFTS awaiting Noel.
                 "settings.cw_message.list_empty",
                 "settings.cw_message.list_help",
+                // Junk box #691 items 1 and 7 (2026-11-11, batch 6). Rewording
+                // a frozen key takes it off the manifest, so both are
+                // classified here (as #944 did). delivery: null - TextOnly -
+                // for both: the not-in-list title is the advisory window's
+                // title, read with the window, and the unanswered-check line
+                // is Radio Setup's step 2 status text, read where it stands;
+                // the application never says either on its own account. The
+                // status line is Noel's own sentence (2026-10-02); the title
+                // is a DRAFT after his example of the shape.
+                "connect.smartlink.not_in_list_title",
+                "settings.radio.register.check_unanswered",
                 // Junk box 2026-11-09, second batch: the Fix tool's transmitter
                 // check at tune power 0, its answer and its finding's two
                 // halves. Page text, never spoken on the application's own
@@ -2823,7 +2834,10 @@ namespace Radios.Tests
             // classified settings.profile.remote_firmware_allowed_warning.
             // One fewer (3062 to 3061): junk box 2026-11-08 (#704) retired
             // audio.ptt.systemwide_watchdog_unkeyed, replaced by two classified keys.
-            Assert.Equal(3061, unclassified);
+            // Two fewer (3061 to 3059): junk box #691 (2026-11-11, batch 6)
+            // reworded and classified connect.smartlink.not_in_list_title and
+            // settings.radio.register.check_unanswered.
+            Assert.Equal(3059, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
