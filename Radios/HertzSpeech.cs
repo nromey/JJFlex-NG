@@ -14,7 +14,7 @@ namespace Radios
         /// <summary>"2.75 k" above 1 kHz, a bare "500" below — the bracket readout's "Filter 100 to 2900, 2.8 k".</summary>
         Bare,
 
-        /// <summary>"2.75 k" above 1 kHz, "500 hertz" below. As a readout's Terse style (<see cref="HertzSpeech.ReadoutWidth(int, HertzUnitStyle)"/>) it gives "2.75 k" or, under 1 kHz, the bare "500" (J30).</summary>
+        /// <summary>"2.75 k" above 1 kHz, "500 hertz" below. As a readout's Terse style (<see cref="HertzSpeech.ReadoutWidth(int, HertzUnitStyle)"/>) it gives "2.75 k" or, under 1 kHz, "500 hertz", or the bare "500" with units off (J30, #979).</summary>
         KiloLetter,
 
         /// <summary>"2.75 kHz" or "500 Hz" — text on a window, not speech.</summary>
@@ -57,6 +57,20 @@ namespace Radios
         /// <summary>At and above this many hertz, a width can take the kilo form.</summary>
         public const int KiloThresholdHz = 1000;
 
+        /// <summary>
+        /// The one switch for units on SPOKEN filter widths (#979; ruled by Noel
+        /// 2026-11-11 11:57 and 11:58, clarified 12:20): on, every spoken width
+        /// says "hertz" at every verbosity; off, the word is left off. It adds
+        /// or removes only the word "hertz": each level keeps its own number
+        /// form, so Terse's kilo form keeps its "k" either way ("2.75 k"), and
+        /// Chatty's readout is "width 2750 hertz" on and "width 2750" off.
+        /// Starts ON, which gives Terse "500 hertz" where J30 gave the bare
+        /// "500". Displayed widths are not speech and are not on it. Set from
+        /// the operator's <c>PttConfig.FilterWidthUnits</c> at connect and
+        /// after Settings.
+        /// </summary>
+        public static bool SpeakUnits { get; set; } = true;
+
         /// <summary>True when this verbosity speaks widths in the kilo form: Critical and Terse.</summary>
         public static bool SpeaksKiloForm(VerbosityLevel level) => level <= VerbosityLevel.Terse;
 
@@ -75,7 +89,32 @@ namespace Radios
 
         /// <summary>A width to SPEAK, at the given verbosity.</summary>
         public static string Width(int hz, HertzUnitStyle style, VerbosityLevel level)
-            => Format(hz, style, kilo: Math.Abs(hz) >= KiloThresholdHz && SpeaksKiloForm(level));
+            => Width(hz, style, level, SpeakUnits);
+
+        /// <summary>A width to SPEAK, at the given verbosity, with units on or off (<see cref="SpeakUnits"/>).</summary>
+        public static string Width(int hz, HertzUnitStyle style, VerbosityLevel level, bool units)
+        {
+            bool kilo = Math.Abs(hz) >= KiloThresholdHz && SpeaksKiloForm(level);
+            // Spoken, so the switch decides the word "hertz" on a whole number
+            // of hertz; the kilo form keeps its "k" either way (#979).
+            if (!kilo && style != HertzUnitStyle.Symbols) return WholeHertz(hz, units);
+            return Format(hz, style, kilo);
+        }
+
+        /// <summary>
+        /// A width SPOKEN as its whole number of hertz at every verbosity, with
+        /// the unit when <see cref="SpeakUnits"/> is on: "2750 hertz" or "2750".
+        /// For the readouts whose own form is the whole number (the transmit
+        /// filter's edge chords), so they follow the switch too (#979).
+        /// </summary>
+        public static string WholeHertz(int hz) => WholeHertz(hz, SpeakUnits);
+
+        /// <summary>See <see cref="WholeHertz(int)"/>, with units on or off.</summary>
+        public static string WholeHertz(int hz, bool units)
+        {
+            string digits = hz.ToString(CultureInfo.CurrentCulture);
+            return units ? Lexicon.Get("settings.filter.width_hertz_words", ("width", digits)) : digits;
+        }
 
         /// <summary>
         /// The width in a filter READOUT, spoken after the filter's edges:
@@ -103,16 +142,31 @@ namespace Radios
         /// <summary>A filter readout's width at the given verbosity; see <see cref="ReadoutWidth(int, HertzUnitStyle)"/>.</summary>
         /// <remarks>
         /// <b>J30 (Noel, 2026-11-06 17:34, "agreed"):</b> every Terse readout
-        /// under 1 kHz is the bare number ("500"), whatever the route's style,
-        /// as the bracket keys already were (J16). The units setting filed on
-        /// #747 adds units back for anyone who wants them.
+        /// under 1 kHz is the same number whatever the route's style, as the
+        /// bracket keys already were (J16). Since #979 that number carries
+        /// "hertz" while <see cref="SpeakUnits"/> is on, which it is by
+        /// default ("500 hertz"); off, it is the bare "500" J30 gave.
         /// </remarks>
         public static string ReadoutWidth(int hz, HertzUnitStyle terseStyle, VerbosityLevel level)
+            => ReadoutWidth(hz, terseStyle, level, SpeakUnits);
+
+        /// <summary>
+        /// A filter readout's width at the given verbosity, with units on or
+        /// off. #979 (ruled 2026-11-11): the switch adds or removes only the
+        /// word "hertz". On: Chatty "width 2750 hertz", Terse "500 hertz" and
+        /// "2.75 k". Off: Chatty "width 2750", Terse "500" and "2.75 k".
+        /// Critical speaks as Terse does.
+        /// </summary>
+        public static string ReadoutWidth(int hz, HertzUnitStyle terseStyle, VerbosityLevel level, bool units)
         {
+            string digits = hz.ToString(CultureInfo.CurrentCulture);
             if (!SpeaksKiloForm(level))
-                return Lexicon.Get("settings.filter.width_named_hertz", ("width", hz.ToString(CultureInfo.CurrentCulture)));
-            if (Math.Abs(hz) < KiloThresholdHz) return hz.ToString(CultureInfo.CurrentCulture);
-            return Width(hz, terseStyle, level);
+                // DRAFT PROSE (#979): the "off" form, as Noel was told it at 11:59.
+                return units
+                    ? Lexicon.Get("settings.filter.width_named_hertz", ("width", digits))
+                    : Lexicon.Get("settings.filter.width_named", ("width", digits));
+            if (Math.Abs(hz) < KiloThresholdHz) return WholeHertz(hz, units);
+            return Width(hz, terseStyle, level, units);
         }
 
         /// <summary>

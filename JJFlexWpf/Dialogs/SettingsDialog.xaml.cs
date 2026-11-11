@@ -328,6 +328,12 @@ namespace JJFlexWpf.Dialogs
             FreqUnitsCombo.Items.Add(Lexicon.Get("settings.tuning.frequency_units_megahertz"));
             FreqUnitsCombo.SelectedIndex = (int)_pttConfig.FrequencyDisplayUnits;
 
+            // One switch for "hertz" on spoken filter widths (#979). DRAFT PROSE: Codex words it.
+            FilterUnitsCheckbox.Content = Lexicon.Get("settings.filter.units_label");
+            System.Windows.Automation.AutomationProperties.SetName(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_label"));
+            JJFlexHelp.SetText(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_help"));
+            FilterUnitsCheckbox.IsChecked = _pttConfig.FilterWidthUnits;
+
             // License tab — populate from LicenseConfig
             foreach (var (label, _) in LicenseClassMap)
                 LicenseClassCombo.Items.Add(label);
@@ -1469,6 +1475,7 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.BandMemoryEnabled = BandMemoryEnabled;
             if (FreqUnitsCombo.SelectedIndex >= 0)
                 _pttConfig.FrequencyDisplayUnits = (Radios.FrequencyUnits)FreqUnitsCombo.SelectedIndex;
+            _pttConfig.FilterWidthUnits = FilterUnitsCheckbox.IsChecked != false;   // #979
 
             // Tuning debounce
             _audioConfig.TuneDebounceEnabled = TuneDebounceCheckbox.IsChecked == true;

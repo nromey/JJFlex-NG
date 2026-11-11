@@ -201,6 +201,14 @@ namespace Radios
         public FrequencyUnits FrequencyDisplayUnits { get; set; } = FrequencyUnits.Hz;
 
         /// <summary>
+        /// When true, the default, spoken filter widths say "hertz" at every
+        /// verbosity; when false the word is left off (#979; ruled by Noel
+        /// 2026-11-11: one switch, starting on). The kilo form keeps its "k"
+        /// either way. Made live through <see cref="HertzSpeech.SpeakUnits"/>.
+        /// </summary>
+        public bool FilterWidthUnits { get; set; } = true;
+
+        /// <summary>
         /// Clamp TimeoutSeconds to valid range [10..900].
         /// </summary>
         public void Validate()

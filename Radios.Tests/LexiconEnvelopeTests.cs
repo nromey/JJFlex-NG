@@ -2798,6 +2798,11 @@ namespace Radios.Tests
                 "settings.keyer.speed_waits_for_radio",
                 "settings.keyer.speed_not_this_radio",
                 "settings.keyer.speed_not_saved",
+                // Junk box #979 (2026-11-11): one switch for the word hertz on
+                // spoken filter widths. DRAFTS for Codex.
+                "settings.filter.width_named",
+                "settings.filter.units_label",
+                "settings.filter.units_help",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

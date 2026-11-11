@@ -1243,12 +1243,12 @@ public class KeyCommands
     // write, in their own words when it took the step as asked.
     private static void SayTxLowMoved(Radios.FilterApplied applied)
         => Radios.ScreenReaderOutput.Speak(Radios.FilterReadouts.Tx(applied,
-            (l, h) => Radios.Lexicon.Get("audio.tx_filter.low_moved", ("newLow", l), ("width", h - l)),
+            (l, h) => Radios.Lexicon.Get("audio.tx_filter.low_moved", ("newLow", l), ("width", Radios.HertzSpeech.WholeHertz(h - l))),
             Radios.ScreenReaderOutput.CurrentVerbosity), Radios.VerbosityLevel.Terse);
 
     private static void SayTxHighMoved(Radios.FilterApplied applied)
         => Radios.ScreenReaderOutput.Speak(Radios.FilterReadouts.Tx(applied,
-            (l, h) => Radios.Lexicon.Get("audio.tx_filter.high_moved", ("newHigh", h), ("width", h - l)),
+            (l, h) => Radios.Lexicon.Get("audio.tx_filter.high_moved", ("newHigh", h), ("width", Radios.HertzSpeech.WholeHertz(h - l))),
             Radios.ScreenReaderOutput.CurrentVerbosity), Radios.VerbosityLevel.Terse);
 
     private void SpeakTXFilterHandler() => SpeakTXFilterWidth();

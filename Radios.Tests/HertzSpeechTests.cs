@@ -92,8 +92,13 @@ namespace Radios.Tests
         [InlineData(2000, "2 k", "2000")]
         public void Terse_speaks_the_kilo_form_and_chatty_speaks_whole_hertz(int hz, string terse, string chatty)
         {
-            Assert.Equal(terse, HertzSpeech.Width(hz, HertzUnitStyle.Bare, VerbosityLevel.Terse));
-            Assert.Equal(chatty, HertzSpeech.Width(hz, HertzUnitStyle.Bare, VerbosityLevel.Chatty));
+            // #979: the units switch adds or removes only "hertz"; the kilo
+            // form keeps its "k" either way. This pinned the off form as the
+            // only one until the switch, which starts on.
+            Assert.Equal(terse, HertzSpeech.Width(hz, HertzUnitStyle.Bare, VerbosityLevel.Terse, units: true));
+            Assert.Equal(terse, HertzSpeech.Width(hz, HertzUnitStyle.Bare, VerbosityLevel.Terse, units: false));
+            Assert.Equal(chatty + " hertz", HertzSpeech.Width(hz, HertzUnitStyle.Bare, VerbosityLevel.Chatty, units: true));
+            Assert.Equal(chatty, HertzSpeech.Width(hz, HertzUnitStyle.Bare, VerbosityLevel.Chatty, units: false));
         }
 
         // ------------------------------------------------------------------
@@ -116,7 +121,7 @@ namespace Radios.Tests
         [InlineData(2750, "2.75 k", "width 2750 hertz")]
         [InlineData(2800, "2.8 k", "width 2800 hertz")]
         [InlineData(2850, "2.85 k", "width 2850 hertz")]
-        [InlineData(500, "500", "width 500 hertz")]
+        [InlineData(500, "500 hertz", "width 500 hertz")]   // #979: units on by default; J30's bare "500" is the off form
         public void The_bracket_readouts_width_is_short_at_terse_and_labelled_at_chatty(int hz, string terse, string chatty)
         {
             Assert.Equal(terse, HertzSpeech.ReadoutWidth(hz, HertzUnitStyle.Bare, VerbosityLevel.Terse));
@@ -132,7 +137,7 @@ namespace Radios.Tests
         [InlineData(100, 2850, VerbosityLevel.Chatty, "Filter 100 to 2850, width 2750 hertz")]
         [InlineData(100, 2900, VerbosityLevel.Chatty, "Filter 100 to 2900, width 2800 hertz")]
         [InlineData(100, 2950, VerbosityLevel.Chatty, "Filter 100 to 2950, width 2850 hertz")]
-        [InlineData(100, 600, VerbosityLevel.Terse, "Filter 100 to 600, 500")]
+        [InlineData(100, 600, VerbosityLevel.Terse, "Filter 100 to 600, 500 hertz")]   // #979: units on by default
         [InlineData(100, 600, VerbosityLevel.Chatty, "Filter 100 to 600, width 500 hertz")]
         public void The_bracket_readout_assembled(int low, int high, VerbosityLevel level, string heard)
         {
@@ -152,12 +157,15 @@ namespace Radios.Tests
             Assert.Equal(rxWidth, Lexicon.Get("audio.filter_layer.width", level, ("width", W(2750)), ("low", 100), ("high", 2850)));
             Assert.Equal(txReport, Lexicon.Get("audio.filter.tx_report", ("low", 100), ("high", 2850), ("width", W(2750))));
             Assert.Equal(txWidth, Lexicon.Get("audio.filter_layer.tx_width", level, ("width", W(2750)), ("low", 100), ("high", 2850)));
-            // Below 1 kHz the layer keeps its unit at Terse.
+            // Below 1 kHz at Terse: "hertz" while the units switch is on, its
+            // default (#979); J30's bare number is the off form.
             if (level == VerbosityLevel.Terse)
-                // J30 (Noel, 2026-11-06 17:34): every Terse filter readout under 1 kHz drops the unit.
-                Assert.Equal("Width 500, 100 to 600", Lexicon.Get("audio.filter_layer.width", level, ("width", W(500)), ("low", 100), ("high", 600)));
+                Assert.Equal("Width 500 hertz, 100 to 600", Lexicon.Get("audio.filter_layer.width", level, ("width", W(500)), ("low", 100), ("high", 600)));
             if (level == VerbosityLevel.Terse)
-                Assert.Equal("RX filter 100 to 600, 500", Lexicon.Get("audio.filter.rx_report", ("low", 100), ("high", 600), ("width", W(500))));
+                Assert.Equal("RX filter 100 to 600, 500 hertz", Lexicon.Get("audio.filter.rx_report", ("low", 100), ("high", 600), ("width", W(500))));
+            if (level == VerbosityLevel.Terse)
+                Assert.Equal("RX filter 100 to 600, 500", Lexicon.Get("audio.filter.rx_report", ("low", 100), ("high", 600),
+                    ("width", HertzSpeech.ReadoutWidth(500, HertzUnitStyle.KiloLetter, level, units: false))));
             if (level == VerbosityLevel.Chatty)
                 Assert.Equal("RX filter 100 to 600, width 500 hertz", Lexicon.Get("audio.filter.rx_report", ("low", 100), ("high", 600), ("width", W(500))));
         }
@@ -173,8 +181,11 @@ namespace Radios.Tests
         [InlineData(HertzUnitStyle.Symbols)]
         public void At_terse_a_readout_under_1_kilohertz_is_the_bare_number(HertzUnitStyle style)
         {
-            Assert.Equal("500", HertzSpeech.ReadoutWidth(500, style, VerbosityLevel.Terse));
-            Assert.Equal("250", HertzSpeech.ReadoutWidth(250, style, VerbosityLevel.Critical));
+            // #979: the bare number is the units switch's off form now; on,
+            // its default, adds "hertz".
+            Assert.Equal("500", HertzSpeech.ReadoutWidth(500, style, VerbosityLevel.Terse, units: false));
+            Assert.Equal("250", HertzSpeech.ReadoutWidth(250, style, VerbosityLevel.Critical, units: false));
+            Assert.Equal("500 hertz", HertzSpeech.ReadoutWidth(500, style, VerbosityLevel.Terse, units: true));
             Assert.Equal("2.8 k", HertzSpeech.ReadoutWidth(2800, style == HertzUnitStyle.Symbols ? HertzUnitStyle.KiloLetter : style, VerbosityLevel.Terse));
             Assert.Equal("width 500 hertz", HertzSpeech.ReadoutWidth(500, style, VerbosityLevel.Chatty));
         }
@@ -199,8 +210,106 @@ namespace Radios.Tests
         [InlineData(VerbosityLevel.Diagnostic)]
         public void Below_one_kilohertz_a_width_is_its_plain_number_at_every_level(VerbosityLevel level)
         {
-            Assert.Equal("500", HertzSpeech.Width(500, HertzUnitStyle.Bare, level));
-            Assert.Equal("950", HertzSpeech.Width(950, HertzUnitStyle.Bare, level));
+            // #979: the plain number with units off; on, its default, adds "hertz".
+            Assert.Equal("500", HertzSpeech.Width(500, HertzUnitStyle.Bare, level, units: false));
+            Assert.Equal("950", HertzSpeech.Width(950, HertzUnitStyle.Bare, level, units: false));
+            Assert.Equal("500 hertz", HertzSpeech.Width(500, HertzUnitStyle.Bare, level, units: true));
+        }
+
+        // ------------------------------------------------------------------
+        // #979: ONE switch for the word "hertz" on spoken filter widths, at
+        // every level, starting on (Noel, 2026-11-11 11:57 and 11:58; the
+        // orchestrator's 12:20 clarification: it adds or removes only the
+        // word, and each level keeps its own number form).
+        // ------------------------------------------------------------------
+
+        [Theory]
+        [InlineData(500, VerbosityLevel.Terse, "500 hertz", "500")]
+        [InlineData(500, VerbosityLevel.Critical, "500 hertz", "500")]
+        [InlineData(2750, VerbosityLevel.Terse, "2.75 k", "2.75 k")]
+        [InlineData(2750, VerbosityLevel.Critical, "2.75 k", "2.75 k")]
+        [InlineData(2750, VerbosityLevel.Chatty, "width 2750 hertz", "width 2750")]
+        [InlineData(500, VerbosityLevel.Chatty, "width 500 hertz", "width 500")]
+        [InlineData(2750, VerbosityLevel.Diagnostic, "width 2750 hertz", "width 2750")]
+        public void The_units_switch_adds_or_removes_only_the_word_hertz(int hz, VerbosityLevel level, string on, string off)
+        {
+            foreach (HertzUnitStyle style in new[] { HertzUnitStyle.Bare, HertzUnitStyle.KiloLetter })
+            {
+                Assert.Equal(on, HertzSpeech.ReadoutWidth(hz, style, level, units: true));
+                Assert.Equal(off, HertzSpeech.ReadoutWidth(hz, style, level, units: false));
+            }
+        }
+
+        [Fact]
+        public void The_switch_starts_on_and_the_readouts_follow_it()
+        {
+            Assert.True(new PttConfig().FilterWidthUnits, "the switch must start on (ruled 2026-11-11 11:58)");
+            bool before = HertzSpeech.SpeakUnits;
+            try
+            {
+                HertzSpeech.SpeakUnits = true;
+                Assert.Equal("500 hertz", HertzSpeech.ReadoutWidth(500, HertzUnitStyle.Bare, VerbosityLevel.Terse));
+                Assert.Equal("width 2750 hertz", HertzSpeech.ReadoutWidth(2750, HertzUnitStyle.KiloLetter, VerbosityLevel.Chatty));
+                Assert.Equal("2750 hertz", HertzSpeech.WholeHertz(2750));
+                HertzSpeech.SpeakUnits = false;
+                Assert.Equal("500", HertzSpeech.ReadoutWidth(500, HertzUnitStyle.Bare, VerbosityLevel.Terse));
+                Assert.Equal("width 2750", HertzSpeech.ReadoutWidth(2750, HertzUnitStyle.KiloLetter, VerbosityLevel.Chatty));
+                Assert.Equal("2.75 k", HertzSpeech.ReadoutWidth(2750, HertzUnitStyle.KiloLetter, VerbosityLevel.Terse));
+                Assert.Equal("2750", HertzSpeech.WholeHertz(2750));
+                Assert.Equal("500", HertzSpeech.Width(500, HertzUnitStyle.Bare, VerbosityLevel.Terse));
+            }
+            finally { HertzSpeech.SpeakUnits = before; }
+        }
+
+        [Fact]
+        public void Displayed_widths_are_not_on_the_units_switch()
+        {
+            bool before = HertzSpeech.SpeakUnits;
+            try
+            {
+                HertzSpeech.SpeakUnits = false;
+                string off = HertzSpeech.DisplayedWidth(500, HertzUnitStyle.Symbols);
+                HertzSpeech.SpeakUnits = true;
+                Assert.Equal(off, HertzSpeech.DisplayedWidth(500, HertzUnitStyle.Symbols));
+                Assert.Equal("500 Hz", off);
+            }
+            finally { HertzSpeech.SpeakUnits = before; }
+        }
+
+        [Fact]
+        public void The_switch_is_saved_with_the_operators_settings_and_made_live_at_connect_and_after_Settings()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "jjflex-979-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                new PttConfig { FilterWidthUnits = false }.Save(dir, "op");
+                Assert.False(PttConfig.Load(dir, "op").FilterWidthUnits);
+                new PttConfig { FilterWidthUnits = true }.Save(dir, "op");
+                Assert.True(PttConfig.Load(dir, "op").FilterWidthUnits);
+            }
+            finally { try { Directory.Delete(dir, true); } catch { } }
+
+            string dialog = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs"));
+            Assert.Contains("FilterUnitsCheckbox.IsChecked = _pttConfig.FilterWidthUnits;", dialog);
+            Assert.Contains("_pttConfig.FilterWidthUnits = FilterUnitsCheckbox.IsChecked != false;", dialog);
+            string xaml = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "Dialogs", "SettingsDialog.xaml"));
+            int tuning = xaml.IndexOf("Header=\"Tuning\"", StringComparison.Ordinal);
+            int license = xaml.IndexOf("Header=\"License\"", StringComparison.Ordinal);
+            int box = xaml.IndexOf("x:Name=\"FilterUnitsCheckbox\"", StringComparison.Ordinal);
+            Assert.True(tuning >= 0 && box > tuning && box < license, "the units switch is not on the Tuning tab");
+            string main = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "MainWindow.xaml.cs"));
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(main,
+                @"Radios\.HertzSpeech\.SpeakUnits = CurrentPttConfig\.FilterWidthUnits;").Count);
+        }
+
+        [Fact]
+        public void The_transmit_filter_edge_chords_speak_their_width_through_the_switch()
+        {
+            // The two chords that said "width {raw}" outside the formatter (#979).
+            string keys = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "KeyCommands.cs"));
+            Assert.Contains("\"audio.tx_filter.low_moved\", (\"newLow\", l), (\"width\", Radios.HertzSpeech.WholeHertz(h - l))", keys);
+            Assert.Contains("\"audio.tx_filter.high_moved\", (\"newHigh\", h), (\"width\", Radios.HertzSpeech.WholeHertz(h - l))", keys);
+            Assert.DoesNotContain("(\"width\", h - l)", keys);
         }
 
         [Fact]

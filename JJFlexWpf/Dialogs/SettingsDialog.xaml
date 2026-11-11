@@ -265,6 +265,9 @@
                                   AutomationProperties.Name="Frequency speech units"/>
                     </StackPanel>
 
+                    <!-- One switch for "hertz" on spoken filter widths (#979): label from the lexicon. -->
+                    <CheckBox x:Name="FilterUnitsCheckbox" Margin="0,12,0,0"/>
+
                     <!-- The operator's keyer speed (#879): label and name from the lexicon, see SettingsDialog.KeyerSpeed.cs. -->
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                         <controls:DecorativeText x:Name="KeyerSpeedLabel" VerticalAlignment="Center"

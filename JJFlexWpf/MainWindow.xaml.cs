@@ -1152,6 +1152,8 @@ public partial class MainWindow : UserControl
             _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig?.BandMemoryEnabled ?? true;
             _freqOutHandlers.FrequencyUnits = CurrentPttConfig?.FrequencyDisplayUnits ?? Radios.FrequencyUnits.Hz;
         }
+        // The word "hertz" on spoken filter widths (#979), live at once.
+        if (CurrentPttConfig != null) Radios.HertzSpeech.SpeakUnits = CurrentPttConfig.FilterWidthUnits;
 
         // Save PttConfig to disk
         if (CurrentPttConfig != null && OpenParms != null)
@@ -5952,6 +5954,8 @@ public partial class MainWindow : UserControl
                 _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig.BandMemoryEnabled;
                 _freqOutHandlers.FrequencyUnits = CurrentPttConfig.FrequencyDisplayUnits;
             }
+            // The operator's switch for "hertz" on spoken filter widths (#979).
+            Radios.HertzSpeech.SpeakUnits = CurrentPttConfig.FilterWidthUnits;
         }
 
         // Load audio config and initialize meter tones
