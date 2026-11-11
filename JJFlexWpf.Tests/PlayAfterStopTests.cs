@@ -56,6 +56,7 @@ public sealed class PlayAfterStopTests : IDisposable
     public PlayAfterStopTests()
     {
         AssertTheDeskIsSafe();
+        ResetSpeechState();   // every test starts from a clean speech state, whatever ran before it (#1058)
         Lexicon.Load(Lexicon.Partitions);
         _verbosityBefore = ScreenReaderOutput.CurrentVerbosity;
         ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;   // nothing below is gated away unseen
@@ -81,6 +82,28 @@ public sealed class PlayAfterStopTests : IDisposable
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
         _controller.Dispose();
         _rig.Dispose();
+        // And leaves one, so nothing this class said waits for the next class's tests.
+        ResetSpeechState();
+    }
+
+    /// <summary>
+    /// The speech arbiter is process-wide, and a value an operator moves (a
+    /// gain, a volume, a value field) is held a few hundred milliseconds so a
+    /// sweep is said once, at its end. <see cref="ScreenReaderOutput.Silence"/>
+    /// does not withdraw that held value, so one left by an earlier class was
+    /// said into this class's transcript: <c>Cancel_on_the_warning_says_nothing</c>
+    /// heard "Mic Gain 39" from a gain adjust about 1.4 s earlier, in two Codex
+    /// runs of the full filter, and passed alone (#1058). The reset drops held
+    /// values as well as the rest of the arbiter's transient state. It is
+    /// internal to Radios and this project is not among its friends, so it is
+    /// reached by name, the pattern junk box batch 6 uses for #1055.
+    /// </summary>
+    private static void ResetSpeechState()
+    {
+        var reset = typeof(ScreenReaderOutput).GetMethod("ResetTransientSpeechStateForTest",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(reset != null, "ScreenReaderOutput.ResetTransientSpeechStateForTest is missing");
+        reset!.Invoke(null, null);
     }
 
     private static void AssertTheDeskIsSafe()
@@ -367,6 +390,31 @@ public sealed class PlayAfterStopTests : IDisposable
         Assert.Empty(door);
     }
 
+    /// <summary>
+    /// #1058: a value left held by an earlier test (as a gain adjust leaves
+    /// one) is not said into the next test's transcript. Two values on one
+    /// key, the second inside the sweep window, so the second is held to be
+    /// said at the sweep's end; then the Cancel test's own steps.
+    /// </summary>
+    [Fact]
+    public void A_value_held_before_listening_is_not_heard()
+    {
+        const string key = "PlayAfterStopTests.leftover";
+        ScreenReaderOutput.Speak("leftover 38", Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse, coalesceKey: key);
+        ScreenReaderOutput.Speak("leftover 39", Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse, coalesceKey: key);
+        // The held value comes due about 1.2 s after the first (the arbiter's
+        // gap between two values on one key, GapCeilingMs); waiting here puts
+        // that moment inside the transcript below, as the gain adjust's was.
+        Thread.Sleep(600);
+        TheSliceHoldsARecording(SliceOverwriteAnswer.Cancel, SliceBackupResult.Incomplete);
+        Listen();
+        ScreenReaderOutput.Speak("marker", VerbosityLevel.Terse);
+        TheCheckAsks();
+        var said = Said();
+        Assert.Single(_asked);
+        Assert.Equal(new[] { "marker" }, said.Select(s => s.Text));
+    }
+
     // ── the transcript ──
 
     private void Listen()
@@ -374,6 +422,7 @@ public sealed class PlayAfterStopTests : IDisposable
         // Withdraw what earlier tests left in the paced delivery (their checks'
         // endings), or it is delivered into this test's transcript.
         ScreenReaderOutput.Silence();
+        ResetSpeechState();   // Silence keeps a held value; this drops it (#1058)
         Thread.Sleep(200);
         _transcript = Path.Combine(Path.GetTempPath(), "jjflex-play-after-stop-" + Guid.NewGuid().ToString("N") + ".jsonl");
         OutputChannelRecorder.Configure(render: false, record: true, explicitPath: _transcript);
