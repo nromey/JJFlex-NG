@@ -29,8 +29,10 @@ namespace Radios.Tests
     /// <c>ListenbackRoundSixTests.Lan_check_follows_the_control_result_and_updates_only_on_a_disagreement</c>;
     /// that the speak call passes the described subject is pinned by source
     /// below. Whether NVDA then says the correction last is for the harness.
-    /// No process-wide statics beyond the lexicon load.
+    /// The lexicon load reads the language store under the settings root, so
+    /// the class sits in the settings-root collection.
     /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class FullDuplexCorrectionSubjectTests
     {
         private sealed record SinkCall(string Message, bool Salvaged, double AtMs);
