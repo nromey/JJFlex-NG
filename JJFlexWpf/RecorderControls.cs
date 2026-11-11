@@ -52,10 +52,16 @@ public static class RecorderControls
         if (rig == null) return;
         ObservedRigs.GetValue(rig, r =>
         {
+            // The UI thread's dispatcher, taken HERE: Observe is called on the
+            // UI thread, while the playback-finished event is raised from the
+            // radio's status path on another thread, where looking one up
+            // would find none. Application.Current is always null in this
+            // WinForms-hosted app, so asking it at the event spoke on the
+            // radio's thread. Never creates a dispatcher.
+            var dispatcher = HostedDispatcher.OfThisThread();
             r.SlicePlaybackFinished += outcome =>
             {
-                var dispatcher = System.Windows.Application.Current?.Dispatcher;
-                if (dispatcher == null || dispatcher.CheckAccess()) Speak(outcome);
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.CheckAccess()) Speak(outcome);
                 else dispatcher.BeginInvoke(new Action(() => Speak(outcome)));
             };
             return new object();

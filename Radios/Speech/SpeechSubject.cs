@@ -784,5 +784,12 @@ namespace Radios.Speech
         /// unheard older one.
         /// </summary>
         public const string TuneEndedElsewhere = "tune-ended-elsewhere";
+
+        /// <summary>
+        /// What a full duplex press came to (on, off, unconfirmed, refused by
+        /// the radio), queued after the return to Home so the arriving focus
+        /// announcement neither cuts it nor is cut by it.
+        /// </summary>
+        public const string FullDuplexOutcome = "full-duplex-outcome";
     }
 }

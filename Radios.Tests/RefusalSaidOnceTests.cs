@@ -140,7 +140,7 @@ public sealed class RefusalSaidOnceTests : IDisposable
         string body = Body(Read("JJFlexWpf", "FullDuplexControl.cs"), "internal static async Task ToggleAsync(");
         int awaited = body.IndexOf("key = await request;", StringComparison.Ordinal);
         int silent = body.IndexOf("if (key == null) return;", StringComparison.Ordinal);
-        int spoken = body.IndexOf("Speak(key);", StringComparison.Ordinal);
+        int spoken = body.IndexOf("Deliver(rig, key)", StringComparison.Ordinal);   // the outcome, queued since #1035
         Assert.True(awaited > 0 && silent > awaited && silent < spoken,
             "a refused full duplex toggle goes on to speak a second sentence");
         Assert.Contains("if (GuardRefuses(\"settings.guard.action.full_duplex\")) return null;",
