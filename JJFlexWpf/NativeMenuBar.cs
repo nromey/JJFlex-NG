@@ -2074,15 +2074,16 @@ public class NativeMenuBar : IDisposable
                 {
                     // From the MENU the hold's refusal is said after the menu
                     // closes (#486, #1022): spoken at once, the return to Home
-                    // cut it at word 0. The same sentence and trace the hold
-                    // gives; Ctrl+J, Ctrl+X keeps its own path, which is heard.
-                    if (Rig?.ChangeNothingActive == true)
+                    // cut it at word 0. The hold itself is asked, without
+                    // speaking (#1043 F5): its own trace and sentence, one
+                    // source with GuardRefuses, and nothing said while this
+                    // radio's speech is suppressed. Ctrl+J, Ctrl+X keeps its own
+                    // path, which is heard.
+                    string? held = Rig?.HoldRefusalToSay("settings.guard.action.full_duplex");
+                    if (held != null)
                     {
-                        Tracing.TraceLine("ChangeNothing: refused settings.guard.action.full_duplex "
-                            + "(from the Transmit menu, said after the menu closes)", TraceLevel.Warning);
-                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.guard.refused",
-                            ("action", Radios.Lexicon.Get("settings.guard.action.full_duplex"))),
-                            Radios.VerbosityLevel.Critical);
+                        Tracing.TraceLine("Full duplex menu: the hold's refusal is said after the menu closes", TraceLevel.Info);
+                        if (held.Length > 0) SpeakAfterMenuClose(held, Radios.VerbosityLevel.Critical);
                         return;
                     }
                     _ = FullDuplexControl.ToggleAsync(Rig);
