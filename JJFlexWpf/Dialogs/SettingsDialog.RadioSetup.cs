@@ -99,50 +99,31 @@ namespace JJFlexWpf.Dialogs
         // screen, so a radio switched to during another radio's check showed
         // that radio's account, or sat on "Checking" with nothing running.
         // The ledger owns whose answer is whose; the suite drives the switch.
-        private readonly SmartLinkRegistrationCheckLedger _registrationCheck = new();
+        //
+        // The step starts its check BEFORE choosing the line (the batch 6
+        // bench run, 2026-11-11): a radio already in a held list is answered
+        // at once, and drawing first left "Checking" on screen over an answer
+        // that had already landed. RadioSetupRegistrationStep owns that
+        // order, and the suite drives it.
+        private readonly RadioSetupRegistrationStep _registrationStep = new();
 
-        private async void KickRegistrationQuery()
+        /// <summary>
+        /// A registration check finished after step 2 had drawn its line.
+        /// Refreshes the step ONCE, answer or not. The refresh starts a check
+        /// only when one is OWED to the radio on screen, which is never the
+        /// radio whose check just finished, so an unanswered check cannot
+        /// re-ask itself in a loop; and it is radio B when the operator
+        /// switched from A during A's check, which is the only way B ever gets
+        /// asked (Track L3 forbade this refresh from starting any check, and
+        /// that stranded B). A new check otherwise starts only on the events
+        /// that started one before: the tab opening, Refresh all steps, an
+        /// address change, a registration or firmware result.
+        /// </summary>
+        private void RegistrationCheckFinishedLater()
         {
-            var rig = _rig;
-            if (rig == null || !rig.IsConnected) return;
-
-            string serial = rig.SelectedRadioSerial ?? string.Empty;
-            if (!_registrationCheck.TryBegin(serial)) return;
-
-            SmartLinkRegistrationEvidence.Finding? finding = null;
-            try
-            {
-                finding = await rig.QuerySmartLinkRegistrationAsync();
-            }
-            catch (Exception ex)
-            {
-                // A check that threw has finished too, and without an answer.
-                Tracing.TraceLine($"KickRegistrationQuery: {ex.Message}", TraceLevel.Error);
-            }
-            finally
-            {
-                // Completed BEFORE the refresh below, so the refresh sees the
-                // check as finished rather than still in flight. Unknown and
-                // NoAccount are recorded as finished without an answer, not
-                // held as answers — a later ordinary refresh may ask again
-                // rather than pinning a shrug, and NoAccount changes the
-                // moment the user signs in.
-                _registrationCheck.Complete(serial, finding);
-            }
-
-            // Every completion refreshes the step ONCE, answer or not. The
-            // refresh it asks for starts a check only when one is OWED to the
-            // radio on screen — which is never the radio whose check just
-            // finished, so an unanswered check cannot re-ask itself in a loop,
-            // and is radio B when the operator switched from A during A's
-            // check, which is the only way B ever gets asked (Track L3 forbade
-            // this refresh from starting any check, and that stranded B). A
-            // new check otherwise starts only on the events that started one
-            // before — the tab opening, Refresh all steps, an address change,
-            // a registration or firmware result.
             if (IsLoaded)
                 RefreshSetupStatuses(
-                    startARegistrationCheck: _registrationCheck.ACheckIsOwedTo(_rig?.SelectedRadioSerial));
+                    startARegistrationCheck: _registrationStep.Ledger.ACheckIsOwedTo(_rig?.SelectedRadioSerial));
         }
 
         /// <param name="startARegistrationCheck">False from a finished
@@ -206,50 +187,22 @@ namespace JJFlexWpf.Dialogs
             else
             {
                 // Ask the SmartLink server whether this radio is in the account's
-                // list — the only place the answer exists. Async because it can
-                // take seconds; the text upgrades in place when the answer lands.
-                // The answer read here is THIS radio's or nothing: the ledger
-                // returns null for any other serial, so a radio switched to
-                // during another radio's check never wears that radio's line.
-                string? serial = _rig.SelectedRadioSerial;
-                SetupRegisterStatus.Text = _registrationCheck.AnswerFor(serial) switch
-                {
-                    // The account that LISTED the radio, never the signed-in
-                    // one: the query consults every held account, and a radio
-                    // found under another of them is registered THERE.
-                    // A Registered finding with no listing account cannot say
-                    // whose it is, so it falls through to the neutral line
-                    // rather than guessing.
-                    { Verdict: FlexBase.SmartLinkRegistrationQuery.Registered, ListedUnderAccount: { Length: > 0 } listedUnder } =>
-                        Lexicon.Get("settings.radio.register.already_registered",
-                            ("accountEmail", listedUnder)),
-                    // Deliberately not "not registered". The server said only
-                    // that it cannot route to this radio for this account right
-                    // now, and a step-2 status line that turns that into a
-                    // verdict is the same overreach the connect advisory made
-                    // (#352).
-                    { Verdict: FlexBase.SmartLinkRegistrationQuery.NotInAccountList } =>
-                        Lexicon.Get("settings.radio.register.not_in_account_list",
-                            ("accountEmail", regCheck.AccountEmail)),
-                    // The check has finished and established nothing, and
-                    // no new one is starting. The status line says the state
-                    // and stops: Noel's words, 2026-10-02, "'Ready to
-                    // register radio to' the account, period, done", with
-                    // nothing about how the check went and no radio state
-                    // after it. Explanation belongs in the step's own
-                    // instructions, not in a status line (#691 item 7).
-                    _ when !startARegistrationCheck
-                           && !_registrationCheck.InFlight
-                           && _registrationCheck.FinishedWithoutAnAnswerFor(serial) =>
-                        Lexicon.Get("settings.radio.register.check_unanswered",
-                            ("accountEmail", regCheck.AccountEmail)),
-                    _ =>
-                        Lexicon.Get("settings.radio.register.checking",
-                            ("accountEmail", regCheck.AccountEmail),
-                            ("state", _rig.RegistrationStateText)),
-                };
-                if (startARegistrationCheck)
-                    KickRegistrationQuery();
+                // list, the only place the answer exists. The check starts
+                // first and the line is read after it: a radio in a list a
+                // session already holds is answered at once, and that answer
+                // is the line. A check that takes seconds reads as checking
+                // and upgrades in place when it lands. The answer read here
+                // is THIS radio's or nothing: the ledger returns null for any
+                // other serial, so a radio switched to during another radio's
+                // check never wears that radio's line.
+                var rig = _rig!;
+                SetupRegisterStatus.Text = _registrationStep.Refresh(
+                    rig.SelectedRadioSerial,
+                    regCheck.AccountEmail,
+                    rig.RegistrationStateText,
+                    startARegistrationCheck,
+                    rig.QuerySmartLinkRegistrationAsync,
+                    RegistrationCheckFinishedLater);
             }
 
             // Step 4 — addressing.

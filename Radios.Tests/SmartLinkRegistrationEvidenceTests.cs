@@ -392,24 +392,32 @@ namespace Radios.Tests
         [Fact]
         public void Radio_setup_names_the_account_that_listed_the_radio()
         {
-            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            string dialog = System.IO.File.ReadAllText(System.IO.Path.Combine(
                 RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs"));
+            // The line is chosen by RadioSetupRegistrationStep since the batch
+            // 6 bench run (2026-11-11), which moved it out of the dialog so
+            // the order of check and line could be driven in the suite.
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                RepoRoot(), "Radios", "RadioSetupRegistrationStep.cs"));
 
-            // The whole finding is held — by the ledger, since Track L4 — and
+            // The whole finding is held, by the ledger since Track L4, and
             // read back for the radio on screen, never for whichever radio
             // was asked last.
-            Assert.Contains("private readonly SmartLinkRegistrationCheckLedger _registrationCheck = new();",
+            Assert.Contains("private readonly RadioSetupRegistrationStep _registrationStep = new();",
+                dialog, StringComparison.Ordinal);
+            Assert.Contains("public SmartLinkRegistrationCheckLedger Ledger { get; } = new();",
                 src, StringComparison.Ordinal);
-            Assert.Contains("_registrationCheck.AnswerFor(serial) switch", src, StringComparison.Ordinal);
+            Assert.Contains("Ledger.AnswerFor(serial) switch", src, StringComparison.Ordinal);
 
             int line = src.IndexOf("\"settings.radio.register.already_registered\"", StringComparison.Ordinal);
             Assert.True(line >= 0,
                 "The already-registered status line is not where this test looks for it, so the check below would be vacuous.");
 
-            // The value interpolated into that line, and only that line.
+            // The value interpolated into that line, and only that line: the
+            // listing account, never the preflight's account.
             int argEnd = src.IndexOf(")),", line, StringComparison.Ordinal);
             string args = src.Substring(line, argEnd - line);
-            Assert.DoesNotContain("regCheck.AccountEmail", args, StringComparison.Ordinal);
+            Assert.DoesNotContain("(\"accountEmail\", accountEmail", args, StringComparison.Ordinal);
             Assert.Contains("listedUnder", args, StringComparison.Ordinal);
 
             // And listedUnder is bound from the finding's listing account.
@@ -436,48 +444,57 @@ namespace Radios.Tests
         [Fact]
         public void Radio_setup_settles_a_check_that_finished_without_an_answer()
         {
-            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            string dialog = System.IO.File.ReadAllText(System.IO.Path.Combine(
                 RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs"));
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                RepoRoot(), "Radios", "RadioSetupRegistrationStep.cs"));
 
-            int kick = src.IndexOf("private async void KickRegistrationQuery()", StringComparison.Ordinal);
-            int refresh = src.IndexOf("private void RefreshSetupStatuses(", StringComparison.Ordinal);
-            Assert.True(kick >= 0 && refresh > kick,
-                "KickRegistrationQuery or RefreshSetupStatuses is not where this test looks for it, so nothing below would be checking it.");
-            string kickBody = src.Substring(kick, refresh - kick);
+            // The dialog's side. Step 2's line is drawn through the step, in
+            // one place, with the refresh's own permission to start a check
+            // and the redraw for a check that lands later.
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(dialog, @"_registrationStep\.Refresh\(").Count);
+            int draw = dialog.IndexOf("SetupRegisterStatus.Text = _registrationStep.Refresh(", StringComparison.Ordinal);
+            Assert.True(draw >= 0, "Step 2's line is not drawn through RadioSetupRegistrationStep.Refresh.");
+            string call = dialog.Substring(draw, dialog.IndexOf(");", draw, StringComparison.Ordinal) - draw);
+            Assert.Contains("startARegistrationCheck", call, StringComparison.Ordinal);
+            Assert.Contains("rig.QuerySmartLinkRegistrationAsync", call, StringComparison.Ordinal);
+            Assert.Contains("RegistrationCheckFinishedLater", call, StringComparison.Ordinal);
 
-            // Every completion refreshes, answered or not — the old refresh
-            // was conditional on an answer having been cached — and the only
+            // A check that lands later refreshes the step once, and the only
             // gate on starting a check from that refresh is the ledger's
             // "owed" answer for the radio on screen, never a constant.
-            Assert.DoesNotContain("_registrationQueryResult != null && IsLoaded", kickBody, StringComparison.Ordinal);
-            Assert.DoesNotContain("RefreshSetupStatuses()", kickBody, StringComparison.Ordinal);
-            Assert.DoesNotContain("startARegistrationCheck: false", kickBody, StringComparison.Ordinal);
-            int settle = kickBody.IndexOf(
-                "startARegistrationCheck: _registrationCheck.ACheckIsOwedTo(_rig?.SelectedRadioSerial)",
-                StringComparison.Ordinal);
-            Assert.True(settle >= 0,
-                "A finished registration check does not refresh the step with a check owed to the radio on screen, " +
-                "so either its in-flight words stay on screen or a switched-to radio is stranded.");
+            int later = dialog.IndexOf("private void RegistrationCheckFinishedLater()", StringComparison.Ordinal);
+            int refresh = dialog.IndexOf("private void RefreshSetupStatuses(", StringComparison.Ordinal);
+            Assert.True(later >= 0 && refresh > later,
+                "RegistrationCheckFinishedLater or RefreshSetupStatuses is not where this test looks for it, so nothing below would be checking it.");
+            string laterBody = dialog.Substring(later, refresh - later);
+            Assert.DoesNotContain("RefreshSetupStatuses()", laterBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("startARegistrationCheck: false", laterBody, StringComparison.Ordinal);
+            Assert.Contains(
+                "startARegistrationCheck: _registrationStep.Ledger.ACheckIsOwedTo(_rig?.SelectedRadioSerial)",
+                laterBody, StringComparison.Ordinal);
 
-            // It runs after the check is recorded as finished, or it would
-            // still read as in flight and nothing would be owed.
-            int completed = kickBody.IndexOf("_registrationCheck.Complete(serial, finding)", StringComparison.Ordinal);
-            Assert.True(completed >= 0 && completed < settle,
-                "The step is refreshed while the check still reads as in flight.");
+            // The step's side. Only one check runs at a time, and the ledger
+            // is what says so; the check is recorded as finished before
+            // anyone is told it finished, or the redraw would still read it
+            // as in flight and nothing would be owed.
+            int run = src.IndexOf("private async void RunCheck(", StringComparison.Ordinal);
+            Assert.True(run >= 0, "RunCheck is not where this test looks for it.");
+            string runBody = src.Substring(run);
+            Assert.Contains("if (!Ledger.TryBegin(serial)) return;", runBody, StringComparison.Ordinal);
+            int completed = runBody.IndexOf("Ledger.Complete(serial, finding);", StringComparison.Ordinal);
+            int told = runBody.IndexOf("finishedLater();", StringComparison.Ordinal);
+            Assert.True(completed >= 0 && told > completed,
+                "The step is redrawn while the check still reads as in flight.");
 
-            // Only one check runs at a time, and the ledger is what says so.
-            Assert.Contains("if (!_registrationCheck.TryBegin(serial)) return;", kickBody, StringComparison.Ordinal);
-
-            // The status refresh starts a check only when asked to, and that is
-            // the only place in the file one is started.
-            Assert.Matches(@"if \(startARegistrationCheck\)\s+KickRegistrationQuery\(\);", src);
-            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(src, @"KickRegistrationQuery\(\);").Count);
+            // A check is started in one place, and only when the refresh may.
+            Assert.Matches(@"if \(startACheck\)\s+RunCheck\(", src);
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(src, @"\bRunCheck\(serial"));
 
             // The settled line is shown for THIS radio's unanswered check,
-            // never another radio's, and only when nothing is running or
-            // starting.
-            Assert.Contains("&& _registrationCheck.FinishedWithoutAnAnswerFor(serial) =>", src, StringComparison.Ordinal);
-            Assert.Contains("&& !_registrationCheck.InFlight", src, StringComparison.Ordinal);
+            // never another radio's, and only when nothing is running.
+            Assert.Contains("&& Ledger.FinishedWithoutAnAnswerFor(serial) =>", src, StringComparison.Ordinal);
+            Assert.Contains("_ when !Ledger.InFlight", src, StringComparison.Ordinal);
 
             // The settled line is its own resource key, and it exists.
             Assert.Contains("\"settings.radio.register.check_unanswered\"", src, StringComparison.Ordinal);
@@ -499,13 +516,13 @@ namespace Radios.Tests
             // account, period, done." The line is his sentence and stops:
             // nothing about how the check went, and no radio state after it,
             // so the call passes the account and nothing else.
-            int call = src.IndexOf("\"settings.radio.register.check_unanswered\",", StringComparison.Ordinal);
-            Assert.True(call >= 0, "the unanswered-check line's call is missing");
-            int callEnd = src.IndexOf(")),", call, StringComparison.Ordinal);
-            string args = src.Substring(call, callEnd - call);
-            Assert.Contains("regCheck.AccountEmail", args, StringComparison.Ordinal);
+            int unanswered = src.IndexOf("\"settings.radio.register.check_unanswered\",", StringComparison.Ordinal);
+            Assert.True(unanswered >= 0, "the unanswered-check line's call is missing");
+            int callEnd = src.IndexOf(")),", unanswered, StringComparison.Ordinal);
+            string args = src.Substring(unanswered, callEnd - unanswered);
+            Assert.Contains("(\"accountEmail\", accountEmail", args, StringComparison.Ordinal);
             Assert.DoesNotContain("\"state\"", args, StringComparison.Ordinal);
-            Assert.DoesNotContain("RegistrationStateText", args, StringComparison.Ordinal);
+            Assert.DoesNotContain("radioStateText", args, StringComparison.Ordinal);
         }
 
     }
