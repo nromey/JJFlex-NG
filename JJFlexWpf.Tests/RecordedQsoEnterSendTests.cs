@@ -358,6 +358,10 @@ public sealed class RecordedQsoEnterSendTests
                 var dialog = (RecordedQsosDialog)RuntimeHelpers.GetUninitializedObject(typeof(RecordedQsosDialog));
                 typeof(RecordedQsosDialog).GetField("_rig", Private)!.SetValue(dialog, rig);
                 typeof(RecordedQsosDialog).GetField("_browser", Private)!.SetValue(dialog, new RecordedQsoBrowser());
+                // #869: the window's key handlers read the modifier keys; a
+                // key held on the desk's real keyboard must not change what
+                // these presses mean. No modifier is held in any test here.
+                dialog.ModifiersForTest = () => System.Windows.Input.ModifierKeys.None;
                 body(dialog, rig);
             }
             catch (Exception ex) { failure = ex; }
