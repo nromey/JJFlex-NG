@@ -2040,15 +2040,32 @@ namespace Radios
         /// <summary>The refusal, traced and spoken, naming the action.</summary>
         private void SayTheHoldRefused(string actionKey)
         {
-            Tracing.TraceLine("ChangeNothing: refused " + actionKey, TraceLevel.Warning);
-            if (!SuppressSpeech)
-            {
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.guard.refused",
-                        ("action", Lexicon.Get(actionKey))),
-                    VerbosityLevel.Critical, true);
-            }
+            string said = TheHoldRefused(actionKey);
+            if (said.Length > 0) ScreenReaderOutput.Speak(said, VerbosityLevel.Critical, true);
         }
+
+        /// <summary>
+        /// The refusal traced, and its sentence returned for whoever says it:
+        /// empty while this radio's speech is suppressed. The one source of the
+        /// hold's trace line and sentence, spoken here or by a caller.
+        /// </summary>
+        private string TheHoldRefused(string actionKey)
+        {
+            Tracing.TraceLine("ChangeNothing: refused " + actionKey, TraceLevel.Warning);
+            return SuppressSpeech ? "" : Lexicon.Get("settings.guard.refused", ("action", Lexicon.Get(actionKey)));
+        }
+
+        /// <summary>
+        /// The hold's refusal, for a caller that must say it itself, LATER:
+        /// a menu row, whose sentence waits for the menu to close, or the Fix
+        /// tool, whose page re-renders first and would cut a sentence spoken
+        /// now (#1043 F2, F5). Null when the hold would not refuse. When it
+        /// would, the refusal is traced exactly as <see cref="GuardRefuses"/>
+        /// traces it and its sentence returned, empty while this radio's
+        /// speech is suppressed. Nothing is spoken here.
+        /// </summary>
+        public string HoldRefusalToSay(string actionKey) =>
+            ChangeNothingActive ? TheHoldRefused(actionKey) : null;
 
         /// <summary>
         /// The automatic-write gate. True when the hold is armed; traces what

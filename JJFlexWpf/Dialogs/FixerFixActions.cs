@@ -326,6 +326,14 @@ internal static class FixerFixActions
             return FixerFixOutcome.Failed("The radio is not listing any microphone profiles to "
                 + "choose from, so nothing was changed.");
 
+        // The hold is asked FIRST, and says nothing (#1043 F2): the Fix tool
+        // says its sentence itself, once, after its page re-renders. Spoken
+        // here, the re-render that follows at once could cut it, and then it
+        // was heard zero times. Traced exactly as the hold's own refusal is.
+        if (rig.HoldRefusalToSay("settings.guard.action.profile_load") != null)
+            return FixerFixOutcome.RefusedByHold(Lexicon.Get("settings.guard.refused",
+                ("action", Lexicon.Get("settings.guard.action.profile_load"))));
+
         var selected = rig.SelectMicProfileIfPresent(candidate);
         // The change-nothing hold refused it and has said so. The outcome
         // carries the hold's own sentence rather than "stopped listing",
