@@ -58,13 +58,97 @@ namespace Radios.Tests
         /// being written somewhere different from where a check for them
         /// looked, and syncing to the cloud into the bargain.
         /// </remarks>
-        private static string OutputDir
+        private const string OutputDir = @"C:\temp\fixer";
+
+        /// <summary>
+        /// What a denial at <see cref="OutputDir"/> means (#603). Codex's
+        /// sandbox denies that path, and three reviews in five days each spent
+        /// a paragraph establishing that a green track was green.
+        /// </summary>
+        internal const string FixedFolderNote =
+            "This test writes the Fixer review pages to a fixed folder by design (see OutputDir in "
+            + "FixerPageForReview.cs), so a denial creating or writing there comes from the environment "
+            + "the test runs in, such as a sandbox that does not allow that path. It is not a defect in "
+            + "the code under test, and the rest of the suite's result stands on its own.";
+
+        /// <summary>
+        /// Create the folder and write every page, failing with
+        /// <see cref="FixedFolderNote"/> when the environment denies either
+        /// (#603). Not a skip, and not a pass: the skip gate was removed on
+        /// purpose, and a test that cannot write has not done its job. A
+        /// failure that explains itself is the whole change.
+        /// </summary>
+        /// <remarks>
+        /// The denial recorded in every saved run was at the WRITE, with the
+        /// folder already present, so the writes are inside the catch as well
+        /// as the folder's creation. The folder is a parameter so the message
+        /// can be shown on a folder a test controls.
+        /// </remarks>
+        internal static void WritePages(string dir)
         {
-            get
+            try
             {
-                const string dir = @"C:\temp\fixer";
                 Directory.CreateDirectory(dir);
-                return dir;
+
+                foreach (FixerReviewState state in FixerStates.All())
+                    File.WriteAllText(Path.Combine(dir, state.FileName), state.Html);
+
+                File.WriteAllText(Path.Combine(dir, "report-as-emailed.txt"),
+                                  FixerReport.PlainText(FixerStates.ProblemsFound().Run));
+
+                // WHICH TREE WROTE THESE. The path is absolute and shared, so
+                // during a sprint EVERY worktree's test run writes here and the
+                // last writer wins — found on 2026-08-27, when a page freshly
+                // rewritten by a parallel track's suite showed this track's
+                // change UNDONE, with a new timestamp, which reads exactly like
+                // your own edit failing to take. The pages cannot carry the
+                // stamp themselves without polluting what Noel reviews, so it
+                // rides beside them: before trusting a walk of these files,
+                // check SOURCE.txt names the tree you meant.
+                File.WriteAllText(Path.Combine(dir, "SOURCE.txt"),
+                    "Written from " + IntegrationPassTree.Root + Environment.NewLine
+                    + "at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " local."
+                    + Environment.NewLine
+                    + "This folder is shared by every worktree; the last test run "
+                    + "to finish owns these files." + Environment.NewLine);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                                       || ex is System.Security.SecurityException)
+            {
+                Assert.Fail(FixedFolderNote + " The folder was " + dir + "; what was refused: "
+                            + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Positive control for the message (#603): a write that is denied
+        /// while the folder exists, the case every saved run recorded, and a
+        /// folder that cannot be created. Both fail, and both say why.
+        /// </summary>
+        [Fact]
+        public void A_denied_folder_fails_and_says_the_denial_is_environmental()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "jjflex-fixer-denied-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            string blocked = Path.Combine(root, "1-nothing-run-yet.html");
+            string notAFolder = Path.Combine(root, "a-file");
+            try
+            {
+                File.WriteAllText(blocked, "kept");
+                File.SetAttributes(blocked, FileAttributes.ReadOnly);
+                var write = Assert.ThrowsAny<Exception>(() => WritePages(root));
+                Assert.Contains(FixedFolderNote, write.Message, StringComparison.Ordinal);
+                Assert.Contains("UnauthorizedAccessException", write.Message, StringComparison.Ordinal);
+                Assert.Equal("kept", File.ReadAllText(blocked));
+
+                File.WriteAllText(notAFolder, "a file where a folder is wanted");
+                var create = Assert.ThrowsAny<Exception>(() => WritePages(Path.Combine(notAFolder, "fixer")));
+                Assert.Contains(FixedFolderNote, create.Message, StringComparison.Ordinal);
+            }
+            finally
+            {
+                try { File.SetAttributes(blocked, FileAttributes.Normal); } catch { }
+                try { Directory.Delete(root, recursive: true); } catch { }
             }
         }
 
@@ -78,28 +162,7 @@ namespace Radios.Tests
             // Writing three small files costs nothing; a guard that can lie
             // costs an afternoon.
             string dir = OutputDir;
-
-            foreach (FixerReviewState state in FixerStates.All())
-                File.WriteAllText(Path.Combine(dir, state.FileName), state.Html);
-
-            File.WriteAllText(Path.Combine(dir, "report-as-emailed.txt"),
-                              FixerReport.PlainText(FixerStates.ProblemsFound().Run));
-
-            // WHICH TREE WROTE THESE. The path is absolute and shared, so
-            // during a sprint EVERY worktree's test run writes here and the
-            // last writer wins — found on 2026-08-27, when a page freshly
-            // rewritten by a parallel track's suite showed this track's
-            // change UNDONE, with a new timestamp, which reads exactly like
-            // your own edit failing to take. The pages cannot carry the
-            // stamp themselves without polluting what Noel reviews, so it
-            // rides beside them: before trusting a walk of these files,
-            // check SOURCE.txt names the tree you meant.
-            File.WriteAllText(Path.Combine(dir, "SOURCE.txt"),
-                "Written from " + IntegrationPassTree.Root + Environment.NewLine
-                + "at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " local."
-                + Environment.NewLine
-                + "This folder is shared by every worktree; the last test run "
-                + "to finish owns these files." + Environment.NewLine);
+            WritePages(dir);
 
             // Assert on all five, naming the directory, so a failure says
             // WHERE it looked rather than just that something was false.
