@@ -1008,7 +1008,7 @@ namespace Radios.Tests
                 // classified here (as #944 did). delivery: null - TextOnly -
                 // for both, because neither is a standalone message. The
                 // not-in-list title is the advisory window's title: it IS
-                // spoken, on arrival, as every dialog's is (AdvisoryDialog
+                // spoken, on arrival, as a dialog's is by default (AdvisoryDialog
                 // keeps SpeaksOwnTitle, so JJFlexDialog's Loaded handler says
                 // the Title under SpeechSubject.DialogArrival), but as the
                 // window's own name, which is interface identity, not a fact
