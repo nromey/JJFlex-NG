@@ -9,6 +9,56 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-11 (COVERS 2026-11-10 06:03 TO 2026-11-11 05:00, MEASURED FROM `042f7578`) — BATCH 3 AND #913 ON MAIN, 96 GB AND THE WORKER CAP LIFTED, THEN THE SIXTH NIGHT MODE: JUNK BOX BATCH 6 CLEAN WITH A MEMORIES DATA FIX, BATCH 7 NEARLY BUILT, A WINDOWS UPDATE RESTART
+
+*Covers the 2026-11-10 day session, a nap from 16:44 that ran into the night (so it ended as night mode), and the restart. Noel said "Morning" at 04:53 in the junk box window; all three windows (junk box, Check your audio, sound processing) wrapped up by 04:55. **Windows Update restarted the machine at 03:30** (KB5132061; two more short restarts at 03:32 and 03:33, back at 03:34): it stopped only the junk box's batch 7 builder, which was resumed. No build was published; the nightly promote (step 1) was SKIPPED, since no debug build was produced and everything new is on unmerged branches.*
+
+**Main (33 commits since the last seal, 6 first-parent, all unpushed; +3,709/-210 across 99 files):**
+- At Noel's word, junk box batch 3 merged with its words (`1dbc9e8c`, `7b086ba5`, `17b894d9`), and Check your audio's #913 and #1040 (`464d4e7c`); the merge filter grew by six classes (`4df531b1`).
+- **The ms-02 went from 32 GB to 96 GB.** Noel ruled 16:44 that the `-m:4` worker cap and the two-at-a-time limit are lifted; build servers stay off (`3d30ad38`, CLAUDE.md and AGENTS.md).
+
+**Junk box:**
+- **Batch 5** (`junkbox/2026-11-10-batch`, `b9113051`, on top of batch 4) is clean at the code-check level after three repair rounds on #398. Its harness waits on the 8600; it merges after batch 4, which waits on J7.
+- **Batch 6** (`junkbox/2026-11-11-batch`, `7b3d9515`, 14 commits, +1,555/-50): #1055, #996 (seven dialogs keep their Loaded focus; only Memories and the key listing are live), #164 first half (FlexLib patch 28), #691 items 1 and 7, #601/#701, #869, #636, #930; #718 measured only. Codex passed all eight; an Opus second check passed #996. Two repair rounds:
+  - Round one: the key listing (every JJ key layer's H list) and Memories land on the selected row, per Noel's 2026-11-09 ruling on #1018 item 3, which moved here from Sprint 49 by agreement.
+  - Round two: **#1062, found by the integration pass, pre-existing:** after Delete in Memories the details kept the deleted memory's values, and tabbing through wrote them into another memory, silently. Now the details always follow the selection and a field writes only when changed. Codex re-check passed.
+  - My own runs match: Radios 8,767 of 8,767, the windowless filter 1,049 of 1,049 (87 classes). The no-radio harness passed every step it could reach (Ctrl+J, H lands on "1 of 37"; Tab, Shift+Tab, a letter, Enter, Escape). Reading for Noel: `for-noel/2026-11-11-reading-junkbox-2026-11-11-batch-6-report.md`.
+- **Batch 7** (`junkbox/2026-11-11-batch-2`, 8 commits so far, +2,000/-86): #210 (the test tone without a microphone, tone only), #595, #323, #1061, #603, #989 with #1063, #429, #59, #629 (trivial half). Its second reading caught a false premise: **#474's "dead" CW monitor code compiles** (`#define CWMonitor` at the top of `FlexBase.cs`) and is the live typed-CW sidetone; dropped and corrected on #474. The builder was resumed after the restart.
+
+**Check your audio:** #1058 (the stray "Mic Gain 39") fixed on `checkaudio/1058-speech-reset` (`1ce59a54`); merge before or with batch 6. #1049 research: NVDA's late cancel lands on our next sentence every time we interrupt with nothing playing (100 of 100). #1042: JAWS reads most of the app's windows twice on opening. #1041 waits on the 8600, which has been off the network since 2026-11-10 17:43.
+
+**Sound processing (Sprint 49):** Track S rounds 5 to 7 merged into `sprint49/integration` (`8d374562`, Codex MERGE on its eighth check). The SSB tuner's second press is right within 10 Hz 97% of the time on real recordings (the earlier cause was wrong; the tuner's own 250 Hz band edge). The first KiwiSDR noise harvest worked (19 minutes, 5 receivers); a kiwiclient redirect loop hammered one proxy for about two minutes before it was stopped.
+
+**Seal checks:**
+- Step 1 nightly promote: SKIPPED (above).
+- No dependency advisories.
+- Memory drift: 95 path candidates (40 not in history entries) and the symbol list; tonight's new entries flag only Sprint 49 branch symbols and the JAWS script.
+- Codex instruction tests 5 of 5; Codex loads AGENTS.md; the sandbox is healthy.
+- NVDA logs archived as `2026-11-11-*`, but both are from after the restart (0 Speaking lines); **the night's IO-level log was recycled by the restart and is lost.** The harness report quotes what it needed.
+- **MEMORY.md trimmed from 18.1 KB to 12.5 KB** (Noel asked): Current State rewritten, Always-applies condensed, every link kept (link sets compared equal). The archive sweep moved nothing (eight stamped entries were already in closed history; three carry partial banners on live entries).
+- Backups: memory, Claude state (1,067 MB), AppData, the dev mirror, and private docs after the AAR.
+- Codex evaluation log: every junk box run tonight logged (eleven runs); the other windows logged their own.
+
+**Junk box intake (3c-ter):** 12 entries opened since the last seal (#1052 to #1063); every one targeted and prioritized. **Eleven closed** as built on main: #698, #744, #760, #656, #658, #655, #763, #408, #506 (found by batch 7's pick, commits checked) and #913, #1040 (merged 2026-11-10). Regenerated: 553 open, 264 in the junk box, 0 unprioritized.
+
+**Memory written:** by the junk box window, `project_ms02_has_96gb_from_2026_11_10.md` and corrections to the build-server, worker-cap and register-escape entries (the register is CRLF now, not LF). By the other windows: `project_kiwisdr_client_facts.md`, `project_trace_lines_before_boot_log_are_lost.md`, the CORRECTED banner on `project_ssb_tuner_slips_on_real_audio.md`, and additions to the NVDA cancel, JAWS and bench-launch entries.
+
+**Cross-surface:** 57 commits on all refs since the last seal (none with the Codex trailer). JJFlex-private: 34 commits by the windows, plus this seal's. Freight Fate still holds 16 unpushed commits (Noel's call); Civ VI Access none; rigmeter 13 local commits (no remote).
+
+**Waiting on Noel:**
+- The push (main is 121 commits ahead of origin, plus this seal), after the tester-name grep.
+- Merging `checkaudio/1058-speech-reset`, then batch 6 (its sheet and the 8600 harness first).
+- J7 (restarting batch 4's checks), J8 to J13, S1 to S4, C5, C6, and the night's S8 to S12.
+- The 8600 back on the network.
+
+### Rigmeter snapshot — end of 2026-11-11
+
+Main, `rigmeter from 2026-11-10`: 11 commits; work done +3,179/-406 (net +2,773) across 99 files; C# +2,933/-361 in 56 files. Measured from the last seal's commit, main is +3,709/-210 across 99 files.
+
+Not counted on main: batch 5 (+3,674/-262 over its base), batch 6 (+1,555/-50), batch 7 so far (+2,000/-86), #1058 (+49), Track S rounds 5 to 7 (5 commits on `sprint49/track-s`).
+
+Snapshot `historical\stats\2026-11-10-3d30ad38.json`.
+
 ## END-OF-DAY SEAL — 2026-11-10 (COVERS 2026-11-09 06:26 TO 2026-11-10 06:00, MEASURED FROM `44d85de8`) — THREE MERGES AND #999 ON MAIN, THE WORKER CAP, THEN THE FIFTH NIGHT MODE: JUNK BOX BATCH 3 READY, BATCH 4 BUILT AND REPAIRED TWICE, A MEMORY STOP
 
 *Covers the 2026-11-09 day session, nap mode (16:44 to 21:01) and the fifth night mode (21:01 to 05:55). Noel said "Morning" at 05:55 in the junk box window, which woke the other two; both replied wrapped up by 05:56. Three windows: junk box, Check your audio, sound processing. No build was published. The nightly promote (step 1) was SKIPPED: no debug build was produced, and everything new tonight is on unmerged branches.*
