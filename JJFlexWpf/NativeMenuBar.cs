@@ -671,7 +671,12 @@ public class NativeMenuBar : IDisposable
         switch (intent)
         {
             case Radios.ProfileGuestIntent.NotAnswered:
-                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.ask_next_connect"));
+                // Protection wins (#1043 F4, J9): while radio setup protection
+                // is on nothing is asked at connect, so the receipt says the
+                // question waits until it is off. The marker above is saved
+                // either way. Not saved: the "not_saved" branch above.
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    Radios.ProfileStewardship.AskAtNextConnectReceiptKey(Rig.ChangeNothingActive)));
                 break;
             case Radios.ProfileGuestIntent.UseMyTransmitAudio:
                 var chosen = Rig.LocalTransmitAudioProfileChoice;

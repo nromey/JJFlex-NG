@@ -1248,6 +1248,10 @@ namespace Radios.Tests
                 // second is a fragment of the first. DRAFT PROSE.
                 "settings.associations.last_seen_under",
                 "settings.associations.not_listed_now",
+                // Junk box batch 9, #1043 F4 (J9): the "Ask Me at the Next
+                // Connect" receipt while radio setup protection is on. Said
+                // only in answer to the operator's choice: TextOnly. DRAFT PROSE.
+                "settings.profile_guest.ask_after_protection",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

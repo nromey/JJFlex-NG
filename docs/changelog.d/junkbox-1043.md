@@ -1,0 +1,1 @@
+- Choosing Ask Me at the Next Connect under Profiles on This Radio while radio setup protection is on now tells you the question waits until protection is off, because nothing is asked at connect while it is on.
