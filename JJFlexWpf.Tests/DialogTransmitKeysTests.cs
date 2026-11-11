@@ -70,6 +70,8 @@ public sealed class DialogTransmitKeysTests : IDisposable
 
     public DialogTransmitKeysTests()
     {
+        // Every test starts from a clean speech state, whatever ran before it.
+        ResetSpeechState();
         Lexicon.Load(Lexicon.Partitions);
         _verbosityBefore = ScreenReaderOutput.CurrentVerbosity;
         ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
@@ -114,6 +116,53 @@ public sealed class DialogTransmitKeysTests : IDisposable
         ScreenReaderOutput.CurrentVerbosity = _verbosityBefore;
         _controller.Dispose();
         _rig.Dispose();
+        // And leaves one: this class's own refusals and safety sentences must
+        // not wait in the arbiter for the next class's tests.
+        ResetSpeechState();
+    }
+
+    /// <summary>
+    /// The speech arbiter is process-wide, and a refusal is said through
+    /// <c>SpeakYieldingToSafety</c>: while a transmit-safety sentence holds the
+    /// turn, or an earlier refusal is still waiting for it, a new refusal on
+    /// the same subject joins the waiting one instead of being said
+    /// (<c>SpeechArbiter.EmitYieldingToSafety</c>). So a refusal left waiting
+    /// by an earlier test made <see cref="SpokenAfter"/> find its own marker
+    /// still first, and the Shift+Space refusal test failed or passed by what
+    /// ran before it and how quickly (#1055; reproduced by leaving one waiting
+    /// behind an Urgent sentence, which turned both cases red, and cleared by
+    /// this reset). The reset is internal to Radios and this project is not
+    /// among its friends, so it is reached by name, here and nowhere else.
+    /// </summary>
+    private static void ResetSpeechState()
+    {
+        var reset = typeof(ScreenReaderOutput).GetMethod("ResetTransientSpeechStateForTest",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(reset != null, "ScreenReaderOutput.ResetTransientSpeechStateForTest is missing");
+        reset!.Invoke(null, null);
+    }
+
+    /// <summary>
+    /// What the arbiter is holding, for a failure message: a refusal that was
+    /// not said is explained by one of these, so a future failure says which.
+    /// </summary>
+    private static string ArbiterState()
+    {
+        try
+        {
+            object arbiter = typeof(ScreenReaderOutput).GetField("_arbiter", BindingFlags.Static | BindingFlags.NonPublic)!
+                .GetValue(null)!;
+            Type t = arbiter.GetType();
+            object? yielding = t.GetProperty("YieldingToSafetyCount", Any)?.GetValue(arbiter);
+            object? alarms = t.GetProperty("AlarmPendingCount", Any)?.GetValue(arbiter);
+            object? safety = t.GetField("_safety", Any)?.GetValue(arbiter);
+            object? turn = safety?.GetType().GetProperty("Current")?.GetValue(safety);
+            return $"waiting behind the safety turn: {yielding}; alarms waiting: {alarms}; safety turn: {turn?.ToString() ?? "none"}";
+        }
+        catch (Exception ex)
+        {
+            return "the arbiter's state could not be read (" + ex.Message + ")";
+        }
     }
 
     // ── plumbing: by name, so a missing production member is a red test, not a compile error ──
@@ -199,7 +248,8 @@ public sealed class DialogTransmitKeysTests : IDisposable
         Assert.Equal(marker, ScreenReaderOutput.RecentMessages.FirstOrDefault());
         press();
         var recent = ScreenReaderOutput.RecentMessages;
-        Assert.NotEqual(marker, recent.FirstOrDefault());
+        Assert.True(!string.Equals(marker, recent.FirstOrDefault(), StringComparison.Ordinal),
+            "Nothing was said after the press; the marker is still the last thing heard. " + ArbiterState());
         return recent.First();
     }
 
@@ -582,6 +632,28 @@ public sealed class DialogTransmitKeysTests : IDisposable
         Assert.Equal(from, _controller.State);
         Assert.Null(DialogTransmitKeys.HoldWindow);           // a refused lock never subscribed a window
         Assert.Equal(0, _downs);
+    }
+
+    /// <summary>
+    /// #1055, under the condition that produced it: an earlier test left a
+    /// refusal waiting behind a transmit-safety sentence. A fixture built
+    /// after that still hears its own Shift+Space refusal, because the
+    /// fixture starts from a clean speech state. Remove the reset from the
+    /// constructor and this fails at the refusal, as the merge filter did.
+    /// </summary>
+    [Fact]
+    public void A_refusal_left_waiting_by_an_earlier_test_does_not_hold_the_next_fixtures_refusal()
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.Speak("Transmit stopped.", Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical);
+        ScreenReaderOutput.SpeakYieldingToSafety(Lexicon.Get("audio.value_layer.lock_not_here"),
+            VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.TransmitKeyRefused);
+        // The positive control: the state really was left behind.
+        Assert.True(ArbiterState().Contains("waiting behind the safety turn: 1;", StringComparison.Ordinal),
+            "the leftover refusal was not left waiting, so this test proves nothing: " + ArbiterState());
+
+        using var next = new DialogTransmitKeysTests();
+        next.Shift_space_on_a_button_or_a_checkbox_is_consumed_refused_out_loud_and_leaves_the_lock_where_it_was(startLocked: false);
     }
 
     [Fact]
