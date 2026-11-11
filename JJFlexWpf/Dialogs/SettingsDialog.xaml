@@ -2013,9 +2013,9 @@
                                     <RadioButton x:Name="SliceOrderBottomToTopRadio"
                                                  GroupName="SliceArrowOrder"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Up arrow goes A to B to C (previous behaviour)"
+                                                 AutomationProperties.Name="Up arrow goes A to B to C"
                                                  Checked="SliceArrowOrderRadio_Checked">
-                                        <TextBlock Text="Up arrow goes A to B to C (previous behaviour)"/>
+                                        <TextBlock Text="Up arrow goes A to B to C"/>
                                     </RadioButton>
                                 </StackPanel>
                             </GroupBox>

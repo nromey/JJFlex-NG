@@ -115,7 +115,7 @@ public partial class RadioAssociationsDialog : JJFlexDialog
     /// agree: said as the chosen account when it is the chosen one, and as
     /// the account it was last seen under otherwise. It carries no
     /// not-on-this-computer note, because that account is saved here by
-    /// definition. DRAFT wording, for Codex.</para>
+    /// definition. Wording by Codex.</para>
     /// </remarks>
     internal static string AccountWords(string connectAccount, string preferred, string lastSeen, bool boundNotSaved,
         string notListedAccount = "")

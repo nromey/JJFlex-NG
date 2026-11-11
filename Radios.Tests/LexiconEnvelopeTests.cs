@@ -1245,16 +1245,16 @@ namespace Radios.Tests
                 // Junk box batch 9 (2026-11-11), #405 J6: a Radio Associations
                 // row for a radio no saved account lists right now. Row text,
                 // read only when the operator reads the list: TextOnly. The
-                // second is a fragment of the first. DRAFT PROSE.
+                // second is a fragment of the first. Wording by Codex.
                 "settings.associations.last_seen_under",
                 "settings.associations.not_listed_now",
                 // Junk box batch 9, #1043 F4 (J9): the "Ask Me at the Next
                 // Connect" receipt while radio setup protection is on. Said
-                // only in answer to the operator's choice: TextOnly. DRAFT PROSE.
+                // only in answer to the operator's choice: TextOnly. Wording by Codex.
                 "settings.profile_guest.ask_after_protection",
                 // Junk box batch 9, #346 part two (J3): the step list editor in
                 // the list S opens. Labels, and sentences said only in answer
-                // to the operator's own edit: TextOnly. DRAFT PROSE.
+                // to the operator's own edit: TextOnly. Wording by Codex.
                 "settings.tuning.steps_list_new_coarse",
                 "settings.tuning.steps_list_new_fine",
                 "settings.tuning.steps_list_add_coarse",

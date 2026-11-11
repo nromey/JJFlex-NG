@@ -35,7 +35,7 @@
                  local:JJFlexHelp.Text="The step Up and Down move the frequency by. From the frequency field you can also walk this list with Alt and the left and right arrows, without opening this window."/>
 
         <!-- #346 part two: edit the coarse list here, the list S opens (ruled
-             J3). Labels set from the lexicon in code (DRAFT, for Codex). -->
+             J3). Labels set from the lexicon in code (wording by Codex). -->
         <controls:DecorativeText x:Name="CoarseNewLabel"
                                  Style="{StaticResource DialogLabel}"
                                  Margin="0,0,0,2"/>
@@ -56,7 +56,7 @@
                  local:JJFlexHelp.Text="The step Shift plus Up and Down move the frequency by. From the frequency field you can also walk this list with Shift and the left and right arrows, without opening this window."/>
 
         <!-- #346 part two: edit the fine list here, the list S opens (ruled
-             J3). Labels set from the lexicon in code (DRAFT, for Codex). -->
+             J3). Labels set from the lexicon in code (wording by Codex). -->
         <controls:DecorativeText x:Name="FineNewLabel"
                                  Style="{StaticResource DialogLabel}"
                                  Margin="0,0,0,2"/>

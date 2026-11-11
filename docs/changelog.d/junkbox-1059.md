@@ -1,1 +1,1 @@
-- In the radio list, a radio reached through a SmartLink account now says checking while that account is signed in but its radio list has not arrived yet, instead of saying it has not been heard from.
+- The radio list now waits for a SmartLink account's current radio list before saying a remembered radio has not been heard from.

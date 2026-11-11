@@ -1,3 +1,3 @@
 - JJ Flexible now checks for your callsign before keying the radio for push to talk, the transmit lock, tune, a send or a check; enter yours under Radio, Operators.
 - Check your audio now tells you to enter an operator callsign before starting a countdown if no callsign is saved, even for the microphone test at zero power. The computer microphone check still works without a callsign.
-- Turning on VOX, or break-in when you are in CW, also needs your callsign now. Turning either off always works, and the radio's own front panel is not affected.
+- VOX and CW break-in now require your operator callsign when you turn them on through JJ Flexible Radio Access. Turning them off and using the radio's own controls are unchanged.

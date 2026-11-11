@@ -1,2 +1,2 @@
 - Radio Associations now names the account a SmartLink connection will use whenever a saved account can be found for that radio.
-- When none of your saved SmartLink accounts lists a radio right now, Radio Associations names the same saved account as the radio list and says it is not listed right now. If the radio comes back while the window is open, the row catches up.
+- When a saved preferred or last-seen account is available for an unlisted radio, Radio Associations now names the same account as the radio list and marks the radio as not listed right now.
