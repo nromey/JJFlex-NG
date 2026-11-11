@@ -62,6 +62,15 @@ namespace JJFlexWpf.Dialogs
             GroupsListBox.Focus();
         }
 
+        /// <summary>
+        /// Focus starts in the groups list, as <see cref="OnLoaded"/> puts it.
+        /// The base class moves focus to the first control in tab order again
+        /// once the window has rendered, and the buttons come first, so
+        /// without this the operator arrived on Add Group (#996, as #935 fixed
+        /// the Command Finder).
+        /// </summary>
+        protected override void FocusFirstControl() => GroupsListBox.Focus();
+
         private void RefreshGroups()
         {
             var groups = GetUserGroups?.Invoke();

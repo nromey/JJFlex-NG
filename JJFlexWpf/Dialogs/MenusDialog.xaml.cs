@@ -126,6 +126,15 @@ public partial class MenusDialog : JJFlexDialog
         MenuListBox.Focus();
     }
 
+    /// <summary>
+    /// Focus starts in the menu list, as <see cref="MenusDialog_Loaded"/> puts
+    /// it. The base class moves focus to the first control in tab order again
+    /// once the window has rendered, and on a radio with more than one menu
+    /// bank the bank combo comes first, so without this the operator arrived
+    /// on the bank (#996, as #935 fixed the Command Finder).
+    /// </summary>
+    protected override void FocusFirstControl() => MenuListBox.Focus();
+
     private void LoadBank(int bank)
     {
         _realChange = false;

@@ -86,6 +86,15 @@ namespace JJFlexWpf.Dialogs
             NameBox.Focus();
         }
 
+        /// <summary>
+        /// Focus starts in the log file name, as <see cref="OnLoaded"/> puts
+        /// it. The base class moves focus to the first control in tab order
+        /// again once the window has rendered, and the Browse button comes
+        /// before the name box, so without this the operator arrived on Browse
+        /// (#996, as #935 fixed the Command Finder).
+        /// </summary>
+        protected override void FocusFirstControl() => NameBox.Focus();
+
         private void BrowseButton_Click(object sender, RoutedEventArgs e)
         {
             var ofd = new OpenFileDialog

@@ -121,6 +121,19 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// Focus starts in the list when it has rows, as <see cref="OnLoaded"/>
+        /// puts it. The base class moves focus to the first control in tab
+        /// order again once the window has rendered, and the buttons come
+        /// first, so without this the operator arrived on Close (#996, as #935
+        /// fixed the Command Finder). An empty list leaves the base's choice.
+        /// </summary>
+        protected override void FocusFirstControl()
+        {
+            if (HelpListBox.Items.Count > 0) HelpListBox.Focus();
+            else base.FocusFirstControl();
+        }
+
+        /// <summary>
         /// A plain letter or digit jumps to the next row that starts with it,
         /// wrapping — the way a Windows list answers a keypress, and every row
         /// here starts with its key. Consumed whether or not it matched, so a
