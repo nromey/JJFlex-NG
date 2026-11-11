@@ -476,14 +476,19 @@ public partial class CheckYourAudioDialog
     private void UpdateMethodStatus()
     {
         if (_methodStatus == null) return;
-        var rig = _rig;
+        // The live radio: after a Disconnect the line says what the power-off
+        // path says, never the departed radio's method (#1043 F1).
+        var rig = LiveRig;
         string text;
         // This computer's microphone needs no radio, so its sentence comes first.
         if (SelectedMethod == AudioCheckListenMethods.ComputerMic) text = AudioCheckMethods.About(SelectedMethod);
-        else if (rig == null) text = Lexicon.Get("audio.no_radio_connected") + ".";
         // An off-air take's own sentence (preparing, recording, its result)
-        // takes the line while Off the air is chosen.
-        else if (SelectedMethod == AudioCheckListenMethods.OffAir && _offAirStatus.Length > 0) text = _offAirStatus;
+        // takes the line while Off the air is chosen; after a Disconnect, only
+        // a take still finishing on the departed radio keeps it.
+        else if (SelectedMethod == AudioCheckListenMethods.OffAir && _offAirStatus.Length > 0
+                 && (rig != null || (RigHasDeparted && OffAirTakeKeepsItsLines(_offAirStatusAfterDeparture))))
+            text = _offAirStatus;
+        else if (rig == null) text = Lexicon.Get("audio.no_radio_connected") + ".";
         else text = AudioCheckMethods.About(SelectedMethod);
         if (_methodStatus.Text == text) return;
         _methodStatus.Text = text;
@@ -1412,11 +1417,17 @@ public partial class CheckYourAudioDialog
         // The computer microphone method's reading is its own words, not the
         // radio's mic meter, which knows nothing about a check that keyed nothing.
         if (ShowingComputerMicReading()) return;
-        var rig = _rig;
+        // The live radio (#1043 F1): a departed radio's meter is not read.
+        var rig = LiveRig;
         string text;
         if (rig == null)
         {
             text = "Mic audio: no radio connected";
+            // An off-air take still finishing on a departed radio keeps its
+            // measurements beside its status line.
+            if (RigHasDeparted && SelectedMethod == AudioCheckListenMethods.OffAir && _offAirReading.Length > 0
+                && OffAirTakeKeepsItsLines(_offAirReadingAfterDeparture))
+                text += Environment.NewLine + _offAirReading;
         }
         else
         {
