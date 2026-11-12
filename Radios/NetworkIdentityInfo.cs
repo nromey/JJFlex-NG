@@ -240,8 +240,11 @@ namespace Radios
         /// dialog shows them. A row a SmartLink list carries, not connected,
         /// shows what the list says about reaching it, or, when its numbers
         /// have not reached the picker, says it is listed and that they have
-        /// not arrived; a row nothing has asked SmartLink about yet says only
-        /// that; a row the asked lists answered without says SmartLink does
+        /// not arrived; a row with no current SmartLink listing confirmed (a
+        /// check not started or still pending, no usable session, or discovery
+        /// still settling) says only that, withholding a verdict rather than
+        /// claiming nothing was asked; a row the asked lists answered without
+        /// says the SmartLink accounts checked do
         /// not list it; and a row last seen on SmartLink gives what the list
         /// said when SmartLink last listed it, in the past tense. Nothing here probes anything: the list's numbers are
         /// the address the radio is handing out, which no port probe can stand
@@ -359,8 +362,10 @@ namespace Radios
         LastListed,
 
         /// <summary>
-        /// Nothing has asked SmartLink about the radio yet, or the answer has
-        /// not arrived: the card says neither that a list carries it nor that
+        /// No current SmartLink listing is confirmed for the radio: a check not
+        /// started or still pending, no usable session, or discovery still
+        /// settling, and some accounts may already have answered. The card
+        /// withholds a verdict, saying neither that a list carries it nor that
         /// none does.
         /// </summary>
         NotAsked,

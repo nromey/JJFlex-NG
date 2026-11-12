@@ -29,7 +29,7 @@ namespace JJFlexWpf.Tests;
 [Collection("TuneDoors")]
 public sealed class CallsignDoorsTests : IDisposable
 {
-    private const string NoCall = "No callsign entered, so nothing was transmitted. Enter yours in the Radio menu, under Operators.";
+    private const string NoCall = "This command requires an operator callsign. Enter yours in the Radio menu, under Operators.";
     private const BindingFlags Any = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
 
     private readonly FlexBase _rig = new(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });

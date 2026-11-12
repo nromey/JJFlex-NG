@@ -1015,8 +1015,9 @@ namespace Radios.Tests
                 // the application reports. The unanswered-check line is Radio
                 // Setup's step 2 status text, read where it stands; it is set
                 // as the text and not spoken by the application. The status
-                // line is Noel's own sentence (2026-10-02); the title is a
-                // DRAFT after his example of the shape.
+                // line is Noel's own sentence (2026-10-02); the title follows
+                // his example of the shape, and Codex's words round of
+                // 2026-11-11 kept it as it is.
                 "connect.smartlink.not_in_list_title",
                 "settings.radio.register.check_unanswered",
                 // Junk box 2026-11-09, second batch: the Fix tool's transmitter
@@ -1209,12 +1210,13 @@ namespace Radios.Tests
                 // Junk box 2026-11-08 (#911): push to talk or the lock refused
                 // while another station transmits on the radio. DRAFT PROSE.
                 "audio.ptt.another_station_transmitting",
-                // Junk box 2026-11-11, batch 7 (#210): the test tone going out
-                // in a session whose microphone could not be opened, said once
-                // per connection. Written here, so classified (#720). delivery
-                // null like audio.ptt.systemwide_held_too_long above: the call
-                // site decides its delivery (queued, Terse, its own subject).
-                // DRAFT PROSE.
+                // Junk box 2026-11-11, batch 7 (#210): the test tone started on
+                // its own source in a session whose microphone could not be
+                // opened, said once per connection. A local start, not proof
+                // that audio reached the radio. Written here, so classified
+                // (#720). delivery null like audio.ptt.systemwide_held_too_long
+                // above: the call site decides its delivery (queued, Terse, its
+                // own subject). Worded by Codex.
                 "audio.mic.tone_without_microphone",
                 // Junk box 2026-11-11, batch 7 (#595): the alarm journal line on
                 // Settings, Diagnostics. Displayed status, never spoken by the
@@ -1252,28 +1254,29 @@ namespace Radios.Tests
                 // Junk box batch 5 (2026-11-10), #1043 F3: a band jump or a
                 // 60 m channel stop refused on a locked slice, or while the
                 // radio is transmitting, names that cause. Said only in answer
-                // to the operator's own press: TextOnly. DRAFT PROSE.
+                // to the operator's own press: TextOnly. Worded by Codex.
                 "settings.tuning.refused_slice_locked",
                 "settings.tuning.refused_transmitting",
                 // Junk box batch 5, #1043 F4: a choice under Profiles on This
                 // Radio that could not be saved, said in place of its receipt.
                 // Said only in answer to the operator's choice: TextOnly.
-                // DRAFT PROSE.
+                // Worded by Codex.
                 "settings.profile_guest.not_saved",
                 // Junk box batch 5, #398: the radio picker's Network identity
                 // card for a highlighted radio that is not connected. Card
                 // text, read only when the operator reads the card: TextOnly.
-                // DRAFT PROSE.
+                // Worded by Codex.
                 "connect.identity.listed_not_connected",
                 "connect.identity.not_listed",
                 // Repair one: a listed radio whose numbers have not reached
-                // the picker. TextOnly, DRAFT PROSE.
+                // the picker. TextOnly, worded by Codex.
                 "connect.identity.listed_ports_not_arrived",
-                // Repair two: a radio nothing has asked SmartLink about yet.
-                // TextOnly, DRAFT PROSE.
+                // Repair two: a radio with no current SmartLink listing
+                // confirmed, a verdict withheld rather than proof that nothing
+                // was asked. TextOnly, worded by Codex.
                 "connect.identity.not_asked",
                 // Repair two: a radio last seen on SmartLink, in the past
-                // tense. TextOnly, DRAFT PROSE.
+                // tense. TextOnly, wording approved by Noel (J10).
                 "connect.identity.last_listed",
                 "connect.identity.last_listed_ports_not_arrived",
                 // Junk box batch 9 (2026-11-11), #405 J6: a Radio Associations
@@ -2447,7 +2450,8 @@ namespace Radios.Tests
                 "settings.pan.moved_to_audio_layer",
                 // Junk box 2026-11-09 (#335): no callsign, no transmit. The one
                 // sentence every refused key says, at every door and at the
-                // radio's keying chokepoints. DRAFT, awaiting Noel.
+                // radio's keying chokepoints. Worded by Codex 2026-11-11: it
+                // names the requirement, not what was or was not transmitted.
                 "settings.operators.no_callsign_transmit",
                 // Junk box 2026-11-09 (#480): the Audio Workshop's Reset asks
                 // before it writes the live transmit chain, as Delete Preset
@@ -2931,6 +2935,14 @@ namespace Radios.Tests
                 "audio.ptt.hold_limit_soon",
                 "audio.ptt.hold_limit_ending",
                 "audio.ptt.hold_limit_released",
+                // Junk box words round, batches 5 to 7 (2026-11-11): reworded
+                // by Codex, so they leave the manifest and are classified. The
+                // microphone-open failure is said by its own direct caller,
+                // which owns its delivery: TextOnly, like its tone sibling
+                // above. The silenced-messages label names the SmartLink radio
+                // list problem notice by its title: shown text, TextOnly.
+                "audio.mic.could_not_open",
+                "settings.silenced.register",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -2972,7 +2984,10 @@ namespace Radios.Tests
             // Two fewer (3052 to 3050): junk box #691 (2026-11-11, batch 6)
             // reworded and classified connect.smartlink.not_in_list_title and
             // settings.radio.register.check_unanswered.
-            Assert.Equal(3050, unclassified);
+            // Two fewer (3050 to 3048): the junk box words round for batches
+            // 5 to 7 (2026-11-11) reworded and classified audio.mic.could_not_open
+            // and settings.silenced.register.
+            Assert.Equal(3048, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
