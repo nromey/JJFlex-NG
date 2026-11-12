@@ -85,6 +85,7 @@ namespace JJFlexWpf
 
         public void Detach()
         {
+            RetireHelperNotice("the radio disconnected");
             _activeSlice = null;
             _live = null;
             _readingSlice = null;
@@ -112,6 +113,7 @@ namespace JJFlexWpf
             var g = NoiseModeRules.GroupOf(mode);
             var old = _group;
             if (old == g) return;
+            RetireHelperNotice("another mode group was entered");
             _group = g;
             var mem = Memory;
             var p = _pipeline();
@@ -201,6 +203,7 @@ namespace JJFlexWpf
             var p = _pipeline();
             var mem = Memory;
             if (p == null) return;
+            RetireHelperNotice("a mode group's starting point was applied");
             var changes = new List<NoiseJournalChange>();
             if (!onlyNeural && p.SpectralSlot.Enabled)
             {

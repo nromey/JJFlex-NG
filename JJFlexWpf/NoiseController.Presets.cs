@@ -113,6 +113,7 @@ namespace JJFlexWpf
             var phrases = new List<string>();
             if (preset.ReceiveNoise is { } noise)
             {
+                RetireHelperNotice("a noise preset was applied");
                 ApplySlot(p.SpectralSlot, noise.Spectral, changes, phrases);
                 ApplySlot(p.NeuralSlot, noise.Neural, changes, phrases);
                 if (_radio() is { } r)

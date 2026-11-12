@@ -210,6 +210,164 @@ public sealed class NoiseControllerTests
         return dir!.FullName;
     }
 
+    /// <summary>
+    /// Repair round 2, the live harness's R2-4 shape: a quick visit to CW queues
+    /// NNR's failure, and coming back to voice restores RNNoise. The queued
+    /// failure was about the old picture; it is retired when the group changes,
+    /// before the restore speaks, so it cannot be rescued behind "RNNoise on".
+    /// The same for a replacement, a selection that recovers, and the helper's
+    /// "back" sentence.
+    /// </summary>
+    [Fact]
+    public void A_queued_noise_notice_is_retired_once_the_slots_picture_it_described_changes()
+    {
+        // A mode group change.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.Attach("USB");
+            f.Noise.Toggle("rnnoise", "test");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Radio.Mode = "CW"; f.Noise.OnModeChanged("CW");
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", false, "helper missing") { SlotStopped = true });
+            Assert.Empty(f.Spoken.Retired);
+            int before = f.Spoken.Said.Count;
+            f.Radio.Mode = "USB"; f.Noise.OnModeChanged("USB");
+            Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.Contains(f.Spoken.Retired, r => r.Subject == SpeechSubject.NoiseHelperState);
+            Assert.True(f.Spoken.Said.Count > before);     // the restore still speaks
+        }
+
+        // A replacement, and a selection that now processes.
+        foreach (bool byResult in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Noise.Toggle("nnr", "test");
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", false, "helper missing") { SlotStopped = true });
+            if (byResult) f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", true));
+            else f.Noise.Toggle("rnnoise", "test");
+            Assert.Single(f.Spoken.Retired, r => r.Subject == SpeechSubject.NoiseHelperState);
+        }
+
+        // The helper's "back" sentence is owned the same way.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.OnHelperStateChanged(WdspHelperStateChange.BackAfterCap, new[] { "nnr" });
+            Assert.Contains(f.Spoken.Said.Count - 1, f.Spoken.SaidAfter);
+            f.Noise.Toggle("nr4", "test");
+            Assert.Single(f.Spoken.Retired, r => r.Subject == SpeechSubject.NoiseHelperState);
+        }
+
+        // Nothing queued: nothing is retired, so no other speech is ever touched.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.Toggle("rnnoise", "test");
+            f.Noise.Toggle("nr4", "test");
+            f.Radio.Mode = "CW"; f.Noise.OnModeChanged("CW");
+            Assert.Empty(f.Spoken.Retired);
+        }
+    }
+
+    // ── Repair round 2: Codex's real-arbiter probe, kept ──
+
+    /// <summary>
+    /// The real SpeechArbiter, isolated behind an inert sink: no screen reader,
+    /// no process-wide speech state, no window, sound or radio. Reflection
+    /// reaches the arbiter so production needs no InternalsVisibleTo for a test.
+    /// </summary>
+    private sealed class SilentArbiterSpeaker : INoiseSpeaker
+    {
+        private readonly object _arbiter;
+        private readonly Type _type;
+        private long _ticket;
+        public readonly System.Collections.Concurrent.ConcurrentQueue<(string Text, bool Interrupt, bool Salvaged)> Calls = new();
+        public VerbosityLevel Verbosity => VerbosityLevel.Chatty;
+        public readonly System.Threading.ManualResetEventSlim Replayed = new(false);
+
+        public SilentArbiterSpeaker()
+        {
+            var assembly = typeof(ScreenReaderOutput).Assembly;
+            _type = assembly.GetType("Radios.Speech.SpeechArbiter")!;
+            var ctor = _type.GetConstructors().Single();
+            var sinkType = ctor.GetParameters()[2].ParameterType;
+            var invoke = sinkType.GetMethod("Invoke")!;
+            var parameters = invoke.GetParameters().Select(p => System.Linq.Expressions.Expression.Parameter(p.ParameterType, p.Name)).ToArray();
+            var ticket = System.Linq.Expressions.Expression.Call(System.Linq.Expressions.Expression.Constant(this),
+                typeof(SilentArbiterSpeaker).GetMethod(nameof(Sink))!, parameters[0], parameters[1], parameters[5]);
+            var handoff = System.Linq.Expressions.Expression.Call(invoke.ReturnType.GetMethod("TrackedAs",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public)!, ticket);
+            var sink = System.Linq.Expressions.Expression.Lambda(sinkType, handoff, parameters).Compile();
+            var clock = Activator.CreateInstance(assembly.GetType("Radios.Speech.SystemSpeechClock")!);
+            _arbiter = ctor.Invoke(new object?[] { clock, (Func<VerbosityLevel>)(() => Verbosity), sink,
+                (Action)(() => { }), (Action<string, VerbosityLevel, SpeechIntent?, string?>)((_, _, _, _) => { }), null, null, null });
+        }
+
+        public long Sink(string text, bool interrupt, bool salvaged)
+        {
+            Calls.Enqueue((text, interrupt, salvaged));
+            if (salvaged) Replayed.Set();
+            return System.Threading.Interlocked.Increment(ref _ticket);
+        }
+
+        public void Say(string text, string subject, VerbosityLevel level) => Emit(text, subject, level, true);
+        public void SayAfter(string text, string subject, VerbosityLevel level) => Emit(text, subject, level, false);
+        public void Retire(string subject, string why) => _type.GetMethod("Supersede")!.Invoke(_arbiter, new object?[] { subject, why, "noise test" });
+        private void Emit(string text, string subject, VerbosityLevel level, bool interrupt) =>
+            _type.GetMethod("Emit")!.Invoke(_arbiter, new object?[] { text, interrupt,
+                interrupt ? SpeechIntent.Latest : SpeechIntent.Queue, level, "noise test", subject, false });
+        public void Dispose() => _type.GetMethod("DiscardAll")!.Invoke(_arbiter, null);
+    }
+
+    [Fact]
+    public void A_queued_failure_is_not_rescued_after_a_successful_engine_change_through_the_real_arbiter()
+    {
+        using var f = new NoiseFixture();
+        var speaker = new SilentArbiterSpeaker();
+        typeof(NoiseController).GetField("_speaker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(f.Noise, speaker);
+        try
+        {
+            f.Noise.Attach("USB");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Noise.Toggle("nnr", "test");
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural,
+                "nnr", false, "helper missing") { SlotStopped = true });
+            string failure = Lexicon.Get("audio.noise_surface.start_failed", VerbosityLevel.Chatty);
+            Assert.Contains(speaker.Calls, c => c.Text == failure && !c.Interrupt && !c.Salvaged);
+            f.Noise.Toggle("rnnoise", "test");
+            f.Settle();
+            Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.RunningEngineId);
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "rnnoise", true));
+            speaker.Replayed.Wait(2500);
+            Assert.DoesNotContain(speaker.Calls, c => c.Text == failure && c.Salvaged);
+        }
+        finally { speaker.Dispose(); }
+    }
+
+    /// <summary>The instrument's positive control (Codex's): without a retirement, the real arbiter DOES rescue a queued sentence after an interrupt on another subject.</summary>
+    [Fact]
+    public void The_real_arbiter_rescues_an_unretired_queued_notice_and_drops_a_retired_one()
+    {
+        var kept = new SilentArbiterSpeaker();
+        try
+        {
+            kept.SayAfter("old helper state", SpeechSubject.NoiseHelperState, VerbosityLevel.Terse);
+            kept.Say("engine running", SpeechSubject.NoiseEngineSwitch, VerbosityLevel.Terse);
+            Assert.True(kept.Replayed.Wait(2500), "the arbiter never rescued the unretired notice, so this instrument cannot see the defect");
+        }
+        finally { kept.Dispose(); }
+
+        var retired = new SilentArbiterSpeaker();
+        try
+        {
+            retired.SayAfter("old helper state", SpeechSubject.NoiseHelperState, VerbosityLevel.Terse);
+            retired.Retire(SpeechSubject.NoiseHelperState, "positive control");
+            retired.Say("engine running", SpeechSubject.NoiseEngineSwitch, VerbosityLevel.Terse);
+            retired.Replayed.Wait(900);
+            Assert.DoesNotContain(retired.Calls, c => c.Salvaged);
+        }
+        finally { retired.Dispose(); }
+    }
+
     [Fact]
     public void An_ordinary_swap_journals_both_engines_and_a_start_with_nothing_replaced_journals_one()
     {

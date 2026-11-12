@@ -45,6 +45,9 @@ internal sealed class NoiseFixture : IDisposable
         /// <summary>The sentences said after what was being said rather than over it (<see cref="INoiseSpeaker.SayAfter"/>), by their index in <see cref="Said"/>.</summary>
         public HashSet<int> SaidAfter { get; } = new();
         public void SayAfter(string text, string subject, VerbosityLevel level) { SaidAfter.Add(Said.Count); Said.Add((text, subject, level)); }
+        /// <summary>Every subject the controller declared obsolete (<see cref="INoiseSpeaker.Retire"/>), with its reason.</summary>
+        public List<(string Subject, string Why)> Retired { get; } = new();
+        public void Retire(string subject, string why) => Retired.Add((subject, why));
         public string Last => Said.Count == 0 ? "" : Said[^1].Text;
         public void Clear() { Said.Clear(); SaidAfter.Clear(); }
     }

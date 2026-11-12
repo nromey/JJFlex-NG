@@ -29,6 +29,16 @@ namespace JJFlexWpf
         /// <see cref="Say"/> for a speaker with no queue.
         /// </summary>
         void SayAfter(string text, string subject, VerbosityLevel level) => Say(text, subject, level);
+
+        /// <summary>
+        /// Declare that whatever is still unheard on <paramref name="subject"/>
+        /// is obsolete, so it is neither delivered late nor rescued after the
+        /// next interrupt (repair round 2: a queued "could not start" outlived
+        /// the selection it was about and was spoken 624 ms after "RNNoise on").
+        /// <paramref name="why"/> is trace prose. A speaker with no queue has
+        /// nothing to retire.
+        /// </summary>
+        void Retire(string subject, string why) { }
     }
 
     /// <summary>The app's speaker: the screen reader, keyed by subject so a newer noise sentence covers an unheard older one.</summary>
@@ -39,6 +49,7 @@ namespace JJFlexWpf
             ScreenReaderOutput.Speak(text, SpeechIntent.Latest, level, subject: subject);
         public void SayAfter(string text, string subject, VerbosityLevel level) =>
             ScreenReaderOutput.Speak(text, SpeechIntent.Queue, level, subject: subject);
+        public void Retire(string subject, string why) => ScreenReaderOutput.Supersede(subject, why);
     }
 
     /// <summary>A delay the controller waits before acting (the settle before an engine field applies; the check for a sibling the radio switched off).</summary>
@@ -299,6 +310,30 @@ namespace JJFlexWpf
         {
             if (string.IsNullOrWhiteSpace(text) || _quiet > 0) return;
             _speaker.SayAfter(text, subject, level);
+            if (subject == SpeechSubject.NoiseHelperState) _helperNoticeOwed = true;
+        }
+
+        /// <summary>
+        /// Whether a slot's or the helper's unasked notice (a failed start, the
+        /// helper's cap, the helper back) may still be unheard. Such a notice is
+        /// about ONE picture of the slots; it is retired the moment that picture
+        /// changes (repair round 2).
+        /// </summary>
+        private bool _helperNoticeOwed;
+
+        /// <summary>
+        /// The slots' picture changed (an engine chosen, swapped or turned off, a
+        /// selection that now processes, a mode group entered, a preset, Escape, a
+        /// disconnect): a queued notice about the old picture is obsolete. Called
+        /// before the change's own sentence, so the interrupt that sentence makes
+        /// cannot rescue the old notice behind it. Never silences anything else.
+        /// </summary>
+        private void RetireHelperNotice(string why)
+        {
+            if (!_helperNoticeOwed) return;
+            _helperNoticeOwed = false;
+            _speaker.Retire(SpeechSubject.NoiseHelperState, why);
+            System.Diagnostics.Trace.WriteLine("NoiseController: retired the queued noise notice (" + why + ")");
         }
 
         private bool Chatty => _speaker.Verbosity >= VerbosityLevel.Chatty;
@@ -431,6 +466,7 @@ namespace JJFlexWpf
         {
             var slot = SlotFor(e);
             if (slot == null) { NoRadio(); return; }
+            RetireHelperNotice("a computer noise engine turned off");
             slot.Enabled = false;
             NoiseSettingsJournal.Record(NoiseJournalKind.Switch, source, e.Id, "", "on", "off");
             RememberModeState();
@@ -453,6 +489,7 @@ namespace JJFlexWpf
                 return null;
             }
             string? replaced = slot.Enabled && slot.ChosenEngineId != e.Id && slot.ChosenEngineId.Length > 0 ? slot.ChosenEngineId : null;
+            RetireHelperNotice("a computer noise engine was chosen");
             if (model != null) SetModelQuietly(e, slot, model);
             ApplyModeRulesForChoice(e, slot, speak);
             slot.Select(e.Id, out _);
@@ -634,6 +671,7 @@ namespace JJFlexWpf
         {
             var p = _pipeline();
             if (p == null) { NoRadio(); return; }
+            RetireHelperNotice("the computer's noise engines were switched off or back");
             var on = new List<(DenoiseFamily, string)>();
             if (p.SpectralSlot.Enabled) on.Add((DenoiseFamily.Spectral, p.SpectralSlot.ChosenEngineId));
             if (p.NeuralSlot.Enabled) on.Add((DenoiseFamily.Neural, p.NeuralSlot.ChosenEngineId));
@@ -684,7 +722,9 @@ namespace JJFlexWpf
         /// </summary>
         public void OnSelectionResult(DenoiseSelectionResult result)
         {
-            if (result.Processing || !result.SlotStopped) return;
+            // A selection that now processes makes an earlier failure untrue (repair round 2).
+            if (result.Processing) { RetireHelperNotice("a noise engine started processing"); return; }
+            if (!result.SlotStopped) return;
             // Queued behind whatever is being said (repair round 1): on every
             // refusal path that still puts an engine in the slot, the refusal
             // and its replaced-engine clause are spoken first and this follows,
