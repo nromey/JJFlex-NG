@@ -225,7 +225,7 @@
             </TabItem>
 
             <!-- Tuning Tab -->
-            <TabItem Header="Tuning" AutomationProperties.Name="Tuning settings">
+            <TabItem Header="Tuning" AutomationProperties.Name="Tuning">
                 <StackPanel Margin="8">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -305,7 +305,7 @@
             </TabItem>
 
             <!-- License Tab -->
-            <TabItem Header="License" AutomationProperties.Name="License settings">
+            <TabItem Header="License" AutomationProperties.Name="License">
                 <StackPanel Margin="8">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -351,7 +351,7 @@
             </TabItem>
 
             <!-- Audio Tab (merged: alerts, meters, master volume) -->
-            <TabItem Header="Audio" AutomationProperties.Name="Audio settings">
+            <TabItem Header="Audio" AutomationProperties.Name="Audio">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <!-- Master Volume -->
@@ -690,7 +690,7 @@
                 </ScrollViewer>
             </TabItem>
             <!-- Network Tab (SmartLink port forwarding) -->
-            <TabItem Header="Network" AutomationProperties.Name="Network and SmartLink settings">
+            <TabItem Header="Network" AutomationProperties.Name="Network">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <GroupBox Header="SmartLink Port Forwarding (Tier 1)" Margin="0,4,0,8"
@@ -1283,7 +1283,7 @@
                  order, and re-run a single step without walking a whole flow
                  again. Steps that are already satisfied say so, so the tab
                  doubles as a status board. -->
-            <TabItem Header="Radio Setup" AutomationProperties.Name="Radio setup checklist">
+            <TabItem Header="Radio Setup" AutomationProperties.Name="Radio Setup">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
@@ -2084,7 +2084,7 @@
                  keys, deep-links here, and so does the Keys dialog from a
                  system-wide row. -->
             <TabItem Header="System-wide keys"
-                     AutomationProperties.Name="System-wide keys settings">
+                     AutomationProperties.Name="System-wide keys">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="8" Loaded="SystemWideKeysPanel_Loaded">
                         <ContentControl x:Name="SystemWideKeysHost" Focusable="False"/>
@@ -2172,7 +2172,7 @@
                     stall is indistinguishable from a hang to someone who cannot
                     see a spinner. -->
             <TabItem Header="Diagnostics"
-                     AutomationProperties.Name="Diagnostics, diagnostic log and problem reporting settings">
+                     AutomationProperties.Name="Diagnostics">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8"
                             Loaded="DiagnosticsPanel_Loaded"

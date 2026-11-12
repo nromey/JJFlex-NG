@@ -1,0 +1,1 @@
+- DRAFT (for Codex): Every Settings category now has one name, shown on screen and spoken by your screen reader alike. Tuning, License, Audio, Network, Radio Setup, System-wide keys and Diagnostics no longer add longer words when you arrow to them.

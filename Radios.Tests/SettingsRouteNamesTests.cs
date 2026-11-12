@@ -42,7 +42,7 @@ namespace Radios.Tests
                 Assert.Contains(tabs, t => t.Header == header && t.Name == name);
 
             // And every category: its spoken name begins with what it shows
-            // (case aside: "Radio Setup" is announced "Radio setup checklist").
+            // (case aside, though since the six of 2026-11-12 every one matches exactly).
             var off = tabs.Where(t => t.Name != null && !t.Name.StartsWith(t.Header, StringComparison.OrdinalIgnoreCase))
                 .Select(t => "\"" + t.Header + "\" is announced \"" + t.Name + "\"").ToList();
             Assert.True(off.Count == 0, string.Join("; ", off));
@@ -50,6 +50,78 @@ namespace Radios.Tests
             // The old words are gone as headers.
             foreach (string old in new[] { "Radios", "Notifications", "Updates", "Accessibility" })
                 Assert.DoesNotContain(tabs, t => t.Header == old);
+        }
+
+        /// <summary>
+        /// #1068, ruled by Noel 2026-11-12 08:04 (J2): EVERY category shows the
+        /// name NVDA says, one name, kept to about the length of "Diagnostic
+        /// settings"; where the spoken name was longer it is shortened. Batch
+        /// 10 did five; this is the rest: Tuning, License, Network, Radio Setup,
+        /// System-wide keys, Diagnostics, and Audio, which the ruling's "every"
+        /// covers though the list it was asked from left it out. The names
+        /// today are DRAFTS (the shortest true one, the word already on screen);
+        /// Codex writes the final six or seven, and this test holds whatever it
+        /// writes to one name per category.
+        /// </summary>
+        [Fact]
+        public void Every_settings_category_shows_exactly_the_name_it_is_announced_by()
+        {
+            var tabs = Categories();
+            var off = tabs.Where(t => t.Name != null && !string.Equals(t.Header, t.Name, StringComparison.Ordinal))
+                .Select(t => "\"" + t.Header + "\" is announced \"" + t.Name + "\"").ToList();
+            Assert.True(off.Count == 0, string.Join("; ", off));
+        }
+
+        /// <summary>The spoken names the 2026-11-12 ruling shortened, which no route may still say once they are gone.</summary>
+        internal static readonly string[] FormerSpokenNames =
+        {
+            "Tuning settings",
+            "License settings",
+            "Audio settings",
+            "Network and SmartLink settings",
+            "Radio setup checklist",
+            "System-wide keys settings",
+            "Diagnostics, diagnostic log and problem reporting settings",
+        };
+
+        [Fact]
+        public void No_route_names_a_category_by_a_spoken_name_it_no_longer_has()
+        {
+            var current = new HashSet<string>(Categories().Select(t => t.Name ?? t.Header), StringComparer.OrdinalIgnoreCase);
+            var gone = FormerSpokenNames.Where(n => !current.Contains(n)).ToList();
+            Assert.NotEmpty(gone);
+            var found = new List<string>();
+            foreach (string file in Directory.GetFiles(Path.Combine(Root, "Radios", "Lexicon"), "*.json")
+                .Concat(Directory.GetFiles(Path.Combine(Root, "JJFlexWpf"), "*.*", SearchOption.AllDirectories)
+                    .Where(f => (f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+                             && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)
+                             && !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar))))
+            {
+                string[] lines = File.ReadAllLines(file);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    string line = lines[i].TrimStart();
+                    if (line.StartsWith("//", StringComparison.Ordinal) || line.StartsWith("\"_note", StringComparison.Ordinal)) continue;
+                    foreach (Match lit in Regex.Matches(lines[i], "\"[^\"]*\""))
+                        if (gone.Any(n => lit.Value.IndexOf(n, StringComparison.Ordinal) >= 0))
+                        {
+                            found.Add(Path.GetRelativePath(Root, file) + ":" + (i + 1) + "  " + lines[i].Trim());
+                            break;
+                        }
+                }
+            }
+            Assert.True(found.Count == 0, found.Count + " string(s) name a Settings category by a spoken name it no longer has: " + string.Join("; ", found));
+        }
+
+        private static List<(string Header, string? Name)> Categories()
+        {
+            string xaml = File.ReadAllText(Path.Combine(Root, "JJFlexWpf", "Dialogs", "SettingsDialog.xaml"));
+            var tabs = Regex.Matches(xaml, @"<TabItem\s+Header=""([^""]+)""(?:\s+AutomationProperties\.Name=""([^""]+)"")?")
+                .Select(m => (Header: m.Groups[1].Value, Name: m.Groups[2].Success ? (string?)m.Groups[2].Value : null))
+                .ToList();
+            Assert.True(tabs.Count >= 12, "only " + tabs.Count + " categories were read");
+            Assert.DoesNotContain(tabs, t => t.Name == null);
+            return tabs;
         }
 
         /// <summary>A category named in a route by a word that is not its name.</summary>
