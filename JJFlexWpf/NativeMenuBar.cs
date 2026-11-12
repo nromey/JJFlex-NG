@@ -4471,11 +4471,13 @@ public class NativeMenuBar : IDisposable
     /// carries the scope correction: an operator who arrived here after
     /// releasing one slice is about to store the entire station.</para>
     ///
-    /// <para>No suppressKey. A "don't show again" on this one would remove the
-    /// only place the target profile is ever named, which is precisely the
-    /// knowledge gap this exists to close — and the dialog's own rule is that
-    /// suppression is for teaching text whose outcome is re-readable
-    /// elsewhere. This outcome is not.</para>
+    /// <para>The explanation can be hidden with "don't show again"
+    /// (<c>AdvisoryKeys.StationSaveExplanation</c>, #776, junk box batch 8).
+    /// Hidden, the save happens at once and its receipt, which names the
+    /// target profile, is still said, so the profile is never left unnamed;
+    /// both guards still run first; and Silenced Messages brings the
+    /// explanation back. Per Windows user for now, like every "don't show
+    /// again" (#1073 moves them all to per operator).</para>
     ///
     /// <para>The refusal path speaks the blocker instead of greying the item
     /// out. Settings are intents: the operator asked a reasonable question and

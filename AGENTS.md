@@ -204,6 +204,9 @@ because it reads like protection.
   output. `CLAUDE.md` explains why and how.
 - If a restore needs the network and your sandbox has none, report it. Do not
   switch the sandbox off.
+- `Radios.Tests`' FixerPageForReview writes to `C:\temp\fixer` by design. In a
+  sandbox that denies that path it fails with a message saying so; that one
+  failure is environmental, not a defect in the work under review.
 
 ## When your brief is to check Claude's work
 
