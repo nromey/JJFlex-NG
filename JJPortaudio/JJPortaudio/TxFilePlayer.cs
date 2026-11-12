@@ -316,17 +316,18 @@ namespace JJPortaudio
             if (_samples.Length == 0) return;
             int s = _state;
             if (s == StMicFadeOut || s == StFileFadeIn || s == StFile) return;
-            // From held silence, its final fade included, there is no
-            // microphone to fade out: it is already off the encoder, and
-            // ramping it would let it back in at full level. Asked before the
-            // hold below is overwritten.
-            bool fromHeldSilence = HoldsReferenceEnd(s);
+            // From any file fade (a send's or a disarm's as well as a held
+            // reference's), and from held silence, there is no microphone to
+            // fade out: it is already off the encoder, and ramping it would
+            // let it back in at full level for 10 ms. Asked before the hold
+            // below is overwritten.
+            bool micOffTheEncoder = s == StFileFadeOut || HoldsReferenceEnd(s);
             _holdSilenceAtEnd = holdSilenceAtEnd;
             _pos = 0.0;
             _reachedEnd = false;
             _playedFrames = 0;
             _fade = 0f;
-            _state = fromHeldSilence ? StFileFadeIn : StMicFadeOut;
+            _state = micOffTheEncoder ? StFileFadeIn : StMicFadeOut;
         }
 
         /// <summary>Keep an armed source engaged but begin its next keyed pass at the start.</summary>
