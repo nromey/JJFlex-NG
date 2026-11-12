@@ -115,6 +115,21 @@ namespace Radios
             catch (Exception ex)
             {
                 Tracing.TraceLine("PanAdapterManager getConfig error:" + ex.Message, TraceLevel.Error);
+                // An unreadable file starts this operator from the defaults,
+                // never from whatever the previous operator left here: after an
+                // operator switch that would be the previous operator's
+                // settings, which the next save then writes into this
+                // operator's folder. The file is set aside rather than written
+                // over, as the filter presets do.
+                OpsConfigInfo = new ConfigInfo();
+                if (configFile != null) { configFile.Dispose(); configFile = null; }
+                if (ConfigFilename != null && File.Exists(ConfigFilename))
+                {
+                    string kept = UnreadableSettingsFile.SetAside(ConfigFilename);
+                    Tracing.TraceLine("PanAdapterManager: " + ConfigFilename + " could not be read; this operator starts from the default pan settings"
+                        + (kept != ConfigFilename ? ", and the unreadable file is kept as " + kept : ", and the unreadable file could not be set aside"),
+                        TraceLevel.Warning);
+                }
             }
             finally
             {
