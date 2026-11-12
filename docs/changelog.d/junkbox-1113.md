@@ -1,1 +1,1 @@
-- DRAFT (for Codex): The offer to save your setup to the radio when you disconnect is now set separately for each operator, and the box on that question now reads "Don't ask when I disconnect". Operators who were already set up when you installed this version keep the setting they had.
+- The offer to save your setup to the radio when you disconnect is now a separate choice for each operator. I've kept the previous choice for existing operators; new or renamed operators start with the offer turned off.

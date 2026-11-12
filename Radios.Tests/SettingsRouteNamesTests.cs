@@ -58,10 +58,10 @@ namespace Radios.Tests
         /// settings"; where the spoken name was longer it is shortened. Batch
         /// 10 did five; this is the rest: Tuning, License, Network, Radio Setup,
         /// System-wide keys, Diagnostics, and Audio, which the ruling's "every"
-        /// covers though the list it was asked from left it out. The names
-        /// today are DRAFTS (the shortest true one, the word already on screen);
-        /// Codex writes the final six or seven, and this test holds whatever it
-        /// writes to one name per category.
+        /// covers though the list it was asked from left it out. The names are
+        /// the shortest true ones, the word already on screen, and Codex kept
+        /// all seven as final (2026-11-12). This test holds every category to
+        /// one name, whatever it is later changed to.
         /// </summary>
         [Fact]
         public void Every_settings_category_shows_exactly_the_name_it_is_announced_by()

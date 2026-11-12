@@ -2750,7 +2750,7 @@ public class NativeMenuBar : IDisposable
             {
                 BuildATUItems(antSub);
                 AddSep(antSub);
-                AddWired(antSub, "ATU Tune\tCtrl+T", () =>
+                AddWired(antSub, "Start tune\tCtrl+T", () =>
                 {
                     if (Rig?.FlexTunerOn == false && ZeroPowerDoors.RefuseTunePress(Rig, "the ATU menu", afterMenu: true)) return;
                     _window.StartATUTuneCycle();

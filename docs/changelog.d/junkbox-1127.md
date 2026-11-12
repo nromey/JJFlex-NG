@@ -1,1 +1,1 @@
-- DRAFT (for Codex): When your antenna tuner is not on automatic (after a failed tune, when it is bypassed, or on a radio without one), Control T now tells you it is sending a tune carrier instead of saying the tuner is tuning. On a radio without an antenna tuner, Control T now sends a tune carrier instead of saying there is no tuner.
+- DRAFT (for Codex): Ctrl+T now requests a tune carrier on radios without a built-in tuner, and tells you when it requests a carrier rather than an automatic tune.

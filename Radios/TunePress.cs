@@ -2,7 +2,7 @@
 
 namespace Radios
 {
-    /// <summary>What a press of the tune key (Ctrl+T, or ATU Tune on the menu) does, by tuner state.</summary>
+    /// <summary>What a press of the tune key (Ctrl+T, or Start tune on the menu) does, by tuner state.</summary>
     public enum TunePressOutcome
     {
         /// <summary>The radio's ATU runs a tune cycle (automatic type). Unchanged by #1127.</summary>

@@ -562,8 +562,8 @@ public class KeyCommands
                 "Toggle tune carrier on or off", "Tune carrier", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "tune", "carrier", "toggle", "cw", "manual" }, ShortActionLabel = "toggle tune" },
             new(CommandValues.ATUTune, KeyTypes.Command, ATUTuneHandler,
-                "Start ATU tune cycle", "ATU Tune", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "atu", "tune", "antenna", "tuner", "auto", "match", "swr" }, ShortActionLabel = "start ATU tune" },
+                "Request a tune cycle or carrier", "Start tune", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "atu", "tune", "antenna", "tuner", "auto", "match", "swr", "carrier" }, ShortActionLabel = "request a tune" },
             // Ctrl+M shows the panel and nothing else. It used to ALSO switch
             // meter tones on, which is why this once read "toggle meter tones"
             // — see #126. The tone switch is Toggle Meter Tones, on Ctrl+J
