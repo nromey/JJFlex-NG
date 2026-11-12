@@ -1,0 +1,1 @@
+- Your microphone no longer cuts in when you start sending a recording while the previous one is still fading out.

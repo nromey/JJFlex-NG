@@ -2308,8 +2308,12 @@ namespace Radios
         /// is true or it will report a fault every single time the operator
         /// tunes up.</para>
         /// <para>Read live from the radio rather than from
-        /// <see cref="FlexTunerOn"/>, which is a latch set by our own code and
-        /// is known to stick true when the tuner is bypassed.</para>
+        /// <see cref="FlexTunerOn"/>, which is a latch set by our own code, not
+        /// the radio's report. In automatic type it is cleared only by a
+        /// change in the tuner's status to one that ends a tune
+        /// (<see cref="AtuStatusEndsTheTune"/>), so a cycle the radio answers
+        /// without such a change, or one that times out, leaves it set; out of
+        /// automatic type it follows the tune carrier down.</para>
         /// </summary>
         public bool ATUTuneInProgress => theRadio?.ATUTuneStatus == ATUTuneStatus.InProgress;
 
@@ -5148,41 +5152,26 @@ namespace Radios
                         if (originalATUStatus == ATUTuneStatus.None) originalATUStatus = r.ATUTuneStatus;
                         RaiseFlexAntTuneStartStop(new FlexAntTunerArg
                             (_FlexTunerType, r.ATUTuneStatus, _SWR));
+                        // One rule for which statuses end the tune (FlexBase.AtuTuneEnd.cs).
+                        // FailBypass and ManualBypass left the latch set until then, so the
+                        // next tune press sent nothing. In automatic mode clearing the latch
+                        // also queues our unkey.
+                        if (_FlexTunerOn && AtuStatusEndsTheTune(theRadio.ATUTuneStatus)) FlexTunerOn = false;
                         switch (theRadio.ATUTuneStatus)
                         {
-                            case ATUTuneStatus.NotStarted:
-                                // turn off tuning.
-                                FlexTunerOn = false;
-                                break;
-                            case ATUTuneStatus.Aborted:
-                                // turn off tuning.
-                                FlexTunerOn = false;
-                                break;
-                            case ATUTuneStatus.InProgress:
-                                // nothing to do here.
-                                break;
                             case ATUTuneStatus.Bypass:
-                                // stop tuning if tuning
-                                if (_FlexTunerOn) FlexTunerOn = false;
                                 // Turn off autoTune.
                                 setFlexTunerTypeNotAuto();
                                 break;
-                            case ATUTuneStatus.ManualBypass:
-                                // Nothing to do
-                                break;
-                            case ATUTuneStatus.Successful:
-                            case ATUTuneStatus.OK:
-                                FlexTunerOn = false;
-                                break;
                             case ATUTuneStatus.Fail:
-                                FlexTunerOn = false;
                                 // bypass the tuner
                                 theRadio.ATUTuneBypass(); // will get manualBypass status
                                                           // Turn autotune off
                                 setFlexTunerTypeNotAuto();
                                 break;
                             case ATUTuneStatus.FailBypass:
-                                // nothing to do
+                                // The radio has bypassed the tuner itself: no bypass
+                                // command, and the tuner type is left as it is.
                                 break;
                         }
                     }

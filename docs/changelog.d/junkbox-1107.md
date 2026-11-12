@@ -1,0 +1,1 @@
+- When you switch operators, unreadable pan adapter settings now fall back to defaults instead of keeping the previous operator's settings.

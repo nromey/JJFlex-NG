@@ -1,0 +1,2 @@
+- You can now request another tune after the radio bypasses a failed automatic tune.
+- After you stop a manual tune carrier with Ctrl+Shift+T, Ctrl+T can start the carrier again.

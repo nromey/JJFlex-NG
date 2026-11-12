@@ -1,0 +1,1 @@
+- Your operator profiles, license settings, filter presets and several other settings now keep their previous saved contents if a new save fails.

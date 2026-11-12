@@ -197,9 +197,8 @@ namespace Radios
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
-                using var fs = File.Create(path);
                 var serializer = new XmlSerializer(typeof(DiagnosticsConfig));
-                serializer.Serialize(fs, this);
+                AtomicFile.Write(path, fs => serializer.Serialize(fs, this));
                 return true;
             }
             catch (Exception ex)

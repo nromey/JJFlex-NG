@@ -170,11 +170,8 @@ namespace Radios
                     Directory.CreateDirectory(dir);
 
                 Sanitize(this);
-                using (var fs = File.Create(path))
-                {
-                    var serializer = new XmlSerializer(typeof(ConnectPathLearningConfig));
-                    serializer.Serialize(fs, this);
-                }
+                var serializer = new XmlSerializer(typeof(ConnectPathLearningConfig));
+                AtomicFile.Write(path, fs => serializer.Serialize(fs, this));
                 Invalidate();
                 return true;
             }

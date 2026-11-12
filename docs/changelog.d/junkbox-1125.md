@@ -1,0 +1,1 @@
+- Your screen reader can now identify the Operating Mode and Transmit Tune boxes on Home by name.

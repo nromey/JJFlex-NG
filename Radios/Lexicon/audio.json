@@ -833,6 +833,8 @@
   "audio.tune.atu_bypassed": "ATU bypassed",
   "audio.tune.atu_timed_out": "ATU tune timed out",
   "audio.tune.atu_tuning": "ATU tuning",
+  "_note_atu_already_tuning": "Junk box batch 11 (2026-11-12): audio.tune.atu_already_tuning, wording by Codex 2026-11-12. Said in answer to a tune press while the tuner latch is already set, which kept another tune request from being sent. The latch can mean a pending automatic cycle, a manual tune carrier, or an automatic cycle whose status never cleared it, so the sentence makes no claim that the tuner is tuning.",
+  "audio.tune.atu_already_tuning": {"text": "No new tune request was sent.", "delivery": null},
   "audio.tune.no_tuner": "No antenna tuner available",
   "audio.tune.swr": "SWR {swr}",
   "audio.tune.swr_failed": "Tune failed, SWR {swr}",

@@ -386,21 +386,7 @@ public class FilterPresets
         }
     }
 
-    private static string SidelineCorruptFile(string filePath)
-    {
-        string sidelined = filePath + $".unreadable-{DateTime.Now:yyyyMMdd-HHmmss}";
-        try
-        {
-            File.Move(filePath, sidelined);
-            return sidelined;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.WriteLine(
-                $"FilterPresets: could not sideline corrupt file: {ex.Message}");
-            return filePath;
-        }
-    }
+    private static string SidelineCorruptFile(string filePath) => UnreadableSettingsFile.SetAside(filePath);
 
     /// <summary>
     /// Save the presets. Returns whether the file actually landed — callers
@@ -417,9 +403,8 @@ public class FilterPresets
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
 
-            using var fs = File.Create(filePath);
             var serializer = new XmlSerializer(typeof(FilterPresets));
-            serializer.Serialize(fs, this);
+            AtomicFile.Write(filePath, fs => serializer.Serialize(fs, this));
             return true;
         }
         catch (Exception ex)

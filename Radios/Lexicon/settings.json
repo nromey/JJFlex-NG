@@ -134,6 +134,8 @@
   "_note_1088_repair": "Junk box batch 10 repair (2026-11-11): settings.commit.overwrite_warning_not_saved, wording by Codex (2026-11-11 words round): what Settings says when the warning before a recording on the radio is overwritten could not be saved for a radio. {radio} is the radio's name.",
   "settings.commit.overwrite_warning_not_saved": {"text": "Your choice about warning before overwriting a recording on the radio was not saved for {radio}.", "delivery": null},
   "settings.commit.ptt_not_saved": {"text": "Push-to-talk settings need a connected radio, so those changes were not saved.", "delivery": null},
+  "_note_license_without_radio": "Junk box batch 11 (2026-11-12): settings.commit.license_not_saved, wording by Codex 2026-11-12. What Settings says when the license was changed with no radio connected and no operator profile to save it to. It goes with Settings' other failure notes wherever the receipt places them: spoken in answer to OK or Apply, or in the Settings changes advisory when some changes wait.",
+  "settings.commit.license_not_saved": {"text": "Your license changes were not saved because no operator profile is available.", "delivery": null},
   "settings.commit.some_items_wait_lead": {"text": "Some changes need your attention:", "delivery": null},
   "settings.commit.some_items_wait_lead_refused": {"text": "Some changes need your attention:", "delivery": null},
   "settings.commit.some_items_wait_title": {"text": "Settings changes", "delivery": null},

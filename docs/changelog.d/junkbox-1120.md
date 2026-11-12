@@ -1,0 +1,1 @@
+- Your license settings can now be saved for your operator before you connect to a radio.

@@ -1722,6 +1722,13 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public bool PttSettingsHaveAHome { get; set; } = true;
 
+        /// <summary>
+        /// The operator's license when Home holds none because no radio has
+        /// been connected (set by NativeMenuBar): saved by the commit when it
+        /// changed, and named as not saved when there is no operator.
+        /// </summary>
+        public LicenseWithoutRadio? NoRadioLicense { get; set; }
+
         /// <summary>The PTT tab's settings as the dialog opened on them.</summary>
         private string _pttAtOpen;
 
@@ -1749,6 +1756,8 @@ namespace JJFlexWpf.Dialogs
             if (!CommitPortForwardIfDirty(queued, applied, refused, failed)) return false;
             CommitSystemWideKeysIfDirty(applied, failed);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
             CommitKeyerSpeedIfChanged(queued, failed);   // #879: see SettingsDialog.KeyerSpeed.cs
+            string? licenseNote = NoRadioLicense == null ? null : LicenseWithoutRadio.CommitNote(NoRadioLicense.Commit());
+            if (licenseNote != null) failed.Add(licenseNote);
 
             SettingsApplied?.Invoke();
 

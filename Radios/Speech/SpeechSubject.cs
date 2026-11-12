@@ -172,6 +172,13 @@ namespace Radios.Speech
         public const string TuneRefused = "tune-refused";
 
         /// <summary>
+        /// A tune press while the tuner latch is already set, so nothing was sent:
+        /// the answer to the key just pressed. A later press replaces an
+        /// unheard earlier one.
+        /// </summary>
+        public const string TuneAlreadyTuning = "tune-already-tuning";
+
+        /// <summary>
         /// A press that would key was refused because the rig reads 0 watts.
         /// True until the operator sets a power, and the next refusal says the
         /// same thing.

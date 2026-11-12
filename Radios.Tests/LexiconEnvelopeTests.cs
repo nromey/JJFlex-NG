@@ -1348,6 +1348,16 @@ namespace Radios.Tests
                 "settings.commit.some_items_wait_lead",
                 "settings.commit.waiting_lead",
 
+                // Junk box batch 11 (2026-11-12). Wording by Codex.
+                // The license changed in Settings with no radio and no operator
+                // to save it for: said only in answer to OK or Apply, with the
+                // other things that did not land. TextOnly, delivery null.
+                "settings.commit.license_not_saved",
+                // A tune press while the tuner latch is already set, so nothing
+                // was sent: said only in answer to the press. TextOnly,
+                // delivery null.
+                "audio.tune.atu_already_tuning",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than

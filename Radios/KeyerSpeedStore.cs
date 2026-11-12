@@ -160,8 +160,7 @@ namespace Radios
             try
             {
                 Directory.CreateDirectory(operatorDirectory);
-                using var s = File.Open(path, FileMode.Create);
-                new XmlSerializer(typeof(FlexBase.cfg7620)).Serialize(s, cfg);
+                AtomicFile.Write(path, s => new XmlSerializer(typeof(FlexBase.cfg7620)).Serialize(s, cfg));
                 Tracing.TraceLine("Keyer speed: " + wpm + " WPM saved for the operator with no radio connected; "
                     + "applied at a connect to a radio of their own that puts their settings on it", TraceLevel.Info);
                 return true;

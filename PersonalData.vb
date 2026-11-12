@@ -831,17 +831,14 @@ Public Class PersonalData
         ' Encrypt credentials before writing to disk.
         op.EncryptCredentials()
 
-        Dim cfgFile As Stream = Nothing
+        ' Whole or not at all: an operator file cut short by a failure part-way
+        ' through would lose the operator.
         Try
-            cfgFile = File.Open(op.pathName, FileMode.Create)
             Dim xs As New XmlSerializer(GetType(personal_v1))
-            xs.Serialize(cfgFile, op)
+            AtomicFile.Write(op.pathName, Sub(cfgFile) xs.Serialize(cfgFile, op))
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
         End Try
-        If cfgFile IsNot Nothing Then
-            cfgFile.Dispose()
-        End If
     End Sub
 
     Friend Event ConfigEvent As EventHandler(Of ConfigArgs)

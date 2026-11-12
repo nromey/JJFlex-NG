@@ -119,7 +119,7 @@ namespace Radios
 
                     var stored = _accounts.Select(a => StoredAccount.FromSmartLinkAccount(a)).ToList();
                     var json = JsonSerializer.Serialize(stored, new JsonSerializerOptions { WriteIndented = true });
-                    File.WriteAllText(AccountsFilePath, json);
+                    AtomicFile.WriteAllText(AccountsFilePath, json);
                 }
                 catch (Exception ex)
                 {
