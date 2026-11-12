@@ -3920,6 +3920,10 @@ public class NativeMenuBar : IDisposable
         // (#346 repair one): what the next connect will use.
         var (coarseStep, fineStep) = _window.StepSizesForSettings();
         var licenseConfig = handlers?.License;
+        // With no radio since launch Home holds no license: Settings edits the
+        // operator's own, read as startup reads it, and saves it if changed.
+        var noRadioLicense = licenseConfig == null ? LicenseWithoutRadio.ForCurrentOperator() : null;
+        licenseConfig ??= noRadioLicense?.License;
 
         // User-scope config lives at BaseConfigDir (root). The FreqHandlers
         // GetConfigDirectory delegate returns BaseConfigDir regardless of
@@ -3990,6 +3994,7 @@ public class NativeMenuBar : IDisposable
             dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;
             dialog.OperatorName = _window.OpenParms.GetOperatorName?.Invoke();
         }
+        dialog.NoRadioLicense = noRadioLicense;
         if (openAtTab != null && dialog.SelectTabByHeader(openAtTab))
         {
             // Sprint 31 Track R: selecting the tab is not the same as LANDING on
