@@ -1711,17 +1711,18 @@ namespace JJFlexWpf.Dialogs
 
             var queued = new List<string>();   // saved, but waits for a connection (or was declined)
             var applied = new List<string>();  // done now
+            var failed = new List<string>();   // tried and did not land: never counted as done (#1088)
 
-            if (!CommitRadioProfiles(queued, applied)) return false;
-            CommitSetupRadioNameIfDirty(applied);
+            if (!CommitRadioProfiles(queued, applied, failed)) return false;
+            CommitSetupRadioNameIfDirty(applied, failed);
             var refused = new List<string>(); // refused by the change-nothing hold: neither sent nor saved
             if (!CommitPortForwardIfDirty(queued, applied, refused)) return false;
             CommitSystemWideKeysIfDirty(applied);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
-            CommitKeyerSpeedIfChanged(queued, applied);   // #879: see SettingsDialog.KeyerSpeed.cs
+            CommitKeyerSpeedIfChanged(queued, failed);   // #879: see SettingsDialog.KeyerSpeed.cs
 
             SettingsApplied?.Invoke();
 
-            var said = CommitAnnouncement(closing, pttDropped, refused, queued, applied);
+            var said = CommitAnnouncement(closing, pttDropped, refused, queued, applied, failed);
             if (said.Advisory != null)
                 AdvisoryDialog.Show(Lexicon.Get("settings.commit.some_items_wait_title"), said.Advisory);
             else
@@ -1738,14 +1739,28 @@ namespace JJFlexWpf.Dialogs
         /// carries the hold's sentence so it can be re-read, and the spoken
         /// sentence waits its turn behind the hold's.
         /// </summary>
+        /// <remarks>
+        /// <b>Four outcomes (#1088): refused, queued, applied, and failed.</b>
+        /// A change that was tried and did not land (a keyer speed, a radio
+        /// rename or a radio profile that could not be saved) is FAILED: it is
+        /// always said, on OK and on Apply, whatever else is waiting, and it is
+        /// never counted as done, so the summary then speaks for the other
+        /// settings only. Until #1088 the failures went into the applied list,
+        /// so OK with nothing waiting said only "Settings saved." and OK with
+        /// something waiting listed the failure under "Done right away".
+        /// </remarks>
         internal static (string? Advisory, string? Spoken, bool Interrupt) CommitAnnouncement(bool closing, bool pttDropped,
-            IReadOnlyList<string> refused, IReadOnlyList<string> queued, IReadOnlyList<string> applied)
+            IReadOnlyList<string> refused, IReadOnlyList<string> queued, IReadOnlyList<string> applied,
+            IReadOnlyList<string>? failed = null)
         {
+            failed ??= Array.Empty<string>();
             bool holdRefused = refused.Count > 0;
+            bool anyFailed = failed.Count > 0;
             if (closing && queued.Count > 0)
             {
-                // DRAFT (repair two): the lead when a change was refused.
-                var body = new System.Text.StringBuilder(Lexicon.Get(holdRefused
+                // DRAFT (repair two): the lead when a change was refused, or
+                // did not land (#1088): not everything was saved.
+                var body = new System.Text.StringBuilder(Lexicon.Get(holdRefused || anyFailed
                     ? "settings.commit.some_items_wait_lead_refused"
                     : "settings.commit.some_items_wait_lead"));
                 foreach (var note in queued)
@@ -1762,6 +1777,13 @@ namespace JJFlexWpf.Dialogs
                     body.AppendLine();
                     body.Append(note);
                 }
+                // What did not land, on its own: never under "Done right away".
+                foreach (var note in failed)
+                {
+                    body.AppendLine();
+                    body.AppendLine();
+                    body.Append(note);
+                }
                 if (applied.Count > 0)
                 {
                     body.AppendLine();
@@ -1772,7 +1794,7 @@ namespace JJFlexWpf.Dialogs
                 return (body.ToString(), null, false);
             }
 
-            var said = CommitSummary(closing, pttDropped, holdRefused);
+            var said = CommitSummary(closing, pttDropped, holdRefused, anyFailed);
             string summary = Lexicon.Get(said.Key);
             // OK closes the dialog, and Home's return announcement interrupts
             // about 70 ms into the hold's sentence; the arbiter replays only
@@ -1781,6 +1803,9 @@ namespace JJFlexWpf.Dialogs
             // final sentence, which is what survives the close (repair two).
             if (closing && holdRefused)
                 summary = string.Join(" ", refused) + " " + summary;
+            // What did not land is said first, on OK and on Apply (#1088).
+            if (anyFailed)
+                summary = string.Join(" ", failed) + " " + summary;
             if (!closing)
             {
                 if (queued.Count > 0)
@@ -1799,10 +1824,14 @@ namespace JJFlexWpf.Dialogs
         /// settings, which were saved (#486, repair one). Pure, so the
         /// windowless tests can hold it.
         /// </summary>
-        internal static (string Key, bool Interrupt) CommitSummary(bool closing, bool pttDropped, bool holdRefused)
+        internal static (string Key, bool Interrupt) CommitSummary(bool closing, bool pttDropped, bool holdRefused,
+            bool anyFailed = false)
         {
+            // A failure is not saved, so the summary speaks for the others,
+            // as it does for a refusal (#1088). It does not wait its turn: the
+            // failure's own sentence is in the same utterance.
             string key = pttDropped ? "settings.commit.ptt_not_saved"
-                : holdRefused ? (closing ? "settings.commit.saved_others_spoken" : "settings.commit.applied_others_spoken")
+                : holdRefused || anyFailed ? (closing ? "settings.commit.saved_others_spoken" : "settings.commit.applied_others_spoken")
                 : closing ? "settings.commit.saved_spoken" : "settings.commit.applied_spoken";
             return (key, !holdRefused);
         }

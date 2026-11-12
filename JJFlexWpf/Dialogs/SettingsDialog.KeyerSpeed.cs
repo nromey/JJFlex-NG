@@ -95,7 +95,7 @@ namespace JJFlexWpf.Dialogs
         /// that cannot reach a radio now the way every queued intent here is
         /// reported. Nothing is said when it reached the operator's own radio.
         /// </summary>
-        private void CommitKeyerSpeedIfChanged(List<string> queued, List<string> applied)
+        private void CommitKeyerSpeedIfChanged(List<string> queued, List<string> failed)
         {
             // Validated by SaveSettings before anything was written.
             if (!int.TryParse(KeyerSpeedBox.Text, out int wpm) || wpm == _keyerSpeedAtOpen) return;
@@ -116,7 +116,9 @@ namespace JJFlexWpf.Dialogs
                     queued.Add(Lexicon.Get("settings.keyer.speed_ownership_unknown"));
                     break;
                 default:
-                    applied.Add(Lexicon.Get("settings.keyer.speed_not_saved"));
+                    // Failed, never "applied" (#1088): CommitAnnouncement says
+                    // it on OK and on Apply, and never counts it as done.
+                    failed.Add(Lexicon.Get("settings.keyer.speed_not_saved"));
                     return;
             }
             _keyerSpeedAtOpen = wpm;

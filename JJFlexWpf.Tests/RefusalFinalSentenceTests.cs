@@ -73,7 +73,7 @@ public sealed class RefusalFinalSentenceTests
         string commit = Body(text, "private bool ApplyAllSettings(bool closing)");
         Assert.Contains("var refused = new List<string>();", commit, StringComparison.Ordinal);
         Assert.Contains("CommitPortForwardIfDirty(queued, applied, refused)", commit, StringComparison.Ordinal);
-        Assert.Contains("CommitAnnouncement(closing, pttDropped, refused, queued, applied)", commit, StringComparison.Ordinal);
+        Assert.Contains("CommitAnnouncement(closing, pttDropped, refused, queued, applied, failed)", commit, StringComparison.Ordinal);
         Assert.DoesNotContain("some_items_wait_lead", commit, StringComparison.Ordinal);
         Assert.DoesNotContain("interrupt: true", commit, StringComparison.Ordinal);
         Assert.Equal(1, Count(commit, "AdvisoryDialog.Show("));
@@ -141,6 +141,91 @@ public sealed class RefusalFinalSentenceTests
         Assert.Equal(("Settings applied.", true), (plain.Spoken, plain.Interrupt));
         var plainOk = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
         Assert.Equal(("Settings saved.", true), (plainOk.Spoken, plainOk.Interrupt));
+    }
+
+    // ---- #1088: a fourth outcome, failed ----
+
+    private static string KeyerNotSaved => Lexicon.Get("settings.keyer.speed_not_saved");
+
+    [Fact]
+    public void OK_with_nothing_waiting_says_the_failure_and_never_says_everything_was_saved()
+    {
+        AssertWindowless();
+        var ok = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), Array.Empty<string>(),
+            Array.Empty<string>(), failed: new[] { KeyerNotSaved });
+        Assert.Null(ok.Advisory);
+        Assert.Equal(KeyerNotSaved + " Your other settings were saved.", ok.Spoken);
+        Assert.DoesNotContain("Settings saved.", ok.Spoken!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OK_with_something_waiting_carries_the_failure_and_never_under_done_right_away()
+    {
+        AssertWindowless();
+        var said = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), new[] { Queued },
+            new[] { "Radio name saved." }, failed: new[] { KeyerNotSaved });
+        Assert.NotNull(said.Advisory);
+        Assert.StartsWith(Lexicon.Get("settings.commit.some_items_wait_lead_refused"), said.Advisory!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Everything you set was saved", said.Advisory!, StringComparison.Ordinal);
+        Assert.Contains(KeyerNotSaved, said.Advisory!, StringComparison.Ordinal);
+        int done = said.Advisory!.IndexOf(Lexicon.Get("settings.commit.done_right_away_lead"), StringComparison.Ordinal);
+        Assert.True(done > 0);
+        Assert.True(said.Advisory.IndexOf(KeyerNotSaved, StringComparison.Ordinal) < done,
+            "the failure is listed under Done right away");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Apply_says_the_failure_whether_or_not_something_waits(bool somethingWaits)
+    {
+        AssertWindowless();
+        var apply = SettingsDialog.CommitAnnouncement(false, false, Array.Empty<string>(),
+            somethingWaits ? new[] { Queued } : Array.Empty<string>(),
+            new[] { "Radio name saved." }, failed: new[] { KeyerNotSaved });
+        Assert.Null(apply.Advisory);
+        Assert.StartsWith(KeyerNotSaved + " Your other settings were applied.", apply.Spoken!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Settings applied.", apply.Spoken!, StringComparison.Ordinal);
+        if (somethingWaits) Assert.Contains(Queued, apply.Spoken!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_failure_with_a_refusal_says_both_and_counts_neither_as_saved()
+    {
+        AssertWindowless();
+        var ok = SettingsDialog.CommitAnnouncement(true, false, new[] { Refusal }, Array.Empty<string>(),
+            Array.Empty<string>(), failed: new[] { KeyerNotSaved });
+        Assert.Equal(KeyerNotSaved + " " + Refusal + " Your other settings were saved.", ok.Spoken);
+        Assert.False(ok.Interrupt);    // the hold has just spoken: the summary waits its turn, as before
+    }
+
+    [Fact]
+    public void The_summary_speaks_for_the_others_when_something_failed()
+    {
+        AssertWindowless();
+        Assert.Equal(("settings.commit.saved_others_spoken", true), SettingsDialog.CommitSummary(true, false, false, anyFailed: true));
+        Assert.Equal(("settings.commit.applied_others_spoken", true), SettingsDialog.CommitSummary(false, false, false, anyFailed: true));
+        Assert.Equal(("settings.commit.ptt_not_saved", true), SettingsDialog.CommitSummary(true, true, false, anyFailed: true));
+    }
+
+    /// <summary>Every save that can fail in the commit files its failure as failed, never as applied.</summary>
+    [Fact]
+    public void Every_commit_files_a_failure_as_failed()
+    {
+        AssertWindowless();
+        string keyer = Read("JJFlexWpf", "Dialogs", "SettingsDialog.KeyerSpeed.cs");
+        // Matched as patterns, so the key scan does not read these as keys.
+        Assert.Matches(@"failed\.Add\(Lexicon\.Get\(.settings\.keyer\.speed_not_saved.\)\);", keyer);
+        Assert.DoesNotMatch(@"applied\.Add\(Lexicon\.Get\(.settings\.keyer\.speed_not_saved", keyer);
+        string setup = Read("JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs");
+        Assert.Matches(@"failed\.Add\(Lexicon\.Get\(.settings\.radio\.name\.rename_failed_note.\)\);", setup);
+        string profile = Read("JJFlexWpf", "Dialogs", "SettingsDialog.RadioProfile.cs");
+        Assert.Contains("failed.Add(failNote);", profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("applied.Add(failNote);", profile, StringComparison.Ordinal);
+        string commit = Body(Read("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs").Replace("\r\n", "\n"), "private bool ApplyAllSettings(bool closing)");
+        Assert.Contains("CommitRadioProfiles(queued, applied, failed)", commit, StringComparison.Ordinal);
+        Assert.Contains("CommitSetupRadioNameIfDirty(applied, failed)", commit, StringComparison.Ordinal);
+        Assert.Contains("CommitKeyerSpeedIfChanged(queued, failed)", commit, StringComparison.Ordinal);
     }
 
     [Fact]

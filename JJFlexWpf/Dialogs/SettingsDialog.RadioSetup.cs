@@ -309,7 +309,8 @@ namespace JJFlexWpf.Dialogs
         /// same radio, the one typed here wins (deterministic, and this box is
         /// only editable while connected — the more deliberate act).
         /// </summary>
-        private void CommitSetupRadioNameIfDirty(System.Collections.Generic.List<string> applied)
+        private void CommitSetupRadioNameIfDirty(System.Collections.Generic.List<string> applied,
+            System.Collections.Generic.List<string> failed)
         {
             if (!_setupNameEdited) return;
             if (SetupRadioNameBox == null || _rig == null || !_rig.IsConnected) return;
@@ -329,7 +330,7 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
-                applied.Add(Lexicon.Get("settings.radio.name.rename_failed_note"));
+                failed.Add(Lexicon.Get("settings.radio.name.rename_failed_note"));   // #1088: not done
             }
             _setupNameEdited = false;
         }
