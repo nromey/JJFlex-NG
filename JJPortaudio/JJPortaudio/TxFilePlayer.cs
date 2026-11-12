@@ -322,16 +322,11 @@ namespace JJPortaudio
             // let it back in at full level for 10 ms. Asked before the hold
             // below is overwritten.
             bool micOffTheEncoder = s == StFileFadeOut || HoldsReferenceEnd(s);
-            // From the microphone's own ramp back in, its ramp out starts at
-            // the level it had reached, never at full level. The ramp counter
-            // is the audio thread's: a read a buffer stale is lower than the
-            // level reached, so the step it leaves is downward.
-            float micFadeFrom = s == StMicFadeIn ? 1f - Math.Clamp(_fade, 0f, 1f) : 0f;
             _holdSilenceAtEnd = holdSilenceAtEnd;
             _pos = 0.0;
             _reachedEnd = false;
             _playedFrames = 0;
-            _fade = micOffTheEncoder ? 0f : micFadeFrom;
+            _fade = 0f;
             _state = micOffTheEncoder ? StFileFadeIn : StMicFadeOut;
         }
 
