@@ -3318,7 +3318,7 @@ namespace Radios
                             "Not connecting. This radio is set to use forwarded ports only, " +
                             "but SmartLink reports no forwarded port is reachable for it, so there is nothing to connect to. " +
                             "Set up port forwarding at the radio's site, or change this radio's connection setting " +
-                            "on the Radios tab in Settings — hole punch there needs no port forwarding.",
+                            "in Settings, under Per-radio settings — hole punch there needs no port forwarding.",
                     });
                     Tracing.TraceLine(
                         "sendRemoteConnect: FAIL FAST — per-radio profile is ForwardOnly, radio reported RequiresHolePunch=true and no public TLS port; refusing the doomed attempt",

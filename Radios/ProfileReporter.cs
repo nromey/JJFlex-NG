@@ -1318,7 +1318,7 @@ namespace Radios
                     sb.AppendLine("Radio setup protection is on for this radio. Comparing");
                     sb.AppendLine("profiles requires loading each profile on the radio, so");
                     sb.AppendLine("the comparison was left out. The setting is in Settings,");
-                    sb.AppendLine("under Radios.");
+                    sb.AppendLine("under Per-radio settings.");
                 }
                 else
                 {
@@ -2467,7 +2467,7 @@ namespace Radios
                 sb.AppendLine("[profile walk skipped]");
                 sb.AppendLine("reason = radio setup protection is on for this radio, so stored profiles were not loaded");
                 sb.AppendLine("this file holds = live settings only; no profile contents");
-                sb.AppendLine("to capture profiles = turn off Protect this radio's setup in Settings, under Radios, then run this export again");
+                sb.AppendLine("to capture profiles = turn off Protect this radio's setup in Settings, under Per-radio settings, then run this export again");
                 sb.AppendLine();
                 Tracing.TraceLine("RestoreGradeExport: walk skipped — change nothing is on for this radio", TraceLevel.Warning);
                 result.WalkRan = false;

@@ -811,7 +811,7 @@ namespace JJFlexWpf.Dialogs
                 if (!string.IsNullOrEmpty(edit.PunchPortText)
                     && (!int.TryParse(edit.PunchPortText, out int p) || p < 1024 || p > 65535))
                 {
-                    SelectTabByHeader("Radios");
+                    SelectTabByHeader("Per-radio settings");
                     if (!string.Equals(_currentProfileRadioId, radioId, StringComparison.OrdinalIgnoreCase))
                     {
                         var item = (RadioProfilePicker.ItemsSource as IEnumerable<RadioProfileItem>)

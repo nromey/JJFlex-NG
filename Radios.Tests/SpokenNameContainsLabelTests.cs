@@ -19,13 +19,11 @@ namespace Radios.Tests
     /// ConfirmDialogSpokenNameTests makes for that one dialog.
     /// </para>
     /// <para>
-    /// <b>The Settings tab headed "Notifications" PASSES this rule, and that
-    /// is correct for this rule.</b> Its spoken name, "Verbosity and
-    /// notifications settings", contains "Notifications"; what #840 records
-    /// about it is that the name ADDS a word the route sentences never use.
-    /// Its one name is awaiting Noel (#840), and it is deliberately not on
-    /// the allow-list below, because an entry for a control that passes would
-    /// be flagged as stale by the test that keeps the list honest.
+    /// <b>The Settings categories' names are settled</b> (Noel, 2026-11-11
+    /// 19:47, J14, recorded under #1068 and #840): each category shows the
+    /// name the screen reader says, and PTT is announced "PTT". The three
+    /// rows that held PTT, Radios and Updates here for Noel are gone with the
+    /// mismatch; SettingsRouteNamesTests holds the names themselves.
     /// </para>
     /// <para>
     /// Every entry on the allow-lists is a control this guard finds today and
@@ -78,7 +76,6 @@ namespace Radios.Tests
             [("JJFlexWpf/Dialogs/RigSelectorDialog.xaml", "Remove Radio...")] = Fuller, // announced "Remove selected radio from the list"
             [("JJFlexWpf/Dialogs/RigSelectorDialog.xaml", "Show Remote Radios")] = Fuller, // announced "Show this account's SmartLink radios"
             [("JJFlexWpf/Dialogs/RigSelectorDialog.xaml", "_Low BW")] = Abbreviation, // announced "Low bandwidth for selected radio"
-            [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "PTT")] = AwaitingNoel, // announced "Push to talk settings"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Debounce tuning speech (group rapid steps)")] = Fuller, // announced "Debounce tuning speech"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Band boundary notifications")] = Fuller, // announced "Notify when tuning near band boundaries"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "TX band lockout")] = Fuller, // announced "Prevent transmitting outside licensed bands"
@@ -96,7 +93,6 @@ namespace Radios.Tests
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Sa_ve report")] = Fuller, // announced "Save the last network diagnostic report to a file"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Verbose network diagnostics (include raw details in status announcements)")] = Fuller, // announced "Enable verbose network diagnostic output"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Let JJ Flexible learn which connection path each radio prefers")] = Fuller, // announced "Learn which connection path each radio prefers"
-            [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Radios")] = AwaitingNoel, // announced "Per-radio settings"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "_Refresh all steps")] = Fuller, // announced "Re-read the radio and update the status of every step"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Set na_me now")] = Fuller, // announced "Set the name on the radio right now"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Unregister...")] = Fuller, // announced "Remove this radio's SmartLink registration"
@@ -111,7 +107,6 @@ namespace Radios.Tests
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Enable alert sounds (earcons)")] = Fuller, // announced "Enable alert sounds such as beeps and tones"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Show panadapter / waterfall display")] = Fuller, // announced "Show the panadapter and waterfall display"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Speak connection progress while connecting to a radio")] = Fuller, // announced "Speak connection progress"
-            [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Updates")] = AwaitingNoel, // announced "Update channel and auto-check preferences"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Normal (recommended)")] = Fuller, // announced "Normal detail, recommended"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Measure now")] = Fuller, // announced "Measure the settings folder now"
             [("JJFlexWpf/Dialogs/SilencedMessagesDialog.xaml", "_Show this again")] = Fuller, // announced "Show the selected message again"

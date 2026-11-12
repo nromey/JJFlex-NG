@@ -589,7 +589,7 @@ namespace JJFlexWpf
                 + $"operator idle {idleMs / 1000}s, we last held it {heldAgoMs / 1000}s ago, "
                 + $"our modal is up - every condition for a reclaim was met and the keyboard "
                 + $"would have been taken back here, but the operator has 'Take the keyboard "
-                + $"back' switched off in Settings, Accessibility, so nothing was taken and "
+                + $"back' switched off in Settings, Accessibility timing and input preferences, so nothing was taken and "
                 + $"nothing was announced (watchdog, disabled by preference)",
                 System.Diagnostics.TraceLevel.Info);
 

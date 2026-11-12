@@ -545,7 +545,7 @@ public partial class AudioWorkshopDialog
                     Text = "Creating a mic profile on the radio is not offered here, because "
                          + "you have marked this radio as someone else's. A mic profile lives "
                          + "on the radio and is shared with everyone connected to it. Your "
-                         + "computer settings still save normally. Settings, Radios tab is "
+                         + "computer settings still save normally. Settings, Per-radio settings, is "
                          + "where that answer can be changed.",
                     IsReadOnly = true,
                     IsReadOnlyCaretVisible = true,

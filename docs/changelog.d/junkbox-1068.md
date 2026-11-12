@@ -1,0 +1,1 @@
+- Settings' categories now show the same names your screen reader says: Per-radio settings, Verbosity and notifications settings, Update channel and auto-check preferences, and Accessibility timing and input preferences. PTT is now announced simply as PTT. Every message that points you to one of these categories uses the same name.

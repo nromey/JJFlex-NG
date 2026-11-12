@@ -208,7 +208,7 @@ public static class KeyInventory
         // with "Tune with Up and Down on the Slice field" checked they tune by the
         // coarse step. Static wording naming both, so the default lives only
         // in AccessibilityConfig. DRAFT PROSE.
-        new("Slice", "Slice field", "Up / Down", "Tunes by your coarse step when ‘Tune with Up and Down on the Slice field’ is checked in Settings, under Accessibility; switches slices when it is unchecked",
+        new("Slice", "Slice field", "Up / Down", "Tunes by your coarse step when ‘Tune with Up and Down on the Slice field’ is checked in Settings, under Accessibility timing and input preferences; switches slices when it is unchecked",
             new[] { "slice", "next", "previous", "cycle", "tune", "tuning", "coarse", "step" }),
         // 0-9, not 0-7: the handler answers every digit, and a digit past
         // your last slice says "no such slice" instead of going quiet (#358).
@@ -232,7 +232,7 @@ public static class KeyInventory
         // 21:01): by default they tune by the coarse step; with "Tune with Up
         // and Down in Slice operations" unchecked they change the slice's
         // volume. Static wording naming both. DRAFT PROSE.
-        new("SliceOps", "Slice operations field", "Up / Down", "Tunes by your coarse step when ‘Tune with Up and Down in Slice operations’ is checked in Settings, under Accessibility; adjusts the slice's volume when it is unchecked",
+        new("SliceOps", "Slice operations field", "Up / Down", "Tunes by your coarse step when ‘Tune with Up and Down in Slice operations’ is checked in Settings, under Accessibility timing and input preferences; adjusts the slice's volume when it is unchecked",
             new[] { "tune", "tuning", "coarse", "step", "frequency", "volume", "gain" }),
         // Pan is back on this field (#517, Noel 2026-11-09 20:51).
         new("SliceOps", "Slice operations field", "Page Up / Page Down", "Pan right or left",
@@ -267,7 +267,7 @@ public static class KeyInventory
         // surface mentioned the key at all.
         new("Freq.Classic", "Frequency field (Classic tuning)", "Minus", "Reminds you that step entry uses Plus only",
             new[] { "step", "minus", "plus", "multiplier" }),
-        new("Freq.Classic", "Frequency field (Classic tuning)", "F", "Speak the current frequency (with a split, choose which slice in Settings, Notifications, F reads)",
+        new("Freq.Classic", "Frequency field (Classic tuning)", "F", "Speak the current frequency (with a split, choose which slice in Settings, Verbosity and notifications settings, F reads)",
             new[] { "frequency", "speak", "read", "transmit", "split", "slice" }),
         // P carries split in BOTH tuning modes (#344) — the Jim-era S only
         // turned split on, and S means the step picker in Modern, so one
@@ -300,7 +300,7 @@ public static class KeyInventory
                     "increment", "tuning", "shift" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Digits", "Type a frequency, then Enter to apply",
             new[] { "frequency", "enter", "type", "digits" }),
-        new("Freq.Modern", "Frequency field (Modern tuning)", "F", "Speak the current frequency (with a split, choose which slice in Settings, Notifications, F reads)",
+        new("Freq.Modern", "Frequency field (Modern tuning)", "F", "Speak the current frequency (with a split, choose which slice in Settings, Verbosity and notifications settings, F reads)",
             new[] { "frequency", "speak", "read", "transmit", "split", "slice" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "S", "Choose both step sizes from a list",
             new[] { "step", "steps", "size", "sizes", "coarse", "fine", "choose", "pick", "set",

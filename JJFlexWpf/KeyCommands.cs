@@ -2038,7 +2038,7 @@ public class KeyCommands
             "Ctrl+J, Ctrl+S switches the S-meter between S-units and dBm, and the choice is "
             + "remembered for that radio. The chord echoes the key it changes: Ctrl+S "
             + "reads the meter, Ctrl+J then Ctrl+S changes what it reads in. Also on the "
-            + "Operations menu, and on the Radios tab in Settings, which is where the answer "
+            + "Operations menu, and in Settings, under Per-radio settings, which is where the answer "
             + "can be seen without pressing anything. Carried a flat Keys.None and a "
             + "'Command Finder only' note until that shipped, which is how a toggle Noel "
             + "remembered having became one he could not reach."),
