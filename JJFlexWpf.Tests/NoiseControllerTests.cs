@@ -1402,6 +1402,116 @@ public sealed class NoiseControllerTests
             "the mode must be asked for after the menu closes and just before its sentence (delay " + delay + ", set " + set + ", says " + says + ")");
     }
 
+    // ── The model the mode's rule chose is journalled under its cause (#1118) ──
+
+    /// <summary>
+    /// The entries one road journalled, in order, read from the static journal
+    /// by a source no other test uses.
+    /// </summary>
+    private static List<NoiseJournalEntry> JournalOf(string source, Action act)
+    {
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Source == source) lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try { act(); }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        lock (entries) return entries.ToList();
+    }
+
+    private static bool IsCwModelEntry(NoiseJournalEntry e) =>
+        e.Kind == NoiseJournalKind.Model && e.ByJjFlexible
+        && e.Changes.Single() is { EngineId: "nnr", Setting: "model" } c && !NoiseModeRules.IsCwModel(c.OldValue) && NoiseModeRules.IsCwModel(c.NewValue);
+
+    /// <summary>
+    /// #1118, the e3 harness on the 8600: choosing NNR in CW while it held a voice
+    /// model journalled the model switch as "Model by JJ Flexible from mode change",
+    /// and BEFORE the "Switch from noise layer" it belonged to. It is now journalled
+    /// under the road that chose NNR, after that road's own entry, on every road a
+    /// voice model meets CW's rule: the layer's switch (with the helper present and
+    /// missing), Home's settled engine choice, a preset, and Escape's revert. A real
+    /// mode change still journals "from mode change".
+    /// </summary>
+    [Fact]
+    public void A_model_the_CW_rule_chose_is_journalled_under_the_road_that_chose_it_after_that_roads_entry()
+    {
+        // The layer's switch, as heard: RNNoise on, NNR on a voice model, NNR chosen in CW.
+        foreach (bool helperMissing in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            f.Radio.Mode = "CW";
+            f.Noise.Attach("CW");
+            f.Noise.Toggle("rnnoise", "test");
+            if (helperMissing) f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            string source = "j1118-layer-" + helperMissing;
+            var entries = JournalOf(source, () => f.Noise.Toggle("nnr", source));
+            Assert.True(entries.Count == 2, "the layer's switch journalled " + entries.Count + " entries under its own road: "
+                + string.Join(" | ", entries.Select(e => e.Kind + " " + string.Join(",", e.Changes))));
+            Assert.Equal(NoiseJournalKind.Switch, entries[0].Kind);
+            Assert.Contains(new NoiseJournalChange("nnr", "", "off", "on"), entries[0].Changes);
+            Assert.True(IsCwModelEntry(entries[1]), "the second entry is not NNR's CW model: " + entries[1]);
+            Assert.Equal("premium", entries[1].Changes.Single().OldValue);
+        }
+
+        // Home's engine field, settled.
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.Attach("CW");
+            f.Noise.Toggle("rnnoise", "test");
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            f.Noise.ChooseSlotEngine(DenoiseFamily.Neural, "nnr", "j1118-home");
+            var entries = JournalOf("j1118-home", () => f.Clock.RunAll());
+            Assert.Equal(2, entries.Count);
+            Assert.Equal(NoiseJournalKind.Switch, entries[0].Kind);
+            Assert.True(IsCwModelEntry(entries[1]));
+        }
+
+        // A preset saved in voice holding NNR on its voice model, applied in CW.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.PresetStore = new RoundTwoPresetStore();
+            f.Noise.Attach("USB");
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            f.Noise.Toggle("nnr", "test");
+            Assert.NotNull(f.Noise.SavePreset("NNR voice", true, false, PresetCollision.Ask, "test"));
+            Mode(f, "CW");
+            f.Noise.Toggle("rnnoise", "test");
+            var entries = JournalOf("j1118-preset", () => f.Noise.ApplyPreset("NNR voice", "j1118-preset"));
+            int applied = entries.FindIndex(e => e.Kind == NoiseJournalKind.PresetApplied);
+            int model = entries.FindIndex(IsCwModelEntry);
+            Assert.True(applied >= 0 && model > applied, "the preset's entry at " + applied + ", NNR's CW model at " + model);
+        }
+
+        // Escape's revert to a picture taken in voice, put back in CW: no action is
+        // open, so it is journalled at once, under Escape's road.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.Attach("USB");
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            f.Noise.Toggle("nnr", "test");
+            var snap = f.Noise.TakeSnapshot();
+            Mode(f, "CW");
+            f.Noise.Toggle("rnnoise", "test");
+            var entries = JournalOf("j1118-escape", () => f.Noise.RestoreSnapshot(snap, "j1118-escape"));
+            Assert.Contains(entries, IsCwModelEntry);
+        }
+
+        // A real mode change keeps its own road: CW remembered with NNR, entered
+        // again after leaving gave the voice model back.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.Attach("USB");
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            f.Noise.Toggle("nnr", "test");
+            Mode(f, "CW");
+            Mode(f, "USB");
+            Assert.Equal("premium", NnrModel(f));
+            var entries = JournalOf("mode change", () => Mode(f, "CW"));
+            Assert.Contains(entries, IsCwModelEntry);
+        }
+    }
+
     // ── The summary never reads a stopped engine as working (#1103) ──
 
     /// <summary>

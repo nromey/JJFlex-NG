@@ -149,7 +149,7 @@ namespace JJFlexWpf
                 // the mode's rule (B4), so a voice model in CW lands on CW's.
                 if (to.Model != null && e.Side == DenoiseSide.Pc && SlotFor(e) is { } slot)
                 {
-                    SetModelQuietly(e, slot, to.Model);
+                    SetModelQuietly(e, slot, to.Model, source);
                     if (!IsOn(e.Id)) TurnComputerOn(e, source, speak: false, model: to.Model);
                 }
                 else if (!IsOn(e.Id)) TurnOn(e, to.Model, source);
@@ -187,7 +187,7 @@ namespace JJFlexWpf
                 if (_radio() is { } r && !IsOn(e.Id)) WriteRadioSwitch(e, r, true, source, byApp: false);
                 return null;
             }
-            if (IsOn(e.Id)) { if (model != null && SlotFor(e) is { } s) SetModelQuietly(e, s, model); return null; }
+            if (IsOn(e.Id)) { if (model != null && SlotFor(e) is { } s) SetModelQuietly(e, s, model, source); return null; }
             return TurnComputerOn(e, source, speak: false, model: model);
         }
 

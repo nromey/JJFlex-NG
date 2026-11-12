@@ -115,8 +115,8 @@ namespace JJFlexWpf
             if (preset.ReceiveNoise is { } noise)
             {
                 RetireHelperNotice("a noise preset was applied");
-                ApplySlot(p.SpectralSlot, noise.Spectral, changes, phrases);
-                ApplySlot(p.NeuralSlot, noise.Neural, changes, phrases);
+                ApplySlot(p.SpectralSlot, noise.Spectral, changes, phrases, source);
+                ApplySlot(p.NeuralSlot, noise.Neural, changes, phrases, source);
                 if (_radio() is { } r)
                     foreach (var re in noise.Radio)
                     {
@@ -144,7 +144,7 @@ namespace JJFlexWpf
                 ("summary", phrases.Count == 0 ? L("audio.noise_surface.preset_nothing_changed") : string.Join(", ", phrases))), SpeechSubject.NoisePreset);
         }
 
-        private void ApplySlot(PcDenoiseSlot slot, NoisePresetSlot want, List<NoiseJournalChange> changes, List<string> phrases)
+        private void ApplySlot(PcDenoiseSlot slot, NoisePresetSlot want, List<NoiseJournalChange> changes, List<string> phrases, string source)
         {
             bool wasOn = slot.Enabled; string wasId = slot.ChosenEngineId;
             string target = want.EngineId.Length > 0 && _catalog.Find(want.EngineId) is { Factory: not null } ? want.EngineId : wasId;
@@ -153,7 +153,7 @@ namespace JJFlexWpf
             // The mode's rule first (B4), then the settings and the choice,
             // rebuilding an engine already chosen when a rebuild setting
             // changed (B3), so what you hear is what the preset holds.
-            slot.RestoreAndSelect(AdmitForMode(slot, records, target), target);
+            slot.RestoreAndSelect(AdmitForMode(slot, records, target, source), target);
             slot.Enabled = want.On;
             if (!(wasOn == slot.Enabled && (!slot.Enabled || wasId == slot.ChosenEngineId)))
             {

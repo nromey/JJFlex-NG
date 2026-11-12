@@ -338,6 +338,14 @@ namespace JJFlexWpf
         private string? _utteranceAfterUnder;
 
         /// <summary>
+        /// Journal entries the running action owes but must record after its own
+        /// (a model the mode's rule chose while an engine was being chosen,
+        /// #1118): recorded in order when the outermost action ends, so the
+        /// journal reads the cause first. Null outside an action.
+        /// </summary>
+        private List<Action>? _journalAfterAction;
+
+        /// <summary>
         /// Start an action: every sentence said until the returned scope is
         /// disposed goes out as one utterance (<see cref="_utterance"/>). Nests:
         /// only the outermost scope speaks. Use with <c>using var oneUtterance = OneUtterance();</c>
@@ -379,6 +387,9 @@ namespace JJFlexWpf
             _utterance = null;
             string? afterUnder = _utteranceAfterUnder;
             _utteranceAfterUnder = null;
+            var journal = _journalAfterAction;
+            _journalAfterAction = null;
+            if (journal != null) foreach (var record in journal) record();
             if (parts.Count == 0) return;
             var heard = parts.Count == 1 ? parts : parts.Where(p => (int)p.Level <= (int)_speaker.Verbosity).ToList();
             foreach (var held in parts.Except(heard))
@@ -398,6 +409,21 @@ namespace JJFlexWpf
             if (!queued) { _speaker.Say(text, subject, level); return; }
             _speaker.SayAfter(text, subject, level);
             if (subject is SpeechSubject.NoiseHelperState or SpeechSubject.NoiseRadioSibling or SpeechSubject.NoiseModeStart) _noticesOwed.Add(subject);
+        }
+
+        /// <summary>
+        /// A model the mode's rule chose in place of the one asked for or held
+        /// (NNR in CW), journalled under the road that caused it and after that
+        /// road's own entry: choosing NNR in CW was journalled "from mode change",
+        /// before the switch it belonged to (#1118). Inside an action it waits for
+        /// the action to end (<see cref="_journalAfterAction"/>); outside one it is
+        /// recorded at once.
+        /// </summary>
+        private void JournalModelAdmission(string source, string engineId, string from, string to)
+        {
+            void Record() => NoiseSettingsJournal.Record(NoiseJournalKind.Model, source, engineId, "model", from, to, byJjFlexible: true);
+            if (_utteranceDepth > 0) (_journalAfterAction ??= new()).Add(Record);
+            else Record();
         }
 
         /// <summary>As <see cref="Say(string, string, VerbosityLevel)"/>, but after whatever is being said, never cutting it (<see cref="INoiseSpeaker.SayAfter"/>).</summary>
@@ -633,10 +659,10 @@ namespace JJFlexWpf
             }
             string? replaced = slot.Enabled && slot.ChosenEngineId != e.Id && slot.ChosenEngineId.Length > 0 ? slot.ChosenEngineId : null;
             RetireHelperNotice("a computer noise engine was chosen");
-            if (model != null) SetModelQuietly(e, slot, model);
+            if (model != null) SetModelQuietly(e, slot, model, source);
             // The CW model the mode's rule chose is said AFTER the switch, in the
             // same utterance (#1110): the answer to the press comes first.
-            string? cwModel = ApplyModeRulesForChoice(e, slot);
+            string? cwModel = ApplyModeRulesForChoice(e, slot, source);
             slot.Select(e.Id, out _);
             slot.Enabled = true;
             // The engine pushed out of the slot is part of the same change (#1018

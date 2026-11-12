@@ -345,10 +345,10 @@ namespace JJFlexWpf
         /// A model arriving by any road (a favourite, the brackets, a preset,
         /// Escape), set under the mode's rule (repair round 1, B4).
         /// </summary>
-        private void SetModelQuietly(DenoiseEngineEntry e, PcDenoiseSlot slot, string model)
+        private void SetModelQuietly(DenoiseEngineEntry e, PcDenoiseSlot slot, string model, string source)
         {
             if (!e.Settings.Any(d => d.Name == "model")) return;
-            string admitted = AdmitModel(e, model);
+            string admitted = AdmitModel(e, model, source);
             // The model is a rebuild setting: setting the one already held
             // would rebuild the engine for nothing.
             if (slot.GetSetting(e.Id, "model").Choice != admitted)
@@ -365,13 +365,15 @@ namespace JJFlexWpf
         /// owed back on leaving CW, exactly as entering CW does. Every road a
         /// model enters by asks this, before anything is built (B4): the
         /// favourite stays in the list, and in CW it lands on the CW model.
+        /// Journalled under <paramref name="source"/>, the road the model came by
+        /// (a favourite, a preset, Escape), after that road's own entry (#1118).
         /// </summary>
-        private string AdmitModel(DenoiseEngineEntry e, string model)
+        private string AdmitModel(DenoiseEngineEntry e, string model, string source)
         {
             if (e.Id != "nnr" || CurrentGroup != NoiseModeGroup.Cw || NoiseModeRules.IsCwModel(model)) return model;
             string cw = NoiseModeRules.ChooseCwModel(_cwCost).Model;
             if (Memory is { } mem) mem.NnrVoiceModelOwed = model;
-            NoiseSettingsJournal.Record(NoiseJournalKind.Model, "mode change", e.Id, "model", model, cw, byJjFlexible: true);
+            JournalModelAdmission(source, e.Id, model, cw);
             return cw;
         }
 
@@ -383,7 +385,7 @@ namespace JJFlexWpf
         /// The records themselves are never changed: a preset keeps the voice
         /// model it was saved with, for the next time it is applied in voice.
         /// </summary>
-        private IReadOnlyList<Radios.DenoiseEngineSettings> AdmitForMode(PcDenoiseSlot slot, IReadOnlyList<Radios.DenoiseEngineSettings> records, string target)
+        private IReadOnlyList<Radios.DenoiseEngineSettings> AdmitForMode(PcDenoiseSlot slot, IReadOnlyList<Radios.DenoiseEngineSettings> records, string target, string source)
         {
             if (target != "nnr" || CurrentGroup != NoiseModeGroup.Cw || _catalog.Find("nnr") is not { } e || e.Family != slot.Family
                 || e.Settings.FirstOrDefault(d => d.Name == "model") is not { } modelSetting) return records;
@@ -391,12 +393,12 @@ namespace JJFlexWpf
             if (record == null)
             {
                 string now = slot.GetSetting("nnr", "model").Choice ?? "";
-                string admitted = AdmitModel(e, now);
+                string admitted = AdmitModel(e, now, source);
                 if (admitted != now) slot.TrySetSetting("nnr", "model", new EngineSettingValue(0, admitted));
                 return records;
             }
             string stored = record.Values.LastOrDefault(v => v.Name == "model")?.Choice ?? modelSetting.Default.Choice ?? "";
-            string model = AdmitModel(e, stored);
+            string model = AdmitModel(e, stored, source);
             if (model == stored) return records;
             var copy = new Radios.DenoiseEngineSettings
             {
@@ -411,17 +413,21 @@ namespace JJFlexWpf
         /// <summary>
         /// Choosing an engine applies the mode's rules first: NNR in CW takes a CW
         /// model. Returns the CW model it switched to, or null; the caller says it
-        /// after the switch's own sentence (<see cref="SpeakCwModel"/>, #1110).
+        /// after the switch's own sentence (<see cref="SpeakCwModel"/>, #1110), and
+        /// the journal records it under the choice's own road, after the switch
+        /// (#1118: it read "from mode change", before the switch).
         /// </summary>
-        private string? ApplyModeRulesForChoice(DenoiseEngineEntry e, PcDenoiseSlot slot) =>
-            e.Id == "nnr" && CurrentGroup == NoiseModeGroup.Cw ? EnsureCwModel(speak: false, choosing: true) : null;
+        private string? ApplyModeRulesForChoice(DenoiseEngineEntry e, PcDenoiseSlot slot, string source) =>
+            e.Id == "nnr" && CurrentGroup == NoiseModeGroup.Cw ? EnsureCwModel(speak: false, choosing: true, source: source) : null;
 
         /// <summary>
         /// In CW, NNR offers only its CW models: a stored voice model swaps to the
         /// CW model the measured rule picks, and is owed back on leaving CW.
         /// Returns the CW model it switched to, or null when nothing changed.
+        /// Journalled under <paramref name="source"/>: a mode change, or the road
+        /// an engine was chosen by.
         /// </summary>
-        private string? EnsureCwModel(bool speak, bool choosing = false)
+        private string? EnsureCwModel(bool speak, bool choosing = false, string source = "mode change")
         {
             var p = _pipeline();
             if (p == null || _catalog.Find("nnr") == null) return null;
@@ -431,7 +437,7 @@ namespace JJFlexWpf
             string model = NoiseModeRules.ChooseCwModel(_cwCost).Model;
             if (Memory is { } mem) mem.NnrVoiceModelOwed = current;
             p.NeuralSlot.TrySetSetting("nnr", "model", new EngineSettingValue(0, model));
-            NoiseSettingsJournal.Record(NoiseJournalKind.Model, "mode change", "nnr", "model", current, model, byJjFlexible: true);
+            JournalModelAdmission(source, "nnr", current, model);
             if (speak && (p.NeuralSlot.Enabled || choosing)) SpeakCwModel(model);
             return model;
         }
