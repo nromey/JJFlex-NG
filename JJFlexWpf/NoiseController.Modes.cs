@@ -110,6 +110,9 @@ namespace JJFlexWpf
 
         private void EnterGroup(string mode, bool attaching)
         {
+            // A restore, a starting point and NNR's model can all speak on one
+            // mode change: one utterance, so none cuts another (#1110).
+            using var oneUtterance = OneUtterance();
             var g = NoiseModeRules.GroupOf(mode);
             var old = _group;
             if (old == g) return;
@@ -396,27 +399,36 @@ namespace JJFlexWpf
             return records.Select(r => ReferenceEquals(r, record) ? copy : r).ToList();
         }
 
-        /// <summary>Choosing an engine applies the mode's rules first: NNR in CW takes a CW model.</summary>
-        private void ApplyModeRulesForChoice(DenoiseEngineEntry e, PcDenoiseSlot slot, bool speak)
-        {
-            if (e.Id == "nnr" && CurrentGroup == NoiseModeGroup.Cw) EnsureCwModel(speak, choosing: true);
-        }
+        /// <summary>
+        /// Choosing an engine applies the mode's rules first: NNR in CW takes a CW
+        /// model. Returns the CW model it switched to, or null; the caller says it
+        /// after the switch's own sentence (<see cref="SpeakCwModel"/>, #1110).
+        /// </summary>
+        private string? ApplyModeRulesForChoice(DenoiseEngineEntry e, PcDenoiseSlot slot) =>
+            e.Id == "nnr" && CurrentGroup == NoiseModeGroup.Cw ? EnsureCwModel(speak: false, choosing: true) : null;
 
-        /// <summary>In CW, NNR offers only its CW models: a stored voice model swaps to the CW model the measured rule picks, and is owed back on leaving CW.</summary>
-        private void EnsureCwModel(bool speak, bool choosing = false)
+        /// <summary>
+        /// In CW, NNR offers only its CW models: a stored voice model swaps to the
+        /// CW model the measured rule picks, and is owed back on leaving CW.
+        /// Returns the CW model it switched to, or null when nothing changed.
+        /// </summary>
+        private string? EnsureCwModel(bool speak, bool choosing = false)
         {
             var p = _pipeline();
-            if (p == null || _catalog.Find("nnr") == null) return;
-            if (p.NeuralSlot.ChosenEngineId != "nnr" && !choosing) return;
+            if (p == null || _catalog.Find("nnr") == null) return null;
+            if (p.NeuralSlot.ChosenEngineId != "nnr" && !choosing) return null;
             string current = p.NeuralSlot.GetSetting("nnr", "model").Choice ?? "standard";
-            if (NoiseModeRules.IsCwModel(current)) return;
+            if (NoiseModeRules.IsCwModel(current)) return null;
             string model = NoiseModeRules.ChooseCwModel(_cwCost).Model;
             if (Memory is { } mem) mem.NnrVoiceModelOwed = current;
             p.NeuralSlot.TrySetSetting("nnr", "model", new EngineSettingValue(0, model));
             NoiseSettingsJournal.Record(NoiseJournalKind.Model, "mode change", "nnr", "model", current, model, byJjFlexible: true);
-            if (speak && (p.NeuralSlot.Enabled || choosing))
-                Say(L("audio.noise_surface.cw_model", ("model", ModelName(model))), SpeechSubject.NoiseModeStart);
+            if (speak && (p.NeuralSlot.Enabled || choosing)) SpeakCwModel(model);
+            return model;
         }
+
+        private void SpeakCwModel(string model) =>
+            Say(L("audio.noise_surface.cw_model", ("model", ModelName(model))), SpeechSubject.NoiseModeStart);
 
         private void GiveBackVoiceModel(bool speak)
         {

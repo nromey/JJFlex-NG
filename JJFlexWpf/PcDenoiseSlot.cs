@@ -93,6 +93,24 @@ namespace JJFlexWpf
         public DenoiseDirection Direction => DenoiseDirection.Receive;
         public string ChosenEngineId => Volatile.Read(ref _choice).Id;
         public string RunningEngineId => Volatile.Read(ref _runningBuild)?.Id ?? "";
+
+        private string _processingId = "";
+        /// <summary>
+        /// The engine that processed the last receive buffer this slot was given,
+        /// or "" when that buffer went through unprocessed: the slot off, nothing
+        /// built yet, a failed start, Captured noise with no profile, the spectral
+        /// slot paused while a noise profile is being captured, or the engine
+        /// passing audio through because it became unavailable (a helper that
+        /// died). Written by the audio thread on every buffer, so it is what the
+        /// operator actually hears processed. Not <see cref="RunningEngineId"/>,
+        /// which is the bank the slot holds and survives every one of those gates
+        /// (#1103 repair round 1, Codex: Captured noise kept its id with no
+        /// profile and was read as working). Says nothing about buffers that never
+        /// arrived: with no audio flowing it keeps the last buffer's answer, and
+        /// a buffer too short to complete an engine frame keeps it too (it proves
+        /// nothing). The most recent buffer's result, not a liveness guarantee.
+        /// </summary>
+        public string ProcessingEngineId => Volatile.Read(ref _processingId);
         /// <summary>
         /// What the running bank delays the audio by, in samples (engine plus any
         /// frame carry); 0 with nothing running. Says nothing about WHICH engine
@@ -424,6 +442,7 @@ namespace JJFlexWpf
             {
                 if (_wasActive) { running?.ClearCarry(); _warming?.Bank.ClearCarry(); }
                 _wasActive = false;
+                Volatile.Write(ref _processingId, "");
                 // Keep the built choice, but do not warm or announce it with no audio.
                 return;
             }
@@ -450,7 +469,13 @@ namespace JJFlexWpf
                     StopFailedChoice(failedBuild.Choice);
                     return;
                 }
-                if (running != null) running.Process(audio, GetStrength(run!.Id));
+                string? processedBy = running == null ? "" : null;
+                if (running != null)
+                {
+                    long runningTook = running.EngineFrames, runningFailed = running.FallbackFrames;
+                    running.Process(audio, GetStrength(run!.Id));
+                    processedBy = ProcessedBy(running, run.Id, runningTook, runningFailed);
+                }
                 if (produced) _warmSamples += audio.Length / _channels;
                 else _warmSamples = 0;
                 if (_warmSamples >= _sampleRate / 10 && ReferenceEquals(choice, Volatile.Read(ref _choice)))
@@ -468,19 +493,35 @@ namespace JJFlexWpf
                     _warming = null;
                     if (old != null) Retire(old);
                     _announced = choice.Generation;
+                    processedBy = choice.Id;
                     Publish(choice, true);
                 }
+                if (processedBy != null) Volatile.Write(ref _processingId, processedBy);
                 return;
             }
             if (running != null)
             {
-                long late = running.LateFrames, failed = running.FallbackFrames;
+                long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames;
                 running.Process(audio, GetStrength(run!.Id));
+                if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
                 if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
                     late == running.LateFrames && failed == running.FallbackFrames)
                 { _announced = choice.Generation; Publish(choice, true); }
             }
+            else Volatile.Write(ref _processingId, "");
         }
+
+        /// <summary>
+        /// What one buffer through <paramref name="bank"/> proves: "" when any frame
+        /// passed through because the engine was unavailable (the id stays, the
+        /// processing does not); <paramref name="id"/> when the engine itself took
+        /// a frame; null when the buffer completed no frame at all, which proves
+        /// nothing, so the last answer stands (repair round 2, Codex: a partial
+        /// buffer made a dead engine's id reappear). Late frames count as taken,
+        /// so a helper's start-up lateness does not flicker.
+        /// </summary>
+        private static string? ProcessedBy(PerChannelDenoiserBank bank, string id, long tookBefore, long failedBefore) =>
+            bank.FallbackFrames != failedBefore ? "" : bank.EngineFrames != tookBefore ? id : null;
 
         private void StopFailedChoice(Choice choice)
         {
@@ -488,6 +529,7 @@ namespace JJFlexWpf
             // leaves a failure on its choice; the next buffer applies it,
             // including while disabled, before reporting that the slot stopped.
             var old = Interlocked.Exchange(ref _runningBuild, null)?.Bank;
+            Volatile.Write(ref _processingId, "");
             if (old != null) Retire(old);
             _runningApplied = null;
             if (_warming != null) { Retire(_warming.Bank); _warming = null; }

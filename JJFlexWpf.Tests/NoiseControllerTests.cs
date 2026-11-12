@@ -991,6 +991,591 @@ public sealed class NoiseControllerTests
         Assert.Equal(9, f.Noise.NumberOf(limit));
     }
 
+    // ── One action, one utterance (#1110) ──
+
+    /// <summary>
+    /// What one action said as interrupts: every sentence after <paramref name="from"/>
+    /// that was not queued behind what was speaking.
+    /// </summary>
+    private static List<(string Text, string Subject)> InterruptsSince(NoiseFixture f, int from) =>
+        f.Spoken.Said.Select((s, i) => (s, i)).Where(x => x.i >= from && !f.Spoken.SaidAfter.Contains(x.i))
+            .Select(x => (x.s.Text, x.s.Subject)).ToList();
+
+    /// <summary>
+    /// Run one action and hold it to the rule: every noise sentence goes out as an
+    /// interrupt, so a second interrupt from the same action cuts the first (#1110,
+    /// heard live: "Back in CW: RNNoise off, NNR on." cut at its first word by
+    /// "NNR switched to Premium CW for CW; ..."). Returns what it said.
+    /// </summary>
+    private static List<(string Text, string Subject)> OneAction(NoiseFixture f, string what, Action act)
+    {
+        int from = f.Spoken.Said.Count;
+        act();
+        var said = InterruptsSince(f, from);
+        Assert.True(said.Count <= 1, what + " said " + said.Count + " interrupts, so the later ones cut the earlier: "
+            + string.Join(" | ", said.Select(s => s.Text)));
+        return said;
+    }
+
+    private static string ModelLabel(NoiseFixture f, string model)
+    {
+        // The label key is read first, so the lexicon coverage scan never reads an engine id as a key.
+        string labelKey = f.Catalog.Find("nnr")!.Settings.First(d => d.Name == "model").Options!.First(o => o.Name == model).LabelKey;
+        return Lexicon.Get(labelKey);
+    }
+
+    private static string NnrModel(NoiseFixture f) => f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice!;
+
+    private static void Mode(NoiseFixture f, string mode) { f.Radio.Mode = mode; f.Noise.OnModeChanged(mode); }
+
+    private static string RestoreSentence(string groupKey, string offEngine, string onEngine) =>
+        Lexicon.Get("audio.noise_surface.mode_restore", VerbosityLevel.Chatty,
+            ("group", Lexicon.Get(groupKey, VerbosityLevel.Chatty)),
+            ("changes", Lexicon.Get("audio.noise_surface.phrase_off", VerbosityLevel.Chatty, ("engine", offEngine)) + ", "
+                + Lexicon.Get("audio.noise_surface.phrase_on", VerbosityLevel.Chatty, ("engine", onEngine))));
+
+    /// <summary>
+    /// #1110 as the 8600 heard it: CW remembers NNR, voice remembers RNNoise, and
+    /// leaving CW gave NNR its voice model back. Coming back into CW restores the
+    /// group AND switches NNR to its CW model. Both facts are one utterance, the
+    /// swap first, under the restore's subject; neither cuts the other.
+    /// </summary>
+    [Fact]
+    public void Coming_back_into_CW_says_the_swap_and_the_CW_model_as_one_utterance()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "test");
+        Mode(f, "CW");                 // the first time: NNR's starting point, replacing RNNoise
+        Mode(f, "USB");                // back: RNNoise on, NNR's voice model given back
+        Assert.False(NoiseModeRules.IsCwModel(NnrModel(f)));
+
+        var said = OneAction(f, "entering CW", () => Mode(f, "CW"));
+
+        Assert.True(NoiseModeRules.IsCwModel(NnrModel(f)));
+        string model = Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f))));
+        Assert.Equal(RestoreSentence("audio.noise_surface.group.cw", "RNNoise", "NNR") + " " + model, said.Single().Text);
+        Assert.Equal(SpeechSubject.NoiseModeStart, said.Single().Subject);
+    }
+
+    /// <summary>
+    /// The way back out, when voice remembers NNR and CW ran RNNoise: the restore
+    /// ("RNNoise off, NNR on") and NNR's voice model coming back are one utterance.
+    /// </summary>
+    [Fact]
+    public void Leaving_CW_says_the_swap_and_the_voice_model_back_as_one_utterance()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+        f.Noise.Toggle("nnr", "test");
+        Mode(f, "CW");                 // NNR stays, on a CW model; the voice model is owed back
+        f.Noise.Toggle("rnnoise", "test");
+
+        var said = OneAction(f, "leaving CW", () => Mode(f, "USB"));
+
+        Assert.Equal("premium", NnrModel(f));
+        Assert.Equal(RestoreSentence("audio.noise_surface.group.voice", "RNNoise", "NNR") + " "
+            + Lexicon.Get("audio.noise_surface.voice_model_back", VerbosityLevel.Chatty, ("model", ModelLabel(f, "premium"))), said.Single().Text);
+    }
+
+    /// <summary>
+    /// Choosing NNR in CW while it holds a voice model: the model switch and the
+    /// switch's own answer used to be two interrupts, the model first, so "NNR on"
+    /// cut "NNR switched to ... for CW". Now one utterance, the answer to the press
+    /// first and the model after it, on every road that turns an engine on (the
+    /// layer's switch, Home's settled engine choice), and on the refusal too.
+    /// </summary>
+    [Fact]
+    public void Choosing_NNR_in_CW_says_the_switch_then_the_CW_model_as_one_utterance()
+    {
+        // The switch.
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.Attach("CW");
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            var said = OneAction(f, "turning NNR on in CW", () => f.Noise.Toggle("nnr", "test"));
+            string text = said.Single().Text;
+            Assert.StartsWith(Lexicon.Get("audio.noise_surface.on", VerbosityLevel.Chatty, ("engine", "NNR")), text);
+            Assert.EndsWith(Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f)))), text);
+            Assert.Equal(SpeechSubject.NoiseEngineSwitch, said.Single().Subject);
+        }
+        // Home's engine field, settled, with the slot already on another engine.
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.Attach("CW");
+            f.Noise.Toggle("rnnoise", "test");
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            f.Noise.ChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+            var said = OneAction(f, "Home's engine choice settling on NNR in CW", () => f.Clock.RunAll());
+            string text = said.Single().Text;
+            Assert.StartsWith(Lexicon.Get("audio.noise_surface.on_replacing", VerbosityLevel.Chatty, ("engine", "NNR"), ("other", "RNNoise")), text);
+            Assert.EndsWith(Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f)))), text);
+        }
+        // The refusal: the helper is missing, NNR is kept as the choice and its model still changes.
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.Attach("CW");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            var said = OneAction(f, "refusing NNR in CW", () => f.Noise.Toggle("nnr", "test"));
+            string text = said.Single().Text;
+            Assert.StartsWith(Lexicon.Get("audio.noise_surface.unavailable.helpermissing", VerbosityLevel.Chatty, ("engine", "NNR")), text);
+            Assert.EndsWith(Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f)))), text);
+        }
+    }
+
+    /// <summary>
+    /// The brackets with no favourites: the once-per-session explanation and the
+    /// step's answer are one utterance, so the answer no longer cuts the explanation.
+    /// A part this verbosity would not speak is left out of it, as the screen reader
+    /// would have dropped it.
+    /// </summary>
+    [Fact]
+    public void The_first_bracket_with_no_favourites_says_the_explanation_and_the_step_as_one_utterance()
+    {
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.BeginSession();
+            var said = OneAction(f, "the first bracket", () => f.Noise.Step(+1, "test"));
+            Assert.Equal(Lexicon.Get("audio.noise_surface.no_favourites", VerbosityLevel.Chatty) + " "
+                + Lexicon.Get("audio.noise_surface.on", VerbosityLevel.Chatty, ("engine", f.Noise.NameOf("radio_nr"))), said.Single().Text);
+        }
+        using (var f = new NoiseFixture())
+        {
+            f.Spoken.Verbosity = VerbosityLevel.Terse;
+            f.Noise.BeginSession();
+            var said = OneAction(f, "the first bracket at Terse", () => f.Noise.Step(+1, "test"));
+            Assert.Equal(Lexicon.Get("audio.noise_surface.on", VerbosityLevel.Terse, ("engine", f.Noise.NameOf("radio_nr"))), said.Single().Text);
+            Assert.Equal(VerbosityLevel.Terse, f.Spoken.Said.Single().Level);
+        }
+    }
+
+    /// <summary>
+    /// The class, not one pair (#1110): every road that changes noise settings,
+    /// walked through the states where they say the most (CW with NNR's model to
+    /// swap, refusals, starting points, presets, Escape, the 0 key, levers,
+    /// defaults, favourites, PC audio off), says at most one interrupt per action.
+    /// </summary>
+    [Fact]
+    public void Every_noise_action_says_at_most_one_interrupt()
+    {
+        foreach (bool helperMissing in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            if (helperMissing) f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            OneAction(f, "connect in voice", () => f.Noise.Attach("USB"));
+            OneAction(f, "the neural slot on (voice starting point)", () => f.Noise.SetSlotOn(DenoiseFamily.Neural, true, "test"));
+            OneAction(f, "the spectral slot on", () => f.Noise.SetSlotOn(DenoiseFamily.Spectral, true, "test"));
+            OneAction(f, "RNNoise on", () => f.Noise.Toggle("rnnoise", "test"));
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            OneAction(f, "first time in CW", () => Mode(f, "CW"));
+            OneAction(f, "back to voice", () => Mode(f, "USB"));
+            OneAction(f, "CW again", () => Mode(f, "CW"));
+            OneAction(f, "RNNoise in CW", () => f.Noise.Toggle("rnnoise", "test"));
+            OneAction(f, "NNR in CW", () => f.Noise.SetOn("nnr", true, "test"));
+            OneAction(f, "NNR again in CW", () => f.Noise.SetOn("nnr", true, "test"));
+            if (f.Noise.Levers("nnr", false).FirstOrDefault(l => l.Key == "model") is { } model)
+            {
+                OneAction(f, "NNR's model lever in CW", () => f.Noise.Adjust(model, +1, "test"));
+                OneAction(f, "NNR's model to its edge in CW", () => f.Noise.Place(model, -1, "test"));
+            }
+            OneAction(f, "NNR's defaults in CW", () => f.Noise.ReturnToDefaults("nnr", "test"));
+            OneAction(f, "favourite NNR", () => f.Noise.ToggleFavourite("nnr", "test"));
+            OneAction(f, "favourite RNNoise", () => f.Noise.ToggleFavourite("rnnoise", "test"));
+            f.Noise.BeginSession();
+            OneAction(f, "a bracket", () => f.Noise.Step(+1, "test"));
+            OneAction(f, "another bracket", () => f.Noise.Step(+1, "test"));
+            OneAction(f, "a preset step", () => f.Noise.StepPreset(+1, "test"));
+            var snap = f.Noise.TakeSnapshot();
+            OneAction(f, "the 0 key", () => f.Noise.ComputerOffAndBack("test"));
+            OneAction(f, "the 0 key again", () => f.Noise.ComputerOffAndBack("test"));
+            OneAction(f, "Escape's revert", () => f.Noise.RestoreSnapshot(snap, "test"));
+            OneAction(f, "a radio engine", () => f.Noise.Toggle("radio_nrl", "test"));
+            OneAction(f, "digital", () => Mode(f, "DIGU"));
+            OneAction(f, "voice from digital", () => Mode(f, "USB"));
+            OneAction(f, "CW from voice", () => Mode(f, "CW"));
+            OneAction(f, "the neural slot off", () => f.Noise.SetSlotOn(DenoiseFamily.Neural, false, "test"));
+            OneAction(f, "the neural slot on in CW", () => f.Noise.SetSlotOn(DenoiseFamily.Neural, true, "test"));
+            OneAction(f, "PC audio off, then RNNoise", () => { f.Radio.PcAudioOn = false; f.Noise.Toggle("rnnoise", "test"); });
+            OneAction(f, "PC audio off, then NNR", () => f.Noise.Toggle("nnr", "test"));
+        }
+    }
+
+    // ── The summary never reads a stopped engine as working (#1103) ──
+
+    /// <summary>
+    /// #1103, heard on the 8600: with PC audio off, Space read "On this computer:
+    /// DeepFilterNet3, limit 9 decibels, ..." as if it were working. With PC audio
+    /// off nothing reaches the computer's engines, so the summary says the engine
+    /// is chosen and waiting for PC audio (placeholder for Codex), whether it was
+    /// chosen with PC audio off or was running before PC audio went off, at every
+    /// verbosity; the radio's own engines are still read as they are.
+    /// </summary>
+    [Fact]
+    public void With_PC_audio_off_the_summary_says_the_engine_waits_for_PC_audio()
+    {
+        foreach (bool runningFirst in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            f.Radio.Switches["radio_nrl"] = true;
+            f.Radio.Levels["radio_nrl"] = 8;
+            if (runningFirst)
+            {
+                f.Noise.Toggle("deepfilternet3", "test");
+                f.Settle();
+                Assert.Contains("DeepFilterNet3, ", f.Noise.ActiveSummary());
+                f.Radio.PcAudioOn = false;
+            }
+            else
+            {
+                f.Radio.PcAudioOn = false;
+                f.Noise.Toggle("deepfilternet3", "test");
+                f.Settle();
+            }
+            foreach (var verbosity in new[] { VerbosityLevel.Chatty, VerbosityLevel.Terse, VerbosityLevel.Critical })
+            {
+                f.Spoken.Verbosity = verbosity;
+                string summary = f.Noise.ActiveSummary();
+                Assert.Contains(Lexicon.Get("audio.noise_surface.active.computer", verbosity,
+                    ("list", Lexicon.Get("audio.noise_surface.active.waiting_pc_audio", verbosity, ("engine", "DeepFilterNet3")))), summary);
+                Assert.Contains("Legacy NR", summary);
+                Assert.DoesNotContain(f.Noise.LeverName(f.Noise.Levers("deepfilternet3", false)[0]).ToLowerInvariant(), summary);
+            }
+            f.Spoken.Verbosity = VerbosityLevel.Chatty;
+            f.Radio.PcAudioOn = true;
+            f.Settle();
+            Assert.Contains("DeepFilterNet3, ", f.Noise.ActiveSummary());
+        }
+    }
+
+    /// <summary>
+    /// #1103's other not-running states: an engine chosen and on that the slot
+    /// has not started (still building or warming, no receive audio yet, a failed
+    /// start, Captured noise with no profile) reads "not running yet" (the
+    /// existing words), not its settings; once it runs, its settings. An engine
+    /// that cannot run here reads the same, as before.
+    /// </summary>
+    [Fact]
+    public void An_engine_the_slot_has_not_started_reads_as_not_running_yet()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("deepfilternet3", "test");    // no audio fed: chosen, on, not yet built
+        Assert.NotEqual("deepfilternet3", f.Pipeline.NeuralSlot.RunningEngineId);
+        string waiting = Lexicon.Get("audio.noise_surface.active.waiting", VerbosityLevel.Chatty, ("engine", "DeepFilterNet3"));
+        Assert.Equal(Lexicon.Get("audio.noise_surface.active.computer", VerbosityLevel.Chatty, ("list", waiting)), f.Noise.ActiveSummary());
+        f.Settle();
+        Assert.Contains("DeepFilterNet3, ", f.Noise.ActiveSummary());
+        Assert.DoesNotContain(waiting, f.Noise.ActiveSummary());
+
+        // Unavailable: as before.
+        f.Unavailable["nnr"] = Unavailability.HelperMissing;
+        f.Noise.Toggle("nnr", "test");
+        Assert.Contains(Lexicon.Get("audio.noise_surface.active.waiting", VerbosityLevel.Chatty, ("engine", "NNR")), f.Noise.ActiveSummary());
+    }
+
+    // ── Repair round 1 (Codex's check of track e3) ──
+
+    private static float[] Buffer() => Enumerable.Repeat(0.1f, 960).ToArray();
+
+    private static void CaptureProfile(NoiseFixture f)
+    {
+        f.Pipeline.StartNoiseSampling(1);
+        for (int i = 0; i < 130 && !f.Pipeline.HasNoiseProfile; i++) f.Pipeline.Process(Buffer());
+        Assert.True(f.Pipeline.HasNoiseProfile);
+    }
+
+    private static string WaitingSummary(NoiseFixture f, string id) =>
+        Lexicon.Get("audio.noise_surface.active.waiting", VerbosityLevel.Chatty, ("engine", f.Noise.NameOf(id)));
+
+    /// <summary>
+    /// Codex's probe, kept: Captured noise holds a built bank under its id from
+    /// the moment the slot exists, and keeps it after its profile is cleared, but
+    /// with no profile the slot passes the audio through untouched. The summary
+    /// read "On this computer: Captured noise, amount ..." in both cases. It now
+    /// reads what the slot processed: "not running yet". The audio is checked
+    /// byte for byte, so the test proves nothing was processed, and the cleared
+    /// case first proves that something was.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Captured_noise_without_a_profile_reads_as_not_running_even_with_a_built_bank(bool clearAfterRunning)
+    {
+        using var f = new NoiseFixture();
+        if (clearAfterRunning) CaptureProfile(f);
+        f.Noise.Toggle("spectral_capture", "test");
+        var audio = Buffer();
+        if (clearAfterRunning)
+        {
+            f.Pipeline.Process(audio);
+            Assert.Contains(audio, x => x != 0.1f);
+            Assert.DoesNotContain(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+            f.Pipeline.ClearNoiseProfile();
+        }
+        Assert.False(f.Pipeline.HasNoiseProfile);
+        Assert.Equal("spectral_capture", f.Pipeline.SpectralSlot.RunningEngineId);
+        audio = Buffer();
+        f.Pipeline.Process(audio);
+        Assert.All(audio, x => Assert.Equal(0.1f, x));
+        Assert.Contains(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+    }
+
+    /// <summary>
+    /// The other gates where the slot keeps an engine's id and processes nothing:
+    /// the spectral slot pauses while a noise profile is captured, and an engine
+    /// that becomes unavailable mid-run (a helper that died) passes audio through.
+    /// Each reads "not running yet" while it lasts, and its settings again after.
+    /// </summary>
+    [Fact]
+    public void A_paused_or_passing_through_engine_reads_as_not_running_yet()
+    {
+        using var f = new NoiseFixture();
+        CaptureProfile(f);
+        f.Noise.Toggle("spectral_capture", "test");
+        f.Pipeline.Process(Buffer());
+        Assert.DoesNotContain(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+
+        // Capturing a new profile: the spectral slot is paused, its id kept.
+        f.Pipeline.StartNoiseSampling(1);
+        var audio = Buffer();
+        f.Pipeline.Process(audio);
+        Assert.True(f.Pipeline.IsNoiseSampling);
+        Assert.Equal("spectral_capture", f.Pipeline.SpectralSlot.RunningEngineId);
+        Assert.All(audio, x => Assert.Equal(0.1f, x));
+        Assert.Contains(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+        for (int i = 0; i < 130 && f.Pipeline.IsNoiseSampling; i++) f.Pipeline.Process(Buffer());
+        f.Pipeline.Process(Buffer());
+        Assert.DoesNotContain(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+
+        // An engine that dies mid-run: the id stays, the audio passes through.
+        f.Noise.Toggle("deepfilternet3", "test");
+        f.Settle();
+        Assert.DoesNotContain(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
+        f.Dead["deepfilternet3"] = true;
+        f.Pipeline.Process(Buffer());
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.RunningEngineId);
+        Assert.Contains(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
+        f.Dead.TryRemove("deepfilternet3", out _);
+        f.Pipeline.Process(Buffer());
+        Assert.DoesNotContain(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
+    }
+
+    /// <summary>
+    /// Codex's probe, kept: the sibling check's one firing said one interrupt per
+    /// sibling the radio turned off, so "The radio turned Standard NR off." was cut
+    /// by "The radio turned Legacy NR off.". One firing is now one utterance, and
+    /// it is queued behind whatever is being said, since nobody asked for it. A
+    /// single sibling is the same, queued.
+    /// </summary>
+    [Fact]
+    public void One_sibling_check_says_one_queued_utterance()
+    {
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Switches["radio_nr"] = true;
+            f.Radio.Switches["radio_nrl"] = true;
+            f.Noise.Toggle("radio_nrs", "test");
+            f.Radio.Switches["radio_nr"] = false;
+            f.Radio.Switches["radio_nrl"] = false;
+            int from = f.Spoken.Said.Count;
+            var said = OneAction(f, "one sibling check", () => f.Clock.RunAll());
+            Assert.Empty(said);                                  // no interrupt at all
+            Assert.Single(f.Spoken.Said.Skip(from));
+            Assert.Contains(from, f.Spoken.SaidAfter);
+            Assert.Equal(Lexicon.Get("audio.noise_surface.radio_turned_off", VerbosityLevel.Chatty, ("engine", "Standard NR")) + " "
+                + Lexicon.Get("audio.noise_surface.radio_turned_off", VerbosityLevel.Chatty, ("engine", "Legacy NR")), f.Spoken.Last);
+        }
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Switches["radio_nr"] = true;
+            f.Noise.Toggle("radio_nrs", "test");
+            f.Radio.Switches["radio_nr"] = false;
+            int from = f.Spoken.Said.Count;
+            f.Clock.RunAll();
+            Assert.Single(f.Spoken.Said.Skip(from));
+            Assert.Contains(from, f.Spoken.SaidAfter);
+            Assert.Equal(Lexicon.Get("audio.noise_surface.radio_turned_off", VerbosityLevel.Chatty, ("engine", "Standard NR")), f.Spoken.Last);
+        }
+    }
+
+    /// <summary>
+    /// Codex's control, kept: two quick actions are two utterances (the scope
+    /// closes with each action), and at Critical a step whose every part is gated
+    /// still hands the speaker one non-empty sentence at its own level, never a
+    /// blank one and never promoted to Critical.
+    /// </summary>
+    [Fact]
+    public void Quick_actions_stay_separate_and_a_wholly_gated_action_hands_over_one_nonempty_sentence()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.BeginSession();
+        f.Spoken.Verbosity = VerbosityLevel.Critical;
+        f.Noise.Step(+1, "test");
+        Assert.Single(f.Spoken.Said);
+        Assert.False(string.IsNullOrWhiteSpace(f.Spoken.Last));
+        Assert.Equal(VerbosityLevel.Terse, f.Spoken.Said[0].Level);
+        f.Spoken.Clear();
+        f.Spoken.Verbosity = VerbosityLevel.Chatty;
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.Toggle("rnnoise", "test");
+        Assert.Equal(2, f.Spoken.Said.Count);
+        Assert.Equal("RNNoise off.", f.Spoken.Last);
+    }
+
+    // ── Repair round 2 (Codex's second check of track e3) ──
+
+    private sealed class RoundTwoPresetStore : INoisePresetStore
+    {
+        private AudioChainPresets _store = AudioChainPresets.CreateDefaults();
+        public AudioChainPresets Load() => _store;
+        public bool Save(AudioChainPresets store) { _store = store; return true; }
+    }
+
+    /// <summary>Standard NR on, Spectral NR turned on, and the radio turns Standard NR off: the sibling check queues its observation.</summary>
+    private static string QueueSiblingNotice(NoiseFixture f)
+    {
+        f.Radio.Switches["radio_nr"] = true;
+        f.Noise.Toggle("radio_nrs", "test");
+        f.Radio.Switches["radio_nr"] = false;
+        f.Clock.RunAll();
+        return Lexicon.Get("audio.noise_surface.radio_turned_off", VerbosityLevel.Chatty, ("engine", "Standard NR"));
+    }
+
+    /// <summary>
+    /// Codex's probe, kept, through the REAL arbiter: the queued "The radio turned
+    /// Standard NR off." survived a preset that turned Standard NR back on (the
+    /// preset retired only the helper's notice and spoke on its own subject), and
+    /// was rescued about 0.63 s after the preset's summary, an "off" right after
+    /// the opposite outcome. The sibling notice now has its own subject and an
+    /// owner that retires it before the preset's sentence. The positive control
+    /// shows the same arbiter DOES rescue it after an unrelated interrupt, so the
+    /// instrument can see the defect.
+    /// </summary>
+    [Fact]
+    public void A_queued_sibling_notice_is_not_rescued_after_a_preset_turns_that_engine_back_on()
+    {
+        using (var f = new NoiseFixture())
+        {
+            var speaker = new SilentArbiterSpeaker();
+            typeof(NoiseController).GetField("_speaker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(f.Noise, speaker);
+            try
+            {
+                f.Noise.PresetStore = new RoundTwoPresetStore();
+                f.Radio.Switches["radio_nr"] = true;
+                Assert.NotNull(f.Noise.SavePreset("Standard back", true, false, PresetCollision.Ask, "test"));
+                string old = QueueSiblingNotice(f);
+                Assert.Contains(speaker.Calls, c => c.Text == old && !c.Interrupt && !c.Salvaged);
+                f.Noise.ApplyPreset("Standard back", "test");
+                Assert.True(f.Radio.Switches["radio_nr"]);
+                speaker.Replayed.Wait(2500);
+                Assert.DoesNotContain(speaker.Calls, c => c.Text == old && c.Salvaged);
+            }
+            finally { speaker.Dispose(); }
+        }
+        // Positive control: the same notice, an interrupt that changes nothing it describes.
+        var kept = new SilentArbiterSpeaker();
+        try
+        {
+            kept.SayAfter("The radio turned Standard NR off.", SpeechSubject.NoiseRadioSibling, VerbosityLevel.Terse);
+            kept.Say("level 50", SpeechSubject.NoiseLevel, VerbosityLevel.Terse);
+            Assert.True(kept.Replayed.Wait(2500), "the arbiter never rescued the unretired sibling notice, so this instrument cannot see the defect");
+        }
+        finally { kept.Dispose(); }
+    }
+
+    /// <summary>
+    /// Every change to the radio's noise state or the picture the sibling notice
+    /// describes retires it, before that change's own sentence: a preset, Escape's
+    /// revert, a radio switch from the layer, the slice the radio reads changing,
+    /// a mode group entered, the 0 key, a computer engine switch, a disconnect.
+    /// Only its own subject is retired, so no switch answer is ever discarded.
+    /// </summary>
+    [Theory]
+    [InlineData("preset")]
+    [InlineData("escape")]
+    [InlineData("radio switch")]
+    [InlineData("slice change")]
+    [InlineData("mode group")]
+    [InlineData("zero key")]
+    [InlineData("computer switch")]
+    [InlineData("disconnect")]
+    public void Every_change_to_what_a_sibling_notice_described_retires_it_first(string change)
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.PresetStore = new RoundTwoPresetStore();
+        f.Radio.Switches["radio_nr"] = true;
+        f.Noise.SavePreset("Standard back", true, false, PresetCollision.Ask, "test");
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.Toggle("rnnoise", "test");
+        QueueSiblingNotice(f);
+        Assert.Empty(f.Spoken.Retired);
+        int saidBefore = f.Spoken.Said.Count;
+        switch (change)
+        {
+            case "preset": f.Noise.ApplyPreset("Standard back", "test"); break;
+            case "escape": f.Noise.RestoreSnapshot(snap, "test"); break;
+            case "radio switch": f.Noise.Toggle("radio_nrl", "test"); break;
+            case "slice change": f.Radio.SliceIdentity = "slice B"; f.Noise.NoteActiveSlice(1); break;
+            case "mode group": f.Radio.Mode = "CW"; f.Noise.OnModeChanged("CW"); break;
+            case "zero key": f.Noise.ComputerOffAndBack("test"); break;
+            case "computer switch": f.Noise.Toggle("nr4", "test"); break;
+            case "disconnect": f.Noise.Detach(); break;
+        }
+        var retired = Assert.Single(f.Spoken.Retired);
+        Assert.Equal(SpeechSubject.NoiseRadioSibling, retired.Subject);
+        // Retiring it a second time does nothing: nothing is owed now.
+        f.Noise.Toggle("radio_nrl", "test");
+        Assert.Single(f.Spoken.Retired);
+        Assert.True(f.Spoken.Said.Count >= saidBefore);
+    }
+
+    /// <summary>
+    /// Codex's probe, kept: after a dead engine reads as not processing on a full
+    /// buffer, a buffer too short to complete one engine frame made its id
+    /// reappear, so the summary read it as working. Such a buffer proves nothing,
+    /// so the last answer stands; and on a healthy engine it does not flicker.
+    /// </summary>
+    [Fact]
+    public void A_buffer_that_completes_no_engine_frame_proves_nothing_either_way()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("deepfilternet3", "test");
+        f.Settle();
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ProcessingEngineId);
+        f.Pipeline.Process(new float[] { 0.1f, 0.1f });
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ProcessingEngineId);
+        f.Dead["deepfilternet3"] = true;
+        f.Pipeline.Process(Buffer());
+        Assert.Equal("", f.Pipeline.NeuralSlot.ProcessingEngineId);
+        f.Pipeline.Process(new float[] { 0.1f, 0.1f });
+        Assert.Equal("", f.Pipeline.NeuralSlot.ProcessingEngineId);
+        Assert.Contains(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
+    }
+
+    /// <summary>
+    /// Codex's control, kept: RNNoise, built with the slot, waits for its first
+    /// buffer, then stays running while no audio arrives (no idle timeout calls a
+    /// healthy engine "not running yet"), and PC audio off still wins.
+    /// </summary>
+    [Fact]
+    public void RNNoise_waits_for_its_first_buffer_then_stays_running_while_idle()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("rnnoise", "test");
+        Assert.Contains(WaitingSummary(f, "rnnoise"), f.Noise.ActiveSummary());
+        f.Pipeline.Process(Buffer());
+        Assert.DoesNotContain(WaitingSummary(f, "rnnoise"), f.Noise.ActiveSummary());
+        System.Threading.Thread.Sleep(50);
+        Assert.DoesNotContain(WaitingSummary(f, "rnnoise"), f.Noise.ActiveSummary());
+        f.Radio.PcAudioOn = false;
+        Assert.Contains(Lexicon.Get("audio.noise_surface.active.waiting_pc_audio", VerbosityLevel.Chatty, ("engine", "RNNoise")), f.Noise.ActiveSummary());
+    }
+
     [Fact]
     public void Every_change_goes_through_the_one_journal()
     {

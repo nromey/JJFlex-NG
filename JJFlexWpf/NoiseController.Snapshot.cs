@@ -124,6 +124,8 @@ namespace JJFlexWpf
             if (_radio() is not { } r) return;
             object? now = r.SliceIdentity;
             if (ReferenceEquals(now, _readingSlice)) return;
+            // A sibling observation belongs to the slice it was seen on.
+            if (_readingSlice != null) RetireSiblingNotice("the radio now reads another slice");
             _switchShadow.Clear();
             _levelShadow.Clear();
             _readingSlice = now;
@@ -146,6 +148,9 @@ namespace JJFlexWpf
         {
             bool changed = false;
             if (ReferenceEquals(_live, snap)) _live = null;
+            // Escape puts the radio's switches back too, so a queued sibling
+            // observation is obsolete whatever else is put back.
+            RetireSiblingNotice("the noise settings were put back");
             if (_radio() is { } r && ReferenceEquals(r.SliceIdentity, snap.SliceIdentity))
             {
                 foreach (var (id, on) in snap.RadioSwitches)

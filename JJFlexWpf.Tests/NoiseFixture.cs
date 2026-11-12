@@ -80,15 +80,17 @@ internal sealed class NoiseFixture : IDisposable
     internal sealed class Engine : IDenoiseEngine
     {
         private readonly Dictionary<string, EngineSettingValue> _values = new();
-        public Engine(string id, IReadOnlyList<EngineSettingDescriptor> settings, IReadOnlyDictionary<string, EngineSettingValue> initial, int latency)
+        private readonly Func<bool> _available;
+        public Engine(string id, IReadOnlyList<EngineSettingDescriptor> settings, IReadOnlyDictionary<string, EngineSettingValue> initial, int latency,
+            Func<bool>? available = null)
         {
-            Id = id; Settings = settings; LatencySamples = latency;
+            Id = id; Settings = settings; LatencySamples = latency; _available = available ?? (() => true);
             foreach (var d in settings) _values[d.Name] = initial.TryGetValue(d.Name, out var v) ? v : d.Default;
         }
         public string Id { get; }
         public int SampleRate => 48000;
         public int FrameLength => 480;
-        public bool IsAvailable => true;
+        public bool IsAvailable => _available();
         public int LatencySamples { get; }
         public IReadOnlyList<EngineSettingDescriptor> Settings { get; }
         public EngineSettingValue GetSetting(string name) => _values[name];
@@ -120,6 +122,8 @@ internal sealed class NoiseFixture : IDisposable
     public bool RadioPresent = true;
     public Dictionary<string, Unavailability> Unavailable { get; } = new();
     public ConcurrentBag<string> Built { get; } = new();
+    /// <summary>Engines whose built instances stop being available mid-run (a helper that died): the bank passes their audio through unprocessed.</summary>
+    public ConcurrentDictionary<string, bool> Dead { get; } = new();
 
     /// <param name="rnnoiseLatency">The fake RNNoise's delay in samples; 0 (the default) makes every delay readout fall back to the expected figure.</param>
     public NoiseFixture(int rnnoiseLatency = 0)
@@ -131,7 +135,7 @@ internal sealed class NoiseFixture : IDisposable
             var row = real.Find(id)!;
             return row with
             {
-                Factory = row.Factory == null ? null : initial => { Built.Add(id); return new Engine(id, row.Settings, initial, latency); },
+                Factory = row.Factory == null ? null : initial => { Built.Add(id); return new Engine(id, row.Settings, initial, latency, () => !Dead.ContainsKey(id)); },
                 Probe = () => Unavailable.TryGetValue(id, out var why) ? why : Unavailability.None,
             };
         }
@@ -143,18 +147,23 @@ internal sealed class NoiseFixture : IDisposable
             () => Persisted++, Spoken, Held, Clock, Cost);
     }
 
-    /// <summary>Feed audio until a slot runs the engine it has chosen.</summary>
+    /// <summary>
+    /// Feed audio until a slot runs the engine it has chosen. Always feeds at
+    /// least one buffer, so an engine that was already built (RNNoise is built
+    /// with the slot) has processed one by the time this returns: the summary
+    /// reads what a slot processed, not the bank it holds (#1103 repair round 1).
+    /// </summary>
     public void Settle(int buffers = 200)
     {
         var audio = new float[960];
         var time = Stopwatch.StartNew();
         while (time.ElapsedMilliseconds < 5000)
         {
+            Array.Fill(audio, 0.1f);
+            Pipeline.Process(audio);
             bool done = (!Pipeline.NeuralSlot.Enabled || Pipeline.NeuralSlot.RunningEngineId == Pipeline.NeuralSlot.ChosenEngineId)
                 && (!Pipeline.SpectralSlot.Enabled || Pipeline.SpectralSlot.RunningEngineId == Pipeline.SpectralSlot.ChosenEngineId);
             if (done) return;
-            Array.Fill(audio, 0.1f);
-            Pipeline.Process(audio);
             Thread.Sleep(1);
         }
     }

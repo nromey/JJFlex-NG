@@ -1580,6 +1580,7 @@
   "audio.noise_surface.active.model": {"text": "WORDING PLACEHOLDER: summary model {model}", "delivery": null},
   "audio.noise_surface.active.floor": {"text": "WORDING PLACEHOLDER: summary noise floor {value}", "delivery": null},
   "audio.noise_surface.active.waiting": {"text": {"critical": "{engine} waiting", "terse": "{engine} waiting", "chatty": "{engine}, not running yet"}, "delivery": null},
+  "audio.noise_surface.active.waiting_pc_audio": {"text": "WORDING PLACEHOLDER: {engine} chosen, not running until PC audio is on", "delivery": null},
   "audio.noise_surface.zero_off": {"text": {"critical": "Computer NR off.", "terse": "Computer NR off.", "chatty": "Computer noise reduction off. Press 0 again to bring back {engines}."}, "delivery": null},
   "audio.noise_surface.zero_on": {"text": {"critical": "Computer NR on, {engines}.", "terse": "Computer NR on, {engines}.", "chatty": "Computer noise reduction back on: {engines}."}, "delivery": null},
   "audio.noise_surface.zero_already": {"text": {"critical": "Already off.", "terse": "Already off.", "chatty": "Computer noise reduction is already off."}, "delivery": null},

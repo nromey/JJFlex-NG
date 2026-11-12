@@ -106,6 +106,7 @@ namespace JJFlexWpf
         /// </summary>
         public void ApplyPreset(string name, string source)
         {
+            using var oneUtterance = OneUtterance();
             var preset = AllPresets(LoadPresets()).FirstOrDefault(p => p.Name == name);
             if (preset == null) return;
             if (_pipeline() is not { } p) { NoRadio(); return; }

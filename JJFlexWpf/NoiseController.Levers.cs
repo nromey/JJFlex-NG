@@ -450,6 +450,7 @@ namespace JJFlexWpf
 
         private void Move(NoiseLever lever, string source, Func<EngineSettingValue, EngineSettingValue?> to, int direction)
         {
+            using var oneUtterance = OneUtterance();
             var e = _catalog.Find(lever.EngineId);
             if (e == null) return;
             Current = e.Id;
@@ -633,6 +634,7 @@ namespace JJFlexWpf
         /// </summary>
         public void ReturnToDefaults(string id, string source)
         {
+            using var oneUtterance = OneUtterance();
             var e = _catalog.Find(id);
             if (e == null) return;
             Current = id;
@@ -714,7 +716,21 @@ namespace JJFlexWpf
                 var details = normal.Select(l => l.Descriptor!.Kind == EngineSettingKind.Choice ? ValueText(l) : LeverName(l).ToLowerInvariant() + " " + ValueText(l)).ToList();
                 details.AddRange(SummaryFacts(e, normal));
                 string item = details.Count == 0 || !Chatty ? name : name + ", " + string.Join(", ", details);
-                if (slot.RunningEngineId != e.Id && SafeAvailability(e) != Unavailability.None)
+                // An engine is chosen but not running (#1103): never read its
+                // settings as if it were working. With PC audio off nothing reaches
+                // the computer's engines at all, so it waits for PC audio, whether
+                // or not it ran before (placeholder for Codex). Otherwise it is "not
+                // running yet" unless it processed the last receive buffer: it
+                // cannot run here, it is still building or warming, it failed to
+                // start, no receive audio has arrived yet, Captured noise has no
+                // profile, a noise profile is being captured, or the engine is
+                // passing audio through because it became unavailable. Judged on
+                // what the slot processed, never on the bank it holds: the slot
+                // keeps a bank's id through every one of those gates (repair round
+                // 1, Codex: Captured noise with no profile read as working).
+                if (_radio() is { PcAudioOn: false })
+                    item = L("audio.noise_surface.active.waiting_pc_audio", ("engine", name));
+                else if (slot.ProcessingEngineId != e.Id)
                     item = L("audio.noise_surface.active.waiting", ("engine", name));
                 pcItems.Add(item);
             }

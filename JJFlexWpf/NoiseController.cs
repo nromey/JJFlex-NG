@@ -302,38 +302,132 @@ namespace JJFlexWpf
         private void Say(string text, string subject, VerbosityLevel level = VerbosityLevel.Terse)
         {
             if (string.IsNullOrWhiteSpace(text) || _quiet > 0) return;
+            if (_utterance != null) { _utterance.Add((text, subject, level, false)); return; }
             _speaker.Say(text, subject, level);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  One action, one utterance (#1110)
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// The sentences an action has said so far, while it runs; null outside
+        /// an action. Every <see cref="Say(string, string, VerbosityLevel)"/> is
+        /// an interrupt, so two of them from one action meant the second cut the
+        /// first: entering CW restored the CW group ("Back in CW: RNNoise off,
+        /// NNR on.") and then switched NNR's model, and the model sentence cut
+        /// the swap at its first word, so the operator never heard which engine
+        /// went in (#1110, live on the 8600). Inside an action the sentences are
+        /// gathered and said once, as one utterance, when the outermost action
+        /// ends: nothing from the same action can cut anything else from it.
+        /// A timer's or observer's firing is an action too (repair round 1,
+        /// Codex: the sibling check said one interrupt per sibling the radio
+        /// turned off, each cutting the last). <c>Queued</c> marks a part said
+        /// with <see cref="SayAfter"/>.
+        /// </summary>
+        private List<(string Text, string Subject, VerbosityLevel Level, bool Queued)>? _utterance;
+        private int _utteranceDepth;
+
+        /// <summary>
+        /// Start an action: every sentence said until the returned scope is
+        /// disposed goes out as one utterance (<see cref="_utterance"/>). Nests:
+        /// only the outermost scope speaks. Use with <c>using var oneUtterance = OneUtterance();</c>
+        /// at the top of every entry point that changes noise settings.
+        /// </summary>
+        private UtteranceScope OneUtterance()
+        {
+            if (_utteranceDepth++ == 0) _utterance = new();
+            return new UtteranceScope(this);
+        }
+
+        private readonly struct UtteranceScope : IDisposable
+        {
+            private readonly NoiseController _owner;
+            public UtteranceScope(NoiseController owner) => _owner = owner;
+            public void Dispose() => _owner?.EndUtterance();
+        }
+
+        /// <summary>
+        /// The outermost action ended: say what it gathered, once. One sentence
+        /// goes out exactly as it would have alone. Several are joined in the
+        /// order they were said, under the first one's subject; a part this
+        /// verbosity would not speak is left out of the joined text (and
+        /// traced), as the screen reader would have dropped it on its own.
+        /// When no part would be spoken, the joined text goes out at the most
+        /// important level among them, so the speaker records it as held back
+        /// exactly once. Words are never added: the parts are the lexicon's own.
+        /// </summary>
+        private void EndUtterance()
+        {
+            if (--_utteranceDepth > 0) return;
+            var parts = _utterance ?? new();
+            _utterance = null;
+            if (parts.Count == 0) return;
+            var heard = parts.Count == 1 ? parts : parts.Where(p => (int)p.Level <= (int)_speaker.Verbosity).ToList();
+            foreach (var held in parts.Except(heard))
+                System.Diagnostics.Trace.WriteLine($"NoiseController: left out of the action's utterance at this verbosity ({held.Level}): '{held.Text}'");
+            var said = heard.Count > 0 ? heard : parts;
+            string text = said.Count == 1 ? said[0].Text : string.Join(" ", said.Select(p => p.Text.Trim()));
+            var level = said.Min(p => p.Level);
+            // Queued only when every part was: an answer to a press still interrupts.
+            if (said.All(p => p.Queued)) Deliver(text, said[0].Subject, level, queued: true);
+            else Deliver(text, said[0].Subject, level, queued: false);
+        }
+
+        private void Deliver(string text, string subject, VerbosityLevel level, bool queued)
+        {
+            if (!queued) { _speaker.Say(text, subject, level); return; }
+            _speaker.SayAfter(text, subject, level);
+            if (subject is SpeechSubject.NoiseHelperState or SpeechSubject.NoiseRadioSibling) _noticesOwed.Add(subject);
         }
 
         /// <summary>As <see cref="Say(string, string, VerbosityLevel)"/>, but after whatever is being said, never cutting it (<see cref="INoiseSpeaker.SayAfter"/>).</summary>
         private void SayAfter(string text, string subject, VerbosityLevel level = VerbosityLevel.Terse)
         {
             if (string.IsNullOrWhiteSpace(text) || _quiet > 0) return;
-            _speaker.SayAfter(text, subject, level);
-            if (subject == SpeechSubject.NoiseHelperState) _helperNoticeOwed = true;
+            if (_utterance != null) { _utterance.Add((text, subject, level, true)); return; }
+            Deliver(text, subject, level, queued: true);
         }
 
         /// <summary>
-        /// Whether a slot's or the helper's unasked notice (a failed start, the
-        /// helper's cap, the helper back) may still be unheard. Such a notice is
-        /// about ONE picture of the slots; it is retired the moment that picture
-        /// changes (repair round 2).
+        /// The queued notices nobody asked for that may still be unheard, by
+        /// subject: a slot's or the helper's (a failed start, the helper's cap,
+        /// the helper back) and the radio's sibling observation ("The radio turned
+        /// Standard NR off."). Each is about ONE picture of the noise settings and
+        /// is retired the moment that picture changes (repair round 2 of the
+        /// Track E follow-up for the helper's; repair round 2 of follow-up 2 for
+        /// the sibling's, after a preset turned the engine back on and the queued
+        /// "off" was rescued after the preset's summary). These are the only
+        /// queued noise sentences, and every one has this owner.
         /// </summary>
-        private bool _helperNoticeOwed;
+        private readonly HashSet<string> _noticesOwed = new(StringComparer.Ordinal);
 
         /// <summary>
-        /// The slots' picture changed (an engine chosen, swapped or turned off, a
+        /// The noise settings changed (an engine chosen, swapped or turned off, a
         /// selection that now processes, a mode group entered, a preset, Escape, a
-        /// disconnect): a queued notice about the old picture is obsolete. Called
-        /// before the change's own sentence, so the interrupt that sentence makes
-        /// cannot rescue the old notice behind it. Never silences anything else.
+        /// disconnect): every queued notice about the old picture is obsolete.
+        /// Called before the change's own sentence, so the interrupt that sentence
+        /// makes cannot rescue the old notice behind it. Never silences anything
+        /// else, and does nothing when nothing is owed.
         /// </summary>
         private void RetireHelperNotice(string why)
         {
-            if (!_helperNoticeOwed) return;
-            _helperNoticeOwed = false;
-            _speaker.Retire(SpeechSubject.NoiseHelperState, why);
-            System.Diagnostics.Trace.WriteLine("NoiseController: retired the queued noise notice (" + why + ")");
+            RetireNotice(SpeechSubject.NoiseHelperState, why);
+            RetireNotice(SpeechSubject.NoiseRadioSibling, why);
+        }
+
+        /// <summary>
+        /// Only the radio's own noise state changed (one of its switches written,
+        /// the slice the radio reads changed): the sibling observation is obsolete,
+        /// and a computer slot's notice is still true.
+        /// </summary>
+        private void RetireSiblingNotice(string why) => RetireNotice(SpeechSubject.NoiseRadioSibling, why);
+
+        private void RetireNotice(string subject, string why)
+        {
+            if (!_noticesOwed.Remove(subject)) return;
+            _speaker.Retire(subject, why);
+            System.Diagnostics.Trace.WriteLine("NoiseController: retired the queued noise notice on " + subject + " (" + why + ")");
         }
 
         private bool Chatty => _speaker.Verbosity >= VerbosityLevel.Chatty;
@@ -357,6 +451,7 @@ namespace JJFlexWpf
         /// </summary>
         public void Toggle(string id, string source)
         {
+            using var oneUtterance = OneUtterance();
             var e = _catalog.Find(id);
             if (e == null) return;
             Current = id; CurrentLeverIndex = 0;
@@ -369,6 +464,7 @@ namespace JJFlexWpf
         /// <summary>Turn an engine on (or leave it on), as Home's On checkbox and a menu's check item ask.</summary>
         public void SetOn(string id, bool on, string source)
         {
+            using var oneUtterance = OneUtterance();
             if (IsOn(id) == on) { Current = id; SpeakSwitchState(id); return; }
             Toggle(id, source);
         }
@@ -416,6 +512,9 @@ namespace JJFlexWpf
         private void WriteRadioSwitch(DenoiseEngineEntry e, INoiseRadio r, bool on, string source, bool byApp)
         {
             FollowActiveSlice();
+            // Every radio switch written (the layer, the brackets, a preset, Escape)
+            // makes a queued sibling observation about the old switches obsolete.
+            RetireSiblingNotice("a radio noise switch was written");
             bool was = IsOn(e.Id);
             r.WriteSwitch(e, on);
             _switchShadow[e.Id] = (on, _clock() + ShadowMs, r.SliceIdentity);
@@ -447,6 +546,12 @@ namespace JJFlexWpf
             {
                 if (_radio() != r) return;
                 if (!ReferenceEquals(r.SliceIdentity, observedSlice)) return; // another slice now: discarded, silently
+                // One firing, one utterance (repair round 1, Codex): with two
+                // siblings off, the second sentence cut the first. And it is a
+                // result nobody asked for, so it waits behind whatever is being
+                // said (as a slot's failed start does) rather than cutting the
+                // answer to the press: 1.5 s does not prove that answer is over.
+                using var oneUtterance = OneUtterance();
                 foreach (string id in before)
                 {
                     var e = _catalog.Find(id)!;
@@ -456,7 +561,7 @@ namespace JJFlexWpf
                         // The radio did it in answer to our write, so Escape
                         // counts it among the layer's changes and puts it back.
                         NoteRadioTouched(id, level: false);
-                        Say(L("audio.noise_surface.radio_turned_off", ("engine", Lexicon.Get(e.LabelKey))), SpeechSubject.NoiseEngineSwitch);
+                        SayAfter(L("audio.noise_surface.radio_turned_off", ("engine", Lexicon.Get(e.LabelKey))), SpeechSubject.NoiseRadioSibling);
                     }
                 }
             });
@@ -481,6 +586,7 @@ namespace JJFlexWpf
         /// </summary>
         private string? TurnComputerOn(DenoiseEngineEntry e, string source, bool speak, string? model, bool byApp = false)
         {
+            using var oneUtterance = OneUtterance();
             var slot = SlotFor(e);
             if (slot == null) { NoRadio(); return null; }
             if (e.Factory == null)
@@ -491,7 +597,9 @@ namespace JJFlexWpf
             string? replaced = slot.Enabled && slot.ChosenEngineId != e.Id && slot.ChosenEngineId.Length > 0 ? slot.ChosenEngineId : null;
             RetireHelperNotice("a computer noise engine was chosen");
             if (model != null) SetModelQuietly(e, slot, model);
-            ApplyModeRulesForChoice(e, slot, speak);
+            // The CW model the mode's rule chose is said AFTER the switch, in the
+            // same utterance (#1110): the answer to the press comes first.
+            string? cwModel = ApplyModeRulesForChoice(e, slot);
             slot.Select(e.Id, out _);
             slot.Enabled = true;
             // The engine pushed out of the slot is part of the same change (#1018
@@ -507,7 +615,11 @@ namespace JJFlexWpf
                 }));
             RememberModeState();
             _persist();
-            if (speak) SpeakComputerOn(e, replaced);
+            if (speak)
+            {
+                SpeakComputerOn(e, replaced);
+                if (cwModel != null) SpeakCwModel(cwModel);
+            }
             return replaced;
         }
 
@@ -587,6 +699,7 @@ namespace JJFlexWpf
         /// </summary>
         public void SetSlotOn(DenoiseFamily family, bool on, string source)
         {
+            using var oneUtterance = OneUtterance();
             var slot = SlotOf(family);
             if (slot == null) { NoRadio(); return; }
             if (!on)
@@ -642,6 +755,7 @@ namespace JJFlexWpf
 
         private void ApplySlotChoice(DenoiseFamily family, string id, string source)
         {
+            using var oneUtterance = OneUtterance();
             _pendingChoice.Remove(family);
             var slot = SlotOf(family);
             var e = _catalog.Find(id);
@@ -669,6 +783,7 @@ namespace JJFlexWpf
 
         public void ComputerOffAndBack(string source)
         {
+            using var oneUtterance = OneUtterance();
             var p = _pipeline();
             if (p == null) { NoRadio(); return; }
             RetireHelperNotice("the computer's noise engines were switched off or back");
