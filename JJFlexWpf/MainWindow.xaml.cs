@@ -1201,7 +1201,9 @@ public partial class MainWindow : UserControl
     /// now on. They were read once, at power-on, so after Radio, Operators the
     /// previous operator's went on governing the transmitter and the next
     /// Settings OK saved them into the new operator's file. With no radio there
-    /// is nothing held: power-on reads the operator in use then.
+    /// is nothing held: power-on reads the operator in use then. A transmission
+    /// under way at the switch keeps the limits it was keyed under: the
+    /// controller holds the new settings until it ends (#1072 repair).
     /// </summary>
     public void FollowOperatorPttConfig()
     {
