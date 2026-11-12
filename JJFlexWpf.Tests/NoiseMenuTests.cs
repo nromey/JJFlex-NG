@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Linq;
 using Radios;
 using Xunit;
@@ -75,6 +77,70 @@ public sealed class NoiseMenuTests
         Assert.Equal("DeepFilterNet3, model missing", f.Noise.MarkedName("deepfilternet3"));
         Assert.Equal("NVIDIA NR, not in this version", f.Noise.MarkedName("nvidia_afx"));
         Assert.Contains(f.Noise.Engines(DenoiseGroup.NoiseReduction), e => e.Id == "nnr");
+    }
+
+    /// <summary>
+    /// S10, ruled by Noel 2026-11-11 20:29 ("name first", confirmed "yep"):
+    /// every noise toggle on the Audio menu reads name, then state, then the
+    /// shortcut. The 2026-11-08 walk heard "On, Ctrl+J, N, N: Off". The
+    /// assembled row is what a screen reader reads: the text before the tab,
+    /// then the shortcut column.
+    /// </summary>
+    [Theory]
+    [InlineData("Legacy NR\tCtrl+J, N, N", false, "Legacy NR, Off, Ctrl+J, N, N")]
+    [InlineData("Legacy NR\tCtrl+J, N, N", true, "Legacy NR, On, Ctrl+J, N, N")]
+    [InlineData("Neural NR, needs subscription\tCtrl+J, N, R", false, "Neural NR, needs subscription, Off, Ctrl+J, N, R")]
+    [InlineData("Favourite", false, "Favourite, Off")]
+    [InlineData("Neural NR favourite", true, "Neural NR favourite, On")]
+    public void A_noise_toggle_reads_name_then_state_then_shortcut(string text, bool on, string heard)
+    {
+        string row = NativeMenuBar.NoiseToggleRowText(text, on);
+        // The state sits before the tab, never inside the shortcut column.
+        int tab = row.IndexOf('\t');
+        if (tab >= 0) Assert.DoesNotContain(on ? "On" : "Off", row.Substring(tab));
+        Assert.Equal(heard, row.Replace("\t", ", "));
+    }
+
+    [Fact]
+    public void Every_noise_toggle_on_the_Audio_menu_is_built_name_first_and_the_popup_writes_it_that_way()
+    {
+        // A source pin, because the menu builder and its popup handler need a window.
+        string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
+        string build = Body(menu, "private void BuildNoiseItems(IntPtr parent, DenoiseGroup group)", "private const string MenuSource");
+        Assert.DoesNotContain("AddChecked(", build);
+        Assert.Equal(4, Count(build, "AddNoiseToggle("));
+        // The engine's own switch is named for the engine, not "On".
+        Assert.Contains("AddNoiseToggle(sub, isRadio ? R(name + chord) : name + chord,", build);
+        Assert.DoesNotContain("audio.noise_menu.on\"", build);
+        // The popup handler gives these rows their own text before the shared ": On" suffix.
+        string popup = Body(menu, "public void HandleInitMenuPopup(IntPtr wParam)", "public void UpdateFeatureGates");
+        int ours = popup.IndexOf("_noiseToggleItems.Contains(id)", StringComparison.Ordinal);
+        int shared = popup.IndexOf("$\"{label}: {stateText}\"", StringComparison.Ordinal);
+        Assert.True(ours > 0 && shared > ours, "the noise rows must be handled before the shared suffix is written");
+        Assert.Contains("NoiseToggleRowText(baseText, isOn)", popup);
+    }
+
+    private static string Source(params string[] path)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        return File.ReadAllText(Path.Combine(dir!.FullName, Path.Combine(path))).Replace("\r\n", "\n");
+    }
+
+    private static string Body(string source, string from, string to)
+    {
+        int at = source.IndexOf(from, StringComparison.Ordinal);
+        Assert.True(at >= 0, "not found: " + from);
+        int end = source.IndexOf(to, at, StringComparison.Ordinal);
+        Assert.True(end > at, "not found after it: " + to);
+        return source.Substring(at, end - at);
+    }
+
+    private static int Count(string s, string what)
+    {
+        int n = 0;
+        for (int i = s.IndexOf(what, StringComparison.Ordinal); i >= 0; i = s.IndexOf(what, i + what.Length, StringComparison.Ordinal)) n++;
+        return n;
     }
 
     [Fact]

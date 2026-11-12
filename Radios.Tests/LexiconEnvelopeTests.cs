@@ -2259,6 +2259,10 @@ namespace Radios.Tests
                 "audio.noise_layer.entered",
                 "audio.noise_layer.switches_only",
                 "audio.noise_menu.on",
+                // Track E follow-up D (S10): a noise toggle reads name, state, shortcut.
+                "audio.noise_menu.row_state",
+                "audio.noise_menu.state_on",
+                "audio.noise_menu.state_off",
                 "audio.noise_menu.up",
                 "audio.noise_menu.down",
                 "audio.noise_menu.advanced",

@@ -489,8 +489,10 @@ public sealed class NoiseRepairRoundOneTests
         int body = menu.IndexOf("private void BuildNoiseItems(IntPtr parent, DenoiseGroup group)", StringComparison.Ordinal);
         Assert.True(body > 0);
         string switchOnly = menu.Substring(body, menu.IndexOf("continue;", body, StringComparison.Ordinal) - body);
-        Assert.Contains("AddChecked(parent, R(named + chord),", switchOnly);
-        Assert.Contains("AddChecked(parent, SwitchOnlyFavouriteLabel(name),", switchOnly);
+        // AddNoiseToggle since the Track E follow-up (S10): a check item whose
+        // state reads after the name and before the shortcut.
+        Assert.Contains("AddNoiseToggle(parent, R(named + chord),", switchOnly);
+        Assert.Contains("AddNoiseToggle(parent, SwitchOnlyFavouriteLabel(name),", switchOnly);
         Assert.DoesNotContain("R(SwitchOnlyFavouriteLabel", switchOnly);
         Assert.DoesNotContain("engine_favourite", switchOnly);
     }
