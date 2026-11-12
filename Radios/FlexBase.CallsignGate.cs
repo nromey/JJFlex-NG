@@ -77,7 +77,9 @@ namespace Radios
 
         /// <summary>
         /// The one sentence for this refusal, at every door and at the
-        /// chokepoints. DRAFT wording, awaiting Noel.
+        /// chokepoints. Worded by Codex 2026-11-11: it names the requirement,
+        /// not what was or was not transmitted, because at some doors (turning
+        /// VOX or break-in on) what was refused is not a transmission.
         /// </summary>
         public static string NoCallsignRefusal => Lexicon.Get("settings.operators.no_callsign_transmit");
 

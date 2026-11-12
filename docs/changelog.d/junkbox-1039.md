@@ -1,0 +1,1 @@
+- The Audio Workshop now makes its radio controls unavailable when you disconnect, so it no longer confirms changes to a radio that has gone away.

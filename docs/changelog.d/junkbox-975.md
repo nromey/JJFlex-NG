@@ -1,0 +1,1 @@
+- The SmartLink unregister confirmation now names the account it will use, and registration progress still reports the microphone prompt and result after you close Settings.

@@ -694,7 +694,6 @@ audio.meters.swr_no_reading	4a42131b8a1b0555
 audio.meters.tones_off	d909f312b29e37fb
 audio.meters.tones_on	ee36e4f4fac2f535
 audio.meters.tx_drive	ccb2d34065a171eb
-audio.mic.could_not_open	2638befc3ab74e01
 audio.mic.diverged	95ab2931767ed673
 audio.mic.label_last_transmit	848b53466dcd8f2f
 audio.mic.label_live	dd51edec97bd9d29
@@ -2854,7 +2853,6 @@ settings.silenced.lead	be62c3e58866e793
 settings.silenced.lead_empty	664a52e2476f3167
 settings.silenced.no_physical_access	70ccaa30a7a12a76
 settings.silenced.ownership	2ac36110dae78962
-settings.silenced.register	4961f6cf325076fb
 settings.silenced.restored_all_many	c2e6ae5388c01b91
 settings.silenced.restored_all_one	e3a58ab2871e6f66
 settings.silenced.restored_nothing	d3c1ebed507f2f9a

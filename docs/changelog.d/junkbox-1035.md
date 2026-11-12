@@ -1,0 +1,1 @@
+- The full duplex announcement now follows the return to Home, and slice playback announces when it finishes.

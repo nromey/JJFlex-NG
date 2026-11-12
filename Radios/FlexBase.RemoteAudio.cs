@@ -1189,7 +1189,8 @@ namespace Radios
             if (!opusInputAvailable)
             {
                 Tracing.TraceLine("remoteAudioProc:opus input channel did not open;"
-                    + " computer transmit audio is unavailable this session", TraceLevel.Error);
+                    + " the microphone is unavailable this session; the test tone may still"
+                    + " have a source of its own", TraceLevel.Error);
                 if (!SuppressSpeech) ScreenReaderOutput.Speak(
                     Lexicon.Get("audio.mic.could_not_open"), VerbosityLevel.Critical, true);
                 // The test tone needs no microphone, so it gets a transmit path
@@ -4347,8 +4348,9 @@ namespace Radios
         }
 
         /// <summary>
-        /// Say, once per connection, that the tone is going out with no
-        /// microphone open. Queued, not interrupting, so it does not cut the
+        /// Say, once per connection, that the tone's own source started with
+        /// no microphone open (a local start, not proof that audio reached the
+        /// radio). Queued, not interrupting, so it does not cut the
         /// key-down announcement; the loop that calls this spins, so the
         /// once-per-connection check is what keeps it from repeating.
         /// </summary>
@@ -4357,7 +4359,7 @@ namespace Radios
             object connection = (object)theRadio?.CurrentCommandConnection ?? theRadio;
             if (!ToneWithoutMicrophoneOwed(_toneWithoutMicSaidFor, connection)) return;
             _toneWithoutMicSaidFor = connection;
-            Tracing.TraceLine("startSelfClockedTxInput: the test tone is transmitting with no microphone open",
+            Tracing.TraceLine("startSelfClockedTxInput: the test tone's own source started with no microphone open",
                 TraceLevel.Info);
             if (!SuppressSpeech) ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.mic.tone_without_microphone"), VerbosityLevel.Terse, false,

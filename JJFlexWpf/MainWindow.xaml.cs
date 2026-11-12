@@ -4389,8 +4389,8 @@ public partial class MainWindow : UserControl
                     actions.Add(new(Radios.Lexicon.Get("connect.smartlink.action_manage_accounts"), ShowSmartLinkAccountManager));
 
                 // The title names the kind of problem, not the claim the
-                // body then qualifies (#691 item 1, Noel 2026-10-02). DRAFT
-                // PROSE, after his example of the shape.
+                // body then qualifies (#691 item 1, Noel 2026-10-02), after his
+                // example of the shape; Codex's words round of 2026-11-11 kept it.
                 Dialogs.AdvisoryDialog.Show(
                     Radios.Lexicon.Get("connect.smartlink.not_in_list_title"), msg,
                     suppressKey: Radios.AdvisoryKeys.RegisterRadio(serial),

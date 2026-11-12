@@ -1,0 +1,1 @@
+- Memories now opens on the selected memory, and the Keys Listing opens on the first key, with focus staying on the row you can read and use.

@@ -131,10 +131,11 @@ namespace Radios.Speech
         public const string NoTransmitAudio = "no-transmit-audio";
 
         /// <summary>
-        /// The test tone is going out with no microphone open: the microphone
-        /// could not be opened this session, and the tone has a transmit path
-        /// of its own. Said once per connection, the first time the tone goes
-        /// out that way. Nothing else says it, so nothing else retires it.
+        /// The test tone started with no microphone open: the microphone could
+        /// not be opened this session, and the tone has a source of its own.
+        /// A local start, not proof that audio reached the radio. Said once per
+        /// connection, the first time that source starts. Nothing else says
+        /// it, so nothing else retires it.
         /// </summary>
         public const string ToneWithoutMicrophone = "tone-without-microphone";
 

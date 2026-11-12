@@ -1,0 +1,1 @@
+- The diagnostic log now records unreadable transmit-power settings in installed builds.

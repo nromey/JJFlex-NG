@@ -1,0 +1,1 @@
+- Settings, Diagnostics now shows the alarm journal's meter-reading rate, written and dropped entries, and details of write failures.

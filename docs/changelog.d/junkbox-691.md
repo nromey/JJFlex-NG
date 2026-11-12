@@ -1,0 +1,1 @@
+- The SmartLink radio list notice now has a clearer title, and Radio Setup shows registration answers it already has instead of continuing to say it is checking. The ready-to-register message is shorter.
