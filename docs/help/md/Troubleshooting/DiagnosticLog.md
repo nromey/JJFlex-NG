@@ -30,6 +30,12 @@ Your radio streams meter readings continuously — mic level, SWR, forward and r
 
 Leave it off day to day — it's off by default. Turn it on when you're at the bench working a transmit-audio or SWR question, where those numbers are the whole point, and turn it off when you're done. (Earlier versions poured the raw stream into every Detailed log and capture, which is a big part of why those files grew so alarmingly fast. Now the meters are recorded only when you ask, and far more compactly.)
 
+## Checking the Alarm Journal
+
+The **Alarm journal** group on the **Diagnostics** tab reports whether the journal is recording. The status line gives the approximate entries per second over the last two minutes, the total written and the number dropped. A new journal may not yet have enough readings to report a rate. A stopped journal's line explains whether no radio is connected, no alarms or meter recordings are armed, or the settings folder could not be found. A writing problem adds details about entries lost or still waiting to be written.
+
+The line refreshes when the tab is shown. JJ Flexible does not announce the update automatically; use the screen reader's review commands to read the status.
+
 ## Knowing what you left on
 
 Every switch on this tab has the same awkward property: it stays where you put it, it changes what the app writes to your disk, and until now nothing about it made a sound. Turn the meter stream on for a bench session, get distracted, and it's still on tomorrow morning — and the only way to find out was to come back to this tab and look.
@@ -52,6 +58,8 @@ Three ways to run one, all equivalent:
 
 Stopping a capture announces where it went, and an "Export this capture" button appears so you can save it as a single file right away. The standing log resumes on its own afterward — stopping a capture never leaves you unrecorded.
 
+A failure writing the diagnostic log announces that the log stopped. A second note about that same recording possibly missing its last lines stays in the Problems list, without another announcement. Press the JJ key, `Ctrl+J`, then `Alt+R`, to read the Problems list.
+
 ## Saved sessions
 
 Every run of the app, and every capture, becomes a session in the **Saved Diagnostic Logs** window — the "Browse saved logs" button opens it. Each session says when it ran, how it ended, and whether it was a capture. From there you can read a session, export it as a file to send, or delete it.
@@ -71,3 +79,8 @@ The diagnostic log stays on this computer. It can include your callsign, contact
 ## Where the file actually is
 
 The Diagnostics tab shows the live log's location, with a "Copy log file path" button (puts the full path on the clipboard) and an "Open log folder" button (opens it in File Explorer). You'll rarely need either — exporting from Saved Diagnostic Logs is the easier road — but the direct route is there when someone asks for the raw file.
+
+## Related Topics
+
+- [Settings and Profiles](Settings.md)
+- [Keyboard Reference](KeyboardReference.md)

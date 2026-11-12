@@ -27,10 +27,7 @@ broken. Nothing had told the radio to keep the change.
 After you add or release a slice you will hear a reminder: "This will not
 survive disconnect unless you save the profile."
 
-To make the change permanent, choose **Save Station Setup to Radio**, which sits
-with New Slice and Release Active Slice in the Selection submenu on the Slice
-menu. JJ Flexible Radio Access tells you which profile it is about to write and asks you to
-confirm before anything is saved.
+Choose **Save Station Setup to Radio** on the **Radio** menu to keep the change. The explanation names the global profile about to be written and asks for confirmation. Selecting **Don't show this explanation again** and confirming the save hides that explanation for later saves. Restore the explanation through **Messages You Have Silenced** on Settings' **Notifications** tab; see [Messages You Have Silenced](SilencedMessages.md).
 
 Two things are worth knowing before you save:
 
@@ -64,9 +61,15 @@ Keep in mind that in MultiFlex mode (when multiple operators share a single radi
 
 The Slice field uses letter keys `A` through `H` and digit keys to select a slice directly. `Space` cycles to the next slice and wraps at the end; `V` also cycles forward on this field. The Slice Operations field also accepts `A` through `H` for direct selection.
 
-`Up` and `Down` on the Slice and Slice Operations fields tune up or down by the coarse step. Every field on the Home slice row, including Frequency, also accepts `Ctrl+Up` and `Ctrl+Down` for coarse tuning and `Shift+Up` and `Shift+Down` for fine tuning. These pairs work in both Classic tuning mode and Modern tuning mode. Plain `Up` and `Down` on the Classic Frequency field continue to tune by the digit under the cursor.
+The Slice field's `Up` and `Down` switch slices by default, following **Slice arrow direction** in Settings, **Accessibility**, **Slice list**. Check **Tune with Up and Down on the Slice field** to make those arrows tune by the coarse step instead.
 
-Slice volume is adjusted on the Volume field or in the audio layer: press the JJ key, then `A`, then `V`. Press `P` in the audio layer to adjust pan. `Page Up` and `Page Down` on any slice-row field, and `Home` on the Slice field, announce the route to pan without changing the setting.
+The Slice Operations field's `Up` and `Down` tune by the coarse step by default. Clear **Tune with Up and Down in Slice operations** in the same Settings group to make those arrows adjust the slice's volume. **Slice arrow direction** applies only when the Slice field's arrows switch slices.
+
+Every field on the Home slice row, including Frequency, accepts `Ctrl+Up` and `Ctrl+Down` for coarse tuning and `Shift+Up` and `Shift+Down` for fine tuning in both tuning modes. These pairs also tune elsewhere in the main window, except where a control keeps the arrows for its own value or selection. See [Tuning and Frequency](TuningAndFrequency.md) for those exceptions. Plain `Up` and `Down` on the Classic Frequency field continue to tune by the digit under the cursor.
+
+Pan keys work regardless of either arrow-tuning checkbox. The Slice field's `Page Up` pans fully right, `Home` centers the pan, and `Page Down` pans fully left. The Slice Operations field's `Page Up` and `Page Down` move pan right or left in steps. Those page keys on other slice-row fields announce the audio-layer shortcut instead.
+
+The Volume field also adjusts slice volume. The audio layer offers both controls: press the JJ key, then `A`, then `V` for slice volume or `P` for pan.
 
 ## Enhanced Slice Status
 
@@ -80,3 +83,9 @@ When only one slice is active, `Ctrl+Shift+S` gives you the normal single-slice 
 
 - Each slice is independent, which means you can listen to 20 meters on Slice A and 40 meters on Slice B at the same time.
 - Only one slice at a time can be the transmit slice. The status report always tells you which slice is currently the transmit slice.
+
+## Related Topics
+
+- [Tuning and Frequency](TuningAndFrequency.md)
+- [Tuning Steps](TuningSteps.md)
+- [Messages You Have Silenced](SilencedMessages.md)

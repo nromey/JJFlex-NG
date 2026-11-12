@@ -164,6 +164,8 @@ These replace your microphone with a known signal while you transmit, and only o
 
 **Test tone instead of microphone** sends a clean, steady tone in place of your mic, muted rather than mixed, along the exact path your voice takes. The pitch is yours: 440, 700 or 1000 hertz, or a custom frequency, remembered across sessions because it is about your ears rather than your rig. Tone level is in dBFS, from minus 40 up to 0; the default of minus 10 lands in the "Good" range. **Hear the tone while it transmits** plays it through your alert sound device whenever it is actually going out. The tone's controls appear only while it is armed. Arming never transmits by itself and never survives closing the window, switching radios or restarting, and while it is armed every key-down announces that the tone is going out instead of your microphone.
 
+The test tone also works when the computer's microphone could not be opened. The first tone transmission on that connection announces that the tone is going out without a microphone. Voice messages and VOX sends still need an open microphone.
+
 An SSB transmit filter typically passes roughly 100 to 2900 hertz. A tone outside it transmits nothing, silently, so JJ Flexible Radio warns you out loud the moment you set one there, when you arm it, at every key-down, and if the filter moves out from under an armed tone.
 
 **Reference audio** sends a known recording instead: the shipped JJ Flexible reference voice, or a take you record yourself with **Record a reference take**. It is the honest way to answer "did that change help?", because a tone does not respond to a compressor and you never say it the same way twice. It arms the same way the tone does and transmits only when you key.

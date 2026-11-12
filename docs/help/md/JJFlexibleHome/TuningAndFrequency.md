@@ -21,11 +21,11 @@ You can also enter frequencies in kilohertz — for example, `14225` is the same
 
 ## Tuning with the Keyboard
 
-Every field on the Home slice row accepts `Ctrl+Up` and `Ctrl+Down` to tune up or down by the coarse step, and `Shift+Up` and `Shift+Down` to tune up or down by the fine step. Both pairs work in Classic tuning mode and Modern tuning mode, including on the Frequency field.
+Use `Ctrl+Up` and `Ctrl+Down` to tune by the coarse step, or `Shift+Up` and `Shift+Down` to tune by the fine step. These pairs work throughout the main window in Classic tuning mode and Modern tuning mode, including every field on the Home slice row. Lists, grids, trees, combo boxes and text boxes keep their own arrow-key actions, as do Home group controls that adjust a value or cycle through choices. Dialogs and the Logging radio pane also keep their own keys. The Frequency field on the Home slice row still uses these pairs for tuning.
 
-Plain `Up` and `Down` on the Frequency field use the coarse step in Modern tuning mode and the digit under the cursor in Classic tuning mode. Plain `Up` and `Down` on the Slice and Slice Operations fields use the coarse step in both tuning modes.
+Plain `Up` and `Down` on the Frequency field use the coarse step in Modern tuning mode and the digit under the cursor in Classic tuning mode. The Slice field's plain arrows switch slices by default; the Slice Operations field's plain arrows tune by the coarse step. Settings, **Accessibility**, **Slice list** has a separate choice for each field. See [Slice Management](SliceManagement.md).
 
-The commands **Tune up by your coarse step**, **Tune down by your coarse step**, **Tune up by your fine step** and **Tune down by your fine step** also appear in the Command Finder and the Hotkey Editor without default keys. These commands tune the active slice; assign a key in the Hotkey Editor for access beyond the Home slice row.
+The commands **Tune up by your coarse step**, **Tune down by your coarse step**, **Tune up by your fine step** and **Tune down by your fine step** appear in the Command Finder and the Hotkey Editor with those default keys. A key assigned to one of these commands outside the arrow pairs also tunes from a list, text box or Home value field. The last coarse and fine steps chosen are remembered for the operator across application restarts and radio changes. See [Tuning Steps](TuningSteps.md) for choosing steps and editing the lists.
 
 A tuning step refused because the slice is locked or the radio is transmitting leaves the frequency unchanged and says nothing. JJ Flexible does not announce a frequency as though the tune had succeeded.
 

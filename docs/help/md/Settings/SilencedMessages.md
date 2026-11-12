@@ -37,9 +37,15 @@ Anything that offered you a **Don't show this again** or **Don't ask me this aga
 - The notice that a routine firmware update is available for a radio. Important firmware releases never offer the checkbox — those keep asking on purpose.
 - The explanation shown before turning on remote access to a radio you cannot physically get to.
 - The reminder on the way out that something expensive is still running.
+- The explanation before **Save Station Setup to Radio**. Hiding this explanation means later uses of that command save without asking again; restoring the message brings the explanation back.
 
 Messages that report what actually happened — receipts, errors, safety warnings — never offer the checkbox, so they can never end up here.
 
 ## A Note on Wording Changes
 
 If the words of a message change in a later release, that message comes back even though you silenced the older version. That is deliberate. Agreeing to stop seeing one explanation is not the same as agreeing to stop hearing about a new one.
+
+## Related Topics
+
+- [Settings and Profiles](Settings.md)
+- [Slice Management](SliceManagement.md)

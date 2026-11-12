@@ -26,6 +26,10 @@ A preset also makes a note of **which input it was tuned for** — the mic jack,
 
 One honesty note about older files: presets saved before the equalizer joined the list never captured it, so loading one leaves your radio's EQ exactly as it is — it will never zero your EQ with values the file never held. Importing such a file tells you so once, at import time.
 
+## Adjusting the Equalizer Before Saving a Preset
+
+The transmit equalizer sends each band-level or on/off change to the radio as the change is made, so the result can be judged by ear. The **Finished** button keeps those changes. **Cancel**, `Escape` or the window's close button restores the levels and on/off state present when the equalizer opened. Finish the equalizer adjustments before saving an audio preset.
+
 ## Three presets come in the box
 
 On a fresh start you already have three, built from sensible starting points rather than anyone's idea of perfection:
@@ -83,3 +87,8 @@ Any time your transmit audio wants to be different depending on what you are doi
 - **Different microphones** — a hand mic and a boom mic rarely want the same gain and boost settings. A preset per mic works, but the better tool for this one is a **microphone setup**, which also carries your computer-side settings and follows the mic across radios — see the Microphone Setups section of the Audio Workshop help page.
 
 Set each one up once, prove it with an Audio Check, save it, and from then on changing hats is a `Ctrl+O` away.
+
+## Related Topics
+
+- [Audio Workshop](AudioWorkshop.md)
+- [TX Bandwidth Sculpting](TxSculpting.md)
