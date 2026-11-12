@@ -552,9 +552,51 @@ public sealed class NoiseControllerTests
         f.Noise.Toggle("nnr", "test");
         f.Settle();
         // #1019: NNR's levers lead with its Depth, so the summary reads them in that order.
-        Assert.Equal("On the radio: Legacy NR, level 8. On this computer: NNR, depth 25 decibels, Standard voice.", f.Noise.ActiveSummary());
+        // Track E follow-up E1: then the noise floor (NNR's model is already a main lever, so it is not named twice).
+        Assert.Equal("On the radio: Legacy NR, level 8. On this computer: NNR, depth 25 decibels, Standard voice, "
+            + "WORDING PLACEHOLDER: summary noise floor " + f.Noise.ValueText(f.Noise.FloorLeverOf("nnr")!) + ".", f.Noise.ActiveSummary());
         f.Spoken.Verbosity = VerbosityLevel.Terse;
         Assert.Equal("Radio: Legacy NR 8. Computer: NNR.", f.Noise.ActiveSummary());
+    }
+
+    /// <summary>
+    /// Track E follow-up E1 (S11, "yep fold em"): the Track S walk heard "On
+    /// this computer: RNNoise." after choosing a model, with no model and no
+    /// noise floor. RNNoise's model is an Advanced lever and its floor is its
+    /// one main lever, a Floor rather than a Setting, so the summary named
+    /// neither. Both are now facts of the summary (placeholder words for
+    /// Codex), at Chatty only, like the other details; a model already among
+    /// the main levers (NNR's) is not named twice.
+    /// </summary>
+    [Fact]
+    public void The_active_summary_names_RNNoises_model_and_every_engines_noise_floor()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.Adjust(f.Noise.FloorLeverOf("rnnoise")!, +1, "test");
+        f.Settle();
+        var model = f.Noise.Levers("rnnoise", true).Single(l => l.Key == "model");
+        string summary = f.Noise.ActiveSummary();
+        Assert.Contains("RNNoise, WORDING PLACEHOLDER: summary model " + f.Noise.ValueText(model), summary);
+        Assert.Contains("WORDING PLACEHOLDER: summary noise floor " + f.Noise.ValueText(f.Noise.FloorLeverOf("rnnoise")!), summary);
+        Assert.Contains("15", f.Noise.ValueText(f.Noise.FloorLeverOf("rnnoise")!));
+
+        // Every computer engine's floor, in both slots.
+        f.Noise.Toggle("nr4", "test");
+        f.Settle();
+        Assert.Contains("NR4, ", f.Noise.ActiveSummary());
+        Assert.Equal(2, CountOf(f.Noise.ActiveSummary(), "summary noise floor"));
+        Assert.Equal(1, CountOf(f.Noise.ActiveSummary(), "summary model"));
+
+        f.Spoken.Verbosity = VerbosityLevel.Terse;
+        Assert.DoesNotContain("PLACEHOLDER", f.Noise.ActiveSummary());
+    }
+
+    private static int CountOf(string s, string what)
+    {
+        int n = 0;
+        for (int i = s.IndexOf(what, StringComparison.Ordinal); i >= 0; i = s.IndexOf(what, i + what.Length, StringComparison.Ordinal)) n++;
+        return n;
     }
 
     [Fact]

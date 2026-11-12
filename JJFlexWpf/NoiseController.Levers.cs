@@ -706,6 +706,7 @@ namespace JJFlexWpf
                 string name = Lexicon.Get(e.LabelKey);
                 var normal = Levers(e.Id, includeAdvanced: false).Where(l => l.Kind == NoiseLeverKind.Setting).ToList();
                 var details = normal.Select(l => l.Descriptor!.Kind == EngineSettingKind.Choice ? ValueText(l) : LeverName(l).ToLowerInvariant() + " " + ValueText(l)).ToList();
+                details.AddRange(SummaryFacts(e, normal));
                 string item = details.Count == 0 || !Chatty ? name : name + ", " + string.Join(", ", details);
                 if (slot.RunningEngineId != e.Id && SafeAvailability(e) != Unavailability.None)
                     item = L("audio.noise_surface.active.waiting", ("engine", name));
@@ -719,6 +720,25 @@ namespace JJFlexWpf
         }
 
         public void SpeakActive() => Say(ActiveSummary(), SpeechSubject.NoiseActiveSummary);
+
+        /// <summary>
+        /// The two facts the summary's main levers leave out (Track E follow-up
+        /// E1, ruled S11, "fold em"; heard on the Track S walk): the model, when
+        /// the engine has one and it is not already among the main levers
+        /// (RNNoise's is Advanced; NNR's is main and already named), and the
+        /// noise floor, which every computer engine has. Said with the other
+        /// details, so at Chatty only. The words are placeholders for Codex;
+        /// note that Captured noise's own "floor" setting is named beside this
+        /// one, the clash the Track S walk heard.
+        /// </summary>
+        private IEnumerable<string> SummaryFacts(DenoiseEngineEntry e, IReadOnlyList<NoiseLever> normal)
+        {
+            if (normal.All(l => l.Key != "model")
+                && Levers(e.Id, includeAdvanced: true).FirstOrDefault(l => l.Key == "model" && l.Kind == NoiseLeverKind.Setting) is { } model)
+                yield return L("audio.noise_surface.active.model", ("model", ValueText(model)));
+            if (FloorLeverOf(e.Id) is { } floor && NumberOf(floor) != null)
+                yield return L("audio.noise_surface.active.floor", ("value", ValueText(floor)));
+        }
 
         // ────────────────────────────────────────────────────────────────
         //  Feature Availability (E12)

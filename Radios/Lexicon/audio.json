@@ -1577,6 +1577,8 @@
   "audio.noise_surface.active.computer": {"text": {"critical": "Computer: {list}.", "terse": "Computer: {list}.", "chatty": "On this computer: {list}."}, "delivery": null},
   "audio.noise_surface.active.none": {"text": {"critical": "No noise reduction.", "terse": "No noise reduction.", "chatty": "No noise reduction is on."}, "delivery": null},
   "audio.noise_surface.active.radio_item": {"text": {"critical": "{engine} {level}", "terse": "{engine} {level}", "chatty": "{engine}, level {level}"}, "delivery": null},
+  "audio.noise_surface.active.model": {"text": "WORDING PLACEHOLDER: summary model {model}", "delivery": null},
+  "audio.noise_surface.active.floor": {"text": "WORDING PLACEHOLDER: summary noise floor {value}", "delivery": null},
   "audio.noise_surface.active.waiting": {"text": {"critical": "{engine} waiting", "terse": "{engine} waiting", "chatty": "{engine}, not running yet"}, "delivery": null},
   "audio.noise_surface.zero_off": {"text": {"critical": "Computer NR off.", "terse": "Computer NR off.", "chatty": "Computer noise reduction off. Press 0 again to bring back {engines}."}, "delivery": null},
   "audio.noise_surface.zero_on": {"text": {"critical": "Computer NR on, {engines}.", "terse": "Computer NR on, {engines}.", "chatty": "Computer noise reduction back on: {engines}."}, "delivery": null},
