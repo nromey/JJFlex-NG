@@ -58,11 +58,12 @@ internal sealed class PressResult
 /// A vouch from whoever can actually see the radio, that keying it right now is
 /// within the operator's power ceiling.
 ///
-/// <para>Raised by Track G, 2026-08-20: <c>FlexBase.setupFromScratch()</c> sets
-/// <c>RFPower = 100</c> unconditionally. It only runs when no saved global
-/// profile is found, so it does not fire on the current bench radio — but a
-/// harness that keys a radio which has been reset, or one it has never seen
-/// before, can find itself at full power with nothing having asked for it.</para>
+/// <para>Raised by Track G, 2026-08-20, when <c>FlexBase.setupFromScratch()</c>
+/// set <c>RFPower = 100</c> on a radio with no saved global profile. That method
+/// was removed on 2026-11-11 (#59), but the reason stands: a radio's power is
+/// whatever it was last left at, by this app, another client or its own panel,
+/// so a harness that keys a radio which has been reset, or one it has never seen
+/// before, can still find itself at full power with nothing having asked for it.</para>
 ///
 /// <para>The correction that matters: a ceiling you SET is a wish, and a
 /// ceiling you READ BACK immediately before keying is a ceiling. This probe

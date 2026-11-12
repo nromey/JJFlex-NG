@@ -184,10 +184,12 @@ namespace JJFlex.RigSurface
         /// Brings power to the ceiling FROM BELOW, and verifies the result by
         /// reading it back from the radio.
         ///
-        /// <para>Reading it back is not belt and braces, it is the point. The
-        /// application's own first-run setup writes RFPower = 100 unconditionally
-        /// when it finds no saved profile, so "we set it to one watt" and "the
-        /// radio is at one watt" are genuinely different claims. This function
+        /// <para>Reading it back is not belt and braces, it is the point. A
+        /// radio's power is whatever it was last left at, by this application,
+        /// another client or its own panel (the application's first-run setup
+        /// used to write RFPower = 100 when it found no saved profile; it was
+        /// removed 2026-11-11), so "we set it to one watt" and "the radio is at
+        /// one watt" are genuinely different claims. This function
         /// only ever makes the second one, and it refuses rather than keying if
         /// the radio disagrees.</para>
         /// </summary>

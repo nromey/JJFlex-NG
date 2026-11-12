@@ -35,7 +35,7 @@ $debugDir    = Join-Path $nas 'debug'
 $historical  = Join-Path $nas 'historical'
 
 if (-not (Test-Path $nas)) {
-    Write-Error "NAS not reachable at $nas. Check Tailscale."
+    [Console]::Error.WriteLine("NAS not reachable at $nas. Check Tailscale.")
     exit 1
 }
 

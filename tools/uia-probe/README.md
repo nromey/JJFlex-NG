@@ -315,10 +315,12 @@ screen, in an application whose keys can key a transmitter.
   enough. A transmitting chord also requires `--transmit-clearance FILE`: JSON
   carrying `issuedUtc`, `ceilingWatts`, `measuredWatts`, `validForMs`, written
   by something that can read the radio's power **back** — and refused if it is
-  stale or over the ceiling. Raised by Track G on 2026-08-20:
-  `FlexBase.setupFromScratch()` sets `RFPower = 100` unconditionally, so a
-  harness keying a radio that has been reset, or one it has never seen, can find
-  itself at full power with nothing having asked for it. A ceiling you *set* is
+  stale or over the ceiling. Raised by Track G on 2026-08-20, when
+  `FlexBase.setupFromScratch()` set `RFPower = 100` on a radio with no saved
+  profile; that method was removed on 2026-11-11 (#59), but a radio's power is
+  still whatever it was last left at, so a harness keying a radio that has been
+  reset, or one it has never seen, can find itself at full power with nothing
+  having asked for it. A ceiling you *set* is
   a wish. A ceiling you *read back immediately before keying* is a ceiling. The
   probe has no radio connection by design, which is precisely why the vouch has
   to come from the other side of the seam and cannot be waved through here.

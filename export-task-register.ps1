@@ -49,11 +49,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path (Join-Path $RepoRoot 'JJFlexRadio.sln'))) {
-    Write-Error "RepoRoot '$RepoRoot' does not contain JJFlexRadio.sln"
+    [Console]::Error.WriteLine("RepoRoot '$RepoRoot' does not contain JJFlexRadio.sln")
     exit 2
 }
 if (-not (Test-Path $TasksRoot)) {
-    Write-Error "Task store not found at $TasksRoot"
+    [Console]::Error.WriteLine("Task store not found at $TasksRoot")
     exit 2
 }
 
@@ -61,13 +61,13 @@ if (-not (Test-Path $TasksRoot)) {
 # worse than no register at all.
 if ($SessionId) {
     $sessionDir = Join-Path $TasksRoot $SessionId
-    if (-not (Test-Path $sessionDir)) { Write-Error "No such session: $SessionId"; exit 2 }
+    if (-not (Test-Path $sessionDir)) { [Console]::Error.WriteLine("No such session: $SessionId"); exit 2 }
 } else {
     $candidate = Get-ChildItem -Path $TasksRoot -Directory |
         Where-Object { (Get-ChildItem $_.FullName -Filter '*.json' -ErrorAction SilentlyContinue).Count -gt 0 } |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
-    if (-not $candidate) { Write-Error "No task-store session contains any tasks"; exit 2 }
+    if (-not $candidate) { [Console]::Error.WriteLine("No task-store session contains any tasks"); exit 2 }
     $sessionDir = $candidate.FullName
     $SessionId = $candidate.Name
 }
@@ -81,7 +81,7 @@ Write-Host "Task files : $($files.Count)"
 # be reported as an empty backlog. Overwriting a good register with nothing is
 # exactly the silent failure this file exists to prevent.
 if ($files.Count -eq 0) {
-    Write-Error "BROKEN INSTRUMENT: session $SessionId contains zero task files. Refusing to write an empty register."
+    [Console]::Error.WriteLine("BROKEN INSTRUMENT: session $SessionId contains zero task files. Refusing to write an empty register.")
     exit 3
 }
 
