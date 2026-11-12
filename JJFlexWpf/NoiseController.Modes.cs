@@ -352,10 +352,7 @@ namespace JJFlexWpf
             // The model is a rebuild setting: setting the one already held
             // would rebuild the engine for nothing.
             if (slot.GetSetting(e.Id, "model").Choice != admitted)
-            {
                 slot.TrySetSetting(e.Id, "model", new EngineSettingValue(0, admitted));
-                RetireModeNotice("a favourite or a bracket step brought another model");
-            }
         }
 
         /// <summary>

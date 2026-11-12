@@ -520,8 +520,6 @@ namespace JJFlexWpf
                     var d = lever.Descriptor!;
                     var was = slot.GetSetting(e.Id, d.Name);
                     if (!slot.TrySetSetting(e.Id, d.Name, value)) return false;
-                    // A queued mode sentence may name the model the mode's rule chose ("NNR switched to Premium CW"): the operator's own model makes it obsolete (#1117).
-                    if (d.Name == "model") RetireModeNotice("a computer noise engine's model lever was moved");
                     NoiseSettingsJournal.Record(d.Name == "model" ? NoiseJournalKind.Model : NoiseJournalKind.Lever, source, e.Id, d.Name,
                         Describe(was), Describe(value));
                     AfterSettingChanged(e, d, value);
@@ -667,7 +665,6 @@ namespace JJFlexWpf
                     changes.Add(new NoiseJournalChange(id, d.Name, Describe(was), Describe(target)));
                 }
             }
-            if (changes.Any(c => c.Setting == "model")) RetireModeNotice("a computer noise engine's model went back to its default");
             NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.ReturnToDefaults, source, false, changes, name));
             if (e.Id == "nr2") RememberNr2Tracking();
             _persist();

@@ -4152,6 +4152,7 @@ public partial class MainWindow : UserControl
                 Tracing.TraceLine("mode: no power", TraceLevel.Error);
                 return;
             }
+            NoteModeChoice();
             RigControl.Mode = v?.ToString();
         };
         _comboControls.Add(ModeControl);
@@ -7251,6 +7252,7 @@ public partial class MainWindow : UserControl
         // Frequency first, then mode, the order this method and the band jump
         // have always used.
         RigControl.Frequency = stop.FrequencyHz;
+        if (stop.ChannelMode != null || stop.Correction != null) NoteModeChoice();
 
         if (stop.Correction == null)
         {
@@ -7287,7 +7289,21 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void CycleMode(int direction)
     {
-        if (RigControl == null || !_radioPowerOn) return;
+        if (CycleModeQuietly(direction) is not { } newMode) return;
+        Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>
+    /// <see cref="CycleMode"/>'s write without its word: the next mode is asked
+    /// for now, and returned so the caller can say it when it should. The Slice
+    /// menu's Next and Previous Mode rows say it once the menu has closed, so
+    /// the menu's own close announcements do not cut it (#1117, repair round 1).
+    /// Null when there is no radio to ask.
+    /// </summary>
+    public string? CycleModeQuietly(int direction)
+    {
+        if (RigControl == null || !_radioPowerOn) return null;
+        NoteModeChoice();
 
         string currentMode = RigControl.Mode ?? "USB";
         int idx = Array.IndexOf(CommonModes, currentMode);
@@ -7301,8 +7317,23 @@ public partial class MainWindow : UserControl
         int next = (idx + direction + CommonModes.Length) % CommonModes.Length;
         string newMode = CommonModes[next];
         RigControl.Mode = newMode;
-        Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);
+        return newMode;
     }
+
+    private int _modeChoices;
+
+    /// <summary>
+    /// How many times the operator has chosen a mode this session, by any road
+    /// (the mode keys, Next and Previous Mode, Home's Mode field and combo, the
+    /// Slice menu, a 60 m stop). A sentence a surface says late about one choice
+    /// (the Slice menu's, after the menu has closed) is dropped if this has moved
+    /// on, so it never names a mode that a newer choice replaced (#1117, repair
+    /// round 1).
+    /// </summary>
+    public int ModeChoices => _modeChoices;
+
+    /// <summary>Count a mode choice (<see cref="ModeChoices"/>). Returns the new count.</summary>
+    public int NoteModeChoice() => ++_modeChoices;
 
     /// <summary>
     /// Jump directly to a specific mode.
@@ -7311,6 +7342,7 @@ public partial class MainWindow : UserControl
     public void SetMode(string mode)
     {
         if (RigControl == null || !_radioPowerOn) return;
+        NoteModeChoice();
 
         string currentMode = RigControl.Mode ?? "";
         if (string.Equals(currentMode, mode, StringComparison.OrdinalIgnoreCase))

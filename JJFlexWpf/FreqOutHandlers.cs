@@ -1048,8 +1048,11 @@ public class FreqOutHandlers
         var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, Rig?.Mode, display);
         var rig = Rig;
         if (rig != null && outcome.Correction != null)
+        {
+            _window.NoteModeChoice();
             SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,
                 Radios.Speech.SpeechIntent.Interrupt);
+        }
         else
             Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true);
         CancelQuickType();

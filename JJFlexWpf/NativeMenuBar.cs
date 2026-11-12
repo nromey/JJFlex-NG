@@ -2392,33 +2392,24 @@ public class NativeMenuBar : IDisposable
                 // to leave the menu to find out, then come back.
                 AddRadioChecked(modeSub, m + accel, () =>
                 {
-                    if (Rig == null) { SpeakNoRadio(); return; }
-                    // The mode is asked for once the menu has closed, at the
-                    // moment its sentence is said, so the sentence comes first
-                    // and the noise controller's answer to the mode change
-                    // queues behind it (#1117). Asked for at the click, the
-                    // radio's confirmation reached the noise controller about
-                    // 30 ms later, while the menu was still closing: its
-                    // sentence went out over the menu's close and was then cut
-                    // by this row's own sentence 500 ms on. Same words, same
-                    // delay as before; only the moment the radio is asked moves.
-                    _window.Dispatcher.BeginInvoke(async () =>
-                    {
-                        await System.Threading.Tasks.Task.Delay(500);
-                        if (Rig is not { } rig)
-                        {
-                            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Terse, interrupt: true);
-                            return;
-                        }
-                        rig.Mode = m;
-                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.mode.selected", ("m", m)), Radios.VerbosityLevel.Terse, interrupt: true);
-                    });
+                    if (Rig is not { } rig) { SpeakNoRadio(); return; }
+                    // The radio is asked AT THE CLICK, so the setter captures the
+                    // slice the operator is on now (#1117, repair round 1: asked
+                    // half a second later, a newer choice or another slice could
+                    // be overwritten). Only the sentence waits for the menu to
+                    // close, with the noise controller's answer held behind it.
+                    var noiseAnswer = _window.Noise.HoldModeAnswer();
+                    int choice = _window.NoteModeChoice();
+                    int slice = rig.RXVFO;
+                    rig.Mode = m;
+                    SayModeAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)), rig, slice, choice, noiseAnswer);
                 },
                 () => string.Equals(Rig?.Mode, m, StringComparison.OrdinalIgnoreCase));
             }
             AddSep(modeSub);
-            AddWired(modeSub, "Next Mode\tAlt+M", () => _window.CycleMode(1));
-            AddWired(modeSub, "Previous Mode\tAlt+Shift+M", () => _window.CycleMode(-1));
+            // Asked for at the click; said once the menu has closed (#1117, repair round 1).
+            AddWired(modeSub, "Next Mode\tAlt+M", () => SayCycledModeAfterMenuClose(_window.CycleModeQuietly(1)));
+            AddWired(modeSub, "Previous Mode\tAlt+Shift+M", () => SayCycledModeAfterMenuClose(_window.CycleModeQuietly(-1)));
 
             // Audio
             var audioSub = AddSubmenu(slice, "Audio");
@@ -3430,6 +3421,39 @@ public class NativeMenuBar : IDisposable
     /// Speak a message after the menu closes. Uses a 150ms delay so the screen reader
     /// picks up the speech after the menu closes and focus returns to the main window.
     /// </summary>
+    /// <summary>
+    /// Next and Previous Mode from the Slice menu: the row asks for the mode at
+    /// the click, through the same write Alt+M uses (<c>CycleModeQuietly</c>),
+    /// and its word is said here once the menu has closed. Said at the click it
+    /// was cut by the menu's own close announcements, live on the 8600, and the
+    /// noise sentence behind it was lost (#1117, repair round 1). The hold is
+    /// taken after the write, in the same handler: the radio's confirmation
+    /// reaches the noise controller through the dispatcher, so it cannot arrive
+    /// before this returns. No radio: silent, as Alt+M has always been.
+    /// </summary>
+    private void SayCycledModeAfterMenuClose(string? mode)
+    {
+        if (mode == null || Rig is not { } rig) return;
+        SayModeAfterMenuClose(mode, rig, rig.RXVFO, _window.ModeChoices, _window.Noise.HoldModeAnswer());
+    }
+
+    /// <summary>
+    /// A mode row's sentence, said once the menu has closed (see
+    /// <see cref="MenuModeSentence"/>): QUEUED, so it follows the screen
+    /// reader's own close announcements instead of cancelling them, and dropped
+    /// if a newer mode choice, another radio or another slice came first. The
+    /// noise controller's held answer is released behind it either way.
+    /// </summary>
+    private void SayModeAfterMenuClose(string sentence, FlexBase rig, int slice, int choice, IDisposable noiseAnswer)
+    {
+        _window.Dispatcher.BeginInvoke(() => MenuModeSentence.SayWhenTheMenuHasClosed(
+            sentence,
+            stillCurrent: () => _window.ModeChoices == choice && ReferenceEquals(Rig, rig) && rig.RXVFO == slice,
+            noiseAnswer,
+            delay: ms => System.Threading.Tasks.Task.Delay(ms),
+            sayQueued: text => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse)));
+    }
+
     private void SpeakAfterMenuClose(string message,
         Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse)
     {
