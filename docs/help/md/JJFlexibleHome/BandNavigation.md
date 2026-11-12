@@ -14,24 +14,20 @@ JJ Flexible Radio Access makes it easy to jump between amateur bands without hav
 
 Press a function key to jump directly to a band:
 
-| Key | Band |
-|-----|------|
-| F3 | 160 meters |
-| F4 | 80 meters |
-| F5 | 40 meters |
-| F6 | 20 meters |
-| F7 | 15 meters |
-| F8 | 10 meters |
-| F9 | 6 meters |
+- `F3` jumps to 160 meters.
+- `F4` jumps to 80 meters.
+- `F5` jumps to 40 meters.
+- `F6` jumps to 20 meters.
+- `F7` jumps to 15 meters.
+- `F8` jumps to 10 meters.
+- `F9` jumps to 6 meters.
 
 For the WARC bands and the less common bands, hold Shift:
 
-| Key | Band |
-|-----|------|
-| Shift+F3 | 60 meters |
-| Shift+F4 | 30 meters |
-| Shift+F5 | 17 meters |
-| Shift+F6 | 12 meters |
+- `Shift+F3` jumps to 60 meters.
+- `Shift+F4` jumps to 30 meters.
+- `Shift+F5` jumps to 17 meters.
+- `Shift+F6` jumps to 12 meters.
 
 ## Sequential Band Changes
 
@@ -42,7 +38,7 @@ If you prefer to step through bands one at a time:
 
 ## When a Band Change Is Refused
 
-A locked slice or a radio that is transmitting can refuse a band change. JJ Flexible then plays the refusal sound and says "Unable to tune this frequency". The slice keeps its frequency and mode.
+A locked slice or a radio that is transmitting can refuse a band change. JJ Flexible then plays the refusal sound and names the cause: "Unable to tune: this slice is locked." or "Unable to tune while the radio is transmitting." The slice keeps its frequency and mode. These same explanations apply to a refused 60-meter channel change.
 
 ## Where Do You Land?
 

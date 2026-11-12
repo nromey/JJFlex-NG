@@ -23,6 +23,10 @@ SmartLink lets you control your Flex radio over the internet from anywhere. JJ F
 
 **Reaching a radio that is always remote:** set its Connection path (`Alt+P` in the Select Radio dialog, or Default Connection Path in the radio's right-click menu) to "SmartLink first." Connect then goes straight to SmartLink every time. And if you ever need to force the SmartLink path for one connect — testing your remote setup from inside your own shack, for instance — the right-click menu's **Connect over SmartLink** does exactly that, and never quietly falls back to the local network.
 
+## Checking a Radio's Network Identity
+
+The **Network identity** section in the Select Radio dialog follows the highlighted radio. A SmartLink radio does not need to be connected for this section to show the connection path and ports in its SmartLink listing, including whether port forwarding is on. Older information is identified as coming from the last listing. The section also says when SmartLink has not yet been checked, does not list the radio, or has not supplied the port information. The section describes the connected radio when that radio is highlighted, or when no radio is selected.
+
 ## Audio Over SmartLink
 
 Remote audio is streamed using the Opus codec for efficient, low-latency audio. The audio quality you hear depends on your internet connection — specifically on bandwidth and on how stable (jitter-free) the path is.
@@ -35,3 +39,8 @@ Remote audio is streamed using the Opus codec for efficient, low-latency audio. 
 - **The browser sign-in window never appears.** JJ Flexible Radio Access uses Microsoft Edge WebView2 for the sign-in flow. If WebView2 is not installed on your system, the sign-in window will not open. WebView2 normally ships with Windows 10 and Windows 11, but if it is missing you can reinstall it from Microsoft's website.
 
 **Tip:** You do not need SmartLink at all for local operation. If your radio is on the same network as your computer, you can connect directly without any account or sign-in required.
+
+## Related Topics
+
+- [SmartLink Accounts](SmartLinkAccounts.md)
+- [Network Diagnostics](NetworkDiagnostics.md)

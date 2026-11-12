@@ -18,6 +18,12 @@ From the **Radio** menu, open **Manage SmartLink Accounts**. The account manager
 
 There is no password re-entry as long as the refresh token is still valid, which typically means several months. If the refresh token has expired, JJ Flexible Radio Access will prompt you through the Auth0 sign-in again and replace the stored credentials with the new ones.
 
+## Checking Which Account a Radio Uses
+
+Open **Manage SmartLink Accounts** from the **Radio** menu, then choose the **Radio Associations** button. The list names the account associated with each known radio and follows changes to the saved accounts' radio lists while the window is open. Viewing this list does not connect to a radio.
+
+A row marked as not listed right now means that the saved accounts' current lists do not include that radio. The row names the same saved account as the Select Radio list: the preferred account when that is the account chosen for the radio, or the account under which the radio was last seen. That second case reads "last seen under" the account name, followed by ", radio not listed right now". This identifies the last known association without claiming that the account lists the radio now.
+
 ## Deleting an Account
 
 From the same Manage SmartLink Accounts dialog, pick the account you want to remove, choose Delete, and confirm. The stored tokens are erased from disk. JJ Flexible Radio Access will never auto-sign-in to a deleted account.
@@ -33,3 +39,8 @@ From the same Manage SmartLink Accounts dialog, pick the account you want to rem
 All stored tokens are DPAPI-encrypted. If someone copies your `SmartLinkAccounts.json` file to a different machine, or to a different Windows user account on the same machine, they cannot decrypt it. The cleartext tokens only ever live in memory while JJ Flexible Radio Access is actually running.
 
 If you are uncomfortable with any long-lived credential storage at all, JJ Flexible Radio Access will still work without the account manager — you just have to go through the Auth0 sign-in flow once per session.
+
+## Related Topics
+
+- [SmartLink and Remote Operation](SmartLinkRemote.md)
+- [Network Diagnostics](NetworkDiagnostics.md)

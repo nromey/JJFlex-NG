@@ -12,13 +12,21 @@ JJ Flexible Radio Access includes safety features designed to help you stay in c
 
 ## PTT (Push to Talk)
 
-Enter an operator callsign through the **Radio** menu's **Operators** item before transmitting. JJ Flexible refuses to start a transmission without that callsign, whether the request comes from push to talk, the transmit lock, a voice or CW send, tune, or a check. The refusal says where to enter the callsign. The radio's own microphone PTT and a footswitch connected to the radio are unaffected.
+Enter an operator callsign through the **Radio** menu's **Operators** item before transmitting. JJ Flexible refuses to start a transmission without that callsign, whether the request comes from push to talk, the transmit lock, a voice or CW send, tune, a check, or turning on VOX or CW break-in. The refusal says where to enter the callsign. The radio's own microphone PTT and a footswitch connected to the radio are unaffected.
 
 Hold `Ctrl+Space` to transmit from JJ Flexible Home, its field groups, or the application's dialogs. Release the key to return to receive. The default push-to-talk key from another program is `Ctrl+Alt+Space`.
 
 NVDA normally passes a held push-to-talk key through as one hold. JAWS may deliver a held key as repeated presses and releases instead. JJ Flexible tries to keep those pairs together as one hold. Use the transmit lock for a long transmission if held push to talk repeatedly keys and unkeys the radio.
 
-Press `Shift+Space` from Home or its field groups to lock the transmitter on, and press the key again to return to receive. The default transmit-lock key from another program is `Alt+Shift+Space`. The lock's timeout and warning timing are set on the **PTT** tab in Settings. A locked transmission ends after fifteen minutes at the latest. These time limits belong to the lock; held push to talk inside JJ Flexible has no time limit.
+Held push to talk has a fifteen-minute limit, counted from the first press. The limit also applies in dialogs and when using the push-to-talk key from another program; repeated press-and-release pairs from a screen reader do not restart the clock. Warnings arrive at these points before the limit:
+
+- 30 seconds: "Push to talk is nearing its fifteen-minute limit."
+- 15 seconds: "Push to talk will end soon."
+- 5 seconds: "Push to talk is about to end."
+
+JJ Flexible releases its transmit key at the limit and says, "Push to talk reached its fifteen-minute limit. JJ Flexible Radio Access released its transmit key. Let go of the key before pressing it again."
+
+Press `Shift+Space` from Home or its field groups to lock the transmitter on, and press the key again to return to receive. The default transmit-lock key from another program is `Alt+Shift+Space`. The lock's timeout and warning timing are set on the **PTT** tab in Settings. Those settings apply only to the lock. A locked transmission ends after fifteen minutes at the latest.
 
 JJ Flexible refuses push to talk and the transmit lock when the radio reports that another station is transmitting on the same radio. The refusal is announced once while the key is held, rather than on every repeat.
 
@@ -35,7 +43,7 @@ VOX keys the radio when it hears you talk and unkeys it when you stop. Whether i
 - **VOX Gain** (0 to 100) is the threshold — how loud your voice has to be before the radio decides it is hearing speech and keys up. Set it too low and the room keys you up: the fan, the dog, your own breathing. Set it too high and it never trips no matter how much audio you have. Start around the middle and walk it down until your normal speaking voice keys the radio reliably and silence does not.
 - **VOX Delay** is the hang time — how long the radio stays keyed after you stop talking, in milliseconds, up to two seconds. Too short and it drops out between your words; too long and the other station is left waiting on you. Up and Down move it 100 ms at a time; Shift moves it 20 ms, which is the finest step the radio can make. Somewhere between 300 and 800 ms suits most voices.
 
-Both settings are there whether VOX is switched on or not, on purpose: you set the threshold first and arm VOX second. They step out of the way in CW, where the VOX checkbox means break-in and these two numbers do not apply.
+Both settings are there whether VOX is switched on or not, on purpose: you set the threshold first and arm VOX second. They step out of the way in CW, where the VOX checkbox means break-in and these two numbers do not apply. Turning on either VOX or CW break-in through JJ Flexible requires an operator callsign. Turning either off always works; the radio's own controls are unaffected.
 
 The same two numbers are in the audio layer as well — `Ctrl+J`, `A`, then `X` for gain and `D` for delay — beside mic level, the compander, and the speech processor, so you can trim VOX from anywhere without leaving what you were doing. See the Keyboard Reference for the whole layer.
 
@@ -123,3 +131,8 @@ The reflected-power automatic shutoff and its alarm do not fire while your radio
 The alarm also knows the difference between a fault and a search. A bad antenna returns a steady share of your power; an outboard tuner hunting for a match returns a share that jumps around and falls as it gets closer. If your reflected power is high but still moving, the alarm holds off for up to twenty seconds to let the tuner finish. If the reading settles back to a good match, nothing is said. If it settles while still high, or is still moving after twenty seconds, the warning fires — holding off is not switching off, and a tuner that never finds a match is exactly the case you need to hear about.
 
 **Warning:** Always verify that you are on the correct frequency and in the correct mode before you transmit. Press `F2` at any time to hear the current frequency spoken.
+
+## Related Topics
+
+- [Settings and Profiles](Settings.md)
+- [Keyboard Reference](KeyboardReference.md)

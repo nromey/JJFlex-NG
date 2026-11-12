@@ -45,9 +45,11 @@ You can set your verbosity under **Settings > Notifications > Speech verbosity**
 
 ## Universal Keys in the JJ Flexible Home
 
-Every field on the Home slice row accepts `Ctrl+Up` and `Ctrl+Down` to tune by the coarse step, and `Shift+Up` and `Shift+Down` to tune by the fine step. Both pairs work in Classic tuning mode and Modern tuning mode, including on the Frequency field. Plain `Up` and `Down` on the Slice and Slice Operations fields also tune by the coarse step; the Classic Frequency field uses the digit under the cursor for plain arrows.
+Every field on the Home slice row accepts `Ctrl+Up` and `Ctrl+Down` to tune by the coarse step, and `Shift+Up` and `Shift+Down` to tune by the fine step. Both pairs also work elsewhere in the main window in Classic tuning mode and Modern tuning mode, except where a control uses those arrows for its own value or selection. See [Tuning and Frequency](TuningAndFrequency.md) for the exceptions.
 
-`Page Up` and `Page Down` on every slice-row field, and `Home` on the Slice field, announce the route to pan in the audio layer without changing pan. Press the JJ key, then `A`, then `P` to adjust pan, or choose `V` in the audio layer to adjust slice volume. The Volume field also adjusts slice volume.
+Plain `Up` and `Down` switch slices on the Slice field and tune by the coarse step on the Slice Operations field by default. Settings, **Accessibility**, **Slice list** offers **Tune with Up and Down on the Slice field** and **Tune with Up and Down in Slice operations** to choose each field's behavior. Clearing the Slice Operations checkbox makes those arrows adjust slice volume. The Classic Frequency field uses the digit under the cursor for plain arrows.
+
+The Slice field's `Page Up` pans fully right, `Home` centers the pan, and `Page Down` pans fully left. The Slice Operations field's `Page Up` and `Page Down` move pan right or left in steps. Those page keys on other slice-row fields announce the audio-layer shortcut instead. Press the JJ key, then `A`, then `P` to adjust pan in the audio layer, or choose `V` for slice volume. The Volume field also adjusts slice volume.
 
 A small set of letter keys works the same way from most fields inside JJ Flexible Home:
 
@@ -80,14 +82,6 @@ If you find yourself wanting the universal behaviour on one of these fields, jus
 - `Escape` — if you are inside an expanded field group (DSP, Audio, Receiver, Transmission, or Antenna), a single Escape collapses the group and places focus on its header.
 - `Escape` pressed twice quickly — collapses every open field group and returns you directly to the JJ Flexible Home.
 
-## Related Topics
-
-- Tuning and Frequency
-- Slice Management
-- Escape and Collapse
-- Keyboard Reference
-
-
 ## Recording
 
 The Record field follows the slice you select, including a muted slice. A new recording replaces that slice's previous one. The Slice menu's Recorder rows show each slice's recording length. Play uses the transmit slice when you press it during your transmission, and stops when you unkey; a local listen stops if transmission begins. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops.
@@ -95,3 +89,10 @@ The Record field follows the slice you select, including a muted slice. A new re
 The Audio and Slice group also has Record to file, with **Record what you heard** and **Record in stereo** checkboxes. Both start off: the default is the radio's audio in mono. Choose before recording; the choices cannot change during a take. What-you-heard includes computer volume and noise reduction at 48 kHz; the default uses 24 kHz. Stereo preserves panned slices.
 
 Ctrl+Tab and Ctrl+Shift+Tab move through the Home slice strip and the visible group headers, whether their controls are expanded or collapsed.
+
+## Related Topics
+
+- [Tuning and Frequency](TuningAndFrequency.md)
+- [Slice Management](SliceManagement.md)
+- [Escape and Collapse](EscapeAndCollapse.md)
+- [Keyboard Reference](KeyboardReference.md)

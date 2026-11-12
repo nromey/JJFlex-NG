@@ -456,11 +456,14 @@ The bracket keys shape your receive filter from anywhere in the radio modes:
 
 ## Notes on the JJ Flexible Home
 
-Press `F2` to reach JJ Flexible Home. These tuning keys work from every field on the Home slice row, including Frequency, in both Classic tuning mode and Modern tuning mode:
+Press `F2` to reach JJ Flexible Home. These tuning keys work throughout the main window in Classic tuning mode and Modern tuning mode, including every field on the Home slice row:
 
 - `Ctrl+Up` and `Ctrl+Down` tune up or down by the coarse step.
 - `Shift+Up` and `Shift+Down` tune up or down by the fine step.
-- `Page Up` and `Page Down` announce "Pan is in the audio layer. Press the JJ key, A, then P." Neither key changes pan or moves focus to Frequency.
+
+Lists, grids, trees, combo boxes and text boxes keep their own arrow-key actions, as do Home group controls that adjust a value or cycle through choices. The Frequency field on the Home slice row still uses these pairs for tuning. Dialogs and the Logging radio pane keep their own keys. The Command Finder and Hotkey Editor show these chords beside **Tune up by your coarse step**, **Tune down by your coarse step**, **Tune up by your fine step** and **Tune down by your fine step**.
+
+`Page Up` and `Page Down` on slice-row fields other than Slice and Slice Operations announce "Pan is in the audio layer. Press the JJ key, A, then P." The Slice and Slice Operations fields use those keys to change pan, as described in their sections.
 
 Unassigned modifier combinations with `Up` or `Down`, such as `Ctrl+Shift+Up`, announce that the key does nothing on the current field, rather than performing the plain arrow's action. Assigned commands, such as the band keys, keep their own meanings. These slice-row keys do not replace the keys inside a JJ key layer, a dialog or the logging pane.
 
@@ -481,7 +484,7 @@ The following letter and punctuation keys also work across Home, except where a 
 
 Period and comma work on the Frequency field too, and there they go by what you are doing. Before you type a digit, they are the slice keys like everywhere else. Once you have typed a digit you are entering a frequency, so the period is the decimal point and the comma is a thousands separator: type 14.2 and press Enter and you are on 14.200, or type 14,225.000 in kilohertz and you are on 14.225. A period with no digit in front of it is never a decimal point, so for a frequency under one megahertz, type the zero first: 0.5, not .5.
 
-Navigation along the Home slice row uses `Left` and `Right` to move between fields, or between digits in a position-sensitive field. `Home` moves to the first field, except on the Slice field, where `Home` announces the route to pan in the audio layer. `End` moves to the last field.
+Navigation along the Home slice row uses `Left` and `Right` to move between fields, or between digits in a position-sensitive field. `Home` moves to the first field, except on the Slice field, where `Home` centers the pan. `End` moves to the last field.
 
 No letter on the Home surface is ever silent. Press a letter that isn't bound on the field you're on and JJ Flexible Radio says so — "S does nothing on the Volume field" — and points you at Shift slash, which speaks the keys that do work right there. With no radio connected, these keys answer "No radio connected" instead of pretending to be broken.
 
@@ -492,23 +495,25 @@ That promise covers Shift and Ctrl too. A letter with a modifier held is never m
 When focused on the Slice field specifically:
 
 - **Space** — Cycle to the next slice (wraps around)
-- **`Up` / `Down`** — Tune up or down by the coarse step. `Ctrl+Up` and `Ctrl+Down` also use the coarse step; `Shift+Up` and `Shift+Down` use the fine step.
+- **`Up` / `Down`** — Switch slices in the configured slice arrow direction by default. Check **Tune with Up and Down on the Slice field** in Settings, **Accessibility**, **Slice list** to tune by the coarse step instead. `Ctrl+Up` and `Ctrl+Down` always use the coarse step; `Shift+Up` and `Shift+Down` use the fine step.
 - **0-9 or A-H** — Jump directly to the desired slice by number or letter (you'll hear "not created" if it doesn't exist yet, and "no such slice" for a number past what any radio holds)
 - **T** — Make this slice the TX slice
 - **. (period)** and **, (comma)** — Create a new slice, or release the current one. These work from every Home field now, not just this one; see the keys above
-- **`Home`** — Announce the route to pan in the audio layer, without changing pan. `Page Up` and `Page Down` give the same reminder from every field on the slice row.
+- **`Page Up`** — Pans fully right.
+- **`Home`** — Centers the pan.
+- **`Page Down`** — Pans fully left. These pan keys work regardless of the arrow-tuning checkbox.
 
 ## JJ Flexible Home — Slice Operations Field Keys
 
 The Slice Operations field provides tuning, slice selection and mute controls:
 
-- **`Up` / `Down`** — Tune up or down by the coarse step. `Ctrl+Up` and `Ctrl+Down` also use the coarse step; `Shift+Up` and `Shift+Down` use the fine step.
+- **`Up` / `Down`** — Tune by the coarse step by default. Clear **Tune with Up and Down in Slice operations** in Settings, **Accessibility**, **Slice list** to adjust slice volume instead. `Ctrl+Up` and `Ctrl+Down` always use the coarse step; `Shift+Up` and `Shift+Down` use the fine step.
 - **Space** or **M** — Mute or unmute this slice
 - **A-H** — Jump directly to that slice
 - **T** — Set the currently selected slice to transmit (TX)
 - **=** — Transceive the currently selected slice
 
-Slice volume is adjusted on the Volume field, or by pressing the JJ key, then `A`, then `V` to select slice volume in the audio layer. Pan is adjusted in the same layer with `P`. `Page Up` and `Page Down` announce the route to pan without changing the setting.
+`Page Up` and `Page Down` move pan right or left in steps, regardless of the arrow-tuning checkbox. **Slice arrow direction** affects only the Slice field when its arrows switch slices. The Volume field also adjusts slice volume; the audio layer offers slice volume on `V` and pan on `P` after the JJ key, then `A`.
 
 There is deliberately no explicit "unmute" key here any more — the old S for "sound" mostly announced a state the slice was already in, so it read as a dead key and it's gone. M silences a slice fast without you having to know its current state, and Space toggles, which covers unmuting.
 
@@ -541,7 +546,7 @@ On the Split field:
 - **S** — Turn split on
 - **T** — Show the transmit frequency
 
-On the VOX field, Space, Up, Down, or V all toggle VOX on and off.
+The VOX field's `Space`, `Up`, `Down` and `V` toggle VOX, or CW break-in in CW mode. Turning either on requires an operator callsign entered through the **Radio** menu's **Operators** item. Turning either off always works. The radio's own controls are unaffected.
 
 Heads-up for long-time users: V used to cycle slices on the VOX field, like it does everywhere else in Home. It doesn't any more — standing on VOX and pressing V now toggles VOX, which is what your fingers meant. V still cycles slices from every other field, and the Slice field is always there for moving between slices.
 
@@ -588,9 +593,9 @@ There's one rule under all four arrow pairs, and it's worth learning once: **up 
 
 Alt is on the coarse pair rather than Shift because plain Left and Right already move your cursor across the Home fields, in both tuning modes, and that isn't going anywhere.
 
-The sizes walk a short list of the values people actually use — 500 Hz, 1, 2, 5 and 10 kHz for coarse, and 1, 5, 10, 50 and 100 Hz for fine. The list doesn't wrap round: when you reach either end you'll hear the size followed by "smallest" or "largest", so you always know where you are rather than being dumped at the other end mid-QSO.
+The sizes follow the operator's own coarse and fine lists, remembered across application restarts and radio changes. The starting coarse list contains 500 hertz, then 1, 2, 5 and 10 kilohertz; the starting fine list contains 1, 5, 10, 50 and 100 hertz. Neither list wraps: the smallest and largest steps are announced at the ends.
 
-Press S to see the whole list and set both at once. Those are the same values Settings → Tuning offers, so wherever you set them you're choosing from the same list.
+Press `S` to choose both step sizes or edit the available lists. `Enter` in a new-step box adds the typed step and leaves the window open. **OK** keeps the choices and list edits; **Cancel** or `Escape` discards changes made in the window. Settings, **Tuning** shows the same lists for choosing steps. See [Tuning Steps](TuningSteps.md) for adding, removing and restoring entries.
 
 Press Ctrl+F1 on the Frequency field for the live picture: it confirms Modern mode is active, speaks your actual coarse and fine step values, reads this key map, and names the key that switches to Classic tuning.
 
@@ -641,8 +646,8 @@ On the Mute field, Space or M toggles mute. It sits after XIT in both Classic an
 - **Alt+C** — Switch to CW mode
 - **Alt+A** — Switch to AM mode
 - **Alt+F** — Switch to FM mode
-- **Alt+D** — Switch to DIGU (digital upper) mode
-- **Alt+Shift+D** — Switch to DIGL (digital lower) mode
+- **`Alt+D`** — Switches to Digital USB (DIGU) mode; USB means Upper Side Band.
+- **`Alt+Shift+D`** — Switches to Digital LSB (DIGL) mode; LSB means Lower Side Band.
 
 ## Audio Controls
 
@@ -826,8 +831,6 @@ Finder finds it by "alarm", "temperature", "voltage" or "warning". It has no
 default key; if you check your alarms often, give it one in Tools → Hotkey
 Editor.
 
-**Tuning by a chosen step.** The commands **Tune up by your coarse step**, **Tune down by your coarse step**, **Tune up by your fine step** and **Tune down by your fine step** tune the active slice by the corresponding step. Find them in the Command Finder or assign a key in the Hotkey Editor. These four commands have no default keys of their own; the Home slice row provides the `Ctrl+Up` / `Ctrl+Down` and `Shift+Up` / `Shift+Down` tuning pairs described above.
-
 **Waiting in the Command Finder on purpose.** Start scan, saved scan,
 collect debug info, start audio check, and undelivered details.
 Most of these are either rare, or better reached where you already are — the
@@ -911,3 +914,9 @@ These keys work inside the Recorded QSOs window (**Ctrl+Alt+Shift+F11**, or **Ct
 - **Delete** — Move the selected recording to the Recycle Bin. It is never deleted outright
 - **Escape** — Stop playback if a recording is playing, as S does; press again to close. While paused, close the window straight away. If you are transmitting, Escape unkeys first
 - **Space** only selects in the list and never plays, and **Ctrl+Space** is still push to talk
+
+## Related Topics
+
+- [Tuning Steps](TuningSteps.md)
+- [Slice Management](SliceManagement.md)
+- [PTT and Transmission](PttAndTransmission.md)

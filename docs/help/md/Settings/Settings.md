@@ -31,7 +31,7 @@ Some settings describe a radio that is not connected right now — a radio name,
 ## Key Settings Tabs
 
 - **PTT** — transmit-lock timeout and warning timing.
-- **Tuning** — tuning step defaults, band memory, and tuning speech debounce (see below).
+- **Tuning** — coarse and fine steps, band memory, frequency speech units, spoken filter-width units, keyer speed, filter presets and tuning speech debounce (see below).
 - **License** — license class, country selection, and transmit rule enforcement (see below).
 - **Audio** — the radio's own outputs, radio audio through this computer, alert sounds, meter tones, the recorder, the countdown before a check keys, and the braille status line.
 - **Network** — SmartLink port forwarding, connection tiers, and network diagnostics.
@@ -88,10 +88,11 @@ Choosing another answer under **Profiles on This Radio**, answering the question
 
 Adding or releasing a slice does not change anything permanently: the radio puts
 its stored setup back the next time you connect. The quickest way to keep a
-change is **Save Station Setup to Radio**, in the Selection submenu on the Slice
-menu, which saves into
-whichever global profile the radio currently has loaded, and tells you which one
-that is before it writes anything.
+change is **Save Station Setup to Radio** on the **Radio** menu. The command saves into
+whichever global profile the radio currently has loaded. The explanation names
+that profile and asks before saving. Selecting **Don't show this explanation again** and
+confirming the save hides the explanation for later saves; restore the explanation
+through [Messages You Have Silenced](SilencedMessages.md) on the **Notifications** tab.
 
 You can also have JJ Flexible Radio ask you on the way out. Turn on **Offer to save my
 setup to the radio when I disconnect** on the Notifications tab. It only ever
@@ -103,12 +104,16 @@ There is more about all of this on the Slice Management help page.
 
 ## The Tuning Tab
 
-The **Tuning** tab controls how frequency announcements work while you are tuning:
+The **Tuning** tab brings together tuning steps, frequency and filter announcements, and the radio's keyer speed:
 
-- **Enable tuning debounce** — when this is checked, the application waits until you stop pressing arrow keys before speaking the frequency. Tuning debounce prevents you from hearing every intermediate step when you are tuning rapidly across a band.
-- **Debounce delay (ms)** — how long the application waits after your last keystroke before speaking the final frequency. A shorter delay gives you faster feedback; a longer delay means more silence while you are still tuning. The default works well for most operators.
-
-You can also toggle tuning debounce on the fly with the JJ key — press `Ctrl+J`, then `D`.
+- The **Coarse step default** and **Fine step default** combo boxes choose the operator's coarse and fine tuning steps. The last choices are remembered across restarts and radio changes. Edit the available lists in the **Tuning Steps** window opened with `S` on the Modern Frequency field; see [Tuning Steps](TuningSteps.md).
+- The **Enable band memory** checkbox makes band jumps recall the last frequency used on that band in the current mode. Clearing the checkbox makes band jumps use the band's starting frequency.
+- The **Frequency speech units** combo box chooses dotted digits, kilohertz or megahertz for frequency announcements.
+- The **Say hertz when reading filter widths** checkbox adds the word hertz to spoken filter widths. The checkbox starts checked and is saved for the Windows user, across operators and radios. Clearing the checkbox leaves the number format unchanged, including the shortened kilohertz form.
+- The **Keyer speed, words per minute** box accepts a whole number from 5 to 100 for the radio's CW keyer. **Apply** or **OK** saves a changed speed for the operator and sends the change to a connected radio marked as that operator's own. A disconnected, borrowed or unclassified radio is left unchanged; the saved speed is applied at a later connection only when the operator's settings are loaded onto their own radio. The **CW notification speed** control on the Audio tab sets the application's Morse announcements instead.
+- The **Edit Filter Presets** button opens the [Filter Presets](FilterPresets.md) editor.
+- The **Debounce tuning speech (group rapid steps)** checkbox groups rapid tuning steps into one frequency announcement, spoken after tuning stops. Press the JJ key, `Ctrl+J`, then `D`, to toggle the same setting during operation.
+- The **Debounce delay (ms)** box sets that wait from 50 to 1,000 milliseconds and is available while debounce is checked. A shorter delay gives faster feedback; a longer delay leaves more time between tuning steps before the announcement.
 
 ## The License Tab
 
