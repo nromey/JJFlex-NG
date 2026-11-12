@@ -106,7 +106,9 @@ public sealed class NoiseControllerTests
         finally { NoiseSettingsJournal.Recorded -= Listen; }
         Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
         Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise")), f.Spoken.Last);
-        Assert.Equal(SpeechSubject.NoiseUnavailable, f.Spoken.Said[^1].Subject);
+        // Part of the mode change's one utterance, queued behind the mode word (#1117).
+        Assert.Equal(SpeechSubject.NoiseModeStart, f.Spoken.Said[^1].Subject);
+        Assert.Contains(f.Spoken.Said.Count - 1, f.Spoken.SaidAfter);
         lock (entries)
         {
             // The journal is one static stream shared by every test class, so look
@@ -179,7 +181,10 @@ public sealed class NoiseControllerTests
             else f.Noise.Toggle("nnr", "test");
             int refusal = f.Spoken.Said.FindLastIndex(s => s.Text.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise"))));
             Assert.True(refusal >= 0, "no refusal naming RNNoise (" + (viaCw ? "first CW" : "direct") + ")");
-            Assert.DoesNotContain(refusal, f.Spoken.SaidAfter);   // the answer to a press still speaks at once
+            // The answer to a press still speaks at once; a mode change's answer
+            // waits behind the mode word the mode path has just said (#1117).
+            if (viaCw) Assert.Contains(refusal, f.Spoken.SaidAfter);
+            else Assert.DoesNotContain(refusal, f.Spoken.SaidAfter);
 
             f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", false, "helper missing") { SlotStopped = true });
             Assert.Equal(L("audio.noise_surface.start_failed", VerbosityLevel.Chatty), f.Spoken.Last);
@@ -310,6 +315,9 @@ public sealed class NoiseControllerTests
         }
 
         public void Say(string text, string subject, VerbosityLevel level) => Emit(text, subject, level, true);
+        /// <summary>The mode word as the mode path says it (MainWindow.SetMode): an interrupt with no subject.</summary>
+        public void ModeWord(string text) =>
+            _type.GetMethod("Emit")!.Invoke(_arbiter, new object?[] { text, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "mode test", null, false });
         public void SayAfter(string text, string subject, VerbosityLevel level) => Emit(text, subject, level, false);
         public void Retire(string subject, string why) => _type.GetMethod("Supersede")!.Invoke(_arbiter, new object?[] { subject, why, "noise test" });
         private void Emit(string text, string subject, VerbosityLevel level, bool interrupt) =>
@@ -1017,6 +1025,25 @@ public sealed class NoiseControllerTests
         return said;
     }
 
+    /// <summary>
+    /// What one mode change said, held to #1117's rule: the mode path has just
+    /// said the mode word ("CW", "Mode CW selected"), so the noise controller's
+    /// answer to the change must never interrupt (it cut the mode word at word 0
+    /// or 1, live on the 8600), and must be at most one utterance, queued behind
+    /// the mode word, on the mode-change subject. Returns the queued sentences.
+    /// </summary>
+    private static List<(string Text, string Subject)> OneModeChange(NoiseFixture f, string what, string mode)
+    {
+        int from = f.Spoken.Said.Count;
+        Mode(f, mode);
+        var interrupts = InterruptsSince(f, from);
+        Assert.True(interrupts.Count == 0, what + " interrupted, so it cut the mode word: " + string.Join(" | ", interrupts.Select(s => s.Text)));
+        var queued = f.Spoken.Said.Select((s, i) => (s, i)).Where(x => x.i >= from).Select(x => (x.s.Text, x.s.Subject)).ToList();
+        Assert.True(queued.Count <= 1, what + " said " + queued.Count + " sentences: " + string.Join(" | ", queued.Select(s => s.Text)));
+        Assert.All(queued, s => Assert.Equal(SpeechSubject.NoiseModeStart, s.Subject));
+        return queued;
+    }
+
     private static string ModelLabel(NoiseFixture f, string model)
     {
         // The label key is read first, so the lexicon coverage scan never reads an engine id as a key.
@@ -1038,7 +1065,8 @@ public sealed class NoiseControllerTests
     /// #1110 as the 8600 heard it: CW remembers NNR, voice remembers RNNoise, and
     /// leaving CW gave NNR its voice model back. Coming back into CW restores the
     /// group AND switches NNR to its CW model. Both facts are one utterance, the
-    /// swap first, under the restore's subject; neither cuts the other.
+    /// swap first, under the restore's subject; neither cuts the other. And it
+    /// is queued behind the mode word, never over it (#1117).
     /// </summary>
     [Fact]
     public void Coming_back_into_CW_says_the_swap_and_the_CW_model_as_one_utterance()
@@ -1050,7 +1078,7 @@ public sealed class NoiseControllerTests
         Mode(f, "USB");                // back: RNNoise on, NNR's voice model given back
         Assert.False(NoiseModeRules.IsCwModel(NnrModel(f)));
 
-        var said = OneAction(f, "entering CW", () => Mode(f, "CW"));
+        var said = OneModeChange(f, "entering CW", "CW");
 
         Assert.True(NoiseModeRules.IsCwModel(NnrModel(f)));
         string model = Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f))));
@@ -1072,7 +1100,7 @@ public sealed class NoiseControllerTests
         Mode(f, "CW");                 // NNR stays, on a CW model; the voice model is owed back
         f.Noise.Toggle("rnnoise", "test");
 
-        var said = OneAction(f, "leaving CW", () => Mode(f, "USB"));
+        var said = OneModeChange(f, "leaving CW", "USB");
 
         Assert.Equal("premium", NnrModel(f));
         Assert.Equal(RestoreSentence("audio.noise_surface.group.voice", "RNNoise", "NNR") + " "
@@ -1159,6 +1187,8 @@ public sealed class NoiseControllerTests
     /// walked through the states where they say the most (CW with NNR's model to
     /// swap, refusals, starting points, presets, Escape, the 0 key, levers,
     /// defaults, favourites, PC audio off), says at most one interrupt per action.
+    /// A mode change says none: its one utterance is queued behind the mode word
+    /// (#1117).
     /// </summary>
     [Fact]
     public void Every_noise_action_says_at_most_one_interrupt()
@@ -1172,9 +1202,9 @@ public sealed class NoiseControllerTests
             OneAction(f, "the spectral slot on", () => f.Noise.SetSlotOn(DenoiseFamily.Spectral, true, "test"));
             OneAction(f, "RNNoise on", () => f.Noise.Toggle("rnnoise", "test"));
             f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
-            OneAction(f, "first time in CW", () => Mode(f, "CW"));
-            OneAction(f, "back to voice", () => Mode(f, "USB"));
-            OneAction(f, "CW again", () => Mode(f, "CW"));
+            OneModeChange(f, "first time in CW", "CW");
+            OneModeChange(f, "back to voice", "USB");
+            OneModeChange(f, "CW again", "CW");
             OneAction(f, "RNNoise in CW", () => f.Noise.Toggle("rnnoise", "test"));
             OneAction(f, "NNR in CW", () => f.Noise.SetOn("nnr", true, "test"));
             OneAction(f, "NNR again in CW", () => f.Noise.SetOn("nnr", true, "test"));
@@ -1195,14 +1225,181 @@ public sealed class NoiseControllerTests
             OneAction(f, "the 0 key again", () => f.Noise.ComputerOffAndBack("test"));
             OneAction(f, "Escape's revert", () => f.Noise.RestoreSnapshot(snap, "test"));
             OneAction(f, "a radio engine", () => f.Noise.Toggle("radio_nrl", "test"));
-            OneAction(f, "digital", () => Mode(f, "DIGU"));
-            OneAction(f, "voice from digital", () => Mode(f, "USB"));
-            OneAction(f, "CW from voice", () => Mode(f, "CW"));
+            OneModeChange(f, "digital", "DIGU");
+            OneModeChange(f, "voice from digital", "USB");
+            OneModeChange(f, "CW from voice", "CW");
             OneAction(f, "the neural slot off", () => f.Noise.SetSlotOn(DenoiseFamily.Neural, false, "test"));
             OneAction(f, "the neural slot on in CW", () => f.Noise.SetSlotOn(DenoiseFamily.Neural, true, "test"));
             OneAction(f, "PC audio off, then RNNoise", () => { f.Radio.PcAudioOn = false; f.Noise.Toggle("rnnoise", "test"); });
             OneAction(f, "PC audio off, then NNR", () => f.Noise.Toggle("nnr", "test"));
         }
+    }
+
+    // ── The mode word first (#1117) ──
+
+    /// <summary>
+    /// #1117, heard on the 8600: changing mode speaks the mode word ("CW", "USB"),
+    /// and the noise controller's answer to the change interrupted it at word 0 or
+    /// 1, so the operator heard the noise sentence and not the mode they chose.
+    /// Every shape a mode change says (a starting point, its refusal naming the
+    /// engine it replaced, a remembered group put back, CW's model, digital) now
+    /// goes out as ONE utterance queued behind the mode word, on the mode-change
+    /// subject; a change inside a group says nothing, so the mode word stands
+    /// alone as before.
+    /// </summary>
+    [Fact]
+    public void Every_mode_change_says_one_utterance_queued_behind_the_mode_word()
+    {
+        foreach (bool helperMissing in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            if (helperMissing) f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Noise.Attach("USB");
+            f.Noise.Toggle("rnnoise", "test");
+            Assert.Single(OneModeChange(f, "the first CW, its starting point replacing RNNoise", "CW"));
+            Assert.Single(OneModeChange(f, "back to voice, RNNoise put back", "USB"));
+            Assert.Empty(OneModeChange(f, "LSB, the same group", "LSB"));
+            Assert.Single(OneModeChange(f, "CW again, remembered", "CW"));
+            Assert.Empty(OneModeChange(f, "CWL, the same group", "CWL"));
+            f.Noise.Toggle("rnnoise", "test");
+            Assert.Single(OneModeChange(f, "digital, its starting point", "DIGU"));
+            Assert.Single(OneModeChange(f, "voice from digital", "USB"));
+        }
+    }
+
+    /// <summary>
+    /// A queued mode sentence has an owner, as every queued noise notice does: it
+    /// is retired, before the change's own sentence, once the computer slots it
+    /// described are changed (an engine chosen or turned off, NNR's model moved,
+    /// the 0 key, Escape, another mode group, a disconnect), so the arbiter cannot
+    /// rescue it behind that change's answer. An engine that starts processing
+    /// makes it truer and must NOT retire it (that result arrives within
+    /// milliseconds, while the mode word may still be speaking); nor does a radio
+    /// switch, which leaves it true, nor a mode in the same group.
+    /// </summary>
+    [Fact]
+    public void A_queued_mode_sentence_is_retired_once_the_slots_it_described_change_and_only_then()
+    {
+        static NoiseFixture QueuedInCw(out NoiseSnapshot voice)
+        {
+            var f = new NoiseFixture();
+            f.Noise.Attach("USB");
+            f.Noise.Toggle("rnnoise", "test");
+            voice = f.Noise.TakeSnapshot();
+            Mode(f, "CW");                                     // NNR's starting point, queued
+            Assert.Contains(f.Spoken.Said.Count - 1, f.Spoken.SaidAfter);
+            return f;
+        }
+        static List<int> ModeRetirements(NoiseFixture f) =>
+            f.Spoken.Retired.Select((r, i) => (r, i)).Where(x => x.r.Subject == SpeechSubject.NoiseModeStart).Select(x => f.Spoken.RetiredAt[x.i]).ToList();
+
+        using (var f = QueuedInCw(out _))
+        {
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", true));
+            f.Noise.Toggle("radio_nrl", "test");
+            Mode(f, "CWL");
+            Assert.Empty(ModeRetirements(f));
+        }
+
+        foreach (var (what, act, answerFollows) in new (string, Action<NoiseFixture, NoiseSnapshot>, bool)[]
+        {
+            ("RNNoise chosen", (g, _) => g.Noise.Toggle("rnnoise", "test"), true),
+            ("NNR turned off", (g, _) => g.Noise.Toggle("nnr", "test"), true),
+            ("the 0 key", (g, _) => g.Noise.ComputerOffAndBack("test"), true),
+            ("another mode group", (g, _) => Mode(g, "USB"), true),
+            ("Escape's revert", (g, snap) => g.Noise.RestoreSnapshot(snap, "test"), false),
+            ("a disconnect", (g, _) => g.Noise.Detach(), false),
+            ("NNR's model moved", (g, _) =>
+            {
+                var model = g.Noise.Levers("nnr", true).First(l => l.Key == "model");
+                g.Noise.Adjust(model, +1, "test");
+                g.Noise.Adjust(model, -1, "test");
+            }, false),
+        })
+        {
+            using var f = QueuedInCw(out var voice);
+            int before = f.Spoken.Said.Count;
+            act(f, voice);
+            var at = ModeRetirements(f);
+            Assert.True(at.Count == 1, what + " retired the queued mode sentence " + at.Count + " times");
+            if (answerFollows)
+            {
+                Assert.Equal(before, at[0]);                       // before the change's own sentence
+                Assert.True(f.Spoken.Said.Count > before, what + " said nothing");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The same two facts through the real SpeechArbiter: the mode word the mode
+    /// path says (an interrupt with no subject, as MainWindow.SetMode says it) is
+    /// followed by the noise sentence handed over WITHOUT an interrupt, so it
+    /// cannot cut the mode word; and once the operator chooses another engine
+    /// before it was heard, it is not rescued behind that answer. The control: a
+    /// radio switch retires nothing, and the same arbiter does rescue the mode
+    /// sentence behind its answer, still true.
+    /// </summary>
+    [Fact]
+    public void Through_the_real_arbiter_the_mode_word_is_not_cut_and_an_obsolete_mode_sentence_is_not_rescued()
+    {
+        foreach (bool obsolete in new[] { true, false })
+        {
+            using var f = new NoiseFixture();
+            f.Noise.Attach("USB");
+            f.Noise.Toggle("rnnoise", "test");
+            var speaker = new SilentArbiterSpeaker();
+            typeof(NoiseController).GetField("_speaker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(f.Noise, speaker);
+            try
+            {
+                speaker.ModeWord("CW");
+                Mode(f, "CW");
+                var calls = speaker.Calls.ToList();
+                Assert.Equal(("CW", true, false), calls[0]);
+                var noise = Assert.Single(calls.Skip(1));
+                Assert.False(noise.Interrupt, "the noise sentence interrupted the mode word: " + noise.Text);
+
+                // The arbiter holds a rescue for its settle window (600 ms) before handing it over.
+                bool Rescued(int ms) => System.Threading.SpinWait.SpinUntil(() => speaker.Calls.Any(c => c.Text == noise.Text && c.Salvaged), ms);
+                if (obsolete)
+                {
+                    f.Noise.Toggle("rnnoise", "test");
+                    Assert.False(Rescued(2000), "the obsolete mode sentence was rescued behind the new engine's answer");
+                }
+                else
+                {
+                    f.Noise.Toggle("radio_nrl", "test");
+                    Assert.True(Rescued(2500), "the arbiter never rescued the unretired mode sentence, so this instrument cannot see the defect");
+                }
+            }
+            finally { speaker.Dispose(); }
+        }
+    }
+
+    /// <summary>
+    /// The Slice menu's Mode rows: setting the mode at the click let the radio's
+    /// confirmation reach the noise controller about 30 ms later, while the menu
+    /// was still closing, so the noise sentence went out over the menu's close and
+    /// was then cut by the row's own "Mode CW selected" 500 ms on. The row now
+    /// asks the radio for the mode when it says it, after the menu has closed, so
+    /// the mode sentence comes first and the noise sentence queues behind it
+    /// (#1117). A source pin: the menu cannot be driven without a window.
+    /// </summary>
+    [Fact]
+    public void The_Mode_menu_asks_the_radio_for_the_mode_when_it_says_it_after_the_menu_closes()
+    {
+        string menu = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "NativeMenuBar.cs")).Replace("\r\n", "\n");
+        int row = menu.IndexOf("AddRadioChecked(modeSub, m + accel, () =>", StringComparison.Ordinal);
+        Assert.True(row >= 0, "the Mode rows were not found");
+        // The row's handler ends at the getter that follows it.
+        int end = menu.IndexOf("() => string.Equals(Rig?.Mode, m", row, StringComparison.Ordinal);
+        Assert.True(end > row, "the end of the Mode row's handler was not found");
+        string handler = menu.Substring(row, end - row);
+        int delay = handler.IndexOf("Task.Delay(500)", StringComparison.Ordinal);
+        int set = handler.IndexOf("rig.Mode = m;", StringComparison.Ordinal);
+        int says = handler.IndexOf("\"settings.mode.selected\"", StringComparison.Ordinal);
+        Assert.DoesNotContain("Rig.Mode = m", handler);
+        Assert.True(delay >= 0 && set > delay && says > set,
+            "the mode must be asked for after the menu closes and just before its sentence (delay " + delay + ", set " + set + ", says " + says + ")");
     }
 
     // ── The summary never reads a stopped engine as working (#1103) ──

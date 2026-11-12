@@ -329,14 +329,29 @@ namespace JJFlexWpf
         private int _utteranceDepth;
 
         /// <summary>
+        /// Set by the outermost action that answers something ANOTHER subsystem
+        /// has just said (a mode change, whose mode word the mode path speaks):
+        /// the action's one utterance goes out after what is being said, under
+        /// this subject, never over it (#1117). Null for every other action,
+        /// whose utterance is the answer to a press and interrupts.
+        /// </summary>
+        private string? _utteranceAfterUnder;
+
+        /// <summary>
         /// Start an action: every sentence said until the returned scope is
         /// disposed goes out as one utterance (<see cref="_utterance"/>). Nests:
         /// only the outermost scope speaks. Use with <c>using var oneUtterance = OneUtterance();</c>
         /// at the top of every entry point that changes noise settings.
         /// </summary>
-        private UtteranceScope OneUtterance()
+        /// <param name="afterWhatIsSaidUnder">
+        /// Only for an action that follows another subsystem's own sentence (a
+        /// mode change): its utterance is queued behind what is being said, under
+        /// this subject, and owned like the other queued notices
+        /// (<see cref="_noticesOwed"/>). Read from the outermost scope only.
+        /// </param>
+        private UtteranceScope OneUtterance(string? afterWhatIsSaidUnder = null)
         {
-            if (_utteranceDepth++ == 0) _utterance = new();
+            if (_utteranceDepth++ == 0) { _utterance = new(); _utteranceAfterUnder = afterWhatIsSaidUnder; }
             return new UtteranceScope(this);
         }
 
@@ -362,6 +377,8 @@ namespace JJFlexWpf
             if (--_utteranceDepth > 0) return;
             var parts = _utterance ?? new();
             _utterance = null;
+            string? afterUnder = _utteranceAfterUnder;
+            _utteranceAfterUnder = null;
             if (parts.Count == 0) return;
             var heard = parts.Count == 1 ? parts : parts.Where(p => (int)p.Level <= (int)_speaker.Verbosity).ToList();
             foreach (var held in parts.Except(heard))
@@ -369,8 +386,10 @@ namespace JJFlexWpf
             var said = heard.Count > 0 ? heard : parts;
             string text = said.Count == 1 ? said[0].Text : string.Join(" ", said.Select(p => p.Text.Trim()));
             var level = said.Min(p => p.Level);
+            // A mode change's sentence follows the mode word, never cuts it (#1117).
+            if (afterUnder != null) Deliver(text, afterUnder, level, queued: true);
             // Queued only when every part was: an answer to a press still interrupts.
-            if (said.All(p => p.Queued)) Deliver(text, said[0].Subject, level, queued: true);
+            else if (said.All(p => p.Queued)) Deliver(text, said[0].Subject, level, queued: true);
             else Deliver(text, said[0].Subject, level, queued: false);
         }
 
@@ -378,7 +397,7 @@ namespace JJFlexWpf
         {
             if (!queued) { _speaker.Say(text, subject, level); return; }
             _speaker.SayAfter(text, subject, level);
-            if (subject is SpeechSubject.NoiseHelperState or SpeechSubject.NoiseRadioSibling) _noticesOwed.Add(subject);
+            if (subject is SpeechSubject.NoiseHelperState or SpeechSubject.NoiseRadioSibling or SpeechSubject.NoiseModeStart) _noticesOwed.Add(subject);
         }
 
         /// <summary>As <see cref="Say(string, string, VerbosityLevel)"/>, but after whatever is being said, never cutting it (<see cref="INoiseSpeaker.SayAfter"/>).</summary>
@@ -397,8 +416,11 @@ namespace JJFlexWpf
         /// is retired the moment that picture changes (repair round 2 of the
         /// Track E follow-up for the helper's; repair round 2 of follow-up 2 for
         /// the sibling's, after a preset turned the engine back on and the queued
-        /// "off" was rescued after the preset's summary). These are the only
-        /// queued noise sentences, and every one has this owner.
+        /// "off" was rescued after the preset's summary). Since #1117 a mode
+        /// change's own sentence is queued too, behind the mode word, on
+        /// <see cref="SpeechSubject.NoiseModeStart"/>: it describes the computer
+        /// slots as the new group left them. These are the only queued noise
+        /// sentences, and every one has this owner.
         /// </summary>
         private readonly HashSet<string> _noticesOwed = new(StringComparer.Ordinal);
 
@@ -410,11 +432,26 @@ namespace JJFlexWpf
         /// makes cannot rescue the old notice behind it. Never silences anything
         /// else, and does nothing when nothing is owed.
         /// </summary>
-        private void RetireHelperNotice(string why)
+        /// <param name="why">Trace prose.</param>
+        /// <param name="modeNoticeToo">
+        /// False only for a selection that now processes: that makes a queued mode
+        /// sentence ("Back in CW: ..., NNR on.") truer, not obsolete, and it can
+        /// arrive within milliseconds, before the mode word has even finished
+        /// (#1117).
+        /// </param>
+        private void RetireHelperNotice(string why, bool modeNoticeToo = true)
         {
             RetireNotice(SpeechSubject.NoiseHelperState, why);
             RetireNotice(SpeechSubject.NoiseRadioSibling, why);
+            if (modeNoticeToo) RetireModeNotice(why);
         }
+
+        /// <summary>
+        /// A queued mode-change sentence (#1117) is obsolete: the computer slots
+        /// it described were changed by the operator, a preset, Escape, another
+        /// mode group or a disconnect. A radio switch alone leaves it true.
+        /// </summary>
+        private void RetireModeNotice(string why) => RetireNotice(SpeechSubject.NoiseModeStart, why);
 
         /// <summary>
         /// Only the radio's own noise state changed (one of its switches written,
@@ -838,7 +875,7 @@ namespace JJFlexWpf
         public void OnSelectionResult(DenoiseSelectionResult result)
         {
             // A selection that now processes makes an earlier failure untrue (repair round 2).
-            if (result.Processing) { RetireHelperNotice("a noise engine started processing"); return; }
+            if (result.Processing) { RetireHelperNotice("a noise engine started processing", modeNoticeToo: false); return; }
             if (!result.SlotStopped) return;
             // Queued behind whatever is being said (repair round 1): on every
             // refusal path that still puts an engine in the slot, the refusal

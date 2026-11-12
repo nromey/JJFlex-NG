@@ -2393,8 +2393,26 @@ public class NativeMenuBar : IDisposable
                 AddRadioChecked(modeSub, m + accel, () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
-                    Rig.Mode = m;
-                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)));
+                    // The mode is asked for once the menu has closed, at the
+                    // moment its sentence is said, so the sentence comes first
+                    // and the noise controller's answer to the mode change
+                    // queues behind it (#1117). Asked for at the click, the
+                    // radio's confirmation reached the noise controller about
+                    // 30 ms later, while the menu was still closing: its
+                    // sentence went out over the menu's close and was then cut
+                    // by this row's own sentence 500 ms on. Same words, same
+                    // delay as before; only the moment the radio is asked moves.
+                    _window.Dispatcher.BeginInvoke(async () =>
+                    {
+                        await System.Threading.Tasks.Task.Delay(500);
+                        if (Rig is not { } rig)
+                        {
+                            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Terse, interrupt: true);
+                            return;
+                        }
+                        rig.Mode = m;
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.mode.selected", ("m", m)), Radios.VerbosityLevel.Terse, interrupt: true);
+                    });
                 },
                 () => string.Equals(Rig?.Mode, m, StringComparison.OrdinalIgnoreCase));
             }

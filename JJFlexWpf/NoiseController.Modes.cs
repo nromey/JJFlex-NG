@@ -111,8 +111,14 @@ namespace JJFlexWpf
         private void EnterGroup(string mode, bool attaching)
         {
             // A restore, a starting point and NNR's model can all speak on one
-            // mode change: one utterance, so none cuts another (#1110).
-            using var oneUtterance = OneUtterance();
+            // mode change: one utterance, so none cuts another (#1110). And on a
+            // mode change that utterance waits behind the mode word the mode path
+            // has just said ("CW", "Mode CW selected"), so the operator hears the
+            // mode they chose first and the noise sentence after it (#1117: it
+            // interrupted, and cut the mode word at word 0 or 1). It is owned like
+            // the other queued notices: retired once the slots it describes
+            // change. Connect is not a mode change and is left as it was.
+            using var oneUtterance = OneUtterance(attaching ? null : SpeechSubject.NoiseModeStart);
             var g = NoiseModeRules.GroupOf(mode);
             var old = _group;
             if (old == g) return;
@@ -346,7 +352,10 @@ namespace JJFlexWpf
             // The model is a rebuild setting: setting the one already held
             // would rebuild the engine for nothing.
             if (slot.GetSetting(e.Id, "model").Choice != admitted)
+            {
                 slot.TrySetSetting(e.Id, "model", new EngineSettingValue(0, admitted));
+                RetireModeNotice("a computer noise engine's model was changed");
+            }
         }
 
         /// <summary>
