@@ -450,6 +450,7 @@ namespace JJFlexWpf
 
         private void Move(NoiseLever lever, string source, Func<EngineSettingValue, EngineSettingValue?> to, int direction)
         {
+            using var oneUtterance = OneUtterance();
             var e = _catalog.Find(lever.EngineId);
             if (e == null) return;
             Current = e.Id;
@@ -633,6 +634,7 @@ namespace JJFlexWpf
         /// </summary>
         public void ReturnToDefaults(string id, string source)
         {
+            using var oneUtterance = OneUtterance();
             var e = _catalog.Find(id);
             if (e == null) return;
             Current = id;

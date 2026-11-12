@@ -118,6 +118,9 @@ namespace JJFlexWpf
         /// </summary>
         public void Step(int direction, string source)
         {
+            // The once-per-session "no favourites" sentence and the step's own
+            // answer are one utterance, so the answer cannot cut it (#1110).
+            using var oneUtterance = OneUtterance();
             var list = StepList();
             if (list.Count == 0) return;
             if (Favourites.Count == 0 && !_toldNoFavourites)

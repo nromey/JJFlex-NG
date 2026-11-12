@@ -991,6 +991,216 @@ public sealed class NoiseControllerTests
         Assert.Equal(9, f.Noise.NumberOf(limit));
     }
 
+    // ── One action, one utterance (#1110) ──
+
+    /// <summary>
+    /// What one action said as interrupts: every sentence after <paramref name="from"/>
+    /// that was not queued behind what was speaking.
+    /// </summary>
+    private static List<(string Text, string Subject)> InterruptsSince(NoiseFixture f, int from) =>
+        f.Spoken.Said.Select((s, i) => (s, i)).Where(x => x.i >= from && !f.Spoken.SaidAfter.Contains(x.i))
+            .Select(x => (x.s.Text, x.s.Subject)).ToList();
+
+    /// <summary>
+    /// Run one action and hold it to the rule: every noise sentence goes out as an
+    /// interrupt, so a second interrupt from the same action cuts the first (#1110,
+    /// heard live: "Back in CW: RNNoise off, NNR on." cut at its first word by
+    /// "NNR switched to Premium CW for CW; ..."). Returns what it said.
+    /// </summary>
+    private static List<(string Text, string Subject)> OneAction(NoiseFixture f, string what, Action act)
+    {
+        int from = f.Spoken.Said.Count;
+        act();
+        var said = InterruptsSince(f, from);
+        Assert.True(said.Count <= 1, what + " said " + said.Count + " interrupts, so the later ones cut the earlier: "
+            + string.Join(" | ", said.Select(s => s.Text)));
+        return said;
+    }
+
+    private static string ModelLabel(NoiseFixture f, string model) =>
+        Lexicon.Get(f.Catalog.Find("nnr")!.Settings.First(d => d.Name == "model").Options!.First(o => o.Name == model).LabelKey);
+
+    private static string NnrModel(NoiseFixture f) => f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice!;
+
+    private static void Mode(NoiseFixture f, string mode) { f.Radio.Mode = mode; f.Noise.OnModeChanged(mode); }
+
+    private static string RestoreSentence(string groupKey, string offEngine, string onEngine) =>
+        Lexicon.Get("audio.noise_surface.mode_restore", VerbosityLevel.Chatty,
+            ("group", Lexicon.Get(groupKey, VerbosityLevel.Chatty)),
+            ("changes", Lexicon.Get("audio.noise_surface.phrase_off", VerbosityLevel.Chatty, ("engine", offEngine)) + ", "
+                + Lexicon.Get("audio.noise_surface.phrase_on", VerbosityLevel.Chatty, ("engine", onEngine))));
+
+    /// <summary>
+    /// #1110 as the 8600 heard it: CW remembers NNR, voice remembers RNNoise, and
+    /// leaving CW gave NNR its voice model back. Coming back into CW restores the
+    /// group AND switches NNR to its CW model. Both facts are one utterance, the
+    /// swap first, under the restore's subject; neither cuts the other.
+    /// </summary>
+    [Fact]
+    public void Coming_back_into_CW_says_the_swap_and_the_CW_model_as_one_utterance()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "test");
+        Mode(f, "CW");                 // the first time: NNR's starting point, replacing RNNoise
+        Mode(f, "USB");                // back: RNNoise on, NNR's voice model given back
+        Assert.False(NoiseModeRules.IsCwModel(NnrModel(f)));
+
+        var said = OneAction(f, "entering CW", () => Mode(f, "CW"));
+
+        Assert.True(NoiseModeRules.IsCwModel(NnrModel(f)));
+        string model = Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f))));
+        Assert.Equal(RestoreSentence("audio.noise_surface.group.cw", "RNNoise", "NNR") + " " + model, said.Single().Text);
+        Assert.Equal(SpeechSubject.NoiseModeStart, said.Single().Subject);
+    }
+
+    /// <summary>
+    /// The way back out, when voice remembers NNR and CW ran RNNoise: the restore
+    /// ("RNNoise off, NNR on") and NNR's voice model coming back are one utterance.
+    /// </summary>
+    [Fact]
+    public void Leaving_CW_says_the_swap_and_the_voice_model_back_as_one_utterance()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+        f.Noise.Toggle("nnr", "test");
+        Mode(f, "CW");                 // NNR stays, on a CW model; the voice model is owed back
+        f.Noise.Toggle("rnnoise", "test");
+
+        var said = OneAction(f, "leaving CW", () => Mode(f, "USB"));
+
+        Assert.Equal("premium", NnrModel(f));
+        Assert.Equal(RestoreSentence("audio.noise_surface.group.voice", "RNNoise", "NNR") + " "
+            + Lexicon.Get("audio.noise_surface.voice_model_back", VerbosityLevel.Chatty, ("model", ModelLabel(f, "premium"))), said.Single().Text);
+    }
+
+    /// <summary>
+    /// Choosing NNR in CW while it holds a voice model: the model switch and the
+    /// switch's own answer used to be two interrupts, the model first, so "NNR on"
+    /// cut "NNR switched to ... for CW". Now one utterance, the answer to the press
+    /// first and the model after it, on every road that turns an engine on (the
+    /// layer's switch, Home's settled engine choice), and on the refusal too.
+    /// </summary>
+    [Fact]
+    public void Choosing_NNR_in_CW_says_the_switch_then_the_CW_model_as_one_utterance()
+    {
+        // The switch.
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.Attach("CW");
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            var said = OneAction(f, "turning NNR on in CW", () => f.Noise.Toggle("nnr", "test"));
+            string text = said.Single().Text;
+            Assert.StartsWith(Lexicon.Get("audio.noise_surface.on", VerbosityLevel.Chatty, ("engine", "NNR")), text);
+            Assert.EndsWith(Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f)))), text);
+            Assert.Equal(SpeechSubject.NoiseEngineSwitch, said.Single().Subject);
+        }
+        // Home's engine field, settled, with the slot already on another engine.
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.Attach("CW");
+            f.Noise.Toggle("rnnoise", "test");
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            f.Noise.ChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+            var said = OneAction(f, "Home's engine choice settling on NNR in CW", () => f.Clock.RunAll());
+            string text = said.Single().Text;
+            Assert.StartsWith(Lexicon.Get("audio.noise_surface.on_replacing", VerbosityLevel.Chatty, ("engine", "NNR"), ("other", "RNNoise")), text);
+            Assert.EndsWith(Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f)))), text);
+        }
+        // The refusal: the helper is missing, NNR is kept as the choice and its model still changes.
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.Attach("CW");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            var said = OneAction(f, "refusing NNR in CW", () => f.Noise.Toggle("nnr", "test"));
+            string text = said.Single().Text;
+            Assert.StartsWith(Lexicon.Get("audio.noise_surface.unavailable.helpermissing", VerbosityLevel.Chatty, ("engine", "NNR")), text);
+            Assert.EndsWith(Lexicon.Get("audio.noise_surface.cw_model", VerbosityLevel.Chatty, ("model", ModelLabel(f, NnrModel(f)))), text);
+        }
+    }
+
+    /// <summary>
+    /// The brackets with no favourites: the once-per-session explanation and the
+    /// step's answer are one utterance, so the answer no longer cuts the explanation.
+    /// A part this verbosity would not speak is left out of it, as the screen reader
+    /// would have dropped it.
+    /// </summary>
+    [Fact]
+    public void The_first_bracket_with_no_favourites_says_the_explanation_and_the_step_as_one_utterance()
+    {
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.BeginSession();
+            var said = OneAction(f, "the first bracket", () => f.Noise.Step(+1, "test"));
+            Assert.Equal(Lexicon.Get("audio.noise_surface.no_favourites", VerbosityLevel.Chatty) + " "
+                + Lexicon.Get("audio.noise_surface.on", VerbosityLevel.Chatty, ("engine", f.Noise.NameOf("radio_nr"))), said.Single().Text);
+        }
+        using (var f = new NoiseFixture())
+        {
+            f.Spoken.Verbosity = VerbosityLevel.Terse;
+            f.Noise.BeginSession();
+            var said = OneAction(f, "the first bracket at Terse", () => f.Noise.Step(+1, "test"));
+            Assert.Equal(Lexicon.Get("audio.noise_surface.on", VerbosityLevel.Terse, ("engine", f.Noise.NameOf("radio_nr"))), said.Single().Text);
+            Assert.Equal(VerbosityLevel.Terse, f.Spoken.Said.Single().Level);
+        }
+    }
+
+    /// <summary>
+    /// The class, not one pair (#1110): every road that changes noise settings,
+    /// walked through the states where they say the most (CW with NNR's model to
+    /// swap, refusals, starting points, presets, Escape, the 0 key, levers,
+    /// defaults, favourites, PC audio off), says at most one interrupt per action.
+    /// </summary>
+    [Fact]
+    public void Every_noise_action_says_at_most_one_interrupt()
+    {
+        foreach (bool helperMissing in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            if (helperMissing) f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            OneAction(f, "connect in voice", () => f.Noise.Attach("USB"));
+            OneAction(f, "the neural slot on (voice starting point)", () => f.Noise.SetSlotOn(DenoiseFamily.Neural, true, "test"));
+            OneAction(f, "the spectral slot on", () => f.Noise.SetSlotOn(DenoiseFamily.Spectral, true, "test"));
+            OneAction(f, "RNNoise on", () => f.Noise.Toggle("rnnoise", "test"));
+            f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
+            OneAction(f, "first time in CW", () => Mode(f, "CW"));
+            OneAction(f, "back to voice", () => Mode(f, "USB"));
+            OneAction(f, "CW again", () => Mode(f, "CW"));
+            OneAction(f, "RNNoise in CW", () => f.Noise.Toggle("rnnoise", "test"));
+            OneAction(f, "NNR in CW", () => f.Noise.SetOn("nnr", true, "test"));
+            OneAction(f, "NNR again in CW", () => f.Noise.SetOn("nnr", true, "test"));
+            if (f.Noise.Levers("nnr", false).FirstOrDefault(l => l.Key == "model") is { } model)
+            {
+                OneAction(f, "NNR's model lever in CW", () => f.Noise.Adjust(model, +1, "test"));
+                OneAction(f, "NNR's model to its edge in CW", () => f.Noise.Place(model, -1, "test"));
+            }
+            OneAction(f, "NNR's defaults in CW", () => f.Noise.ReturnToDefaults("nnr", "test"));
+            OneAction(f, "favourite NNR", () => f.Noise.ToggleFavourite("nnr", "test"));
+            OneAction(f, "favourite RNNoise", () => f.Noise.ToggleFavourite("rnnoise", "test"));
+            f.Noise.BeginSession();
+            OneAction(f, "a bracket", () => f.Noise.Step(+1, "test"));
+            OneAction(f, "another bracket", () => f.Noise.Step(+1, "test"));
+            OneAction(f, "a preset step", () => f.Noise.StepPreset(+1, "test"));
+            var snap = f.Noise.TakeSnapshot();
+            OneAction(f, "the 0 key", () => f.Noise.ComputerOffAndBack("test"));
+            OneAction(f, "the 0 key again", () => f.Noise.ComputerOffAndBack("test"));
+            OneAction(f, "Escape's revert", () => f.Noise.RestoreSnapshot(snap, "test"));
+            OneAction(f, "a radio engine", () => f.Noise.Toggle("radio_nrl", "test"));
+            OneAction(f, "digital", () => Mode(f, "DIGU"));
+            OneAction(f, "voice from digital", () => Mode(f, "USB"));
+            OneAction(f, "CW from voice", () => Mode(f, "CW"));
+            OneAction(f, "the neural slot off", () => f.Noise.SetSlotOn(DenoiseFamily.Neural, false, "test"));
+            OneAction(f, "the neural slot on in CW", () => f.Noise.SetSlotOn(DenoiseFamily.Neural, true, "test"));
+            OneAction(f, "PC audio off, then RNNoise", () => { f.Radio.PcAudioOn = false; f.Noise.Toggle("rnnoise", "test"); });
+            OneAction(f, "PC audio off, then NNR", () => f.Noise.Toggle("nnr", "test"));
+        }
+    }
+
     [Fact]
     public void Every_change_goes_through_the_one_journal()
     {
