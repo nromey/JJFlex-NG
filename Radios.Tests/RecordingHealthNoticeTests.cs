@@ -735,5 +735,61 @@ namespace Radios.Tests
             Assert.Contains("If you are sending evidence to Noel", failedSink, StringComparison.Ordinal);
             Assert.DoesNotContain("logging.recording", failedSink, StringComparison.Ordinal);
         }
+            /// <summary>
+        /// #636 (Noel, 2026-09-26: "I'd silence the second"): when the
+        /// diagnostic log's own file stops during a recording, the log
+        /// stopping and that recording's short tail are two reports about one
+        /// file. The watch names the session as their shared subject, and the
+        /// tail is marked as following it, so the offer can keep it silent.
+        /// The ticket's path differs from the sink's (the file was moved
+        /// aside), which is why the subject is the session and not the path.
+        /// A tail about another session's file shares nothing.
+        /// </summary>
+        [Fact]
+        public void The_log_stopping_and_the_same_files_short_tail_share_a_subject_and_the_tail_follows_it()
+        {
+            var reports = new List<OperationFailureEventArgs>();
+            void OnReported(object s, OperationFailureEventArgs e) { lock (reports) reports.Add(e); }
+            OperationFailure.Reported += OnReported;
+            RecordingHealthWatch.Install();
+            try
+            {
+                Guid session = Guid.NewGuid();
+                Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", session, 1L);
+                TraceArchiveTicket sameFile = TicketAt(@"C:\t\JJFlexRadioTrace-20261111-010203.txt", recordWritten: true, tailUncertain: true);
+                sameFile.SessionId = session;
+                Invoke("NoteDetached", sameFile);
+                TraceArchiveTicket otherFile = TicketAt(@"C:\t\other.txt", recordWritten: true, tailUncertain: true);
+                Invoke("NoteDetached", otherFile);
+
+                OperationFailureEventArgs stop, tail, other;
+                lock (reports)
+                {
+                    Assert.Equal(3, reports.Count);
+                    (stop, tail, other) = (reports[0], reports[1], reports[2]);
+                }
+                Assert.Equal(FailureKind.RecordingStopped, stop.Kind);
+                Assert.Equal(RecordingHealthWatch.SubjectFor(session), stop.Subject);
+                Assert.False(stop.FollowsSubject);
+
+                Assert.Equal(FailureKind.RecordingRecoveryAtRisk, tail.Kind);
+                Assert.Equal(Lexicon.Get("logging.recording.health.tail_uncertain_what"), tail.What);
+                Assert.Equal(stop.Subject, tail.Subject);
+                Assert.True(tail.FollowsSubject);
+                Assert.Equal(RecordingHealthWatch.KeyFor(sameFile.TicketId), tail.Key);
+                Assert.False(tail.IsUpdate);
+
+                Assert.Equal(FailureKind.RecordingRecoveryAtRisk, other.Kind);
+                Assert.NotEqual(stop.Subject, other.Subject);
+            }
+            finally { OperationFailure.Reported -= OnReported; }
+        }
+
+        /// <summary>A stop with no session names no subject, so it can silence nothing.</summary>
+        [Fact]
+        public void A_stop_with_no_session_names_no_subject()
+        {
+            Assert.Null(RecordingHealthWatch.SubjectFor(Guid.Empty));
+        }
     }
 }

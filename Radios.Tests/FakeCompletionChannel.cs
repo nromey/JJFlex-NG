@@ -37,6 +37,14 @@ namespace Radios.Tests
         /// <summary>What TryCancelBlockedCall does: true = accept and release the call as Escaped; false = refuse and leave it blocked.</summary>
         public bool EscapeWorks { get; set; } = true;
 
+        /// <summary>
+        /// How long a call freed by <see cref="TryCancelBlockedCall"/> takes
+        /// to come back out of <see cref="SpeakAndWait"/>: a freed worker
+        /// thread that is not scheduled at once, as on a loaded machine
+        /// (#601). Zero, the default, returns at once.
+        /// </summary>
+        public int ReturnDelayAfterEscapeMs { get; set; }
+
         public int CancelCalls { get; private set; }
         public int EscapeAttempts { get; private set; }
 
@@ -101,6 +109,8 @@ namespace Radios.Tests
             }
             _arrived.Set();
             call.Done.Wait();
+            if (ReturnDelayAfterEscapeMs > 0 && call.Result?.UnknownReason == SpeechUnknownReason.Escaped)
+                Thread.Sleep(ReturnDelayAfterEscapeMs);
             lock (_lock) { if (_current == call) _current = null; }
             return call.Result ?? SpeechOutcome.Unknown(SpeechUnknownReason.Other, "no result set", 0);
         }

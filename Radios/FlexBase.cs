@@ -2152,8 +2152,18 @@ namespace Radios
             => CapabilityHardware.SupportsAdvancedNoiseReduction(RadioModel);
 
         /// <summary>
-        /// Legacy alias — use NeuralNRHardwareSupported for Neural NR gating.
-        /// Spectral NR is available on all models (subscription-gated, not hardware-gated).
+        /// Legacy alias of <see cref="NeuralNRHardwareSupported"/>, so the same
+        /// hardware predicate: true only for FLEX-8000 series and Aurora radios
+        /// (a model-string test, <c>CapabilityHardware.SupportsAdvancedNoiseReduction</c>),
+        /// and it covers the radio's NRF, Spectral NR (NRS) and Neural NR (RNN)
+        /// alike. A 6000-series radio has none of them. The licence is checked
+        /// separately; this is the hardware half only.
+        /// <para>
+        /// Commands and status spell two of these differently, so search a trace
+        /// for both: <c>speex_nr=</c> is sent and <c>nrs=</c> reported for Spectral
+        /// NR, and <c>rnnoise=</c> is sent and <c>rnn=</c> reported for Neural NR
+        /// (FlexLib's <c>Slice.cs</c>).
+        /// </para>
         /// </summary>
         public bool AdvancedNRHardwareSupported => NeuralNRHardwareSupported;
 

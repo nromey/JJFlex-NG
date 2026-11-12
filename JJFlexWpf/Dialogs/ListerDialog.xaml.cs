@@ -47,8 +47,19 @@ namespace JJFlexWpf.Dialogs
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             RefreshList(-1);
-            ScreenList.Focus();
+            ListNaming.FocusRow(ScreenList, ScreenList.SelectedIndex);
         }
+
+        /// <summary>
+        /// Focus starts in the list, as <see cref="OnLoaded"/> puts it. The
+        /// base class moves focus to the first control in tab order again
+        /// once the window has rendered, and the buttons come first, so
+        /// without this the operator arrived on Add (#996, as #935 fixed the
+        /// Command Finder).
+        /// It lands on the selected row, as Memories and the Keys Listing do;
+        /// on the list itself when nothing is selected.
+        /// </summary>
+        protected override void FocusFirstControl() => ListNaming.FocusRow(ScreenList, ScreenList.SelectedIndex);
 
         private void RefreshList(int selectIndex)
         {

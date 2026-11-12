@@ -643,7 +643,7 @@
   "connect.smartlink.login_cancelled": "Login cancelled",
   "connect.smartlink.no_radios": "No SmartLink radios available. The remote radio may be turned off.",
   "connect.smartlink.not_in_list_body": "SmartLink is not offering this radio to {account} right now. Several things cause that: the radio is switched off, the radio cannot reach the internet, SmartLink is switched off at the radio, or the radio has never been registered. JJ Flexible Radio Access cannot tell which from here — the only thing the SmartLink server reports is the list of radios it can reach for you, and this radio is not in it.\n\n{otherAccountsNote}If it has never been registered, the Open Radio Setup button below takes you to the setup path — registration is step 2. Flex requires you to be at the radio with a hand microphone or a CW key plugged in, to prove someone is really there. It all happens right here in JJ Flexible Radio Access; SmartSDR is not required.",
-  "connect.smartlink.not_in_list_title": "SmartLink is not offering this radio",
+  "connect.smartlink.not_in_list_title": { "text": "SmartLink radio list problem", "delivery": null },
   "connect.smartlink.opening_login": "Opening SmartLink login",
   "connect.smartlink.other_accounts_note": "One thing to check first: only the signed-in account was asked. If you registered this radio under one of your other saved accounts, switch to that account instead of registering it again — the Manage Accounts button below opens the list.\n\n",
   "connect.smartlink.other_accounts_note_switch": "One thing to check first: only the signed-in account was asked. If you registered this radio under one of your other saved accounts, switch to that account instead — the Manage Accounts button below opens the list.\n\n",

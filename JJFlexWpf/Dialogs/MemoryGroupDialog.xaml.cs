@@ -32,8 +32,19 @@ namespace JJFlexWpf.Dialogs
         {
             _groups = GetAllGroups?.Invoke() ?? new();
             GroupsListBox.ItemsSource = _groups;
-            GroupsListBox.Focus();
+            ListNaming.FocusRow(GroupsListBox, GroupsListBox.SelectedIndex);
         }
+
+        /// <summary>
+        /// Focus starts in the groups list, as <see cref="OnLoaded"/> puts it.
+        /// The base class moves focus to the first control in tab order again
+        /// once the window has rendered, and the Done button comes first, so
+        /// without this the operator arrived on Done (#996, as #935 fixed the
+        /// Command Finder).
+        /// It lands on the selected row, as Memories and the Keys Listing do;
+        /// on the list itself when nothing is selected.
+        /// </summary>
+        protected override void FocusFirstControl() => ListNaming.FocusRow(GroupsListBox, GroupsListBox.SelectedIndex);
 
         private void GroupsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {

@@ -4364,6 +4364,9 @@ public partial class MainWindow : UserControl
                 if (otherAccounts > 0)
                     actions.Add(new(Radios.Lexicon.Get("connect.smartlink.action_manage_accounts"), ShowSmartLinkAccountManager));
 
+                // The title names the kind of problem, not the claim the
+                // body then qualifies (#691 item 1, Noel 2026-10-02). DRAFT
+                // PROSE, after his example of the shape.
                 Dialogs.AdvisoryDialog.Show(
                     Radios.Lexicon.Get("connect.smartlink.not_in_list_title"), msg,
                     suppressKey: Radios.AdvisoryKeys.RegisterRadio(serial),

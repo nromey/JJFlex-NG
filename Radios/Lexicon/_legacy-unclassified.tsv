@@ -1574,7 +1574,6 @@ connect.smartlink.login.wrong_credentials	39432ba8c11be120
 connect.smartlink.login_cancelled	294274a37b0ccff4
 connect.smartlink.no_radios	a8bbd0914cd01bd2
 connect.smartlink.not_in_list_body	d1cfe40b28ad96e4
-connect.smartlink.not_in_list_title	d4a0cbeaa81efeb7
 connect.smartlink.opening_login	6ace3453749263a6
 connect.smartlink.other_accounts_note	8c80a6635f0bdb7c
 connect.smartlink.other_accounts_note_switch	e50eaf0181d54ce6
@@ -2800,7 +2799,6 @@ settings.radio.name.renamed_spoken	46d87ee08f101aa6
 settings.radio.name.type_one_first	92bd4b391adbfe14
 settings.radio.register.already_registered	7c565fdcf60e4db0
 settings.radio.register.blocked	39ad7c5544f4587d
-settings.radio.register.check_unanswered	c7db2464092456b4
 settings.radio.register.checking	bac1ff2d7978dff4
 settings.radio.register.command_not_sent	dd975b0a6bf77730
 settings.radio.register.command_not_sent_spoken	60eff35bfb5e96e2

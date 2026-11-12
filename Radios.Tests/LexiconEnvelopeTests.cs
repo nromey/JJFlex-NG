@@ -1003,6 +1003,22 @@ namespace Radios.Tests
                 // never says either on its own account. DRAFTS awaiting Noel.
                 "settings.cw_message.list_empty",
                 "settings.cw_message.list_help",
+                // Junk box #691 items 1 and 7 (2026-11-11, batch 6). Rewording
+                // a frozen key takes it off the manifest, so both are
+                // classified here (as #944 did). delivery: null - TextOnly -
+                // for both, because neither is a standalone message. The
+                // not-in-list title is the advisory window's title: it IS
+                // spoken, on arrival, as a dialog's is by default (AdvisoryDialog
+                // keeps SpeaksOwnTitle, so JJFlexDialog's Loaded handler says
+                // the Title under SpeechSubject.DialogArrival), but as the
+                // window's own name, which is interface identity, not a fact
+                // the application reports. The unanswered-check line is Radio
+                // Setup's step 2 status text, read where it stands; it is set
+                // as the text and not spoken by the application. The status
+                // line is Noel's own sentence (2026-10-02); the title is a
+                // DRAFT after his example of the shape.
+                "connect.smartlink.not_in_list_title",
+                "settings.radio.register.check_unanswered",
                 // Junk box 2026-11-09, second batch: the Fix tool's transmitter
                 // check at tune power 0, its answer and its finding's two
                 // halves. Page text, never spoken on the application's own
@@ -2845,7 +2861,10 @@ namespace Radios.Tests
             // One fewer (3053 to 3052): the same batch retired
             // settings.auto_connect.radio_name_accessible, a direct name write
             // StatusTextName's label-then-value mode replaced.
-            Assert.Equal(3052, unclassified);
+            // Two fewer (3052 to 3050): junk box #691 (2026-11-11, batch 6)
+            // reworded and classified connect.smartlink.not_in_list_title and
+            // settings.radio.register.check_unanswered.
+            Assert.Equal(3050, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

@@ -81,6 +81,13 @@ namespace Radios
 
         public OperationFailureEventArgs(FailureKind kind, string what, string detail,
                                          string? key, bool isUpdate, bool isResolution)
+            : this(kind, what, detail, key, isUpdate, isResolution, subject: null, followsSubject: false)
+        {
+        }
+
+        public OperationFailureEventArgs(FailureKind kind, string what, string detail,
+                                         string? key, bool isUpdate, bool isResolution,
+                                         string? subject, bool followsSubject)
         {
             Kind = kind;
             What = what ?? "";
@@ -88,7 +95,30 @@ namespace Radios
             Key = key;
             IsUpdate = isUpdate;
             IsResolution = isResolution;
+            Subject = subject;
+            FollowsSubject = followsSubject && subject != null;
         }
+
+        /// <summary>
+        /// What this failure is ABOUT, when two failures of different kinds
+        /// can be about one event: the diagnostic log's own file stopping
+        /// during a recording is one event, reported once as the log stopping
+        /// and once as that recording perhaps missing its last lines (#636).
+        /// Null when no other report shares the subject. Not
+        /// <see cref="Key"/>: a key ties updates to one Problems entry, a
+        /// subject ties separate entries to one event.
+        /// </summary>
+        public string? Subject { get; }
+
+        /// <summary>
+        /// True when this is a second sentence about <see cref="Subject"/>:
+        /// it is recorded like any other, and it is not spoken when a report
+        /// about the same subject already was (Noel, 2026-09-26: "I'd
+        /// silence the second"). The condition is the subject, never the
+        /// kind, so a failure of the same kind about something else is still
+        /// said.
+        /// </summary>
+        public bool FollowsSubject { get; }
 
         /// <summary>
         /// True when the thing <see cref="Key"/> names has come RIGHT, and
@@ -208,6 +238,54 @@ namespace Radios
             catch { }
 
             try { Reported?.Invoke(null, new OperationFailureEventArgs(kind, what, detail, key, isUpdate: false)); }
+            catch { /* never let the offer path break the failing path */ }
+        }
+
+        /// <summary>
+        /// <see cref="Report"/>, naming the event the failure is about, so a
+        /// second report about the same event can stay silent
+        /// (<see cref="ReportKeyedFollowingSubject"/>, #636).
+        /// </summary>
+        public static void ReportOnSubject(FailureKind kind, string what, string detail, string subject)
+        {
+            try
+            {
+                JJTrace.Tracing.TraceLine(
+                    $"OperationFailure[{kind}] [{subject}]: {what} — {detail}",
+                    System.Diagnostics.TraceLevel.Error);
+            }
+            catch { }
+
+            try
+            {
+                Reported?.Invoke(null, new OperationFailureEventArgs(kind, what, detail, key: null,
+                    isUpdate: false, isResolution: false, subject: subject, followsSubject: false));
+            }
+            catch { /* never let the offer path break the failing path */ }
+        }
+
+        /// <summary>
+        /// <see cref="ReportKeyed"/> for a second sentence about an event
+        /// already reported with <see cref="ReportOnSubject"/>: recorded in
+        /// the Problems list like any report, and not spoken if the report
+        /// about <paramref name="subject"/> was (#636).
+        /// </summary>
+        public static void ReportKeyedFollowingSubject(FailureKind kind, string what, string detail, string key,
+                                                       string subject)
+        {
+            try
+            {
+                JJTrace.Tracing.TraceLine(
+                    $"OperationFailure[{kind}] ({key}) [{subject}, second]: {what} — {detail}",
+                    System.Diagnostics.TraceLevel.Error);
+            }
+            catch { }
+
+            try
+            {
+                Reported?.Invoke(null, new OperationFailureEventArgs(kind, what, detail, key,
+                    isUpdate: false, isResolution: false, subject: subject, followsSubject: true));
+            }
             catch { /* never let the offer path break the failing path */ }
         }
 

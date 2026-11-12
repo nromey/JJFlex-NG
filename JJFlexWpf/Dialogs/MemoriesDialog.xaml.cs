@@ -123,6 +123,16 @@ public partial class MemoriesDialog : JJFlexDialog
     private List<MemoryDisplayItem> _memories = new();
     private bool _suppressSelection;
 
+    /// <summary>
+    /// The memory whose values the details panel is showing, or null when the
+    /// panel is clear. Kept equal to <see cref="SelectedMemoryRef"/> after every
+    /// refresh of the list (<see cref="SyncDetailsToSelection"/>), because the
+    /// text boxes write what they show into the SELECTED memory when they lose
+    /// focus: a panel left showing one memory while another is selected turns
+    /// a Tab through the fields into a silent overwrite (#1062).
+    /// </summary>
+    private object? _shownMemoryRef;
+
     // FM-related modes where tone/squelch/offset controls are visible
     private static readonly HashSet<string> FMModes = new(StringComparer.OrdinalIgnoreCase)
         { "fm" };
@@ -152,12 +162,26 @@ public partial class MemoriesDialog : JJFlexDialog
         SquelchCombo.Items.Add("On");
         OffsetDirCombo.ItemsSource = OffsetDirectionList;
 
+        // Selects the first memory when there is one and shows its details.
         RefreshMemoryList(null);
-        if (SelectedMemoryRef != null)
-            ShowMemoryDetails(SelectedMemoryRef);
 
-        MemoryList.Focus();
+        // On the selected memory, not the list itself; the list when there
+        // are no memories (RefreshMemoryList selects the first row whenever
+        // there is one).
+        ListNaming.FocusRow(MemoryList, MemoryList.SelectedIndex);
     }
+
+    /// <summary>
+    /// Focus starts on the selected memory, as <see cref="MemoriesDialog_Loaded"/>
+    /// puts it. The base class moves focus to the first control in tab order
+    /// again once the window has rendered, and the Add, Delete and Done
+    /// buttons come first, so without this the operator arrived on Add (#996,
+    /// as #935 fixed the Command Finder). With no memory selected, the list
+    /// itself: Loaded selects the first row whenever there is one, so that
+    /// means an empty list, and selecting a row here would show (and
+    /// let Enter tune to) a memory the operator did not choose.
+    /// </summary>
+    protected override void FocusFirstControl() => ListNaming.FocusRow(MemoryList, MemoryList.SelectedIndex);
 
     private object? SelectedMemoryRef
     {
@@ -171,6 +195,21 @@ public partial class MemoriesDialog : JJFlexDialog
 
     #region Memory List Management
 
+    /// <summary>
+    /// Re-reads the memories and selects <paramref name="selectRef"/>, or the
+    /// first memory when it is null; then makes the details panel show the
+    /// memory that is really selected, or clears it when none is.
+    /// </summary>
+    /// <remarks>
+    /// The selection changes here with <see cref="MemoryList_SelectionChanged"/>
+    /// suppressed, so that handler cannot be what shows the details. Until
+    /// #1062 each caller had to remember to, and Delete and a failed Add did
+    /// not: the panel kept the old memory while the list selected another, and
+    /// leaving any text box wrote the old memory's value into the new one.
+    /// Doing it here, once, covers every caller, present and future. A refresh
+    /// that keeps the same memory selected (after a frequency, name or group
+    /// edit) leaves the panel exactly as it is.
+    /// </remarks>
     private void RefreshMemoryList(object? selectRef)
     {
         _suppressSelection = true;
@@ -191,6 +230,22 @@ public partial class MemoriesDialog : JJFlexDialog
         }
 
         _suppressSelection = false;
+
+        SyncDetailsToSelection();
+    }
+
+    /// <summary>
+    /// The details panel shows the selected memory: re-shown when the
+    /// selection is a different memory from the one shown, cleared when
+    /// nothing is selected, and left alone when it is the same memory.
+    /// </summary>
+    private void SyncDetailsToSelection()
+    {
+        var selected = SelectedMemoryRef;
+        if (selected == null)
+            ClearMemoryDetails();
+        else if (!ReferenceEquals(selected, _shownMemoryRef))
+            ShowMemoryDetails(selected);
     }
 
     private void MemoryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -198,6 +253,8 @@ public partial class MemoriesDialog : JJFlexDialog
         if (_suppressSelection) return;
         if (SelectedMemoryRef != null)
             ShowMemoryDetails(SelectedMemoryRef);
+        else
+            ClearMemoryDetails();
     }
 
     private void MemoryList_KeyDown(object sender, KeyEventArgs e)
@@ -244,6 +301,34 @@ public partial class MemoriesDialog : JJFlexDialog
         // Mode-dependent visibility
         UpdateModeVisibility(mode);
 
+        _shownMemoryRef = memRef;
+        _suppressSelection = false;
+    }
+
+    /// <summary>
+    /// Nothing selected (the last memory was deleted): the panel shows no
+    /// memory's values, so nothing in it can be written anywhere (#1062).
+    /// The handlers already write nothing with no memory selected.
+    /// </summary>
+    private void ClearMemoryDetails()
+    {
+        _suppressSelection = true;
+
+        FreqBox.Text = "";
+        ModeCombo.SelectedIndex = -1;
+        FilterLowBox.Text = "";
+        FilterHighBox.Text = "";
+        ToneModeCombo.SelectedIndex = -1;
+        ToneFreqCombo.SelectedIndex = -1;
+        SquelchCombo.SelectedIndex = -1;
+        SquelchLevelBox.Text = "";
+        OffsetDirCombo.SelectedIndex = -1;
+        OffsetBox.Text = "";
+        NameBox.Text = "";
+        OwnerBox.Text = "";
+        GroupBox.Text = "";
+
+        _shownMemoryRef = null;
         _suppressSelection = false;
     }
 
@@ -265,13 +350,14 @@ public partial class MemoriesDialog : JJFlexDialog
 
     #region Button Handlers
 
+    // After Add and Delete, focus goes to the selected memory's row, as it
+    // does when the dialog opens, and to the list itself only when it is
+    // empty (#996). The refresh has already shown that memory's details.
     private void AddButton_Click(object sender, RoutedEventArgs e)
     {
         var newItem = AddMemory?.Invoke();
         RefreshMemoryList(newItem?.MemoryRef);
-        if (newItem != null)
-            ShowMemoryDetails(newItem.MemoryRef);
-        MemoryList.Focus();
+        ListNaming.FocusRow(MemoryList, MemoryList.SelectedIndex);
     }
 
     private void DeleteButton_Click(object sender, RoutedEventArgs e)
@@ -281,7 +367,7 @@ public partial class MemoriesDialog : JJFlexDialog
             RemoveMemory?.Invoke(SelectedMemoryRef);
             RefreshMemoryList(null);
         }
-        MemoryList.Focus();
+        ListNaming.FocusRow(MemoryList, MemoryList.SelectedIndex);
     }
 
     private void DoneButton_Click(object sender, RoutedEventArgs e)
@@ -305,9 +391,21 @@ public partial class MemoriesDialog : JJFlexDialog
         }
     }
 
+    /// <summary>
+    /// True when a box's value is what the selected memory already holds,
+    /// read back through the memory's own getter: leaving the box then writes
+    /// nothing, so tabbing through the details never writes (#1062). False
+    /// when there is no getter to read it back with, and the box writes as it
+    /// always did. A deliberate edit differs from the memory, so it still
+    /// writes exactly as before.
+    /// </summary>
+    private static bool Holds<T>(Func<object, T>? getter, object memRef, T value) =>
+        getter != null && EqualityComparer<T>.Default.Equals(getter(memRef), value);
+
     private void FreqBox_LostFocus(object sender, RoutedEventArgs e)
     {
         if (SelectedMemoryRef == null) return;
+        if (Holds(FormatFrequency, SelectedMemoryRef, FreqBox.Text)) return;
         SetFrequencyFromText?.Invoke(SelectedMemoryRef, FreqBox.Text);
         RefreshMemoryList(SelectedMemoryRef);
     }
@@ -329,6 +427,7 @@ public partial class MemoriesDialog : JJFlexDialog
         {
             val = Math.Clamp(val, FilterMin, FilterMax);
             FilterLowBox.Text = val.ToString();
+            if (Holds(GetFilterLow, SelectedMemoryRef, val)) return;
             SetFilterLow?.Invoke(SelectedMemoryRef, val);
         }
     }
@@ -340,6 +439,7 @@ public partial class MemoriesDialog : JJFlexDialog
         {
             val = Math.Clamp(val, FilterMin, FilterMax);
             FilterHighBox.Text = val.ToString();
+            if (Holds(GetFilterHigh, SelectedMemoryRef, val)) return;
             SetFilterHigh?.Invoke(SelectedMemoryRef, val);
         }
     }
@@ -371,6 +471,7 @@ public partial class MemoriesDialog : JJFlexDialog
         {
             val = Math.Clamp(val, SquelchMin, SquelchMax);
             SquelchLevelBox.Text = val.ToString();
+            if (Holds(GetSquelchLevel, SelectedMemoryRef, val)) return;
             SetSquelchLevel?.Invoke(SelectedMemoryRef, val);
         }
     }
@@ -387,6 +488,7 @@ public partial class MemoriesDialog : JJFlexDialog
         if (SelectedMemoryRef == null) return;
         if (int.TryParse(OffsetBox.Text, out int val))
         {
+            if (Holds(GetOffsetKHz, SelectedMemoryRef, val)) return;
             SetOffsetKHz?.Invoke(SelectedMemoryRef, val);
         }
     }
@@ -395,6 +497,8 @@ public partial class MemoriesDialog : JJFlexDialog
     {
         if (SelectedMemoryRef == null) return;
         string newName = NameBox.Text;
+        // Unchanged: no write, and no duplicate-name question either.
+        if (Holds(GetName, SelectedMemoryRef, newName)) return;
         if (IsDuplicateName?.Invoke(SelectedMemoryRef, newName) == true)
         {
             // Escape/No now means "go back and change it" (nothing saved) —
@@ -419,12 +523,14 @@ public partial class MemoriesDialog : JJFlexDialog
     private void OwnerBox_LostFocus(object sender, RoutedEventArgs e)
     {
         if (SelectedMemoryRef == null) return;
+        if (Holds(GetOwner, SelectedMemoryRef, OwnerBox.Text)) return;
         SetOwner?.Invoke(SelectedMemoryRef, OwnerBox.Text);
     }
 
     private void GroupBox_LostFocus(object sender, RoutedEventArgs e)
     {
         if (SelectedMemoryRef == null) return;
+        if (Holds(GetGroup, SelectedMemoryRef, GroupBox.Text)) return;
         SetGroup?.Invoke(SelectedMemoryRef, GroupBox.Text);
         RefreshMemoryList(SelectedMemoryRef);
     }

@@ -310,6 +310,20 @@ namespace Radios
         /// <summary>The Problems-list key for one ticket.</summary>
         public static string KeyFor(Guid ticketId) => "recording-recovery:" + ticketId.ToString("N");
 
+        /// <summary>
+        /// The event both sentences about one recording's file are about: the
+        /// recording session. When the diagnostic log's own file fails a write,
+        /// the log stopping is announced about the session whose sink failed,
+        /// and that session's file is then detached as a ticket whose tail may
+        /// be short. Both name the same file, so the second stays silent
+        /// (#636, Noel 2026-09-26: "I'd silence the second"). The session, not
+        /// the path: the sink reports the live path and the ticket the path the
+        /// file was moved to, which are two names for one file. Null for an
+        /// unknown session, which shares a subject with nothing.
+        /// </summary>
+        public static string? SubjectFor(Guid sessionId) =>
+            sessionId == Guid.Empty ? null : "recording-session:" + sessionId.ToString("N");
+
         /// <summary>Wire the watch. Idempotent.</summary>
         public static void Install()
         {
@@ -364,14 +378,30 @@ namespace Radios
                     bool first;
                     lock (_gate) { first = _reportedTickets.Add(change.Condition.TicketId); }
                     string key = KeyFor(change.Condition.TicketId);
-                    if (first)
+                    // A first report about a session whose log stop was
+                    // already reported follows that report: recorded, and
+                    // silent if the stop was said (#636).
+                    string? subject = SubjectFor(change.Condition.SessionId);
+                    if (first && subject != null)
+                        OperationFailure.ReportKeyedFollowingSubject(announcement.Value.Kind, announcement.Value.What,
+                            announcement.Value.Detail, key, subject);
+                    else if (first)
                         OperationFailure.ReportKeyed(announcement.Value.Kind, announcement.Value.What, announcement.Value.Detail, key);
                     else
                         OperationFailure.UpdateKeyed(announcement.Value.Kind, announcement.Value.What, announcement.Value.Detail, key);
                     return;
                 }
 
-                OperationFailure.Report(announcement.Value.Kind, announcement.Value.What, announcement.Value.Detail);
+                // The log stopping names the session whose sink failed, so a
+                // later sentence about that session's file can follow it.
+                string? stopped = change.Kind == TraceRecordingHealthChangeKind.SinkFailed
+                    ? SubjectFor(change.Snapshot?.LiveSessionId ?? Guid.Empty)
+                    : null;
+                if (stopped != null)
+                    OperationFailure.ReportOnSubject(announcement.Value.Kind, announcement.Value.What,
+                        announcement.Value.Detail, stopped);
+                else
+                    OperationFailure.Report(announcement.Value.Kind, announcement.Value.What, announcement.Value.Detail);
             }
             catch
             {

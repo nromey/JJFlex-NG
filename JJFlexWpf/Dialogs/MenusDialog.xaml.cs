@@ -123,8 +123,19 @@ public partial class MenusDialog : JJFlexDialog
         if (bankCount > 1 && _menuBank < BankCombo.Items.Count)
             BankCombo.SelectedIndex = _menuBank;
 
-        MenuListBox.Focus();
+        ListNaming.FocusRow(MenuListBox, MenuListBox.SelectedIndex);
     }
+
+    /// <summary>
+    /// Focus starts in the menu list, as <see cref="MenusDialog_Loaded"/> puts
+    /// it. The base class moves focus to the first control in tab order again
+    /// once the window has rendered, and on a radio with more than one menu
+    /// bank the bank combo comes first, so without this the operator arrived
+    /// on the bank (#996, as #935 fixed the Command Finder).
+    /// It lands on the selected row, as Memories and the Keys Listing do;
+    /// on the list itself when nothing is selected.
+    /// </summary>
+    protected override void FocusFirstControl() => ListNaming.FocusRow(MenuListBox, MenuListBox.SelectedIndex);
 
     private void LoadBank(int bank)
     {

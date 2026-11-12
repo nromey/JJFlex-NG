@@ -461,9 +461,20 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         }
     }
 
+    /// <summary>
+    /// The modifier keys held now, read by every key handler in this window.
+    /// <see cref="Keyboard.Modifiers"/> in the running app; a test sets
+    /// <see cref="ModifiersForTest"/> so a key held on the desk's real
+    /// keyboard cannot change what its key events mean (#869).
+    /// </summary>
+    private ModifierKeys CurrentModifiers => ModifiersForTest?.Invoke() ?? Keyboard.Modifiers;
+
+    /// <summary>Tests only: the modifier keys the handlers see. Null in the app.</summary>
+    internal Func<ModifierKeys>? ModifiersForTest;
+
     private void OnListKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Handled || Keyboard.Modifiers != ModifierKeys.None) return;
+        if (e.Handled || CurrentModifiers != ModifierKeys.None) return;
         switch (e.Key)
         {
             case Key.Enter:
@@ -486,7 +497,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
 
     private void OnPositionKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Handled || Keyboard.Modifiers != ModifierKeys.None) return;
+        if (e.Handled || CurrentModifiers != ModifierKeys.None) return;
         switch (e.Key)
         {
             case Key.Left:
@@ -525,7 +536,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // A send in hand stops first, as in the main window: RF before the
         // preview and before closing (#835, fix round 2026-10-29). Enter can
         // start one here now, under the VOX send box.
-        if (key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None && StopSendOnEscape())
+        if (key == Key.Escape && CurrentModifiers == ModifierKeys.None && StopSendOnEscape())
         {
             e.Handled = true;
             return;
@@ -534,7 +545,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // and the preview ends silently with it (Noel, retest 2026-10-25: a
         // paused preview answered Escape with "Stopped", which was weird for
         // something not playing; "I'd just close the window").
-        if (key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None && PreviewActive && !RecordingPlayer.IsPaused)
+        if (key == Key.Escape && CurrentModifiers == ModifierKeys.None && PreviewActive && !RecordingPlayer.IsPaused)
         {
             e.Handled = true;
             StopToStart(speak: true);
@@ -543,19 +554,19 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // Ctrl+Left and Ctrl+Right move the play head from anywhere in the
         // window, as [ and ] mark from anywhere (Noel, retest 2026-10-25: plain
         // arrows on the step size or a button did their own job, not a step).
-        if ((key == Key.Left || key == Key.Right) && Keyboard.Modifiers == ModifierKeys.Control)
+        if ((key == Key.Left || key == Key.Right) && CurrentModifiers == ModifierKeys.Control)
         {
             e.Handled = true;
             StepPosition(key == Key.Right ? 1 : -1);
             return;
         }
-        if (key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
+        if (key == Key.F1 && CurrentModifiers == ModifierKeys.None)
         {
             e.Handled = true;
             HelpLauncher.ShowHelp("RecordedQsos");
             return;
         }
-        var modifiers = Keyboard.Modifiers;
+        var modifiers = CurrentModifiers;
         if (modifiers != ModifierKeys.None && modifiers != ModifierKeys.Shift) return;
         if (DialogTransmitKeys.IsEditableText(e.OriginalSource as DependencyObject)) return;
         bool shift = modifiers == ModifierKeys.Shift;
