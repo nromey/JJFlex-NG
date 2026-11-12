@@ -106,6 +106,8 @@ namespace Radios.Speech
             public bool CancelRequested;
 
             public Stopwatch? Started;
+            /// <summary>When it entered our queue, for the hand-over trace (#1117, repair round 2).</summary>
+            public readonly long EnqueuedAt = Environment.TickCount64;
             public long LastMarkAtMs = -1;
             public int Marks;
         }
@@ -474,6 +476,16 @@ namespace Radios.Speech
                         _returned.Reset();
                     }
 
+                    // A queued hand-over was invisible in the trace, so a queued
+                    // sentence's late arrival could not be told from a pump that
+                    // held it (#1117, repair round 2: the menu's noise sentence).
+                    // With the first-word line in OnMark this separates time in
+                    // OUR queue from time behind the reader's own speech.
+                    if (!item.Interrupt)
+                        Tracing.TraceLine(
+                            $"PacedDelivery: queued #{item.Ticket} handed to the reader after {Environment.TickCount64 - item.EnqueuedAt} ms in our queue — '{Clip(item.Text)}'",
+                            TraceLevel.Info);
+
                     SpeechOutcome outcome = Deliver(item);
 
                     bool stale;
@@ -646,7 +658,15 @@ namespace Radios.Speech
                 item.LastMarkAtMs = item.Started?.ElapsedMilliseconds ?? 0;
             }
             // Only the first word is news anyone waits on; later marks are not.
-            if (firstWord) PulseProgress();
+            if (firstWord)
+            {
+                // How long the reader's own speech kept a queued sentence waiting (repair round 2).
+                if (!item.Interrupt)
+                    Tracing.TraceLine(
+                        $"PacedDelivery: queued #{item.Ticket} reached its first word {item.Started?.ElapsedMilliseconds ?? 0} ms after it was handed over",
+                        TraceLevel.Info);
+                PulseProgress();
+            }
         }
 
         private void ArmDeadline(Item item)

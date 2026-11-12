@@ -86,6 +86,7 @@ namespace JJFlexWpf
         public void Detach()
         {
             RetireHelperNotice("the radio disconnected");
+            ClearModeAnswerHolds();
             _activeSlice = null;
             _live = null;
             _readingSlice = null;
@@ -226,7 +227,11 @@ namespace JJFlexWpf
                 case NoiseModeGroup.Voice:
                 {
                     var dfn = _catalog.Find("deepfilternet3");
-                    bool dfnRuns = dfn?.Factory != null && SafeAvailability(dfn) == Unavailability.None;
+                    var dfnReason = dfn?.Factory == null ? (Unavailability?)null : SafeAvailability(dfn);
+                    bool dfnRuns = dfnReason == Unavailability.None;
+                    // The RNNoise sentence says DeepFilterNet3 cannot run here: that is
+                    // a fact it states, recorded as it was decided (repair round 2, Codex).
+                    if (dfnReason is { } why && why != Unavailability.None) NoteSaidCannotRun("deepfilternet3", why);
                     string id = dfnRuns ? "deepfilternet3" : "rnnoise";
                     if (_catalog.Find(id) is not { Factory: not null } e) break;
                     replaced = StartNeural(p, e, changes);

@@ -6117,6 +6117,8 @@ public partial class MainWindow : UserControl
         {
             if (memRef is Flex.Smoothlake.FlexLib.Memory mem)
             {
+                // A memory carries its mode: a mode choice like any other (#1117, repair round 2).
+                NoteModeChoice();
                 mem.Select();
             }
         };
@@ -7320,20 +7322,22 @@ public partial class MainWindow : UserControl
         return newMode;
     }
 
-    private int _modeChoices;
+    private readonly ModeChoiceLedger _modeChoices = new();
 
     /// <summary>
     /// How many times the operator has chosen a mode this session, by any road
-    /// (the mode keys, Next and Previous Mode, Home's Mode field and combo, the
-    /// Slice menu, a 60 m stop). A sentence a surface says late about one choice
-    /// (the Slice menu's, after the menu has closed) is dropped if this has moved
-    /// on, so it never names a mode that a newer choice replaced (#1117, repair
-    /// round 1).
+    /// that asks the radio for one: the mode keys, Next and Previous Mode,
+    /// Home's Mode field and combo, the Slice menu, a 60 m stop, the typed and
+    /// band-jump 60 m corrections, a memory recalled or scanned. A sentence a
+    /// surface says late about one choice (the Slice menu's, after the menu has
+    /// closed) is dropped if this has moved on, and retired if it was already
+    /// said (<see cref="ModeChoiceLedger"/>), so it never names a mode a newer
+    /// choice replaced (#1117, repair rounds 1 and 2).
     /// </summary>
-    public int ModeChoices => _modeChoices;
+    public int ModeChoices => _modeChoices.Count;
 
     /// <summary>Count a mode choice (<see cref="ModeChoices"/>). Returns the new count.</summary>
-    public int NoteModeChoice() => ++_modeChoices;
+    public int NoteModeChoice() => _modeChoices.Note();
 
     /// <summary>
     /// Jump directly to a specific mode.

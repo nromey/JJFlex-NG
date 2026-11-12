@@ -1416,25 +1416,30 @@ public sealed class NoiseControllerTests
         Assert.Contains("SayModeAfterMenuClose(mode, rig, rig.RXVFO, _window.ModeChoices, _window.Noise.HoldModeAnswer());", cycle);
         Assert.DoesNotContain("Mode =", cycle);
 
-        // The sentence: queued after the close, dropped if a newer choice, radio or slice came first.
+        // The sentence: after the close, one interrupting utterance on its own subject (repair round 2),
+        // dropped if a newer choice, radio or slice came first.
         string sayer = Body("private void SayModeAfterMenuClose(", "\n    }\n");
         Assert.Contains("MenuModeSentence.SayWhenTheMenuHasClosed(", sayer);
-        Assert.Contains("SpeechIntent.Queue", sayer);
-        Assert.DoesNotContain("interrupt", sayer);
+        Assert.Contains("SpeechIntent.Interrupt", sayer);
+        Assert.Contains("subject: Radios.Speech.SpeechSubject.ModeChoice", sayer);
+        Assert.DoesNotContain("SpeechIntent.Queue", sayer);
         Assert.Contains("_window.ModeChoices == choice", sayer);
         Assert.Contains("ReferenceEquals(Rig, rig)", sayer);
         Assert.Contains("rig.RXVFO == slice", sayer);
     }
 
     /// <summary>
-    /// The menu's sentence first, the noise controller's answer after it: the
-    /// answer to the mode change, made when the radio confirms it, is HELD while
-    /// the menu waits to close, then queued behind the row's own sentence. Both
-    /// go out without an interrupt (the real arbiter's hand-over), so neither can
-    /// cancel the other or the reader's own close announcements.
+    /// The menu's sentence first, the noise controller's answer right after it,
+    /// as ONE utterance (repair round 2). Round 1 queued the two separately: the
+    /// menu's sentence then waited behind the reader's own five seconds of close
+    /// announcements (NVDA's log, the 8600 harness), and the answer behind it.
+    /// Joined and said as one interrupt under <see cref="SpeechSubject.ModeChoice"/>,
+    /// the mode comes at once and nothing of ours waits queued behind it to be
+    /// withdrawn by the cancel race. The controller still owns the joined
+    /// sentence: a change to what its noise part states retires its subject.
     /// </summary>
     [Fact]
-    public void A_menu_mode_sentence_comes_first_and_the_held_noise_answer_follows_it()
+    public void A_menu_mode_sentence_and_its_noise_answer_are_one_interrupt_the_controller_still_owns()
     {
         using var f = new NoiseFixture();
         f.Noise.Attach("USB");
@@ -1447,14 +1452,31 @@ public sealed class NoiseControllerTests
             Mode(f, "CW");                                         // the radio confirms the click
             Assert.Empty(speaker.Calls);                            // held: nothing said before the menu's own sentence
             MenuModeSentence.SayWhenTheMenuHasClosed("Mode CW selected", () => true, hold, _ => System.Threading.Tasks.Task.CompletedTask,
-                text => speaker.SayAfter(text, "menu test", VerbosityLevel.Terse)).GetAwaiter().GetResult();
-            var calls = speaker.Calls.ToList();
-            Assert.Equal(2, calls.Count);
-            Assert.Equal(("Mode CW selected", false, false), calls[0]);
-            Assert.False(calls[1].Interrupt);
-            Assert.Contains("NNR", calls[1].Text);                  // CW's starting point
+                (text, level) => speaker.Say(text, SpeechSubject.ModeChoice, level)).GetAwaiter().GetResult();
+            var said = Assert.Single(speaker.Calls);                // one utterance
+            Assert.True(said.Interrupt);
+            Assert.StartsWith("Mode CW selected ", said.Text);       // the mode first
+            Assert.Contains("NNR", said.Text);                      // then CW's starting point
+            hold.Dispose();                                         // after taking: nothing more
+            Assert.Single(speaker.Calls);
         }
         finally { speaker.Dispose(); }
+
+        // The controller owns it: what its noise part states changes, its subject is retired.
+        using var g = new NoiseFixture();
+        g.Noise.Attach("USB");
+        g.Noise.Toggle("rnnoise", "test");
+        g.Spoken.Clear();
+        var gHold = g.Noise.HoldModeAnswer();
+        Mode(g, "CW");
+        string? joined = null;
+        MenuModeSentence.SayWhenTheMenuHasClosed("Mode CW selected", () => true, gHold, _ => System.Threading.Tasks.Task.CompletedTask,
+            (text, level) => joined = text).GetAwaiter().GetResult();
+        Assert.NotNull(joined);
+        Assert.Empty(g.Spoken.Said);                                // nothing queued separately
+        Assert.DoesNotContain(g.Spoken.Retired, r => r.Subject == SpeechSubject.ModeChoice);
+        g.Noise.Toggle("rnnoise", "test");
+        Assert.Contains(g.Spoken.Retired, r => r.Subject == SpeechSubject.ModeChoice);
     }
 
     /// <summary>
@@ -1477,7 +1499,7 @@ public sealed class NoiseControllerTests
         Assert.Empty(f.Spoken.Said);
         Mode(f, "USB");                                            // Alt+U before the menu closed
         MenuModeSentence.SayWhenTheMenuHasClosed("Mode CW selected", () => false, hold, _ => System.Threading.Tasks.Task.CompletedTask,
-            text => f.Spoken.SayAfter(text, "menu test", VerbosityLevel.Terse)).GetAwaiter().GetResult();
+            (text, level) => f.Spoken.Say(text, SpeechSubject.ModeChoice, level)).GetAwaiter().GetResult();
         var said = Assert.Single(f.Spoken.Said);                    // only the voice answer
         Assert.StartsWith(Lexicon.Get("audio.noise_surface.mode_restore", VerbosityLevel.Chatty,
             ("group", Lexicon.Get("audio.noise_surface.group.voice", VerbosityLevel.Chatty)), ("changes", "")).Split(':')[0], said.Text);
@@ -1515,6 +1537,208 @@ public sealed class NoiseControllerTests
             hold.Dispose();
             Assert.Empty(f.Spoken.Said);
         }
+    }
+
+    // ── Repair round 2 (Codex's second run, and the 8600 harness's second run) ──
+
+    /// <summary>
+    /// Codex's probe (repair round 2), kept with its control: round 1 queued the
+    /// menu's sentence with no subject, so once handed over nothing could retire
+    /// it, and the real arbiter rescued an older "Mode CW selected" after a newer
+    /// "USB" (the control case reproduces exactly that). Said as round 2 says it
+    /// (one interrupt, under <see cref="SpeechSubject.ModeChoice"/>, with the newer
+    /// choice noted by <see cref="ModeChoiceLedger"/>), it is never rescued: the
+    /// arbiter keeps no interrupt to rescue, and the subject is retired anyway, so
+    /// the rule holds if the menu ever queues again.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_said_menu_sentence_is_not_rescued_after_a_newer_mode_choice(bool asRoundOneSaidIt)
+    {
+        using var f = new NoiseFixture();
+        var speaker = new SilentArbiterSpeaker();
+        try
+        {
+            var ledger = new ModeChoiceLedger(speaker.Retire);
+            speaker.ModeWord("earlier reader speech");
+            string old = "Mode CW selected";
+            ledger.Note();                                          // the menu row's own choice
+            MenuModeSentence.SayWhenTheMenuHasClosed(old, () => true, f.Noise.HoldModeAnswer(), _ => System.Threading.Tasks.Task.CompletedTask,
+                (text, level) =>
+                {
+                    if (asRoundOneSaidIt) speaker.SayAfter(text, null!, level);          // round 1: queued, no subject
+                    else speaker.Say(text, SpeechSubject.ModeChoice, level);             // round 2, as NativeMenuBar says it
+                }).GetAwaiter().GetResult();
+            ledger.Note();                                          // Alt+U: SetMode notes the choice before it speaks
+            speaker.ModeWord("USB");
+            bool rescued = System.Threading.SpinWait.SpinUntil(() => speaker.Calls.Any(c => c.Text == old && c.Salvaged), 2500);
+            Assert.Equal(asRoundOneSaidIt, rescued);
+        }
+        finally { speaker.Dispose(); }
+    }
+
+    /// <summary>The ledger: every mode choice is counted and retires the menu's owed sentence on <see cref="SpeechSubject.ModeChoice"/>.</summary>
+    [Fact]
+    public void Every_mode_choice_retires_the_menus_owed_sentence()
+    {
+        var retired = new List<(string Subject, string Why)>();
+        var ledger = new ModeChoiceLedger((subject, why) => retired.Add((subject, why)));
+        Assert.Equal(1, ledger.Note());
+        Assert.Equal(2, ledger.Note());
+        Assert.Equal(2, ledger.Count);
+        Assert.Equal(2, retired.Count(r => r.Subject == SpeechSubject.ModeChoice));
+    }
+
+    /// <summary>
+    /// Every road that asks the radio for the active slice's mode counts a mode
+    /// choice (repair round 2, Codex: the band jump's 60 m correction did not, so
+    /// an older menu sentence was still said after it). Found by search, not by
+    /// a list: every write of a mode, every 60 m correction and every memory
+    /// recall in the WPF project and the app's own VB files must have
+    /// NoteModeChoice in the lines just before it. Code inside "#If 0" is not
+    /// compiled and is skipped. Not roads: a memory's stored mode edited in the
+    /// Memories dialog (mem.Mode, the radio is not asked), and the transmit mode
+    /// the Fixer and the tone ladder set and put back inside a running check.
+    /// </summary>
+    [Fact]
+    public void Every_road_that_asks_the_radio_for_a_mode_counts_a_mode_choice()
+    {
+        string root = RepoRoot();
+        var files = Directory.GetFiles(Path.Combine(root, "JJFlexWpf"), "*.cs", SearchOption.AllDirectories)
+            .Where(p => !p.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) && !p.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
+            .Concat(Directory.GetFiles(root, "*.vb", SearchOption.TopDirectoryOnly));
+        var road = new System.Text.RegularExpressions.Regex(
+            @"(\b(RigControl|Rig|rig)\.Mode\s*=[^=])|SixtyMeterModeDelivery\.Deliver\(|\bmem\.Select\(\)|SelectMemoryByName\(|SelectMemory\(\)");
+        var found = new List<string>();
+        var missing = new List<string>();
+        foreach (string file in files)
+        {
+            var lines = File.ReadAllLines(file);
+            bool disabled = false;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string t = lines[i].Trim();
+                if (t.StartsWith("#If 0", StringComparison.OrdinalIgnoreCase)) { disabled = true; continue; }
+                if (disabled && t.StartsWith("#End If", StringComparison.OrdinalIgnoreCase)) { disabled = false; continue; }
+                if (disabled || t.StartsWith("//") || t.StartsWith("'") || t.StartsWith("///") || !road.IsMatch(lines[i])) continue;
+                if (lines[i].Contains("public ") || lines[i].Contains("Function ") || lines[i].Contains("Sub ")) continue;   // a declaration, not a call
+                string where = Path.GetFileName(file) + ":" + (i + 1) + "  " + t;
+                found.Add(where);
+                bool counted = Enumerable.Range(Math.Max(0, i - 25), i - Math.Max(0, i - 25)).Any(j => lines[j].Contains("NoteModeChoice"));
+                if (!counted) missing.Add(where);
+            }
+        }
+        Assert.True(found.Count >= 10, "the search found only " + found.Count + " roads, so it is not seeing them: " + string.Join(" | ", found));
+        Assert.True(missing.Count == 0, "roads that ask the radio for a mode without counting a mode choice:\n" + string.Join("\n", missing));
+    }
+
+    /// <summary>
+    /// Codex's probe, kept: the reason a refusal is RECORDED is the reason it was
+    /// SAID. The helper reports "not running" when the CW starting point composes
+    /// its refusal and recovers before the action ends; round 1 probed it again
+    /// there and recorded "runs", so when NNR then processed nothing looked
+    /// false and the real arbiter replayed "helper ... not running".
+    /// </summary>
+    [Fact]
+    public void A_refusal_records_the_reason_it_said_not_a_later_probe()
+    {
+        using var f = new NoiseFixture();
+        int probes = 0;
+        var rows = f.Catalog.Entries.Select(e => e.Id == "nnr" ? e with { Probe = () => ++probes == 1 ? Unavailability.HelperNotRunning : Unavailability.None } : e);
+        var catalog = new DenoiseEngineCatalog(rows);
+        var speaker = new SilentArbiterSpeaker();
+        try
+        {
+            var noise = new NoiseController(catalog, () => f.Radio, () => f.Pipeline, () => f.Config, () => { }, speaker, f.Held, f.Clock, f.Cost);
+            noise.Attach("USB"); noise.Toggle("rnnoise", "test");
+            speaker.ModeWord("CW"); f.Radio.Mode = "CW"; noise.OnModeChanged("CW");
+            string old = speaker.Calls.Last().Text;
+            Assert.Contains("not running", old);
+            var results = new System.Collections.Concurrent.ConcurrentQueue<DenoiseSelectionResult>();
+            f.Pipeline.SelectionResult += (_, r) => results.Enqueue(r);
+            f.Settle();
+            Assert.Equal("nnr", f.Pipeline.NeuralSlot.ProcessingEngineId);
+            Assert.True(System.Threading.SpinWait.SpinUntil(() => results.Any(r => r.EngineId == "nnr" && r.Processing), 1500));
+            noise.OnSelectionResult(results.First(r => r.EngineId == "nnr" && r.Processing));
+            noise.Toggle("radio_nrl", "test");
+            bool rescued = System.Threading.SpinWait.SpinUntil(() => speaker.Calls.Any(c => c.Text == old && c.Salvaged), 2500);
+            Assert.False(rescued, "the false helper refusal was replayed after NNR processed: " + old);
+        }
+        finally { speaker.Dispose(); }
+    }
+
+    /// <summary>
+    /// Codex's probe, kept: the RNNoise starting point says DeepFilterNet3 cannot
+    /// run here. That is a fact it states, so once DeepFilterNet3 can run (its
+    /// files repaired) the sentence is retired and not rescued.
+    /// </summary>
+    [Fact]
+    public void The_RNNoise_fallback_sentence_records_the_engine_it_says_cannot_run()
+    {
+        using var f = new NoiseFixture();
+        f.Radio.Mode = "CW"; f.Noise.Attach("CW"); f.Noise.Toggle("rnnoise", "test");
+        f.Unavailable["deepfilternet3"] = Unavailability.LibraryMissing;
+        var speaker = new SilentArbiterSpeaker();
+        typeof(NoiseController).GetField("_speaker", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(f.Noise, speaker);
+        try
+        {
+            speaker.ModeWord("USB"); Mode(f, "USB");
+            string old = speaker.Calls.Last().Text;
+            Assert.Contains("DeepFilterNet3 cannot run here", old);
+            f.Unavailable.Remove("deepfilternet3");                 // its files repaired; no slot setting changed
+            f.Noise.Toggle("radio_nrl", "test");
+            bool rescued = System.Threading.SpinWait.SpinUntil(() => speaker.Calls.Any(c => c.Text == old && c.Salvaged), 2500);
+            Assert.False(rescued, "the fallback still says DeepFilterNet3 cannot run after it can: " + old);
+        }
+        finally { speaker.Dispose(); }
+    }
+
+    /// <summary>
+    /// Codex's probe, kept, and the count it noted (repair round 2): expiry and
+    /// release are idempotent, a disconnect drops the held sentence, and a hold
+    /// taken before a disconnect, released after it, does not release a hold
+    /// taken on the next connection.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Holds_are_idempotent_and_none_outlives_a_disconnect(bool expiryFirst)
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB"); f.Noise.Toggle("rnnoise", "test"); f.Spoken.Clear();
+        var hold = f.Noise.HoldModeAnswer(); Mode(f, "CW"); Assert.Empty(f.Spoken.Said);
+        if (expiryFirst) f.Clock.RunAll();
+        hold.Dispose(); hold.Dispose(); f.Clock.RunAll();
+        Assert.Single(f.Spoken.Said);
+        f.Spoken.Clear();
+
+        var old = f.Noise.HoldModeAnswer(); Mode(f, "USB"); f.Noise.Detach();
+        old.Dispose(); Assert.Empty(f.Spoken.Said);                 // dropped by the disconnect
+
+        // The next connection, two ways: an old hold never released must not keep
+        // holding the new connection's answer, and an old hold released late must
+        // not end a hold taken on the new connection.
+        f.Noise.HoldModeAnswer();                                   // abandoned before the disconnect
+        f.Noise.Detach();
+        f.Noise.Attach("USB");
+        f.Spoken.Clear();                                           // connect's own sentence, if any
+        var current = f.Noise.HoldModeAnswer();
+        Mode(f, "CW");
+        current.Dispose();
+        Assert.Single(f.Spoken.Said);                               // released by its own surface, at once
+        f.Spoken.Clear();
+
+        var older = f.Noise.HoldModeAnswer();
+        f.Noise.Detach();
+        f.Noise.Attach("USB");
+        f.Spoken.Clear();
+        var next = f.Noise.HoldModeAnswer();
+        Mode(f, "CW");
+        older.Dispose();
+        Assert.Empty(f.Spoken.Said);                                // still held for the current surface
+        next.Dispose();
+        Assert.Single(f.Spoken.Said);
     }
 
     // ── Repair round 1, B2 (Codex's probes, kept): a queued mode sentence is retired when anything it states becomes false ──

@@ -3798,7 +3798,11 @@ public class FreqOutHandlers
         var jump = BandJumpOutcome(bandName, freqStr,
             targetBand == Bands.BandNames.m60 && Rig != null, License?.Country ?? "US", targetFreq, mode);
         if (jump.Correction != null && Rig != null)
+        {
+            // A mode asked for, like any other road (#1117, repair round 2).
+            _window.NoteModeChoice();
             SixtyMeterModeDelivery.Deliver(Rig, jump.Arrival, jump.Correction, Radios.Speech.SpeechIntent.Interrupt);
+        }
         else
             Radios.ScreenReaderOutput.Speak(jump.Arrival, VerbosityLevel.Terse, interrupt: true);
         EarconPlayer.BandBoundaryBeep();

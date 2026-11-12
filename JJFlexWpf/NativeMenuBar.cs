@@ -3438,20 +3438,21 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// A mode row's sentence, said once the menu has closed (see
-    /// <see cref="MenuModeSentence"/>): QUEUED, so it follows the screen
-    /// reader's own close announcements instead of cancelling them, and dropped
-    /// if a newer mode choice, another radio or another slice came first. The
-    /// noise controller's held answer is released behind it either way.
+    /// A mode row's sentence, said once the menu has closed, with the noise
+    /// controller's answer joined to it as one interrupting utterance under its
+    /// own subject (see <see cref="MenuModeSentence"/> for why, from the 8600
+    /// harness), and dropped if a newer mode choice, another radio or another
+    /// slice came first.
     /// </summary>
-    private void SayModeAfterMenuClose(string sentence, FlexBase rig, int slice, int choice, IDisposable noiseAnswer)
+    private void SayModeAfterMenuClose(string sentence, FlexBase rig, int slice, int choice, JJFlexWpf.IModeAnswerHold noiseAnswer)
     {
         _window.Dispatcher.BeginInvoke(() => MenuModeSentence.SayWhenTheMenuHasClosed(
             sentence,
             stillCurrent: () => _window.ModeChoices == choice && ReferenceEquals(Rig, rig) && rig.RXVFO == slice,
             noiseAnswer,
             delay: ms => System.Threading.Tasks.Task.Delay(ms),
-            sayQueued: text => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse)));
+            sayNow: (text, level) => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Interrupt, level,
+                subject: Radios.Speech.SpeechSubject.ModeChoice)));
     }
 
     private void SpeakAfterMenuClose(string message,
