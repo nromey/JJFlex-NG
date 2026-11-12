@@ -1322,6 +1322,17 @@ namespace Radios.Tests
                 "settings.tuning.steps_list_drop_no",
                 "settings.tuning.steps_list_remove_coarse_named",
                 "settings.tuning.steps_list_remove_fine_named",
+                // Junk box batch 10 (#1068): eight route sentences that were
+                // still unclassified, reworded to the categories' spoken names,
+                // and so classified as they were edited. DRAFT.
+                "connect.ownership.silencing",
+                "connect.presence.port_denied",
+                "connect.smartlink.where_to_change",
+                "connect.update.skipped_version",
+                "leader.windows.last_theft_not_reclaimed",
+                "settings.network.authority_denied",
+                "settings.network.no_radio_configure_forwarding",
+                "settings.silenced.reversible_help",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
@@ -2981,7 +2992,14 @@ namespace Radios.Tests
             // Two fewer (3052 to 3050): junk box #691 (2026-11-11, batch 6)
             // reworded and classified connect.smartlink.not_in_list_title and
             // settings.radio.register.check_unanswered.
-            Assert.Equal(3050, unclassified);
+            // Eight fewer (3050 to 3042): junk box batch 10 (#1068) reworded and
+            // classified eight route sentences to the Settings categories'
+            // spoken names (connect.ownership.silencing, presence.port_denied,
+            // smartlink.where_to_change, update.skipped_version;
+            // leader.windows.last_theft_not_reclaimed; settings.network.
+            // authority_denied, no_radio_configure_forwarding;
+            // settings.silenced.reversible_help).
+            Assert.Equal(3042, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
