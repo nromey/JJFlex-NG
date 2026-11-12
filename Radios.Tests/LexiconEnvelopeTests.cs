@@ -1350,6 +1350,10 @@ namespace Radios.Tests
                 // to save it for: said only in answer to OK or Apply, with the
                 // other things that did not land. TextOnly, delivery null.
                 "settings.commit.license_not_saved",
+                // A tune press while the tuner is already tuning, so nothing
+                // was sent: said only in answer to the press. TextOnly,
+                // delivery null.
+                "audio.tune.atu_already_tuning",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

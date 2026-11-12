@@ -7536,6 +7536,15 @@ public partial class MainWindow : UserControl
             return;
         }
         if (TunerStartRefused()) return;
+        if (RigControl.FlexTunerOn)
+        {
+            // The latch is already set, so FlexTunerOn = true would send
+            // nothing: say so, rather than "ATU tuning" over a press that did nothing.
+            Tracing.TraceLine("StartATUTuneCycle: the tuner is already tuning; nothing sent", TraceLevel.Info);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_already_tuning"),   // DRAFT
+                VerbosityLevel.Terse, true, subject: Radios.Speech.SpeechSubject.TuneAlreadyTuning);
+            return;
+        }
         // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
         _oldSwr = "";
         RigControl.FlexTunerOn = true;

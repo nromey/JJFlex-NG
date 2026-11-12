@@ -833,6 +833,8 @@
   "audio.tune.atu_bypassed": "ATU bypassed",
   "audio.tune.atu_timed_out": "ATU tune timed out",
   "audio.tune.atu_tuning": "ATU tuning",
+  "_note_atu_already_tuning": "Junk box batch 11 (2026-11-12): audio.tune.atu_already_tuning is DRAFT PROSE, a placeholder for Codex to reword: said in answer to a tune press while the automatic tuner is already tuning, so nothing was sent.",
+  "audio.tune.atu_already_tuning": {"text": "The tuner is already tuning.", "delivery": null},
   "audio.tune.no_tuner": "No antenna tuner available",
   "audio.tune.swr": "SWR {swr}",
   "audio.tune.swr_failed": "Tune failed, SWR {swr}",

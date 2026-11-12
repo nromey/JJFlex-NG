@@ -1,0 +1,1 @@
+- DRAFT, for Codex: After an automatic tuner tune that fails and that the radio bypasses itself, or one you bypass by hand, pressing tune again now starts a new tune. Before, the second press sent nothing while saying the tuner was tuning. A tune press while the tuner really is still tuning now says so.
