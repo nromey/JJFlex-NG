@@ -231,6 +231,53 @@ public sealed class EscapeKillHeldKeyTests : IDisposable
         PairsKeyNothingThenARealReleaseEndsIt(HomeUp, HomeDown);
     }
 
+    /// <summary>
+    /// The reflected-power cut, through the controller's own check: 100 W
+    /// forward and 40 W back on one coherent pair, after the warning, with the
+    /// cut setting on (the default). The meter fields are set on the bare rig
+    /// by name, as the radio's meter callbacks would.
+    /// </summary>
+    private void ReflectedCutNow()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        foreach (var (field, value) in new (string, object)[]
+                 { ("_PowerDBM", 50f), ("_ReflectedPower", 46.02f), ("_forwardStamp", now), ("_reflectedStamp", now) })
+        {
+            var f = typeof(FlexBase).GetField(field, Any);
+            Assert.True(f != null, "production field FlexBase." + field + " is missing");
+            f!.SetValue(_rig, value);
+        }
+        var warned = typeof(PttSafetyController).GetField("_healthReflectedWarned", Any);
+        Assert.True(warned != null, "production field PttSafetyController._healthReflectedWarned is missing");
+        warned!.SetValue(_controller, true);
+        var check = typeof(PttSafetyController).GetMethod("CheckReflectedPower", Any);
+        Assert.True(check != null, "production entry PttSafetyController.CheckReflectedPower is missing");
+        check!.Invoke(_controller, new object[] { _rig });
+    }
+
+    /// <summary>
+    /// The same class at the reflected-power cut (the second check of #1089,
+    /// R1): the cut ends a held push to talk, and under JAWS the reader's next
+    /// synthetic down was a fresh press, so once the cut's own five-second
+    /// hold ran out the radio keyed again into the same fault while the
+    /// operator was still holding. The hold is ended here at once rather than
+    /// waited out, which is exactly when the defect bit.
+    /// </summary>
+    [Fact]
+    public void A_reflected_power_cut_during_a_jaws_hold_latches_it_and_nothing_keys_once_its_hold_ends()
+    {
+        AssertTheDeskIsSafe();
+        JawsHoldOnHome();
+        ReflectedCutNow();
+        Assert.Equal(Idle, _controller.State);          // positive control: the cut fired
+        Assert.True(_controller.CutHold.Holding, "positive control: the cut began its hold");
+        Assert.True(Latched, "the reflected-power cut left the hold to the key edges instead of latching it");
+
+        _controller.CutHold.Abandon("the test ends the hold early", Environment.TickCount64, immediate: true);
+        Assert.False(_controller.CutHold.Holding);
+        PairsKeyNothingThenARealReleaseEndsIt(HomeUp, HomeDown);
+    }
+
     /// <summary>The kill's carrier report can arrive before the kill's own bookkeeping: the external door then latches, and the kill finds nothing left to do.</summary>
     [Fact]
     public void A_kill_whose_off_report_arrives_first_is_latched_once_by_the_off_door()

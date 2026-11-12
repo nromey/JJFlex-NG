@@ -1015,8 +1015,8 @@ public partial class MainWindow : UserControl
     /// <para>
     /// <b>It is set wherever the app ends a HOLD the operator may still be
     /// pressing, and forgotten only where nothing is held.</b> A reference's
-    /// end, a dialog's window loss (#900), the fifteen-minute limit and the
-    /// kill (#1020, #1089), and Escape on Home or in a dialog and the radio
+    /// end, a dialog's window loss (#900), the fifteen-minute limit, the kill
+    /// and the reflected-power cut (#1020, #1089), and Escape on Home or in a dialog and the radio
     /// turning transmit off on its own (#1089, through
     /// <see cref="EndTransmitOutsideTheEdges"/>) all LATCH a hold, because
     /// under JAWS the next synthetic down of the same held key would otherwise

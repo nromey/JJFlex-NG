@@ -3160,10 +3160,26 @@ namespace JJFlexWpf
                 // other's (#237).
                 EarconPlayer.WarningAlarmTone();
                 string cutAntenna = rig.TXAntennaName ?? "";
+                bool held = State == PttState.PttHold;
                 GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna,
                            rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox),
                        forceSpeech: true,
                        subject: Radios.Speech.SpeechSubject.ReflectedPowerCut);
+                // A cut that ends a HELD push to talk ends a hold the operator
+                // may still be pressing, as the limit (#1020) and the kill
+                // (#1089) do: MainWindow latches it, so a screen reader's next
+                // synthetic down keys nothing until a real release. Until this
+                // that down read as a fresh press, and once the hold below ran
+                // out the radio keyed again into the same fault (the second
+                // check of #1089, R1).
+                if (held)
+                {
+                    try { HoldEndedByApp?.Invoke("the reflected-power cut ended it"); }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine("PTT: latching the hold the cut ended failed: " + ex.Message, TraceLevel.Error);
+                    }
+                }
                 // And nothing re-keys into the same fault for the next few
                 // seconds (#571). After GoIdle on purpose: the cut sentence is
                 // Urgent and goes first; the hold's VOX note queues behind it.
