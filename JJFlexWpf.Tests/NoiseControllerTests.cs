@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Radios;
 using Radios.Speech;
@@ -154,6 +155,59 @@ public sealed class NoiseControllerTests
             Assert.Contains(entries, e => e.Kind == NoiseJournalKind.ModeRestore
                 && e.Changes.Contains(new NoiseJournalChange("nnr", "", "on", "off")) && e.Changes.Contains(new NoiseJournalChange("rnnoise", "", "off", "on")));
         }
+    }
+
+    /// <summary>
+    /// Repair round 1, the harness check on the 8600: with the helper missing,
+    /// the refusal that names the replaced engine was cut at its first word,
+    /// 27 ms in, by the slot's own "could not start" sentence, which
+    /// interrupted. A result nobody asked for now waits its turn
+    /// (<see cref="INoiseSpeaker.SayAfter"/>), on every path that refuses and
+    /// still swaps: the direct switch and the first-CW starting point.
+    /// </summary>
+    [Fact]
+    public void A_failed_start_after_a_refusal_is_said_after_it_and_never_over_it()
+    {
+        foreach (bool viaCw in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            f.Noise.Attach("USB");
+            f.Noise.Toggle("rnnoise", "test");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Spoken.Clear();
+            if (viaCw) { f.Radio.Mode = "CW"; f.Noise.OnModeChanged("CW"); }
+            else f.Noise.Toggle("nnr", "test");
+            int refusal = f.Spoken.Said.FindLastIndex(s => s.Text.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise"))));
+            Assert.True(refusal >= 0, "no refusal naming RNNoise (" + (viaCw ? "first CW" : "direct") + ")");
+            Assert.DoesNotContain(refusal, f.Spoken.SaidAfter);   // the answer to a press still speaks at once
+
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", false, "helper missing") { SlotStopped = true });
+            Assert.Equal(L("audio.noise_surface.start_failed", VerbosityLevel.Chatty), f.Spoken.Last);
+            Assert.Contains(f.Spoken.Said.Count - 1, f.Spoken.SaidAfter);
+        }
+
+        // The helper's own unasked sentences wait their turn too.
+        using var g = new NoiseFixture();
+        g.Noise.OnHelperStateChanged(WdspHelperStateChange.CapReached, Array.Empty<string>());
+        Assert.Contains(g.Spoken.Said.Count - 1, g.Spoken.SaidAfter);
+    }
+
+    [Fact]
+    public void The_screen_readers_noise_speaker_queues_what_it_says_after()
+    {
+        // The queue itself is the arbiter's (SpeechIntent.Queue: never cuts what is speaking).
+        // A source pin, because ScreenReaderOutput is the live speech path.
+        string source = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "NoiseController.cs")).Replace("\r\n", "\n");
+        Assert.Contains("public void SayAfter(string text, string subject, VerbosityLevel level) =>\n            ScreenReaderOutput.Speak(text, SpeechIntent.Queue, level, subject: subject);", source);
+    }
+
+    private static string L(string key, VerbosityLevel level) => Lexicon.Get(key, level);
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        return dir!.FullName;
     }
 
     [Fact]

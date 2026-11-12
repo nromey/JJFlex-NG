@@ -89,8 +89,8 @@ public sealed class NoiseMenuTests
     /// then the shortcut column.
     /// </summary>
     [Theory]
-    [InlineData("Legacy NR\tCtrl+J, N, N", false, "Legacy NR, Off, Ctrl+J, N, N")]
-    [InlineData("Legacy NR\tCtrl+J, N, N", true, "Legacy NR, On, Ctrl+J, N, N")]
+    [InlineData("Legacy NR\tCtrl+J, N, L", false, "Legacy NR, Off, Ctrl+J, N, L")]
+    [InlineData("Legacy NR\tCtrl+J, N, L", true, "Legacy NR, On, Ctrl+J, N, L")]
     [InlineData("Neural NR, needs subscription\tCtrl+J, N, R", false, "Neural NR, needs subscription, Off, Ctrl+J, N, R")]
     [InlineData("Favourite", false, "Favourite, Off")]
     [InlineData("Neural NR favourite", true, "Neural NR favourite, On")]
@@ -273,8 +273,8 @@ public sealed class NoiseMenuTests
     // ── Repair round 1: a noise row keeps its native check mark ──
 
     [Theory]
-    [InlineData(true, "Legacy NR, On\tCtrl+J, N, N")]
-    [InlineData(false, "Legacy NR, Off\tCtrl+J, N, N")]
+    [InlineData(true, "Legacy NR, On\tCtrl+J, N, L")]
+    [InlineData(false, "Legacy NR, Off\tCtrl+J, N, L")]
     public void A_noise_row_rewritten_on_opening_keeps_its_native_check_state(bool on, string text)
     {
         // Codex's probe, kept: an unshown native popup and a menu bar holding only
@@ -284,7 +284,7 @@ public sealed class NoiseMenuTests
         try
         {
             const int id = 42;
-            const string label = "Legacy NR\tCtrl+J, N, N";
+            const string label = "Legacy NR\tCtrl+J, N, L";
             Assert.True(AppendMenuW(popup, 0, (UIntPtr)id, label));
             var menu = (NativeMenuBar)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(NativeMenuBar));
             void Put(string name, object value) => typeof(NativeMenuBar).GetField(name,

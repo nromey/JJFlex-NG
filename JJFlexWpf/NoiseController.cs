@@ -17,6 +17,18 @@ namespace JJFlexWpf
         /// <param name="subject">A <see cref="SpeechSubject"/> constant.</param>
         /// <param name="level">The level the sentence needs (Chatty for a Chatty-only clause, Critical for unasked news the operator must hear).</param>
         void Say(string text, string subject, VerbosityLevel level);
+
+        /// <summary>
+        /// Say a sentence nobody asked for AFTER whatever is being said, never
+        /// cutting it: a result that arrives on its own, such as a slot's failed
+        /// start. <see cref="Say"/> interrupts, which is right for the answer to
+        /// a press and wrong here: the slot's "could not start" arrived 27 ms
+        /// after the refusal it follows and cut it at its first word, so the
+        /// operator never heard which engine had been pushed out (repair round
+        /// 1, the Track E follow-up's harness check). Defaults to
+        /// <see cref="Say"/> for a speaker with no queue.
+        /// </summary>
+        void SayAfter(string text, string subject, VerbosityLevel level) => Say(text, subject, level);
     }
 
     /// <summary>The app's speaker: the screen reader, keyed by subject so a newer noise sentence covers an unheard older one.</summary>
@@ -25,6 +37,8 @@ namespace JJFlexWpf
         public VerbosityLevel Verbosity => ScreenReaderOutput.CurrentVerbosity;
         public void Say(string text, string subject, VerbosityLevel level) =>
             ScreenReaderOutput.Speak(text, SpeechIntent.Latest, level, subject: subject);
+        public void SayAfter(string text, string subject, VerbosityLevel level) =>
+            ScreenReaderOutput.Speak(text, SpeechIntent.Queue, level, subject: subject);
     }
 
     /// <summary>A delay the controller waits before acting (the settle before an engine field applies; the check for a sibling the radio switched off).</summary>
@@ -278,6 +292,13 @@ namespace JJFlexWpf
         {
             if (string.IsNullOrWhiteSpace(text) || _quiet > 0) return;
             _speaker.Say(text, subject, level);
+        }
+
+        /// <summary>As <see cref="Say(string, string, VerbosityLevel)"/>, but after whatever is being said, never cutting it (<see cref="INoiseSpeaker.SayAfter"/>).</summary>
+        private void SayAfter(string text, string subject, VerbosityLevel level = VerbosityLevel.Terse)
+        {
+            if (string.IsNullOrWhiteSpace(text) || _quiet > 0) return;
+            _speaker.SayAfter(text, subject, level);
         }
 
         private bool Chatty => _speaker.Verbosity >= VerbosityLevel.Chatty;
@@ -664,7 +685,11 @@ namespace JJFlexWpf
         public void OnSelectionResult(DenoiseSelectionResult result)
         {
             if (result.Processing || !result.SlotStopped) return;
-            Say(L("audio.noise_surface.start_failed"), SpeechSubject.NoiseHelperState, VerbosityLevel.Critical);
+            // Queued behind whatever is being said (repair round 1): on every
+            // refusal path that still puts an engine in the slot, the refusal
+            // and its replaced-engine clause are spoken first and this follows,
+            // instead of cutting them at their first word.
+            SayAfter(L("audio.noise_surface.start_failed"), SpeechSubject.NoiseHelperState, VerbosityLevel.Critical);
         }
 
         /// <summary>
@@ -676,10 +701,11 @@ namespace JJFlexWpf
         /// </summary>
         public void OnHelperStateChanged(WdspHelperStateChange change, IReadOnlyList<string> engines)
         {
+            // Unasked, like a slot's result: after whatever is being said (repair round 1).
             if (change == WdspHelperStateChange.CapReached)
-                Say(L("audio.noise_surface.start_failed"), SpeechSubject.NoiseHelperState, VerbosityLevel.Critical);
+                SayAfter(L("audio.noise_surface.start_failed"), SpeechSubject.NoiseHelperState, VerbosityLevel.Critical);
             else if (engines.Count > 0)
-                Say(L("audio.noise_surface.helper_back", ("engines", JoinNames(engines))), SpeechSubject.NoiseHelperState);
+                SayAfter(L("audio.noise_surface.helper_back", ("engines", JoinNames(engines))), SpeechSubject.NoiseHelperState);
         }
 
         /// <summary>Forget the 0 key's "back" list (the layer closed; the operator moved on).</summary>
