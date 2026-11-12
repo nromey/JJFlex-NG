@@ -1192,6 +1192,12 @@ namespace Radios
                     + " computer transmit audio is unavailable this session", TraceLevel.Error);
                 if (!SuppressSpeech) ScreenReaderOutput.Speak(
                     Lexicon.Get("audio.mic.could_not_open"), VerbosityLevel.Critical, true);
+                // The test tone needs no microphone, so it gets a transmit path
+                // of its own for this session. Built here and nowhere else: the
+                // microphone opens once per session, so a session whose
+                // microphone opened never has one, and two encoders can never
+                // feed the radio at once.
+                _standaloneTx = BuildStandaloneTx();
             }
             else
             {
@@ -1561,6 +1567,14 @@ namespace Radios
                 }
                 rxStream = null;
             }
+
+            // The no-microphone tone path goes first, before anything it
+            // sends through is closed: stop its clock, clear its encode step,
+            // then dispose its encoder (TxStandaloneSource.Dispose keeps that
+            // order). sendOpusInput reaches TXOpusChannel with no null check,
+            // so nothing may still be pumping when the stream closes below.
+            // Every route reaches this point, the catch above included.
+            DisposeStandaloneTx("the PC-audio session is ending");
 
             if (opusInputChannel != null)
             {
@@ -4168,7 +4182,13 @@ namespace Radios
         /// </remarks>
         private bool startSelfClockedTxInput()
         {
-            if (!opusInputAvailable || opusInputChannel == null) return false;
+            // No transmit stream, no transmit audio, whatever is engaged.
+            if (opusInputChannel == null) return false;
+            // A microphone that did not open: the test tone, and only the
+            // tone, goes out on the session's own standalone path. Never the
+            // failed stream's StartSelfClockedTx below, even when its encoder
+            // survived the failure.
+            if (!opusInputAvailable) return startStandaloneToneTx();
             JJPortaudio.JJAudioStream stream = opusInputChannel.PortAudioStream;
             if (stream == null) return false;
             // Cheap first, and it is the answer on all but one poll in
@@ -4200,10 +4220,150 @@ namespace Radios
         /// </summary>
         private void stopSelfClockedTxInput()
         {
+            // The no-microphone tone path stops wherever the capture's
+            // self-clock stops: the Disconnecting branch, the receive branch
+            // and the teardown all come through here. Idempotent.
+            _standaloneTx?.Stop();
             JJPortaudio.JJAudioStream stream = opusInputChannel?.PortAudioStream;
             if (stream == null || !stream.SelfClockedTxRunning) return;
             stream.StopSelfClockedTx();
         }
+
+        #region The test tone with no microphone
+        // The self-clocked tone used to borrow the capture stream's encoder,
+        // which exists only when the microphone opens, so a microphone that
+        // would not open took the tone with it. A session whose microphone
+        // failed now gets a transmit path of its own, built once at that
+        // failure and disposed at the session's teardown.
+
+        /// <summary>
+        /// This session's transmit path for the tone when the microphone did
+        /// not open. Null in every session whose microphone opened.
+        /// </summary>
+        private JJPortaudio.TxStandaloneSource _standaloneTx;
+
+        /// <summary>
+        /// The connection the no-microphone sentence was last said on, so it
+        /// is said once per connection rather than once per key-down.
+        /// </summary>
+        private object _toneWithoutMicSaidFor;
+
+        /// <summary>
+        /// Build the standalone path from the rig's own source mux,
+        /// conditioning chain and loudness meter, with frames going where the
+        /// capture path sends them. Null, with a trace, when it cannot be
+        /// built; the tone is then unavailable this session, as it always was.
+        /// </summary>
+        private JJPortaudio.TxStandaloneSource BuildStandaloneTx()
+        {
+            try
+            {
+                var built = JJPortaudio.TxStandaloneSource.Create(OpusTxSampleRateSetting, OpusTxEncodeProfile,
+                    TxInputSources, txConditioner.Process, txLufsMeter, sendOpusInput);
+                Tracing.TraceLine("remoteAudioProc: the test tone has a transmit path of its own this session,"
+                    + " because the microphone did not open", TraceLevel.Info);
+                return built;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: could not build a transmit path for the test tone without"
+                    + " a microphone, so the tone cannot transmit this session: " + ex.Message, TraceLevel.Error);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Stop, clear and dispose the standalone path, in that order (the
+        /// order lives in <see cref="JJPortaudio.TxStandaloneSource.Dispose"/>).
+        /// Safe when there is none.
+        /// </summary>
+        private void DisposeStandaloneTx(string why)
+        {
+            var standalone = _standaloneTx;
+            if (standalone == null) return;
+            _standaloneTx = null;
+            try
+            {
+                standalone.Dispose();
+                Tracing.TraceLine("remoteAudioProc: the test tone's own transmit path is closed, " + why,
+                    TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: closing the test tone's own transmit path failed: "
+                    + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// May the standalone path carry what is engaged now? It starts only
+        /// for the test tone. Once running it keeps running through the tone's
+        /// release ramp, so the ramp is not cut into a click, but not when
+        /// another source would then be heard: a voice message or a VOX send
+        /// still needs the microphone, exactly as before.
+        /// </summary>
+        internal static bool StandaloneMayCarry(bool running, bool toneEngaged, bool toneIdle, bool otherSourceEngaged)
+            => toneEngaged || (running && !toneIdle && !otherSourceEngaged);
+
+        /// <summary>
+        /// Is the no-microphone sentence owed on this connection? Once per
+        /// connection, and never with no connection to say it about.
+        /// </summary>
+        internal static bool ToneWithoutMicrophoneOwed(object saidFor, object connection)
+            => connection != null && !ReferenceEquals(saidFor, connection);
+
+        /// <summary>
+        /// The tone's start when the microphone did not open. Same shape as
+        /// the capture path's start: idempotent, and a failure is traced only
+        /// on the transition into it.
+        /// </summary>
+        private bool startStandaloneToneTx()
+        {
+            var standalone = _standaloneTx;
+            if (standalone == null || opusInputChannel?.TXOpusChannel == null) return false;
+
+            if (!StandaloneMayCarry(standalone.Running, txToneGen.Engaged, txToneGen.Idle, txFilePlayer.Engaged))
+            {
+                if (standalone.Running) standalone.Stop();
+                return false;
+            }
+            // Cheap first: the loop spins on Thread.Yield().
+            if (standalone.Running) return true;
+
+            bool started = standalone.Start();
+            if (started)
+            {
+                _selfClockedTxStartFailed = false;
+                SayToneWithoutMicrophoneOnce();
+            }
+            else if (!_selfClockedTxStartFailed)
+            {
+                _selfClockedTxStartFailed = true;
+                Tracing.TraceLine("startSelfClockedTxInput: could not start the test tone's own transmit"
+                    + " path; the microphone did not open and nothing is pacing the tone, so this"
+                    + " transmission will be silent", TraceLevel.Error);
+            }
+            return started;
+        }
+
+        /// <summary>
+        /// Say, once per connection, that the tone is going out with no
+        /// microphone open. Queued, not interrupting, so it does not cut the
+        /// key-down announcement; the loop that calls this spins, so the
+        /// once-per-connection check is what keeps it from repeating.
+        /// </summary>
+        private void SayToneWithoutMicrophoneOnce()
+        {
+            object connection = (object)theRadio?.CurrentCommandConnection ?? theRadio;
+            if (!ToneWithoutMicrophoneOwed(_toneWithoutMicSaidFor, connection)) return;
+            _toneWithoutMicSaidFor = connection;
+            Tracing.TraceLine("startSelfClockedTxInput: the test tone is transmitting with no microphone open",
+                TraceLevel.Info);
+            if (!SuppressSpeech) ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.mic.tone_without_microphone"), VerbosityLevel.Terse, false,
+                subject: Speech.SpeechSubject.ToneWithoutMicrophone);
+        }
+        #endregion
 
         private void stopOpusInputChannel()
         {

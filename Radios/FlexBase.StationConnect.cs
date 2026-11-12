@@ -1014,7 +1014,8 @@ namespace Radios
         /// establish the station under the coordinator, then read transmit and
         /// microphone facts FRESH and decide them, then the live transmit-audio
         /// path, then the silent-microphone assessment last. Returns the
-        /// honest outcome; nothing here ever calls setupFromScratch.
+        /// honest outcome; nothing here builds a scratch setup (the old
+        /// setupFromScratch had no caller and was removed, #59).
         /// </summary>
         internal StationResult EstablishStationOnConnect(bool postImport)
         {
@@ -1079,6 +1080,13 @@ namespace Radios
                 + ", station outcome=" + result.Outcome, TraceLevel.Info);
 
             if (theRadio != null) _TotalNumSlices = theRadio.SliceList.Count;
+
+            // Once per connect, and only now (#429): the station has been
+            // established, so the radio has answered the connect's info,
+            // profile and slice requests and diversity is the radio's word
+            // rather than a default. Not on the post-import re-entry, and not
+            // on any later census. Trace only.
+            if (!postImport) ModelCapabilityCheck.TraceForConnect(theRadio);
 
             if (postImport && theRadio != null)
             {

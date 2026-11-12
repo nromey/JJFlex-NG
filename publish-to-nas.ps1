@@ -2,12 +2,23 @@ param(
     [Parameter(Mandatory=$true)] [string] $ProjectRoot,
     [Parameter(Mandatory=$true)] [string] $Version,
     [Parameter(Mandatory=$true)] [string[]] $Archs,
-    [switch] $Release
+    [switch] $Release,
+    # Where the publish lands. Defaults to the real NAS; a scratch folder
+    # exercises the script without touching it. Every write below derives
+    # from this one path.
+    [string] $NasRoot = '\\nas.macaw-jazz.ts.net\jjflex'
 )
 
 $ErrorActionPreference = 'Stop'
 
-$nas         = '\\nas.macaw-jazz.ts.net\jjflex'
+# `powershell -File` hands "-Archs x64,x86" over as ONE string, "x64,x86",
+# and binds it as a one-element array. Every run of build-installers.bat in
+# "both" mode then looked for an installer named "..._x64,x86.exe", found
+# none, and published nothing while saying it had (#323). Split here, so
+# every way of calling the script means the same.
+$Archs = @($Archs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+$nas         = $NasRoot
 $stable      = Join-Path $nas 'stable'
 $archive     = Join-Path $nas 'stable\archive'
 $historical  = Join-Path $nas 'historical'
@@ -23,9 +34,10 @@ Write-Host "Target: $nas"
 Write-Host "============================================"
 
 if (-not (Test-Path $nas)) {
-    Write-Warning "NAS not reachable at $nas -- skipping publish."
+    Write-Warning "NAS not reachable at $nas -- NOTHING WAS PUBLISHED."
     Write-Warning "(Check: Tailscale up? cached creds for this session?)"
-    exit 0
+    # Non-zero: a publish that did not happen must not read as one that did.
+    exit 2
 }
 
 foreach ($dir in @($stable, $archive, $historical)) {
@@ -37,12 +49,16 @@ foreach ($dir in @($stable, $archive, $historical)) {
 $stamp = Get-Date -Format 'yyyyMMdd_HHmm'
 $dateTag = Get-Date -Format 'yyyyMMdd'
 
+$published = @()
+$missing = @()
+
 foreach ($arch in $Archs) {
     $srcName     = "Setup JJFlex_${Version}_${arch}.exe"
     $srcPath     = Join-Path $ProjectRoot $srcName
 
     if (-not (Test-Path $srcPath)) {
-        Write-Warning "[$arch] Installer not found at $srcPath -- skipping."
+        Write-Warning "[$arch] Installer not found at $srcPath -- NOT PUBLISHED."
+        $missing += $arch
         continue
     }
 
@@ -95,9 +111,21 @@ foreach ($arch in $Archs) {
         Copy-Item -Path $srcPath -Destination $stableDest -Force
         Write-Host "  stable    : $srcName"
     }
+
+    $published += $arch
 }
 
 Write-Host ""
+if ($missing.Count -gt 0) {
+    # A publish step that cannot find what it was asked to publish fails,
+    # and names what it could not find. It printed "Publish complete" here
+    # for four months while publishing nothing (#323).
+    $got = if ($published.Count -gt 0) { $published -join ', ' } else { 'nothing' }
+    Write-Warning ("PUBLISH INCOMPLETE: asked for " + ($Archs -join ', ') + "; published " + $got + "; NOT published: " + ($missing -join ', ') + ".")
+    Write-Host "============================================"
+    exit 1
+}
+Write-Host ("Published: " + ($published -join ', ') + ".")
 if ($Release) {
     Write-Host "Publish complete (RELEASE). historical\$Version\ and stable\ updated."
     Write-Host "Dropbox stable promotion is a separate step; run the dropbox publish"

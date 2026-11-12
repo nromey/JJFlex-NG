@@ -77,6 +77,7 @@ internal static class Program
             "watch" => CmdWatch(opt),
             "press" => Armed(CmdPress, opt),
             "act" => CmdAct(opt),
+            "value" => CmdValue(opt),
             "inventory" => CmdInventory(opt),
             "unbound" => CmdUnbound(opt),
             "expand" => CmdExpand(opt),
@@ -120,6 +121,9 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
                     [--risk safe|mutates|transmits] [--transmit-clearance FILE]
   jjprobe act       [--pid N] --op invoke|toggle|select|expand|focus|value|listitems
                     (--id ID | --name NAME | --class CLASS) [--index N] [--value V]
+                    (--op value SETS the value: it needs --armed and --value)
+  jjprobe value     [--pid N] (--id ID | --name NAME | --class CLASS) [--index N]
+                    (reads a control's value and range value; changes nothing)
   jjprobe inventory [--pid N | --appdir DIR] [--json]
   jjprobe unbound   [--pid N | --appdir DIR] [--json]
   jjprobe expand    [--pid N | --appdir DIR]        (offline: no app driving)
@@ -147,8 +151,9 @@ clearances are refused. A ceiling you set is a wish; a ceiling you read back
 immediately before keying is a ceiling.
 
 Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
-4 target window not found · 5 could not foreground the window ·
-6 refused at the safety gate.
+4 target window not found (for `value`: no such control) ·
+5 could not foreground the window · 6 refused at the safety gate ·
+7 `value` found the control but it has no value pattern, or the read failed.
 """);
         return error == null ? 0 : 2;
     }
@@ -292,8 +297,21 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
     {
         int pid = ResolvePid(a);
         Console.WriteLine(Act.Perform(pid, a.Str("op") ?? "invoke", a.Str("id"), a.Str("name"),
-            a.Str("class"), a.Int("index", 0), a.Str("value")));
+            a.Str("class"), a.Int("index", 0), a.Str("value"), armed: a.Flag("armed")));
         return 0;
+    }
+
+    /// <summary>
+    /// Read a control's value by id, name or class, changing nothing, so it
+    /// needs no --armed (#989). Says "no such control" or "no value pattern"
+    /// rather than printing an empty line that reads as an empty field.
+    /// </summary>
+    private static int CmdValue(Args a)
+    {
+        int pid = ResolvePid(a);
+        int code = Act.ReadValue(pid, a.Str("id"), a.Str("name"), a.Str("class"), a.Int("index", 0), out string report);
+        Write(a, report);
+        return code;
     }
 
     private static int CmdInventory(Args a)

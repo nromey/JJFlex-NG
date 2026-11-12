@@ -249,9 +249,9 @@ namespace Radios.Tests
         [InlineData("private bool startOpusOutputChannel(", "GuardSkips(\"MicInput=PC", 900)]
         // The CW keyer restore is written INSIDE RunOwnerInitialization since
         // Track G3 (see TheKeyerRestoreIsBehindTheOwnerInitialisationsRecheck);
-        // issue7620 only reads the file now. The scratch setup consults the
-        // hold directly.
-        [InlineData("private bool setupFromScratch(", "GuardSkips(\"scratch-setup", 7000)]
+        // issue7620 only reads the file now. The scratch setup's row was
+        // deleted with the method itself (#59): it had no caller, so there is
+        // no writer left for the hold to guard.
         public void TheAutomaticWriterSkipsUnderTheHold(string signature, string guard, int window)
         {
             AssertGuardInside(FlexBase, signature, guard, window);

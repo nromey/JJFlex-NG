@@ -72,13 +72,14 @@ namespace Radios
 
                 // Station first, then read, then decide (#563, #574, #577,
                 // #578, #579, #587, #588, #590). The coordinator returns one
-                // of seven outcomes. NONE of them leads to setupFromScratch:
-                // its old Boolean caller was `true` on every path and never
-                // assigned (#582), so that route was already dead, and the
-                // design forbids false/unconfirmed ever reaching a scratch
-                // setup that layers defaults over an unknown restore. The
-                // bounded allocator inside the coordinator is the only fresh
-                // allocation now.
+                // of seven outcomes. NONE of them leads to a scratch setup:
+                // the old setupFromScratch's Boolean caller was `true` on
+                // every path and never assigned (#582), so that route was
+                // already dead, and the design forbids false/unconfirmed ever
+                // reaching a scratch setup that layers defaults over an
+                // unknown restore. The method itself, with no caller left,
+                // was removed (#59). The bounded allocator inside the
+                // coordinator is the only fresh allocation now.
                 var station = EstablishStationOnConnect(false);
                 Tracing.TraceLine("flex open:station " + station.Outcome + " via " + station.Route
                     + " — " + station.Reason, TraceLevel.Info);
@@ -365,168 +366,6 @@ namespace Radios
             Tracing.TraceLine("getProfileInfo:" + postImport.ToString(), TraceLevel.Info);
             var result = EstablishStationOnConnect(postImport);
             return result.StationEstablished;
-        }
-
-        /// <summary>
-        /// Choose a transmit antenna for a slice on a scratch setup, without
-        /// guessing from the receive list. Part of #205.
-        /// </summary>
-        /// <remarks>
-        /// <para>Order of preference: whatever the radio already has, then the
-        /// slice's own <c>TXAntList</c>. Never <c>Radio.RXAntList</c>, which is
-        /// what this replaced — see the comment at the call site.</para>
-        /// <para><c>Slice.TXAntList</c> never returns empty: when the radio has
-        /// not sent a list, FlexLib substitutes ANT1/ANT2/XVTR. So a value here
-        /// may be a vendor fallback rather than the radio's real capability,
-        /// which is why the choice is traced rather than assumed correct.</para>
-        /// </remarks>
-        private void applyScratchTxAntenna(Slice s)
-        {
-            if (s == null) return;
-
-            if (!string.IsNullOrEmpty(s.TXAnt))
-            {
-                Tracing.TraceLine("setupFromScratch:TXAnt already set to " + s.TXAnt
-                    + ", leaving it alone", TraceLevel.Info);
-                return;
-            }
-
-            string[] txList = s.TXAntList;
-            if (txList != null && txList.Length > 0)
-            {
-                s.TXAnt = txList[0];
-                Tracing.TraceLine("setupFromScratch:TXAnt was empty, took " + txList[0]
-                    + " from the slice's TX antenna list (" + string.Join(",", txList) + ")",
-                    TraceLevel.Info);
-                return;
-            }
-
-            // Deliberately leaves TXAnt unset. An operator who cannot transmit
-            // and is told why is better off than one transmitting into a
-            // receive antenna nobody chose.
-            Tracing.TraceLine("setupFromScratch:TXAnt is empty and the slice reports no TX"
-                + " antenna list; leaving it unset rather than guessing", TraceLevel.Error);
-        }
-
-        private bool setupFromScratch()
-        {
-            bool rv;
-            // Radio was reset or never used with JJRadio before this.
-            Tracing.TraceLine("setupFromScratch:panadapters:" + theRadio.PanadapterList.Count, TraceLevel.Info);
-            // function to get pan adapters.
-            //while (theRadio.PanadaptersRemaining > 0)
-            while (MyNumSlices != initialFreeSlices)
-            {
-                int rem = theRadio.PanadaptersRemaining;
-                theRadio.RequestPanafall();
-                // wait for at least one new pan adapter
-                if (!await(() =>
-                {
-                    return ((theRadio.PanadaptersRemaining < rem) |
-                             (MyNumSlices == initialFreeSlices));
-                }, 5000))
-                {
-                    Tracing.TraceLine("setupFromScratch:didn't get a pan adapter " + theRadio.PanadaptersRemaining, TraceLevel.Error);
-                    break;
-                }
-                else
-                {
-                    Tracing.TraceLine("setupFromScratch:got a pan adapter " + theRadio.PanadaptersRemaining + ' ' + MyNumSlices, TraceLevel.Error);
-                }
-            }
-            rv = (theRadio.PanadaptersRemaining == 0);
-            if (rv)
-            {
-                Tracing.TraceLine("setupFromScratch:have pan and slices:" + MyNumPanadapters, TraceLevel.Info);
-                // We have pan adapters and slices, so we're done. Position 0 =
-                // lowest letter (mySlices is sorted by radio index), so this
-                // activates slice A on a scratch setup. Null-guarded: raw
-                // positional access must never crash on a roster race.
-                Slice first = VFOToSlice(0);
-                if (first != null)
-                {
-                    first.Active = true;
-                    first.Mute = false;
-                }
-                Tracing.TraceLine("setupFromScratch:have 1 active slice:" + (MyNumSlices - 1), TraceLevel.Info);
-                for (int i = 1; i < MyNumSlices; i++)
-                {
-                    Slice extra = VFOToSlice(i);
-                    if (extra != null) extra.Mute = true;
-                }
-
-                // --- Antenna and power on a scratch setup (#205) --------------
-                //
-                // FIXED 2026-08-23. This block did two unsafe things silently,
-                // and Noel caught both at the bench: a trace showed his radio
-                // going from RFPower:0 to 100 thirteen seconds into a connect
-                // he had never configured. His words: "I actually don't think I
-                // have power set to 100 in this profile, I never saved it."
-                // He hadn't. This did.
-                //
-                // 1. The TRANSMIT antenna was taken from theRadio.RXAntList[0]
-                //    — the RECEIVE list. Nothing makes the first receive
-                //    antenna a safe transmit antenna, and on a station whose RX
-                //    list begins with a beverage, a loop, or any receive-only
-                //    wire, that puts power into something never built to take
-                //    it. Slice.TXAntList is the correct source and FlexBase
-                //    already reads it (see the TXAntennas property).
-                //
-                // 2. RFPower was forced to 100 — maximum — and TunePower
-                //    followed to 100. Tune power is exactly the setting an
-                //    operator keeps low, because a tune carrier into a bad
-                //    match is how a finals stage or a tuner gets cooked.
-                //
-                // Neither was announced, so a blind operator had no way to
-                // learn either had changed. Settings are intents: with no saved
-                // profile there is no intent to act on, so leave the radio's
-                // own persisted values alone and RECORD them instead of
-                // overwriting them. See
-                // memory/project_settings_are_intents_not_commands.
-                Slice rxs = VFOToSlice(RXVFO);
-                if (rxs != null) applyScratchTxAntenna(rxs);
-                if (CanTransmit)
-                {
-                    _TXVFO = 0;
-                    Slice txs = VFOToSlice(TXVFO);
-                    if (txs != null)
-                    {
-                        txs.IsTransmitSlice = true;
-                        applyScratchTxAntenna(txs);
-                    }
-                    // Was: theRadio.RFPower = 100. Report, do not overwrite.
-                    Tracing.TraceLine("setupFromScratch:leaving transmit power as the radio has it"
-                        + " — RFPower " + theRadio.RFPower
-                        + ", TunePower " + theRadio.TunePower
-                        + " (this used to be forced to 100 unconditionally)",
-                        TraceLevel.Info);
-                    // The four survivors of #205's cleanup, and the audit's
-                    // most instructive site (1.4): the paragraph above this
-                    // block already rules that with no saved profile there is
-                    // no intent to act on. On a guarded radio, act on that —
-                    // the radio's own persisted answers stand.
-                    if (!GuardSkips("scratch-setup CW/VOX/speech-processor writes"))
-                    {
-                        theRadio.CWBreakIn = false;
-                        theRadio.CWIambic = false;
-                        theRadio.SpeechProcessorEnable = true;
-                        theRadio.SimpleVOXEnable = false;
-                    }
-
-#if zero
-                    CurrentProfile = preferredProfile;
-                    createProfile();
-#endif
-                }
-
-                Tracing.TraceLine("setupFromScratch:radio setup", TraceLevel.Info);
-            }
-            else
-            {
-                Tracing.TraceLine("setupFromScratch:didn't get pans and slices:" + MyNumPanadapters + ' ' + MyNumSlices, TraceLevel.Error);
-            }
-            _TotalNumSlices = theRadio.SliceList.Count;
-            return rv;
         }
 
 #if zero

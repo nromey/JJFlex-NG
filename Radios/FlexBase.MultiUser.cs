@@ -71,26 +71,35 @@ namespace Radios
         /// FlexLib's MaxSlices reports available-remaining which can be 0 at startup
         /// when a profile loads all slots. This gives the true model capacity.
         /// </summary>
-        public int TotalMaxSlices
+        public int TotalMaxSlices => TotalMaxSlicesFor(theRadio?.Model ?? string.Empty, theRadio?.MaxSlices ?? 0);
+
+        /// <summary>
+        /// The model table behind <see cref="TotalMaxSlices"/>, as a pure
+        /// function so it can be checked against FlexLib's own ModelInfo table
+        /// without a radio (#429). An unnamed model falls back to what
+        /// discovery reported, or two.
+        /// </summary>
+        internal static int TotalMaxSlicesFor(string model, int discoveryMaxSlices) => model switch
         {
-            get
-            {
-                string model = theRadio?.Model ?? string.Empty;
-                return model switch
-                {
-                    "FLEX-6300" => 2,
-                    "FLEX-6400" or "FLEX-6400M" => 2,
-                    "FLEX-6500" => 4,
-                    "FLEX-6600" or "FLEX-6600M" => 4,
-                    "FLEX-6700" or "FLEX-6700R" => 8,
-                    "FLEX-8400" or "FLEX-8400M" => 2,
-                    "FLEX-8600" or "FLEX-8600M" => 4,
-                    "AU-510" or "AU-510M" => 2,
-                    "AU-520" or "AU-520M" => 4,
-                    _ => theRadio?.MaxSlices > 0 ? theRadio.MaxSlices : 2 // safe fallback
-                };
-            }
-        }
+            "FLEX-6300" => 2,
+            "FLEX-6400" or "FLEX-6400M" => 2,
+            "FLEX-6500" => 4,
+            "FLEX-6600" or "FLEX-6600M" => 4,
+            "FLEX-6700" or "FLEX-6700R" => 8,
+            "FLEX-8400" or "FLEX-8400M" => 2,
+            "FLEX-8600" or "FLEX-8600M" => 4,
+            "AU-510" or "AU-510M" => 2,
+            "AU-520" or "AU-520M" => 4,
+            _ => discoveryMaxSlices > 0 ? discoveryMaxSlices : 2 // safe fallback
+        };
+
+        /// <summary>Every model <see cref="TotalMaxSlicesFor"/> names, for the cross-check test.</summary>
+        internal static readonly string[] ModelsWithKnownSliceCounts =
+        {
+            "FLEX-6300", "FLEX-6400", "FLEX-6400M", "FLEX-6500", "FLEX-6600", "FLEX-6600M",
+            "FLEX-6700", "FLEX-6700R", "FLEX-8400", "FLEX-8400M", "FLEX-8600", "FLEX-8600M",
+            "AU-510", "AU-510M", "AU-520", "AU-520M",
+        };
 
         internal List<Slice> mySlices = new List<Slice>();
 
@@ -257,11 +266,15 @@ namespace Radios
         //
         // #117 is the persistence receipt. Releasing a slice succeeds, sounds
         // successful, and is silently discarded at disconnect, because THE
-        // SLICES ARE NOT OURS: this application contains zero slice-creation
-        // calls, and the radio restores its slice layout from its own global
-        // profile on the next connect. Slice create and delete work correctly —
-        // the defect is that nothing tells the operator the change is
-        // provisional.
+        // LAYOUT IS NOT OURS TO KEEP: the radio restores its slice layout from
+        // its own global profile on the next connect, whatever this session
+        // did. This application does create slices — NewSlice() requests a
+        // panafall when the operator asks for one, and the station coordinator
+        // has a bounded allocator for a connect that restores nothing — but it
+        // no longer pads a restored station on connect (that allocator was
+        // removed 2026-09-21, #587, #588; #59), so what comes back is the
+        // radio's profile. Slice create and delete work correctly — the defect
+        // is that nothing tells the operator the change is provisional.
         //
         // The receipt is deliberately NOT a prompt at disconnect, for two
         // reasons that were both worked out before any code was written. First,
