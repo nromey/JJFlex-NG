@@ -45,8 +45,10 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private sealed class Row
         {
-            public Row(string key, string text) { Key = key; Text = text; }
+            public Row(string key, string label, string text) { Key = key; Label = label; Text = text; }
             public string Key { get; }
+            /// <summary>The message's name alone, for the restore receipt (#1087).</summary>
+            public string Label { get; }
             public string Text { get; }
             public override string ToString() => Text;
         }
@@ -73,7 +75,7 @@ namespace JJFlexWpf.Dialogs
         private void Reload(int selectIndex, string? status)
         {
             IReadOnlyList<SuppressedAdvisory> entries = _store.Snapshot();
-            List<Row> rows = entries.Select(e => new Row(e.Key, e.Sentence())).ToList();
+            List<Row> rows = entries.Select(e => new Row(e.Key, e.Label, e.Sentence())).ToList();
 
             SilencedList.ItemsSource = rows;
 
@@ -137,7 +139,10 @@ namespace JJFlexWpf.Dialogs
             if (SilencedList.SelectedItem is not Row row) return;
 
             int index = SilencedList.SelectedIndex;
-            string label = row.Text;
+            // The message's name, not the row: the row also carries the date
+            // it was silenced, which read as an odd sentence inside the
+            // receipt (#1087).
+            string label = row.Label;
 
             string status = _store.Unsuppress(row.Key)
                 // The label, not "done": the operator may have arrowed past

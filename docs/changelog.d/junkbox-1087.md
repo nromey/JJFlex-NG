@@ -1,0 +1,1 @@
+- Restoring a silenced message now names the message, without the date it was silenced.
