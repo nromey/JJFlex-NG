@@ -1017,8 +1017,12 @@ public sealed class NoiseControllerTests
         return said;
     }
 
-    private static string ModelLabel(NoiseFixture f, string model) =>
-        Lexicon.Get(f.Catalog.Find("nnr")!.Settings.First(d => d.Name == "model").Options!.First(o => o.Name == model).LabelKey);
+    private static string ModelLabel(NoiseFixture f, string model)
+    {
+        // The label key is read first, so the lexicon coverage scan never reads an engine id as a key.
+        string labelKey = f.Catalog.Find("nnr")!.Settings.First(d => d.Name == "model").Options!.First(o => o.Name == model).LabelKey;
+        return Lexicon.Get(labelKey);
+    }
 
     private static string NnrModel(NoiseFixture f) => f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice!;
 
