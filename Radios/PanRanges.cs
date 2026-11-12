@@ -115,21 +115,15 @@ namespace Radios
         private void write()
         {
             if (fileName == null) return;
-            Stream rangeFile = null;
             try
             {
-                rangeFile = File.Open(fileName, FileMode.Create);
                 XmlSerializer xs = new XmlSerializer(typeof(RangeData));
                 Persistent.Ranges = ranges.ToArray(); // convert to saved format.
-                xs.Serialize(rangeFile, Persistent);
+                AtomicFile.Write(fileName, rangeFile => xs.Serialize(rangeFile, Persistent));
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("PanRanges write exception:" + ex.Message, TraceLevel.Error);
-            }
-            finally
-            {
-                if (rangeFile != null) rangeFile.Dispose();
             }
         }
 

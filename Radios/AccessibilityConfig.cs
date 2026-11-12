@@ -516,8 +516,7 @@ namespace Radios
             try
             {
                 Directory.CreateDirectory(configDirectory);
-                using var fs = File.Create(path);
-                new XmlSerializer(typeof(AccessibilityConfig)).Serialize(fs, onDisk);
+                AtomicFile.Write(path, fs => new XmlSerializer(typeof(AccessibilityConfig)).Serialize(fs, onDisk));
             }
             catch (Exception ex)
             {
@@ -553,9 +552,8 @@ namespace Radios
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
-                using var fs = File.Create(filePath);
                 var serializer = new XmlSerializer(typeof(AccessibilityConfig));
-                serializer.Serialize(fs, this);
+                AtomicFile.Write(filePath, fs => serializer.Serialize(fs, this));
 
                 Current = this;
             }

@@ -417,9 +417,8 @@ public class FilterPresets
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
 
-            using var fs = File.Create(filePath);
             var serializer = new XmlSerializer(typeof(FilterPresets));
-            serializer.Serialize(fs, this);
+            AtomicFile.Write(filePath, fs => serializer.Serialize(fs, this));
             return true;
         }
         catch (Exception ex)

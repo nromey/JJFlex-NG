@@ -130,20 +130,14 @@ namespace Radios
                 return;
             }
             Tracing.TraceLine("configWrite:" + ConfigFilename, TraceLevel.Info);
-            Stream configFile = null;
             try
             {
-                configFile = File.Open(ConfigFilename, FileMode.Create);
                 XmlSerializer xs = new XmlSerializer(typeof(ConfigInfo));
-                xs.Serialize(configFile, OpsConfigInfo);
+                AtomicFile.Write(ConfigFilename, configFile => xs.Serialize(configFile, OpsConfigInfo));
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("configWrite error:" + ex.Message, TraceLevel.Error);
-            }
-            finally
-            {
-                if (configFile != null) configFile.Dispose();
             }
         }
 

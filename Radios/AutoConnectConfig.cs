@@ -104,9 +104,8 @@ namespace Radios
                     Directory.CreateDirectory(dir);
                 }
 
-                using var fs = File.Create(filePath);
                 var serializer = new XmlSerializer(typeof(AutoConnectConfig));
-                serializer.Serialize(fs, this);
+                AtomicFile.Write(filePath, fs => serializer.Serialize(fs, this));
             }
             catch (Exception ex)
             {
