@@ -1364,6 +1364,68 @@ public sealed class NoiseControllerTests
         Assert.DoesNotContain(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
     }
 
+    /// <summary>
+    /// Codex's probe, kept: the sibling check's one firing said one interrupt per
+    /// sibling the radio turned off, so "The radio turned Standard NR off." was cut
+    /// by "The radio turned Legacy NR off.". One firing is now one utterance, and
+    /// it is queued behind whatever is being said, since nobody asked for it. A
+    /// single sibling is the same, queued.
+    /// </summary>
+    [Fact]
+    public void One_sibling_check_says_one_queued_utterance()
+    {
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Switches["radio_nr"] = true;
+            f.Radio.Switches["radio_nrl"] = true;
+            f.Noise.Toggle("radio_nrs", "test");
+            f.Radio.Switches["radio_nr"] = false;
+            f.Radio.Switches["radio_nrl"] = false;
+            int from = f.Spoken.Said.Count;
+            var said = OneAction(f, "one sibling check", () => f.Clock.RunAll());
+            Assert.Empty(said);                                  // no interrupt at all
+            Assert.Single(f.Spoken.Said.Skip(from));
+            Assert.Contains(from, f.Spoken.SaidAfter);
+            Assert.Equal(Lexicon.Get("audio.noise_surface.radio_turned_off", VerbosityLevel.Chatty, ("engine", "Standard NR")) + " "
+                + Lexicon.Get("audio.noise_surface.radio_turned_off", VerbosityLevel.Chatty, ("engine", "Legacy NR")), f.Spoken.Last);
+        }
+        using (var f = new NoiseFixture())
+        {
+            f.Radio.Switches["radio_nr"] = true;
+            f.Noise.Toggle("radio_nrs", "test");
+            f.Radio.Switches["radio_nr"] = false;
+            int from = f.Spoken.Said.Count;
+            f.Clock.RunAll();
+            Assert.Single(f.Spoken.Said.Skip(from));
+            Assert.Contains(from, f.Spoken.SaidAfter);
+            Assert.Equal(Lexicon.Get("audio.noise_surface.radio_turned_off", VerbosityLevel.Chatty, ("engine", "Standard NR")), f.Spoken.Last);
+        }
+    }
+
+    /// <summary>
+    /// Codex's control, kept: two quick actions are two utterances (the scope
+    /// closes with each action), and at Critical a step whose every part is gated
+    /// still hands the speaker one non-empty sentence at its own level, never a
+    /// blank one and never promoted to Critical.
+    /// </summary>
+    [Fact]
+    public void Quick_actions_stay_separate_and_a_wholly_gated_action_hands_over_one_nonempty_sentence()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.BeginSession();
+        f.Spoken.Verbosity = VerbosityLevel.Critical;
+        f.Noise.Step(+1, "test");
+        Assert.Single(f.Spoken.Said);
+        Assert.False(string.IsNullOrWhiteSpace(f.Spoken.Last));
+        Assert.Equal(VerbosityLevel.Terse, f.Spoken.Said[0].Level);
+        f.Spoken.Clear();
+        f.Spoken.Verbosity = VerbosityLevel.Chatty;
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.Toggle("rnnoise", "test");
+        Assert.Equal(2, f.Spoken.Said.Count);
+        Assert.Equal("RNNoise off.", f.Spoken.Last);
+    }
+
     [Fact]
     public void Every_change_goes_through_the_one_journal()
     {

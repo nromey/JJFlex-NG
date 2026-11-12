@@ -302,7 +302,7 @@ namespace JJFlexWpf
         private void Say(string text, string subject, VerbosityLevel level = VerbosityLevel.Terse)
         {
             if (string.IsNullOrWhiteSpace(text) || _quiet > 0) return;
-            if (_utterance != null) { _utterance.Add((text, subject, level)); return; }
+            if (_utterance != null) { _utterance.Add((text, subject, level, false)); return; }
             _speaker.Say(text, subject, level);
         }
 
@@ -320,8 +320,12 @@ namespace JJFlexWpf
         /// went in (#1110, live on the 8600). Inside an action the sentences are
         /// gathered and said once, as one utterance, when the outermost action
         /// ends: nothing from the same action can cut anything else from it.
+        /// A timer's or observer's firing is an action too (repair round 1,
+        /// Codex: the sibling check said one interrupt per sibling the radio
+        /// turned off, each cutting the last). <c>Queued</c> marks a part said
+        /// with <see cref="SayAfter"/>.
         /// </summary>
-        private List<(string Text, string Subject, VerbosityLevel Level)>? _utterance;
+        private List<(string Text, string Subject, VerbosityLevel Level, bool Queued)>? _utterance;
         private int _utteranceDepth;
 
         /// <summary>
@@ -359,20 +363,30 @@ namespace JJFlexWpf
             var parts = _utterance ?? new();
             _utterance = null;
             if (parts.Count == 0) return;
-            if (parts.Count == 1) { _speaker.Say(parts[0].Text, parts[0].Subject, parts[0].Level); return; }
-            var heard = parts.Where(p => (int)p.Level <= (int)_speaker.Verbosity).ToList();
+            var heard = parts.Count == 1 ? parts : parts.Where(p => (int)p.Level <= (int)_speaker.Verbosity).ToList();
             foreach (var held in parts.Except(heard))
                 System.Diagnostics.Trace.WriteLine($"NoiseController: left out of the action's utterance at this verbosity ({held.Level}): '{held.Text}'");
             var said = heard.Count > 0 ? heard : parts;
-            _speaker.Say(string.Join(" ", said.Select(p => p.Text.Trim())), said[0].Subject, said.Min(p => p.Level));
+            string text = said.Count == 1 ? said[0].Text : string.Join(" ", said.Select(p => p.Text.Trim()));
+            var level = said.Min(p => p.Level);
+            // Queued only when every part was: an answer to a press still interrupts.
+            if (said.All(p => p.Queued)) Deliver(text, said[0].Subject, level, queued: true);
+            else Deliver(text, said[0].Subject, level, queued: false);
+        }
+
+        private void Deliver(string text, string subject, VerbosityLevel level, bool queued)
+        {
+            if (!queued) { _speaker.Say(text, subject, level); return; }
+            _speaker.SayAfter(text, subject, level);
+            if (subject == SpeechSubject.NoiseHelperState) _helperNoticeOwed = true;
         }
 
         /// <summary>As <see cref="Say(string, string, VerbosityLevel)"/>, but after whatever is being said, never cutting it (<see cref="INoiseSpeaker.SayAfter"/>).</summary>
         private void SayAfter(string text, string subject, VerbosityLevel level = VerbosityLevel.Terse)
         {
             if (string.IsNullOrWhiteSpace(text) || _quiet > 0) return;
-            _speaker.SayAfter(text, subject, level);
-            if (subject == SpeechSubject.NoiseHelperState) _helperNoticeOwed = true;
+            if (_utterance != null) { _utterance.Add((text, subject, level, true)); return; }
+            Deliver(text, subject, level, queued: true);
         }
 
         /// <summary>
@@ -511,6 +525,12 @@ namespace JJFlexWpf
             {
                 if (_radio() != r) return;
                 if (!ReferenceEquals(r.SliceIdentity, observedSlice)) return; // another slice now: discarded, silently
+                // One firing, one utterance (repair round 1, Codex): with two
+                // siblings off, the second sentence cut the first. And it is a
+                // result nobody asked for, so it waits behind whatever is being
+                // said (as a slot's failed start does) rather than cutting the
+                // answer to the press: 1.5 s does not prove that answer is over.
+                using var oneUtterance = OneUtterance();
                 foreach (string id in before)
                 {
                     var e = _catalog.Find(id)!;
@@ -520,7 +540,7 @@ namespace JJFlexWpf
                         // The radio did it in answer to our write, so Escape
                         // counts it among the layer's changes and puts it back.
                         NoteRadioTouched(id, level: false);
-                        Say(L("audio.noise_surface.radio_turned_off", ("engine", Lexicon.Get(e.LabelKey))), SpeechSubject.NoiseEngineSwitch);
+                        SayAfter(L("audio.noise_surface.radio_turned_off", ("engine", Lexicon.Get(e.LabelKey))), SpeechSubject.NoiseEngineSwitch);
                     }
                 }
             });
