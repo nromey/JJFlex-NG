@@ -239,13 +239,28 @@ public sealed class AtuTuneEndTests : IDisposable
         Assert.DoesNotContain("ATUTuneBypass", Regex.Match(handler.Substring(sw), @"case ATUTuneStatus\.FailBypass:[\s\S]*?break;").Value);
     }
 
+    /// <remarks>
+    /// Changed in batch 12's repair round 1 (#1127): this pinned "sends nothing"
+    /// for every tuner type, and out of automatic type that was the defect: a
+    /// second tune key press found the latch its own carrier had set, said no
+    /// new request was sent, and left the carrier on the air. Out of automatic
+    /// type the press is now the tune carrier's own key and never reaches the
+    /// latch (<c>TuneKeyCarrierTests</c> drives it); the latch answer stands
+    /// for an automatic ATU cycle only.
+    /// </remarks>
     [Fact]
-    public void A_press_while_the_tuner_latch_is_set_says_so_and_sends_nothing()
+    public void A_press_while_the_tuner_latch_is_set_in_automatic_type_says_so_and_sends_nothing()
     {
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
         int at = main.IndexOf("public void StartATUTuneCycle()", StringComparison.Ordinal);
         string body = main.Substring(at, main.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
+        int carrier = body.IndexOf("if (outcome == Radios.TunePressOutcome.TuneCarrier)", StringComparison.Ordinal);
         int refused = body.IndexOf("if (TunerStartRefused()) return;", StringComparison.Ordinal);
+        Assert.True(carrier > 0 && carrier < refused, "a carrier press leaves before the tuner's door and its latch");
+        string carrierBranch = body.Substring(carrier, refused - carrier);
+        Assert.Contains("TuneKeyCarrierPress();", carrierBranch);
+        Assert.Contains("return;", carrierBranch);
+        Assert.DoesNotContain("FlexTunerOn", carrierBranch);
         int already = body.IndexOf("if (RigControl.FlexTunerOn)", StringComparison.Ordinal);
         int set = body.IndexOf("RigControl.FlexTunerOn = true;", StringComparison.Ordinal);
         int noted = body.IndexOf("_pttController?.NoteAtuTuning(true);", StringComparison.Ordinal);

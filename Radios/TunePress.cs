@@ -9,10 +9,12 @@ namespace Radios
         AtuTune,
 
         /// <summary>
-        /// A plain tune carrier (manual type), and the press says so. Manual is
-        /// the type after a failed ATU tune and after a bypass (Jim's design,
-        /// kept: "bypass the tuner", "Turn autotune off"), and the type a radio
-        /// with no ATU has from the start.
+        /// The tune carrier's own key (manual type), and the press says so.
+        /// Manual is the type after a failed ATU tune and after a bypass (Jim's
+        /// design, kept: "bypass the tuner", "Turn autotune off"), and the type
+        /// a radio with no ATU has from the start. A press with our carrier up
+        /// turns it off; a new press starts one through the tune carrier toggle
+        /// (MainWindow.TuneKeyCarrierPress, batch 12 repair round 1).
         /// </summary>
         TuneCarrier,
 
@@ -36,8 +38,10 @@ namespace Radios
     /// manual type, which every radio that connects with its ATU bypassed runs
     /// in for the whole session, the press keyed a plain tune carrier. A radio
     /// with no ATU refused the press outright. Now manual type, with or without
-    /// an ATU, sends the plain carrier through the same latch as before
-    /// (FlexBase.FlexTunerOn's manual branch) and says it is a tune carrier.
+    /// an ATU, makes the key the tune carrier's own: the carrier goes through
+    /// the tune carrier toggle (not the tuner latch, which a second press used
+    /// to find set while the carrier stayed on the air), the press says it is
+    /// a tune carrier, and a press with the carrier up turns it off.
     /// Automatic type is unchanged.
     /// </remarks>
     public static class TunePress

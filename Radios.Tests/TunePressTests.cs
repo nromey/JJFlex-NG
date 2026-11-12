@@ -119,10 +119,63 @@ public sealed class TunePressTests : IDisposable
         Assert.Contains("Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType)", body);
         Assert.Contains("if (outcome == Radios.TunePressOutcome.NoTuner)", body);
         Assert.DoesNotContain("if (!RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet))", body);
-        Assert.Matches(new Regex(@"Lexicon\.Get\(outcome == Radios\.TunePressOutcome\.TuneCarrier\s*\?\s*""audio\.tune\.tune_carrier_sent""[^:]*:\s*""audio\.tune\.atu_tuning""\)"), body);
+        // Repair round 1: the carrier outcome leaves for the carrier's own key
+        // before anything else, and "ATU tuning" is all that is left here.
+        Assert.Contains("if (outcome == Radios.TunePressOutcome.TuneCarrier)", body);
+        Assert.Contains("Lexicon.Get(\"audio.tune.atu_tuning\")", body);
+        Assert.DoesNotContain("audio.tune.tune_carrier_sent", body);
         Assert.Contains("subject: Radios.Speech.SpeechSubject.TunePressSent", body);
-        Assert.False(string.IsNullOrWhiteSpace(Lexicon.Get("audio.tune.tune_carrier_sent")));
-        Assert.DoesNotContain("ATU", Lexicon.Get("audio.tune.tune_carrier_sent"), StringComparison.Ordinal);
+
+        // The carrier's sentence is said only after the toggle has asked for
+        // the carrier, never ahead of a refusal.
+        string press = Body(main, "private void TuneKeyCarrierPress()");
+        int toggle = press.IndexOf("try { ToggleTuneCarrier(); }", StringComparison.Ordinal);
+        int asked = press.IndexOf("if (rig.TuneAskedOrUp)", toggle, StringComparison.Ordinal);
+        int said = press.IndexOf("\"audio.tune.tune_carrier_sent\"", StringComparison.Ordinal);
+        Assert.True(toggle > 0 && asked > toggle && said > asked);
+        Assert.Contains("subject: Radios.Speech.SpeechSubject.TunePressSent", press.Substring(said));
+        Assert.Equal("A tune carrier was requested.", Lexicon.Get("audio.tune.tune_carrier_sent"));
+    }
+
+    private static string Body(string src, string signature)
+    {
+        int at = src.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(at >= 0, signature);
+        int open = src.IndexOf('{', at), depth = 0;
+        for (int i = open; i < src.Length; i++)
+        {
+            if (src[i] == '{') depth++;
+            else if (src[i] == '}' && --depth == 0) return src.Substring(at, i - at + 1);
+        }
+        throw new InvalidOperationException(signature);
+    }
+
+    /// <summary>
+    /// The tune key's carrier is the toggle's (repair round 1): a stop is the
+    /// toggle's explicit off, a start the toggle itself, so the radio's answer
+    /// and its feedback are Ctrl+Shift+T's, and the gate Check your audio's
+    /// tune key uses decides which.
+    /// </summary>
+    [Fact]
+    public void The_tune_keys_carrier_is_the_toggles_own()
+    {
+        string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
+        string press = Body(main, "private void TuneKeyCarrierPress()");
+        Assert.Contains(".Decide(TuneKeyClock(), isRepeat: false, ours, () => true)", press);
+        Assert.Contains("bool ours = rig.TuneAskedOrUp;", press);
+        int stop = press.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
+        int start = press.IndexOf("case Radios.PressAct.Start:", StringComparison.Ordinal);
+        Assert.True(stop > 0 && start > stop);
+        string stopArm = press.Substring(stop, start - stop);
+        Assert.Contains("TurnTuneCarrierOff();", stopArm);
+        Assert.DoesNotContain("ToggleTuneCarrier", stopArm);
+        Assert.DoesNotContain("FlexTunerOn", press);
+
+        // The radio's answer, "Tune on", queues behind the press's sentence
+        // rather than cutting it, and only on this route.
+        string answer = Body(main, "private void AnnounceTuneWhenTheRadioAnswers()");
+        Assert.Contains("bool tuneOnInterrupts = !_tuneAnswerFollowsLead;", answer);
+        Assert.Contains("Lexicon.Get(\"audio.tune.tune_on\"), VerbosityLevel.Terse, tuneOnInterrupts)", answer);
     }
 
     [Fact]
