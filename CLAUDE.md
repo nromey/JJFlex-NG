@@ -97,9 +97,12 @@ would evaluate `0 >= 2` and switch the feature off, silently, as a capability si
 offered.** Cross-check a model-derived count before gating on a slice number, and treat a
 zero as "not reported" rather than as "none".
 
-Whether `AvailableSlices` degrades the same way is **NOT established** — it never appeared in
-that trace. Do not assume it mirrors `MaxSlices`, and do not assume either is reliable on a
-WAN connection until someone has read it off a radio.
+**`AvailableSlices` degrades the same way, by FlexLib's source** (read 2026-11-11, not yet off a
+radio): only local discovery sets either count (`API.cs` 198-199 copies them from the discovered
+radio; `Discovery.cs` parses `available_slices` and `max_slices`), and a SmartLink radio is built
+from the WAN radio list without them. So on every SmartLink connection both read 0, and the
+`AvailableSlices >= 2` example above would switch the feature off. This said "NOT established"
+until then. Confirm it off a remote radio's trace when one is next at hand.
 
 ### Naming a namespace under `Radios`
 
