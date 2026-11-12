@@ -4012,25 +4012,50 @@ Module globals
     End Sub
 
     ''' <summary>
-    ''' Operator change handler — wired to Operators.ConfigEvent.
+    ''' Operator change handler — wired to Operators.ConfigEvent, and the
+    ''' ONLY handler of it (#1072). It announces the change through
+    ''' Radios.OperatorChange, and every per-operator store follows from there,
+    ''' registered once, in order: this module's own (below, in
+    ''' FollowTheOperatorHere), then the ones ApplicationEvents registers.
     ''' Moved from Form1 during Sprint 11 Phase 11.8.
     ''' </summary>
     Private Sub operatorChanged(sender As Object, e As ConfigArgs)
-        If CurrentOp IsNot Nothing Then
-            While (ContactLog IsNot Nothing) AndAlso (Not ContactLog.Cleanup)
-            End While
-            ConfigContactLog()
-        End If
+        Radios.OperatorChange.Announce(BaseConfigDir, currentOperatorUniqueName())
+    End Sub
 
-        If RigControl IsNot Nothing Then
-            RigControl.OperatorChangeHandler()
-        End If
+    ''' <summary>The current operator's unique name, which names every per-operator file; Nothing with no operator.</summary>
+    Friend Function currentOperatorUniqueName() As String
+        Return If(CurrentOp Is Nothing, Nothing, PersonalData.UniqueOpName(CurrentOp))
+    End Function
+
+    ''' <summary>
+    ''' The followers this module owns (#1072): what used to be the body of
+    ''' operatorChanged, in the same order. Registered once, at startup, before
+    ''' the handler is wired.
+    ''' </summary>
+    Private Sub FollowTheOperatorHere()
+        Radios.OperatorChange.Follow("contact log",
+            Sub(op)
+                If CurrentOp Is Nothing Then Return
+                While (ContactLog IsNot Nothing) AndAlso (Not ContactLog.Cleanup)
+                End While
+                ConfigContactLog()
+            End Sub)
+
+        ' The connected radio's own per-operator state: the keyer setup
+        ' (#879) and the pan adapter's folder (#1072).
+        Radios.OperatorChange.Follow("the connected radio (keyer setup, pan adapter)",
+            Sub(op)
+                If RigControl IsNot Nothing Then RigControl.OperatorChangeHandler()
+            End Sub)
 
         ' Apply the new operator's UI mode preference via WPF.
-        If WpfMainWindow IsNot Nothing Then
-            Dim preferredMode = If(CurrentOp Is Nothing, UIMode.Classic, CurrentOp.CurrentUIMode)
-            WpfMainWindow.ApplyUIMode(CType(preferredMode, JJFlexWpf.MainWindow.UIMode))
-        End If
+        Radios.OperatorChange.Follow("UI mode",
+            Sub(op)
+                If WpfMainWindow Is Nothing Then Return
+                Dim preferredMode = If(CurrentOp Is Nothing, UIMode.Classic, CurrentOp.CurrentUIMode)
+                WpfMainWindow.ApplyUIMode(CType(preferredMode, JJFlexWpf.MainWindow.UIMode))
+            End Sub)
     End Sub
 
     ' ── Radio open / close ──────────────────────────────────
@@ -6138,7 +6163,11 @@ RadioConnected:
             AppShellForm.Text &= " " & pgmName
         End If
 
-        ' Wire operator change handler
+        ' Wire operator change handler: the one mechanism (#1072). The operator
+        ' in use at startup is recorded first, without notifying anyone (each
+        ' store loads its own at startup), then this module's followers.
+        Radios.OperatorChange.Establish(BaseConfigDir, currentOperatorUniqueName())
+        FollowTheOperatorHere()
         AddHandler Operators.ConfigEvent, AddressOf operatorChanged
 
         ' Wire WriteText delegates to MainWindow

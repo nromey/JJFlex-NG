@@ -343,13 +343,16 @@ namespace Radios.Tests
 
             int init = events.IndexOf("            InitializeApplication()\n", StringComparison.Ordinal);
             int follow = events.IndexOf(
-                "Radios.AccessibilityConfig.FollowOperator(BaseConfigDir, PersonalData.UniqueOpName(CurrentOp))",
+                "Radios.AccessibilityConfig.FollowOperator(op.ConfigDirectory, op.OperatorName)",
                 StringComparison.Ordinal);
-            int wire = events.LastIndexOf("AddHandler Operators.ConfigEvent,", follow, StringComparison.Ordinal);
+            // #1072: through the one operator-change mechanism, whose handler
+            // announces the settings root and the current operator's unique
+            // name (pinned in OperatorChangeFollowTests).
+            int wire = events.LastIndexOf("Radios.OperatorChange.Follow(\"accessibility choices\",", follow, StringComparison.Ordinal);
             int connectWiring = events.IndexOf("WpfMainWindow.FreqOutHandlersWireCallback = Sub(handlers)", StringComparison.Ordinal);
             Assert.True(init > 0 && follow > init, "FollowOperator must be wired after InitializeApplication");
             Assert.True(wire > init && wire < follow && follow - wire < 300,
-                "FollowOperator must run in an Operators.ConfigEvent handler");
+                "FollowOperator must run as an operator-change follower");
             Assert.True(connectWiring > follow, "FollowOperator must be wired at startup, not in the connect-time wiring");
             Assert.Equal(1, Regex.Matches(events, Regex.Escape("AccessibilityConfig.FollowOperator(")).Count);
 

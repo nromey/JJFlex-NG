@@ -1196,6 +1196,27 @@ public partial class MainWindow : UserControl
     public string? GetFilterPresetDisplayedStatus() => _freqOutHandlers?.ActiveFilterPresetDisplayedStatus;
 
     /// <summary>
+    /// The operator changed while a radio is on (#1072): the PTT tab's settings
+    /// (time limits, band memory, frequency units) are the new operator's from
+    /// now on. They were read once, at power-on, so after Radio, Operators the
+    /// previous operator's went on governing the transmitter and the next
+    /// Settings OK saved them into the new operator's file. With no radio there
+    /// is nothing held: power-on reads the operator in use then.
+    /// </summary>
+    public void FollowOperatorPttConfig()
+    {
+        if (CurrentPttConfig == null || OpenParms == null) return;
+        CurrentPttConfig = PttConfig.Load(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+        _pttController?.UpdateConfig(CurrentPttConfig);
+        if (_freqOutHandlers != null)
+        {
+            _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig.BandMemoryEnabled;
+            _freqOutHandlers.FrequencyUnits = CurrentPttConfig.FrequencyDisplayUnits;
+        }
+        Tracing.TraceLine("FollowOperatorPttConfig: the PTT settings are now " + OpenParms.GetOperatorName() + "'s", TraceLevel.Info);
+    }
+
+    /// <summary>
     /// Apply settings changes from the Settings dialog.
     /// Propagates PttConfig to controller, tuning steps to handler, and saves to disk.
     /// </summary>
