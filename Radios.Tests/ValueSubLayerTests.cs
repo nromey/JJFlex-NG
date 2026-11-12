@@ -3172,12 +3172,13 @@ namespace Radios.Tests
             Assert.Contains("internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;", check);
 
             // Repair round two (Noel 09:51, "simplify yes").
-            // Codex B1 by class: every path that ends a transmission OUTSIDE
-            // the key edges drops the edges' input state through one helper,
-            // or a deferred release left pending swallows the next
-            // Ctrl+Space. The dialog's Escape, Home's step-3 Escape
-            // (PRE-EXISTING), window loss, the radio turning transmit off on
-            // its own, and the radio closing. The helper stops the timer,
+            // Codex B1 by class, as #1089 and #900 since qualified it: a path
+            // that ends a transmission OUTSIDE the key edges with no key held
+            // (a lock) drops the edges' input state through one helper, or a
+            // deferred release left pending swallows the next Ctrl+Space; the
+            // radio closing does the same. A HOLD the operator may still be
+            // pressing is latched instead (window loss, Escape on Home and in
+            // a dialog, the radio's own off). The helper stops the timer,
             // resets both press trackers and clears the guard and the door.
             static string After(string text, string marker)
             {

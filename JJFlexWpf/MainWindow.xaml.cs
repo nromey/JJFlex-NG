@@ -1013,11 +1013,16 @@ public partial class MainWindow : UserControl
     /// synthetic-pair test is written here.
     /// </para>
     /// <para>
-    /// <b>It never outlives the input state.</b> <see cref="ResetPttInput"/>
-    /// clears it, so Escape, the radio turning transmit off on its own and the
-    /// radio closing all take it with them. A dialog's window loss does NOT
-    /// (#900): it latches the hold it ends, because under JAWS the next
-    /// synthetic down of the same held key lands in the next window.
+    /// <b>It is set wherever the app ends a HOLD the operator may still be
+    /// pressing, and forgotten only where nothing is held.</b> A reference's
+    /// end, a dialog's window loss (#900), the fifteen-minute limit and the
+    /// kill (#1020, #1089), and Escape on Home or in a dialog and the radio
+    /// turning transmit off on its own (#1089, through
+    /// <see cref="EndTransmitOutsideTheEdges"/>) all LATCH a hold, because
+    /// under JAWS the next synthetic down of the same held key would otherwise
+    /// key again. <see cref="ResetPttInput"/> clears it, and runs where no key
+    /// is held (those same doors ending a lock) and where the radio closes or
+    /// drops.
     /// </para>
     /// </remarks>
     private bool _pttHoldEndedByApp;
@@ -3071,11 +3076,12 @@ public partial class MainWindow : UserControl
             if (rawKey == Key.Escape && _pttController.IsTransmitting)
             {
                 // #778c repair round two, Codex B1 (PRE-EXISTING here): the
-                // controller's transition is not the whole of it. The input
-                // state the edges keep (a deferred release, the repeat
-                // guard) must go too, or the next Ctrl+Space is read as
-                // continuing a hold that Escape ended. A HOLD the operator
-                // may still be pressing is latched, not forgotten (#1089).
+                // controller's transition is not the whole of it. Ending a
+                // LOCK, the input state the edges keep (a deferred release,
+                // the repeat guard) goes too. A HOLD the operator may still
+                // be pressing is latched instead, not forgotten (#1089), so
+                // a reader's next synthetic down keys nothing until a real
+                // release; that reverses B1's forgetting on purpose.
                 EndTransmitOutsideTheEdges("Escape on Home", () => _pttController.EscapeUnlock());
                 e.Handled = true;
                 return;
@@ -3289,8 +3295,9 @@ public partial class MainWindow : UserControl
         _pttHoldFilter.Reset();
         _pttKeyDown = false;
         _pttHoldDoor = PttDoor.None;
-        // A hold the app ended goes with the rest (round five, 7a): it can
-        // never outlive Escape, a teardown or the radio closing.
+        // A hold the app ended goes with the rest (round five, 7a). Since
+        // #1089 Escape and the radio's own off LATCH a hold and never reach
+        // here for one; this runs for a lock, a teardown or the radio closing.
         _pttHoldEndedByApp = false;
         _pttLatchDoor = PttDoor.None;
     }
