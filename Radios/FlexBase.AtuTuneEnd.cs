@@ -36,5 +36,39 @@ namespace Radios
             ATUTuneStatus.ManualBypass => true,
             _ => false,
         };
+
+        /// <summary>
+        /// Whether the tune carrier falling ends the tuner latch
+        /// (<see cref="FlexTunerOn"/>): only when the latch is set and the
+        /// tuner type is not automatic.
+        /// </summary>
+        /// <remarks>
+        /// <para>Out of automatic type, a tune press keys the radio's tune
+        /// carrier and sets the latch, and the latch is all a later press
+        /// reads. Stopping that carrier by any other route than the latch's own
+        /// toggle (the tune carrier key, the emergency stop, the radio dropping
+        /// it) used to leave the latch set, so every later tune press found it
+        /// set and sent nothing. In that type the latch means "our tune carrier
+        /// is up", so it follows the carrier down.</para>
+        /// <para>Automatic type is left as it was: there the latch means "an ATU
+        /// cycle of ours is running", which the ATU's own status ends (see
+        /// <see cref="AtuStatusEndsTheTune"/>).</para>
+        /// </remarks>
+        internal static bool CarrierFallEndsTheLatch(FlexTunerTypes type, bool latch) =>
+            latch && type != FlexTunerTypes.auto;
+
+        /// <summary>
+        /// The tune carrier has fallen: out of automatic type, clear the tuner
+        /// latch. Clears the field only and sends nothing: the carrier is
+        /// already down, and the setter's manual branch would wait on this
+        /// receive thread for the standing wave ratio and queue a tune-off.
+        /// </summary>
+        private void ReleaseTunerLatchOnCarrierFall()
+        {
+            if (!CarrierFallEndsTheLatch(_FlexTunerType, _FlexTunerOn)) return;
+            _FlexTunerOn = false;
+            JJTrace.Tracing.TraceLine("FlexTunerOn: the tune carrier fell with the tuner type " + _FlexTunerType
+                + "; the latch is cleared, nothing sent", System.Diagnostics.TraceLevel.Info);
+        }
     }
 }

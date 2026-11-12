@@ -195,6 +195,7 @@ namespace Radios
         private void OnTuneFlagFell()
         {
             NoteTuneRequest(false);
+            ReleaseTunerLatchOnCarrierFall();
             TuneCarrierFell?.Invoke();
         }
 

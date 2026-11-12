@@ -53,12 +53,13 @@ public sealed class AtuTuneEndTests : IDisposable
 
     // ---- the latch, on the fake radio ----
 
-    private static void RunQueue(RadioCase c)
+    private static void RunQueue(RadioCase c, System.Collections.Generic.List<string>? ran = null)
     {
         while (c.F.Rig.q.Count > 0)
         {
-            var item = c.F.Rig.q.Dequeue().Item;
-            if (item is FlexBase.FunctionDel a) a();
+            var queued = c.F.Rig.q.Dequeue();
+            ran?.Add(queued.Name);
+            if (queued.Item is FlexBase.FunctionDel a) a();
         }
     }
 
@@ -70,10 +71,18 @@ public sealed class AtuTuneEndTests : IDisposable
     /// a connection wires it (the fixture does not), so a status line reaches
     /// the ATUTuneStatus handler.
     /// </summary>
-    private static void Automatic(RadioCase c)
+    private static void Automatic(RadioCase c) => Wired(c, FlexBase.FlexTunerTypes.auto);
+
+    /// <summary>
+    /// The manual tuner type: where a radio that connects with its ATU
+    /// bypassed starts the session, and where a plain TUNE_FAIL leaves it.
+    /// </summary>
+    private static void Manual(RadioCase c) => Wired(c, FlexBase.FlexTunerTypes.manual);
+
+    private static void Wired(RadioCase c, FlexBase.FlexTunerTypes type)
     {
         typeof(FlexBase).GetField("_FlexTunerType", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(c.F.Rig, FlexBase.FlexTunerTypes.auto);
+            .SetValue(c.F.Rig, type);
         var radio = c.F.Vendor.Radio;
         var binding = new StationConnect.ObservationBindingFor(radio).Binding;
         var handler = typeof(FlexBase).GetMethod("radioPropertyChangedHandler", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -139,6 +148,74 @@ public sealed class AtuTuneEndTests : IDisposable
         Assert.False(c.F.Rig.FlexTunerOn);
         Assert.True(Sent(c, "atu bypass") > 0);
         Assert.NotEqual(FlexBase.FlexTunerTypes.auto, TunerType(c));
+    }
+
+    // ---- the latch follows the carrier out of automatic type ----
+
+    [Theory]
+    [InlineData(FlexBase.FlexTunerTypes.manual, true, true)]
+    [InlineData(FlexBase.FlexTunerTypes.none, true, true)]
+    [InlineData(FlexBase.FlexTunerTypes.auto, true, false)]
+    [InlineData(FlexBase.FlexTunerTypes.manual, false, false)]
+    public void Out_of_automatic_type_the_carrier_falling_ends_the_latch(FlexBase.FlexTunerTypes type, bool latch, bool ends) =>
+        Assert.Equal(ends, FlexBase.CarrierFallEndsTheLatch(type, latch));
+
+    /// <summary>
+    /// Manual type: the tune press keys the tune carrier and sets the latch;
+    /// the tune carrier key stops the carrier (it sets TxTune directly, never
+    /// the latch). The latch must clear as the carrier falls, with nothing
+    /// queued by the clearing, and the next press must key again. Before, the
+    /// latch stayed set and every later press sent nothing.
+    /// </summary>
+    [Fact]
+    public void In_manual_type_a_tune_carrier_stopped_by_the_tune_key_ends_the_latch_and_sends_nothing_more()
+    {
+        using var c = new RadioCase();
+        Manual(c);
+
+        c.F.Rig.FlexTunerOn = true;   // the tune press
+        RunQueue(c);
+        int keys = Sent(c, "transmit tune 1");
+        Assert.True(keys > 0, "positive control: the press keyed the tune carrier");
+        Assert.Equal(0, Sent(c, "atu start"));   // manual type: a carrier, not an ATU cycle
+        c.F.Vendor.Status("transmit tune=1");
+        Assert.True(c.F.Rig.FlexTunerOn, "positive control: the latch is set while the carrier is up");
+
+        // The carrier falls inside the tune key's own write (FlexLib's cache
+        // drops as the off goes out) or at the radio's report, whichever comes
+        // first, so the queue is read across both.
+        int offs = Sent(c, "transmit tune 0");
+        var ran = new System.Collections.Generic.List<string>();
+        c.F.Rig.TxTune = false;   // the tune carrier key
+        RunQueue(c, ran);
+        c.F.Vendor.Status("transmit tune=0");   // the radio reports the carrier down
+        RunQueue(c, ran);
+
+        Assert.False(c.F.Rig.FlexTunerOn, "the carrier is down: the latch must clear");
+        Assert.Equal(1, Sent(c, "transmit tune 0") - offs);   // the tune key's off, and no other
+        Assert.Equal(new[] { "TXTune" }, ran);   // the clearing queued nothing: no second tune write
+        Assert.Equal(FlexBase.FlexTunerTypes.manual, TunerType(c));
+
+        c.F.Rig.FlexTunerOn = true;   // the next press
+        RunQueue(c);
+        Assert.True(Sent(c, "transmit tune 1") > keys, "the next press keys the tune carrier again");
+    }
+
+    /// <summary>
+    /// The control: in automatic type the latch is an ATU cycle's, ended by the
+    /// ATU's own status, and a carrier falling leaves it alone as before.
+    /// </summary>
+    [Fact]
+    public void In_automatic_type_a_carrier_falling_leaves_the_latch_to_the_tuner_status()
+    {
+        using var c = new RadioCase();
+        Automatic(c);
+        TunePressed(c);
+        c.F.Vendor.Status("transmit tune=1");
+        c.F.Vendor.Status("transmit tune=0");
+        Assert.True(c.F.Rig.FlexTunerOn);
+        c.F.Vendor.Status("atu status=TUNE_SUCCESSFUL");
+        Assert.False(c.F.Rig.FlexTunerOn);
     }
 
     // ---- the wiring ----
