@@ -244,8 +244,6 @@ namespace Radios.Tests
         /// </summary>
         private static readonly string[] PagesWithATableToday =
         {
-            "JJFlexibleHome/BandNavigation.md",
-            "JJFlexibleHome/ModeSwitching.md",
             "Logging/Logging.md",
             "Receiver/FiltersAndDsp.md",
             "Sounds/MeterTones.md",
