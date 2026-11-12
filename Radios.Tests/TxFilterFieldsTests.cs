@@ -496,9 +496,12 @@ namespace Radios.Tests
                 string host = System.IO.File.ReadAllText(System.IO.Path.Combine(new[] { IntegrationPassTree.Root }.Concat(rel).ToArray()));
                 Assert.True(CountOf(host, ".AppliedEndStop = atMinimum =>") == 2, string.Join("/", rel) + ": both fields route their end stop");
                 Assert.Contains("refresh: stillCurrent => Dispatcher.BeginInvoke(() =>", host, StringComparison.Ordinal);
-                Assert.Contains("if (!stillCurrent() || _rig == null) return;", host, StringComparison.Ordinal);
+                // The Workshop reads its LIVE radio (#1039): after a Disconnect a
+                // filter answer finds none and writes nothing to its fields.
+                string r = rel[^1].StartsWith("AudioWorkshop", StringComparison.Ordinal) ? "LiveRig" : "_rig";
+                Assert.Contains("if (!stillCurrent() || " + r + " == null) return;", host, StringComparison.Ordinal);
                 // Round twelve: the pair is read when the closure runs, never captured at completion.
-                Assert.Contains("TxFilterFields(_rig.TXFilterLow, _rig.TXFilterHigh); }", host, StringComparison.Ordinal);
+                Assert.Contains("TxFilterFields(" + r + ".TXFilterLow, " + r + ".TXFilterHigh); }", host, StringComparison.Ordinal);
                 Assert.DoesNotContain("applied.Low, applied.High", host, StringComparison.Ordinal);
                 Assert.Contains("Control.Max = Math.Max(0, high - 50);", host, StringComparison.Ordinal);
                 Assert.Contains("Control.Min = Math.Min(10000, low + 50);", host, StringComparison.Ordinal);

@@ -385,6 +385,34 @@ namespace JJFlexWpf.Dialogs
         public bool BoundAccountSessionComingUp { get; set; }
 
         /// <summary>
+        /// Whether SmartLink has ANSWERED without this radio: the lists that
+        /// bear on it arrived on their sessions' live connections and none
+        /// names it (<see cref="Radios.NetworkIdentityInfo.SmartLinkAnsweredWithout"/>,
+        /// #398, repair three). Stamped by the dialog on every refresh from one
+        /// reading of the session table. Only the Network identity card reads
+        /// it. <b>Defaults to false</b>, so a row nothing has stamped says
+        /// less, never a denial.
+        /// </summary>
+        /// <remarks>
+        /// Replaces repair two's "any session live" stamp, which a connected
+        /// session set before its first list had arrived, so the card denied
+        /// a listing nothing had answered (Codex's re-check of repair two, B1).
+        /// </remarks>
+        public bool SmartLinkAnsweredWithoutIt { get; set; }
+
+        /// <summary>
+        /// What the Network identity card may say about whether a SmartLink
+        /// list carries this radio (#398, repairs two and three): whether that
+        /// list is still current, whether the lists that bear on it have
+        /// answered without it, and the row's own passes still running, read
+        /// by the one rule in
+        /// <see cref="Radios.NetworkIdentityInfo.PickerListingFor"/>.
+        /// </summary>
+        public Radios.PickerListing SmartLinkListing =>
+            Radios.NetworkIdentityInfo.PickerListingFor(WanAvailable, WanUnconfirmed, DiscoverySettled, RefreshInFlight,
+                SmartLinkAnsweredWithoutIt);
+
+        /// <summary>
         /// Whether connecting to this row travels the SmartLink path.
         /// Derived from <see cref="ChosenPath"/>, never stored — and unlike
         /// the old derivation, the operator's stored chain is consulted for
@@ -1006,6 +1034,10 @@ namespace JJFlexWpf.Dialogs
             // so a drop landing during the opening pass is not missed.
             _listCurrencySource = Radios.SmartLink.SmartLinkServices.Coordinator;
             _listCurrencySource.SessionListCurrencyMayHaveChanged += OnWanListCurrencyMayHaveChanged;
+            // ...and a list arriving, so a list that answers without the
+            // highlighted radio reaches the identity card even when no row
+            // changes (#398, repair three).
+            _listCurrencySource.SessionRadioListReceived += OnWanListReceived;
 
             // Collect the backlog FIRST. Discovery now runs before this dialog
             // is created, so that the operator meets a settled list instead of
@@ -1590,14 +1622,39 @@ namespace JJFlexWpf.Dialogs
         /// same reason the owner's gate is never held across the UI.
         /// </summary>
         private void OnWanListCurrencyMayHaveChanged(object? sender, Radios.SmartLink.IWanSessionOwner session)
+            => QueueSessionReask(nameof(OnWanListCurrencyMayHaveChanged));
+
+        /// <summary>
+        /// A SmartLink session accepted a radio list (#398, repair three). A
+        /// list that answers WITHOUT the highlighted radio changes no row, so
+        /// no sighting or removal repaints the identity card, which would go
+        /// on saying SmartLink had not been checked. Raised on the SmartLink
+        /// receive thread; queues the same re-ask as a currency change.
+        /// </summary>
+        private void OnWanListReceived(object? sender, Radios.SmartLink.SessionRadioListEventArgs e)
+            => QueueSessionReask(nameof(OnWanListReceived));
+
+        /// <summary>
+        /// Queue one <see cref="ReassessWanRows"/> on the dispatcher. Every
+        /// session event that arrives while one is already queued shares it:
+        /// the re-ask reads the session table when it RUNS, so one pass
+        /// answers them all. Never waits on the list lock or the window from
+        /// a SmartLink thread.
+        /// </summary>
+        private void QueueSessionReask(string from)
         {
+            if (System.Threading.Interlocked.Exchange(ref _sessionReaskQueued, 1) == 1) return;
             try { Dispatcher.BeginInvoke(new Action(ReassessWanRows)); }
             catch (Exception ex)
             {
-                Tracing.TraceLine($"RigSelector.OnWanListCurrencyMayHaveChanged: {ex.Message}",
+                System.Threading.Interlocked.Exchange(ref _sessionReaskQueued, 0);
+                Tracing.TraceLine($"RigSelector.{from}: {ex.Message}",
                     System.Diagnostics.TraceLevel.Warning);
             }
         }
+
+        /// <summary>Set while a <see cref="ReassessWanRows"/> is queued and not yet running.</summary>
+        private int _sessionReaskQueued;
 
         /// <summary>
         /// Re-ask every row's SmartLink half through
@@ -1623,9 +1680,21 @@ namespace JJFlexWpf.Dialogs
         /// <para>The arrival memo is deliberately NOT cleared: a SmartLink
         /// reconnect would otherwise re-announce every radio on the account
         /// as arriving, and the radio did not go anywhere we know of.</para>
+        /// <para><b>It repaints even when nothing was withdrawn</b> (#398,
+        /// repair three, Codex's re-check of repair two, B1). Rows also carry
+        /// what the session table said at the last refresh (the identity
+        /// card's answered-list stamp), and a session that disconnects, goes,
+        /// or answers changes that whether or not any row had a live SmartLink
+        /// half to withdraw. Until then this returned early on no withdrawals,
+        /// so the card went on denying a listing after the last session had
+        /// gone, for as long as the picker stayed open. The repaint goes
+        /// through <see cref="RefreshRadiosList"/>, and so through the card's
+        /// own guard: a reader inside the card is not moved, and the held-back
+        /// text is shown when they leave.</para>
         /// </remarks>
         private void ReassessWanRows()
         {
+            System.Threading.Interlocked.Exchange(ref _sessionReaskQueued, 0);
             var withdrawn = new List<string>();
             lock (_radiosLock)
             {
@@ -1640,7 +1709,11 @@ namespace JJFlexWpf.Dialogs
                 if (withdrawn.Count > 0)
                     _anyLiveRadioSeen = _radiosList.Any(r => r.IsLive);
             }
-            if (withdrawn.Count == 0) return;
+            if (withdrawn.Count == 0)
+            {
+                RefreshRadiosList();
+                return;
+            }
 
             Tracing.TraceLine(
                 $"RigSelector.ReassessWanRows: {string.Join(", ", withdrawn)} came from a SmartLink list that is no longer current — shown as last seen and still selectable, no longer an auto-connect candidate (Noel 2026-09-30)",
@@ -2342,6 +2415,35 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// Every held session's account and radio list snapshot, read once
+        /// (#398, repair three). The snapshot carries whether the list arrived
+        /// on the session's live connection, which a bare
+        /// <c>IsConnected</c> does not: a session is connected before its
+        /// first list. Failure answers with an EMPTY set, so nothing reads as
+        /// answered: wrong in the safe direction, as
+        /// <see cref="LiveSessionAccounts"/> is.
+        /// </summary>
+        private static List<(string Account, Radios.SmartLink.SessionRadioListSnapshot List)> SessionListsNow()
+        {
+            var lists = new List<(string Account, Radios.SmartLink.SessionRadioListSnapshot List)>();
+            try
+            {
+                foreach (var session in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
+                {
+                    if (session == null || string.IsNullOrWhiteSpace(session.AccountId)) continue;
+                    lists.Add((session.AccountId, session.RadioListSnapshot));
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RigSelector.SessionListsNow: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                lists.Clear();
+            }
+            return lists;
+        }
+
+        /// <summary>
         /// What the lists looked like the last time the painted rows' accounts
         /// were asked again: every held session's account and list snapshot,
         /// then the saved accounts. Null until the first ask. UI thread only.
@@ -2604,6 +2706,11 @@ namespace JJFlexWpf.Dialogs
             // set built from a snapshot of at most a handful of sessions.
             var liveAccounts = LiveSessionAccounts();
 
+            // ...and every session's list, read once, for the identity card's
+            // "has SmartLink answered without this radio" (#398, repair three).
+            // Outside _radiosLock for the same reason.
+            var sessionLists = SessionListsNow();
+
             // Read the settle window ONCE per refresh, so every row in a single
             // repaint agrees about whether we are still waiting. Reading it per
             // row could straddle the deadline and render two rows of the same
@@ -2727,6 +2834,12 @@ namespace JJFlexWpf.Dialogs
                         !r.BoundAccountHasLiveSession
                         && presenceSettling
                         && Radios.SmartLink.SmartLinkPresenceService.IsHolding(r.BoundAccount);
+                    // ...and whether SmartLink has answered without this
+                    // radio, which only the identity card reads (#398, repair
+                    // three): a connected session whose list has not arrived
+                    // has answered nothing.
+                    r.SmartLinkAnsweredWithoutIt =
+                        Radios.NetworkIdentityInfo.SmartLinkAnsweredWithout(r.Serial, r.BoundAccount, sessionLists);
                     // ...and which account a SmartLink connect would broker
                     // through, when that is not the one in play — resolved
                     // above, outside this lock. Cleared for every row it does
@@ -2788,6 +2901,18 @@ namespace JJFlexWpf.Dialogs
                 // have gone offline or come back: the list's "{count} listed,
                 // {live} online" name is recomputed whatever (#1008). It used
                 // to return here and keep the old count until a rebuild.
+                //
+                // ...and the identity card, for the same reason (#398, repair
+                // one, Codex B2): this branch keeps the same rows and the same
+                // selection and raises no SelectionChanged, so a sighting that
+                // changed the HIGHLIGHTED row in place reached the card only
+                // when the highlight next moved. Every in-place change lands
+                // here: the comparison above sets each row against itself, so
+                // only a row added, removed or reordered rebuilds the list, and
+                // a rebuild re-raises SelectionChanged itself (Items.Clear drops
+                // the selection and the restore sets it again), which refreshes
+                // the card through its own handler.
+                RefreshIdentityCard();
                 UpdateListAutomationName();
                 return;
             }
@@ -2930,15 +3055,33 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Point the identity card at the app's current rig and re-render.
-        /// Setting <see cref="Controls.NetworkIdentityCard.Rig"/> refreshes;
-        /// the card itself guards against stealing focus mid-read.
+        /// Point the identity card at the HIGHLIGHTED row (#398): a SmartLink
+        /// radio's advertised ports, port forwarding and hole punch, as its
+        /// SmartLink list sighting carries them, read without a connect. With
+        /// no row highlighted, or the connected radio highlighted, the app's
+        /// current radio, as before. The card guards against stealing focus
+        /// mid-read, and catches up when the reader leaves it.
         /// </summary>
+        /// <remarks>
+        /// Called when the highlight moves, and by every
+        /// <see cref="RefreshRadiosList"/> that keeps the rows as they were
+        /// (repair one, Codex B2): every sighting, reconcile and removal that
+        /// changes a row in place reaches the list through that refresh, and
+        /// none of them moves the highlight.
+        /// Whether a SmartLink list carries the radio is the row's own flag,
+        /// never the presence of numbers (Codex B1); and a flag that is off
+        /// is a denial only once a list has answered without the radio
+        /// (repairs two and three).
+        /// </remarks>
         private void RefreshIdentityCard()
         {
             try
             {
-                IdentityCard.Rig = _callbacks.GetCurrentRig?.Invoke();
+                var current = _callbacks.GetCurrentRig?.Invoke();
+                var row = GetSelectedRadio();
+                if (row == null) { IdentityCard.Rig = current; return; }
+                IdentityCard.ShowLines(Radios.NetworkIdentityInfo.BuildPickerLines(current, row.Serial, row.Name,
+                    row.ModelName, row.SmartLinkListing, (row.WanSighting as FlexBase.RigData)?.Advertised));
             }
             catch (Exception ex)
             {
@@ -5003,6 +5146,7 @@ namespace JJFlexWpf.Dialogs
             _callbacks.UnregisterRadioFound();
             _callbacks.UnregisterRadioRemoved?.Invoke();
             _listCurrencySource.SessionListCurrencyMayHaveChanged -= OnWanListCurrencyMayHaveChanged;
+            _listCurrencySource.SessionRadioListReceived -= OnWanListReceived;
         }
     }
 }

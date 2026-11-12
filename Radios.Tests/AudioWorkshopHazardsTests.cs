@@ -26,7 +26,7 @@ namespace Radios.Tests
             string body = src.Substring(at, src.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
             int ask = body.IndexOf("new ConfirmActionDialog(", StringComparison.Ordinal);
             int refused = body.IndexOf("if (confirm.ShowDialog() != true)", StringComparison.Ordinal);
-            int write = body.IndexOf(".ApplyTo(_rig)", StringComparison.Ordinal);
+            int write = body.IndexOf(".ApplyTo(LiveRig)", StringComparison.Ordinal);
             Assert.True(ask > 0 && ask < refused && refused < write,
                 "Reset must confirm, and return on a No, before it applies the default preset to the radio");
             Assert.Contains("settings.audio.reset_tx_audio_title", body, StringComparison.Ordinal);

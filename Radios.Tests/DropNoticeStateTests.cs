@@ -181,6 +181,12 @@ namespace Radios.Tests
             using var atWorker = new ManualResetEventSlim(false);
             using var release = new ManualResetEventSlim(false);
             using var told = new ManualResetEventSlim(false);
+            // Set once the archive hook has ASSIGNED archiveResult. atWorker
+            // alone does not promise that: TryArchive queues the worker before
+            // it returns, so the worker can reach its hook (and the test thread
+            // wake) while the hook is still between TryArchive's return and
+            // the assignment below.
+            using var assigned = new ManualResetEventSlim(false);
             CaptureArchiveNotice notice = null;
             TraceTransitionResult archiveResult = null;
             Thread worker = null;
@@ -196,15 +202,24 @@ namespace Radios.Tests
             {
                 var lines = new System.Collections.Generic.List<TraceRecord>();
                 if (!string.IsNullOrEmpty(req.PartialMeterLine?.Text)) lines.Add(req.PartialMeterLine);
-                archiveResult = TraceCoordinator.TryArchive(new TraceArchiveRequest
+                try
                 {
-                    Expected = (TraceSessionHandle)req.ExpectedSession,
-                    OperationId = req.DropOperationId,
-                    Outcome = TraceSessionOutcome.ConnectionDropped,
-                    OutcomeDetail = req.OutcomeDetail,
-                    TerminalLines = lines,
-                    Resume = TraceResumeIntent.Standing,
-                });
+                    archiveResult = TraceCoordinator.TryArchive(new TraceArchiveRequest
+                    {
+                        Expected = (TraceSessionHandle)req.ExpectedSession,
+                        OperationId = req.DropOperationId,
+                        Outcome = TraceSessionOutcome.ConnectionDropped,
+                        OutcomeDetail = req.OutcomeDetail,
+                        TerminalLines = lines,
+                        Resume = TraceResumeIntent.Standing,
+                    });
+                }
+                finally
+                {
+                    // In a finally, so a TryArchive that throws fails the test
+                    // at once on the null below rather than after a timeout.
+                    assigned.Set();
+                }
                 var outcome = new CaptureArchiveResult
                 {
                     Refused = !archiveResult.Owned,
@@ -239,6 +254,8 @@ namespace Radios.Tests
                     "the archive worker never reached the old session's ticket; archive: "
                     + (archiveResult == null ? "hook not called" : archiveResult.Status + " — " + archiveResult.Explanation)
                     + "; worker alive: " + (worker?.IsAlive));
+                Assert.True(assigned.Wait(TimeSpan.FromSeconds(10)),
+                    "the archive hook never returned from TryArchive; worker alive: " + (worker?.IsAlive));
                 // Positive control on the archive itself: it owned the session
                 // and a successor is recording at this moment.
                 Assert.NotNull(archiveResult);

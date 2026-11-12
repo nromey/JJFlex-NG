@@ -1126,7 +1126,8 @@ namespace Radios.Tests
                 // the refusal a direct mode key gives for a mode the radio
                 // does not list. Fragments, or a sentence spoken only in
                 // answer to the operator's own press: TextOnly. DRAFT PROSE
-                // except Digital upper and lower, Noel's option (c).
+                // except Digital USB and Digital LSB, Noel's ruling of
+                // 2026-11-09 (it replaced his option (c), Digital upper and lower).
                 "settings.mode.spoken.digu",
                 "settings.mode.spoken.digl",
                 "settings.mode.spoken.sam",
@@ -1248,6 +1249,33 @@ namespace Radios.Tests
                 // last seen under (every saved list answered without it).
                 // Said only in answer to Enter: TextOnly. DRAFT PROSE.
                 "connect.selector.switching_to_last_seen_account",
+                // Junk box batch 5 (2026-11-10), #1043 F3: a band jump or a
+                // 60 m channel stop refused on a locked slice, or while the
+                // radio is transmitting, names that cause. Said only in answer
+                // to the operator's own press: TextOnly. DRAFT PROSE.
+                "settings.tuning.refused_slice_locked",
+                "settings.tuning.refused_transmitting",
+                // Junk box batch 5, #1043 F4: a choice under Profiles on This
+                // Radio that could not be saved, said in place of its receipt.
+                // Said only in answer to the operator's choice: TextOnly.
+                // DRAFT PROSE.
+                "settings.profile_guest.not_saved",
+                // Junk box batch 5, #398: the radio picker's Network identity
+                // card for a highlighted radio that is not connected. Card
+                // text, read only when the operator reads the card: TextOnly.
+                // DRAFT PROSE.
+                "connect.identity.listed_not_connected",
+                "connect.identity.not_listed",
+                // Repair one: a listed radio whose numbers have not reached
+                // the picker. TextOnly, DRAFT PROSE.
+                "connect.identity.listed_ports_not_arrived",
+                // Repair two: a radio nothing has asked SmartLink about yet.
+                // TextOnly, DRAFT PROSE.
+                "connect.identity.not_asked",
+                // Repair two: a radio last seen on SmartLink, in the past
+                // tense. TextOnly, DRAFT PROSE.
+                "connect.identity.last_listed",
+                "connect.identity.last_listed_ports_not_arrived",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

@@ -26,8 +26,9 @@ namespace JJFlexWpf.Tests;
 public sealed class PendingOverwriteChoiceStoreTests : IDisposable
 {
     // Fresh serials per test: the throwaway settings root is shared by the whole run.
-    private readonly string Connected = "1234-5678-8600-" + Random.Shared.Next(1000, 9999);
-    private readonly string Discovered = "1234-5678-8601-" + Random.Shared.Next(1000, 9999);
+    // A counter, not a random draw, so two tests never share a radio's saved config.
+    private readonly string Connected = LastConnectedRadioSettingTests.FreshSerial("8600");
+    private readonly string Discovered = LastConnectedRadioSettingTests.FreshSerial("8601");
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "jjflex-999-r3-" + Guid.NewGuid().ToString("N"));
 
     public PendingOverwriteChoiceStoreTests()

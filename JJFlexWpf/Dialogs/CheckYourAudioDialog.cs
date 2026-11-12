@@ -73,6 +73,9 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// </summary>
     private FlexBase? LiveRig => _rig != null && ReferenceEquals(_rig, _departedRig) ? null : _rig;
 
+    /// <summary>True while the window still holds a radio the shell has torn down.</summary>
+    private bool RigHasDeparted => _rig != null && LiveRig == null;
+
     private bool _polling;
     private readonly DispatcherTimer _pollTimer;
     private static CheckYourAudioDialog? _instance;
@@ -484,11 +487,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
     /// take's stream ends, or at the next attach. This notice ends nothing. It
     /// only marks the radio departed, so the window can no longer reach it.
     /// </remarks>
-    public static void NotifyRigDeparting(FlexBase? rig)
-    {
-        if (rig == null) return;
-        DialogSections.PostRigChange(_instance, w => w.RigDeparting(rig), onlyIfLoaded: false);
-    }
+    public static void NotifyRigDeparting(FlexBase? rig) =>
+        DialogSections.PostRigDeparting(_instance, rig, (w, r) => w.RigDeparting(r));
 
     /// <summary>
     /// <see cref="NotifyRigDeparting"/> on this window's own thread: the radio-only
@@ -503,6 +503,11 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         _departedRig = rig;
         _pollTimer.Stop();
         UpdateRadioControlAvailability();
+        // The method line and the mic reading say no radio is connected, as
+        // the power-off path's do; an off-air take still finishing keeps its
+        // own lines (both methods decide that, not this one).
+        UpdateMethodStatus();
+        UpdateMicReading();
         JJTrace.Tracing.TraceLine("CheckYourAudio: its radio was disposed; the radio controls are unavailable and the poll "
             + "is stopped, and anything already finishing keeps that radio", System.Diagnostics.TraceLevel.Info);
         return true;

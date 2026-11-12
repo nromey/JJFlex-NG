@@ -762,8 +762,23 @@ namespace Radios
                 {
                     if (!StillTheRegistrationTarget(r)) { stillTheTarget = false; return false; }
                     r.PropertyChanged += handler;
-                    if (register) r.WanRegisterRadio(jwt);
-                    else r.WanUnregisterRadio(jwt);
+                    try
+                    {
+                        if (register) r.WanRegisterRadio(jwt);
+                        else r.WanUnregisterRadio(jwt);
+                    }
+                    catch
+                    {
+                        // The command threw after the handler was attached
+                        // (#975, Codex's F2, as ruled: detach and close on every
+                        // unsuccessful exit). The handler comes off and the
+                        // queue is closed: anything the radio raised meanwhile
+                        // is dropped, so no progress is ever delivered for a
+                        // command that did not go out. Never reopened.
+                        r.PropertyChanged -= handler;
+                        lock (order) { finished = true; pending.Clear(); }
+                        throw;
+                    }
                     return true;
                 });
                 if (!written)

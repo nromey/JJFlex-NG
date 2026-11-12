@@ -238,6 +238,32 @@ namespace Radios.Tests
                         < body.IndexOf("default:", StringComparison.Ordinal));
         }
 
+        /// <summary>
+        /// #1043 F4: a choice under Profiles on This Radio that did not save
+        /// gets no tone and no receipt, for all four choices; it says it was
+        /// not saved instead. Both writers answer false only when nothing was
+        /// saved.
+        /// </summary>
+        [Fact]
+        public void A_choice_that_did_not_save_gets_no_tone_and_no_receipt()
+        {
+            string src = Source("JJFlexWpf", "NativeMenuBar.cs");
+            int at = src.IndexOf("private void SetGuestProfileIntent(", StringComparison.Ordinal);
+            string body = src.Substring(at, src.IndexOf("switch (intent)", at, StringComparison.Ordinal) - at);
+            Assert.Contains("stored = Rig.AskProfileQuestionAtNextConnect();", body, StringComparison.Ordinal);
+            Assert.Contains("stored = Rig.RecordProfileIntent(intent);", body, StringComparison.Ordinal);
+            Assert.Equal(2, body.Split("if (stored) EarconPlayer.ToggleTone(").Length - 1);
+            Assert.Equal(2, body.Split("EarconPlayer.").Length - 1);   // no tone outside those two
+            int refused = body.IndexOf("if (!stored)", StringComparison.Ordinal);
+            Assert.True(refused > 0, "the failed write is checked before any receipt");
+            string branch = body.Substring(refused);
+            Assert.Contains("settings.profile_guest.not_saved", branch, StringComparison.Ordinal);
+            Assert.Contains("return;", branch, StringComparison.Ordinal);
+            // The writers' own contract: false only when nothing was saved.
+            Assert.False(RadioConfig.RecordProfileIntent("not a radio id", ProfileGuestIntent.LeaveAlone));
+            Assert.False(RadioConfig.RecordAskProfileQuestionAtNextConnect("not a radio id"));
+        }
+
         private static string Source(params string[] parts)
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);

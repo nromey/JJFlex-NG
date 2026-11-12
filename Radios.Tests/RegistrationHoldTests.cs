@@ -274,6 +274,46 @@ namespace Radios.Tests
             Assert.True(second.Result);
         }
 
+        private static int Listeners(RigOnVendorRadio rig)
+        {
+            // FlexLib's Radio is an ObservableObject; its event's backing field lives there.
+            var field = typeof(Flex.Smoothlake.FlexLib.Radio).BaseType!
+                .GetField("PropertyChanged", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.True(field != null, "ObservableObject.PropertyChanged is not where this test counts it.");
+            return (field!.GetValue(rig.Vendor.Radio) as Delegate)?.GetInvocationList().Length ?? 0;
+        }
+
+        /// <summary>
+        /// #975 (Codex's F2, as ruled): a command that throws after the
+        /// progress handler is attached detaches it and closes its queue.
+        /// Nothing the radio raised before or after the throw is delivered,
+        /// so no progress is ever reported for a command that did not go out.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_command_that_throws_after_the_handler_is_attached_detaches_it_and_delivers_nothing(bool register)
+        {
+            var rig = ConnectedRig();
+            rig.Rig.RegistrationTokenForTest = _ => "test-token";
+            int before = Listeners(rig);
+            rig.Vendor.Transport.CommandWritten = text =>
+            {
+                if (!text.StartsWith("wan ", StringComparison.Ordinal)) return;
+                RadioSays(rig, Flex.Smoothlake.FlexLib.Radio.WanRadioRegistrationState.WaitingForPTT);   // queued, deferred
+                throw new System.IO.IOException("the socket write failed (test)");
+            };
+            var reports = new List<string>();
+
+            Assert.Equal(GuardedOutcome.Failed, Outcome(rig, register, (text, _) => { lock (reports) reports.Add(text); }));
+            Assert.Equal(before, Listeners(rig));
+
+            rig.Vendor.Transport.CommandWritten = null;
+            RadioSays(rig, Flex.Smoothlake.FlexLib.Radio.WanRadioRegistrationState.FailedPTT);
+            Thread.Sleep(200);
+            lock (reports) Assert.Empty(reports);
+        }
+
         /// <summary>
         /// Codex F1. Three states raised while the command is being written
         /// are delivered after it, in order, each with ITS OWN sentence. Until

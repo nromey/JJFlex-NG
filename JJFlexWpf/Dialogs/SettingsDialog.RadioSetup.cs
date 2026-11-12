@@ -35,6 +35,14 @@ namespace JJFlexWpf.Dialogs
         public Action? OnRebootInitiated { get; set; }
 
         private bool _radioSetupSubscribed;
+
+        /// <summary>
+        /// Set when this window closes. A registration still running on the
+        /// radio keeps reporting after that; its progress then writes no
+        /// control and runs no refresh, and is still spoken (the radio's prompt
+        /// to key the microphone must not be lost because Settings closed).
+        /// </summary>
+        private bool _radioSetupClosed;
         private bool _suppressPrivateIpAnnouncement;
 
         /// <summary>
@@ -54,6 +62,7 @@ namespace JJFlexWpf.Dialogs
             if (!_radioSetupSubscribed)
             {
                 _radioSetupSubscribed = true;
+                Closed += (_, _) => _radioSetupClosed = true;
                 if (SetupStaticIpControl != null) SetupStaticIpControl.AddressChanged += StaticIpControl_AddressChanged;
                 if (NetworkStaticIpControl != null) NetworkStaticIpControl.AddressChanged += StaticIpControl_AddressChanged;
             }
@@ -457,7 +466,8 @@ namespace JJFlexWpf.Dialogs
 
             var confirm = new ConfirmActionDialog(
                 Lexicon.Get("settings.radio.unregister.confirm_title"),
-                Lexicon.Get("settings.radio.unregister.confirm_body"),
+                Lexicon.Get("settings.radio.unregister.confirm_body",
+                    ("accountEmail", check.AccountEmail)),
                 new[]
                 {
                     Lexicon.Get("settings.radio.unregister.warning_needs_someone_there"),
@@ -499,7 +509,13 @@ namespace JJFlexWpf.Dialogs
 
             void OnState(string text, bool terminal) => Dispatcher.Invoke(() =>
             {
-                SetupRegisterStatus.Text = text;
+                // After the window closes (#975 item 4): no control is written
+                // and nothing is refreshed, but the prompt and the verdict are
+                // still spoken, as the firmware watcher speaks after a close.
+                // Nothing here may throw: a throwing callback would stop a
+                // server retry from being scheduled.
+                bool closed = _radioSetupClosed;
+                if (!closed) SetupRegisterStatus.Text = text;
 
                 // The key-the-mic prompt must not be missed (ignore it and the
                 // attempt times out) — and neither may a terminal verdict. Live
@@ -513,7 +529,7 @@ namespace JJFlexWpf.Dialogs
                     keyNow || terminal ? VerbosityLevel.Critical : VerbosityLevel.Terse,
                     interrupt: true);
 
-                if (terminal)
+                if (terminal && !closed)
                 {
                     RefreshSetupStatuses();
                     RefreshReachabilityStatus();

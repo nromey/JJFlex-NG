@@ -126,7 +126,7 @@ public partial class AudioWorkshopDialog
     /// </remarks>
     private void RefreshAmplifierTab()
     {
-        FlexBase? rig = _rig;
+        FlexBase? rig = LiveRig;
 
         if (rig == null)
         {
@@ -195,7 +195,7 @@ public partial class AudioWorkshopDialog
         if (_ampSyncing) return;
 
         bool want = _ampOperateCheck?.IsChecked == true;
-        FlexBase? rig = _rig;
+        FlexBase? rig = LiveRig;
         AmplifierInfo? active = rig?.Amplifiers.ActiveAmplifier;
 
         if (rig == null || active == null)

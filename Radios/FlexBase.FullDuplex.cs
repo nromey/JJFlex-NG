@@ -81,14 +81,30 @@ public partial class FlexBase
         if (scheduleLanCheck) BeginFullDuplexLanCheck();
     }
 
-    // The control calls this after speaking the accepted result, so a fast
-    // LAN disagreement cannot overtake the primary success announcement.
+    // The control calls this when it hands over the accepted result, which
+    // since #1035 is QUEUED behind Home's arrival, not yet spoken. So a fast
+    // LAN disagreement can arrive while that result still waits: the
+    // correction therefore carries the same subject
+    // (SpeechSubject.FullDuplexOutcome), which retires the unheard result
+    // instead of letting it be rescued after the correction and heard last
+    // (repair two, the integration pass's F3). The order is still worth
+    // keeping: the check starts only for a result that was handed over.
     public void BeginFullDuplexLanCheck()
     {
         var decision = Volatile.Read(ref _fullDuplexDecision);
         if (decision == null || Interlocked.Exchange(ref decision.CheckStarted, 1) != 0) return;
         FullDuplexLanCheckTask = VerifyFullDuplexLanAsync(decision);
     }
+
+    /// <summary>
+    /// What a LAN disagreement says: the sentence for the state the radio
+    /// reports, on the same subject as the control's queued outcome, so a
+    /// "Full duplex on" still waiting behind Home's arrival is retired by the
+    /// correction rather than rescued after it (repair two, F3).
+    /// </summary>
+    internal static (string Key, string Subject) FullDuplexCorrection(bool radioReportsOn) =>
+        (radioReportsOn ? "audio.full_duplex.disagreed_on" : "audio.full_duplex.disagreed_off",
+            Speech.SpeechSubject.FullDuplexOutcome);
 
     private async Task VerifyFullDuplexLanAsync(FullDuplexDecision decision)
     {
@@ -120,10 +136,10 @@ public partial class FlexBase
             if (!ReferenceEquals(Interlocked.CompareExchange(ref _fullDuplexDecision, corrected, decision), decision))
             { Outcome("skipped: superseded"); return; }
             Outcome($"disagreed: requested={decision.Value} read={actual.Value}");
+            var correction = FullDuplexCorrection(actual.Value);
             if (!SuppressSpeech)
-                ScreenReaderOutput.Speak(Lexicon.Get(actual.Value
-                    ? "audio.full_duplex.disagreed_on" : "audio.full_duplex.disagreed_off"),
-                    VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get(correction.Key),
+                    VerbosityLevel.Critical, interrupt: true, subject: correction.Subject);
         }
         catch (OperationCanceledException) { Outcome("timed out"); }
         catch (Exception ex) { Outcome("unavailable: " + ex.Message); }

@@ -75,8 +75,31 @@ namespace Radios.Tests
             Assert.Contains("FixerFixOutcome.RefusedByHold(", branch, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// #1043 F2: the fix asks the hold WITHOUT speaking, before the select
+        /// that would speak, so the hold says nothing just before the page
+        /// re-renders.
+        /// </summary>
         [Fact]
-        public void The_tool_records_a_refusal_and_announces_nothing()
+        public void The_mic_profile_fix_asks_the_hold_silently_before_it_selects()
+        {
+            string src = Source("JJFlexWpf", "Dialogs", "FixerFixActions.cs");
+            int ask = src.IndexOf("rig.HoldRefusalToSay(\"settings.guard.action.profile_load\") != null", StringComparison.Ordinal);
+            int select = src.IndexOf("rig.SelectMicProfileIfPresent(candidate)", StringComparison.Ordinal);
+            Assert.True(ask > 0 && ask < select, "the fix asks the hold before it selects");
+            string answer = src.Substring(ask, src.IndexOf(";", ask, StringComparison.Ordinal) - ask);
+            Assert.Contains("FixerFixOutcome.RefusedByHold(", answer, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Changed by #1043 F2: this asserted the refused branch announced
+        /// NOTHING, which pinned the defect, because the hold had spoken just
+        /// before the re-render and the re-render could cut it, so it was heard
+        /// zero times. The refusal is now announced once, after the re-render,
+        /// still never as "That fix did not succeed".
+        /// </summary>
+        [Fact]
+        public void The_tool_records_a_refusal_and_announces_it_once_after_the_re_render()
         {
             string src = Source("JJFlexWpf", "Dialogs", "FixerDialog.cs");
             int arm = src.IndexOf("case FixerPageMessage.Kind.ApplyFix:", StringComparison.Ordinal);
@@ -86,7 +109,8 @@ namespace Radios.Tests
             Assert.True(refused > arm && refused < failed, "the refusal is handled before the failure sentence is built");
             string block = src.Substring(refused, src.IndexOf("return;", refused, StringComparison.Ordinal) - refused);
             Assert.Contains("RecordNotice(m.StageId, applied.WhatItBecame);", block, StringComparison.Ordinal);
-            Assert.Contains("Render(FixerPage.RunControlId(m.StageId));", block, StringComparison.Ordinal);
+            Assert.Contains("Render(FixerPage.RunControlId(m.StageId), applied.WhatItBecame);", block, StringComparison.Ordinal);
+            Assert.DoesNotContain("did not succeed", block, StringComparison.Ordinal);
             Assert.DoesNotContain("Speak", block, StringComparison.Ordinal);
             Assert.DoesNotContain("ToPage(", block, StringComparison.Ordinal);
         }

@@ -58,6 +58,15 @@ public partial class AudioWorkshopDialog
     private bool _benchBusy, _benchClosing;
     private readonly DispatcherTimer _benchWatch = new() { Interval = TimeSpan.FromSeconds(1) };
 
+    /// <summary>
+    /// True while bench work begun before the radio departed is still running
+    /// on it (a diagnostic take, its start or finish, the capacity check, a
+    /// playback): the bench section stays available for it, so its Stop button
+    /// and result box still work, and goes unavailable when it ends.
+    /// </summary>
+    private bool BenchWorkOnDepartedRadio =>
+        _departedRig != null && ReferenceEquals(_rig, _departedRig) && (_benchRun != null || _benchBusy);
+
     /// <summary>True while the Workshop's diagnostic take is starting or running, so Check your audio refuses a check rather than keying into it.</summary>
     internal static bool ABenchTakeIsRunning => _instance != null && (_instance._benchRun != null || _instance._benchBusy);
 
@@ -155,14 +164,14 @@ public partial class AudioWorkshopDialog
     private void UpdateBenchToolsAvailability()
     {
         if (_benchSection == null) return;
-        bool remote = _rig?.RemoteRig == true;
+        bool remote = LiveRig?.RemoteRig == true;
         if (remote && _benchSection.IsKeyboardFocusWithin) _benchUnavailable?.Focus();
         _benchSection.Visibility = remote ? Visibility.Collapsed : Visibility.Visible;
         if (_benchUnavailable != null) _benchUnavailable.Visibility = remote ? Visibility.Visible : Visibility.Collapsed;
         if (_benchRecovery != null)
-            _benchRecovery.Visibility = !remote && _rig?.PendingListenbackRecovery != null ? Visibility.Visible : Visibility.Collapsed;
+            _benchRecovery.Visibility = !remote && LiveRig?.PendingListenbackRecovery != null ? Visibility.Visible : Visibility.Collapsed;
         if (_benchAntenna == null || _benchRun != null || _benchBusy) return;
-        var names = new[] { Lexicon.Get("audio.iq.antenna_unchanged") }.Concat(_rig?.ListenbackReceiveAntennas ?? Array.Empty<string>()).ToArray();
+        var names = new[] { Lexicon.Get("audio.iq.antenna_unchanged") }.Concat(LiveRig?.ListenbackReceiveAntennas ?? Array.Empty<string>()).ToArray();
         if (!(_benchAntenna.ItemsSource is string[] old) || !old.SequenceEqual(names))
         { _benchAntenna.ItemsSource = names; _benchAntenna.SelectedIndex = 0; }
     }
@@ -233,8 +242,9 @@ public partial class AudioWorkshopDialog
         if (CheckYourAudioDialog.ACheckIsStartingOrActive) { BenchStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         if (_benchBusy) { _benchCancellation?.Cancel(); return; }
         if (_benchRun != null) { await FinishDiagnosticAsync("operator-stop"); return; }
-        if (_rig == null) { BenchStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
-        var rig = _rig;
+        // A take starts only on the radio the shell still has.
+        if (LiveRig == null) { BenchStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
+        var rig = LiveRig;
         _benchBusy = true;
         _benchRecoveryReader = rig.CaptureListenbackRecoveryReader();
         _benchCancellation = new CancellationTokenSource();
@@ -260,7 +270,7 @@ public partial class AudioWorkshopDialog
             _benchWatch.Start();
         }
         catch (Exception ex) { DiagnosticLabel("diagnostic_start"); if (ReferenceEquals(rig, _rig)) BenchFailure(ex); }
-        finally { _benchBusy = false; _benchCancellation.Dispose(); _benchCancellation = null; }
+        finally { _benchBusy = false; _benchCancellation.Dispose(); _benchCancellation = null; UpdateRadioControlAvailability(); }
     }
 
     private async Task FinishDiagnosticAsync(string reason)
@@ -306,13 +316,13 @@ public partial class AudioWorkshopDialog
             }
         }
         catch (Exception ex) { if (ReferenceEquals(runRig, _rig)) BenchFailure(ex); }
-        finally { _benchRun = null; _benchRunRig = null; _benchBusy = false; DiagnosticLabel("diagnostic_start"); UpdateBenchToolsAvailability(); }
+        finally { _benchRun = null; _benchRunRig = null; _benchBusy = false; DiagnosticLabel("diagnostic_start"); UpdateBenchToolsAvailability(); UpdateRadioControlAvailability(); }
     }
 
     private async Task PreflightAsync()
     {
         if (_benchBusy) { _benchCancellation?.Cancel(); return; }
-        var rig = _rig;
+        var rig = LiveRig;
         if (rig == null || CheckYourAudioDialog.ACheckIsStartingOrActive || rig.RemoteRig || _benchRun != null)
         { BenchStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         _benchBusy = true; _benchRecoveryReader = rig.CaptureListenbackRecoveryReader(); _benchCancellation = new CancellationTokenSource();
@@ -323,37 +333,38 @@ public partial class AudioWorkshopDialog
             if (ReferenceEquals(rig, _rig)) BenchStatus(Lexicon.Get(clean ? "audio.iq.preflight_clean" : "audio.iq.preflight_loss"), !clean);
         }
         catch (Exception ex) { if (ReferenceEquals(rig, _rig)) BenchFailure(ex); }
-        finally { _benchBusy = false; _benchCancellation.Dispose(); _benchCancellation = null; }
+        finally { _benchBusy = false; _benchCancellation.Dispose(); _benchCancellation = null; UpdateRadioControlAvailability(); }
     }
 
     /// <summary>"Prove it is real": play the newest take with the tuning shifted, and listen for the pitch to move.</summary>
     private async Task PlayDetunedAsync(int detune)
     {
         if (RecordingPlayer.IsPlaying) { RecordingPlayer.Stop(); return; }
-        if (_benchBusy || _benchRun != null || CheckYourAudioDialog.AnAudioCheckIsActive || _rig?.Transmit == true) return;
+        if (_benchBusy || _benchRun != null || CheckYourAudioDialog.AnAudioCheckIsActive || LiveRig?.Transmit == true) return;
         string? directory = ListenbackTakes.NewestDirectory(ListenbackTakes.DiagnosticOnly);
         if (directory == null) { BenchStatus(Lexicon.Get("audio.iq.no_take")); return; }
         _benchBusy = true;
         try
         {
-            string? trouble = await ListenbackTakes.RenderAndPlayAsync(directory, detune, _rig,
-                rig => !_benchClosing && ReferenceEquals(rig, _rig));
+            string? trouble = await ListenbackTakes.RenderAndPlayAsync(directory, detune, LiveRig,
+                rig => !_benchClosing && ReferenceEquals(rig, LiveRig));
             if (trouble != null) BenchStatus(trouble, true);
         }
         catch (Exception ex) { BenchFailure(ex); }
-        finally { _benchBusy = false; }
+        finally { _benchBusy = false; UpdateRadioControlAvailability(); }
     }
 
     private async Task RestoreBenchAsync()
     {
-        if (_rig == null || _benchBusy || _benchRun != null || CheckYourAudioDialog.ACheckIsStartingOrActive) return;
+        var rig = LiveRig;
+        if (rig == null || _benchBusy || _benchRun != null || CheckYourAudioDialog.ACheckIsStartingOrActive) return;
         try
         {
             _benchBusy = true;
-            var result = await ListenbackRecoveryPrompt.ReviewAsync(_rig);
+            var result = await ListenbackRecoveryPrompt.ReviewAsync(rig);
             if (result is { } notice) BenchStatus(Lexicon.Get(notice.Key), notice.Failure);
         }
         catch (Exception ex) { BenchFailure(ex); }
-        finally { _benchBusy = false; UpdateBenchToolsAvailability(); }
+        finally { _benchBusy = false; UpdateBenchToolsAvailability(); UpdateRadioControlAvailability(); }
     }
 }

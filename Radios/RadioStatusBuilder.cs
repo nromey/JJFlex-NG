@@ -11,12 +11,12 @@ namespace Radios
         /// Build a comprehensive multi-slice status for Ctrl+Shift+S, SPOKEN.
         /// Returns something like:
         ///   "2 slices. Slice A selected, transmit, 14.250 megahertz, USB, pan 50.
-        ///    Slice B, 7.150 megahertz, Digital upper, muted, pan 85."
+        ///    Slice B, 7.150 megahertz, Digital USB, muted, pan 85."
         /// Falls back to single-slice BuildSpokenStatus if only one slice.
         /// </summary>
         /// <remarks>
         /// <para>The mode is said through <see cref="ModeWords.Spoken"/>, so the
-        /// status key says "Digital upper" where the mode keys and the Mode
+        /// status key says "Digital USB" where the mode keys and the Mode
         /// menu already did, rather than the raw DIGU (ruled J41, 2026-11-07).
         /// The Status dialog's Slices rows and its At connect reference are
         /// DISPLAYED and keep the radio's letters: they come from

@@ -1327,7 +1327,7 @@ namespace Radios
                     sb.AppendLine("JJ Flexible has not been told it may load profiles on this");
                     sb.AppendLine("radio, so that part of the report was left out. Everything");
                     sb.AppendLine("above was read without changing anything. The answer is in");
-                    sb.AppendLine("the Radio menu, under Load My Profiles on This Radio.");
+                    sb.AppendLine("the Radio menu, under Profiles on This Radio.");
                 }
                 Tracing.TraceLine(
                     "ProfileReporter: comparison pass skipped — "

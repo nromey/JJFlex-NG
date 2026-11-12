@@ -1249,15 +1249,17 @@ document.addEventListener('keydown', function (e) {
                 // be re-read — and focus goes to the next action, which after
                 // a fix is running the check again to see whether it worked.
                 //
-                // A REFUSAL IS NOT SAID AGAIN (#486). The hold spoke its one
-                // sentence when it refused; "That fix did not succeed" behind
-                // it said the refusal twice, the second time as a failure. It
-                // is recorded in the notice slot, so it can be re-read, and
-                // the page is rendered with no announcement.
+                // A REFUSAL IS SAID ONCE, AS A REFUSAL (#486, #1043 F2). Never
+                // "That fix did not succeed" in front of it. The fix asks the
+                // hold without speaking, so the hold's sentence is said here,
+                // after the page re-renders, where the re-render cannot cut
+                // it; until then the hold spoke it just before the render and
+                // it was probably heard zero times. It is recorded in the
+                // notice slot too, so it can be re-read.
                 if (applied.Refused)
                 {
                     RecordNotice(m.StageId, applied.WhatItBecame);
-                    Render(FixerPage.RunControlId(m.StageId));
+                    Render(FixerPage.RunControlId(m.StageId), applied.WhatItBecame);
                     return;
                 }
                 string became = applied.Succeeded

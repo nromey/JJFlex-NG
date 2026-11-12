@@ -34,10 +34,24 @@ namespace JJFlexWpf.Tests;
 [Collection("SliceOverwriteWarning")]
 public sealed class LastConnectedRadioSettingTests : IDisposable
 {
-    // Fresh serials per test: the throwaway settings root is shared by the whole run.
-    private readonly string A = "1234-5678-8610-" + Random.Shared.Next(1000, 9999);
-    private readonly string B = "1234-5678-8611-" + Random.Shared.Next(1000, 9999);
-    private readonly string Seen = "1234-5678-8612-" + Random.Shared.Next(1000, 9999);
+    // Fresh serials per test: the throwaway settings root is shared by the whole run,
+    // and each radio's config.xml in it is never cleared between tests.
+    private readonly string A = FreshSerial("8610");
+    private readonly string B = FreshSerial("8611");
+    private readonly string Seen = FreshSerial("8612");
+
+    private static int s_lastSerialSuffix = 4999;
+
+    /// <summary>
+    /// A radio serial no other test in this run has used. A random suffix could
+    /// repeat within one run, and a repeat inherits the earlier test's saved
+    /// per-radio choice. A counter cannot repeat, and cannot meet a previous
+    /// run's files either, because <see cref="TestSettingsRoot"/> is new for
+    /// every run. It starts at 5000, clear of the fixed serials other classes in
+    /// this collection use (8600-0995, 8600-1040).
+    /// </summary>
+    internal static string FreshSerial(string model) =>
+        "1234-5678-" + model + "-" + System.Threading.Interlocked.Increment(ref s_lastSerialSuffix);
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "jjflex-999-r4-" + Guid.NewGuid().ToString("N"));
 
     public LastConnectedRadioSettingTests()

@@ -86,10 +86,15 @@ public sealed class OneSentencePerRefusalTests
         Assert.True(row > 0);
         int toggle = src.IndexOf("_ = FullDuplexControl.ToggleAsync(Rig);", row, StringComparison.Ordinal);
         string before = src.Substring(row, toggle - row);
-        Assert.Contains("if (Rig?.ChangeNothingActive == true)", before, StringComparison.Ordinal);
-        Assert.Contains("SpeakAfterMenuClose(Radios.Lexicon.Get(\"settings.guard.refused\"", before, StringComparison.Ordinal);
-        Assert.Contains("\"settings.guard.action.full_duplex\"", before, StringComparison.Ordinal);
-        Assert.Contains("ChangeNothing: refused settings.guard.action.full_duplex", before, StringComparison.Ordinal);
+        // Changed by #1043 F5: the row asked Rig?.ChangeNothingActive and copied
+        // the hold's trace and sentence by hand. It now asks the hold itself,
+        // without speaking (FlexBase.HoldRefusalToSay, one source with
+        // GuardRefuses, honouring SuppressSpeech), and still says it after the
+        // menu closes.
+        Assert.Contains("Rig?.HoldRefusalToSay(\"settings.guard.action.full_duplex\")", before, StringComparison.Ordinal);
+        Assert.Contains("if (held.Length > 0) SpeakAfterMenuClose(held, Radios.VerbosityLevel.Critical);", before, StringComparison.Ordinal);
+        Assert.DoesNotContain("ChangeNothingActive", before, StringComparison.Ordinal);
+        Assert.DoesNotContain("settings.guard.refused", before, StringComparison.Ordinal);
     }
 
     [Fact]

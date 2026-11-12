@@ -256,6 +256,7 @@ namespace Radios
                 Tracing.TraceLine(what + ": slice " + slice.Letter + " is locked, so its tune to " + value
                     + " was not sent", System.Diagnostics.TraceLevel.Info);
                 if (answered != null) TellTuneAnswer(answered, TuneAnswer.Refused);
+                t_tuneRefusal = TuneRefusal.SliceLocked;
                 return false;
             }
             long id = EchoGuardFor(slice).Requested(value);
@@ -295,6 +296,7 @@ namespace Radios
             // A newer tune of ours speaks its own number: an earlier correction
             // not yet heard is retired so it is not salvaged after it (R3).
             RetireTuneCorrection("a newer tune");
+            t_tuneRefusal = TuneRefusal.None;
             return true;
         }
 
@@ -309,6 +311,29 @@ namespace Radios
         /// </summary>
         public bool? TuneAdmittedHere => t_tuneAdmitted;
         [System.ThreadStatic] private static bool? t_tuneAdmitted;
+
+        /// <summary>Why a frequency set was refused (#1043 F3).</summary>
+        public enum TuneRefusal
+        {
+            /// <summary>Not refused: admitted, or no set yet.</summary>
+            None,
+            /// <summary>The slice is locked.</summary>
+            SliceLocked,
+            /// <summary>The radio is transmitting.</summary>
+            Transmitting,
+            /// <summary>Anything else: no slice, the slice gone, a command loop that will not run it.</summary>
+            Other,
+        }
+
+        /// <summary>
+        /// Why the calling thread's last frequency set was refused, beside
+        /// <see cref="TuneAdmittedHere"/> (#1043 F3): a band jump or a 60 m
+        /// channel stop refused on a locked slice, or while transmitting, says
+        /// so rather than the typed entry's "Unable to tune this frequency".
+        /// <see cref="TuneRefusal.None"/> when the set was admitted.
+        /// </summary>
+        public TuneRefusal TuneRefusedBecause => t_tuneRefusal;
+        [System.ThreadStatic] private static TuneRefusal t_tuneRefusal;
 
         /// <summary>
         /// The queued half of a tune, bound to the slice it was pressed on and

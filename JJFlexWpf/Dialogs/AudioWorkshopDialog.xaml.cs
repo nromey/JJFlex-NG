@@ -18,6 +18,26 @@ namespace JJFlexWpf.Dialogs;
 public partial class AudioWorkshopDialog : JJFlexDialog
 {
     private FlexBase? _rig;
+
+    /// <summary>
+    /// A radio the shell has torn down while this window still holds it: set
+    /// by <see cref="NotifyRigDeparting"/>, cleared by the next
+    /// <see cref="SetRig"/>. <see cref="_rig"/> itself is kept, so a bench
+    /// diagnostic take still running on that radio finishes exactly as it did
+    /// before this notice existed. The same shape as Check your audio's.
+    /// </summary>
+    private FlexBase? _departedRig;
+
+    /// <summary>
+    /// The attached radio while the shell still has it; null once it has
+    /// departed. Every radio write, every poll and every read that describes
+    /// the radio asks this, the Diagnostics page and the Fix tool's radio
+    /// included, so nothing is written to, confirmed on or described from a
+    /// radio that is gone. Only the bench diagnostic take's own finishing
+    /// compares against <see cref="_rig"/>.
+    /// </summary>
+    private FlexBase? LiveRig => _rig != null && ReferenceEquals(_rig, _departedRig) ? null : _rig;
+
     private bool _polling;
     private readonly DispatcherTimer _meterTimer;
 
@@ -163,7 +183,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // with no edit to this file.
         _categories = CategoryNavigator.Attach(this, MainTabs, CategoryListBox);
 
-        _gain = new TransmitGainControls(Dispatcher, () => _rig, () => _polling,
+        _gain = new TransmitGainControls(Dispatcher, () => LiveRig, () => _polling,
             () => AudioDevicesPath?.Invoke(), host: "Audio Workshop");
         // DRAFT PROSE (#835): awaiting Noel. Ctrl+F1 on the two toolbar-end doors.
         JJFlexHelp.SetText(CheckYourAudioButton,
@@ -481,7 +501,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
     private void CheckYourAudio_Click(object sender, RoutedEventArgs e) =>
-        CheckYourAudioDialog.ShowOrFocus(_rig);
+        CheckYourAudioDialog.ShowOrFocus(LiveRig);
 
     /// <summary>
     /// Enable or disable the RADIO-side controls to match connection state.
@@ -519,7 +539,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// child without touching each child's own IsEnabled, so state a section
     /// manages for its own reasons survives untouched and reappears on connect.
     /// </summary>
-    private void UpdateRadioControlAvailability() => _sections.SetRadioAvailable(_rig != null);
+    private void UpdateRadioControlAvailability()
+    {
+        _sections.SetRadioAvailable(LiveRig != null);
+        // A bench diagnostic take still running on a departed radio keeps its
+        // section, so its Stop button and its result box still work. The
+        // section goes unavailable when that take finishes.
+        if (LiveRig == null && BenchWorkOnDepartedRadio && _benchSection != null) _benchSection.IsEnabled = true;
+    }
 
     public void SetRig(FlexBase? rig)
     {
@@ -527,6 +554,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (!ReferenceEquals(oldRig, rig)) BenchToolsRigChanging(rig);
         _workshopTxFilter.Invalidate();   // nothing in flight answers the new rig (#747 round nine)
         _rig = rig;
+        // Any attachment, null included, is the shell's answer now.
+        _departedRig = null;
         UpdateRadioControlAvailability();
         if (rig != null)
         {
@@ -577,6 +606,46 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     public static void NotifyRigGone() =>
         DialogSections.PostRigChange(_instance, w => w.SetRig(null), onlyIfLoaded: false);
+
+    /// <summary>
+    /// The shell has disposed <paramref name="rig"/>: a Disconnect from the
+    /// Radio menu, a radio switch, the app closing, or a connect attempt thrown
+    /// away. Called from <c>CloseTheRadio</c> and <c>ReleaseRigControl</c> in
+    /// <c>globals.vb</c>, straight after the dispose and before the shell lets
+    /// go of the reference. Safe from any thread; a no-op when the window is
+    /// closed or holds another radio.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="NotifyRigGone"/> on purpose: <c>SetRig(null)</c>
+    /// also finishes a bench diagnostic take still running on this window, at
+    /// the disconnect. This notice ends nothing. It only marks the radio
+    /// departed, so the window can no longer reach it.
+    /// </remarks>
+    public static void NotifyRigDeparting(FlexBase? rig) =>
+        DialogSections.PostRigDeparting(_instance, rig, (w, r) => w.RigDeparting(r));
+
+    /// <summary>
+    /// <see cref="NotifyRigDeparting"/> on this window's own thread: the radio
+    /// sections become unavailable, the meter poll stops, the readings say no
+    /// radio is connected, and <see cref="LiveRig"/> is null, so Mic Gain and
+    /// every other radio control neither writes nor confirms. <see cref="_rig"/>
+    /// and a running bench take are left exactly as they were. True when this
+    /// window held that radio.
+    /// </summary>
+    internal bool RigDeparting(FlexBase rig)
+    {
+        if (_rig == null || !ReferenceEquals(_rig, rig) || ReferenceEquals(_departedRig, rig)) return false;
+        _departedRig = rig;
+        _meterTimer.Stop();
+        UpdateRadioControlAvailability();
+        ResetMeterReadings("no radio connected");
+        UpdateSilentTxNote();
+        BindMeterInventory(null);
+        UpdateBenchToolsAvailability();
+        JJTrace.Tracing.TraceLine("AudioWorkshop: its radio was disposed; the radio sections are unavailable and the poll "
+            + "is stopped, and a bench take already running keeps that radio", System.Diagnostics.TraceLevel.Info);
+        return true;
+    }
 
     public void FocusTab(int tabIndex)
     {

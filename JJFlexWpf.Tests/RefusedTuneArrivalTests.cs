@@ -34,6 +34,38 @@ public sealed class RefusedTuneArrivalTests
         Assert.Equal(Lexicon.Get("settings.tuning.unable_to_tune", VerbosityLevel.Terse), said.Sentence);
     }
 
+    /// <summary>
+    /// #1043 F3: a jump or a 60 m stop refused on a locked slice, or while the
+    /// radio is transmitting, names that cause; every other cause keeps the
+    /// typed entry's refusal word for word.
+    /// </summary>
+    [Fact]
+    public void A_jump_refused_on_a_locked_slice_or_while_transmitting_names_that_cause()
+    {
+        AssertWindowless();
+        var locked = FreqOutHandlers.RefusedTuneSpeech(FlexBase.TuneRefusal.SliceLocked, VerbosityLevel.Terse);
+        Assert.True(locked.Beep);
+        Assert.False(locked.Arrived);
+        Assert.Equal(Lexicon.Get("settings.tuning.refused_slice_locked"), locked.Sentence);
+        var keyed = FreqOutHandlers.RefusedTuneSpeech(FlexBase.TuneRefusal.Transmitting, VerbosityLevel.Terse);
+        Assert.True(keyed.Beep);
+        Assert.False(keyed.Arrived);
+        Assert.Equal(Lexicon.Get("settings.tuning.refused_transmitting"), keyed.Sentence);
+        Assert.NotEqual(locked.Sentence, keyed.Sentence);
+        foreach (var other in new[] { FlexBase.TuneRefusal.Other, FlexBase.TuneRefusal.None })
+            Assert.Equal(FreqOutHandlers.TypedTuneSpeech(FlexBase.TuneAnswer.Refused, VerbosityLevel.Terse),
+                FreqOutHandlers.RefusedTuneSpeech(other, VerbosityLevel.Terse));
+    }
+
+    [Fact]
+    public void The_refusal_reads_the_cause_the_radio_recorded_at_the_set()
+    {
+        AssertWindowless();
+        string body = Method(Source("JJFlexWpf", "FreqOutHandlers.cs"), "internal void SayTuneRefused(");
+        Assert.Contains("Rig?.TuneRefusedBecause", body, StringComparison.Ordinal);
+        Assert.Contains("SayTypedTuneSpeech(RefusedTuneSpeech(why,", body, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void The_band_jump_asks_the_admission_before_anything_it_says_or_saves()
     {

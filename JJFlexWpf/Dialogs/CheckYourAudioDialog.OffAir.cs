@@ -55,6 +55,23 @@ public partial class CheckYourAudioDialog
 
     /// <summary>The last take's measurements, assembled for the reading box.</summary>
     private string _offAirReading = "";
+
+    /// <summary>
+    /// The take's sentence, and its measurements, were written after the radio
+    /// departed: by a take that was running at a Disconnect and finished after
+    /// it. They stay on screen in place of "No radio connected." Lines written
+    /// while the radio was live give way to it.
+    /// </summary>
+    private bool _offAirStatusAfterDeparture, _offAirReadingAfterDeparture;
+
+    /// <summary>
+    /// After a Disconnect, whether an off-air take's lines stay on screen: while
+    /// the take runs or finishes, and afterwards when it wrote them after the
+    /// departure.
+    /// </summary>
+    private bool OffAirTakeKeepsItsLines(bool writtenAfterDeparture) =>
+        _iqRun != null || _iqBusy || writtenAfterDeparture;
+
     private string _iqAnalysisDetails = "";
     private string _iqComparisonSentence = "";
 
@@ -163,6 +180,7 @@ public partial class CheckYourAudioDialog
             return;
         }
         _offAirStatus = text;
+        _offAirStatusAfterDeparture = RigHasDeparted;
         UpdateMethodStatus();
         if (!speak) return;
         string said = spokenText ?? text;
@@ -401,6 +419,7 @@ public partial class CheckYourAudioDialog
         if (_iqComparisonSentence.Length > 0) lines.Add(_iqComparisonSentence);
         if (_iqAnalysisDetails.Length > 0) lines.Add(Lexicon.Get("audio.check.offair_sent_heard", ("details", _iqAnalysisDetails)));
         _offAirReading = string.Join(Environment.NewLine, lines);
+        _offAirReadingAfterDeparture = RigHasDeparted;
         UpdateMicReading();
     }
 

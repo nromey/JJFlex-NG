@@ -155,6 +155,31 @@ namespace Radios
                 Array.Empty<string>();
 
             /// <summary>
+            /// What the SmartLink list said about reaching this radio (#398):
+            /// its advertised public ports, port forwarding and hole punch, on
+            /// EVERY sighting a SmartLink list speaks for. That is a sighting
+            /// of the list's own radio object, the intake's merge of a list
+            /// into a radio local discovery found first (a LAN object raised
+            /// with the list's provenance), and the WAN bank's sighting. Null
+            /// on a local sighting. The radio picker's identity card reads it
+            /// from the row's SmartLink sighting, so the number the radio hands
+            /// out can be read without attempting a connect.
+            /// </summary>
+            /// <remarks>
+            /// <b>Taken from the list's radio, never from the object the
+            /// sighting describes</b> (repair one, Codex B1). When local
+            /// discovery found the radio first, the intake folds the list into
+            /// that LAN object and raises the sighting from it, so
+            /// <c>IsWan</c> is false there although a list speaks for it; and
+            /// the bank's sighting was built lean, without these. Both left
+            /// this null on a listed radio, and the card then said SmartLink
+            /// does not list it. A null here therefore never means "not
+            /// listed" on its own: whether a list carries the radio is the
+            /// row's own SmartLink flag.
+            /// </remarks>
+            public SmartLinkAdvertised Advertised { get; internal set; }
+
+            /// <summary>
             /// The SmartLink list this sighting was raised from — the session
             /// and the connection generation the list was born on — when the
             /// WAN intake raised it, or when the picker's replay re-raises a
@@ -389,7 +414,23 @@ namespace Radios
             WanAvailable = true,
             FromWanList = from,
             HeldWithoutAList = from == null,
+            // The list's own numbers (#398, repair one): the bank's sighting
+            // is the one the picker's reconcile hands a row, so it carries
+            // them as the intake's sightings do.
+            Advertised = AdvertisedBy(r),
         };
+
+        /// <summary>
+        /// What a SmartLink list's radio object says about reaching the radio
+        /// (#398): its advertised public ports, port forwarding and hole punch.
+        /// Null for a radio local discovery found, which no list described.
+        /// Read only; nothing is probed.
+        /// </summary>
+        private static SmartLinkAdvertised AdvertisedBy(Radio listed) =>
+            listed != null && listed.IsWan
+                ? new SmartLinkAdvertised(listed.PublicTlsPort, listed.PublicUdpPort,
+                    listed.IsPortForwardOn, listed.RequiresHolePunch)
+                : null;
 
         /// <summary>
         /// The banked SmartLink handle for this serial and the sighting that
@@ -809,7 +850,13 @@ namespace Radios
         /// <param name="fromWanList">The SmartLink list this sighting speaks
         /// for, when the WAN intake is raising it; null for every other
         /// sighting. See <see cref="RigData.StillCurrent"/>.</param>
-        private static RigData BuildRigData(Radio r, WanListProvenance? fromWanList = null)
+        /// <param name="listed">The SmartLink list's own radio object, when
+        /// the intake has folded that list into a different object
+        /// (<paramref name="r"/>, the radio local discovery found first) and
+        /// raises the sighting from that one. The list's advertised path is
+        /// read from it (#398, repair one). Null when <paramref name="r"/> is
+        /// itself the list's radio, or no list speaks for the sighting.</param>
+        private static RigData BuildRigData(Radio r, WanListProvenance? fromWanList = null, Radio listed = null)
         {
             var rd = new RigData();
             rd.FromWanList = fromWanList;
@@ -830,6 +877,11 @@ namespace Radios
             {
                 rd.GuiClientStations = r.GuiClients.Select(c => c.Station ?? "").ToList();
             }
+            // What the SmartLink list says about reaching it (#398), from the
+            // list's own radio object: this one when it is the list's, or the
+            // one the intake merged into a LAN object (repair one, Codex B1).
+            // Read only; nothing is probed.
+            rd.Advertised = AdvertisedBy(r.IsWan ? r : listed);
             // One counted line per hop the occupancy fact travels (#394): a
             // dropped baton along this chain reads exactly like "nobody is on
             // it", and the 2026-08-30 field trace is what a silent drop costs.
@@ -2040,15 +2092,32 @@ namespace Radios
         /// <summary>The refusal, traced and spoken, naming the action.</summary>
         private void SayTheHoldRefused(string actionKey)
         {
-            Tracing.TraceLine("ChangeNothing: refused " + actionKey, TraceLevel.Warning);
-            if (!SuppressSpeech)
-            {
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.guard.refused",
-                        ("action", Lexicon.Get(actionKey))),
-                    VerbosityLevel.Critical, true);
-            }
+            string said = TheHoldRefused(actionKey);
+            if (said.Length > 0) ScreenReaderOutput.Speak(said, VerbosityLevel.Critical, true);
         }
+
+        /// <summary>
+        /// The refusal traced, and its sentence returned for whoever says it:
+        /// empty while this radio's speech is suppressed. The one source of the
+        /// hold's trace line and sentence, spoken here or by a caller.
+        /// </summary>
+        private string TheHoldRefused(string actionKey)
+        {
+            Tracing.TraceLine("ChangeNothing: refused " + actionKey, TraceLevel.Warning);
+            return SuppressSpeech ? "" : Lexicon.Get("settings.guard.refused", ("action", Lexicon.Get(actionKey)));
+        }
+
+        /// <summary>
+        /// The hold's refusal, for a caller that must say it itself, LATER:
+        /// a menu row, whose sentence waits for the menu to close, or the Fix
+        /// tool, whose page re-renders first and would cut a sentence spoken
+        /// now (#1043 F2, F5). Null when the hold would not refuse. When it
+        /// would, the refusal is traced exactly as <see cref="GuardRefuses"/>
+        /// traces it and its sentence returned, empty while this radio's
+        /// speech is suppressed. Nothing is spoken here.
+        /// </summary>
+        public string HoldRefusalToSay(string actionKey) =>
+            ChangeNothingActive ? TheHoldRefused(actionKey) : null;
 
         /// <summary>
         /// The automatic-write gate. True when the hold is armed; traces what
@@ -7699,6 +7768,21 @@ namespace Radios
 
         /// <summary>The radio reported a key-down: restart the spoken
         /// transmit-audio figures unless our own key already did (#651).</summary>
+        /// <summary>
+        /// True while the radio's interlock reads UnkeyRequested: the radio is
+        /// carrying out an unkey. A Mox rise reported then is the momentary
+        /// Mox:True inside that unkey's status batch (UnkeyRequested, Mox:True,
+        /// Ready, Mox:False; the 8600 bench of 2026-11-06, Fail 5), not a
+        /// key-down. Narrow on purpose: an ordinary key-down's Mox can arrive
+        /// before its own interlock report, so only "the radio says it is
+        /// unkeying" counts. Never throws.
+        /// </summary>
+        private bool RadioReportsUnkeying()
+        {
+            try { return theRadio?.InterlockState == Flex.Smoothlake.FlexLib.InterlockState.UnkeyRequested; }
+            catch { return false; }
+        }
+
         private void restartAudioSampleOnRadioKeyDown()
         {
             // Not a key-down: the radio's status batch for an unkey reads
@@ -7707,15 +7791,11 @@ namespace Radios
             // threw away the transmission's peak just as it ended. The rule is
             // narrow on purpose: an ordinary key-down's Mox can arrive before its
             // own interlock report, so only "the radio says it is unkeying" counts.
-            try
+            if (RadioReportsUnkeying())
             {
-                if (theRadio?.InterlockState == Flex.Smoothlake.FlexLib.InterlockState.UnkeyRequested)
-                {
-                    Tracing.TraceLine("Mox: a momentary key-down inside the radio's unkey; the audio sample is kept", TraceLevel.Info);
-                    return;
-                }
+                Tracing.TraceLine("Mox: a momentary key-down inside the radio's unkey; the audio sample is kept", TraceLevel.Info);
+                return;
             }
-            catch { }
             long now = Environment.TickCount64;
             long own = Interlocked.Exchange(ref _ownAudioSampleStartMs, 0);
             if (ShouldRestartAudioSampleOnRadioKeyDown(own, now))
@@ -8134,16 +8214,29 @@ namespace Radios
         private void noteRadioMox(bool mox)
         {
             bool oldTransmit = _Transmit;
+            // A KEY-DOWN, as the key-down hooks below mean it (#957, applying
+            // #651's rule): a rise while the radio's interlock reads
+            // UnkeyRequested is the momentary Mox:True inside the radio's own
+            // unkey batch, not a carrier rising. Without this, our own unkey on
+            // the 8600 began a transmit episode, moved the falling tone's
+            // origin, opened a new txMeters evidence window and re-armed the
+            // reference's restart, for a transmission that never happened.
+            // _Transmit and TransmitChange still follow the radio's Mox for the
+            // blip; that is reported, not changed here.
+            bool keyDown = mox && !oldTransmit && !RadioReportsUnkeying();
+            if (mox && !oldTransmit && !keyDown)
+                Tracing.TraceLine("Mox: a momentary key-down inside the radio's unkey; no transmission begins", TraceLevel.Info);
             // A carrier rising that we did not ask for through EnqueueKeyOn
             // (VOX, a hand mic, another client) begins an episode too (#863 N1).
-            if (mox && !oldTransmit) NoteTransmitEpisodeBegins();
+            if (keyDown) NoteTransmitEpisodeBegins();
             // And the origin of whatever falling tone this carrier will owe
             // (repair round 7, #863 S2): recorded here, where the radio reports
             // the rise, not when a deferred notification of it is handled.
-            if (mox && !oldTransmit) NoteCarrierRose();
-            if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
+            if (keyDown) NoteCarrierRose();
+            if (keyDown && !_tuneCycleActive) beginTxLineWindow();
+            // Asks the same rule itself, with its own trace (#651).
             if (mox && !oldTransmit) restartAudioSampleOnRadioKeyDown();
-            if (mox && !oldTransmit && TxReferenceArmed)
+            if (keyDown && TxReferenceArmed)
                 txFilePlayer.RestartOnNextBuffer();
             _Transmit = mox;
             if (oldTransmit && !mox)
@@ -9620,6 +9713,7 @@ namespace Radios
                 // time it runs.
                 Slice slice = ValidVFO(RXVFO) ? VFOToSlice(RXVFO) : null;
                 t_tuneAdmitted = false;
+                t_tuneRefusal = TuneRefusal.Other;   // RequestTune names a lock, or admits it
                 if (slice == null)
                 {
                     CommitSliceFacts(null, () => SetRxCache(null, value));
@@ -9707,6 +9801,7 @@ namespace Radios
                 // the calling thread's admission false, never the previous
                 // tune's answer (TuneAdmittedHere, as RXFrequency does).
                 t_tuneAdmitted = false;
+                t_tuneRefusal = TuneRefusal.Other;   // RequestTune names a lock, or admits it
 
                 // A REFUSED WRITE MUST NOT LEAVE ITS VALUE BEHIND. Both bails
                 // below used to return with _TXFrequency holding a frequency
@@ -9771,6 +9866,7 @@ namespace Radios
                 // Don't set if transmitting.
                 if (Transmit)
                 {
+                    t_tuneRefusal = TuneRefusal.Transmitting;
                     Tracing.TraceLine("Frequency:can't set it now", TraceLevel.Error);
                     return;
                 }
@@ -9798,7 +9894,7 @@ namespace Radios
             set
             {
                 t_tuneAdmitted = false; // refused unless the set below admits it
-                if (Transmit) return; // disallow set
+                if (Transmit) { t_tuneRefusal = TuneRefusal.Transmitting; return; } // disallow set
                 if (ShowingXmitFrequency) TXFrequency = value;
                 else RXFrequency = value;
             }

@@ -875,16 +875,32 @@ public class FreqOutHandlers
 
     /// <summary>
     /// A band jump or a 60 m channel stop the radio was not given: the refusal
-    /// sound and "Unable to tune this frequency", the typed entry's refusal,
-    /// and nothing about where it would have gone. A single tuning STEP refused
-    /// says nothing, as a step refused on a locked slice always has.
+    /// sound and a sentence, and nothing about where it would have gone. On a
+    /// locked slice, or while the radio is transmitting, the sentence names
+    /// that cause (#1043 F3); otherwise it is the typed entry's "Unable to tune
+    /// this frequency". A single tuning STEP refused says nothing, as a step
+    /// refused on a locked slice always has.
     /// </summary>
     internal void SayTuneRefused(string what)
     {
-        Tracing.TraceLine("FreqOut: " + what + " was not admitted (a locked slice, the radio transmitting, or no slice); "
+        var why = Rig?.TuneRefusedBecause ?? FlexBase.TuneRefusal.Other;
+        Tracing.TraceLine("FreqOut: " + what + " was not admitted (" + why + "); "
             + "no arrival, band memory or mode change", TraceLevel.Info);
-        SayTypedTuneSpeech(TypedTuneSpeech(FlexBase.TuneAnswer.Refused, Radios.ScreenReaderOutput.CurrentVerbosity));
+        SayTypedTuneSpeech(RefusedTuneSpeech(why, Radios.ScreenReaderOutput.CurrentVerbosity));
     }
+
+    /// <summary>
+    /// What a refused band jump or 60 m channel stop says, by its cause: the
+    /// refusal sound always, and a sentence naming a locked slice or a
+    /// transmitting radio, else the typed entry's own refusal.
+    /// </summary>
+    internal static (bool Beep, string? Sentence, bool Arrived) RefusedTuneSpeech(FlexBase.TuneRefusal why, VerbosityLevel level)
+        => why switch
+        {
+            FlexBase.TuneRefusal.SliceLocked => (true, Lexicon.Get("settings.tuning.refused_slice_locked"), false),
+            FlexBase.TuneRefusal.Transmitting => (true, Lexicon.Get("settings.tuning.refused_transmitting"), false),
+            _ => TypedTuneSpeech(FlexBase.TuneAnswer.Refused, level),
+        };
 
     private void RoundToKHz()
     {

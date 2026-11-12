@@ -14,8 +14,8 @@ namespace Radios.Tests
     public class ModeWordsTests
     {
         [Theory]
-        [InlineData("DIGU", "Digital upper")]
-        [InlineData("digl", "Digital lower")]
+        [InlineData("DIGU", "Digital USB")]   // ruled 2026-11-09, replacing "Digital upper"
+        [InlineData("digl", "Digital LSB")]
         [InlineData("SAM", "Synchronous AM")]
         [InlineData("NFM", "Narrow FM")]
         [InlineData("dfm", "Digital FM")]   // ruled 2026-11-08, once verified on Flex
