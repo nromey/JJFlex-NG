@@ -45,7 +45,7 @@ Write-Host "  Scope    : $(if ($PrimaryOnly) { 'primary only' } else { 'all proj
 Write-Host "============================================"
 
 if (-not (Test-Path $ProjectsRoot)) {
-    Write-Error "Projects root not found: $ProjectsRoot"
+    [Console]::Error.WriteLine("Projects root not found: $ProjectsRoot")
     exit 2
 }
 
@@ -55,7 +55,7 @@ if (-not (Test-Path $memoryDest)) {
         New-Item -Path $memoryDest -ItemType Directory -Force | Out-Null
         Write-Host "Created NAS folder: $memoryDest"
     } catch {
-        Write-Error "Could not create NAS folder $memoryDest. NAS offline? $_"
+        [Console]::Error.WriteLine("Could not create NAS folder $memoryDest. NAS offline? $_")
         exit 3
     }
 }
@@ -89,7 +89,7 @@ foreach ($proj in (Get-ChildItem $ProjectsRoot -Directory)) {
 }
 
 if ($targets.Count -eq 0) {
-    Write-Error "No project memory folders found under $ProjectsRoot"
+    [Console]::Error.WriteLine("No project memory folders found under $ProjectsRoot")
     exit 2
 }
 

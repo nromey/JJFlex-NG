@@ -39,7 +39,7 @@ Write-Host "  NAS    : $NasRoot"
 Write-Host "============================================"
 
 if (-not (Test-Path $DevRoot)) {
-    Write-Error "Dev folder not found: $DevRoot"
+    [Console]::Error.WriteLine("Dev folder not found: $DevRoot")
     exit 2
 }
 
@@ -49,7 +49,7 @@ if (-not (Test-Path $destDir)) {
         New-Item -Path $destDir -ItemType Directory -Force | Out-Null
         Write-Host "Created NAS folder: $destDir"
     } catch {
-        Write-Error "Could not create NAS folder $destDir. NAS offline? $_"
+        [Console]::Error.WriteLine("Could not create NAS folder $destDir. NAS offline? $_")
         exit 3
     }
 }
@@ -116,7 +116,7 @@ $duration = (Get-Date) - $startTime
 #   4-7  = mismatches/skipped, but no fatal error
 #   8+   = fatal failure
 if ($exitCode -ge 8) {
-    Write-Error "Robocopy failed with exit code $exitCode. See $logPath."
+    [Console]::Error.WriteLine("Robocopy failed with exit code $exitCode. See $logPath.")
     exit 4
 }
 

@@ -72,7 +72,7 @@ Write-Host "  History  : $(if ($IncludeFileHistory) { 'included' } else { 'exclu
 Write-Host "============================================"
 
 if (-not (Test-Path $ClaudeRoot)) {
-    Write-Error "Claude root not found: $ClaudeRoot"
+    [Console]::Error.WriteLine("Claude root not found: $ClaudeRoot")
     exit 2
 }
 
@@ -86,7 +86,7 @@ if (-not (Test-Path $dest)) {
         New-Item -Path $dest -ItemType Directory -Force | Out-Null
         Write-Host "Created NAS folder: $dest"
     } catch {
-        Write-Error "Could not create NAS folder $dest. NAS offline? $_"
+        [Console]::Error.WriteLine("Could not create NAS folder $dest. NAS offline? $_")
         exit 3
     }
 }

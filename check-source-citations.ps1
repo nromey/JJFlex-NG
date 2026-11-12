@@ -43,7 +43,7 @@ $tasksFile   = Join-Path $Register 'tasks.md'
 $archiveFile = Join-Path $Register 'tasks-archive.md'
 
 foreach ($f in @($tasksFile, $archiveFile)) {
-    if (-not (Test-Path $f)) { Write-Error "Register file not found: $f"; exit 1 }
+    if (-not (Test-Path $f)) { [Console]::Error.WriteLine("Register file not found: $f"); exit 1 }
 }
 
 # ---------------------------------------------------------------- the register

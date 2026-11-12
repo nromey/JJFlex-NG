@@ -96,9 +96,9 @@ param(
 
     # Auto-connect preflight override. If any operator profile would
     # auto-connect at startup, the spawned instance would reach for the
-    # radio as a second MultiFlex client — and FlexBase.setupFromScratch()
-    # sets RFPower = 100 unconditionally on a radio it has never seen
-    # (found by Sprint 33 Track G). So by default the smoke tier refuses
+    # radio as a second MultiFlex client and change its state. (This used to
+    # add that FlexBase.setupFromScratch() set RFPower = 100 on a radio it had
+    # never seen; that method was removed 2026-11-11, #59.) So by default the smoke tier refuses
     # to spawn when auto-connect is armed. Pass this only when reaching
     # the radio is intended and sanctioned.
     [switch]$AllowRadioReach,
@@ -130,7 +130,7 @@ Set-StrictMode -Version 3
 
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
 if (-not (Test-Path (Join-Path $RepoRoot 'JJFlexRadio.sln'))) {
-    Write-Error "RepoRoot '$RepoRoot' does not contain JJFlexRadio.sln"
+    [Console]::Error.WriteLine("RepoRoot '$RepoRoot' does not contain JJFlexRadio.sln")
     exit 2
 }
 if (-not $StateDir) { $StateDir = Join-Path $env:LOCALAPPDATA 'jjflex-radiocheck' }
@@ -463,8 +463,7 @@ if ($SkipSmoke) {
     if ($armed.Count -gt 0 -and -not $AllowRadioReach) {
         $smokeTier.status = 'deferred'
         $smokeTier.detail.Add("DEFERRED: auto-connect is armed in $($armed -join ', ') — a spawned instance " +
-            'would connect to the radio as a second MultiFlex client (and FlexBase.setupFromScratch() sets ' +
-            'RFPower=100 on an unknown radio). Pass -AllowRadioReach only when that is sanctioned.')
+            'would connect to the radio as a second MultiFlex client. Pass -AllowRadioReach only when that is sanctioned.')
     } else {
         Write-Host 'Tier: smoke — spawning the app (silent, recorded) ...'
         $transcriptPath = Join-Path $OutDir 'transcript.jsonl'

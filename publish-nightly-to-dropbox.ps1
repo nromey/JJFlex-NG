@@ -222,7 +222,7 @@ Write-Host "============================================"
 # --- Compute expected version from HEAD -----------------------------------
 $vbproj = Join-Path $RepoRoot 'JJFlexRadio.vbproj'
 if (-not (Test-Path $vbproj)) {
-    Write-Error "JJFlexRadio.vbproj not found at $vbproj"
+    [Console]::Error.WriteLine("JJFlexRadio.vbproj not found at $vbproj")
     exit 2
 }
 
@@ -230,14 +230,14 @@ Push-Location $RepoRoot
 try {
     $baseMatch = Select-String -Path $vbproj -Pattern '<Version>([0-9][0-9.]*)</Version>' | Select-Object -First 1
     if (-not $baseMatch) {
-        Write-Error "Could not parse <Version> from $vbproj"
+        [Console]::Error.WriteLine("Could not parse <Version> from $vbproj")
         exit 2
     }
     $baseVer = $baseMatch.Matches.Groups[1].Value
 
     $gitCountRaw = & git rev-list --count HEAD
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "git rev-list --count HEAD failed (not a git repo?)"
+        [Console]::Error.WriteLine("git rev-list --count HEAD failed (not a git repo?)")
         exit 2
     }
     $gitCount = [int] ($gitCountRaw.Trim())
@@ -276,7 +276,7 @@ Write-HeadAnalysis $baseVer $gitCount $buildNum $expected $gitSha $dirty $dirtyL
 # --- Auto-commit escape hatch (opt-in) ------------------------------------
 if ($dirty -gt 0 -and $AutoCommit) {
     if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
-        Write-Error "-AutoCommit requires -CommitMessage '<real human message>'. We do not auto-generate commit messages."
+        [Console]::Error.WriteLine("-AutoCommit requires -CommitMessage '<real human message>'. We do not auto-generate commit messages.")
         exit 9
     }
     Write-Host ""
@@ -287,12 +287,12 @@ if ($dirty -gt 0 -and $AutoCommit) {
     try {
         & git add -A
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "git add -A failed"
+            [Console]::Error.WriteLine("git add -A failed")
             exit 10
         }
         & git commit -m $CommitMessage
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "git commit failed (pre-commit hook? nothing to commit?)"
+            [Console]::Error.WriteLine("git commit failed (pre-commit hook? nothing to commit?)")
             exit 11
         }
 
@@ -339,35 +339,35 @@ if (-not $sourceZip) {
     Write-Host "No NAS debug build for $expected."
 
     if ($NoBuild) {
-        Write-Error "-NoBuild set. Run build-debug.bat manually, then re-run this script."
+        [Console]::Error.WriteLine("-NoBuild set. Run build-debug.bat manually, then re-run this script.")
         exit 4
     }
     if ($dirty -gt 0) {
-        Write-Error "Working tree is dirty AND no matching build exists. Commit first (so Y is reproducible), then re-run. Or pass -NoBuild to just promote an older zip (won't find one for this HEAD)."
+        [Console]::Error.WriteLine("Working tree is dirty AND no matching build exists. Commit first (so Y is reproducible), then re-run. Or pass -NoBuild to just promote an older zip (won't find one for this HEAD).")
         exit 5
     }
 
     Write-Host "Building a fresh debug zip via build-debug.bat..."
     $buildBat = Join-Path $RepoRoot 'build-debug.bat'
     if (-not (Test-Path $buildBat)) {
-        Write-Error "build-debug.bat not found at $buildBat"
+        [Console]::Error.WriteLine("build-debug.bat not found at $buildBat")
         exit 6
     }
     & cmd.exe /c "`"$buildBat`""
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "build-debug.bat exited with $LASTEXITCODE"
+        [Console]::Error.WriteLine("build-debug.bat exited with $LASTEXITCODE")
         exit 6
     }
 
     # Re-scan after build
     if (-not (Test-Path $nasDir)) {
-        Write-Error "After build, NAS dir still missing: $nasDir (NAS offline?)"
+        [Console]::Error.WriteLine("After build, NAS dir still missing: $nasDir (NAS offline?)")
         exit 7
     }
     $zips = Get-ChildItem -Path $nasDir -Filter "JJFlex_${expected}_x64_debug_*.zip" -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending
     if (-not $zips) {
-        Write-Error "Build finished but no zip appeared in $nasDir"
+        [Console]::Error.WriteLine("Build finished but no zip appeared in $nasDir")
         exit 8
     }
     $sourceZip = $zips[0]

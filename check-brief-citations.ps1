@@ -38,7 +38,7 @@ $register = Join-Path $PlanningRoot 'active\tasks.md'
 $archive  = Join-Path $PlanningRoot 'active\tasks-archive.md'
 
 foreach ($f in @($register, $archive)) {
-    if (-not (Test-Path $f)) { Write-Error "Register not found: $f"; exit 1 }
+    if (-not (Test-Path $f)) { [Console]::Error.WriteLine("Register not found: $f"); exit 1 }
 }
 
 # Build number -> heading once. Both files use "### #NNN - title" with an em

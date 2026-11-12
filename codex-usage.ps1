@@ -100,7 +100,7 @@ function Describe-Window([object] $window, [string] $label) {
 
 $codex = Resolve-CodexExe
 if (-not $codex) {
-    Write-Error 'Could not find codex.exe on PATH or under ~\.codex\packages\standalone\releases.'
+    [Console]::Error.WriteLine('Could not find codex.exe on PATH or under ~\.codex\packages\standalone\releases.')
     exit 1
 }
 
@@ -166,11 +166,11 @@ finally {
 }
 
 if ($failure) {
-    Write-Error "The app server refused the read: $failure"
+    [Console]::Error.WriteLine("The app server refused the read: $failure")
     exit 1
 }
 if ($null -eq $result) {
-    Write-Error "No answer within $TimeoutSeconds seconds. Not a reading of zero usage -- treat it as unknown."
+    [Console]::Error.WriteLine("No answer within $TimeoutSeconds seconds. Not a reading of zero usage -- treat it as unknown.")
     exit 1
 }
 
