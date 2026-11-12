@@ -26,7 +26,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Radio_Setup_still_frames_it_as_the_librarys()
+        public void Radio_Setup_fills_the_expected_placeholder_with_the_librarys_version()
         {
             string setup = File.ReadAllText(Path.Combine(CaptureMeterSetTests.RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs"));
             Assert.Contains("(\"expected\", FlexBase.LibraryExpectedFirmwareVersion)", setup);

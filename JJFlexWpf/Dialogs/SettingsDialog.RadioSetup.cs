@@ -596,40 +596,59 @@ namespace JJFlexWpf.Dialogs
             SetupChooseFirmwareButton.IsEnabled = local;
             SetupSendFirmwareButton.IsEnabled = local && !string.IsNullOrEmpty(_chosenFirmwarePath);
 
-            string running = _rig.RadioFirmwareVersion;
+            var (parts, showSuppress) = FirmwareStatusSentences(_rig.RadioFirmwareVersion, _rig.IsInRecoveryState,
+                FlexBase.FirmwareVersionCheckBypassed, _rig.FirmwareDiffersFromLibraryExpectation, local);
+            SetupSuppressVersionWarningButton.Visibility = showSuppress ? Visibility.Visible : Visibility.Collapsed;
+            SetupFirmwareStatus.Text = string.Join(" ", parts);
+        }
+
+        /// <summary>
+        /// The connected radio's firmware sentences, in order, and whether the
+        /// button that silences the version warning is shown. Pure, so every
+        /// branch is testable without a window.
+        /// </summary>
+        /// <remarks>
+        /// An UNREPORTED version (<paramref name="running"/> empty, the radio's
+        /// version 0) is neither a match nor a difference: only the unreported
+        /// sentence is said (#1071 rider, from Codex's check). Until then the
+        /// difference test read false for an unknown version and the line went
+        /// on to say the firmware matched what the library expects, a match
+        /// nobody had established.
+        /// </remarks>
+        internal static (List<string> Parts, bool ShowSuppress) FirmwareStatusSentences(
+            string running, bool inRecovery, bool bypassed, bool differs, bool local)
+        {
+            bool unreported = string.IsNullOrEmpty(running);
             var parts = new List<string>
             {
-                string.IsNullOrEmpty(running)
+                unreported
                     ? Lexicon.Get("settings.radio.firmware.version_unreported")
                     : Lexicon.Get("settings.radio.firmware.running", ("running", running))
             };
 
-            if (_rig.IsInRecoveryState)
-            {
+            if (inRecovery)
                 parts.Add(Lexicon.Get("settings.radio.firmware.in_recovery"));
-            }
 
-            if (FlexBase.FirmwareVersionCheckBypassed)
-            {
+            bool showSuppress = false;
+            if (bypassed)
                 parts.Add(Lexicon.Get("settings.radio.firmware.check_switched_off"));
-                SetupSuppressVersionWarningButton.Visibility = Visibility.Collapsed;
+            else if (unreported)
+            {
+                // Nothing to compare: no match and no difference is claimed.
             }
-            else if (_rig.FirmwareDiffersFromLibraryExpectation)
+            else if (differs)
             {
                 parts.Add(Lexicon.Get("settings.radio.firmware.differs_from_library",
                     ("expected", FlexBase.LibraryExpectedFirmwareVersion)));
-                SetupSuppressVersionWarningButton.Visibility = Visibility.Visible;
+                showSuppress = true;
             }
             else
-            {
                 parts.Add(Lexicon.Get("settings.radio.firmware.matches"));
-                SetupSuppressVersionWarningButton.Visibility = Visibility.Collapsed;
-            }
 
             if (!local)
                 parts.Add(Lexicon.Get("settings.radio.firmware.smartlink_cannot_carry"));
 
-            SetupFirmwareStatus.Text = string.Join(" ", parts);
+            return (parts, showSuppress);
         }
 
         /// <summary>
