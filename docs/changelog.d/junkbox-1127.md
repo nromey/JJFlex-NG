@@ -1,1 +1,1 @@
-- DRAFT (for Codex): Ctrl+T now requests a tune carrier on radios without a built-in tuner, and tells you when it requests a carrier rather than an automatic tune.
+- When the tuner is not set to automatic, or your radio has no built-in tuner, Ctrl+T now requests a tune carrier and says so. Press Ctrl+T again to turn the carrier off.
