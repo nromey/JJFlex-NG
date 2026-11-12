@@ -1221,7 +1221,7 @@ namespace Radios.Tests
                 // Junk box 2026-11-11, batch 7 (#595): the alarm journal line on
                 // Settings, Diagnostics. Displayed status, never spoken by the
                 // application: TextOnly. The rate forms fill the recording
-                // sentences' {rate} slot. DRAFT PROSE.
+                // sentences' {rate} slot. Worded by Codex.
                 "settings.diagnostics.alarm_journal.no_radio",
                 "settings.diagnostics.alarm_journal.unavailable",
                 "settings.diagnostics.alarm_journal.nothing_armed",

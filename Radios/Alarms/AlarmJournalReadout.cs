@@ -4,9 +4,10 @@ using System.Globalization;
 namespace Radios.Alarms
 {
     /// <summary>
-    /// The alarm journal's one-sentence readout for Settings, Diagnostics:
-    /// whether a journal is running, and if it is, its rate and what it has
-    /// written and dropped, in words.
+    /// The alarm journal's readout for Settings, Diagnostics: a snapshot of
+    /// what the journal reports when the tab reads it, in words. It is not
+    /// proof of a live stream, and where a service or journal is absent it
+    /// says so without naming a cause.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -17,18 +18,24 @@ namespace Radios.Alarms
     /// <para>
     /// <b>Where the rate comes from.</b> <see cref="AlarmJournalStats"/>
     /// carries counts, not a rate, and the tab has no timer to difference two
-    /// readings. But it does carry the in-memory ring: every record of the last
-    /// two minutes (<see cref="AlarmJournal.RingSeconds"/>), with the seconds
-    /// between its oldest and newest. Records in the ring, less one, over that
-    /// span is the rate across the last two minutes, from one reading. With
-    /// under a second of span there is no honest rate yet, and the line says
-    /// so rather than inventing one.
+    /// readings. But it does carry the in-memory ring of retained meter
+    /// readings (bounded by time, <see cref="AlarmJournal.RingSeconds"/>, and
+    /// by size, so not an exact window), with the seconds between its oldest
+    /// and newest. Readings in the ring, less one, over that span is the
+    /// recorded rate, from one reading. The ring holds measured observations
+    /// only, while the written count also includes events. With fewer than two
+    /// readings, or under a second of span, there is no honest rate, and the
+    /// line says so rather than inventing one.
     /// </para>
     /// <para>
-    /// <b>Three states, and a fourth.</b> No radio (the alarm host is not
-    /// attached); a radio with nothing armed (no alarm or recorded meter, so
-    /// the journal receives nothing); recording. The fourth is a radio with no
-    /// journal because the settings folder was not found.
+    /// <b>The states, in order.</b> No alarm service (absent after a
+    /// disconnect or a failed attachment alike, so no cause is named); a
+    /// service with no journal stats (no cause named either); no recorded
+    /// meters resolved on this connection (none chosen, none resolved, or an
+    /// empty inventory, which does not prove no alarm is enabled); and
+    /// otherwise the journal's counts and rate, with the write losses and the
+    /// last write error when it reports itself unhealthy. Counts are
+    /// cumulative for the journal instance.
     /// </para>
     /// </remarks>
     public static class AlarmJournalReadout
@@ -43,9 +50,9 @@ namespace Radios.Alarms
             return (stats.RingRecords - 1) / stats.RetainedRingSeconds;
         }
 
-        /// <summary>The sentence for the tab.</summary>
-        /// <param name="radioAttached">The alarm host is attached to a radio.</param>
-        /// <param name="recordedMeters">Meters the journal receives on this connection.</param>
+        /// <summary>The readout for the tab.</summary>
+        /// <param name="radioAttached">The alarm service is present (the host's Service is not null).</param>
+        /// <param name="recordedMeters">Recorded meters resolved in the feed inventory on this connection.</param>
         /// <param name="stats">The journal's own figures, or null when there is no journal.</param>
         public static string Sentence(bool radioAttached, int recordedMeters, AlarmJournalStats? stats)
         {

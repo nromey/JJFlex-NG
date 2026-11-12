@@ -6,9 +6,10 @@ using Xunit;
 namespace Radios.Tests.Alarms
 {
     /// <summary>
-    /// Settings, Diagnostics shows the alarm journal's rate and drops in one
-    /// sentence (#595, ruled by Noel 2026-09-22), and says plainly when no
-    /// journal is running.
+    /// Settings, Diagnostics shows the alarm journal's rate and drops (#595,
+    /// ruled by Noel 2026-09-22) as a snapshot of what the journal reports,
+    /// and says plainly when there is no service, no journal or no meter to
+    /// record, without naming a cause it cannot know.
     /// </summary>
     // Lexicon resolves the process-wide settings root for its overlay, so
     // this class runs with the others that own that state (#232).
@@ -23,18 +24,21 @@ namespace Radios.Tests.Alarms
                 RecordsLostToWriteFailure: lost, RecordsUnserializable: 0, RecordsRetainedUnwritten: waiting);
 
         [Fact]
-        public void With_no_radio_it_says_no_journal_is_running_and_why()
+        public void With_no_alarm_service_it_says_monitoring_is_unavailable()
         {
+            // An absent service follows a disconnect or a failed attachment
+            // alike, so the line names no cause (Codex's words round,
+            // 2026-11-11). It used to be checked for "no radio".
             string s = AlarmJournalReadout.Sentence(radioAttached: false, recordedMeters: 3, stats: Stats());
             Assert.Equal(Lexicon.Get("settings.diagnostics.alarm_journal.no_radio"), s);
-            Assert.Contains("no radio", s, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
-        public void A_radio_with_nothing_armed_is_not_reported_as_recording()
+        public void With_no_meters_to_record_it_says_so_rather_than_giving_counts()
         {
-            // The journal exists at every attach, armed or not; with nothing
-            // recorded it receives nothing, and the line must not show its
+            // No recorded meter resolved on this connection (none chosen,
+            // none resolved, or an empty inventory). That does not prove no
+            // alarm is enabled, and the line must not show the journal's
             // zero counts as though it were keeping up.
             string s = AlarmJournalReadout.Sentence(true, recordedMeters: 0, stats: Stats(written: 0, ring: 0, ringSeconds: 0));
             Assert.Equal(Lexicon.Get("settings.diagnostics.alarm_journal.nothing_armed"), s);
