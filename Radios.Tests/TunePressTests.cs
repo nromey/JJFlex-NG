@@ -157,7 +157,7 @@ public sealed class TunePressTests : IDisposable
         // Repair round 1: the carrier outcome leaves for the carrier's own key
         // before anything else, and "ATU tuning" is all that is left here.
         Assert.Contains("if (outcome == Radios.TunePressOutcome.TuneCarrier)", body);
-        Assert.Contains("Lexicon.Get(\"audio.tune.atu_tuning\")", body);
+        Assert.Contains("(\"audio.tune.atu_tuning\"), VerbosityLevel.Terse, true,", body);
         Assert.DoesNotContain("audio.tune.tune_carrier_sent", body);
         Assert.Contains("subject: Radios.Speech.SpeechSubject.TunePressSent", body);
 
@@ -210,7 +210,7 @@ public sealed class TunePressTests : IDisposable
         // rather than cutting it, and only on this route.
         string answer = Body(main, "private void AnnounceTuneWhenTheRadioAnswers()");
         Assert.Contains("bool tuneOnInterrupts = !_tuneAnswerFollowsLead;", answer);
-        Assert.Contains("Lexicon.Get(\"audio.tune.tune_on\"), VerbosityLevel.Terse, tuneOnInterrupts)", answer);
+        Assert.Contains("(\"audio.tune.tune_on\"), VerbosityLevel.Terse, tuneOnInterrupts)", answer);
     }
 
     [Fact]

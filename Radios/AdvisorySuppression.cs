@@ -519,7 +519,7 @@ namespace Radios
                     if (notWritten.Count > 0)
                     {
                         Tracing.TraceLine("AdvisorySuppression: the Windows account's silenced messages could not be carried to "
-                            + string.Join(", ", notWritten) + "; the carry-over runs again at the next start",
+                            + string.Join(", ", notWritten) + "; the next start makes those copies again",
                             System.Diagnostics.TraceLevel.Warning);
                         _default = null;
                         _defaultFor = null;
