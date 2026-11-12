@@ -223,19 +223,24 @@ public sealed class NoiseControllerTests
     }
 
     [Fact]
-    public void A_radio_level_steps_fine_then_coarse_and_the_unreported_ones_are_held_as_intents_per_radio()
+    public void A_radio_level_steps_fine_then_coarse_and_the_unreported_one_is_held_as_an_intent_per_radio()
     {
         using var f = new NoiseFixture();
-        f.Radio.Levels["radio_nrl"] = 15;
-        var level = f.Noise.Levers("radio_nrl", false)[0];
+        f.Radio.Levels["radio_nrf"] = 15;
+        var level = f.Noise.Levers("radio_nrf", false)[0];
         f.Noise.Adjust(level, +1, "test");
-        Assert.Equal(20, f.Radio.Levels["radio_nrl"]);
-        Assert.Equal(20, f.Held.Get("1234-5678", "radio_nrl"));
-        // A reported level is the radio's own; nothing is held for it.
+        Assert.Equal(20, f.Radio.Levels["radio_nrf"]);
+        Assert.Equal(20, f.Held.Get("1234-5678", "radio_nrf"));
+        // A reported level is the radio's own; nothing is held for it, and
+        // Legacy NR is reported since the Track E follow-up (#1012).
         f.Noise.Adjust(f.Noise.Levers("radio_nb", false)[0], +1, "test");
         Assert.Null(f.Held.Get("1234-5678", "radio_nb"));
+        f.Radio.Levels["radio_nrl"] = 15;
+        f.Noise.Adjust(f.Noise.Levers("radio_nrl", false)[0], +1, "test");
+        Assert.Equal(20, f.Radio.Levels["radio_nrl"]);
+        Assert.Null(f.Held.Get("1234-5678", "radio_nrl"));
         // Another radio keeps its own.
-        Assert.Null(f.Held.Get("9999", "radio_nrl"));
+        Assert.Null(f.Held.Get("9999", "radio_nrf"));
     }
 
     [Fact]
@@ -244,18 +249,52 @@ public sealed class NoiseControllerTests
         using var f = new NoiseFixture();
         f.Noise.Attach("USB");
         Assert.Empty(f.Radio.Writes.Where(w => w.Contains(".level")));
-        f.Held.Set("1234-5678", "radio_nrl", 30);
-        f.Held.Set("1234-5678", "radio_anfl", 40);
-        f.Held.Set("other-radio", "radio_nrs", 50);
+        f.Held.Set("1234-5678", "radio_nrf", 30);
+        f.Held.Set("other-radio", "radio_nrf", 50);
         f.Noise.Attach("USB");
-        Assert.Contains("radio_nrl.level=30", f.Radio.Writes);
-        Assert.Contains("radio_anfl.level=40", f.Radio.Writes);
-        Assert.DoesNotContain(f.Radio.Writes, w => w.StartsWith("radio_nrs") || w.StartsWith("radio_nrf") || w.StartsWith("radio_nb"));
+        Assert.Equal(new[] { "radio_nrf.level=30" }, f.Radio.Writes.Where(w => w.Contains(".level")));
         f.Radio.Writes.Clear();
         f.Noise.NoteActiveSlice(0);
         Assert.Empty(f.Radio.Writes);
         f.Noise.NoteActiveSlice(1);
-        Assert.Equal(new[] { "radio_nrl.level=30", "radio_anfl.level=40" }, f.Radio.Writes);
+        Assert.Equal(new[] { "radio_nrf.level=30" }, f.Radio.Writes);
+    }
+
+    /// <summary>
+    /// S12, ruled by Noel 2026-11-11 20:30 ("go with radio"): once Legacy NR,
+    /// Legacy Auto-Notch and Spectral NR are reported (#1012), a level saved
+    /// for them before is never written on connect or on a slice change; they
+    /// follow whatever the radio already has. NR Filter is still restored.
+    /// And what Space reports is the radio's level, not the stale intent (the
+    /// 2026-11-08 walk heard "Legacy NR, level 1" while the radio ran 100).
+    /// </summary>
+    [Fact]
+    public void The_three_reported_levels_follow_the_radio_on_connect_and_Space_reports_the_radios_level()
+    {
+        using var f = new NoiseFixture();
+        foreach (var id in new[] { "radio_nrl", "radio_anfl", "radio_nrs" }) f.Held.Set("1234-5678", id, 1);
+        f.Held.Set("1234-5678", "radio_nrf", 30);
+        f.Radio.Levels["radio_nrl"] = 100;
+        f.Radio.Levels["radio_anfl"] = 40;
+        f.Radio.Levels["radio_nrs"] = 25;
+
+        f.Noise.Attach("USB");
+        f.Noise.NoteActiveSlice(0);
+        f.Noise.NoteActiveSlice(1);
+
+        Assert.Equal(new[] { "radio_nrf.level=30", "radio_nrf.level=30" }, f.Radio.Writes.Where(w => w.Contains(".level")));
+        Assert.Equal(100, f.Radio.Levels["radio_nrl"]);
+        Assert.Equal(40, f.Radio.Levels["radio_anfl"]);
+        Assert.Equal(25, f.Radio.Levels["radio_nrs"]);
+
+        f.Radio.Switches["radio_nrl"] = true;
+        f.Radio.Switches["radio_anfl"] = true;
+        f.Radio.Switches["radio_nrs"] = true;
+        string summary = f.Noise.ActiveSummary();
+        Assert.Contains("Legacy NR, level 100", summary);
+        Assert.Contains("Legacy Auto-Notch, level 40", summary);
+        Assert.Contains("Spectral NR, level 25", summary);
+        Assert.Equal(100, f.Noise.NumberOf(f.Noise.Levers("radio_nrl", false)[0]));
     }
 
     // ── Return to defaults (D4) ──

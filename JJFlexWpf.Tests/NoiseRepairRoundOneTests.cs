@@ -363,12 +363,12 @@ public sealed class NoiseRepairRoundOneTests
         var catalog = new DenoiseEngineCatalog();
         var held = catalog.Entries.Where(e => e.Level != null && !e.Level.ReportedBack)
             .ToDictionary(e => e.Id, e => e.Level!.Held);
+        // Since the Track E follow-up (#1012, S5) the radio's own status
+        // carries Legacy NR, Spectral NR and Legacy Auto-Notch; only NR
+        // Filter's level is unreported, so only it is held.
         Assert.Equal(new Dictionary<string, HeldNoiseLevel?>
         {
-            ["radio_nrl"] = HeldNoiseLevel.LegacyNoiseReduction,
-            ["radio_nrs"] = HeldNoiseLevel.SpectralNoiseReduction,
             ["radio_nrf"] = HeldNoiseLevel.NoiseReductionFilter,
-            ["radio_anfl"] = HeldNoiseLevel.LegacyAutoNotch,
         }, held);
         Assert.All(catalog.Entries.Where(e => e.Level is { ReportedBack: true }), e => Assert.Null(e.Level!.Held));
     }

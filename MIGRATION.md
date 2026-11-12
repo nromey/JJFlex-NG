@@ -188,6 +188,29 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     without enabling telnet tracing. Remove this patch if a later FlexLib release
     exposes the same radio-reported field.
 
+21. **Slice noise levels in status (2026-11-11, Sprint 49 Track E follow-up,
+    #1012)**: keep the three comment-marked cases in `Slice.StatusUpdate` in
+    `FlexLib_API/FlexLib/Slice.cs`: `nrl_level`, `anfl_level` and `nrs_level`.
+    The radio sets Legacy NR's level with `lms_nr_level`, Legacy Auto-Notch's
+    with `lms_anf_level` and Spectral NR's with `speex_nr_level`, and reports
+    them back in ordinary slice status under the shorter keys (read from a
+    FLEX-8600 on 2026-11-08). Stock FlexLib has no case for the reported keys,
+    so they fell to "Key not parsed" and its cache held only what this client
+    last wrote. Each case does exactly what the neighbouring `nr_level` and
+    `anf_level` cases do: parse 0 to 100, set the private field (`_nrl_level`,
+    `_anfl_level`, `_nrs_level`) and raise `PropertyChanged` for `NRL_Level`,
+    `ANFL_Level` or `NRSLevel`. **They must never assign the public properties:
+    those setters send `slice set` to the radio, so every status line would
+    write back.** NR Filter's level (`nrf_level`) is not reported (an 8600
+    answers it "Bad field") and gets no case. Ruled by Noel 2026-11-09 15:42
+    (S5, "yes") as an exception to "never edit vendored FlexLib" for these
+    three cases only. With them, JJ Flexible follows the radio for those three
+    levels instead of holding a saved intent (ruled 2026-11-11 20:30, S12).
+    Purely additive: no vendor line changes, so a 3-way merge cannot conflict,
+    but a wholesale copy of `Slice.cs` drops them silently and the three levels
+    read 0 again. `Radios.Tests` `SliceNoiseLevelStatusTests` fails if they go.
+    Remove if a later FlexLib release parses these keys itself.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

@@ -35,13 +35,15 @@ public sealed class NoiseCatalogTests
 
     [Theory]
     [InlineData("radio_nr", 0, 100, true, null)]
-    [InlineData("radio_nrl", 1, 100, false, null)]
-    [InlineData("radio_nrs", 0, 100, false, RadioCapability.NoiseReductionSpectral)]
+    // Legacy NR, Spectral NR and Legacy Auto-Notch are reported since the
+    // Track E follow-up (#1012, S5): only NR Filter's level is still held.
+    [InlineData("radio_nrl", 1, 100, true, null)]
+    [InlineData("radio_nrs", 0, 100, true, RadioCapability.NoiseReductionSpectral)]
     [InlineData("radio_nrf", 0, 100, false, RadioCapability.NoiseReductionFilter)]
     [InlineData("radio_nb", 0, 100, true, null)]
     [InlineData("radio_wnb", 0, 100, true, null)]
     [InlineData("radio_anf", 0, 100, true, null)]
-    [InlineData("radio_anfl", 0, 100, false, null)]
+    [InlineData("radio_anfl", 0, 100, true, null)]
     [InlineData("radio_apf", 0, 100, true, null)]
     public void Every_radio_level_has_its_range_whether_the_radio_reports_it_and_its_gate(
         string id, int min, int max, bool reported, RadioCapability? gate)

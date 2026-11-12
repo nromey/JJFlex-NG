@@ -5468,7 +5468,8 @@ public partial class MainWindow : UserControl
             FieldsPanel.ApplyDspConfig(CurrentAudioConfig);
             // The noise controller enters the current mode's group (a starting
             // point the first time, per-mode memory after) and writes the held
-            // levels the radio never reports back (Sprint 49 Track E).
+            // level the radio never reports back, NR Filter's (Sprint 49 Track E;
+            // the other three follow the radio since the Track E follow-up, #1012).
             Noise.Attach(RigControl?.Mode ?? "");
 
             // Apply braille config

@@ -34,11 +34,17 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Write every held intent for the four levels the radio never reports
+        /// Write every held intent for the levels the radio never reports
         /// back (ruled 2026-11-07, question 16), on connect and when the
         /// active slice changes: those levels are per slice, and the app cannot
         /// otherwise make a level it cannot read true on the new slice. An
         /// intent never set writes nothing. Each write is traced.
+        /// Only levels with <c>ReportedBack: false</c> are written, which since
+        /// the Track E follow-up is NR Filter's alone: Legacy NR, Spectral NR
+        /// and Legacy Auto-Notch are read from the radio (#1012), and on
+        /// connect they follow whatever the radio already has, so an intent
+        /// saved for them before is never written (ruled by Noel 2026-11-11
+        /// 20:30, S12, "go with radio").
         /// </summary>
         public void WriteRadioIntents(string why)
         {
