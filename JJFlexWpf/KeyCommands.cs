@@ -1433,7 +1433,10 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        if (!rig.HasATU)
+        // #1127 (J4): with no ATU the press still sends a plain tune carrier in
+        // manual type (the type such a radio has); only a type that would ask
+        // an absent ATU to tune is refused here.
+        if (Radios.TunePress.For(rig.HasATU, rig.FlexTunerType) == Radios.TunePressOutcome.NoTuner)
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.atu.none_on_radio"), Radios.VerbosityLevel.Critical);

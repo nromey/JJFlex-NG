@@ -7531,7 +7531,11 @@ public partial class MainWindow : UserControl
     public void StartATUTuneCycle()
     {
         if (RigControl == null) return;
-        if (!RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet))
+        // #1127 (J4): what this press does, by tuner state (Radios.TunePress).
+        // Manual type, with or without an ATU, sends a plain tune carrier and
+        // says so; automatic type is the ATU's tune, as before.
+        var outcome = Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType);
+        if (outcome == Radios.TunePressOutcome.NoTuner)
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.no_tuner"), VerbosityLevel.Terse);
@@ -7552,7 +7556,10 @@ public partial class MainWindow : UserControl
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
         _pttController?.NoteAtuTuning(true);   // #571, Astra B6: an ATU cycle is RF; see ToggleTuneCarrier
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_tuning"), VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get(outcome == Radios.TunePressOutcome.TuneCarrier
+            ? "audio.tune.tune_carrier_sent"   // DRAFT words (#1127), Codex writes the final
+            : "audio.tune.atu_tuning"), VerbosityLevel.Terse, true,
+            subject: Radios.Speech.SpeechSubject.TunePressSent);
     }
 
     private void StartATUTimeout()

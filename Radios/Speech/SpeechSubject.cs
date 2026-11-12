@@ -179,6 +179,13 @@ namespace Radios.Speech
         public const string TuneAlreadyTuning = "tune-already-tuning";
 
         /// <summary>
+        /// What a tune press sent (#1127): the ATU's tune in automatic type, a
+        /// plain tune carrier otherwise. The answer to the key just pressed; a
+        /// later press replaces an unheard earlier one.
+        /// </summary>
+        public const string TunePressSent = "tune-press-sent";
+
+        /// <summary>
         /// A press that would key was refused because the rig reads 0 watts.
         /// True until the operator sets a power, and the next refusal says the
         /// same thing.
