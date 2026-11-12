@@ -60,19 +60,22 @@ public sealed class RefusalFinalSentenceTests
         AssertWindowless();
         string text = Read("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs").Replace("\r\n", "\n");
 
-        // The refusal branch records the hold's sentence ...
+        // The outcome is filed by the one router (#1088 repair), whose refusal
+        // branch records the hold's sentence ...
         int at = text.IndexOf("var outcome = PerformPortForwardApply(wantEnabled, tcp, udp);", StringComparison.Ordinal);
         Assert.True(at > 0);
-        string branch = text.Substring(at, 1000);
-        int notRefused = branch.IndexOf("else if (outcome != GuardedOutcome.Refused)", StringComparison.Ordinal);
-        int noted = branch.IndexOf("refused.Add(Lexicon.Get(\"settings.guard.refused\"", StringComparison.Ordinal);
-        Assert.True(notRefused > 0 && noted > notRefused, "the hold's refusal is not carried out of the port-forward commit");
+        string branch = text.Substring(at, 400);
+        Assert.Contains("FilePortForwardOutcome(outcome, NetworkCurrentStateText.Text,", branch, StringComparison.Ordinal);
+        string router = Body(text, "internal static string? FilePortForwardOutcome(");
+        int isRefused = router.IndexOf("if (outcome == GuardedOutcome.Refused)", StringComparison.Ordinal);
+        int noted = router.IndexOf("refused.Add(Lexicon.Get(\"settings.guard.refused\"", StringComparison.Ordinal);
+        Assert.True(isRefused > 0 && noted > isRefused, "the hold's refusal is not carried out of the port-forward commit");
 
         // ... into the list the whole commit owns, and every final word
         // (advisory or spoken) comes from the one decision that reads it.
         string commit = Body(text, "private bool ApplyAllSettings(bool closing)");
         Assert.Contains("var refused = new List<string>();", commit, StringComparison.Ordinal);
-        Assert.Contains("CommitPortForwardIfDirty(queued, applied, refused)", commit, StringComparison.Ordinal);
+        Assert.Contains("CommitPortForwardIfDirty(queued, applied, refused, failed)", commit, StringComparison.Ordinal);
         Assert.Contains("CommitAnnouncement(closing, pttDropped, refused, queued, applied, failed)", commit, StringComparison.Ordinal);
         Assert.DoesNotContain("some_items_wait_lead", commit, StringComparison.Ordinal);
         Assert.DoesNotContain("interrupt: true", commit, StringComparison.Ordinal);
@@ -208,9 +211,13 @@ public sealed class RefusalFinalSentenceTests
         Assert.Equal(("settings.commit.ptt_not_saved", true), SettingsDialog.CommitSummary(true, true, false, anyFailed: true));
     }
 
-    /// <summary>Every save that can fail in the commit files its failure as failed, never as applied.</summary>
+    /// <summary>
+    /// Source wiring only, and only for the six commits named here: each
+    /// files its failure as failed, never as applied. It proves nothing about
+    /// any other writer; the three routers below are tested by behaviour.
+    /// </summary>
     [Fact]
-    public void Every_commit_files_a_failure_as_failed()
+    public void The_six_named_commits_are_wired_to_file_a_failure_as_failed()
     {
         AssertWindowless();
         string keyer = Read("JJFlexWpf", "Dialogs", "SettingsDialog.KeyerSpeed.cs");
@@ -226,6 +233,119 @@ public sealed class RefusalFinalSentenceTests
         Assert.Contains("CommitRadioProfiles(queued, applied, failed)", commit, StringComparison.Ordinal);
         Assert.Contains("CommitSetupRadioNameIfDirty(applied, failed)", commit, StringComparison.Ordinal);
         Assert.Contains("CommitKeyerSpeedIfChanged(queued, failed)", commit, StringComparison.Ordinal);
+        // #1088 repair: the system-wide keys, the overwrite warning and the port forward.
+        Assert.Contains("CommitSystemWideKeysIfDirty(applied, failed)", commit, StringComparison.Ordinal);
+        Assert.Contains("CommitSliceOverwriteSetting(failed)", commit, StringComparison.Ordinal);
+        Assert.Contains("CommitPortForwardIfDirty(queued, applied, refused, failed)", commit, StringComparison.Ordinal);
+        string keys = Read("JJFlexWpf", "Dialogs", "SettingsDialog.SystemWideKeys.cs");
+        Assert.Contains("FileSystemWideKeysOutcome(_systemWideKeysPanel.CommitOutcome(), applied, failed);", keys, StringComparison.Ordinal);
+        string overwrite = Read("JJFlexWpf", "Dialogs", "SettingsDialog.SliceOverwrite.cs");
+        Assert.Contains("CommitSliceOverwriteEdits(_warnOverwriteEdits,", overwrite, StringComparison.Ordinal);
+        string save = Body(Read("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs").Replace("\r\n", "\n"), "private bool SaveSettings()");
+        Assert.DoesNotContain("CommitSliceOverwriteSetting(", save, StringComparison.Ordinal);
+    }
+
+    // ---- #1088 repair: the three callers Codex found, at their boundary ----
+
+    private static string KeysNotSaved => Lexicon.Get("settings.systemwide_keys.save_failed");
+
+    [Fact]
+    public void A_system_wide_keys_file_that_was_not_written_is_failed_and_OK_never_says_saved()
+    {
+        AssertWindowless();
+        var applied = new System.Collections.Generic.List<string>();
+        var failed = new System.Collections.Generic.List<string>();
+        SettingsDialog.FileSystemWideKeysOutcome(new SystemWideKeysCommitOutcome(KeysNotSaved, Saved: false), applied, failed);
+        Assert.Empty(applied);
+        Assert.Equal(new[] { KeysNotSaved }, failed);
+
+        var ok = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), Array.Empty<string>(), applied, failed);
+        Assert.Equal(KeysNotSaved + " Your other settings were saved.", ok.Spoken);
+
+        // With something waiting, it is never under Done right away.
+        var waiting = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), new[] { Queued }, applied, failed);
+        Assert.DoesNotContain("Everything you set was saved", waiting.Advisory!, StringComparison.Ordinal);
+        Assert.Contains(KeysNotSaved, waiting.Advisory!, StringComparison.Ordinal);
+        Assert.DoesNotContain(Lexicon.Get("settings.commit.done_right_away_lead"), waiting.Advisory!, StringComparison.Ordinal);
+
+        // Apply with something waiting says it too.
+        var apply = SettingsDialog.CommitAnnouncement(false, false, Array.Empty<string>(), new[] { Queued }, applied, failed);
+        Assert.StartsWith(KeysNotSaved, apply.Spoken!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_system_wide_keys_save_that_landed_is_still_applied()
+    {
+        AssertWindowless();
+        var applied = new System.Collections.Generic.List<string>();
+        var failed = new System.Collections.Generic.List<string>();
+        string saved = Lexicon.Get("settings.systemwide_keys.saved");
+        SettingsDialog.FileSystemWideKeysOutcome(new SystemWideKeysCommitOutcome(saved, Saved: true), applied, failed);
+        SettingsDialog.FileSystemWideKeysOutcome(null, applied, failed);
+        Assert.Equal(new[] { saved }, applied);
+        Assert.Empty(failed);
+    }
+
+    [Fact]
+    public void A_failed_port_forward_command_is_failed_and_never_waiting()
+    {
+        AssertWindowless();
+        var applied = new System.Collections.Generic.List<string>();
+        var refused = new System.Collections.Generic.List<string>();
+        var failed = new System.Collections.Generic.List<string>();
+        string? note = SettingsDialog.FilePortForwardOutcome(GuardedOutcome.Failed, "ports open", applied, refused, failed);
+        string commandFailed = Lexicon.Get("settings.network.forwarding_command_failed");
+        Assert.Equal(commandFailed, note);
+        Assert.Equal(new[] { commandFailed }, failed);
+        Assert.Empty(applied);
+        Assert.Empty(refused);
+
+        var ok = SettingsDialog.CommitAnnouncement(true, false, refused, Array.Empty<string>(), applied, failed);
+        Assert.Null(ok.Advisory);
+        Assert.Equal(commandFailed + " Your other settings were saved.", ok.Spoken);
+        var apply = SettingsDialog.CommitAnnouncement(false, false, refused, Array.Empty<string>(), applied, failed);
+        Assert.DoesNotContain(Lexicon.Get("settings.commit.waiting_lead").Trim(), apply.Spoken!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_port_forward_that_was_done_or_refused_is_never_failed()
+    {
+        AssertWindowless();
+        var applied = new System.Collections.Generic.List<string>();
+        var refused = new System.Collections.Generic.List<string>();
+        var failed = new System.Collections.Generic.List<string>();
+        Assert.Null(SettingsDialog.FilePortForwardOutcome(GuardedOutcome.Done, "ports open", applied, refused, failed));
+        Assert.Null(SettingsDialog.FilePortForwardOutcome(GuardedOutcome.Refused, "ports open", applied, refused, failed));
+        Assert.Equal(new[] { "ports open" }, applied);
+        Assert.Equal(new[] { Refusal }, refused);
+        Assert.Empty(failed);
+    }
+
+    [Fact]
+    public void An_overwrite_warning_setting_that_was_not_written_is_failed_and_stays_pending()
+    {
+        AssertWindowless();
+        var edits = new SliceOverwriteSettingEdits();
+        Assert.Equal("SERIAL-ONE", edits.ResolveTarget("SERIAL-ONE"));
+        Assert.True(edits.Show("SERIAL-ONE", _ => true, null));
+        edits.Edit(false);
+        var failed = new System.Collections.Generic.List<string>();
+        int writes = 0;
+
+        SettingsDialog.CommitSliceOverwriteEdits(edits, (_, _) => { writes++; return false; }, _ => "Bench radio", failed);
+
+        string notSaved = Lexicon.Get("settings.commit.overwrite_warning_not_saved", ("radio", "Bench radio"));
+        Assert.Equal(1, writes);
+        Assert.Equal(new[] { notSaved }, failed);
+        var ok = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), Array.Empty<string>(),
+            Array.Empty<string>(), failed);
+        Assert.Equal(notSaved + " Your other settings were saved.", ok.Spoken);
+
+        // The edit is still held for the next OK, and a write that lands then is not failed.
+        var again = new System.Collections.Generic.List<string>();
+        SettingsDialog.CommitSliceOverwriteEdits(edits, (_, _) => { writes++; return true; }, _ => "Bench radio", again);
+        Assert.Equal(2, writes);
+        Assert.Empty(again);
     }
 
     [Fact]

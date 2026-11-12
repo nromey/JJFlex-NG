@@ -872,7 +872,7 @@ namespace JJFlexWpf.Dialogs
         /// neither claim the change nor cut that sentence off, and its written
         /// advisory must carry it (#486, repairs one and two).
         /// </summary>
-        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied, List<string> refused)
+        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied, List<string> refused, List<string> failed)
         {
             if (PortForwardEnabledCheck == null) return true;
             bool wantEnabled = PortForwardEnabledCheck.IsChecked == true;
@@ -937,16 +937,9 @@ namespace JJFlexWpf.Dialogs
                             return;
                         }
                         var outcome = PerformPortForwardApply(wantEnabled, tcp, udp);
-                        if (outcome == GuardedOutcome.Done)
-                            applied.Add(NetworkCurrentStateText.Text);
-                        // Refused: the hold has said so and the status line
-                        // carries the same sentence; "The port forwarding
-                        // command failed" after it was untrue (#486).
-                        else if (outcome != GuardedOutcome.Refused)
-                            declineNote = Lexicon.Get("settings.network.forwarding_command_failed");
-                        else
-                            refused.Add(Lexicon.Get("settings.guard.refused",
-                                ("action", Lexicon.Get("settings.guard.action.ports"))));
+                        string? failNote = FilePortForwardOutcome(outcome, NetworkCurrentStateText.Text,
+                            applied, refused, failed);
+                        if (failNote != null) NetworkCurrentStateText.Text = failNote;
                     },
                     onDenied: () =>
                     {
@@ -974,6 +967,36 @@ namespace JJFlexWpf.Dialogs
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// Where one port-forward command's outcome goes in the commit's lists.
+        /// Done is applied. Refused: the hold has said so and the status line
+        /// carries the same sentence; "The port forwarding command failed"
+        /// after it was untrue (#486). Anything else did not land, so it is
+        /// FAILED (#1088 repair, Codex's B3): until then it went into the
+        /// waiting list beside a declined confirmation and denied authority,
+        /// so OK said "Everything you set was saved" over it. A decline and a
+        /// denial stay where they were. Returns the failure's sentence for the
+        /// status line, or null.
+        /// </summary>
+        internal static string? FilePortForwardOutcome(GuardedOutcome outcome, string doneText,
+            List<string> applied, List<string> refused, List<string> failed)
+        {
+            if (outcome == GuardedOutcome.Done)
+            {
+                applied.Add(doneText);
+                return null;
+            }
+            if (outcome == GuardedOutcome.Refused)
+            {
+                refused.Add(Lexicon.Get("settings.guard.refused",
+                    ("action", Lexicon.Get("settings.guard.action.ports"))));
+                return null;
+            }
+            string note = Lexicon.Get("settings.network.forwarding_command_failed");
+            failed.Add(note);
+            return note;
         }
 
         /// <summary>
@@ -1606,8 +1629,8 @@ namespace JJFlexWpf.Dialogs
                 OfferStationSaveOnDisconnectCheck.IsChecked == true;
             // The one countdown (#835), made live by Apply() below.
             CommitCountdown();
-            // #999: saved for the radio it was shown for.
-            CommitSliceOverwriteSetting();
+            // #999's overwrite warning is committed in ApplyAllSettings, so a
+            // save that did not land reaches the commit's failed list (#1088).
             // The alert sound delay (#855), likewise: Apply() reopens the alert device with it.
             CommitAlertBuffer();
 
@@ -1713,11 +1736,18 @@ namespace JJFlexWpf.Dialogs
             var applied = new List<string>();  // done now
             var failed = new List<string>();   // tried and did not land: never counted as done (#1088)
 
+            // #999: saved for the radio it was shown for; a save that did not
+            // land is failed (#1088 repair). Here, first, rather than in
+            // SaveSettings, which runs before these lists exist: nothing after
+            // the call's old place there returns false, so it runs exactly
+            // whenever it did.
+            CommitSliceOverwriteSetting(failed);
+
             if (!CommitRadioProfiles(queued, applied, failed)) return false;
             CommitSetupRadioNameIfDirty(applied, failed);
             var refused = new List<string>(); // refused by the change-nothing hold: neither sent nor saved
-            if (!CommitPortForwardIfDirty(queued, applied, refused)) return false;
-            CommitSystemWideKeysIfDirty(applied);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
+            if (!CommitPortForwardIfDirty(queued, applied, refused, failed)) return false;
+            CommitSystemWideKeysIfDirty(applied, failed);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
             CommitKeyerSpeedIfChanged(queued, failed);   // #879: see SettingsDialog.KeyerSpeed.cs
 
             SettingsApplied?.Invoke();

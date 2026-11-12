@@ -314,7 +314,7 @@ public sealed class SliceOverwriteWarningTests : IDisposable
         Assert.Contains("RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(serial, warn)", part);
         string settings = Source("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs");
         Assert.Contains("InitializeSliceOverwriteSetting();", settings);
-        Assert.Contains("CommitSliceOverwriteSetting();", settings);
+        Assert.Contains("CommitSliceOverwriteSetting(failed);", settings);
     }
 
     // ── The setting is an intent: never hidden, kept across a disconnect (repair round 1) ──

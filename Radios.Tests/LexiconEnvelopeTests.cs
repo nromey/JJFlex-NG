@@ -1322,6 +1322,9 @@ namespace Radios.Tests
                 "settings.tuning.steps_list_drop_no",
                 "settings.tuning.steps_list_remove_coarse_named",
                 "settings.tuning.steps_list_remove_fine_named",
+                // Junk box batch 10 repair (#1088): a failed save of the overwrite
+                // warning setting. DRAFT.
+                "settings.commit.overwrite_warning_not_saved",
                 // Junk box batch 10 (#1068): eight route sentences that were
                 // still unclassified, reworded to the categories' spoken names,
                 // and so classified as they were edited. DRAFT.

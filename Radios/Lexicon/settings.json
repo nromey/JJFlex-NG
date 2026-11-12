@@ -131,6 +131,8 @@
   "settings.commit.done_right_away_lead": "Done right away: ",
   "settings.commit.saved_spoken": "Settings saved.",
   "settings.commit.saved_others_spoken": {"text": "Your other settings were saved.", "delivery": null},
+  "_note_1088_repair": "Junk box batch 10 repair (2026-11-11): settings.commit.overwrite_warning_not_saved is a DRAFT placeholder, Codex's to word: what Settings says when the warning before a recording on the radio is overwritten could not be saved for a radio. {radio} is the radio's name.",
+  "settings.commit.overwrite_warning_not_saved": {"text": "The overwrite warning setting for {radio} was not saved.", "delivery": null},
   "settings.commit.ptt_not_saved": {"text": "Push-to-talk settings need a connected radio, so those changes were not saved. Your other settings were saved.", "delivery": null},
   "settings.commit.some_items_wait_lead": "Everything you set was saved. These items cannot take effect yet:",
   "settings.commit.some_items_wait_lead_refused": {"text": "Your other settings were saved. These items cannot take effect yet:", "delivery": null},

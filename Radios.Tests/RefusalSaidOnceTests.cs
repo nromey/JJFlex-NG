@@ -153,10 +153,14 @@ public sealed class RefusalSaidOnceTests : IDisposable
         string text = Read("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs");
         int at = text.IndexOf("var outcome = PerformPortForwardApply(wantEnabled, tcp, udp);", StringComparison.Ordinal);
         Assert.True(at > 0);
-        string branch = text.Substring(at, 600);
-        Assert.Contains("else if (outcome != GuardedOutcome.Refused)", branch, StringComparison.Ordinal);
-        int failed = branch.IndexOf("settings.network.forwarding_command_failed", StringComparison.Ordinal);
-        Assert.True(failed > branch.IndexOf("else if (outcome != GuardedOutcome.Refused)", StringComparison.Ordinal),
+        string branch = text.Substring(at, 400);
+        // Filed by one router since #1088's repair: a refusal returns before
+        // the failure's sentence is reached.
+        Assert.Contains("FilePortForwardOutcome(outcome,", branch, StringComparison.Ordinal);
+        string router = Body(text, "internal static string? FilePortForwardOutcome(");
+        int refusedReturns = router.IndexOf("if (outcome == GuardedOutcome.Refused)", StringComparison.Ordinal);
+        int failed = router.IndexOf("settings.network.forwarding_command_failed", StringComparison.Ordinal);
+        Assert.True(refusedReturns > 0 && failed > refusedReturns,
             "\"The port forwarding command failed\" is reached by a refusal");
 
         string apply = Body(text, "private GuardedOutcome PerformPortForwardApply(");
