@@ -566,11 +566,18 @@ Namespace My
                         WpfMainWindow.SetNativeMenuFilterPresetsCallback?.Invoke(presets)
 
                         handlers.BandMem = Radios.BandMemory.Load(BaseConfigDir, opName)
-                        Dim isFirstRun = Not Radios.LicenseConfig.Exists(BaseConfigDir, opName)
-                        handlers.License = Radios.LicenseConfig.Load(BaseConfigDir, opName)
+                        ' The license from the ONE file Settings saves (#1072 repair):
+                        ' the per-radio settings folder, as OpenParms.ConfigDirectory.
+                        ' Home used to read, test and seed a copy at the settings
+                        ' root instead, so a choice made in Settings came back as
+                        ' that copy's defaults after a switch or a restart. An older
+                        ' root copy alone is still read; neither file is deleted.
+                        Dim isFirstRun As Boolean
+                        handlers.License = Radios.LicenseConfig.LoadOrCarry(
+                            BaseConfigDir & "\Radios", BaseConfigDir, opName, isFirstRun)
                         If isFirstRun Then
                             ' First run: save defaults and prompt user to set license class
-                            handlers.License.Save(BaseConfigDir, opName)
+                            handlers.License.Save(BaseConfigDir & "\Radios", opName)
                             Radios.ScreenReaderOutput.Speak(
                                 Radios.Lexicon.Get("connect.startup.first_run_license"))
                         End If
