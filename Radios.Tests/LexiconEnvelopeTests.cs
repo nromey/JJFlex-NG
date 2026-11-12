@@ -2181,6 +2181,8 @@ namespace Radios.Tests
                 "audio.noise_surface.not_in_version",
                 "audio.noise_surface.pc_audio_off",
                 "audio.noise_surface.choice_kept",
+                // Track E follow-up C (#1018 item 2): a refusal that still swapped engines names the one it replaced. Placeholder for Codex.
+                "audio.noise_surface.replaced_clause",
                 "audio.noise_surface.delay_clause",
                 "audio.noise_surface.unavailable.none",
                 "audio.noise_surface.unavailable.librarymissing",

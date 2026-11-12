@@ -31,6 +31,74 @@ public sealed class NoiseControllerTests
         Assert.Equal(SpeechSubject.NoiseEngineSwitch, f.Spoken.Said[^1].Subject);
     }
 
+    /// <summary>
+    /// #1018 item 2 (Track E follow-up C): the two refusals that still put the
+    /// pressed engine in its slot (it cannot run here; PC audio is off) used to
+    /// say only their own sentence, so the engine pushed out went silently.
+    /// Each now names it, at every verbosity; and the journal records the swap
+    /// as one entry carrying both engines, not a bare "off -> on".
+    /// </summary>
+    [Theory]
+    [InlineData(VerbosityLevel.Chatty)]
+    [InlineData(VerbosityLevel.Terse)]
+    [InlineData(VerbosityLevel.Critical)]
+    public void A_refused_start_that_still_swaps_engines_names_the_one_it_replaced_and_journals_both(VerbosityLevel verbosity)
+    {
+        using var f = new NoiseFixture();
+        f.Spoken.Verbosity = verbosity;
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Source == "swap-test") lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try
+        {
+            // The helper is missing: NNR is kept as the choice, and RNNoise has stopped.
+            f.Noise.Toggle("rnnoise", "swap-test");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Noise.Toggle("nnr", "swap-test");
+            Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.Contains("replaced RNNoise", f.Spoken.Last);
+            Assert.Equal(SpeechSubject.NoiseUnavailable, f.Spoken.Said[^1].Subject);
+
+            // PC audio is off: DeepFilterNet3 is kept as the choice, and NNR (the slot's last) has gone.
+            f.Radio.PcAudioOn = false;
+            f.Noise.Toggle("deepfilternet3", "swap-test");
+            Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.Contains("replaced NNR", f.Spoken.Last);
+        }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        lock (entries)
+        {
+            var swaps = entries.Where(e => e.Kind == NoiseJournalKind.Switch && e.Changes.Count == 2).ToList();
+            Assert.Equal(2, swaps.Count);
+            Assert.Equal(new NoiseJournalChange("nnr", "", "off", "on"), swaps[0].Changes[0]);
+            Assert.Equal(new NoiseJournalChange("rnnoise", "", "on", "off"), swaps[0].Changes[1]);
+            Assert.Equal(new NoiseJournalChange("deepfilternet3", "", "off", "on"), swaps[1].Changes[0]);
+            Assert.Equal(new NoiseJournalChange("nnr", "", "on", "off"), swaps[1].Changes[1]);
+        }
+    }
+
+    [Fact]
+    public void An_ordinary_swap_journals_both_engines_and_a_start_with_nothing_replaced_journals_one()
+    {
+        using var f = new NoiseFixture();
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Source == "swap-test-2") lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try
+        {
+            f.Noise.Toggle("nr4", "swap-test-2");
+            f.Noise.Toggle("spectral_capture", "swap-test-2");
+        }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        lock (entries)
+        {
+            Assert.Equal(2, entries.Count);
+            Assert.Equal(new[] { new NoiseJournalChange("nr4", "", "off", "on") }, entries[0].Changes);
+            Assert.Equal(new[] { new NoiseJournalChange("spectral_capture", "", "off", "on"), new NoiseJournalChange("nr4", "", "on", "off") },
+                entries[1].Changes);
+        }
+    }
+
     [Fact]
     public void The_other_family_and_the_radio_are_left_alone()
     {

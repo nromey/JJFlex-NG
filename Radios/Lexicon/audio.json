@@ -1532,6 +1532,7 @@
   "audio.noise_surface.not_in_version": {"text": {"critical": "{engine}, not in this version.", "terse": "{engine}, not in this version.", "chatty": "{engine} is not available in this version of JJ Flexible."}, "delivery": null},
   "audio.noise_surface.pc_audio_off": {"text": {"critical": "PC audio off; choice kept.", "terse": "PC audio off; choice kept.", "chatty": "PC audio is off. The computer's noise reduction works on the radio audio playing through this computer; your choice is kept and will start when PC audio is on."}, "delivery": null},
   "audio.noise_surface.choice_kept": {"text": "Your choice is kept and will start when it can.", "delivery": null},
+  "audio.noise_surface.replaced_clause": {"text": "WORDING PLACEHOLDER: replaced {other}.", "delivery": null},
   "audio.noise_surface.delay_clause": {"text": "It adds about {ms} milliseconds.", "delivery": null},
   "audio.noise_surface.unavailable.none": {"text": "{engine} is available.", "delivery": null},
   "audio.noise_surface.unavailable.librarymissing": {"text": {"critical": "{engine}, library missing.", "terse": "{engine}, library missing.", "chatty": "{engine} could not start: its library is missing. Repair the installation from Tools, Fix."}, "delivery": null},

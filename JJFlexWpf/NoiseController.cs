@@ -436,7 +436,17 @@ namespace JJFlexWpf
             ApplyModeRulesForChoice(e, slot, speak);
             slot.Select(e.Id, out _);
             slot.Enabled = true;
-            NoiseSettingsJournal.Record(NoiseJournalKind.Switch, source, e.Id, "", "off", "on", byApp);
+            // The engine pushed out of the slot is part of the same change (#1018
+            // item 2): one entry, the engine turned on first, then the one it
+            // replaced, so the journal never shows a swap as a bare "off -> on".
+            if (replaced == null)
+                NoiseSettingsJournal.Record(NoiseJournalKind.Switch, source, e.Id, "", "off", "on", byApp);
+            else
+                NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.Switch, source, byApp, new[]
+                {
+                    new NoiseJournalChange(e.Id, "", "off", "on"),
+                    new NoiseJournalChange(replaced, "", "on", "off"),
+                }));
             RememberModeState();
             _persist();
             if (speak) SpeakComputerOn(e, replaced);
@@ -447,10 +457,12 @@ namespace JJFlexWpf
         {
             string name = Lexicon.Get(e.LabelKey);
             var reason = SafeAvailability(e);
-            if (reason != Unavailability.None) { SpeakUnavailable(e, reason, kept: true); return; }
+            // The two refusals below still put this engine in the slot, so the
+            // engine it replaced has stopped: they name it too (#1018 item 2).
+            if (reason != Unavailability.None) { SpeakUnavailable(e, reason, kept: true, replaced: replaced); return; }
             if (_radio() is { PcAudioOn: false })
             {
-                Say(L("audio.noise_surface.pc_audio_off"), SpeechSubject.NoiseUnavailable);
+                Say(WithReplaced(L("audio.noise_surface.pc_audio_off"), replaced), SpeechSubject.NoiseUnavailable);
                 return;
             }
             string sentence = replaced == null
@@ -474,8 +486,16 @@ namespace JJFlexWpf
             return ms == null ? null : L("audio.noise_surface.delay_clause", ("ms", ms.Value));
         }
 
-        /// <summary>The refusal ladder for a computer engine that cannot run: the engine's name, the reason, the action; the kept clause at Chatty only where the choice can come true.</summary>
-        private void SpeakUnavailable(DenoiseEngineEntry e, Unavailability reason, bool kept)
+        /// <summary>
+        /// A refusal that still put an engine in its slot, followed by the
+        /// engine it pushed out, when there was one (#1018 item 2). At every
+        /// verbosity: losing an engine is never only a Chatty detail.
+        /// </summary>
+        private string WithReplaced(string sentence, string? replaced) =>
+            replaced == null ? sentence : sentence + " " + L("audio.noise_surface.replaced_clause", ("other", NameOf(replaced)));
+
+        /// <summary>The refusal ladder for a computer engine that cannot run: the engine's name, the reason, the engine it replaced if any, the action; the kept clause at Chatty only where the choice can come true.</summary>
+        private void SpeakUnavailable(DenoiseEngineEntry e, Unavailability reason, bool kept, string? replaced = null)
         {
             string name = Lexicon.Get(e.LabelKey);
             string key = reason switch
@@ -493,7 +513,7 @@ namespace JJFlexWpf
                 Unavailability.None => "audio.noise_surface.unavailable.none",
                 _ => "audio.noise_surface.unavailable.initfailed",
             };
-            string text = L(key, ("engine", name));
+            string text = WithReplaced(L(key, ("engine", name)), replaced);
             bool canComeTrue = reason is Unavailability.HelperNotRunning or Unavailability.HelperMissing or Unavailability.HelperVersionMismatch
                 or Unavailability.LibraryMissing or Unavailability.ModelMissing or Unavailability.NotDownloaded
                 or Unavailability.LicenceNotAccepted or Unavailability.NoSupportedGpu;
