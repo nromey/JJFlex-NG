@@ -1,0 +1,1 @@
+- DRAFT (for Codex): A new operator now starts with no messages silenced. Operators who were already set up when you installed this version keep the messages they had silenced.

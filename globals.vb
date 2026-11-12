@@ -4028,6 +4028,16 @@ Module globals
         Return If(CurrentOp Is Nothing, Nothing, PersonalData.UniqueOpName(CurrentOp))
     End Function
 
+    ''' <summary>Every listed operator's unique name, for the once-only carry-overs at the first start after an upgrade (#1106).</summary>
+    Private Function allOperatorUniqueNames() As List(Of String)
+        Dim names As New List(Of String)
+        If Operators Is Nothing Then Return names
+        For i As Integer = 0 To Operators.Length - 1
+            names.Add(PersonalData.UniqueOpName(Operators(i)))
+        Next
+        Return names
+    End Function
+
     ''' <summary>
     ''' The followers this module owns (#1072): what used to be the body of
     ''' operatorChanged, in the same order. Registered once, at startup, before
@@ -6166,6 +6176,10 @@ RadioConnected:
         ' Wire operator change handler: the one mechanism (#1072). The operator
         ' in use at startup is recorded first, without notifying anyone (each
         ' store loads its own at startup), then this module's followers.
+        ' First, the once-only carry-over at the first start after the upgrade
+        ' (#1106, ruled 2026-11-12): the operators listed now start from the
+        ' Windows account's silenced messages; one added later starts with none.
+        Radios.AdvisorySuppression.CarryOverAtUpgrade(allOperatorUniqueNames())
         Radios.OperatorChange.Establish(BaseConfigDir, currentOperatorUniqueName())
         FollowTheOperatorHere()
         AddHandler Operators.ConfigEvent, AddressOf operatorChanged
