@@ -56,14 +56,14 @@ public sealed class NoiseControllerTests
             f.Unavailable["nnr"] = Unavailability.HelperMissing;
             f.Noise.Toggle("nnr", "swap-test");
             Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
-            Assert.Contains("replaced RNNoise", f.Spoken.Last);
+            Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise")), f.Spoken.Last);
             Assert.Equal(SpeechSubject.NoiseUnavailable, f.Spoken.Said[^1].Subject);
 
             // PC audio is off: DeepFilterNet3 is kept as the choice, and NNR (the slot's last) has gone.
             f.Radio.PcAudioOn = false;
             f.Noise.Toggle("deepfilternet3", "swap-test");
             Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
-            Assert.Contains("replaced NNR", f.Spoken.Last);
+            Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "NNR")), f.Spoken.Last);
         }
         finally { NoiseSettingsJournal.Recorded -= Listen; }
         lock (entries)
@@ -381,13 +381,47 @@ public sealed class NoiseControllerTests
         Assert.Equal(0.5, f.Pipeline.SpectralSlot.GetSetting("nr4", "smoothing").Number);
         Assert.Equal(1f, f.Pipeline.SpectralSlot.GetStrength("nr4"));
         Assert.True(f.Noise.IsOn("nr4"));
-        // #1019: the floor is Advanced on NR4, so the sentence names only the main levers.
-        Assert.Equal("NR4 back to its defaults: reduction 20 decibels.", f.Spoken.Last);
+        // The floor is Advanced on NR4 (#1019). It was reset but not named; since
+        // the Track E follow-up (E2, S11) the sentence names it after the main levers.
+        Assert.Equal("NR4 back to its defaults: reduction 20 decibels, "
+            + Lexicon.Get("audio.noise_surface.defaults_floor", ("value", f.Noise.ValueText(f.Noise.FloorLeverOf("nr4")!))) + ".", f.Spoken.Last);
         Assert.Equal(SpeechSubject.NoiseDefaults, f.Spoken.Said[^1].Subject);
 
         f.Noise.Toggle("nr4", "test");
         f.Noise.ReturnToDefaults("nr4", "test");
         Assert.False(f.Noise.IsOn("nr4"));
+    }
+
+    /// <summary>
+    /// Track E follow-up E2 (S11): the Track S walk heard "NNR back to its
+    /// defaults: depth 25 decibels, model Standard voice." with the Advanced
+    /// noise floor reset but not named. Every engine whose floor is Advanced
+    /// now names it once; an engine whose floor is its main lever (RNNoise,
+    /// NR2) already named it and does not name it twice.
+    /// </summary>
+    [Theory]
+    [InlineData("nnr", true)]
+    [InlineData("deepfilternet3", true)]
+    [InlineData("nr4", true)]
+    [InlineData("spectral_capture", true)]
+    [InlineData("rnnoise", false)]
+    [InlineData("nr2", false)]
+    public void Return_to_defaults_names_the_noise_floor_it_reset_once(string id, bool advancedFloor)
+    {
+        using var f = new NoiseFixture();
+        var floor = f.Noise.FloorLeverOf(id)!;
+        Assert.Equal(advancedFloor, floor.Advanced);
+        f.Noise.Set(floor, 55, null, "test");
+        f.Noise.ReturnToDefaults(id, "test");
+        Assert.Equal(NoiseFloor.DefaultFloor(id, DenoiseDirection.Receive), f.Noise.NumberOf(floor));
+        // The whole sentence: the main levers by name and value (the floor among
+        // them where it is main), then the Advanced floor's own fact where it is not.
+        var values = f.Noise.Levers(id, includeAdvanced: false)
+            .Select(l => f.Noise.LeverName(l).ToLowerInvariant() + " " + f.Noise.ValueText(l)).ToList();
+        Assert.Equal(!advancedFloor, f.Noise.Levers(id, includeAdvanced: false).Contains(floor));
+        if (advancedFloor) values.Add(Lexicon.Get("audio.noise_surface.defaults_floor", ("value", f.Noise.ValueText(floor))));
+        Assert.Equal(Lexicon.Get("audio.noise_surface.defaults", VerbosityLevel.Chatty,
+            ("engine", f.Noise.NameOf(id)), ("values", string.Join(", ", values))), f.Spoken.Last);
     }
 
     [Fact]
@@ -554,7 +588,7 @@ public sealed class NoiseControllerTests
         // #1019: NNR's levers lead with its Depth, so the summary reads them in that order.
         // Track E follow-up E1: then the noise floor (NNR's model is already a main lever, so it is not named twice).
         Assert.Equal("On the radio: Legacy NR, level 8. On this computer: NNR, depth 25 decibels, Standard voice, "
-            + "WORDING PLACEHOLDER: summary noise floor " + f.Noise.ValueText(f.Noise.FloorLeverOf("nnr")!) + ".", f.Noise.ActiveSummary());
+            + Lexicon.Get("audio.noise_surface.active.floor", ("value", f.Noise.ValueText(f.Noise.FloorLeverOf("nnr")!))) + ".", f.Noise.ActiveSummary());
         f.Spoken.Verbosity = VerbosityLevel.Terse;
         Assert.Equal("Radio: Legacy NR 8. Computer: NNR.", f.Noise.ActiveSummary());
     }
@@ -577,19 +611,21 @@ public sealed class NoiseControllerTests
         f.Settle();
         var model = f.Noise.Levers("rnnoise", true).Single(l => l.Key == "model");
         string summary = f.Noise.ActiveSummary();
-        Assert.Contains("RNNoise, WORDING PLACEHOLDER: summary model " + f.Noise.ValueText(model), summary);
-        Assert.Contains("WORDING PLACEHOLDER: summary noise floor " + f.Noise.ValueText(f.Noise.FloorLeverOf("rnnoise")!), summary);
+        string rnFloor = Lexicon.Get("audio.noise_surface.active.floor", ("value", f.Noise.ValueText(f.Noise.FloorLeverOf("rnnoise")!)));
+        Assert.Contains("RNNoise, " + Lexicon.Get("audio.noise_surface.active.model", ("model", f.Noise.ValueText(model))) + ", " + rnFloor, summary);
         Assert.Contains("15", f.Noise.ValueText(f.Noise.FloorLeverOf("rnnoise")!));
 
-        // Every computer engine's floor, in both slots.
+        // Every computer engine's floor, in both slots; the model only where one is not already named.
         f.Noise.Toggle("nr4", "test");
         f.Settle();
+        string nr4Floor = Lexicon.Get("audio.noise_surface.active.floor", ("value", f.Noise.ValueText(f.Noise.FloorLeverOf("nr4")!)));
         Assert.Contains("NR4, ", f.Noise.ActiveSummary());
-        Assert.Equal(2, CountOf(f.Noise.ActiveSummary(), "summary noise floor"));
-        Assert.Equal(1, CountOf(f.Noise.ActiveSummary(), "summary model"));
+        Assert.Contains(nr4Floor, f.Noise.ActiveSummary());
+        Assert.Contains(rnFloor, f.Noise.ActiveSummary());
 
         f.Spoken.Verbosity = VerbosityLevel.Terse;
-        Assert.DoesNotContain("PLACEHOLDER", f.Noise.ActiveSummary());
+        Assert.DoesNotContain(rnFloor, f.Noise.ActiveSummary());
+        Assert.DoesNotContain(nr4Floor, f.Noise.ActiveSummary());
     }
 
     private static int CountOf(string s, string what)

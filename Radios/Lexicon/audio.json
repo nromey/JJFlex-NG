@@ -1587,6 +1587,7 @@
   "audio.noise_surface.favourite_removed": {"text": "{name} removed from favourites.", "delivery": null},
   "audio.noise_surface.no_favourites": {"text": "No favourites yet, so the brackets step through every engine. Shift Alt F marks the engine you are on.", "delivery": null},
   "audio.noise_surface.defaults": {"text": {"critical": "{engine} defaults.", "terse": "{engine} defaults.", "chatty": "{engine} back to its defaults: {values}."}, "delivery": null},
+  "audio.noise_surface.defaults_floor": {"text": "WORDING PLACEHOLDER: defaults noise floor {value}", "delivery": null},
   "audio.noise_surface.defaults_radio": {"text": {"critical": "No default for {engine}.", "terse": "No default for {engine}.", "chatty": "The radio does not report a factory level for {engine}, so there is no default to return to. Your level stays as it is."}, "delivery": null},
   "audio.noise_surface.defaults_switch": {"text": {"critical": "No default for {engine}.", "terse": "No default for {engine}.", "chatty": "{engine} is a switch, with no level to return to."}, "delivery": null},
   "audio.noise_surface.group.voice": {"text": "a voice mode", "delivery": null},

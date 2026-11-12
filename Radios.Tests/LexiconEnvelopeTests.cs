@@ -2245,6 +2245,8 @@ namespace Radios.Tests
                 "audio.noise_surface.no_favourites",
                 "audio.noise_surface.defaults",
                 "audio.noise_surface.defaults_radio",
+                // Track E follow-up E2 (S11): Return to defaults names the Advanced noise floor it reset. Placeholder for Codex.
+                "audio.noise_surface.defaults_floor",
                 "audio.noise_surface.defaults_switch",
                 "audio.noise_surface.group.voice",
                 "audio.noise_surface.group.cw",

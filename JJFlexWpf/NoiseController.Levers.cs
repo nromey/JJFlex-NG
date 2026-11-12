@@ -668,6 +668,12 @@ namespace JJFlexWpf
             _persist();
             foreach (var lever in Levers(id, includeAdvanced: false))
                 said.Add(LeverName(lever).ToLowerInvariant() + " " + ValueText(lever));
+            // The floor was always reset above; where it is an Advanced lever
+            // (an engine with its own reduction setting) it was not named, so
+            // the sentence left out a change it made (Track E follow-up E2,
+            // ruled S11; heard on the Track S walk). Placeholder for Codex.
+            if (FloorLeverOf(id) is { Advanced: true } advancedFloor)
+                said.Add(L("audio.noise_surface.defaults_floor", ("value", ValueText(advancedFloor))));
             Say(L("audio.noise_surface.defaults", ("engine", name), ("values", string.Join(", ", said))), SpeechSubject.NoiseDefaults);
         }
 
