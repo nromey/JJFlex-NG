@@ -105,9 +105,13 @@ namespace Radios.Tests
         public void The_application_has_one_operator_change_handler_and_every_store_follows_through_it()
         {
             string repo = FieldKeyMapScan.RepoRoot();
-            string all = string.Join("\n", Directory.GetFiles(repo, "*.vb", SearchOption.TopDirectoryOnly)
-                .Select(f => File.ReadAllText(f)));
-            Assert.Equal(1, Regex.Matches(all, Regex.Escape("AddHandler Operators.ConfigEvent")).Count);
+            // The whole VB tree, not just the root (#1072 repair): a second
+            // subscription in a nested file, or one spelled with other spacing,
+            // case or a line continuation, counts. Exactly one, in globals.vb.
+            var subscribers = VbSources(repo)
+                .SelectMany(f => Enumerable.Repeat(Path.GetRelativePath(repo, f), OperatorChangeSubscription.Matches(File.ReadAllText(f)).Count))
+                .ToList();
+            Assert.Equal(new[] { "globals.vb" }, subscribers);
 
             string globals = File.ReadAllText(Path.Combine(repo, "globals.vb")).Replace("\r\n", "\n");
             Assert.Matches(new Regex(@"Private Sub operatorChanged\(sender As Object, e As ConfigArgs\)\s*\n\s*Radios\.OperatorChange\.Announce\(BaseConfigDir, currentOperatorUniqueName\(\)\)\s*\n\s*End Sub"), globals);
@@ -123,6 +127,52 @@ namespace Radios.Tests
                 Assert.Contains("Radios.OperatorChange.Follow(\"" + name + "\"", globals);
             foreach (string name in new[] { "accessibility choices", "PTT settings", "Home's filter presets, band memory and license", "tuning steps" })
                 Assert.Contains("Radios.OperatorChange.Follow(\"" + name + "\"", events);
+        }
+
+        /// <summary>
+        /// Every way VB subscribes to the operator event: AddHandler with any
+        /// spacing, case or line continuation, and a Handles clause. VB is not
+        /// case-sensitive, so neither is this.
+        /// </summary>
+        private static readonly Regex OperatorChangeSubscription = new(
+            @"\b(?:AddHandler\s+(?:_\s*)?Operators\s*(?:_\s*)?\.\s*(?:_\s*)?ConfigEvent\b|Handles\s+(?:_\s*)?Operators\s*\.\s*ConfigEvent\b)",
+            RegexOptions.IgnoreCase);
+
+        /// <summary>Every .vb file under the repository on disk, tracked or not, outside bin, obj and vendor trees.</summary>
+        private static List<string> VbSources(string repo)
+        {
+            var skip = new[] { "bin", "obj", ".git", ".vs", "node_modules", "packages", "FlexLib_API" };
+            return Directory.EnumerateFiles(repo, "*.vb", SearchOption.AllDirectories)
+                .Where(f => !Path.GetRelativePath(repo, f).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    .Any(part => skip.Contains(part, StringComparer.OrdinalIgnoreCase)))
+                .ToList();
+        }
+
+        /// <summary>
+        /// The guard's positive controls: the pattern sees each spelling it
+        /// claims to, and the walk reaches a nested folder. Without these a
+        /// green guard could mean it saw nothing at all.
+        /// </summary>
+        [Fact]
+        public void The_one_handler_guard_sees_every_spelling_and_the_nested_folders()
+        {
+            foreach (string spelled in new[]
+            {
+                "AddHandler Operators.ConfigEvent, AddressOf operatorChanged",
+                "addhandler   operators.configevent ,AddressOf x",
+                "AddHandler Operators . ConfigEvent, AddressOf x",
+                "AddHandler _\n    Operators.ConfigEvent, AddressOf x",
+                "Private Sub x(sender As Object, e As ConfigArgs) Handles Operators.ConfigEvent",
+            })
+                Assert.True(OperatorChangeSubscription.IsMatch(spelled), "the guard does not see: " + spelled);
+            Assert.False(OperatorChangeSubscription.IsMatch("RemoveHandler Operators.ConfigEvent, AddressOf x"));
+            Assert.False(OperatorChangeSubscription.IsMatch("AddHandler Operators.ConfigEventually, AddressOf x"));
+
+            string repo = FieldKeyMapScan.RepoRoot();
+            var files = VbSources(repo);
+            Assert.Contains(files, f => Path.GetRelativePath(repo, f).StartsWith("My Project" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(files, f => Path.GetFileName(f).Equals("globals.vb", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(files, f => f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
         }
 
         // ---- the pan adapter ----
