@@ -521,7 +521,7 @@ namespace JJFlexWpf
                     var was = slot.GetSetting(e.Id, d.Name);
                     if (!slot.TrySetSetting(e.Id, d.Name, value)) return false;
                     // A queued mode sentence may name the model the mode's rule chose ("NNR switched to Premium CW"): the operator's own model makes it obsolete (#1117).
-                    if (d.Name == "model") RetireModeNotice("a computer noise engine's model was changed");
+                    if (d.Name == "model") RetireModeNotice("a computer noise engine's model lever was moved");
                     NoiseSettingsJournal.Record(d.Name == "model" ? NoiseJournalKind.Model : NoiseJournalKind.Lever, source, e.Id, d.Name,
                         Describe(was), Describe(value));
                     AfterSettingChanged(e, d, value);

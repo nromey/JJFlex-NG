@@ -354,7 +354,7 @@ namespace JJFlexWpf
             if (slot.GetSetting(e.Id, "model").Choice != admitted)
             {
                 slot.TrySetSetting(e.Id, "model", new EngineSettingValue(0, admitted));
-                RetireModeNotice("a computer noise engine's model was changed");
+                RetireModeNotice("a favourite or a bracket step brought another model");
             }
         }
 
