@@ -1,1 +1,1 @@
-- DRAFT, for Codex: Starting a recording on the air in the moment another one is fading out at its end no longer lets a hundredth of a second of your microphone through between them.
+- Your microphone no longer cuts in when you start sending a recording while the previous one is still fading out.

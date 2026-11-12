@@ -101,7 +101,7 @@ namespace Radios
         /// nothing to say (the license's own save is reported with the others).
         /// </summary>
         public static string? CommitNote(Outcome outcome) =>
-            outcome == Outcome.NotSaved ? Lexicon.Get("settings.commit.license_not_saved") : null;   // DRAFT
+            outcome == Outcome.NotSaved ? Lexicon.Get("settings.commit.license_not_saved") : null;
 
         private static string Snapshot(LicenseConfig license)
         {

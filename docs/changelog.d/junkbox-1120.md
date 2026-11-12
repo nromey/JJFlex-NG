@@ -1,1 +1,1 @@
-- DRAFT, for Codex: With no radio connected, a change to your license settings in Settings is now saved for your operator and used when you next connect. Before, it went nowhere and nothing said so. If no operator has been set up yet, Settings now says the license change was not saved.
+- Your license settings can now be saved for your operator before you connect to a radio.

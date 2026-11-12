@@ -240,7 +240,7 @@ public sealed class AtuTuneEndTests : IDisposable
     }
 
     [Fact]
-    public void A_press_while_already_tuning_says_so_and_sends_nothing()
+    public void A_press_while_the_tuner_latch_is_set_says_so_and_sends_nothing()
     {
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
         int at = main.IndexOf("public void StartATUTuneCycle()", StringComparison.Ordinal);

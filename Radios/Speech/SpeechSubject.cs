@@ -171,7 +171,7 @@ namespace Radios.Speech
         public const string TuneRefused = "tune-refused";
 
         /// <summary>
-        /// A tune press while the tuner is already tuning, so nothing was sent:
+        /// A tune press while the tuner latch is already set, so nothing was sent:
         /// the answer to the key just pressed. A later press replaces an
         /// unheard earlier one.
         /// </summary>

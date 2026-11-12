@@ -7538,10 +7538,11 @@ public partial class MainWindow : UserControl
         if (TunerStartRefused()) return;
         if (RigControl.FlexTunerOn)
         {
-            // The latch is already set, so FlexTunerOn = true would send
-            // nothing: say so, rather than "ATU tuning" over a press that did nothing.
-            Tracing.TraceLine("StartATUTuneCycle: the tuner is already tuning; nothing sent", TraceLevel.Info);
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_already_tuning"),   // DRAFT
+            // The latch is already set, which keeps another tune request from
+            // being sent (FlexTunerOn = true would send nothing). It need not mean
+            // the tuner is tuning, so say only that no request was sent.
+            Tracing.TraceLine("StartATUTuneCycle: the tuner latch is already set; nothing sent", TraceLevel.Info);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_already_tuning"),
                 VerbosityLevel.Terse, true, subject: Radios.Speech.SpeechSubject.TuneAlreadyTuning);
             return;
         }

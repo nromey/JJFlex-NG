@@ -1,1 +1,1 @@
-- DRAFT, for Codex: The Operating Mode and Transmit Tune boxes on the main screen now say their names. Before, your screen reader said only "combo box" and the current setting.
+- Your screen reader can now identify the Operating Mode and Transmit Tune boxes on Home by name.

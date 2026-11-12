@@ -1,1 +1,1 @@
-- DRAFT, for Codex: When you switch operators and the new operator's pan adapter settings file cannot be read, that operator now starts from the default pan settings instead of carrying over the previous operator's. The unreadable file is kept beside it under a dated name rather than written over.
+- When you switch operators, unreadable pan adapter settings now fall back to defaults instead of keeping the previous operator's settings.
