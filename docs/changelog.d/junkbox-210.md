@@ -1,0 +1,1 @@
+- The test tone no longer depends on opening the computer microphone.

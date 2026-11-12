@@ -1,0 +1,1 @@
+- A diagnostic log that stops writing no longer gives a second spoken warning about the same recording; both problems remain in the Problems list.

@@ -1,0 +1,1 @@
+- Deleting a memory now updates the details to match the selected memory, so tabbing through them no longer copies the deleted memory's settings into another one.

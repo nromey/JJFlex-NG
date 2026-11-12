@@ -1,0 +1,1 @@
+- You can now read a highlighted SmartLink radio's advertised connection details in the picker's Network identity card before connecting.

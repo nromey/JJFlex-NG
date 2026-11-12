@@ -1,0 +1,1 @@
+- The diagnostic log now includes a check of the radio's reported features against its model when you connect.

@@ -1,0 +1,1 @@
+- The transmit reference recording no longer gets an extra restart from a brief transmit-state blip as the radio returns to receive.

@@ -1,1 +1,6 @@
 - The receipt for Ask Me at the Next Connect now explains that the profile question waits while radio setup protection is on.
+- Check your audio now clears the disconnected radio's method and microphone readings while allowing a recording already in progress to finish.
+- The Fix tool now reports when radio setup protection blocks a microphone profile change.
+- A refused band jump or 60-meter channel change now tells you when the slice is locked or the radio is transmitting.
+- A profile choice that could not be saved now reports the failure instead of confirming the choice.
+- Exported settings reports now point to Profiles on This Radio in the Radio menu.
