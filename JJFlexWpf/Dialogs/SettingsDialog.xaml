@@ -238,18 +238,18 @@
                         </Grid.RowDefinitions>
 
                         <controls:DecorativeText Grid.Row="0" Grid.Column="0"
-                                   Text="Coarse step default:"
+                                   Text="Coarse tuning step:"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <ComboBox x:Name="CoarseStepCombo" Grid.Row="0" Grid.Column="1"
                                   Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Default coarse tuning step"/>
+                                  AutomationProperties.Name="Coarse tuning step"/>
 
                         <controls:DecorativeText Grid.Row="1" Grid.Column="0"
-                                   Text="Fine step default:"
+                                   Text="Fine tuning step:"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <ComboBox x:Name="FineStepCombo" Grid.Row="1" Grid.Column="1"
                                   Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Default fine tuning step"/>
+                                  AutomationProperties.Name="Fine tuning step"/>
                     </Grid>
 
                     <CheckBox x:Name="BandMemoryCheckbox"
@@ -797,7 +797,7 @@
                             <RadioButton x:Name="Tier2Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1 + 2 — Manual + UPnP, automatic port mapping"
+                                         AutomationProperties.Name="Tier 1 + 2 — Manual + UPnP"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 — Manual + UPnP" FontWeight="SemiBold"/>
@@ -808,11 +808,11 @@
                             <RadioButton x:Name="Tier3Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1 + 2 + 3 — Allow automatic hole-punch"
+                                         AutomationProperties.Name="Tier 1+2+3 — Allow automatic hole-punch"
                    local:JJFlexHelp.Text="allow automatic hole punch for restrictive networks"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
-                                    <TextBlock Text="Tier 1 + 2 + 3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Tier 1+2+3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
                                                Text="If direct port forwarding or UPnP is not working, let Flex's SmartLink coordinate a UDP hole-punch between the radio and JJ Flexible Radio Access. Works through most home NATs. May fail on symmetric-NAT networks (some corporate environments and mobile-carrier networks). Fallback to Tier 2 then Tier 1 on failure is automatic."/>
                                 </StackPanel>
@@ -1135,7 +1135,7 @@
                             <StackPanel KeyboardNavigation.DirectionalNavigation="Cycle"
                                         KeyboardNavigation.TabNavigation="Once">
                             <RadioButton x:Name="RadioProfileAutoRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
-                                         AutomationProperties.Name="Automatic (recommended), follows what the radio reports"
+                                         AutomationProperties.Name="Automatic (recommended)"
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Automatic (recommended)" FontWeight="SemiBold"/>
@@ -1436,7 +1436,7 @@
                                     Content="Stop reporting the version mismatch"
                                     HorizontalAlignment="Left" Padding="12,4"
                                     Visibility="Collapsed"
-                                    AutomationProperties.Name="Stop reporting the firmware version mismatch"
+                                    AutomationProperties.Name="Stop reporting the version mismatch"
                    local:JJFlexHelp.Text="Does not change the radio."
                                     Click="SetupSuppressVersionWarningButton_Click"/>
                         </StackPanel>
@@ -1957,30 +1957,30 @@
                                     <RadioButton x:Name="DoubleTapQuickRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Quick (250 ms), for fast typists"
+                                                 AutomationProperties.Name="Quick (250 milliseconds)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
-                                        <TextBlock Text="Quick (250 ms)"/>
+                                        <TextBlock Text="Quick (250 milliseconds)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapNormalRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Normal (500 ms, recommended)"
+                                                 AutomationProperties.Name="Normal (500 milliseconds, recommended)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
-                                        <TextBlock Text="Normal (500 ms, recommended)"/>
+                                        <TextBlock Text="Normal (500 milliseconds, recommended)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapRelaxedRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Relaxed (750 ms), for deliberate input"
+                                                 AutomationProperties.Name="Relaxed (750 milliseconds)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
-                                        <TextBlock Text="Relaxed (750 ms)"/>
+                                        <TextBlock Text="Relaxed (750 milliseconds)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapLeisurelyRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Leisurely (1000 ms), for verifying speech between presses"
+                                                 AutomationProperties.Name="Leisurely (1000 milliseconds)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
-                                        <TextBlock Text="Leisurely (1000 ms)"/>
+                                        <TextBlock Text="Leisurely (1000 milliseconds)"/>
                                     </RadioButton>
                                 </StackPanel>
                             </GroupBox>

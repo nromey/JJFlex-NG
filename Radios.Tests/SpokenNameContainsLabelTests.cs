@@ -99,7 +99,6 @@ namespace Radios.Tests
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "_Download firmware for this radio")] = Fuller, // announced "Look for firmware for this radio on the JJ Flexible servers and download it"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "C_hoose a file instead...")] = Fuller, // announced "Choose a firmware file already on this computer"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Send to radio")] = Fuller, // announced "Send the chosen firmware file to the radio"
-            [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Stop reporting the version mismatch")] = Fuller, // announced "Stop reporting the firmware version mismatch"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Open Net_work settings")] = Fuller, // announced "Go to the Network tab to set the port"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Dip radio audio while a warning sounds")] = Fuller, // announced "Dip radio audio through this computer while a warning sounds"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Step 6 — Check it from outside")] = Fuller, // announced "Step 6, check the radio can be reached from outside"

@@ -36,7 +36,7 @@
              body in tab order.
              Its access key is E, not D (#1097): the station-save question's
              "_Don't save" button is Alt+D, and two controls sharing a key make
-             Alt+D only move focus between them. DRAFT (Codex's to word). -->
+             Alt+D only move focus between them. Wording by Codex (retained). -->
         <CheckBox x:Name="DontShowAgainCheck"
                   Content="Don't show this _explanation again"
                   Margin="0,0,0,4"

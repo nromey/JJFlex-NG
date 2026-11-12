@@ -179,7 +179,7 @@ namespace JJFlexWpf.Dialogs
         /// The Remove button names the step it would remove, the row selected
         /// (#346): "Remove coarse step" alone left the operator to remember
         /// which row was selected. With nothing selected it says the plain
-        /// caption. The words are DRAFT keys, Codex's to word.
+        /// caption. The words are Codex's (the 2026-11-11 words round).
         /// </summary>
         private void NameRemoveButton(EditedList list)
         {

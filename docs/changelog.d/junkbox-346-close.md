@@ -1,1 +1,1 @@
-- In the list S opens, leaving with a changed step list now asks before your changes are dropped, whether you press Cancel or Escape or close the window. Enter in an empty new-step box now presses OK, the Remove buttons say which step they remove, and pasting a huge number is refused instead of causing an error.
+- The Tuning Steps window now asks before discarding list edits when you press Cancel or Escape or close the window. Enter in an empty new-step box presses OK, and each Remove button names its selected step.

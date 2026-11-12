@@ -1,1 +1,1 @@
-- Radio Setup no longer says this version of JJ Flexible was made for an old firmware. The line that explains why your radio shows as needing an update now says it comes from the FlexRadio library's own version check.
+- Radio Setup now identifies the firmware comparison as the FlexRadio library's version check, without claiming that JJ Flexible Radio Access was built for that firmware.

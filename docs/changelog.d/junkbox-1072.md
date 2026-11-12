@@ -1,1 +1,1 @@
-- After you switch operators under Radio, Operators, with or without a radio connected, the new operator's band memory, license, filter presets, PTT settings and panadapter choices are the ones in use and the ones saved. Before, the previous operator's could carry on and be saved over the new operator's.
+- Your band memory, license, filter presets, PTT settings and panadapter choices now follow the operator selected under Radio, Operators. A transmission already in progress keeps its existing PTT limits until it ends.

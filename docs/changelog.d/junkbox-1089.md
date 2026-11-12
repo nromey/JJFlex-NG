@@ -1,1 +1,1 @@
-- Pressing Escape, or the transmitter being stopped by the safety kill or from outside JJ Flexible, while you are still holding Ctrl+Space no longer lets your screen reader's repeated key presses key the radio again. Let go of the key and the next press transmits as usual.
+- When Escape, a safety stop or the radio itself ends a transmission, a held Ctrl+Space stays inactive until you release it and press it again.

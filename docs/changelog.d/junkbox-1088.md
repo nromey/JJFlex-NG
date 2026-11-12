@@ -1,1 +1,1 @@
-- When Settings cannot save something, such as your keyer speed, a radio name or a radio's profile, it now says so whether you press OK or Apply, and it no longer says everything was saved.
+- A failed save in Settings now gets its own message on both OK and Apply, even when another setting is waiting for a connection.

@@ -1,1 +1,1 @@
-- Every "Don't show this again" now belongs to the operator who ticked it. Each operator has their own silenced messages, and Messages You Have Silenced lists and restores the current operator's. Anything you silenced before stays silenced for every operator already set up.
+- Messages You Have Silenced now lists and restores the selected operator's messages, and choices to silence a message are saved separately for each operator on this computer. Previously silenced messages stay silenced when each operator first uses this version.

@@ -1314,7 +1314,7 @@ namespace Radios.Tests
                 "settings.tuning.steps_list_starting_fine_back",
                 "settings.tuning.steps_list_not_kept",
                 // Junk box batch 10 (#346): the question before a changed list
-                // is dropped, and the Remove buttons naming the step. DRAFT.
+                // is dropped, and the Remove buttons naming the step. Wording by Codex.
                 "settings.tuning.steps_list_drop_title",
                 "settings.tuning.steps_list_drop_body",
                 "settings.tuning.steps_list_drop_question",
@@ -1323,11 +1323,11 @@ namespace Radios.Tests
                 "settings.tuning.steps_list_remove_coarse_named",
                 "settings.tuning.steps_list_remove_fine_named",
                 // Junk box batch 10 repair (#1088): a failed save of the overwrite
-                // warning setting. DRAFT.
+                // warning setting. Wording by Codex.
                 "settings.commit.overwrite_warning_not_saved",
                 // Junk box batch 10 (#1068): eight route sentences that were
                 // still unclassified, reworded to the categories' spoken names,
-                // and so classified as they were edited. DRAFT.
+                // and so classified as they were edited. Wording by Codex.
                 "connect.ownership.silencing",
                 "connect.presence.port_denied",
                 "connect.smartlink.where_to_change",
