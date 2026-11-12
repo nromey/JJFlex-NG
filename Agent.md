@@ -9,6 +9,58 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-12 (COVERS 2026-11-11 05:00 TO 2026-11-12 07:50, MEASURED FROM `78956e9f`) — JUNK BOX BATCHES 4 TO 9 AND #1058 ON MAIN, THEN THE SEVENTH NIGHT MODE: BATCHES 10 AND 11 BENCHED AND READY, WORDS, HELP AND TOOLS BRANCHES READY, SPRINT 49 NOISE ROUNDS E2 TO E4 ON INTEGRATION, FREIGHT FATE WORKTREES ARCHIVED
+
+*Covers the 2026-11-11 day session (merges at Noel's word from 19:30) and night mode from 20:55. Noel said "Morning" at 07:40 in the junk box window; the Audio Processing window wrapped up at 07:41 (the other listed sessions were offline). Noel leaves for an eye doctor appointment this morning. The nightly promote (step 1) was SKIPPED: no debug build was produced (the newest on the NAS is 4.1.16.2859, 2026-11-02), and the night's work is on unmerged branches.*
+
+**Main (102 commits since the last seal, 11 first-parent, all unpushed; +16,765/-1,253 across 218 files; main is 224 ahead of origin):**
+- At Noel's word: Check your audio's #1058 (`72bfd3eb`), then junk box batches 4, 6, 7, 5, 8 and 9 (`dcb37a06` to `bc9e0788`), each built and tested; all six contained. On `bc9e0788`: Radios.Tests 8,954 of 8,954, the windowless filter 1,153 of 1,153 (99 classes).
+- **The machine blue-screened at 20:22** (a graphics driver timeout) about a minute into a filtered WPF run on batch 5's merge; nothing was lost and the run passed on retry.
+- CLAUDE.md: fifteen filter classes (`62eb8e8c`, `a47a100e`); step 3's private-backup instructions (#872) and AGENTS.md's #603 sentence (`b21bb188`); both slice counts read 0 over SmartLink, by FlexLib's source (`a2e574e6`).
+
+**Junk box (night mode), all unmerged and ready on Noel's word, in this order:**
+1. `junkbox/2026-11-11-words-b567` (`10d50aab`): Codex's words for batches 5 to 7, eighteen sentences checked word for word, plus thirteen missing changelog lines.
+2. `junkbox/2026-11-11-batch-10` (`7e9f1222`, 21 commits): the step window asks before dropping edits, Enter in an empty box presses OK, Settings' category names, "don't show again" per operator, five repairs and the Alt+D rider. Nine Codex checks, an Opus second check of the held push-to-talk latch (#1089), one repair round (nine repairs, among them an operator switch mid-transmission stretching the time limit, the license read from a different file from the one Settings saves, and three save failures that said "saved"), Codex's 48 words applied. **Benched on the 8600** (00:18 to 01:00, dummy load, 0 W): everything reached passed; **#947 closed** (5 of 5). The unclassified-count line against branch 1 resolves to 3037.
+3. `junkbox/2026-11-12-batch-11` (`ff0358e1`, stacked on batch 10): #1086 (`AtomicFile`, fourteen stores), #1107, #1120, #898 (first commit kept, the second reverted after the Opus checker's case), #327 (the tuner latch follows the carrier in manual tuner type), #1125. Codex passed all six; repair round 1; Codex's 8 words applied. **Benched** (04:44 to 04:51): two tune carriers into the dummy load at tune power 0, SWR 1.01; #898 not benched (no harness route to a file send). Radios 9,054, windowless WPF 1,219.
+4. `help/junkbox-1111` (`8364f804`): fifteen help pages for batches 4 to 9, written by Codex, facts checked against the code.
+5. `junkbox/2026-11-12-tools` (`9ac53781`): eleven scripts used `Write-Error` under `Stop`, so every failure exited 1 and the seal could not tell "NAS offline" from anything else; now `[Console]::Error.WriteLine` and their own codes, guarded by `ScriptErrorExitCodeTests` (#1092); #1091 tool docs; the nightly publish reads the backups' exit codes.
+- After batches 10 and 11 merge, the filter gains `EscapeKillHeldKeyTests`, `StepListCloseAskTests`, `OperatorSwitchKeepsLimitsTests`, `FirmwareUnreportedTests` and `RadioComboBoxNameTests`.
+- **Rule broken, about 03:50:** an Opus second checker built the JJFlexWpf.Tests filter in a shell step; it came out empty and the project ran unfiltered once. DeskGuard appears to have refused (every failure printed was the refusal's shape, under 1 ms); nobody can prove no window or sound reached the desk. The agent reported it. Every brief template now says the filter is pasted literally; `feedback_windowless_filter_must_be_literal.md`.
+- Integration pass over merged main: no duplication across the six batches meets the bar; three items filed (#1097 to #1099).
+- Questions J1 to J4 (a new operator starts with nothing silenced; six Settings categories' shorter on-screen words; the disconnect question's "don't ask again" per operator; what Ctrl+T says in manual tuner type). Noel's sheet: `for-noel/2026-11-12-junkbox-your-hands.md`.
+
+**Audio Processing (Sprint 49, `sprint49/integration` at `9e942d71`, not main):** the Track E follow-up (`72604cce`), e3 (`99f612b4`) and e4 (`9e942d71`) merged, each after Codex MERGE and harness listens (ten in all, receive only, never keyed). Post-merge on `9e942d71`: Radios.Tests 6,540 of 6,540, filtered WPF 1,231 of 1,231. Track H (transmit noise reduction) brief drafted with a clean reading; S1 to S12 for Noel; two sets of Codex wording drafts unread. **Main and Sprint 49 now conflict in ten places**; the two semantic ones are written in `planning/agile/sprint49-merge-notes.md`. Bench note saved: on the bench identity the 8600 stores 100 W for 30 m and 60 m.
+
+**Freight Fate:** the sixteen `ff-*` worktrees and `ff-sounds-backup` archived to `\\nas.macaw-jazz.ts.net\jjflex\historical\dev-archive\freight-fate-worktrees-2026-11-12\` (17 zips, about 2.3 GB, regenerable caches left out). Every zip's file count equals its source's; ff-audio and ff-radio were extracted in full and compared byte for byte, uncommitted files included (empty folders are not stored). An `INDEX.md` there names each folder's branch and tip. Then `git worktree remove` on all sixteen (ff-audio and ff-radio with `--force`, their uncommitted files archived). All 39 branches kept; `C:\dev\Freight-Fate` and `ff-sounds-backup` stay..
+
+**Seal checks:**
+- Step 1 nightly promote: SKIPPED (above).
+- No dependency advisories.
+- Memory drift: 99 path candidates (44 not in history entries), 59 symbols. Tonight's four new flags are all relative `for-claude/...` paths or branch-only symbols; the files exist.
+- Codex instruction tests 5 of 5; Codex loads AGENTS.md; no sandbox setup error.
+- NVDA logs archived as `2026-11-12-*` (4,379 Speaking lines).
+- Backups, each exit 0: memory (10 of 10 projects), Claude state (1,107 MB from 4,053 MB raw, 3,680 files), AppData (34 files), the dev mirror (51.3 GB, robocopy 3; it overlapped the Freight Fate worktree removal, so this mirror may hold part of those folders, which the NAS archive covers), and private docs after the AAR.
+- Codex evaluation log: every junk box run tonight logged; Codex usage was 13% of the week at 02:39.
+
+**Junk box intake (3c-ter):** 76 entries carry an opening date of 2026-11-11 or 11-12 (#1060 to #1135; the first few were in the last seal; 73 still open); every open one targeted, every junk box one prioritized. Closed tonight: #947, #680, #709, plus 26 at the merges. #704 and #1026 lowered, #1008 retargeted to a bench item. Regenerated: 595 open, 288 in the junk box, 0 unprioritized.
+
+**Memory written:** `feedback_windowless_filter_must_be_literal.md`, `project_harness_ctrl_esc_and_modal_invoke.md` (Ctrl+Esc belongs to Windows; drive Jim's WinForms dialogs by keys, never a UIA Invoke); by Audio Processing, `feedback_never_move_a_radio_write_to_fix_speech.md`, `project_transmit_nr_bench_recipe.md`, `project_flex_transmit_settings_are_per_gui_client.md` and others.
+
+**Cross-surface:** 115 commits on all refs since the last seal. Freight Fate still holds 16 unpushed commits on its main checkout's branches, plus 10 on `sound/ring-rebuild-2` and one each on two others, kept in the branches (Noel's call); Civ VI Access none; rigmeter 13 local commits (no remote).
+
+**Waiting on Noel:**
+- The push, after the tester-name grep.
+- The five merges above, in order; then the five filter classes in CLAUDE.md, the batch closes, and batch 10's help pass (#826).
+- J1 to J4, S1 to S12, the hands sheet, the Windows Firewall prompt on the desktop.
+
+### Rigmeter snapshot — end of 2026-11-12
+
+Main, `rigmeter from 2026-11-11`: 59 commits; work done +16,485/-1,833 (net +14,652) across 207 files; C# +15,796/-1,664 in 170 files. Measured from the last seal's commit, main is +16,765/-1,253 across 218 files.
+
+Not counted on main: words b567 (+143/-89), batch 11 with batch 10 under it (+4,957/-457; batch 10 alone +3,311/-365), help (+202/-87), tools (+216/-54), `sprint49/integration` (132 commits, +71,422/-1,870 over its merge base with main).
+
+Snapshot `historical\stats\2026-11-11-a2e574e6.json`.
+
 ## END-OF-DAY SEAL — 2026-11-11 (COVERS 2026-11-10 06:03 TO 2026-11-11 05:00, MEASURED FROM `042f7578`) — BATCH 3 AND #913 ON MAIN, 96 GB AND THE WORKER CAP LIFTED, THEN THE SIXTH NIGHT MODE: JUNK BOX BATCH 6 CLEAN WITH A MEMORIES DATA FIX, BATCH 7 NEARLY BUILT, A WINDOWS UPDATE RESTART
 
 *Covers the 2026-11-10 day session, a nap from 16:44 that ran into the night (so it ended as night mode), and the restart. Noel said "Morning" at 04:53 in the junk box window; all three windows (junk box, Check your audio, sound processing) wrapped up by 04:55. **Windows Update restarted the machine at 03:30** (KB5132061; two more short restarts at 03:32 and 03:33, back at 03:34): it stopped only the junk box's batch 7 builder, which was resumed. No build was published; the nightly promote (step 1) was SKIPPED, since no debug build was produced and everything new is on unmerged branches.*
