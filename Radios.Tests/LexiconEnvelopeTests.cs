@@ -1313,6 +1313,15 @@ namespace Radios.Tests
                 "settings.tuning.steps_list_starting_coarse_back",
                 "settings.tuning.steps_list_starting_fine_back",
                 "settings.tuning.steps_list_not_kept",
+                // Junk box batch 10 (#346): the question before a changed list
+                // is dropped, and the Remove buttons naming the step. DRAFT.
+                "settings.tuning.steps_list_drop_title",
+                "settings.tuning.steps_list_drop_body",
+                "settings.tuning.steps_list_drop_question",
+                "settings.tuning.steps_list_drop_yes",
+                "settings.tuning.steps_list_drop_no",
+                "settings.tuning.steps_list_remove_coarse_named",
+                "settings.tuning.steps_list_remove_fine_named",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note

@@ -1242,6 +1242,14 @@
   "settings.tuning.steps_list_starting_coarse_back": {"text": "The starting coarse steps are back. Press OK to keep your changes.", "delivery": null},
   "settings.tuning.steps_list_starting_fine_back": {"text": "The starting fine steps are back. Press OK to keep your changes.", "delivery": null},
   "settings.tuning.steps_list_not_kept": {"text": "Your step list changes were not saved.", "delivery": null},
+  "_note_346_close": "Junk box batch 10 (2026-11-11): DRAFT placeholders, Codex's to word. The question Cancel, Escape or closing Tuning Steps asks when a step list changed (J15 option b, ruled 2026-11-11 19:40), and the Remove buttons naming the selected step.",
+  "settings.tuning.steps_list_drop_title": {"text": "Step list changes", "delivery": null},
+  "settings.tuning.steps_list_drop_body": {"text": "You changed a step list and have not pressed OK.", "delivery": null},
+  "settings.tuning.steps_list_drop_question": {"text": "Drop your step list changes?", "delivery": null},
+  "settings.tuning.steps_list_drop_yes": {"text": "_Drop changes", "delivery": null},
+  "settings.tuning.steps_list_drop_no": {"text": "_Keep editing", "delivery": null},
+  "settings.tuning.steps_list_remove_coarse_named": {"text": "Remove coarse step {step}", "delivery": null},
+  "settings.tuning.steps_list_remove_fine_named": {"text": "Remove fine step {step}", "delivery": null},
   "settings.tuning.tune_no_answer": {"text": "No answer from the radio yet", "delivery": null},
   "settings.tuning.unable_to_tune": {
     "text": {
