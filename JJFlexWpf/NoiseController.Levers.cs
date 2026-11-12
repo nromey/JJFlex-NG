@@ -716,7 +716,17 @@ namespace JJFlexWpf
                 var details = normal.Select(l => l.Descriptor!.Kind == EngineSettingKind.Choice ? ValueText(l) : LeverName(l).ToLowerInvariant() + " " + ValueText(l)).ToList();
                 details.AddRange(SummaryFacts(e, normal));
                 string item = details.Count == 0 || !Chatty ? name : name + ", " + string.Join(", ", details);
-                if (slot.RunningEngineId != e.Id && SafeAvailability(e) != Unavailability.None)
+                // An engine is chosen but not running (#1103): never read its
+                // settings as if it were working. With PC audio off nothing reaches
+                // the computer's engines at all, so it waits for PC audio, whether
+                // or not it ran before (placeholder for Codex). Otherwise, while the
+                // slot has not started it (it cannot run here, it is still building
+                // or warming, it failed to start, no receive audio has arrived yet,
+                // or Captured noise has no profile to work from) it is "not running
+                // yet". Before #1103 only the first of those was said.
+                if (_radio() is { PcAudioOn: false })
+                    item = L("audio.noise_surface.active.waiting_pc_audio", ("engine", name));
+                else if (slot.RunningEngineId != e.Id)
                     item = L("audio.noise_surface.active.waiting", ("engine", name));
                 pcItems.Add(item);
             }

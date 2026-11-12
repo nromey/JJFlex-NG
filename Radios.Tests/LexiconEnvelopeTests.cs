@@ -2234,6 +2234,8 @@ namespace Radios.Tests
                 "audio.noise_surface.active.none",
                 "audio.noise_surface.active.radio_item",
                 "audio.noise_surface.active.waiting",
+                // Track E follow-up 2 (#1103): the summary says an engine waits for PC audio. Placeholder for Codex.
+                "audio.noise_surface.active.waiting_pc_audio",
                 // Track E follow-up E1 (S11): the summary names the model and the noise floor. Placeholders for Codex.
                 "audio.noise_surface.active.model",
                 "audio.noise_surface.active.floor",

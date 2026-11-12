@@ -1201,6 +1201,78 @@ public sealed class NoiseControllerTests
         }
     }
 
+    // ── The summary never reads a stopped engine as working (#1103) ──
+
+    /// <summary>
+    /// #1103, heard on the 8600: with PC audio off, Space read "On this computer:
+    /// DeepFilterNet3, limit 9 decibels, ..." as if it were working. With PC audio
+    /// off nothing reaches the computer's engines, so the summary says the engine
+    /// is chosen and waiting for PC audio (placeholder for Codex), whether it was
+    /// chosen with PC audio off or was running before PC audio went off, at every
+    /// verbosity; the radio's own engines are still read as they are.
+    /// </summary>
+    [Fact]
+    public void With_PC_audio_off_the_summary_says_the_engine_waits_for_PC_audio()
+    {
+        foreach (bool runningFirst in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            f.Radio.Switches["radio_nrl"] = true;
+            f.Radio.Levels["radio_nrl"] = 8;
+            if (runningFirst)
+            {
+                f.Noise.Toggle("deepfilternet3", "test");
+                f.Settle();
+                Assert.Contains("DeepFilterNet3, ", f.Noise.ActiveSummary());
+                f.Radio.PcAudioOn = false;
+            }
+            else
+            {
+                f.Radio.PcAudioOn = false;
+                f.Noise.Toggle("deepfilternet3", "test");
+                f.Settle();
+            }
+            foreach (var verbosity in new[] { VerbosityLevel.Chatty, VerbosityLevel.Terse, VerbosityLevel.Critical })
+            {
+                f.Spoken.Verbosity = verbosity;
+                string summary = f.Noise.ActiveSummary();
+                Assert.Contains(Lexicon.Get("audio.noise_surface.active.computer", verbosity,
+                    ("list", Lexicon.Get("audio.noise_surface.active.waiting_pc_audio", verbosity, ("engine", "DeepFilterNet3")))), summary);
+                Assert.Contains("Legacy NR", summary);
+                Assert.DoesNotContain(f.Noise.LeverName(f.Noise.Levers("deepfilternet3", false)[0]).ToLowerInvariant(), summary);
+            }
+            f.Spoken.Verbosity = VerbosityLevel.Chatty;
+            f.Radio.PcAudioOn = true;
+            f.Settle();
+            Assert.Contains("DeepFilterNet3, ", f.Noise.ActiveSummary());
+        }
+    }
+
+    /// <summary>
+    /// #1103's other not-running states: an engine chosen and on that the slot
+    /// has not started (still building or warming, no receive audio yet, a failed
+    /// start, Captured noise with no profile) reads "not running yet" (the
+    /// existing words), not its settings; once it runs, its settings. An engine
+    /// that cannot run here reads the same, as before.
+    /// </summary>
+    [Fact]
+    public void An_engine_the_slot_has_not_started_reads_as_not_running_yet()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("deepfilternet3", "test");    // no audio fed: chosen, on, not yet built
+        Assert.NotEqual("deepfilternet3", f.Pipeline.NeuralSlot.RunningEngineId);
+        string waiting = Lexicon.Get("audio.noise_surface.active.waiting", VerbosityLevel.Chatty, ("engine", "DeepFilterNet3"));
+        Assert.Equal(Lexicon.Get("audio.noise_surface.active.computer", VerbosityLevel.Chatty, ("list", waiting)), f.Noise.ActiveSummary());
+        f.Settle();
+        Assert.Contains("DeepFilterNet3, ", f.Noise.ActiveSummary());
+        Assert.DoesNotContain(waiting, f.Noise.ActiveSummary());
+
+        // Unavailable: as before.
+        f.Unavailable["nnr"] = Unavailability.HelperMissing;
+        f.Noise.Toggle("nnr", "test");
+        Assert.Contains(Lexicon.Get("audio.noise_surface.active.waiting", VerbosityLevel.Chatty, ("engine", "NNR")), f.Noise.ActiveSummary());
+    }
+
     [Fact]
     public void Every_change_goes_through_the_one_journal()
     {
