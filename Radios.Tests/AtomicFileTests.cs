@@ -41,7 +41,7 @@ namespace Radios.Tests
 
             Assert.Equal("serializer failed", thrown.Message);
             Assert.Equal(before, File.ReadAllBytes(path));
-            Assert.False(File.Exists(AtomicFile.TempPathFor(path)), "the temporary file must be removed on failure");
+            Assert.Empty(AtomicFile.TempFilesFor(path));   // the temporary file is removed on failure
             Assert.Single(Directory.GetFiles(_dir));
         }
 
@@ -54,7 +54,7 @@ namespace Radios.Tests
             AtomicFile.Write(path, s => { var b = Encoding.UTF8.GetBytes("new"); s.Write(b, 0, b.Length); });
 
             Assert.Equal("new", File.ReadAllText(path));
-            Assert.False(File.Exists(AtomicFile.TempPathFor(path)));
+            Assert.Empty(AtomicFile.TempFilesFor(path));
         }
 
         [Fact]
@@ -79,15 +79,104 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_temporary_file_a_crash_left_behind_is_overwritten_by_the_next_save()
+        public void A_temporary_file_a_crash_left_behind_is_removed_by_a_later_save_once_it_is_old()
         {
             string path = Path.Combine(_dir, "settings.xml");
-            File.WriteAllText(AtomicFile.TempPathFor(path), "left behind by an earlier crash, and longer than the new file");
+            string leftover = AtomicFile.NewTempPathFor(path);
+            File.WriteAllText(leftover, "left behind by an earlier crash");
+            File.SetLastWriteTimeUtc(leftover, DateTime.UtcNow - AtomicFile.LeftoverAge - TimeSpan.FromMinutes(1));
+            Assert.Single(AtomicFile.TempFilesFor(path));   // positive control: the scan sees the leftover
 
             AtomicFile.WriteAllText(path, "saved");
 
             Assert.Equal("saved", File.ReadAllText(path));
-            Assert.False(File.Exists(AtomicFile.TempPathFor(path)));
+            Assert.Empty(AtomicFile.TempFilesFor(path));
+            Assert.Single(Directory.GetFiles(_dir));
+        }
+
+        [Fact]
+        public void A_young_temporary_file_is_left_alone_because_it_may_be_another_save_in_flight()
+        {
+            string path = Path.Combine(_dir, "settings.xml");
+            string inFlight = AtomicFile.NewTempPathFor(path);
+            File.WriteAllText(inFlight, "another save's pending contents");
+
+            AtomicFile.WriteAllText(path, "saved");
+
+            Assert.Equal("saved", File.ReadAllText(path));
+            Assert.Equal("another save's pending contents", File.ReadAllText(inFlight));
+        }
+
+        [Fact]
+        public void Each_write_has_its_own_temporary_file()
+        {
+            string path = Path.Combine(_dir, "settings.xml");
+            Assert.NotEqual(AtomicFile.NewTempPathFor(path), AtomicFile.NewTempPathFor(path));
+            Assert.Equal(_dir, Path.GetDirectoryName(AtomicFile.NewTempPathFor(path)));   // same folder, same volume
+        }
+
+        // ---- two saves of one file at once ----
+
+        [Fact]
+        public void A_save_that_fails_while_another_waits_to_replace_the_file_removes_only_its_own_temporary_file()
+        {
+            // Writer A has written and closed its temporary file and is about to
+            // replace the real one. Writer B, saving the same file, starts and
+            // fails part-way. With one temporary name shared by every write, B
+            // truncated A's pending file and its cleanup deleted it, so A's
+            // replace found nothing and A failed.
+            string path = Path.Combine(_dir, "settings.xml");
+            File.WriteAllText(path, "old");
+            Exception? bThrew = null;
+            bool bRan = false;
+
+            AtomicFile.BeforeReplaceForTests = p =>
+            {
+                if (p != path || bRan) return;
+                bRan = true;
+                AtomicFile.BeforeReplaceForTests = null;
+                bThrew = Record.Exception(() => AtomicFile.Write(path, s =>
+                {
+                    s.Write(new byte[] { 0x42 }, 0, 1);
+                    throw new InvalidOperationException("B's serializer failed");
+                }));
+            };
+            try
+            {
+                AtomicFile.WriteAllText(path, "A");   // must not throw
+            }
+            finally
+            {
+                AtomicFile.BeforeReplaceForTests = null;
+            }
+
+            Assert.True(bRan, "positive control: B ran inside A's window");
+            Assert.IsType<InvalidOperationException>(bThrew);
+            Assert.Equal("B's serializer failed", bThrew!.Message);
+            Assert.Equal("A", File.ReadAllText(path));
+            Assert.Empty(AtomicFile.TempFilesFor(path));
+        }
+
+        [Fact]
+        public void A_save_that_starts_while_another_is_still_writing_gets_its_own_file_and_succeeds()
+        {
+            // Writer A is part-way through writing. Writer B saves the same file
+            // in full. With a shared temporary name B could not even open it.
+            string path = Path.Combine(_dir, "settings.xml");
+            Exception? bThrew = null;
+            bool bRan = false;
+
+            AtomicFile.Write(path, s =>
+            {
+                s.Write(new byte[] { 0x41 }, 0, 1);
+                bRan = true;
+                bThrew = Record.Exception(() => AtomicFile.WriteAllText(path, "B"));
+            });
+
+            Assert.True(bRan);
+            Assert.Null(bThrew);
+            Assert.Equal("A", File.ReadAllText(path));   // the last to replace wins; the file is whole
+            Assert.Empty(AtomicFile.TempFilesFor(path));
         }
 
         // ---- the stores keep what their callers see ----
@@ -102,7 +191,7 @@ namespace Radios.Tests
             Directory.CreateDirectory(target);
 
             Assert.False(new FilterPresets().Save(_dir, op));
-            Assert.False(File.Exists(AtomicFile.TempPathFor(target)));
+            Assert.Empty(AtomicFile.TempFilesFor(target));
         }
 
         [Fact]
@@ -112,7 +201,7 @@ namespace Radios.Tests
             Directory.CreateDirectory(Path.Combine(_dir, op + "_autoConnectV2.xml"));
 
             Assert.ThrowsAny<Exception>(() => new AutoConnectConfig().Save(_dir, op));
-            Assert.False(File.Exists(AtomicFile.TempPathFor(Path.Combine(_dir, op + "_autoConnectV2.xml"))));
+            Assert.Empty(AtomicFile.TempFilesFor(Path.Combine(_dir, op + "_autoConnectV2.xml")));
         }
 
         [Fact]
@@ -146,7 +235,7 @@ namespace Radios.Tests
             Assert.True(new FilterPresets().Save(_dir, op));
             Assert.NotNull(FilterPresets.Load(_dir, op));
 
-            Assert.Empty(Directory.GetFiles(_dir, "*" + AtomicFile.TempSuffix));
+            Assert.Empty(Directory.GetFiles(_dir, "*" + AtomicFile.TempSuffix));   // no temporary file of any store left
         }
 
         // ---- no converted store goes back to truncating first ----
