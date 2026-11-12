@@ -1,0 +1,1 @@
+- In the Save Station Setup question, Alt+D now presses Don't save. The "Don't show this explanation again" box has moved to Alt+E.
