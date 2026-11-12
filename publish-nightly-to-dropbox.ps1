@@ -397,7 +397,14 @@ Write-Host "============================================"
 $memoryScript = Join-Path $RepoRoot 'backup-memory-to-nas.ps1'
 if (Test-Path $memoryScript) {
     try {
+        # Its failures exit with their own codes and no longer throw (#1092),
+        # so the exit code is read as well as the catch.
+        $global:LASTEXITCODE = 0
         & $memoryScript -NasRoot $NasRoot
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Memory snapshot step failed with exit code $LASTEXITCODE."
+            Write-Warning "(Nightly publish itself succeeded; re-run backup-memory-to-nas.ps1 manually if needed.)"
+        }
     } catch {
         Write-Warning "Memory snapshot step failed: $_"
         Write-Warning "(Nightly publish itself succeeded; re-run backup-memory-to-nas.ps1 manually if needed.)"
@@ -415,7 +422,16 @@ if (Test-Path $memoryScript) {
 $privateScript = Join-Path $RepoRoot 'backup-private-to-nas.ps1'
 if (Test-Path $privateScript) {
     try {
+        # Exit 5 means a snapshot was made but some held files were left out;
+        # 2, 3 and 4 mean no snapshot (#872). None of them throws.
+        $global:LASTEXITCODE = 0
         & $privateScript -NasRoot $NasRoot
+        if ($LASTEXITCODE -eq 5) {
+            Write-Warning "Private docs snapshot made, but some held files were left out (exit 5); the script named them above."
+        } elseif ($LASTEXITCODE -ne 0) {
+            Write-Warning "Private docs snapshot step failed with exit code $LASTEXITCODE."
+            Write-Warning "(Nightly publish itself succeeded; re-run backup-private-to-nas.ps1 manually if needed.)"
+        }
     } catch {
         Write-Warning "Private docs snapshot step failed: $_"
         Write-Warning "(Nightly publish itself succeeded; re-run backup-private-to-nas.ps1 manually if needed.)"
