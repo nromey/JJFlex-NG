@@ -430,23 +430,33 @@ public partial class ScreenFieldsPanel
 
     /// <summary>
     /// Focus a noise field once the panel has laid it out (E3): at Loaded
-    /// priority after a layout pass, then once more at idle, tracing a focus
-    /// that never lands. The target is read at each try, so a rebuild between
-    /// the two tries is followed.
+    /// priority after a layout pass, then once more at idle, through
+    /// <see cref="DeferredNoiseFocus"/>, which drops the request the moment it
+    /// is no longer the operator's (repair round 1): a later request, focus
+    /// moved, another engine shown, or the panel hidden, collapsed or unloaded.
     /// </summary>
-    private void FocusNoiseWhenLaidOut(Func<UIElement?> target, string what)
+    private void FocusNoiseWhenLaidOut(Func<UIElement?> target, string what) =>
+        NoiseFocus.Request(() => target() is { } element ? (Func<bool>)element.Focus : null, what);
+
+    private DeferredNoiseFocus? _noiseFocus;
+
+    /// <summary>The panel's one focus request, wired to the dispatcher, WPF's keyboard focus and the panel's state. Hiding, collapsing or unloading the panel cancels it.</summary>
+    private DeferredNoiseFocus NoiseFocus
     {
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+        get
         {
-            UpdateLayout();
-            if (target()?.Focus() == true) return;
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
-            {
-                bool landed = target()?.Focus() == true;
-                JJTrace.Tracing.TraceLine("OpenNoise: focus on " + what + (landed ? " landed on the second try" : " did not land"),
-                    System.Diagnostics.TraceLevel.Info);
-            });
-        });
+            if (_noiseFocus != null) return _noiseFocus;
+            _noiseFocus = new DeferredNoiseFocus(
+                afterLayout: act => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () => { UpdateLayout(); act(); }),
+                whenIdle: act => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, act),
+                focused: () => System.Windows.Input.Keyboard.FocusedElement,
+                shownEngine: () => _noiseFieldsFor,
+                ready: () => IsVisible && DspExpander.IsExpanded && PresentationSource.FromVisual(this) != null,
+                trace: line => JJTrace.Tracing.TraceLine(line, System.Diagnostics.TraceLevel.Info));
+            IsVisibleChanged += (s, e) => { if (e.NewValue is false) _noiseFocus.Cancel(); };
+            Unloaded += (s, e) => _noiseFocus.Cancel();
+            return _noiseFocus;
+        }
     }
 
     private readonly List<(CycleFieldControl Field, NoiseLever Lever, IReadOnlyList<(double? Shown, string? Choice, string Text)> Steps)> _radioExtraFields = new();
@@ -518,5 +528,9 @@ public partial class ScreenFieldsPanel
     }
 
     /// <summary>Listen to what was removed is never left on: leaving the expander clears it.</summary>
-    private void OnDspExpanderCollapsed() => NoiseCtl?.ClearListening();
+    private void OnDspExpanderCollapsed()
+    {
+        NoiseCtl?.ClearListening();
+        _noiseFocus?.Cancel();
+    }
 }
