@@ -106,7 +106,9 @@ namespace JJFlexWpf
         /// which is the bank the slot holds and survives every one of those gates
         /// (#1103 repair round 1, Codex: Captured noise kept its id with no
         /// profile and was read as working). Says nothing about buffers that never
-        /// arrived: with no audio flowing it keeps the last buffer's answer.
+        /// arrived: with no audio flowing it keeps the last buffer's answer, and
+        /// a buffer too short to complete an engine frame keeps it too (it proves
+        /// nothing). The most recent buffer's result, not a liveness guarantee.
         /// </summary>
         public string ProcessingEngineId => Volatile.Read(ref _processingId);
         /// <summary>
@@ -467,12 +469,12 @@ namespace JJFlexWpf
                     StopFailedChoice(failedBuild.Choice);
                     return;
                 }
-                string processedBy = "";
+                string? processedBy = running == null ? "" : null;
                 if (running != null)
                 {
-                    long runningFailed = running.FallbackFrames;
+                    long runningTook = running.EngineFrames, runningFailed = running.FallbackFrames;
                     running.Process(audio, GetStrength(run!.Id));
-                    if (runningFailed == running.FallbackFrames) processedBy = run.Id;
+                    processedBy = ProcessedBy(running, run.Id, runningTook, runningFailed);
                 }
                 if (produced) _warmSamples += audio.Length / _channels;
                 else _warmSamples = 0;
@@ -494,22 +496,32 @@ namespace JJFlexWpf
                     processedBy = choice.Id;
                     Publish(choice, true);
                 }
-                Volatile.Write(ref _processingId, processedBy);
+                if (processedBy != null) Volatile.Write(ref _processingId, processedBy);
                 return;
             }
             if (running != null)
             {
-                long late = running.LateFrames, failed = running.FallbackFrames;
+                long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames;
                 running.Process(audio, GetStrength(run!.Id));
-                // A frame the engine passed through because it became unavailable
-                // was not processed: the id stays, the processing does not.
-                Volatile.Write(ref _processingId, failed == running.FallbackFrames ? run.Id : "");
+                if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
                 if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
                     late == running.LateFrames && failed == running.FallbackFrames)
                 { _announced = choice.Generation; Publish(choice, true); }
             }
             else Volatile.Write(ref _processingId, "");
         }
+
+        /// <summary>
+        /// What one buffer through <paramref name="bank"/> proves: "" when any frame
+        /// passed through because the engine was unavailable (the id stays, the
+        /// processing does not); <paramref name="id"/> when the engine itself took
+        /// a frame; null when the buffer completed no frame at all, which proves
+        /// nothing, so the last answer stands (repair round 2, Codex: a partial
+        /// buffer made a dead engine's id reappear). Late frames count as taken,
+        /// so a helper's start-up lateness does not flicker.
+        /// </summary>
+        private static string? ProcessedBy(PerChannelDenoiserBank bank, string id, long tookBefore, long failedBefore) =>
+            bank.FallbackFrames != failedBefore ? "" : bank.EngineFrames != tookBefore ? id : null;
 
         private void StopFailedChoice(Choice choice)
         {

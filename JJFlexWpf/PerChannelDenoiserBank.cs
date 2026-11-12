@@ -182,6 +182,16 @@ namespace JJFlexWpf
 
         public long LateFrames { get; private set; }
 
+        /// <summary>
+        /// Frames, summed over channels, the engine itself took: processed, or
+        /// accepted and not yet answered (late). A buffer too short to complete a
+        /// frame adds nothing here and nothing to <see cref="FallbackFrames"/>, so
+        /// it proves nothing either way about whether the engine is working
+        /// (Sprint 49 Track E follow-up 2, repair round 2: such a buffer made a
+        /// dead engine read as processing).
+        /// </summary>
+        public long EngineFrames { get; private set; }
+
         /// <summary>The engine serving one channel, for the offline bench's per-engine figures.</summary>
         public IDenoiseEngine EngineFor(int channel) => _engines[channel];
 
@@ -320,6 +330,7 @@ namespace JJFlexWpf
                 try
                 {
                     bool processed = engine.ProcessFrame(input, output);
+                    EngineFrames++;
                     _failing[ch] = false;
                     if (!processed) LateFrames++;
                     return processed;

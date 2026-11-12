@@ -1534,6 +1534,48 @@ public sealed class NoiseControllerTests
         Assert.True(f.Spoken.Said.Count >= saidBefore);
     }
 
+    /// <summary>
+    /// Codex's probe, kept: after a dead engine reads as not processing on a full
+    /// buffer, a buffer too short to complete one engine frame made its id
+    /// reappear, so the summary read it as working. Such a buffer proves nothing,
+    /// so the last answer stands; and on a healthy engine it does not flicker.
+    /// </summary>
+    [Fact]
+    public void A_buffer_that_completes_no_engine_frame_proves_nothing_either_way()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("deepfilternet3", "test");
+        f.Settle();
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ProcessingEngineId);
+        f.Pipeline.Process(new float[] { 0.1f, 0.1f });
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ProcessingEngineId);
+        f.Dead["deepfilternet3"] = true;
+        f.Pipeline.Process(Buffer());
+        Assert.Equal("", f.Pipeline.NeuralSlot.ProcessingEngineId);
+        f.Pipeline.Process(new float[] { 0.1f, 0.1f });
+        Assert.Equal("", f.Pipeline.NeuralSlot.ProcessingEngineId);
+        Assert.Contains(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
+    }
+
+    /// <summary>
+    /// Codex's control, kept: RNNoise, built with the slot, waits for its first
+    /// buffer, then stays running while no audio arrives (no idle timeout calls a
+    /// healthy engine "not running yet"), and PC audio off still wins.
+    /// </summary>
+    [Fact]
+    public void RNNoise_waits_for_its_first_buffer_then_stays_running_while_idle()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("rnnoise", "test");
+        Assert.Contains(WaitingSummary(f, "rnnoise"), f.Noise.ActiveSummary());
+        f.Pipeline.Process(Buffer());
+        Assert.DoesNotContain(WaitingSummary(f, "rnnoise"), f.Noise.ActiveSummary());
+        System.Threading.Thread.Sleep(50);
+        Assert.DoesNotContain(WaitingSummary(f, "rnnoise"), f.Noise.ActiveSummary());
+        f.Radio.PcAudioOn = false;
+        Assert.Contains(Lexicon.Get("audio.noise_surface.active.waiting_pc_audio", VerbosityLevel.Chatty, ("engine", "RNNoise")), f.Noise.ActiveSummary());
+    }
+
     [Fact]
     public void Every_change_goes_through_the_one_journal()
     {
