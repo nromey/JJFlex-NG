@@ -56,8 +56,36 @@ public partial class RadioComboBox : UserControl
         set
         {
             HeaderLabel.Text = value;
-            AutomationProperties.SetName(TheComboBox, value);
+            _headerNames = !string.IsNullOrEmpty(value);
+            if (_headerNames) AutomationProperties.SetName(TheComboBox, value);
+            else TakeOwnNameIfUnnamed();
         }
+    }
+
+    /// <summary>True once a non-empty <see cref="Header"/> has named the inner combo.</summary>
+    private bool _headerNames;
+
+    /// <summary>
+    /// The inner combo, which is what a screen reader lands on, takes the
+    /// control's own accessible name when no <see cref="Header"/> names it.
+    /// Home names its Operating Mode and Transmit Tune combos with
+    /// <c>AutomationProperties.Name</c> on the control and never sets a
+    /// Header, so the inner combo had no name and a screen reader said only
+    /// "combo box, USB, collapsed". A Header, when set, still wins.
+    /// </summary>
+    internal void TakeOwnNameIfUnnamed()
+    {
+        if (_headerNames || TheComboBox == null) return;
+        string own = AutomationProperties.GetName(this);
+        if (!string.IsNullOrEmpty(own)) AutomationProperties.SetName(TheComboBox, own);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Follows the control's own accessible name as it is set (from XAML, after construction).</remarks>
+    protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.Property == AutomationProperties.NameProperty) TakeOwnNameIfUnnamed();
     }
 
     /// <summary>
