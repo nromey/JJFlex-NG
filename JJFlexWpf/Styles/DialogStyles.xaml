@@ -126,10 +126,35 @@
         </Setter>
     </Style>
 
+    <!-- A category list shows every name whole (#1068, batch 12 repair round 2).
+         The list keeps its 170 and a name longer than that WRAPS onto a second
+         line: the list never scrolls sideways, so no name is cut at its edge.
+         Until then the items took their natural width (244 for "Accessibility
+         timing and input preferences"), the list scrolled horizontally, and
+         three Settings names were cut off on screen while NVDA said them whole.
+         Wrapping rather than widening, on purpose: Settings is a fixed 660 and
+         does not resize, so a list sized to its widest name would take about
+         80 from every settings page, and more if a longer name ever arrived.
+         Each row is still one ListBoxItem with one text element, so what a
+         screen reader reads is unchanged. -->
     <Style x:Key="CategoryList" TargetType="ListBox">
         <Setter Property="Width" Value="170"/>
         <Setter Property="Margin" Value="0,0,10,0"/>
         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="ItemContainerStyle">
+            <Setter.Value>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="ContentTemplate">
+                        <Setter.Value>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                            </DataTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Setter.Value>
+        </Setter>
     </Style>
 
 </ResourceDictionary>
