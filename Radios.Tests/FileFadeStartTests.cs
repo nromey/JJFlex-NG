@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Linq;
 using System.Reflection;
 using JJPortaudio;
 using Xunit;
@@ -29,6 +30,7 @@ public sealed class FileFadeStartTests
     private const int StMicFadeOut = 1;
     private const int StFileFadeIn = 2;
     private const int StFileFadeOut = 4;
+    private const int StMicFadeIn = 5;
 
     private static int State(TxFilePlayer player) =>
         (int)typeof(TxFilePlayer).GetField("_state", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(player)!;
@@ -133,6 +135,35 @@ public sealed class FileFadeStartTests
         player.Process(first, SmallFloats, Rate);
         Assert.Equal(Mic, first[0], 4);   // the ramp begins at the microphone's full level
         Assert.True(first[^1] < Mic);
+        player.Stop();
+    }
+
+    /// <summary>
+    /// A start while the microphone is ramping back in after a send fades it
+    /// out from the level it had reached. Until then it began the ramp out at
+    /// full level, a step up from wherever the ramp back had got to.
+    /// </summary>
+    [Fact]
+    public void A_start_while_the_microphone_ramps_back_fades_it_out_from_the_level_it_reached()
+    {
+        var player = SendInItsFinalFade();
+        for (int i = 0; i < 4 && State(player) != StMicFadeIn; i++)
+            player.Process(MicBuffer(), SmallFloats, Rate);   // the file's fade runs out
+        Assert.True(State(player) == StMicFadeIn, "positive control: the microphone is ramping back");
+        var rampBack = MicBuffer();
+        player.Process(rampBack, SmallFloats, Rate);   // a quarter of the way back
+        float reached = rampBack[^1];
+        Assert.InRange(reached, 0.05f, Mic * 0.5f);   // positive control: partly back, well short of full
+
+        player.Start();
+
+        Assert.Equal(StMicFadeOut, State(player));
+        // The ramp out starts one ramp step above where the buffer above
+        // ended (the counter had moved on by one frame), and only goes down.
+        var next = MicBuffer();
+        player.Process(next, SmallFloats, Rate);
+        Assert.InRange(next[0], reached, reached + 0.003f);
+        Assert.InRange(next.Max(), 0f, reached + 0.003f);
         player.Stop();
     }
 
