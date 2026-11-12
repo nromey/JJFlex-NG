@@ -287,6 +287,42 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// #1090: a label written INSIDE the control (a child TextBlock, plain
+        /// text, a <c>&lt;X.Content&gt;</c> or <c>&lt;X.Header&gt;</c>
+        /// property element) is read and checked. Every one of these seeded
+        /// controls was invisible to the attribute-only scan; the first is the
+        /// positive control that it now reports one.
+        /// </summary>
+        [Fact]
+        public void The_scan_reads_a_label_written_inside_the_control()
+        {
+            const string seeded =
+                "<Button AutomationProperties.Name=\"Go\"><TextBlock Text=\"Start now\"/></Button>\n"
+                + "<RadioButton AutomationProperties.Name=\"Fixed address, you choose\"><RadioButton.Content><TextBlock Text=\"Fixed address, the radio keeps it\"/></RadioButton.Content></RadioButton>\n"
+                + "<RadioButton AutomationProperties.Name=\"Tier 1, manual\"><StackPanel><TextBlock Text=\"Tier 1 (manual)\"/><TextBlock Text=\"A long description under it\"/></StackPanel></RadioButton>\n"
+                + "<Button AutomationProperties.Name=\"OK, keep it\">OK</Button>\n"
+                + "<GroupBox AutomationProperties.Name=\"Mode\"><GroupBox.Header><TextBlock Text=\"Connection mode\"/></GroupBox.Header><StackPanel><TextBlock Text=\"body\"/></StackPanel></GroupBox>\n"
+                + "<StackPanel AutomationProperties.Name=\"A group\"><TextBlock Text=\"Not its label\"/></StackPanel>\n"
+                + "<Button AutomationProperties.Name=\"Bound\"><TextBlock Text=\"{Binding X}\"/></Button>\n"
+                + "<Button AutomationProperties.Name=\"Outer\"><Button.ToolTip><TextBlock Text=\"a tip\"/></Button.ToolTip><TextBlock Text=\"Outer label\"/></Button>\n"
+                + "<Button AutomationProperties.Name=\"Nested\"><Button><TextBlock Text=\"inner\"/></Button></Button>";
+            var found = SpokenNameScan.XamlControls("t.xaml", seeded).ToList();
+            string Shown(string name) => found.Single(c => c.SpokenName == name).Shown;
+
+            Assert.Equal("Start now", Shown("Go"));                                   // the positive control
+            Assert.False(SpokenNameScan.NameContainsShown("Go", Shown("Go")));
+            Assert.Equal("Fixed address, the radio keeps it", Shown("Fixed address, you choose"));
+            Assert.Equal("Tier 1 (manual)", Shown("Tier 1, manual"));               // the first text is the label
+            Assert.True(SpokenNameScan.NameContainsShown("Tier 1, manual", Shown("Tier 1, manual")));
+            Assert.Equal("OK", Shown("OK, keep it"));
+            Assert.Equal("Connection mode", Shown("Mode"));
+            Assert.Equal("Outer label", Shown("Outer"));                             // another property element is not the label
+            Assert.Equal("inner", Shown("Nested"));
+            Assert.DoesNotContain(found, c => c.SpokenName == "A group");            // a panel is not a labelled control
+            Assert.DoesNotContain(found, c => c.SpokenName == "Bound");              // a binding is not text
+        }
+
+        /// <summary>
         /// Positive control on the real tree: the two mismatches the probe run
         /// of 2026-10-29 heard on the live app, on the radio ownership question,
         /// are found by the scan. Their wording is Noel's, so they are listed,

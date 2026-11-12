@@ -37,7 +37,7 @@
                 <RadioButton x:Name="StaticRadio"
                              GroupName="AddressMode"
                              Margin="0,4,0,4"
-                             AutomationProperties.Name="Fixed address, you choose the address the radio keeps"
+                             AutomationProperties.Name="Fixed address — the radio always uses the address you set"
                              Checked="AddressModeRadio_Checked">
                     <TextBlock Text="Fixed address — the radio always uses the address you set"/>
                 </RadioButton>

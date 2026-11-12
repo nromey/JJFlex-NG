@@ -434,7 +434,40 @@ namespace Radios.Tests
 
             string direct = string.Concat(element.Nodes().OfType<XText>().Select(t => t.Value));
             string inline = Normalise(direct);
-            return inline.Length == 0 ? (null, "") : (inline, "content");
+            if (inline.Length > 0) return (inline, "content");
+            return ChildLabel(element, tag);
+        }
+
+        /// <summary>Controls whose own body is their label (#1090), as in SpokenNameScan.</summary>
+        private static readonly HashSet<string> ChildLabelled = new(StringComparer.Ordinal)
+        {
+            "Button", "ToggleButton", "RepeatButton", "RadioButton", "CheckBox", "Label",
+            "ListBoxItem", "ComboBoxItem",
+        };
+
+        /// <summary>
+        /// A content control's label written INSIDE it (#1090): the first
+        /// TextBlock, AccessText or Run in its body, outside any property
+        /// element other than <c>&lt;X.Content&gt;</c>. Without this the scan
+        /// read such a control as having no visible label, and judged a name
+        /// that IS the label as an explanation.
+        /// </summary>
+        private static (string? Label, string Source) ChildLabel(XElement element, string tag)
+        {
+            if (!ChildLabelled.Contains(tag)) return (null, "");
+            foreach (var d in element.Descendants())
+            {
+                bool inOtherProperty = d.Ancestors().TakeWhile(x => x != element)
+                    .Any(x => x.Name.LocalName.StartsWith(tag + ".", StringComparison.Ordinal)
+                           && x.Name.LocalName != tag + ".Content");
+                if (inOtherProperty) continue;
+                if (d.Name.LocalName is not ("TextBlock" or "AccessText" or "Run")) continue;
+                string text = d.Attribute("Text")?.Value ?? string.Concat(d.Nodes().OfType<XText>().Select(t => t.Value));
+                if (IsMarkupExtension(text)) return (null, "");
+                text = Normalise(text);
+                if (text.Length > 0) return (text, "content");
+            }
+            return (null, "");
         }
 
         /// <summary>

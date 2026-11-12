@@ -786,7 +786,7 @@
                             <RadioButton x:Name="Tier1Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1, manual port forwarding only. Sovereign default."
+                                         AutomationProperties.Name="Tier 1 — Manual port forwarding only (recommended default)"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 — Manual port forwarding only (recommended default)" FontWeight="SemiBold"/>
@@ -797,7 +797,7 @@
                             <RadioButton x:Name="Tier2Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1 plus 2, manual plus UPnP automatic port mapping"
+                                         AutomationProperties.Name="Tier 1 + 2 — Manual + UPnP, automatic port mapping"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 — Manual + UPnP" FontWeight="SemiBold"/>
@@ -808,7 +808,7 @@
                             <RadioButton x:Name="Tier3Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1 plus 2 plus 3"
+                                         AutomationProperties.Name="Tier 1 + 2 + 3 — Allow automatic hole-punch"
                    local:JJFlexHelp.Text="allow automatic hole punch for restrictive networks"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
@@ -1135,7 +1135,7 @@
                             <StackPanel KeyboardNavigation.DirectionalNavigation="Cycle"
                                         KeyboardNavigation.TabNavigation="Once">
                             <RadioButton x:Name="RadioProfileAutoRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
-                                         AutomationProperties.Name="Automatic, follow what the radio reports. Recommended."
+                                         AutomationProperties.Name="Automatic (recommended), follows what the radio reports"
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Automatic (recommended)" FontWeight="SemiBold"/>
@@ -1957,28 +1957,28 @@
                                     <RadioButton x:Name="DoubleTapQuickRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Quick, 250 milliseconds, for fast typists"
+                                                 AutomationProperties.Name="Quick (250 ms), for fast typists"
                                                  Checked="DoubleTapToleranceRadio_Checked">
                                         <TextBlock Text="Quick (250 ms)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapNormalRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Normal, 500 milliseconds, recommended default"
+                                                 AutomationProperties.Name="Normal (500 ms, recommended)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
                                         <TextBlock Text="Normal (500 ms, recommended)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapRelaxedRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Relaxed, 750 milliseconds, for deliberate input"
+                                                 AutomationProperties.Name="Relaxed (750 ms), for deliberate input"
                                                  Checked="DoubleTapToleranceRadio_Checked">
                                         <TextBlock Text="Relaxed (750 ms)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapLeisurelyRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Leisurely, 1000 milliseconds, for verifying speech between presses"
+                                                 AutomationProperties.Name="Leisurely (1000 ms), for verifying speech between presses"
                                                  Checked="DoubleTapToleranceRadio_Checked">
                                         <TextBlock Text="Leisurely (1000 ms)"/>
                                     </RadioButton>

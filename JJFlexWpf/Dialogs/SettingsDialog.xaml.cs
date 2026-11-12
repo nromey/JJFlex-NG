@@ -591,8 +591,8 @@ namespace JJFlexWpf.Dialogs
             if (_suppressDoubleTapToleranceAnnouncements) return;
 
             // DELETED 2026-08-18: each RadioButton's AutomationProperties.Name
-            // already carries the name AND the milliseconds - "Quick, 250
-            // milliseconds, for fast typists" - and the screen reader announces
+            // already carries the name AND the milliseconds - "Quick (250 ms),
+            // for fast typists" (#1090) - and the screen reader announces
             // it on selection. This utterance was a strict SUBSET of that, and
             // because the handler fires on every arrow press through the group,
             // the interrupt cut the fuller announcement to deliver the shorter

@@ -1,0 +1,1 @@
+- In Settings, the connection mode choices, the address choice in Static IP, the per-radio connection choice and the double-tap tolerance choices are now announced with the words shown on screen.

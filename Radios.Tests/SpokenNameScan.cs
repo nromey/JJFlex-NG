@@ -57,6 +57,15 @@ namespace Radios.Tests
         /// Every element in one XAML text whose spoken name and shown label are
         /// both literal. Bindings and resources are skipped: they are not text.
         /// </summary>
+        /// <remarks>
+        /// The label is read from the <c>Content</c> or <c>Header</c>
+        /// attribute, or, since #1090, from inside the element when it has
+        /// neither: a content control's child text (a <c>TextBlock</c>, a
+        /// <c>Run</c>, an <c>AccessText</c>, plain text, or a
+        /// <c>&lt;X.Content&gt;</c> property element), and a headered
+        /// control's <c>&lt;X.Header&gt;</c> property element. Until then a
+        /// label written as a child was never checked against the name.
+        /// </remarks>
         internal static IEnumerable<XamlControl> XamlControls(string file, string xaml)
         {
             foreach (Match m in Tag.Matches(xaml))
@@ -65,11 +74,89 @@ namespace Radios.Tests
                 string? name = Attribute(attributes, "AutomationProperties.Name");
                 if (name == null || name.StartsWith("{", StringComparison.Ordinal)) continue;
                 string? shown = Attribute(attributes, "Content") ?? Attribute(attributes, "Header");
+                if (shown == null && !m.Value.EndsWith("/>", StringComparison.Ordinal))
+                    shown = ChildLabel(xaml, m.Groups[1].Value, m.Index + m.Length);
                 if (shown == null || shown.StartsWith("{", StringComparison.Ordinal)) continue;
                 int line = xaml.Take(m.Index).Count(c => c == '\n') + 1;
                 yield return new XamlControl(file, line, m.Groups[1].Value,
                     Attribute(attributes, "x:Name"), shown, name);
             }
+        }
+
+        /// <summary>Controls whose own body is their label (#1090).</summary>
+        private static readonly HashSet<string> ContentControls = new(StringComparer.Ordinal)
+        {
+            "Button", "ToggleButton", "RepeatButton", "RadioButton", "CheckBox", "Label",
+            "ListBoxItem", "ComboBoxItem",
+        };
+
+        /// <summary>Controls whose label is a Header and whose body is something else (#1090).</summary>
+        private static readonly HashSet<string> HeaderedControls = new(StringComparer.Ordinal)
+        {
+            "GroupBox", "TabItem", "Expander", "MenuItem", "HeaderedContentControl",
+        };
+
+        private static readonly Regex TextToken = new(
+            @"<(?:\w+:)?(?:TextBlock|AccessText|Run)\b([^<>]*?)/?>|<[^>]*>|([^<]+)", RegexOptions.Singleline);
+
+        /// <summary>
+        /// The label an element shows from inside itself, or null when it has
+        /// none the scan can read as literal text (#1090). For a content
+        /// control: the <c>&lt;X.Content&gt;</c> property element when there is
+        /// one, otherwise the whole body less any other property elements; for
+        /// a headered control: the <c>&lt;X.Header&gt;</c> property element
+        /// only. The label is the first <c>Text</c> attribute or run of plain
+        /// text, in document order; a bound first text makes it unreadable.
+        /// </summary>
+        internal static string? ChildLabel(string xaml, string tag, int bodyStart)
+        {
+            string local = tag.Contains(':') ? tag.Substring(tag.IndexOf(':') + 1) : tag;
+            bool content = ContentControls.Contains(local);
+            if (!content && !HeaderedControls.Contains(local)) return null;
+            int bodyEnd = CloseOf(xaml, tag, bodyStart);
+            if (bodyEnd < 0) return null;
+            string body = Regex.Replace(xaml.Substring(bodyStart, bodyEnd - bodyStart), "<!--.*?-->", " ", RegexOptions.Singleline);
+
+            string property = content ? "Content" : "Header";
+            var element = Regex.Match(body, "<" + Regex.Escape(tag) + "\\." + property + "\\b[^>]*>(.*?)</" + Regex.Escape(tag) + "\\." + property + ">",
+                RegexOptions.Singleline);
+            if (element.Success) body = element.Groups[1].Value;
+            else if (!content) return null;
+            else body = Regex.Replace(body, "<(" + Regex.Escape(tag) + "\\.\\w+)\\b[^>]*?(?:/>|>.*?</\\1>)", " ", RegexOptions.Singleline);
+
+            // The FIRST text is the label: a content control that holds a
+            // heading line and a description under it (the connection-mode
+            // tiers) shows its label in the heading, and the description is
+            // not part of the name a screen reader must hear.
+            foreach (Match t in TextToken.Matches(body))
+            {
+                if (t.Groups[1].Success)
+                {
+                    string? text = Attribute(t.Groups[1].Value, "Text");
+                    if (text == null) continue;
+                    if (text.StartsWith("{", StringComparison.Ordinal)) return null;
+                    if (text.Trim().Length > 0) return text.Trim();
+                }
+                else if (t.Groups[2].Success)
+                {
+                    string text = Regex.Replace(WebUtility.HtmlDecode(t.Groups[2].Value), @"\s+", " ").Trim();
+                    if (text.Length > 0) return text;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Where the element opened just before <paramref name="from"/> closes, counting nested elements of the same tag.</summary>
+        private static int CloseOf(string xaml, string tag, int from)
+        {
+            var any = new Regex("<(/?)" + Regex.Escape(tag) + "(?=[\\s/>])[^>]*?(/?)>", RegexOptions.Singleline);
+            int depth = 1;
+            foreach (Match t in any.Matches(xaml, from))
+            {
+                if (t.Groups[1].Value == "/") { if (--depth == 0) return t.Index; }
+                else if (t.Groups[2].Value != "/") depth++;
+            }
+            return -1;
         }
 
         /// <summary>x:Name to literal spoken name, for one XAML text.</summary>
