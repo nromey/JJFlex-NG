@@ -512,7 +512,8 @@ namespace JJFlexWpf.Dialogs
             ShowPanadapterCheck.IsChecked = _audioConfig.ShowPanadapter;
             AnnounceSwrAfterTuneCheck.IsChecked = _audioConfig.AnnounceSwrAfterTune;
             SpeakConnectionProgressCheck.IsChecked = _audioConfig.SpeakConnectionProgress;
-            OfferStationSaveOnDisconnectCheck.IsChecked = _audioConfig.OfferStationSaveOnDisconnect;
+            // The operator in use's own setting (#1113), not the account file's.
+            OfferStationSaveOnDisconnectCheck.IsChecked = Radios.FlexBase.OfferStationSaveOnDisconnect;
 
             // Network tab — defaults shown until Rig property is set (see RefreshNetworkTabFromRig)
             PortForwardEnabledCheck.IsChecked = false;
@@ -1626,6 +1627,10 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.AnnounceSwrAfterTune = AnnounceSwrAfterTuneCheck.IsChecked == true;
             _audioConfig.SpeakConnectionProgress = SpeakConnectionProgressCheck.IsChecked == true;
             _audioConfig.OfferStationSaveOnDisconnect =
+                OfferStationSaveOnDisconnectCheck.IsChecked == true;
+            // #1113: the operator in use's own setting, written now (with no
+            // operator, the account value the line above keeps).
+            Radios.FlexBase.OfferStationSaveOnDisconnect =
                 OfferStationSaveOnDisconnectCheck.IsChecked == true;
             // The one countdown (#835), made live by Apply() below.
             CommitCountdown();

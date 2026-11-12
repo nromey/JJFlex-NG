@@ -3325,8 +3325,16 @@ namespace Radios
         /// session, since OperatorChangedStationThisSession is true whenever a
         /// ham has tuned around. A default-on was built and backed out on
         /// 2026-10-27 (#759); the decline traces it brought stay.
+        /// <para><b>Per operator since #1113</b> (ruled by Noel 2026-11-12,
+        /// J3): this reads and writes the operator in use's own setting
+        /// (<see cref="StationSaveOffer"/>), the Windows account's value while
+        /// no operator is chosen. No file is the default, off.</para>
         /// </remarks>
-        public static bool OfferStationSaveOnDisconnect { get; set; }
+        public static bool OfferStationSaveOnDisconnect
+        {
+            get => StationSaveOffer.Offer;
+            set => StationSaveOffer.Choose(value);
+        }
 
         /// <summary>
         /// Why the most recent <see cref="ShouldOfferStationLayoutSave"/> did

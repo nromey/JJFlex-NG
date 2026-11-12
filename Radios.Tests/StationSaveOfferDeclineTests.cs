@@ -36,13 +36,22 @@ namespace Radios.Tests
             // the live static another test may have set. No initializer at
             // all, so it is the CLR's false; any "= true" is the default-on
             // coming back.
+            //
+            // #1113 (2026-11-12): the static now reads the operator in use's
+            // own setting (StationSaveOffer), so the declaration this pinned
+            // is gone; the default is pinned where it now lives. An operator
+            // with no file of their own, and a Windows account whose
+            // audioConfig.xml never set it, are both off.
             var property = typeof(FlexBase).GetProperty(nameof(FlexBase.OfferStationSaveOnDisconnect))!;
             Assert.True(property.GetMethod!.IsStatic);
             string source = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "Radios/FlexBase.Profiles.cs"));
-            var declaration = Regex.Match(source,
-                @"public static bool OfferStationSaveOnDisconnect \{ get; set; \}[^\r\n]*");
-            Assert.True(declaration.Success, "the static's declaration is where this test expects it");
-            Assert.Equal("public static bool OfferStationSaveOnDisconnect { get; set; }", declaration.Value.TrimEnd());
+            Assert.Matches(new Regex(@"public static bool OfferStationSaveOnDisconnect\s*\{\s*get => StationSaveOffer\.Offer;\s*set => StationSaveOffer\.Choose\(value\);\s*\}"), source);
+
+            string root = Path.Combine(Path.GetTempPath(), "jjflex-1113-default-" + Guid.NewGuid().ToString("N"));
+            try { Assert.False(StationSaveOffer.Read(root, "nobody_yet")); }
+            finally { try { Directory.Delete(root, recursive: true); } catch { } }
+            string store = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "Radios/StationSaveOffer.cs"));
+            Assert.DoesNotMatch(new Regex(@"_accountValue\s*=\s*true"), store);
         }
 
         [Fact]

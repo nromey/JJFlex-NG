@@ -380,7 +380,9 @@ public partial class MainWindow : UserControl
                 // reason the CW flags above are: it has to be in place before
                 // the first disconnect, and the per-radio config that would
                 // otherwise carry it is not read until PowerOn.
-                Radios.FlexBase.OfferStationSaveOnDisconnect =
+                // Since #1113 this is the Windows account's value, in use only
+                // while no operator is chosen; each operator has their own.
+                Radios.StationSaveOffer.AccountValue =
                     userConfig.OfferStationSaveOnDisconnect;
                 // #147, and here for the same reason the CW settings are:
                 // AudioOutputConfig.Apply() runs on CONNECT, so an operator who

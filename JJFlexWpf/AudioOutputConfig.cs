@@ -329,6 +329,11 @@ namespace JJFlexWpf
         /// <para>Absent from an older audioConfig.xml this deserialises to
         /// false, which is exactly the behaviour that file was written
         /// under.</para>
+        ///
+        /// <para><b>Since #1113 this is the Windows account's value only.</b>
+        /// Each operator has their own (Radios.StationSaveOffer); this one is
+        /// in use while no operator is chosen, and was carried once, at the
+        /// upgrade, to every operator listed then.</para>
         /// </summary>
         public bool OfferStationSaveOnDisconnect { get; set; }
 
@@ -339,10 +344,19 @@ namespace JJFlexWpf
         /// power-off and would otherwise write the old "on" back over this.
         /// There is one audioConfig.xml (see <see cref="CanonicalDir"/>), so
         /// one save covers every radio.
+        /// <para><b>Per operator since #1113</b> (ruled 2026-11-12, J3): with
+        /// an operator in use only that operator's own setting changes, and
+        /// nothing shared is written. The account file is written only while no
+        /// operator is chosen, the one case it still governs.</para>
         /// </summary>
         internal static void RecordStationSaveOfferTurnedOff(AudioOutputConfig? live, string configDir)
         {
             Radios.FlexBase.OfferStationSaveOnDisconnect = false;
+            if (Radios.OperatorChange.Current.HasOperator)
+            {
+                Trace.WriteLine("AudioOutputConfig: the operator turned off the offer to save the station on disconnect, for this operator");
+                return;
+            }
             var config = live ?? Load(configDir);
             config.OfferStationSaveOnDisconnect = false;
             config.Save(configDir);
@@ -1116,7 +1130,10 @@ namespace JJFlexWpf
             // crosses as a static. One knob for every radio and every
             // connection — the per-radio half of the decision is ownership,
             // and that already lives in RadioConfig.
-            Radios.FlexBase.OfferStationSaveOnDisconnect = OfferStationSaveOnDisconnect;
+            // Since #1113 this file holds only the Windows account's value, in
+            // use while no operator is chosen; the operator's own setting is
+            // never written from here (Radios.StationSaveOffer).
+            Radios.StationSaveOffer.AccountValue = OfferStationSaveOnDisconnect;
 
             // Mic-verdict wording, same reasoning: every surface that reads a
             // level out loud asks MicAudioReport, so the preference lives

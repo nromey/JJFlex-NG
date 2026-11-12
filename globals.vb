@@ -6180,6 +6180,10 @@ RadioConnected:
         ' (#1106, ruled 2026-11-12): the operators listed now start from the
         ' Windows account's silenced messages; one added later starts with none.
         Radios.AdvisorySuppression.CarryOverAtUpgrade(allOperatorUniqueNames())
+        ' The same rule for the disconnect offer to save the setup (#1113): the
+        ' operators listed now start from the account's audioConfig.xml value.
+        Radios.StationSaveOffer.CarryOverAtUpgrade(allOperatorUniqueNames(),
+            JJFlexWpf.AudioOutputConfig.Load(BaseConfigDir).OfferStationSaveOnDisconnect)
         Radios.OperatorChange.Establish(BaseConfigDir, currentOperatorUniqueName())
         FollowTheOperatorHere()
         AddHandler Operators.ConfigEvent, AddressOf operatorChanged
