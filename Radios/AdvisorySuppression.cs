@@ -135,12 +135,29 @@ namespace Radios
         /// the store never has to hold prose of its own.
         /// </param>
         public AdvisorySuppressionStore(string filePath, Func<string, string>? describe = null)
+            : this(filePath, null, describe)
+        {
+        }
+
+        /// <param name="filePath">The JSON file this store reads and writes.</param>
+        /// <param name="carryOverFrom">
+        /// A store file this one starts from, once: when <paramref name="filePath"/>
+        /// does not exist yet, the silenced set in this file is copied into it
+        /// and written at once, so the copy is never made again (#1073: an
+        /// operator's own store starts from the Windows-account set). Null for
+        /// no carry-over. The source file is only read, never changed.
+        /// </param>
+        /// <param name="describe">See the other constructor.</param>
+        public AdvisorySuppressionStore(string filePath, string? carryOverFrom, Func<string, string>? describe = null)
         {
             if (string.IsNullOrWhiteSpace(filePath))
                 throw new ArgumentException("A suppression store needs a file to live in.", nameof(filePath));
             _filePath = filePath;
+            _carryOverFrom = string.IsNullOrWhiteSpace(carryOverFrom) ? null : carryOverFrom;
             _describe = describe ?? AdvisoryKeys.Describe;
         }
+
+        private readonly string? _carryOverFrom;
 
         /// <summary>Where this store keeps its file.</summary>
         public string FilePath => _filePath;
@@ -271,10 +288,34 @@ namespace Radios
             if (_entries != null) return;
             _entries = new Dictionary<string, DateTimeOffset?>(StringComparer.Ordinal);
 
+            if (_carryOverFrom != null && !File.Exists(_filePath))
+            {
+                // #1073: the first time this store is opened, it starts from a
+                // copy of the set it replaces, so a message silenced before the
+                // move stays silenced. Written at once: the file existing is
+                // what says the copy was made, so a later Restore (which leaves
+                // the file, emptied) is never undone by copying again.
+                if (File.Exists(_carryOverFrom))
+                {
+                    ReadInto(_carryOverFrom);
+                    Tracing.TraceLine("AdvisorySuppression: " + _entries.Count.ToString(CultureInfo.InvariantCulture)
+                        + " silenced message(s) carried over from " + _carryOverFrom + " to " + _filePath,
+                        System.Diagnostics.TraceLevel.Info);
+                }
+                Save();
+                return;
+            }
+
+            ReadInto(_filePath);
+        }
+
+        /// <summary>Add the entries of one store file to the set in memory.</summary>
+        private void ReadInto(string path)
+        {
             try
             {
-                if (!File.Exists(_filePath)) return;
-                string text = File.ReadAllText(_filePath);
+                if (!File.Exists(path)) return;
+                string text = File.ReadAllText(path);
                 if (string.IsNullOrWhiteSpace(text)) return;
 
                 using var doc = JsonDocument.Parse(text);
@@ -350,8 +391,14 @@ namespace Radios
                         .ToArray(),
                 };
 
-                File.WriteAllText(_filePath, JsonSerializer.Serialize(
+                // Atomically (#1073): the whole new set goes to a temporary file
+                // beside the store, and then replaces it in one step, so a
+                // failure part-way through leaves the previous set whole rather
+                // than a truncated file that reads as "nothing silenced".
+                string temp = _filePath + ".tmp";
+                File.WriteAllText(temp, JsonSerializer.Serialize(
                     payload, new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(temp, _filePath, overwrite: true);
             }
             catch (Exception ex)
             {
@@ -365,37 +412,82 @@ namespace Radios
     }
 
     /// <summary>
-    /// The application's one suppression store, in the settings folder.
+    /// The application's one suppression store: the current operator's, in the
+    /// settings folder.
     /// </summary>
     /// <remarks>
-    /// A facade rather than the implementation, so that everything the store
-    /// does is reachable by a test that owns its own file. See
-    /// <see cref="AdvisorySuppressionStore"/> for the whole story.
+    /// <para>A facade rather than the implementation, so that everything the
+    /// store does is reachable by a test that owns its own file. See
+    /// <see cref="AdvisorySuppressionStore"/> for the whole story.</para>
+    /// <para><b>Per operator (#1073).</b> Ruled by Noel 2026-10-19: <i>"don't
+    /// show again belongs to each operator and belongs on the user's
+    /// machine"</i>, and 2026-11-11 19:42: every "don't show again" moves
+    /// together, to one per-operator store every box uses, and Silenced
+    /// Messages lists and restores the current operator's. Every box reaches
+    /// the store through this facade, so the move is made here once: the store
+    /// in use is the one for the operator <see cref="OperatorChange.Current"/>
+    /// names, resolved again whenever that changes, with or without a radio.
+    /// Until an operator has been chosen (first run), the Windows-account file
+    /// this store used before is the one in use.</para>
+    /// <para><b>Carried over once.</b> An operator's own file starts, the first
+    /// time it is opened, as a copy of the Windows-account set, so nobody
+    /// suddenly hears a message they silenced. The old file is left where it
+    /// is.</para>
     /// </remarks>
     public static class AdvisorySuppression
     {
+        /// <summary>The Windows-account file: the store before #1073, and the one in use until an operator is chosen.</summary>
+        internal const string AccountFileName = "suppressed-advisories.json";
+
+        /// <summary>The per-operator file's suffix, after the operator's unique name, as the other per-operator files are named.</summary>
+        internal const string OperatorFileSuffix = "_suppressedAdvisories.json";
+
         private static readonly object _gate = new();
         private static AdvisorySuppressionStore? _default;
+        private static string? _defaultFor;
+
+        /// <summary>The Windows-account store's file under a settings root.</summary>
+        internal static string AccountFile(string root) => Path.Combine(root, AccountFileName);
+
+        /// <summary>One operator's store file under a settings root.</summary>
+        internal static string OperatorFile(string root, string operatorName) =>
+            Path.Combine(root, operatorName + OperatorFileSuffix);
 
         /// <summary>
-        /// The store in <c>%AppData%\JJFlexRadio</c> — or wherever
-        /// <see cref="RadioConfig.AppDataRoot"/> points this run.
+        /// The store for an operator under a settings root: the Windows-account
+        /// file when no operator is named, otherwise the operator's own file,
+        /// carried over once from the Windows-account set.
+        /// </summary>
+        internal static AdvisorySuppressionStore StoreFor(string root, string? operatorName) =>
+            string.IsNullOrEmpty(operatorName)
+                ? new AdvisorySuppressionStore(AccountFile(root))
+                : new AdvisorySuppressionStore(OperatorFile(root, operatorName), carryOverFrom: AccountFile(root));
+
+        /// <summary>
+        /// The current operator's store, in <c>%AppData%\JJFlexRadio</c> — or
+        /// wherever <see cref="RadioConfig.AppDataRoot"/> points this run.
         /// </summary>
         /// <remarks>
-        /// Resolved on first use rather than at type load. A
+        /// Resolved on use rather than at type load. A
         /// <c>static readonly</c> path here would bind before startup had
         /// settled the settings root, which is exactly how a store ends up
         /// writing the operator's live folder during a run that believes it is
-        /// isolated.
+        /// isolated. Resolved again when the operator changes (#1072, #1073).
         /// </remarks>
         public static AdvisorySuppressionStore Default
         {
             get
             {
+                string? op = OperatorChange.Current.OperatorName;
+                string key = RadioConfig.AppDataRoot + "|" + (op ?? "");
                 lock (_gate)
                 {
-                    return _default ??= new AdvisorySuppressionStore(
-                        Path.Combine(RadioConfig.AppDataRoot, "suppressed-advisories.json"));
+                    if (_default == null || !string.Equals(_defaultFor, key, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _default = StoreFor(RadioConfig.AppDataRoot, op);
+                        _defaultFor = key;
+                    }
+                    return _default;
                 }
             }
         }

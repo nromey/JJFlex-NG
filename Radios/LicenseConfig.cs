@@ -39,6 +39,41 @@ namespace Radios
         /// </summary>
         public bool EnforceTxRules { get; set; } = true;
 
+        /// <summary>
+        /// The operator's license, from the ONE file every reader and writer
+        /// uses (#1072 repair, Codex's B2): <c>{operator}_licenseConfig.xml</c>
+        /// in <paramref name="configDirectory"/>, which is the per-radio
+        /// settings folder (<c>OpenParms.ConfigDirectory</c>, the settings root's
+        /// <c>Radios</c> folder) that Settings has always saved to.
+        /// </summary>
+        /// <remarks>
+        /// Until this repair Home loaded, tested for and wrote first-run
+        /// defaults to a copy at the settings ROOT, while Settings saved to the
+        /// Radios folder, so a license class or transmit lockout chosen in
+        /// Settings was read back as the root copy's first-run defaults after
+        /// an operator switch or a restart, and the next Settings save wrote
+        /// those over the choice. The root copy was only ever written as
+        /// first-run defaults (Settings never wrote there), so where both exist
+        /// the Radios copy is the operator's choice. A root copy alone is
+        /// carried: read, never moved or deleted, until Settings first saves.
+        /// <paramref name="firstRun"/> is true only when neither file exists,
+        /// so first-run defaults can never be written over a saved choice.
+        /// </remarks>
+        public static LicenseConfig LoadOrCarry(string configDirectory, string legacyDirectory,
+            string operatorName, out bool firstRun)
+        {
+            firstRun = false;
+            if (Exists(configDirectory, operatorName)) return Load(configDirectory, operatorName);
+            if (!string.IsNullOrEmpty(legacyDirectory) && Exists(legacyDirectory, operatorName))
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"LicenseConfig: {operatorName}'s license read from the settings root's older copy; Settings' next save puts it in {configDirectory}");
+                return Load(legacyDirectory, operatorName);
+            }
+            firstRun = true;
+            return new LicenseConfig();
+        }
+
         public static LicenseConfig Load(string configDirectory, string operatorName)
         {
             var filePath = GetFilePath(configDirectory, operatorName);

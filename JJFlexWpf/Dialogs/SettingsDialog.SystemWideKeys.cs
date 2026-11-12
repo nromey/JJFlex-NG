@@ -61,13 +61,26 @@ namespace JJFlexWpf.Dialogs
         /// <summary>
         /// Save and apply the system-wide keys if the tab was visited and
         /// anything on it changed. The panel's one-sentence outcome joins the
-        /// list of things Settings says it applied.
+        /// list of things Settings says it applied, or, when the file could not
+        /// be written, the list of things that failed (#1088 repair).
         /// </summary>
-        private void CommitSystemWideKeysIfDirty(List<string> applied)
+        private void CommitSystemWideKeysIfDirty(List<string> applied, List<string> failed)
         {
             if (_systemWideKeysPanel == null) return;
-            string? outcome = _systemWideKeysPanel.Commit();
-            if (outcome != null) applied.Add(outcome);
+            FileSystemWideKeysOutcome(_systemWideKeysPanel.CommitOutcome(), applied, failed);
+        }
+
+        /// <summary>
+        /// Where a system-wide keys commit's sentence goes (#1088 repair, Codex's
+        /// B1). A save that did not land is FAILED, never applied: its sentence
+        /// already says the keys are in use for this session only, which stays
+        /// true, and Settings must not then say everything was saved.
+        /// </summary>
+        internal static void FileSystemWideKeysOutcome(SystemWideKeysCommitOutcome? outcome,
+            List<string> applied, List<string> failed)
+        {
+            if (outcome is not SystemWideKeysCommitOutcome o) return;
+            (o.Saved ? applied : failed).Add(o.Sentence);
         }
     }
 }

@@ -279,7 +279,7 @@ namespace Radios.Tests
             Assert.Contains("Windows File Explorer", suppressedRow);
             Assert.Contains("Select Radio", suppressedRow);
 
-            Assert.Contains("not taken back", suppressedRow);
+            Assert.Contains("did not take it back", suppressedRow);
             // And it says where the switch is, so the row is actionable.
             Assert.Contains("Accessibility", suppressedRow);
         }

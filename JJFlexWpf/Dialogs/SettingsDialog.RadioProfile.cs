@@ -782,7 +782,7 @@ namespace JJFlexWpf.Dialogs
         /// Change notes land in <paramref name="queued"/> for things that wait
         /// for a connection and <paramref name="applied"/> for things done now.
         /// </summary>
-        private bool CommitRadioProfiles(List<string> queued, List<string> applied)
+        private bool CommitRadioProfiles(List<string> queued, List<string> applied, List<string> failed)
         {
             // The editable picker lets a serial be typed for a radio that has
             // never connected from this machine. When the typed id differs
@@ -811,7 +811,7 @@ namespace JJFlexWpf.Dialogs
                 if (!string.IsNullOrEmpty(edit.PunchPortText)
                     && (!int.TryParse(edit.PunchPortText, out int p) || p < 1024 || p > 65535))
                 {
-                    SelectTabByHeader("Radios");
+                    SelectTabByHeader("Per-radio settings");
                     if (!string.Equals(_currentProfileRadioId, radioId, StringComparison.OrdinalIgnoreCase))
                     {
                         var item = (RadioProfilePicker.ItemsSource as IEnumerable<RadioProfileItem>)
@@ -1104,7 +1104,7 @@ namespace JJFlexWpf.Dialogs
                 else
                 {
                     string failNote = Lexicon.Get("settings.profile.save_failed", ("disp", disp));
-                    applied.Add(failNote);
+                    failed.Add(failNote);   // #1088: not done
                     tabNotes.Add(failNote);
                 }
             }

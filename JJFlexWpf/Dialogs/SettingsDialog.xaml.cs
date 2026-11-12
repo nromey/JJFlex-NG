@@ -591,8 +591,8 @@ namespace JJFlexWpf.Dialogs
             if (_suppressDoubleTapToleranceAnnouncements) return;
 
             // DELETED 2026-08-18: each RadioButton's AutomationProperties.Name
-            // already carries the name AND the milliseconds - "Quick, 250
-            // milliseconds, for fast typists" - and the screen reader announces
+            // already carries the name AND the milliseconds - "Quick (250
+            // milliseconds)" (#1090) - and the screen reader announces
             // it on selection. This utterance was a strict SUBSET of that, and
             // because the handler fires on every arrow press through the group,
             // the interrupt cut the fuller announcement to deliver the shorter
@@ -872,7 +872,7 @@ namespace JJFlexWpf.Dialogs
         /// neither claim the change nor cut that sentence off, and its written
         /// advisory must carry it (#486, repairs one and two).
         /// </summary>
-        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied, List<string> refused)
+        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied, List<string> refused, List<string> failed)
         {
             if (PortForwardEnabledCheck == null) return true;
             bool wantEnabled = PortForwardEnabledCheck.IsChecked == true;
@@ -937,16 +937,9 @@ namespace JJFlexWpf.Dialogs
                             return;
                         }
                         var outcome = PerformPortForwardApply(wantEnabled, tcp, udp);
-                        if (outcome == GuardedOutcome.Done)
-                            applied.Add(NetworkCurrentStateText.Text);
-                        // Refused: the hold has said so and the status line
-                        // carries the same sentence; "The port forwarding
-                        // command failed" after it was untrue (#486).
-                        else if (outcome != GuardedOutcome.Refused)
-                            declineNote = Lexicon.Get("settings.network.forwarding_command_failed");
-                        else
-                            refused.Add(Lexicon.Get("settings.guard.refused",
-                                ("action", Lexicon.Get("settings.guard.action.ports"))));
+                        string? failNote = FilePortForwardOutcome(outcome, NetworkCurrentStateText.Text,
+                            applied, refused, failed);
+                        if (failNote != null) NetworkCurrentStateText.Text = failNote;
                     },
                     onDenied: () =>
                     {
@@ -974,6 +967,36 @@ namespace JJFlexWpf.Dialogs
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// Where one port-forward command's outcome goes in the commit's lists.
+        /// Done is applied. Refused: the hold has said so and the status line
+        /// carries the same sentence; "The port forwarding command failed"
+        /// after it was untrue (#486). Anything else did not land, so it is
+        /// FAILED (#1088 repair, Codex's B3): until then it went into the
+        /// waiting list beside a declined confirmation and denied authority,
+        /// so OK said "Everything you set was saved" over it. A decline and a
+        /// denial stay where they were. Returns the failure's sentence for the
+        /// status line, or null.
+        /// </summary>
+        internal static string? FilePortForwardOutcome(GuardedOutcome outcome, string doneText,
+            List<string> applied, List<string> refused, List<string> failed)
+        {
+            if (outcome == GuardedOutcome.Done)
+            {
+                applied.Add(doneText);
+                return null;
+            }
+            if (outcome == GuardedOutcome.Refused)
+            {
+                refused.Add(Lexicon.Get("settings.guard.refused",
+                    ("action", Lexicon.Get("settings.guard.action.ports"))));
+                return null;
+            }
+            string note = Lexicon.Get("settings.network.forwarding_command_failed");
+            failed.Add(note);
+            return note;
         }
 
         /// <summary>
@@ -1606,8 +1629,8 @@ namespace JJFlexWpf.Dialogs
                 OfferStationSaveOnDisconnectCheck.IsChecked == true;
             // The one countdown (#835), made live by Apply() below.
             CommitCountdown();
-            // #999: saved for the radio it was shown for.
-            CommitSliceOverwriteSetting();
+            // #999's overwrite warning is committed in ApplyAllSettings, so a
+            // save that did not land reaches the commit's failed list (#1088).
             // The alert sound delay (#855), likewise: Apply() reopens the alert device with it.
             CommitAlertBuffer();
 
@@ -1711,17 +1734,25 @@ namespace JJFlexWpf.Dialogs
 
             var queued = new List<string>();   // saved, but waits for a connection (or was declined)
             var applied = new List<string>();  // done now
+            var failed = new List<string>();   // tried and did not land: never counted as done (#1088)
 
-            if (!CommitRadioProfiles(queued, applied)) return false;
-            CommitSetupRadioNameIfDirty(applied);
+            // #999: saved for the radio it was shown for; a save that did not
+            // land is failed (#1088 repair). Here, first, rather than in
+            // SaveSettings, which runs before these lists exist: nothing after
+            // the call's old place there returns false, so it runs exactly
+            // whenever it did.
+            CommitSliceOverwriteSetting(failed);
+
+            if (!CommitRadioProfiles(queued, applied, failed)) return false;
+            CommitSetupRadioNameIfDirty(applied, failed);
             var refused = new List<string>(); // refused by the change-nothing hold: neither sent nor saved
-            if (!CommitPortForwardIfDirty(queued, applied, refused)) return false;
-            CommitSystemWideKeysIfDirty(applied);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
-            CommitKeyerSpeedIfChanged(queued, applied);   // #879: see SettingsDialog.KeyerSpeed.cs
+            if (!CommitPortForwardIfDirty(queued, applied, refused, failed)) return false;
+            CommitSystemWideKeysIfDirty(applied, failed);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
+            CommitKeyerSpeedIfChanged(queued, failed);   // #879: see SettingsDialog.KeyerSpeed.cs
 
             SettingsApplied?.Invoke();
 
-            var said = CommitAnnouncement(closing, pttDropped, refused, queued, applied);
+            var said = CommitAnnouncement(closing, pttDropped, refused, queued, applied, failed);
             if (said.Advisory != null)
                 AdvisoryDialog.Show(Lexicon.Get("settings.commit.some_items_wait_title"), said.Advisory);
             else
@@ -1738,14 +1769,45 @@ namespace JJFlexWpf.Dialogs
         /// carries the hold's sentence so it can be re-read, and the spoken
         /// sentence waits its turn behind the hold's.
         /// </summary>
+        /// <remarks>
+        /// <b>Four outcomes (#1088): refused, queued, applied, and failed.</b>
+        /// A change that was tried and did not land (a keyer speed, a radio
+        /// rename or a radio profile that could not be saved) is FAILED: it is
+        /// always said, on OK and on Apply, whatever else is waiting, and it is
+        /// never counted as done, so the summary then speaks for the other
+        /// settings only. Until #1088 the failures went into the applied list,
+        /// so OK with nothing waiting said only "Settings saved." and OK with
+        /// something waiting listed the failure under "Done right away".
+        /// <para><b>Push-to-talk changes with no radio to keep them are a
+        /// failure like any other</b> (#1088, the words round): their sentence
+        /// leads the failures in every combination. Until then it was the
+        /// spoken summary's key only, so OK with anything waiting returned
+        /// before reading it and the advisory never said it, and could even
+        /// say everything was saved.</para>
+        /// <para><b>On Apply with something waiting there is no aggregate
+        /// summary</b> (#1088, the words round): a waiting note can be a
+        /// declined or denied change that was not saved at all, so "Your other
+        /// settings were applied" or "saved" ahead of it was untrue. The notes
+        /// speak for themselves.</para>
+        /// </remarks>
         internal static (string? Advisory, string? Spoken, bool Interrupt) CommitAnnouncement(bool closing, bool pttDropped,
-            IReadOnlyList<string> refused, IReadOnlyList<string> queued, IReadOnlyList<string> applied)
+            IReadOnlyList<string> refused, IReadOnlyList<string> queued, IReadOnlyList<string> applied,
+            IReadOnlyList<string>? failed = null)
         {
+            failed ??= Array.Empty<string>();
+            if (pttDropped)
+            {
+                var withPtt = new List<string>(failed.Count + 1) { Lexicon.Get("settings.commit.ptt_not_saved") };
+                withPtt.AddRange(failed);
+                failed = withPtt;
+            }
             bool holdRefused = refused.Count > 0;
+            bool anyFailed = failed.Count > 0;
             if (closing && queued.Count > 0)
             {
-                // DRAFT (repair two): the lead when a change was refused.
-                var body = new System.Text.StringBuilder(Lexicon.Get(holdRefused
+                // The lead when a change was refused, or did not land (#1088):
+                // the same words today, two keys so either can change alone.
+                var body = new System.Text.StringBuilder(Lexicon.Get(holdRefused || anyFailed
                     ? "settings.commit.some_items_wait_lead_refused"
                     : "settings.commit.some_items_wait_lead"));
                 foreach (var note in queued)
@@ -1762,6 +1824,13 @@ namespace JJFlexWpf.Dialogs
                     body.AppendLine();
                     body.Append(note);
                 }
+                // What did not land, on its own: never under "Done right away".
+                foreach (var note in failed)
+                {
+                    body.AppendLine();
+                    body.AppendLine();
+                    body.Append(note);
+                }
                 if (applied.Count > 0)
                 {
                     body.AppendLine();
@@ -1772,8 +1841,11 @@ namespace JJFlexWpf.Dialogs
                 return (body.ToString(), null, false);
             }
 
-            var said = CommitSummary(closing, pttDropped, holdRefused);
-            string summary = Lexicon.Get(said.Key);
+            var said = CommitSummary(closing, pttDropped, holdRefused, anyFailed);
+            // Apply with something waiting: no aggregate summary, the notes
+            // speak (see the remarks).
+            bool notesSpeak = !closing && queued.Count > 0;
+            string summary = notesSpeak ? "" : Lexicon.Get(said.Key);
             // OK closes the dialog, and Home's return announcement interrupts
             // about 70 ms into the hold's sentence; the arbiter replays only
             // what is still owed, which was this summary alone (the 2026-11-09
@@ -1781,14 +1853,17 @@ namespace JJFlexWpf.Dialogs
             // final sentence, which is what survives the close (repair two).
             if (closing && holdRefused)
                 summary = string.Join(" ", refused) + " " + summary;
+            // What did not land is said first, on OK and on Apply (#1088).
+            if (anyFailed)
+                summary = string.Join(" ", failed) + " " + summary;
             if (!closing)
             {
                 if (queued.Count > 0)
-                    summary += Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
+                    summary = summary.TrimEnd() + Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
                 else if (applied.Count > 0)
                     summary += " " + string.Join(" ", applied);
             }
-            return (null, summary, said.Interrupt);
+            return (null, summary.Trim(), said.Interrupt);
         }
 
         /// <summary>
@@ -1799,10 +1874,17 @@ namespace JJFlexWpf.Dialogs
         /// settings, which were saved (#486, repair one). Pure, so the
         /// windowless tests can hold it.
         /// </summary>
-        internal static (string Key, bool Interrupt) CommitSummary(bool closing, bool pttDropped, bool holdRefused)
+        internal static (string Key, bool Interrupt) CommitSummary(bool closing, bool pttDropped, bool holdRefused,
+            bool anyFailed = false)
         {
-            string key = pttDropped ? "settings.commit.ptt_not_saved"
-                : holdRefused ? (closing ? "settings.commit.saved_others_spoken" : "settings.commit.applied_others_spoken")
+            // A failure is not saved, so the summary speaks for the others,
+            // as it does for a refusal (#1088). It does not wait its turn: the
+            // failure's own sentence is in the same utterance. Push-to-talk
+            // changes with nowhere to go are such a failure: their own
+            // sentence is said by CommitAnnouncement, and the summary is the
+            // ordinary one for the others (#1088, the words round).
+            string key = pttDropped || holdRefused || anyFailed
+                ? (closing ? "settings.commit.saved_others_spoken" : "settings.commit.applied_others_spoken")
                 : closing ? "settings.commit.saved_spoken" : "settings.commit.applied_spoken";
             return (key, !holdRefused);
         }

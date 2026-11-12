@@ -78,6 +78,12 @@ namespace JJFlexWpf.Dialogs
             string connected = rig != null && rig.IsConnected ? rig.TakeAdmissionFactsNow().Serial ?? "" : "";
             string serial = _warnOverwriteEdits.ResolveTarget(connected);
             if (string.IsNullOrEmpty(serial)) return ("", "");
+            return (serial, KnownRadioName(serial));
+        }
+
+        /// <summary>A radio's name from the known-radio roster, or its serial when the roster has none.</summary>
+        private static string KnownRadioName(string serial)
+        {
             List<KnownRadioEntry> known;
             try { known = KnownRadioRoster.Load(includeHidden: true); }
             catch (System.Exception ex)
@@ -86,10 +92,9 @@ namespace JJFlexWpf.Dialogs
                 known = new List<KnownRadioEntry>();
             }
             var entry = known.FirstOrDefault(e => string.Equals(e.Serial, serial, System.StringComparison.OrdinalIgnoreCase));
-            string name = entry == null ? serial
+            return entry == null ? serial
                 : !string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.DisplayName
                 : !string.IsNullOrWhiteSpace(entry.Model) ? entry.Model : serial;
-            return (serial, name);
         }
 
         /// <summary>Show the box for its radio, keeping any edit made for that radio. Never hides it.</summary>
@@ -112,15 +117,31 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>Save every edit to the radio it was made for. Called on OK and Apply.</summary>
-        private void CommitSliceOverwriteSetting() =>
-            _warnOverwriteEdits.Commit(
+        private void CommitSliceOverwriteSetting(List<string> failed) =>
+            CommitSliceOverwriteEdits(_warnOverwriteEdits,
+                (serial, warn) => RadioConfig.LoadForRadio(serial).WarnBeforeSliceRecordingOverwritten == warn
+                    || RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(serial, warn),
+                KnownRadioName, failed);
+
+        /// <summary>
+        /// Save each edit through <paramref name="write"/> (true when saved or
+        /// already so). An edit that could not be saved stays pending in the
+        /// dialog, as before, AND its sentence goes into the commit's failed
+        /// list (#1088 repair, Codex's B2): until then it was only traced, and
+        /// OK said "Settings saved." over it, then closing dropped the edit.
+        /// </summary>
+        internal static void CommitSliceOverwriteEdits(SliceOverwriteSettingEdits edits,
+            System.Func<string, bool, bool> write, System.Func<string, string> radioName, List<string> failed) =>
+            edits.Commit(
                 (serial, warn) =>
                 {
-                    bool saved = RadioConfig.LoadForRadio(serial).WarnBeforeSliceRecordingOverwritten == warn
-                        || RadioConfig.RecordWarnBeforeSliceRecordingOverwritten(serial, warn);
+                    bool saved = write(serial, warn);
                     if (!saved)
+                    {
                         JJTrace.Tracing.TraceLine("Settings: the overwrite warning setting could not be saved for " + serial,
                             System.Diagnostics.TraceLevel.Warning);
+                        failed.Add(Lexicon.Get("settings.commit.overwrite_warning_not_saved", ("radio", radioName(serial))));
+                    }
                     return saved;
                 },
                 warn => RadioConfig.PendingWarnBeforeSliceRecordingOverwritten = warn,

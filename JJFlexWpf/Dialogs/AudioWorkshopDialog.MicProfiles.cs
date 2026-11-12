@@ -542,11 +542,11 @@ public partial class AudioWorkshopDialog
                 // radio button would sit in the visual order saying nothing.
                 var notOffered = new TextBox
                 {
-                    Text = "Creating a mic profile on the radio is not offered here, because "
+                    Text = "Creating a mic profile on the radio is not offered here because "
                          + "you have marked this radio as someone else's. A mic profile lives "
                          + "on the radio and is shared with everyone connected to it. Your "
-                         + "computer settings still save normally. Settings, Radios tab is "
-                         + "where that answer can be changed.",
+                         + "computer settings still save normally. You can change your answer "
+                         + "in Settings, under Per-radio settings.",
                     IsReadOnly = true,
                     IsReadOnlyCaretVisible = true,
                     TextWrapping = TextWrapping.Wrap,

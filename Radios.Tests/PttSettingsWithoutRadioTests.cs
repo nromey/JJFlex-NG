@@ -56,7 +56,11 @@ public sealed class PttSettingsWithoutRadioTests
         string menu = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "NativeMenuBar.cs"));
         Assert.Contains("PttConfig.ChangesNotKept(_pttAtOpen, _pttConfig, PttSettingsHaveAHome)", dialog);
         const string key = "settings.commit.ptt_not_saved";
-        Assert.Contains("pttDropped ? \"" + key + "\"", dialog);
+        // The PTT outcome is one of the commit's failures, said in every
+        // combination (#1088, the words round), not the summary's key.
+        Assert.Contains("if (pttDropped)", dialog);
+        // Split so the key scan does not read this line as naming a key.
+        Assert.Contains("{ Lexicon" + ".Get(\"" + key + "\") }", dialog);
         Assert.Contains("PttSettingsHaveAHome = _window.CurrentPttConfig != null", menu);
         string sentence = Lexicon.Get(key);
         Assert.DoesNotContain("settings.commit", sentence);         // the key resolves

@@ -1,0 +1,1 @@
+- The confirmation after restoring a silenced message now names the message without adding the date it was silenced.

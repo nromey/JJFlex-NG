@@ -305,12 +305,52 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// Settings that arrived while a transmission was under way, held for
+        /// the moment it ends (#1072 repair). Null when nothing is held.
+        /// </summary>
+        private PttConfig? _heldConfig;
+
+        /// <summary>
         /// Update config (e.g. after operator switch).
         /// </summary>
+        /// <remarks>
+        /// A transmission keeps every limit it was keyed under (#1072 repair,
+        /// the orchestrator's ruling on Codex's B1): the timeout and its
+        /// warning ladder, the no-signal release threshold, the reflected-power
+        /// cutoff. An operator switch at 175 seconds of a 180-second lock used
+        /// to swap in the new operator's 600 and the cut at 180 never came.
+        /// So while the controller is anywhere but Idle the new settings are
+        /// HELD and applied by <see cref="GoIdle"/> when the transmission ends,
+        /// whichever way it ends; a second switch before then replaces the
+        /// held ones. Nothing is refused and nothing is ended because of it.
+        /// </remarks>
         public void UpdateConfig(PttConfig config)
         {
+            if (State != PttState.Idle)
+            {
+                _heldConfig = config;
+                Tracing.TraceLine("PTT: new settings held until this transmission ends (" + State
+                    + "); it keeps the limits it was keyed under", TraceLevel.Info);
+                return;
+            }
+            _heldConfig = null;
             _config = config;
             PublishCutSetting();
+            Tracing.TraceLine("PTT: new settings in use at once (no transmission under way)", TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// The transmission has ended: settings held by <see cref="UpdateConfig"/>
+        /// while it ran take over now.
+        /// </summary>
+        private void ApplyHeldConfig()
+        {
+            var held = _heldConfig;
+            if (held == null) return;
+            _heldConfig = null;
+            _config = held;
+            PublishCutSetting();
+            Tracing.TraceLine("PTT: the settings held during the transmission are in use now", TraceLevel.Info);
         }
 
         /// <summary>
@@ -824,12 +864,26 @@ namespace JJFlexWpf
         private void FinishOwnedKill()
         {
             if (State == PttState.Idle) return;
+            bool held = State == PttState.PttHold;
             EarconPlayer.HardKillTone();
             string outcome = _pendingKillOutcome ?? Lexicon.Get("audio.ptt.kill_stopped");
             string? subject = _pendingKillSubject;
             _pendingKillOutcome = null;
             _pendingKillSubject = null;
             GoIdle(outcome, forceSpeech: true, subject: subject);
+            // #1089: a kill that ends a HELD push to talk ends a hold the
+            // operator may still be pressing, exactly as the time limit does
+            // (#1020): MainWindow latches it, so a screen reader's next
+            // synthetic down keys nothing until a real release. Until this the
+            // kill left the key edges believing the hold was still theirs.
+            if (held)
+            {
+                try { HoldEndedByApp?.Invoke("a hard kill ended it"); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("PTT: latching the hold the kill ended failed: " + ex.Message, TraceLevel.Error);
+                }
+            }
         }
 
         /// <summary>
@@ -2010,6 +2064,11 @@ namespace JJFlexWpf
             // transmission's episode: the answer stays yes until RF next goes
             // on.
             bool speaks = (forceSpeech || (_config.SpeechEnabled && !quiet)) && !string.IsNullOrEmpty(unkeyMessage);
+            // Every way a transmission ends comes through here, so settings an
+            // operator switch handed over mid-transmission are never stranded
+            // (#1072 repair). After the ended one's last word on its own
+            // settings, before anything can key again.
+            ApplyHeldConfig();
             if (confirmReceive && BeginReleaseWatch(speaks ? unkeyMessage : null, checksOwn))
             {
                 Tracing.TraceLine($"PTT: Idle (was {wasState}); the radio still reports transmit, waiting up to "
@@ -3101,10 +3160,26 @@ namespace JJFlexWpf
                 // other's (#237).
                 EarconPlayer.WarningAlarmTone();
                 string cutAntenna = rig.TXAntennaName ?? "";
+                bool held = State == PttState.PttHold;
                 GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna,
                            rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox),
                        forceSpeech: true,
                        subject: Radios.Speech.SpeechSubject.ReflectedPowerCut);
+                // A cut that ends a HELD push to talk ends a hold the operator
+                // may still be pressing, as the limit (#1020) and the kill
+                // (#1089) do: MainWindow latches it, so a screen reader's next
+                // synthetic down keys nothing until a real release. Until this
+                // that down read as a fresh press, and once the hold below ran
+                // out the radio keyed again into the same fault (the second
+                // check of #1089, R1).
+                if (held)
+                {
+                    try { HoldEndedByApp?.Invoke("the reflected-power cut ended it"); }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine("PTT: latching the hold the cut ended failed: " + ex.Message, TraceLevel.Error);
+                    }
+                }
                 // And nothing re-keys into the same fault for the next few
                 // seconds (#571). After GoIdle on purpose: the cut sentence is
                 // Urgent and goes first; the hold's VOX note queues behind it.

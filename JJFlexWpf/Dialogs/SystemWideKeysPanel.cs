@@ -14,6 +14,13 @@ using WinFormsKeys = System.Windows.Forms.Keys;
 namespace JJFlexWpf.Dialogs
 {
     /// <summary>
+    /// What a system-wide keys commit did: the sentence for the operator, and
+    /// whether the file was written. <see cref="Saved"/> false means the keys
+    /// are in force for this session only (#1088 repair).
+    /// </summary>
+    public readonly record struct SystemWideKeysCommitOutcome(string Sentence, bool Saved);
+
+    /// <summary>
     /// Where the operator chooses the three system-wide chords (#307) and the
     /// two switches over them: the JJ key, push to talk and the transmit lock
     /// as they are reached from another program. Hosted by Settings, under
@@ -437,9 +444,19 @@ namespace JJFlexWpf.Dialogs
         /// Save what is on screen and put it in force, live. Returns the one
         /// sentence to tell the operator what happened, or null when nothing
         /// here changed — a host that lists what it applied adds it, a host
-        /// that speaks for itself may ignore it.
+        /// that speaks for itself may ignore it. A host that sorts outcomes
+        /// (Settings) reads <see cref="CommitOutcome"/> instead, which says
+        /// whether the save landed.
         /// </summary>
-        public string? Commit()
+        public string? Commit() => CommitOutcome()?.Sentence;
+
+        /// <summary>
+        /// <see cref="Commit"/>, with whether the file was written (#1088
+        /// repair, Codex's B1). The keys are in force for this session either
+        /// way; a save that did not land is a failure the host must not count
+        /// as saved. Null when nothing here changed.
+        /// </summary>
+        public SystemWideKeysCommitOutcome? CommitOutcome()
         {
             _capturing = null;
             var draft = Draft();
@@ -462,7 +479,7 @@ namespace JJFlexWpf.Dialogs
                     ? Lexicon.Get("settings.systemwide_keys.saved")
                     : Lexicon.Get("settings.systemwide_keys.saved_off");
             _status.Text = outcome;
-            return outcome;
+            return new SystemWideKeysCommitOutcome(outcome, saved);
         }
 
         private void Say(string sentence)

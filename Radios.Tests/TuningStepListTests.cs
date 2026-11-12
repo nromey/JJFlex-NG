@@ -51,6 +51,24 @@ namespace Radios.Tests
             Assert.False(TuningSteps.TryParseStep(typed, out _));
         }
 
+        /// <summary>
+        /// A very long pasted number is refused, not thrown (#346): one near
+        /// decimal's limit used to overflow the kHz multiply and throw out of
+        /// the S picker's Add.
+        /// </summary>
+        [Theory]
+        [InlineData("79228162514264337593543950335 kHz")]
+        [InlineData("79228162514264337593543950335.5 khz")]
+        [InlineData("10000000000000000000000000 kHz")]
+        [InlineData("2147484 kHz")]
+        [InlineData("2147483648 Hz")]
+        [InlineData("999999999999999999999999999999999999 Hz")]
+        public void A_number_too_large_for_any_step_is_refused_not_thrown(string typed)
+        {
+            Assert.False(TuningSteps.TryParseStep(typed, out int hz));
+            Assert.Equal(0, hz);
+        }
+
         [Fact]
         public void Each_list_keeps_its_own_range()
         {
@@ -181,7 +199,9 @@ namespace Radios.Tests
             Assert.True(note > 0 && apply > note, "the lists are noted before the steps are applied");
 
             string dialog = Src("JJFlexWpf", "Dialogs", "TuningStepsDialog.xaml.cs");
-            Assert.Contains("if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None) return;\n            e.Handled = true;\n            Add(list);", dialog, StringComparison.Ordinal);
+            // Enter adds the typed step; in an EMPTY box it presses OK (#346,
+            // ruled 2026-11-11 19:44; until then Enter always added).
+            Assert.Contains("if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None) return;\n            e.Handled = true;\n            if (EnterPressesOk(list.NewBox.Text)) Ok();\n            else Add(list);", dialog, StringComparison.Ordinal);
             int ask = dialog.IndexOf("if (confirm.ShowDialog() != true) return;", StringComparison.Ordinal);
             int reset = dialog.IndexOf("list.Hz = TuningSteps.HzOf(list.Coarse ? TuningSteps.StartingCoarse : TuningSteps.StartingFine).ToList();", StringComparison.Ordinal);
             Assert.True(ask > 0 && reset > ask, "putting the starting list back asks first");

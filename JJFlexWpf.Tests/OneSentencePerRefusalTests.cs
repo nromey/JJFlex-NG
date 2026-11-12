@@ -70,9 +70,12 @@ public sealed class OneSentencePerRefusalTests
         int failureArm = body.LastIndexOf("else", StringComparison.Ordinal);
         Assert.DoesNotContain("Speak(", body.Substring(failureArm), StringComparison.Ordinal);
         Assert.DoesNotContain("settings.network.command_failed_spoken", body, StringComparison.Ordinal);
-        // The commit's own note is what carries it.
-        Assert.Contains("declineNote = Lexicon" + ".Get(\"settings.network.forwarding_command" + "_failed\");", src, StringComparison.Ordinal);
-        Assert.Contains("queued.Add(declineNote);", src, StringComparison.Ordinal);
+        // The commit's own note is what carries it, as a FAILURE since #1088's
+        // repair: it was filed with the waiting items through declineNote,
+        // which this pin used to require.
+        Assert.Contains("string note = Lexicon" + ".Get(\"settings.network.forwarding_command" + "_failed\");", src, StringComparison.Ordinal);
+        Assert.Contains("failed.Add(note);", src, StringComparison.Ordinal);
+        Assert.DoesNotContain("declineNote = Lexicon" + ".Get(\"settings.network.forwarding_command" + "_failed\");", src, StringComparison.Ordinal);
     }
 
     // ---- (d) the Full duplex menu item ----

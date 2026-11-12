@@ -2035,13 +2035,9 @@ public class KeyCommands
         // task number in it lands in a file the operator reads and may share,
         // pointing into a register no reader can open. See task #389.
         [CommandValues.SmeterDBM] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Ctrl+S switches the S-meter between S-units and dBm, and the choice is "
-            + "remembered for that radio. The chord echoes the key it changes: Ctrl+S "
-            + "reads the meter, Ctrl+J then Ctrl+S changes what it reads in. Also on the "
-            + "Operations menu, and on the Radios tab in Settings, which is where the answer "
-            + "can be seen without pressing anything. Carried a flat Keys.None and a "
-            + "'Command Finder only' note until that shipped, which is how a toggle Noel "
-            + "remembered having became one he could not reach."),
+            "Ctrl+J, then Ctrl+S switches the S-meter between S-units and dBm. Your choice "
+            + "is remembered for this radio. You can also change it on the Operations menu "
+            + "or in Settings, under Per-radio settings."),
 
         // ── Menu or dialog, deliberately. These open something; the thing they
         //    open is where the operator already goes. ──

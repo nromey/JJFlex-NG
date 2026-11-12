@@ -443,9 +443,11 @@ public sealed class PttHoldFilter
     public bool ReleasePending => _pendingRelease;
 
     /// <summary>
-    /// External teardown (radio closed, TX forced off). Clears the in-flight
-    /// hold; keeps what has been learned — that describes the screen reader,
-    /// not the hold.
+    /// Forget the hold in flight: the radio closing or dropping, and Escape or
+    /// the radio's own off when they end a LOCK. Not when the app ends a HOLD
+    /// the operator may still be pressing: that is latched and the filter keeps
+    /// reading the held key's pairs (#900, #1089). Keeps what has been learned —
+    /// that describes the screen reader, not the hold.
     /// </summary>
     public void Reset()
     {

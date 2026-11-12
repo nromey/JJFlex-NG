@@ -211,8 +211,13 @@ namespace Radios
         /// 2026-08-11 (the file has one commit, the v4.0.1 drop). Do not read it
         /// as "behind because main vendors an older FlexLib"; that was this
         /// comment's explanation until #438 and stopped being true that day.
-        /// Radio Setup shows it framed as the library's; the Fixer report no
-        /// longer prints it.
+        /// Radio Setup names it as what the library's own version check looks
+        /// for, never as a firmware this app was made against (#1071; until
+        /// then its sentence said "this build ... was made against firmware",
+        /// which this comment already called untrue). The comparison stays,
+        /// because it is what decides whether the suppress button is shown and
+        /// FlexLib really does mark any difference as needing an update. The
+        /// Fixer report no longer prints it.
         /// </summary>
         public static string LibraryExpectedFirmwareVersion
         {

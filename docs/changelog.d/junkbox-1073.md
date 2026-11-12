@@ -1,0 +1,1 @@
+- Messages You Have Silenced now lists and restores the selected operator's messages, and choices to silence a message are saved separately for each operator on this computer. Previously silenced messages stay silenced when each operator first uses this version.

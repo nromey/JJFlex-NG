@@ -151,10 +151,28 @@ namespace Radios
 
         public void OperatorChangeHandler()
         {
-            getConfig();
-            panRanges = new PanRanges(rig, operatorsDirectory);
+            FollowCurrentOperator();
             RXFreqChange(rig.VFOToSlice(rig.RXVFO));
         }
+
+        /// <summary>
+        /// Read the CURRENT operator's settings and pan ranges, from that
+        /// operator's folder (#1072). The folder was captured once, at
+        /// construction, so after Radio, Operators while connected this
+        /// re-read the first operator's files and a later save wrote them into
+        /// the first operator's folder. It is the rig's operator folder now,
+        /// asked again here, which is the same folder the constructor is given
+        /// (<see cref="WpfFilterAdapter.PanSetup"/>).
+        /// </summary>
+        internal void FollowCurrentOperator()
+        {
+            operatorsDirectory = rig.OperatorsDirectory;
+            getConfig();
+            panRanges = new PanRanges(rig, operatorsDirectory);
+        }
+
+        /// <summary>The operator folder this manager reads and writes now.</summary>
+        internal string OperatorsFolder => operatorsDirectory;
 
         // --- RX frequency / segment management ---
 

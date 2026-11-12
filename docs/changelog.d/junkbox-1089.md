@@ -1,0 +1,1 @@
+- When Escape, a safety stop or the radio itself ends a transmission, a held Ctrl+Space stays inactive until you release it and press it again.

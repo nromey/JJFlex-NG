@@ -3085,7 +3085,7 @@ namespace Radios.Tests
                 "_freqOutHandlers.HandleFilterHotkey(e);",
                 "LockKeyDown(e.IsRepeat);",              // #800: Home's lock, one toggle per press, decided at key-down
                 "PttKeyDownEdge(PttDoor.Home);",         // round two: the edge records which door keyed the hold
-                "_pttController.EscapeUnlock();",
+                "_pttController.EscapeUnlock()",        // #1089: now inside EndTransmitOutsideTheEdges' lambda
             })
             {
                 int at = source.IndexOf(branch, start, StringComparison.Ordinal);
@@ -3163,7 +3163,7 @@ namespace Radios.Tests
             int escape = main.IndexOf("internal bool HandleDialogEscapeUnkey()", StringComparison.Ordinal);
             Assert.True(escape >= 0);
             string escapeBody = main.Substring(escape, 400);
-            Assert.Contains("_pttController.EscapeUnlock();", escapeBody);
+            Assert.Contains("_pttController.EscapeUnlock()", escapeBody);   // #1089: through EndTransmitOutsideTheEdges
             // The session moved into Check your audio in #835; the Workshop's
             // property forwards there, so the wiring above did not move.
             string workshop = ReadSource("JJFlexWpf/Dialogs/AudioWorkshopDialog.xaml.cs");
@@ -3172,12 +3172,13 @@ namespace Radios.Tests
             Assert.Contains("internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;", check);
 
             // Repair round two (Noel 09:51, "simplify yes").
-            // Codex B1 by class: every path that ends a transmission OUTSIDE
-            // the key edges drops the edges' input state through one helper,
-            // or a deferred release left pending swallows the next
-            // Ctrl+Space. The dialog's Escape, Home's step-3 Escape
-            // (PRE-EXISTING), window loss, the radio turning transmit off on
-            // its own, and the radio closing. The helper stops the timer,
+            // Codex B1 by class, as #1089 and #900 since qualified it: a path
+            // that ends a transmission OUTSIDE the key edges with no key held
+            // (a lock) drops the edges' input state through one helper, or a
+            // deferred release left pending swallows the next Ctrl+Space; the
+            // radio closing does the same. A HOLD the operator may still be
+            // pressing is latched instead (window loss, Escape on Home and in
+            // a dialog, the radio's own off). The helper stops the timer,
             // resets both press trackers and clears the guard and the door.
             static string After(string text, string marker)
             {
@@ -3185,7 +3186,17 @@ namespace Radios.Tests
                 Assert.True(at >= 0, "expected to find: " + marker);
                 return text.Substring(at);
             }
-            Assert.Contains("ResetPttInput();", After(escapeBody, "_pttController.EscapeUnlock();"));
+            // #1089: Escape, Home's and the dialog's, and the radio's own
+            // off, go through EndTransmitOutsideTheEdges, which resets the
+            // input state as before when no key is held and LATCHES a hold
+            // the operator may still be pressing (this pin used to require the
+            // reset after every EscapeUnlock, which is what forgot the hold).
+            Assert.Contains("EndTransmitOutsideTheEdges(\"Escape in a dialog\", () => _pttController.EscapeUnlock());", escapeBody);
+            int outside = main.IndexOf("private void EndTransmitOutsideTheEdges(string why, Action end)", StringComparison.Ordinal);
+            Assert.True(outside >= 0);
+            string outsideBody = main[outside..main.IndexOf("\n    }", outside, StringComparison.Ordinal)];
+            Assert.Contains("if (held)\n        {\n            LatchAppEndedHold(why);", outsideBody.Replace("\r\n", "\n"));
+            Assert.Contains("_pttKeyDown = false;\n        }\n        else ResetPttInput();", outsideBody.Replace("\r\n", "\n"));
             int helper = main.IndexOf("private void ResetPttInput()", StringComparison.Ordinal);
             Assert.True(helper >= 0);
             string helperBody = main.Substring(helper, 400);
@@ -3196,12 +3207,14 @@ namespace Radios.Tests
             Assert.True(home >= 0 && homeStep4 > home);
             int step3Escape = main.IndexOf("if (rawKey == Key.Escape && _pttController.IsTransmitting)", home, StringComparison.Ordinal);
             Assert.True(step3Escape > home && step3Escape < homeStep4);
-            Assert.Contains("ResetPttInput();", After(main.Substring(step3Escape, 1200), "_pttController.EscapeUnlock();").Substring(0, 120));
+            Assert.Contains("EndTransmitOutsideTheEdges(\"Escape on Home\", () => _pttController.EscapeUnlock());", main.Substring(step3Escape, 1200));
             int txChange = main.IndexOf("private void TransmitChangeHandler(object sender, bool transmit)", StringComparison.Ordinal);
             Assert.True(txChange >= 0);
             int txChangeEnd = main.IndexOf("private void FlexAntTuneStartStopHandler(", txChange, StringComparison.Ordinal);
             Assert.True(txChangeEnd > txChange);
-            Assert.Contains("ResetPttInput();", After(main.Substring(txChange, txChangeEnd - txChange), "_pttController.EscapeUnlock();"));
+            Assert.Contains("if (!transmit) RadioStoppedTransmitting();", main.Substring(txChange, txChangeEnd - txChange));
+            Assert.Contains("EndTransmitOutsideTheEdges(\"the radio stopped transmitting on its own\", () => _pttController.EscapeUnlock());",
+                main.Substring(txChange, txChangeEnd - txChange));
             int lost = main.IndexOf("internal void HandleDialogHoldLost()", StringComparison.Ordinal);
             Assert.True(lost >= 0);
             // The whole method, not a fixed window (round five repair, 7h-3 grew it).

@@ -1249,9 +1249,7 @@ connect.network.use_current_name	41c3b75b7132cc12
 connect.network.use_current_name_remote	5d703e10cde1b281
 connect.no_radio.action	30af4689137d82a6
 connect.no_radio.plain	eb2dc2c08a080a87
-connect.ownership.silencing	550abe9c53d74b02
 connect.presence.denied	9d31d6967c5edb2c
-connect.presence.port_denied	b94e1ba53df5c3b6
 connect.radio.no_rig	549364d1e44ce23a
 connect.radio.not_connected	e20eea6dec1656ab
 connect.radio.rebooting	737a141b059e6bfe
@@ -1611,7 +1609,6 @@ connect.smartlink.signup.title	55ba15f4c643a0ec
 connect.smartlink.signup.user_exists	0d4df08c7dcff4a2
 connect.smartlink.signup.weak_password	08f987d7fd48ff10
 connect.smartlink.using_for_session	216f923d354899f9
-connect.smartlink.where_to_change	da93e47b2893bc3b
 connect.start.slow_retrying	84b5f0d837731ea6
 connect.start.station_from_local_network	44814fd1e677a9ba
 connect.start.station_from_smartlink	9828fd71dc7106f4
@@ -1698,7 +1695,6 @@ connect.update.planning_status	27b16c1063195b13
 connect.update.size_delta	56b54c8cb1b4b590
 connect.update.size_speech	471106236680ac61
 connect.update.skipped	3af6731b3a0f65e2
-connect.update.skipped_version	010d91c92970131e
 connect.update.unreachable	e1ca2db9fc67b2b9
 connect.update.up_to_date	602cbf450d2e3a51
 connect.update.up_to_date_speech	1f28c22f37031200
@@ -1775,7 +1771,6 @@ leader.unknown_key	aee6e1dee006cc42
 leader.windows.desktop	93b264f795c68105
 leader.windows.help	7216ad547d4939e1
 leader.windows.last_theft	fb326d76ef450f2d
-leader.windows.last_theft_not_reclaimed	981eb36a69e94acf
 leader.windows.list_name	225d5126c71159f5
 leader.windows.none	d8a0f052611fecb7
 leader.windows.program.ours	2dbbfc97b440216b
@@ -2185,9 +2180,6 @@ settings.com_port.try_again_title	ef39ad5e614a2403
 settings.commit.applied_spoken	acab99860673c3f8
 settings.commit.done_right_away_lead	f588e40b5e94a220
 settings.commit.saved_spoken	4c73b46df33b36b0
-settings.commit.some_items_wait_lead	342e92cce33f4171
-settings.commit.some_items_wait_title	831f45ffe283a937
-settings.commit.waiting_lead	be2d83bbf5334e19
 settings.cw.no_message_at_position	6b5b4893e0dafff5
 settings.cw.no_message_on_key	9b15a76b53bae65a
 settings.cw.no_messages_configured	1c4afc837b7949c3
@@ -2422,7 +2414,6 @@ settings.menus.not_set_up_title	f00f13e882810cd9
 settings.mode.selected	320de162358a3d3d
 settings.network.advertises_one_port	28d65b90dc5f0ba0
 settings.network.advertises_separate_ports	bf751b4b185d111f
-settings.network.authority_denied	fbf1d0f15fe2c68b
 settings.network.authority_reason	5a4b048469dadda3
 settings.network.command_failed	fe649a95ab9d426b
 settings.network.command_failed_spoken	71c9a899bc30205c
@@ -2446,7 +2437,6 @@ settings.network.help_open_failed	fb7bceaad0415472
 settings.network.help_open_failed_spoken	3b10b498bb2f9047
 settings.network.help_opened	a1df5235c037341a
 settings.network.help_opened_spoken	c3ee5bd2c32974d2
-settings.network.no_radio_configure_forwarding	885ab0de9efcb394
 settings.network.no_report_to_copy_spoken	963b8cd393dc6736
 settings.network.no_report_to_save_spoken	7536db0b5bbed7d0
 settings.network.no_report_yet	fd8536d36a2672e3
@@ -2857,7 +2847,6 @@ settings.silenced.restored_all_many	c2e6ae5388c01b91
 settings.silenced.restored_all_one	e3a58ab2871e6f66
 settings.silenced.restored_nothing	d3c1ebed507f2f9a
 settings.silenced.restored_one	6cff44d9bfc7758c
-settings.silenced.reversible_help	fab21bf02d77783f
 settings.silenced.smartlink_setup	fba38265e34c232d
 settings.silenced.still_running	9830ae20eb3bf7ed
 settings.silenced.unrecognised	dd38de7280d5fb56

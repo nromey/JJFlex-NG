@@ -361,13 +361,20 @@ Namespace My
             ' operator's file, with or without a radio. Without this, Settings
             ' showed the previous operator's choices until the next connect and
             ' saved the new operator's choice into the previous operator's file.
-            If Operators IsNot Nothing Then
-                AddHandler Operators.ConfigEvent,
-                    Sub(evSender, evArgs)
-                        If CurrentOp Is Nothing Then Return
-                        Radios.AccessibilityConfig.FollowOperator(BaseConfigDir, PersonalData.UniqueOpName(CurrentOp))
-                    End Sub
-            End If
+            ' Through the one operator-change mechanism (#1072), registered
+            ' after the startup module's own followers.
+            Radios.OperatorChange.Follow("accessibility choices",
+                Sub(op)
+                    If Not op.HasOperator Then Return
+                    Radios.AccessibilityConfig.FollowOperator(op.ConfigDirectory, op.OperatorName)
+                End Sub)
+
+            ' The PTT tab's settings held for a radio that is on (#1072): time
+            ' limits, band memory and frequency units follow the operator too.
+            Radios.OperatorChange.Follow("PTT settings",
+                Sub(op)
+                    If WpfMainWindow IsNot Nothing Then WpfMainWindow.FollowOperatorPttConfig()
+                End Sub)
 
             ' Wire DoCommandHandler AFTER GetConfigInfo (which creates Commands).
             WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
@@ -518,25 +525,6 @@ Namespace My
                 handlers.FormatFreq = Function(s) RigControl.Callouts.FormatFreq(ULong.Parse(s))
                 handlers.FreqInt64 = Function(s) RigControl.Callouts.FormatFreqForRadio(s)
 
-                ' Load filter presets for the current operator and wire to both
-                ' FreqOutHandlers (for Alt+[/] preset cycling) and NativeMenuBar (for menu).
-                If CurrentOp IsNot Nothing Then
-                    Dim opName = PersonalData.UniqueOpName(CurrentOp)
-                    ' #49 family: a corrupt filter preset file is sidelined by
-                    ' Load (never overwritten by the next save) and announced,
-                    ' instead of silently becoming the defaults.
-                    Dim corruptPath As String = Nothing
-                    Dim presets = Radios.FilterPresets.Load(BaseConfigDir & "\Radios", opName, corruptPath)
-                    If corruptPath IsNot Nothing Then
-                        Radios.ScreenReaderOutput.Speak(
-                            Radios.Lexicon.Get("connect.startup.filter_presets_corrupt",
-                                               ("fileName", IO.Path.GetFileName(corruptPath))),
-                            Radios.VerbosityLevel.Critical)
-                    End If
-                    handlers.FilterPresets = presets
-                    WpfMainWindow.SetNativeMenuFilterPresetsCallback?.Invoke(presets)
-                End If
-
                 ' Wire band memory and license config (Sprint 17 Track C).
                 handlers.GetConfigDirectory = Function() BaseConfigDir
 
@@ -551,17 +539,55 @@ Namespace My
                     End If
                     Return "default"
                 End Function
+                ' The per-operator stores Home holds: the filter presets (wired to
+                ' both FreqOutHandlers, for Alt+[/] preset cycling, and
+                ' NativeMenuBar, for the menu), band memory and the license.
+                ' Loaded here for the operator in use, and again on every
+                ' operator change through the one mechanism (#1072): until then
+                ' they were read once, when Home first wired, so after Radio,
+                ' Operators the previous operator's band memory and license were
+                ' saved into the new operator's files.
+                Dim loadHomeOperatorStores As Action =
+                    Sub()
+                        If CurrentOp Is Nothing Then Return
+                        Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                        ' #49 family: a corrupt filter preset file is sidelined by
+                        ' Load (never overwritten by the next save) and announced,
+                        ' instead of silently becoming the defaults.
+                        Dim corruptPath As String = Nothing
+                        Dim presets = Radios.FilterPresets.Load(BaseConfigDir & "\Radios", opName, corruptPath)
+                        If corruptPath IsNot Nothing Then
+                            Radios.ScreenReaderOutput.Speak(
+                                Radios.Lexicon.Get("connect.startup.filter_presets_corrupt",
+                                                   ("fileName", IO.Path.GetFileName(corruptPath))),
+                                Radios.VerbosityLevel.Critical)
+                        End If
+                        handlers.FilterPresets = presets
+                        WpfMainWindow.SetNativeMenuFilterPresetsCallback?.Invoke(presets)
+
+                        handlers.BandMem = Radios.BandMemory.Load(BaseConfigDir, opName)
+                        ' The license from the ONE file Settings saves (#1072 repair):
+                        ' the per-radio settings folder, as OpenParms.ConfigDirectory.
+                        ' Home used to read, test and seed a copy at the settings
+                        ' root instead, so a choice made in Settings came back as
+                        ' that copy's defaults after a switch or a restart. An older
+                        ' root copy alone is still read; neither file is deleted.
+                        Dim isFirstRun As Boolean
+                        handlers.License = Radios.LicenseConfig.LoadOrCarry(
+                            BaseConfigDir & "\Radios", BaseConfigDir, opName, isFirstRun)
+                        If isFirstRun Then
+                            ' First run: save defaults and prompt user to set license class
+                            handlers.License.Save(BaseConfigDir & "\Radios", opName)
+                            Radios.ScreenReaderOutput.Speak(
+                                Radios.Lexicon.Get("connect.startup.first_run_license"))
+                        End If
+                    End Sub
+                loadHomeOperatorStores()
+                Radios.OperatorChange.Follow("Home's filter presets, band memory and license",
+                    Sub(op) loadHomeOperatorStores())
+
                 If CurrentOp IsNot Nothing Then
                     Dim opName = PersonalData.UniqueOpName(CurrentOp)
-                    handlers.BandMem = Radios.BandMemory.Load(BaseConfigDir, opName)
-                    Dim isFirstRun = Not Radios.LicenseConfig.Exists(BaseConfigDir, opName)
-                    handlers.License = Radios.LicenseConfig.Load(BaseConfigDir, opName)
-                    If isFirstRun Then
-                        ' First run: save defaults and prompt user to set license class
-                        handlers.License.Save(BaseConfigDir, opName)
-                        Radios.ScreenReaderOutput.Speak(
-                            Radios.Lexicon.Get("connect.startup.first_run_license"))
-                    End If
 
                     ' Sprint 28 Phase 1 — load per-operator accessibility preferences
                     ' (double-tap tolerance today; future sprints may add more).
@@ -583,21 +609,20 @@ Namespace My
 
                 ' An operator switch (or an edit) writes the pending step to its
                 ' own operator's file first, then loads the steps of the operator
-                ' now current, with SaveStepSizes unwired for the load.
-                If Operators IsNot Nothing Then
-                    AddHandler Operators.ConfigEvent,
-                        Sub(evSender, evArgs)
-                            _stepMemory?.Flush()
-                            If CurrentOp Is Nothing Then Return
-                            Dim save = handlers.SaveStepSizes
-                            handlers.SaveStepSizes = Nothing
-                            Try
-                                handlers.ApplyStepSizes(CurrentOp.CoarseTuneStep, CurrentOp.FineTuneStep, speak:=False)
-                            Finally
-                                handlers.SaveStepSizes = save
-                            End Try
-                        End Sub
-                End If
+                ' now current, with SaveStepSizes unwired for the load. Through
+                ' the one operator-change mechanism (#1072).
+                Radios.OperatorChange.Follow("tuning steps",
+                    Sub(op)
+                        _stepMemory?.Flush()
+                        If CurrentOp Is Nothing Then Return
+                        Dim save = handlers.SaveStepSizes
+                        handlers.SaveStepSizes = Nothing
+                        Try
+                            handlers.ApplyStepSizes(CurrentOp.CoarseTuneStep, CurrentOp.FineTuneStep, speak:=False)
+                        Finally
+                            handlers.SaveStepSizes = save
+                        End Try
+                    End Sub)
             End Sub
         End Sub
 

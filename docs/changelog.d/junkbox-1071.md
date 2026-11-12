@@ -1,0 +1,1 @@
+- Radio Setup now identifies the firmware comparison as the FlexRadio library's version check, without claiming that JJ Flexible Radio Access was built for that firmware.

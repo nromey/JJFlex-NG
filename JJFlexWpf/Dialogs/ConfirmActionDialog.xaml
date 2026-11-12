@@ -33,9 +33,12 @@
              passes a suppression key. Suppresses the TEACHING, never a
              receipt — callers that use this must still show their outcome
              some other re-readable way. Sits above the buttons, after the
-             body in tab order. -->
+             body in tab order.
+             Its access key is E, not D (#1097): the station-save question's
+             "_Don't save" button is Alt+D, and two controls sharing a key make
+             Alt+D only move focus between them. Wording by Codex (retained). -->
         <CheckBox x:Name="DontShowAgainCheck"
-                  Content="_Don't show this explanation again"
+                  Content="Don't show this _explanation again"
                   Margin="0,0,0,4"
                   Visibility="Collapsed"
                   AutomationProperties.Name="Don't show this explanation again"/>

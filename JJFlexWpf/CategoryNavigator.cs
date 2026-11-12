@@ -241,8 +241,10 @@ public sealed class CategoryNavigator
     /// One row. The VISIBLE text is the tab's short header, because that is
     /// what the dialog has always called this section and what a sighted
     /// operator describing it over the air will say. The ACCESSIBLE name is the
-    /// tab's fuller AutomationProperties.Name where it has one — "PTT" reads as
-    /// three letters, "Push to talk settings" reads as what it is.
+    /// tab's AutomationProperties.Name where it has one. Settings' categories
+    /// now show the name they are announced by (#1068, ruled by Noel
+    /// 2026-11-11: "make the onscreen match what NVDA says"), so the two agree
+    /// there; PTT is "PTT" both ways.
     /// </summary>
     private static ListBoxItem BuildListItem(TabItem tab)
     {

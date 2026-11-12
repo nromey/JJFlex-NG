@@ -93,7 +93,7 @@
                     KeyboardNavigation.TabIndex="2"
                     AutomationProperties.Name="Settings categories">
             <!-- PTT Tab -->
-            <TabItem Header="PTT" AutomationProperties.Name="Push to talk settings">
+            <TabItem Header="PTT" AutomationProperties.Name="PTT">
                 <StackPanel Margin="8">
                     <!-- Field labels ending in ":" are controls:DecorativeText, not TextBlock.
 
@@ -238,18 +238,18 @@
                         </Grid.RowDefinitions>
 
                         <controls:DecorativeText Grid.Row="0" Grid.Column="0"
-                                   Text="Coarse step default:"
+                                   Text="Coarse tuning step:"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <ComboBox x:Name="CoarseStepCombo" Grid.Row="0" Grid.Column="1"
                                   Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Default coarse tuning step"/>
+                                  AutomationProperties.Name="Coarse tuning step"/>
 
                         <controls:DecorativeText Grid.Row="1" Grid.Column="0"
-                                   Text="Fine step default:"
+                                   Text="Fine tuning step:"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <ComboBox x:Name="FineStepCombo" Grid.Row="1" Grid.Column="1"
                                   Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Default fine tuning step"/>
+                                  AutomationProperties.Name="Fine tuning step"/>
                     </Grid>
 
                     <CheckBox x:Name="BandMemoryCheckbox"
@@ -782,11 +782,11 @@
                                  per-radio path is the honest answer for that radio
                                  and this text is the signpost to it. -->
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,4"
-                                       Text="This ladder is your account-wide default, and tiers 2 and 3 unlock only after manual port forwarding above is enabled with a valid port, because they build on it. It cannot describe a radio that has no port forwarding at all. For that — or for any radio that should always hole punch — use the Radios tab: the per-radio setting there outranks this ladder, needs no port-forward setup, and works without a connected radio."/>
+                                       Text="This ladder is your account-wide default, and tiers 2 and 3 unlock only after manual port forwarding above is enabled with a valid port, because they build on it. It cannot describe a radio that has no port forwarding at all. For that — or for any radio that should always hole punch — use Per-radio settings: the per-radio setting there outranks this ladder, needs no port-forward setup, and works without a connected radio."/>
                             <RadioButton x:Name="Tier1Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1, manual port forwarding only. Sovereign default."
+                                         AutomationProperties.Name="Tier 1 — Manual port forwarding only (recommended default)"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 — Manual port forwarding only (recommended default)" FontWeight="SemiBold"/>
@@ -797,7 +797,7 @@
                             <RadioButton x:Name="Tier2Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1 plus 2, manual plus UPnP automatic port mapping"
+                                         AutomationProperties.Name="Tier 1 + 2 — Manual + UPnP"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 — Manual + UPnP" FontWeight="SemiBold"/>
@@ -808,11 +808,11 @@
                             <RadioButton x:Name="Tier3Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1 plus 2 plus 3"
+                                         AutomationProperties.Name="Tier 1+2+3 — Allow automatic hole-punch"
                    local:JJFlexHelp.Text="allow automatic hole punch for restrictive networks"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
-                                    <TextBlock Text="Tier 1 + 2 + 3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Tier 1+2+3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
                                                Text="If direct port forwarding or UPnP is not working, let Flex's SmartLink coordinate a UDP hole-punch between the radio and JJ Flexible Radio Access. Works through most home NATs. May fail on symmetric-NAT networks (some corporate environments and mobile-carrier networks). Fallback to Tier 2 then Tier 1 on failure is automatic."/>
                                 </StackPanel>
@@ -839,7 +839,7 @@
                               AutomationProperties.Name="Hole-punch Port">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="The hole-punch port is a per-radio setting — it belongs to the radio's site, not your account. Set it on the Radios tab, which works whether or not a radio is connected. Leaving it blank there is recommended: JJ Flexible Radio Access then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router. A port saved here by an earlier version of JJ Flexible Radio Access is still honored until the radio has its own setting."/>
+                                       Text="The hole-punch port is a per-radio setting — it belongs to the radio's site, not your account. Set it under Per-radio settings, which works whether or not a radio is connected. Leaving it blank there is recommended: JJ Flexible Radio Access then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router. A port saved here by an earlier version of JJ Flexible Radio Access is still honored until the radio has its own setting."/>
                         </StackPanel>
                     </GroupBox>
 
@@ -950,7 +950,7 @@
                               AutomationProperties.Name="Learning Your Connection Path">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="When a radio connects the same way several times running, JJ Flexible can take the hint and try that way first next time. It only ever fills in a blank: if you have chosen a connection path for a radio yourself, on the Radios tab or in the radio picker, your choice wins and nothing here can change it."/>
+                                       Text="When a radio connects the same way several times running, JJ Flexible can take the hint and try that way first next time. It only ever fills in a blank: if you have chosen a connection path for a radio yourself, under Per-radio settings or in the radio picker, your choice wins and nothing here can change it."/>
 
                             <CheckBox x:Name="PathLearningEnabledCheck"
                                       Content="Let JJ Flexible learn which connection path each radio prefers"
@@ -998,7 +998,7 @@
                  The nickname is the one exception: the name lives on the radio
                  itself, so pushing it needs a connection; offline edits update
                  only the local label and say so. -->
-            <TabItem Header="Radios" AutomationProperties.Name="Per-radio settings">
+            <TabItem Header="Per-radio settings" AutomationProperties.Name="Per-radio settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8" Loaded="RadioProfileSection_Loaded">
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
@@ -1135,7 +1135,7 @@
                             <StackPanel KeyboardNavigation.DirectionalNavigation="Cycle"
                                         KeyboardNavigation.TabNavigation="Once">
                             <RadioButton x:Name="RadioProfileAutoRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
-                                         AutomationProperties.Name="Automatic, follow what the radio reports. Recommended."
+                                         AutomationProperties.Name="Automatic (recommended)"
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Automatic (recommended)" FontWeight="SemiBold"/>
@@ -1436,7 +1436,7 @@
                                     Content="Stop reporting the version mismatch"
                                     HorizontalAlignment="Left" Padding="12,4"
                                     Visibility="Collapsed"
-                                    AutomationProperties.Name="Stop reporting the firmware version mismatch"
+                                    AutomationProperties.Name="Stop reporting the version mismatch"
                    local:JJFlexHelp.Text="Does not change the radio."
                                     Click="SetupSuppressVersionWarningButton_Click"/>
                         </StackPanel>
@@ -1524,7 +1524,7 @@
             </TabItem>
 
             <!-- Verbosity & Notifications Tab -->
-            <TabItem Header="Notifications" AutomationProperties.Name="Verbosity and notifications settings">
+            <TabItem Header="Verbosity and notifications settings" AutomationProperties.Name="Verbosity and notifications settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <!-- Speech section -->
@@ -1899,7 +1899,7 @@
                                       Content="Offer to save my setup to the radio when I disconnect"
                                       Margin="0,0,0,8"
                                       AutomationProperties.Name="Offer to save my setup to the radio when I disconnect"
-                           local:JJFlexHelp.Text="Slices you add or release live only in the current session — the radio restores its own stored setup the next time you connect. When checked, JJ Flexible Radio Access asks on the way out whether to save your setup into the radio, so it comes back the way you left it. It only ever asks; it never saves on its own. It stays quiet when you changed nothing, when another operator is connected to the same radio, and on any radio you have not marked as yours on the Radios tab. You can save at any time without this, from Save Station Setup to Radio on the Slice menu."/>
+                           local:JJFlexHelp.Text="Slices you add or release live only in the current session — the radio restores its own stored setup the next time you connect. When checked, JJ Flexible Radio Access asks on the way out whether to save your setup into the radio, so it comes back the way you left it. It only ever asks; it never saves on its own. It stays quiet when you changed nothing, when another operator is connected to the same radio, and on any radio you have not marked as yours under Per-radio settings. You can save at any time without this, from Save Station Setup to Radio on the Slice menu."/>
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                        Style="{StaticResource DialogLabel}"
                                        Text="What gets saved is the radio's global profile, which is the whole station — every slice, its frequency and its mode — and it is shared with everyone who connects to that radio, not just you."/>
@@ -1941,7 +1941,7 @@
             <!-- Sprint 28 Phase 1 — Accessibility Tab. Home for input-timing and
                  other accessibility-tuning preferences. Starts with DoubleTapTolerance;
                  future phases may add hold-to-repeat delay, announcement timing, etc. -->
-            <TabItem Header="Accessibility" AutomationProperties.Name="Accessibility timing and input preferences">
+            <TabItem Header="Accessibility timing and input preferences" AutomationProperties.Name="Accessibility timing and input preferences">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <!-- Input Timing section -->
@@ -1957,30 +1957,30 @@
                                     <RadioButton x:Name="DoubleTapQuickRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Quick, 250 milliseconds, for fast typists"
+                                                 AutomationProperties.Name="Quick (250 milliseconds)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
-                                        <TextBlock Text="Quick (250 ms)"/>
+                                        <TextBlock Text="Quick (250 milliseconds)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapNormalRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Normal, 500 milliseconds, recommended default"
+                                                 AutomationProperties.Name="Normal (500 milliseconds, recommended)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
-                                        <TextBlock Text="Normal (500 ms, recommended)"/>
+                                        <TextBlock Text="Normal (500 milliseconds, recommended)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapRelaxedRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Relaxed, 750 milliseconds, for deliberate input"
+                                                 AutomationProperties.Name="Relaxed (750 milliseconds)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
-                                        <TextBlock Text="Relaxed (750 ms)"/>
+                                        <TextBlock Text="Relaxed (750 milliseconds)"/>
                                     </RadioButton>
                                     <RadioButton x:Name="DoubleTapLeisurelyRadio"
                                                  GroupName="DoubleTapTolerance"
                                                  Margin="0,4,0,4"
-                                                 AutomationProperties.Name="Leisurely, 1000 milliseconds, for verifying speech between presses"
+                                                 AutomationProperties.Name="Leisurely (1000 milliseconds)"
                                                  Checked="DoubleTapToleranceRadio_Checked">
-                                        <TextBlock Text="Leisurely (1000 ms)"/>
+                                        <TextBlock Text="Leisurely (1000 milliseconds)"/>
                                     </RadioButton>
                                 </StackPanel>
                             </GroupBox>
@@ -2092,7 +2092,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Updates" AutomationProperties.Name="Update channel and auto-check preferences">
+            <TabItem Header="Update channel and auto-check preferences" AutomationProperties.Name="Update channel and auto-check preferences">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <GroupBox Header="Update channel" Margin="0,4,0,8"

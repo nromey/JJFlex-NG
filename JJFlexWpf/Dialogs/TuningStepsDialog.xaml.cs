@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
@@ -34,6 +36,15 @@ namespace JJFlexWpf.Dialogs
     /// that is the step in force stays in force until another is picked; and
     /// putting a starting list back asks first. Edits are kept when OK is
     /// pressed, like the step choice; Cancel keeps nothing.</para>
+    /// <para><b>Leaving with a changed list asks (#346, ruled by Noel
+    /// 2026-11-11 19:40, J15 option b).</b> Cancel, Escape and closing the
+    /// window all ask before dropping a changed list, from one place,
+    /// <see cref="OnClosing"/>, so no way out can skip it. Yes drops the
+    /// changes and closes; No keeps the window open. Escape while transmitting
+    /// never gets here: the dialog door unkeys and consumes it first ("Escape
+    /// unkeys first", ruled 2026-10-21), so the next Escape asks. And Enter in
+    /// an EMPTY new-step box presses OK, as Enter does everywhere else (19:44);
+    /// with something typed it still adds the step.</para>
     /// </remarks>
     public partial class TuningStepsDialog : JJFlexDialog
     {
@@ -125,8 +136,6 @@ namespace JJFlexWpf.Dialogs
             Label(FineNewLabel, FineNewBox, "settings.tuning.steps_list_new_fine");
             Caption(CoarseAddButton, "settings.tuning.steps_list_add_coarse");
             Caption(FineAddButton, "settings.tuning.steps_list_add_fine");
-            Caption(CoarseRemoveButton, "settings.tuning.steps_list_remove_coarse");
-            Caption(FineRemoveButton, "settings.tuning.steps_list_remove_fine");
             Caption(CoarseStartingButton, "settings.tuning.steps_list_starting_coarse");
             Caption(FineStartingButton, "settings.tuning.steps_list_starting_fine");
 
@@ -135,10 +144,16 @@ namespace JJFlexWpf.Dialogs
             CoarseNewBox.PreviewKeyDown += (_, e) => AddOnEnter(_coarse, e);
             FineNewBox.PreviewKeyDown += (_, e) => AddOnEnter(_fine, e);
 
+            AskToDropChanges = AskToDrop;
+
             foreach (var list in new[] { _coarse, _fine })
             {
                 var l = list;
-                l.Box.SelectionChanged += (_, _) => { if (!l.Filling) l.Picked = true; };
+                l.Box.SelectionChanged += (_, _) =>
+                {
+                    if (!l.Filling) l.Picked = true;
+                    NameRemoveButton(l);
+                };
                 // ChoicesIncluding, not the bare list: a picker that omits the
                 // value currently in force would show one step while another
                 // was running, and would change it the moment OK was pressed.
@@ -159,6 +174,27 @@ namespace JJFlexWpf.Dialogs
             button.Content = text;
             AutomationProperties.SetName(button, text);
         }
+
+        /// <summary>
+        /// The Remove button names the step it would remove, the row selected
+        /// (#346): "Remove coarse step" alone left the operator to remember
+        /// which row was selected. With nothing selected it says the plain
+        /// caption. The words are Codex's (the 2026-11-11 words round).
+        /// </summary>
+        private void NameRemoveButton(EditedList list)
+        {
+            Button button = list.Coarse ? CoarseRemoveButton : FineRemoveButton;
+            string text = RemoveCaption(list.Coarse, list.Box.SelectedItem is StepRow row ? row.ToString() : null);
+            button.Content = text;
+            AutomationProperties.SetName(button, text);
+        }
+
+        /// <summary>The Remove button's words for a list, naming the selected step when there is one.</summary>
+        internal static string RemoveCaption(bool coarse, string? selectedStep) =>
+            selectedStep != null
+                ? Lexicon.Get(coarse ? "settings.tuning.steps_list_remove_coarse_named" : "settings.tuning.steps_list_remove_fine_named",
+                    ("step", selectedStep))
+                : Lexicon.Get(coarse ? "settings.tuning.steps_list_remove_coarse" : "settings.tuning.steps_list_remove_fine");
 
         /// <summary>
         /// Show a list as it is being edited, with the step in force included
@@ -200,8 +236,16 @@ namespace JJFlexWpf.Dialogs
         {
             if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None) return;
             e.Handled = true;
-            Add(list);
+            if (EnterPressesOk(list.NewBox.Text)) Ok();
+            else Add(list);
         }
+
+        /// <summary>
+        /// Enter in an empty new-step box presses OK, as Enter does everywhere
+        /// else; with something typed it adds the step and the window stays
+        /// open (#346, ruled by Noel 2026-11-11 19:44).
+        /// </summary>
+        internal static bool EnterPressesOk(string? typed) => string.IsNullOrWhiteSpace(typed);
 
         private void CoarseAddButton_Click(object sender, RoutedEventArgs e) => Add(_coarse);
         private void FineAddButton_Click(object sender, RoutedEventArgs e) => Add(_fine);
@@ -281,7 +325,9 @@ namespace JJFlexWpf.Dialogs
         private static int[]? ToKeep(EditedList list) =>
             TuningSteps.IsStartingList(list.Hz, list.Coarse) ? null : list.Hz.ToArray();
 
-        private void OkButton_Click(object sender, RoutedEventArgs e)
+        private void OkButton_Click(object sender, RoutedEventArgs e) => Ok();
+
+        private void Ok()
         {
             // A step is changed only by a pick (J3: a removed step in force
             // stays in force until another is picked).
@@ -298,6 +344,75 @@ namespace JJFlexWpf.Dialogs
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
             CloseWithResult(false);
+        }
+
+        /// <summary>
+        /// True once the operator answered Yes to dropping the changes, so the
+        /// close that follows does not ask again.
+        /// </summary>
+        private bool _dropConfirmed;
+
+        /// <summary>
+        /// True from a No until the input that asked has finished: a close
+        /// through CloseWithResult reaches <see cref="OnClosing"/> twice (the
+        /// DialogResult assignment, then its own Close), and one press must ask
+        /// once.
+        /// </summary>
+        private bool _keptOpenThisPress;
+
+        /// <summary>The question, put in a window; replaceable so a test can answer it.</summary>
+        internal Func<bool> AskToDropChanges { get; set; }
+
+        /// <summary>
+        /// Whether a close must ask first: not on OK (it keeps the edits), not
+        /// when no list changed, and not once the operator said to drop them.
+        /// Pure, so the windowless tests can hold every branch.
+        /// </summary>
+        internal static bool AsksBeforeClosing(bool? dialogResult, bool coarseChanged, bool fineChanged, bool dropConfirmed) =>
+            dialogResult != true && (coarseChanged || fineChanged) && !dropConfirmed;
+
+        /// <summary>
+        /// Every way out lands here (Cancel, Escape, Alt+F4, the title bar), so
+        /// the question is asked in one place. True when the window must stay
+        /// open: the operator said No, or already said No to this press.
+        /// </summary>
+        internal bool KeepOpenOnClose(bool? dialogResult)
+        {
+            if (!AsksBeforeClosing(dialogResult, _coarse.Changed, _fine.Changed, _dropConfirmed)) return false;
+            if (_keptOpenThisPress) return true;
+            if (AskToDropChanges())
+            {
+                _dropConfirmed = true;
+                return false;
+            }
+            _keptOpenThisPress = true;
+            Dispatcher?.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+                new Action(() => _keptOpenThisPress = false));
+            return true;
+        }
+
+        private bool AskToDrop()
+        {
+            var confirm = new ConfirmActionDialog(
+                Lexicon.Get("settings.tuning.steps_list_drop_title"),
+                Lexicon.Get("settings.tuning.steps_list_drop_body"),
+                question: Lexicon.Get("settings.tuning.steps_list_drop_question"),
+                yesLabel: Lexicon.Get("settings.tuning.steps_list_drop_yes"),
+                noLabel: Lexicon.Get("settings.tuning.steps_list_drop_no"))
+            {
+                Owner = this,
+            };
+            return confirm.ShowDialog() == true;
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (!e.Cancel && KeepOpenOnClose(DialogResult))
+            {
+                e.Cancel = true;
+                return;
+            }
+            base.OnClosing(e);
         }
     }
 }

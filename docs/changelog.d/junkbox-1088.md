@@ -1,0 +1,1 @@
+- A failed save in Settings now gets its own message on both OK and Apply, even when another setting is waiting for a connection.

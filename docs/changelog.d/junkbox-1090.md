@@ -1,0 +1,1 @@
+- The connection and double-tap timing choices in Settings now use the words on screen as their screen-reader names.

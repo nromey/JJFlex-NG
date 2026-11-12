@@ -129,7 +129,8 @@ public sealed class StepSizeMemoryTests
         int wire = app.IndexOf("handlers.SaveStepSizes = AddressOf _stepMemory.Note", StringComparison.Ordinal);
         Assert.True(load > 0 && wire > load, "the saved steps must load before SaveStepSizes is wired");
 
-        int switchAt = app.IndexOf("AddHandler Operators.ConfigEvent,", wire, StringComparison.Ordinal);
+        // #1072: through the one operator-change mechanism.
+        int switchAt = app.IndexOf("Radios.OperatorChange.Follow(\"tuning steps\",", wire, StringComparison.Ordinal);
         Assert.True(switchAt > wire);
         string onSwitch = app.Substring(switchAt, app.IndexOf("End Sub", switchAt, StringComparison.Ordinal) - switchAt);
         int flush = onSwitch.IndexOf("_stepMemory?.Flush()", StringComparison.Ordinal);

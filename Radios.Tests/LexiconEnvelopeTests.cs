@@ -1316,6 +1316,37 @@ namespace Radios.Tests
                 "settings.tuning.steps_list_starting_coarse_back",
                 "settings.tuning.steps_list_starting_fine_back",
                 "settings.tuning.steps_list_not_kept",
+                // Junk box batch 10 (#346): the question before a changed list
+                // is dropped, and the Remove buttons naming the step. Wording by Codex.
+                "settings.tuning.steps_list_drop_title",
+                "settings.tuning.steps_list_drop_body",
+                "settings.tuning.steps_list_drop_question",
+                "settings.tuning.steps_list_drop_yes",
+                "settings.tuning.steps_list_drop_no",
+                "settings.tuning.steps_list_remove_coarse_named",
+                "settings.tuning.steps_list_remove_fine_named",
+                // Junk box batch 10 repair (#1088): a failed save of the overwrite
+                // warning setting. Wording by Codex.
+                "settings.commit.overwrite_warning_not_saved",
+                // Junk box batch 10 (#1068): eight route sentences that were
+                // still unclassified, reworded to the categories' spoken names,
+                // and so classified as they were edited. Wording by Codex.
+                "connect.ownership.silencing",
+                "connect.presence.port_denied",
+                "connect.smartlink.where_to_change",
+                "connect.update.skipped_version",
+                "leader.windows.last_theft_not_reclaimed",
+                "settings.network.authority_denied",
+                "settings.network.no_radio_configure_forwarding",
+                "settings.silenced.reversible_help",
+                // Junk box batch 10 words round (#1088): the Settings commit's
+                // advisory title, its lead and the waiting lead, legacy plain
+                // strings reworded by Codex and so classified as they were
+                // edited. Shown in the advisory or said in answer to OK or
+                // Apply: delivery null. Wording by Codex.
+                "settings.commit.some_items_wait_title",
+                "settings.commit.some_items_wait_lead",
+                "settings.commit.waiting_lead",
 
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
@@ -2429,18 +2460,23 @@ namespace Radios.Tests
                 "settings.tuning.unable_to_tune",
                 "settings.tuning.tune_no_answer",
                 // Round two (#496, the bench's Fail 3): Settings with no radio
-                // says the PTT changes were not saved. DRAFT prose.
+                // says the PTT changes were not saved. Wording by Codex (junk box
+                // batch 10 words round): the PTT outcome only, said beside the others.
                 "settings.commit.ptt_not_saved",
                 // Junk box 2026-11-09 second batch, repair one (#486): the
                 // Settings commit's summary when the change-nothing hold refused
                 // a radio change in it, said after the hold's sentence for the
                 // settings that were saved; and the Audio Workshop's saved
                 // microphone setup when its radio half was refused. DRAFT prose.
+                // The two settings.commit keys: wording by Codex (junk box batch
+                // 10 words round); the Audio Workshop key is still DRAFT.
                 "settings.commit.applied_others_spoken",
                 "settings.commit.saved_others_spoken",
                 "settings.audio.mic_setup_computer_half_applied",
                 // Repair two: the advisory's lead when a change was refused, and
                 // a saved setup whose computer half applied only in part. DRAFT.
+                // The settings.commit lead: wording by Codex (junk box batch 10
+                // words round); the Audio Workshop key is still DRAFT.
                 "settings.commit.some_items_wait_lead_refused",
                 "settings.audio.mic_setup_computer_half_partly",
                 // Junk box 2026-11-09 (#517): Page Up and Page Down on the
@@ -2987,7 +3023,17 @@ namespace Radios.Tests
             // Two fewer (3050 to 3048): the junk box words round for batches
             // 5 to 7 (2026-11-11) reworded and classified audio.mic.could_not_open
             // and settings.silenced.register.
-            Assert.Equal(3048, unclassified);
+            // Eight fewer (3048 to 3040): junk box batch 10 (#1068) reworded and
+            // classified eight route sentences to the Settings categories'
+            // spoken names (connect.ownership.silencing, presence.port_denied,
+            // smartlink.where_to_change, update.skipped_version;
+            // leader.windows.last_theft_not_reclaimed; settings.network.
+            // authority_denied, no_radio_configure_forwarding;
+            // settings.silenced.reversible_help).
+            // Three fewer (3040 to 3037): the batch 10 words round reworded and
+            // classified settings.commit.some_items_wait_title,
+            // some_items_wait_lead and waiting_lead (#1088).
+            Assert.Equal(3037, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

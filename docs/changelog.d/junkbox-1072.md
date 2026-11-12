@@ -1,0 +1,1 @@
+- Your band memory, license, filter presets, PTT settings and panadapter choices now follow the operator selected under Radio, Operators. A transmission already in progress keeps its existing PTT limits until it ends.

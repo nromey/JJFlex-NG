@@ -1,0 +1,1 @@
+- The Tuning Steps window now asks before discarding list edits when you press Cancel or Escape or close the window. Enter in an empty new-step box presses OK, and each Remove button names its selected step.

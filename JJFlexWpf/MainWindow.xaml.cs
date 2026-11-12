@@ -1013,11 +1013,16 @@ public partial class MainWindow : UserControl
     /// synthetic-pair test is written here.
     /// </para>
     /// <para>
-    /// <b>It never outlives the input state.</b> <see cref="ResetPttInput"/>
-    /// clears it, so Escape, the radio turning transmit off on its own and the
-    /// radio closing all take it with them. A dialog's window loss does NOT
-    /// (#900): it latches the hold it ends, because under JAWS the next
-    /// synthetic down of the same held key lands in the next window.
+    /// <b>It is set wherever the app ends a HOLD the operator may still be
+    /// pressing, and forgotten only where nothing is held.</b> A reference's
+    /// end, a dialog's window loss (#900), the fifteen-minute limit, the kill
+    /// and the reflected-power cut (#1020, #1089), and Escape on Home or in a dialog and the radio
+    /// turning transmit off on its own (#1089, through
+    /// <see cref="EndTransmitOutsideTheEdges"/>) all LATCH a hold, because
+    /// under JAWS the next synthetic down of the same held key would otherwise
+    /// key again. <see cref="ResetPttInput"/> clears it, and runs where no key
+    /// is held (those same doors ending a lock) and where the radio closes or
+    /// drops.
     /// </para>
     /// </remarks>
     private bool _pttHoldEndedByApp;
@@ -1194,6 +1199,29 @@ public partial class MainWindow : UserControl
     /// <see cref="GetFilterPresetStatus"/>, which follows the dial.
     /// </summary>
     public string? GetFilterPresetDisplayedStatus() => _freqOutHandlers?.ActiveFilterPresetDisplayedStatus;
+
+    /// <summary>
+    /// The operator changed while a radio is on (#1072): the PTT tab's settings
+    /// (time limits, band memory, frequency units) are the new operator's from
+    /// now on. They were read once, at power-on, so after Radio, Operators the
+    /// previous operator's went on governing the transmitter and the next
+    /// Settings OK saved them into the new operator's file. With no radio there
+    /// is nothing held: power-on reads the operator in use then. A transmission
+    /// under way at the switch keeps the limits it was keyed under: the
+    /// controller holds the new settings until it ends (#1072 repair).
+    /// </summary>
+    public void FollowOperatorPttConfig()
+    {
+        if (CurrentPttConfig == null || OpenParms == null) return;
+        CurrentPttConfig = PttConfig.Load(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+        _pttController?.UpdateConfig(CurrentPttConfig);
+        if (_freqOutHandlers != null)
+        {
+            _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig.BandMemoryEnabled;
+            _freqOutHandlers.FrequencyUnits = CurrentPttConfig.FrequencyDisplayUnits;
+        }
+        Tracing.TraceLine("FollowOperatorPttConfig: the PTT settings are now " + OpenParms.GetOperatorName() + "'s", TraceLevel.Info);
+    }
 
     /// <summary>
     /// Apply settings changes from the Settings dialog.
@@ -3048,12 +3076,13 @@ public partial class MainWindow : UserControl
             if (rawKey == Key.Escape && _pttController.IsTransmitting)
             {
                 // #778c repair round two, Codex B1 (PRE-EXISTING here): the
-                // controller's transition is not the whole of it. The input
-                // state the edges keep (a deferred release, the repeat
-                // guard) must go too, or the next Ctrl+Space is read as
-                // continuing a hold that Escape ended.
-                _pttController.EscapeUnlock();
-                ResetPttInput();
+                // controller's transition is not the whole of it. Ending a
+                // LOCK, the input state the edges keep (a deferred release,
+                // the repeat guard) goes too. A HOLD the operator may still
+                // be pressing is latched instead, not forgotten (#1089), so
+                // a reader's next synthetic down keys nothing until a real
+                // release; that reverses B1's forgetting on purpose.
+                EndTransmitOutsideTheEdges("Escape on Home", () => _pttController.EscapeUnlock());
                 e.Handled = true;
                 return;
             }
@@ -3228,15 +3257,47 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// End a transmission from outside the key edges (#1089): Escape on Home,
+    /// Escape in a dialog, and the radio stopping on its own (which is also
+    /// where a hard kill can arrive first). A HOLD the operator may still be
+    /// pressing is latched as an app-ended hold rather than forgotten, the same
+    /// test <see cref="HandleReferenceEndUnkey"/> makes, so under a screen
+    /// reader that delivers a held key as down/up pairs the next synthetic down
+    /// keys nothing until the hold filter confirms a real release; under one
+    /// that delivers a real hold, the operator's real up ends the latch at
+    /// once. Anything else (the lock, the transmit toggle) has no key held, and
+    /// its input state goes exactly as before.
+    /// </summary>
+    private void EndTransmitOutsideTheEdges(string why, Action end)
+    {
+        bool held = _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
+        end();
+        if (held)
+        {
+            LatchAppEndedHold(why);
+            // Only the repeat guard goes, as at a dialog's window loss (#900):
+            // the up it waits for may never reach us (focus can leave before
+            // the key comes up), and a guard left set silently swallowed the
+            // next press. Every door drops a held key's repeats before the
+            // edge, so the guard is not what stops a held key keying again;
+            // the latch and the hold filter are (the second check of #1089, N1).
+            _pttKeyDown = false;
+        }
+        else ResetPttInput();
+    }
+
+    /// <summary>
     /// Forget everything the edges know about a hold, without touching the
     /// controller: the deferred release, the repeat guard, the hold filter's
     /// press in flight (what it has learned about the reader stays), and the
     /// door. Called by every path that ends a transmission OUTSIDE the key
-    /// edges (#778c repair round two, Codex B1):
-    /// Escape on Home and in a dialog, a dialog losing its hold to window
-    /// loss, the radio turning transmit off on its own, and the radio
-    /// closing. Without it a deferred release left pending swallows the next
-    /// Ctrl+Space as a continuation of a hold Escape already ended.
+    /// edges (#778c repair round two, Codex B1) when no key is held: Escape on
+    /// Home and in a dialog, the radio turning transmit off on its own, and a
+    /// reference recording's end, each through
+    /// <see cref="EndTransmitOutsideTheEdges"/> or its own test, which LATCH a
+    /// hold instead (#1089, #900); and the radio closing or dropping, which
+    /// forget everything. Without it a deferred release left pending swallows
+    /// the next Ctrl+Space as a continuation of a transmission Escape ended.
     /// </summary>
     private void ResetPttInput()
     {
@@ -3244,8 +3305,9 @@ public partial class MainWindow : UserControl
         _pttHoldFilter.Reset();
         _pttKeyDown = false;
         _pttHoldDoor = PttDoor.None;
-        // A hold the app ended goes with the rest (round five, 7a): it can
-        // never outlive Escape, a teardown or the radio closing.
+        // A hold the app ended goes with the rest (round five, 7a). Since
+        // #1089 Escape and the radio's own off LATCH a hold and never reach
+        // here for one; this runs for a lock, a teardown or the radio closing.
         _pttHoldEndedByApp = false;
         _pttLatchDoor = PttDoor.None;
     }
@@ -3442,8 +3504,7 @@ public partial class MainWindow : UserControl
     internal bool HandleDialogEscapeUnkey()
     {
         if (_pttController == null || !_pttController.IsTransmitting) return false;
-        _pttController.EscapeUnlock();
-        ResetPttInput();
+        EndTransmitOutsideTheEdges("Escape in a dialog", () => _pttController.EscapeUnlock());
         return true;
     }
 
@@ -3499,11 +3560,11 @@ public partial class MainWindow : UserControl
                 + _pttHoldDoor + ", not the dialog (#778c F2)", TraceLevel.Info);
             return;
         }
-        // Round five repair (7h-3): after the app ended a hold the dialog
-        // keyed (a reference's end), the controller is idle but the latch
-        // waits for a real release that can no longer come through this
-        // window. It goes with the window, as ResetPttInput takes it, and only
-        // when it is this door's.
+        // Round five repair (7h-3): after the app ended a hold (a reference's
+        // end, Escape, a kill), the controller is idle and the latch waits for
+        // a real release. A latch another door left is not this window's to
+        // touch. One this dialog's key left now STAYS when the window goes
+        // (#900, below), rather than going with it as 7h-3 had it.
         if (!holding && _pttHoldEndedByApp && _pttLatchDoor != PttDoor.Dialog)
         {
             Tracing.TraceLine("PTT: a dialog's window loss left the app-ended hold alone; it was keyed by "
@@ -5668,13 +5729,21 @@ public partial class MainWindow : UserControl
         TransmitButton.Content = transmit ? "TX On" : "Transmit";
 
         // If TX turned off externally (CAT, SmartSDR), sync PTT controller to Idle
-        if (!transmit && _pttController != null && _pttController.IsTransmitting)
-        {
-            _pttController.EscapeUnlock();
-            // The transmission ended outside the key edges, so what they
-            // remember of it goes too (#778c round two, Codex B1 by class).
-            ResetPttInput();
-        }
+        if (!transmit) RadioStoppedTransmitting();
+    }
+
+    /// <summary>
+    /// The radio reports transmit off while the controller still believes it
+    /// is transmitting (CAT, SmartSDR, or a hard kill whose carrier report
+    /// arrives before its own bookkeeping runs): bring the controller to idle.
+    /// The transmission ended outside the key edges, so what they remember of
+    /// it goes too (#778c round two, Codex B1 by class), except a hold the
+    /// operator may still be pressing, which is latched (#1089).
+    /// </summary>
+    internal void RadioStoppedTransmitting()
+    {
+        if (_pttController == null || !_pttController.IsTransmitting) return;
+        EndTransmitOutsideTheEdges("the radio stopped transmitting on its own", () => _pttController.EscapeUnlock());
     }
 
     private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)
@@ -6503,8 +6572,8 @@ public partial class MainWindow : UserControl
 
         // A deferred PTT release (#216) has nothing left to release; the hold
         // filter keeps its learned state — that describes the screen reader,
-        // which survives the radio. Same helper as Escape (#778c round two),
-        // so the repeat guard and the door go with it.
+        // which survives the radio. The helper Escape uses when no key is held
+        // (#778c round two), so the repeat guard and the door go with it.
         ResetPttInput();
 
         // Stop the Audio Workshop's poll timer (and any Audio Check session) —

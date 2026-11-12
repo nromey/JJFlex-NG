@@ -2851,7 +2851,7 @@ public class NativeMenuBar : IDisposable
         // a destination of its own (rename a radio, pin its connection mode),
         // so it gets a direct entry rather than making users know which tab
         // holds it. Same one-concept-two-doors pattern as Radio Setup.
-        AddWired(tools, "Configure Radio", () => ShowSettingsDialog("Radios"));
+        AddWired(tools, "Configure Radio", () => ShowSettingsDialog("Per-radio settings"));
         // Sprint 30 Track D — the front door of the reporting pipeline, and the
         // replacement for the retired Help > Tracing. Tools is the operations
         // menu; there is no Operations menu in the native menu bar, which is

@@ -198,7 +198,7 @@ namespace Radios.Tests
             int validate = dialog.IndexOf("if (!ValidateKeyerSpeed()) return false;", StringComparison.Ordinal);
             int firstWrite = dialog.IndexOf("_pttConfig.TimeoutSeconds = timeout;", StringComparison.Ordinal);
             Assert.True(validate > 0 && validate < firstWrite, "the keyer speed is validated after something was written");
-            Assert.Contains("CommitKeyerSpeedIfChanged(queued, applied);", dialog);
+            Assert.Contains("CommitKeyerSpeedIfChanged(queued, failed);", dialog);   // #1088: a failure is its own outcome
         }
 
         [Fact]

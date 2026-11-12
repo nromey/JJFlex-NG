@@ -65,8 +65,8 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
                 + "\n\nThis is your word for it, nothing more — JJ Flexible Radio Access does not "
                 + "check and cannot. It is here so you do not change a friend's "
                 + "radio by accident, not to stop you doing anything on purpose."
-                + "\n\nYou can change the answer later in Settings, on the Radios "
-                + "tab. Pressing Escape answers nothing and leaves the question "
+                + "\n\nYou can change the answer later in Settings, under Per-radio "
+                + "settings. Pressing Escape answers nothing and leaves the question "
                 + "for next time."
                 // FIRST DRAFT: the suppression qualification awaits Noel's
                 // wording review. It qualifies the Escape promise above.

@@ -245,6 +245,10 @@ namespace Radios
             if (!m.Success) return false;
             if (!decimal.TryParse(m.Groups["n"].Value, System.Globalization.NumberStyles.AllowDecimalPoint,
                     System.Globalization.CultureInfo.InvariantCulture, out decimal n)) return false;
+            // Refused before the multiply, not after: a pasted number near
+            // decimal's own limit overflowed n * 1000 and threw out of the S
+            // picker's Add (#346). Anything that large is no step anyway.
+            if (n > int.MaxValue) return false;
             decimal value = m.Groups["u"].Value.Equals("khz", StringComparison.OrdinalIgnoreCase) ? n * 1000m : n;
             if (value != decimal.Truncate(value) || value > int.MaxValue) return false;
             hz = (int)value;

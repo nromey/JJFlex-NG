@@ -1,0 +1,1 @@
+- The renamed Settings categories now use the same words on screen, in screen-reader announcements and in messages that point you to them.
