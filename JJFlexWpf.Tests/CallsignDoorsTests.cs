@@ -61,6 +61,7 @@ public sealed class CallsignDoorsTests : IDisposable
         ZeroPowerDoors.AtZeroOverride = null;
         ZeroPowerDoors.NoCallsignOverride = null;
         ZeroPowerDoors.SimpleVoxOverride = null;
+        ZeroPowerDoors.BreakInOverride = null;
         ZeroPowerDoors.Answered = null;
         ZeroPowerDoors.Clock = () => Environment.TickCount64;
         ZeroPowerDoors.Forget();
@@ -214,27 +215,38 @@ public sealed class CallsignDoorsTests : IDisposable
     // ── J8: turning VOX on with no callsign ──────────────────────────────
 
     private bool _simpleVox = true;
+    private bool _breakIn;
 
     /// <summary>
     /// Turning simple VOX on is refused with the same sentence (ruled by Noel
-    /// 2026-11-09 20:28, night question J8). In CW the same control switches
-    /// break-in, which is not refused (J4): the doors ask the radio's one
-    /// answer, stood in for here.
+    /// 2026-11-09 20:28, night question J8), and in CW, where the same control
+    /// switches break-in, so is break-in (ruled 2026-11-11 11:51, J4): the
+    /// doors ask both of the radio's answers, stood in for here. When neither
+    /// would be written (no transmit slice) nothing is refused.
     /// </summary>
+    /// <remarks>Until J4 this test was <c>Turning_simple_VOX_on_is_refused_and_break_in_is_not</c>
+    /// and pinned the opposite, as the open question then required.</remarks>
     [Fact]
-    public void Turning_simple_VOX_on_is_refused_and_break_in_is_not()
+    public void Turning_simple_VOX_or_break_in_on_is_refused()
     {
         ZeroPowerDoors.SimpleVoxOverride = rig => ReferenceEquals(rig, _rig) && _simpleVox;
+        ZeroPowerDoors.BreakInOverride = rig => ReferenceEquals(rig, _rig) && _breakIn;
         Assert.Equal(new[] { NoCall }, Said(() => Assert.True(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX field"))));
         Assert.Equal(new[] { "callsign: the VOX field" }, _answers);
 
-        _simpleVox = false;                          // a CW transmit slice: break-in
-        Assert.Empty(Said(() => Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX menu"))));
+        _simpleVox = false; _breakIn = true;         // a CW transmit slice: break-in
+        Assert.Equal(new[] { NoCall }, Said(() => Assert.True(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX menu"))));
+        Assert.Equal(new[] { "callsign: the VOX field", "callsign: the VOX menu" }, _answers);
 
-        _simpleVox = true;
+        _breakIn = false;                            // neither: no transmit slice, nothing written
+        Assert.Empty(Said(() => Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX box"))));
+
+        _breakIn = true;
         _noCallsign = false;                         // the positive control: a callsign lets it through
         Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX box"));
-        Assert.Single(_answers);
+        _simpleVox = true; _breakIn = false;
+        Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX box"));
+        Assert.Equal(2, _answers.Count);
     }
 
     /// <summary>
@@ -269,6 +281,37 @@ public sealed class CallsignDoorsTests : IDisposable
             Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs"), StringComparison.Ordinal);
         string doors = Src("JJFlexWpf", "ZeroPowerDoors.cs");
         Assert.Contains("try { return rig.VoxOnWouldTurnOnSimpleVox; }", doors, StringComparison.Ordinal);
+        Assert.Contains("try { return rig.VoxOnWouldTurnOnBreakIn; }", doors, StringComparison.Ordinal);
+        Assert.Contains("if (!WouldTurnOnSimpleVox(rig) && !WouldTurnOnBreakIn(rig)) return false;", doors, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The callsign refusal comes first at every door: each of the three asks
+    /// <see cref="ZeroPowerDoors.RefuseVoxOn"/> before its own "tone running"
+    /// refusal, and the menu's tone refusal is the setter's, which asks the
+    /// callsign first too (pinned in Radios.Tests.CallsignGateTests).
+    /// </summary>
+    [Fact]
+    public void Each_VOX_door_asks_the_callsign_before_the_tone()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string Src(params string[] parts) =>
+            File.ReadAllText(Path.Combine(new[] { dir!.FullName }.Concat(parts).ToArray())).Replace("\r\n", "\n");
+        static void Before(string src, string first, string then)
+        {
+            int a = src.IndexOf(first, StringComparison.Ordinal);
+            Assert.True(a >= 0, "not found: " + first);
+            int b = src.IndexOf(then, a, StringComparison.Ordinal);
+            Assert.True(b > a, then + " must come after " + first);
+        }
+        Before(Src("JJFlexWpf", "FreqOutHandlers.cs"), "ZeroPowerDoors.RefuseVoxOn(Rig, \"the VOX field\")",
+            "(Rig.TxToneEngaged || Rig.TxReferenceArmed)");
+        Before(Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs"), "ZeroPowerDoors.RefuseVoxOn(_rig, \"the VOX box\")",
+            "if (_rig?.TxToneEngaged == true)");
+        Before(Src("JJFlexWpf", "NativeMenuBar.cs"), "ZeroPowerDoors.RefuseVoxOn(Rig, \"the VOX menu\", afterMenu: true)",
+            "ToggleDSP(\"VOX\", () => Rig.Vox, v => Rig.Vox = v);");
     }
 
     [Fact]

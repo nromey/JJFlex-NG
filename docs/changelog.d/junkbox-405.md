@@ -1,1 +1,2 @@
 - Radio Associations now names the account a SmartLink connection will use whenever a saved account can be found for that radio.
+- When a saved preferred or last-seen account is available for an unlisted radio, Radio Associations now names the same account as the radio list and marks the radio as not listed right now.

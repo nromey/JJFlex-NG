@@ -1,0 +1,1 @@
+- In Settings, Accessibility, your screen reader now reads the slice arrow direction choices in the same words the screen shows.

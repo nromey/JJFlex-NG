@@ -7127,8 +7127,20 @@ public partial class MainWindow : UserControl
         var dialog = new Dialogs.TuningStepsDialog(
             _freqOutHandlers.CoarseTuneStep, _freqOutHandlers.FineTuneStep);
 
-        if (dialog.ShowDialog() == true)
-            _freqOutHandlers.ApplyStepSizes(dialog.CoarseStepHz, dialog.FineStepHz, speak: true);
+        if (dialog.ShowDialog() != true) return;
+
+        // The lists first (#346 part two): they become the operator's, which
+        // Radios.TuningSteps reads at once, so the ladder keys and Settings
+        // follow before the steps are applied. Kept with the steps' own
+        // debounce; said if there is no operator to keep them on.
+        if (dialog.StepListsChanged
+            && StepMemory?.NoteLists(dialog.CoarseStepListHz, dialog.FineStepListHz) != true)
+        {
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.tuning.steps_list_not_kept"),
+                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.TuningStepListEdit);
+        }
+        _freqOutHandlers.ApplyStepSizes(dialog.CoarseStepHz, dialog.FineStepHz, speak: true);
     }
 
     #endregion

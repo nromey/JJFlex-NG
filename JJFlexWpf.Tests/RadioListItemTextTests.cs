@@ -414,11 +414,13 @@ public sealed class RadioListItemTextTests
             string age = string.IsNullOrEmpty(row!.LastSeenText) ? ""
                 : Lexicon.Get("connect.row.age_suffix", ("lastSeenText", row.LastSeenText));
 
-            // The cold paint, as Codex found it: the saved last-seen account,
-            // worded as a registration, because a list was still to come.
+            // The cold paint: both accounts signed in, neither list arrived.
+            // Until #1059 this pinned "not heard from, registered to" here,
+            // which asserted an absence nothing had answered. The row now
+            // reads the card's answered-list fact and says it is checking.
             Assert.False(coldHistory);
-            Assert.Equal(Lexicon.Get("connect.row.offline_registered_to",
-                ("lastSeenViaAccount", LastSeen), ("age", age)), coldText);
+            Assert.Equal(Lexicon.Get("connect.row.checking"), coldText);
+            Assert.DoesNotContain("not heard from", coldText);
 
             // After the lists and the refresh: the same account, now only where
             // the radio was last known, never "registered to".
@@ -459,17 +461,271 @@ public sealed class RadioListItemTextTests
             "WatchPresenceSettleAsync must call RefreshRadiosList inside its settle loop");
         // ...and that refresh asks the plan outside the list lock, before it stamps.
         int refreshAt = src.IndexOf("private void RefreshRadiosList(bool reorder = false)", System.StringComparison.Ordinal);
-        int ask = src.IndexOf("var replanned = ReplanRowAccountsIfTheListsMoved();", refreshAt, System.StringComparison.Ordinal);
+        // The held lists are read ONCE (#1059), before the plan is asked, and
+        // the same reading feeds the replan.
+        int read = src.IndexOf("var heldLists = ReadHeldLists();", refreshAt, System.StringComparison.Ordinal);
+        int ask = src.IndexOf("var replanned = ReplanRowAccountsIfTheListsMoved(heldLists);", refreshAt, System.StringComparison.Ordinal);
         int stamp = src.IndexOf("r.EverySavedListRuledItOut = plan.RuledOut;", refreshAt, System.StringComparison.Ordinal);
         int stampLock = src.LastIndexOf("lock (_radiosLock)", stamp, System.StringComparison.Ordinal);
-        Assert.True(refreshAt > 0 && ask > refreshAt && stampLock > ask && stamp > stampLock,
-            "RefreshRadiosList must ask the plan before the lock it stamps the rows under");
-        int replanAt = src.IndexOf("private Dictionary<string, (string Account, bool RuledOut)> ReplanRowAccountsIfTheListsMoved()", System.StringComparison.Ordinal);
-        int replanEnd = src.IndexOf("// Presence engagement (#382)", replanAt, System.StringComparison.Ordinal);
+        Assert.True(refreshAt > 0 && read > refreshAt && ask > read && stampLock > ask && stamp > stampLock,
+            "RefreshRadiosList must read the held lists once and ask the plan before the lock it stamps the rows under");
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(
+            src.Substring(refreshAt, stamp - refreshAt), @"ReadHeldLists\(\)").Count);
+        int replanAt = src.IndexOf("private Dictionary<string, (string Account, bool RuledOut)> ReplanRowAccountsIfTheListsMoved(HeldLists lists)", System.StringComparison.Ordinal);
+        int replanEnd = src.IndexOf("internal static List<object>? ListsKey(HeldLists lists)", replanAt, System.StringComparison.Ordinal);
         string replan = src.Substring(replanAt, replanEnd - replanAt);
+        Assert.DoesNotContain("AllSessions", replan, System.StringComparison.Ordinal);   // no second reader
+        int check = replan.IndexOf("if (!ListsMovedSince(now, _rowAccountsAskedAt))", System.StringComparison.Ordinal);
         int askInReplan = replan.IndexOf("Radios.FlexBase.RadioListAccountFor(serial, out bool ruledOut);", System.StringComparison.Ordinal);
+        int lockAt = replan.IndexOf("lock (_radiosLock)", System.StringComparison.Ordinal);
         int lockEnd = replan.IndexOf("foreach (var serial in serials)", System.StringComparison.Ordinal);
+        Assert.True(check > 0 && lockAt > check, "the change check answers before any row is collected or any record read");
         Assert.True(askInReplan > lockEnd && lockEnd > 0, "the plan is asked after the list lock is released");
+    }
+
+    // ── #405 repair one: Radio Associations follows the lists while open ──
+
+    /// <summary>
+    /// #405 repair one (Codex B1). Radio Associations opens in the all-negative
+    /// state, so its row says the saved account is not listed right now; then
+    /// that same account's list names the radio while the window stays open.
+    /// The row must lose the marking, through the real resolver and the radio
+    /// list's change check, without a reopen. A quiet event (nothing moved)
+    /// asks nothing, so no record is read.
+    /// </summary>
+    /// <remarks>
+    /// <b>Desk safety:</b> the dialog is made with no constructor; its list is
+    /// an unhosted ListBox on a private STA thread (presentation source asserted
+    /// null). The asks run on the thread pool and land back through that
+    /// thread's dispatcher, which this test pumps. Speech silenced, settings
+    /// isolated (asserted).
+    /// </remarks>
+    [Fact]
+    public void Radio_associations_drops_not_listed_when_the_same_account_lists_the_radio_again()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.True(JJFlexWpf.Tests.Infrastructure.QuietRun.Silenced, "Refusing: " + JJFlexWpf.Tests.Infrastructure.QuietRun.Describe());
+        Assert.True(JJFlexWpf.Tests.Infrastructure.TestSettingsRoot.Isolated, "Refusing: " + JJFlexWpf.Tests.Infrastructure.TestSettingsRoot.Failure);
+        Lexicon.Load(Lexicon.Partitions);
+
+        const string serial = "0000-0000-6300-1405";
+        Assert.True(RadioConfig.Update(serial, c =>
+        {
+            c.Nickname = "Back Again";
+            c.Model = "FLEX-6300";
+            c.PreferredAccount = Chosen;          // not saved here
+            c.LastSeenViaAccount = LastSeen;      // saved here
+            c.HiddenFromList = false;
+        }));
+
+        var manager = FlexBase.SharedAccountManager;
+        var accountsField = typeof(SmartLinkAccountManager).GetField("_accounts",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        object? accountsBefore = accountsField.GetValue(manager);
+        accountsField.SetValue(manager, new System.Collections.Generic.List<SmartLinkAccount>
+        {
+            new() { Email = LastSeen, FriendlyName = LastSeen },
+        });
+        var sessions = new System.Collections.Generic.List<AnsweredWithoutTheRadio>();
+        var coordinatorBefore = Radios.SmartLink.SmartLinkServices.Coordinator;
+        var coordinator = new Radios.SmartLink.SmartLinkSessionCoordinator(a =>
+        {
+            var s = new AnsweredWithoutTheRadio(a);   // connected, list arrived, radio absent
+            sessions.Add(s);
+            return s;
+        });
+        Radios.SmartLink.SmartLinkServices.Override(coordinator);
+        coordinator.GetOrCreateSession(LastSeen);
+
+        string notListed = Lexicon.Get("settings.associations.not_listed_now");
+        string opened = "", followed = "", quiet = "";
+        try
+        {
+            OnPrivateSta(() =>
+            {
+                System.Threading.SynchronizationContext.SetSynchronizationContext(
+                    new System.Windows.Threading.DispatcherSynchronizationContext());
+                var dialog = (RadioAssociationsDialog)System.Runtime.CompilerServices.RuntimeHelpers
+                    .GetUninitializedObject(typeof(RadioAssociationsDialog));
+                var box = new System.Windows.Controls.ListBox();
+                SetField(dialog, "RadioList", box);
+                typeof(RadioAssociationsDialog).GetMethod("ReloadRadios",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                    .Invoke(dialog, new object?[] { null });
+                var row = box.Items.OfType<RadioAssociationsDialog.RadioRow>().Single(r => r.Entry.Serial == serial);
+                opened = row.DisplayText;
+                int changed = 0;
+                row.PropertyChanged += (_, e) => { if (e.PropertyName == "DisplayText") changed++; };
+
+                void Follow()
+                {
+                    var task = dialog.FollowTheListsAsync();
+                    var deadline = System.DateTime.UtcNow.AddSeconds(10);
+                    while (!task.IsCompleted && System.DateTime.UtcNow < deadline)
+                    {
+                        var frame = new System.Windows.Threading.DispatcherFrame();
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
+                            System.Windows.Threading.DispatcherPriority.Background,
+                            new System.Action(() => frame.Continue = false));
+                        System.Windows.Threading.Dispatcher.PushFrame(frame);
+                        System.Threading.Thread.Sleep(10);
+                    }
+                    Assert.True(task.IsCompleted, "the follow did not finish");
+                    task.GetAwaiter().GetResult();
+                }
+
+                // The same account's list now names the radio.
+                sessions[0].Listed = new[]
+                {
+                    Flex.Smoothlake.FlexLib.Radio.CreateFromIp("FLEX-6300", serial, "Back Again",
+                        System.Net.IPAddress.Loopback, "4.2.20.0"),
+                };
+                Follow();
+                followed = row.DisplayText;
+                Assert.Equal(1, dialog.ListAskPasses);
+
+                // Nothing moved: no ask, so no record is read on a quiet event.
+                Follow();
+                quiet = row.DisplayText;
+                Assert.Equal(1, dialog.ListAskPasses);          // nothing moved: the rows were not asked
+                Assert.Equal(1, changed);                       // the binding was told once, for the real change
+
+                Assert.Null(System.Windows.PresentationSource.FromVisual(box));   // never hosted
+            });
+
+            Assert.Contains(LastSeen, opened);
+            Assert.EndsWith(notListed, opened);                 // the all-negative state, at load
+            Assert.Contains(LastSeen, followed);
+            Assert.DoesNotContain(notListed, followed);         // back on the same account: no marking
+            Assert.Equal(followed, quiet);                      // a quiet event asked nothing
+        }
+        finally
+        {
+            Radios.SmartLink.SmartLinkServices.Override(coordinatorBefore);
+            accountsField.SetValue(manager, accountsBefore);
+            RadioConfig.Update(serial, c => { c.PreferredAccount = ""; c.LastSeenViaAccount = ""; c.HiddenFromList = true; });
+        }
+
+        // The window listens to the two notifications the radio list listens
+        // to, and stops when it closes.
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(ReadSelectorPath()))!, "Dialogs", "RadioAssociationsDialog.xaml.cs"));
+        Assert.Contains("_listSource.SessionRadioListReceived += OnListsMayHaveMoved;", src, System.StringComparison.Ordinal);
+        Assert.Contains("_listSource.SessionListCurrencyMayHaveChanged += OnListsMayHaveMoved;", src, System.StringComparison.Ordinal);
+        Assert.Contains("_listSource.SessionRadioListReceived -= OnListsMayHaveMoved;", src, System.StringComparison.Ordinal);
+    }
+
+    private static string ReadSelectorPath()
+    {
+        var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        return System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "Dialogs", "RigSelectorDialog.xaml.cs");
+    }
+
+    // ── #1059: one reader of the held lists, each caller its own safe answer ──
+
+    private static Radios.SmartLink.SessionRadioListSnapshot Snapshot(bool connected, bool arrived, long revision = 1) =>
+        new(System.Array.Empty<Flex.Smoothlake.FlexLib.Radio>(), arrived ? new System.DateTime(2026, 11, 11, 12, 0, 0, System.DateTimeKind.Utc) : null,
+            SessionConnected: connected, ArrivedOnTheLiveConnection: connected && arrived,
+            ConnectionGeneration: arrived ? 1 : -1, SessionId: "s") { ListRevision = revision };
+
+    /// <summary>
+    /// The one reading's views (#1059): signed in is not answered, a session
+    /// with no account counts nowhere, and an unread table answers empty for
+    /// the rows and the card (nothing heard, nothing answered) but has no key
+    /// for the replan, which reads as moved (re-ask every row).
+    /// </summary>
+    [Fact]
+    public void The_held_lists_reading_gives_each_caller_its_own_safe_answer()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var lists = new RigSelectorDialog.HeldLists(new[]
+        {
+            ("answered@example.com", Snapshot(connected: true, arrived: true)),
+            ("waiting@example.com", Snapshot(connected: true, arrived: false)),
+            ("gone@example.com", Snapshot(connected: false, arrived: true)),
+            ("", Snapshot(connected: true, arrived: true)),
+        }, Read: true);
+        Assert.Equal(new[] { "answered@example.com", "waiting@example.com" }, lists.LiveAccounts().OrderBy(a => a));
+        Assert.Equal(new[] { "answered@example.com" }, lists.AnsweredAccounts());
+        Assert.Equal(3, lists.NamedLists().Count);
+        Assert.NotNull(RigSelectorDialog.ListsKey(lists));
+
+        var unread = RigSelectorDialog.HeldLists.Unread;
+        Assert.Empty(unread.LiveAccounts());
+        Assert.Empty(unread.AnsweredAccounts());
+        Assert.Empty(unread.NamedLists());
+        Assert.Null(RigSelectorDialog.ListsKey(unread));
+        Assert.True(RigSelectorDialog.ListsMovedSince(null, RigSelectorDialog.ListsKey(lists)));
+    }
+
+    /// <summary>
+    /// The replan's change check, run (#405 repair three, kept through #1059):
+    /// the rows are asked again only when a list moved; an unchanged reading
+    /// asks nothing (no record read on a quiet tick); a new list revision asks
+    /// again; and an unread table asks every time. Removing the check turns
+    /// the second assertion red.
+    /// </summary>
+    [Fact]
+    public void The_replan_asks_again_only_when_the_lists_moved_and_every_time_when_unread()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var dialog = (RigSelectorDialog)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(RigSelectorDialog));
+        SetField(dialog, "_radiosLock", new object());
+        SetField(dialog, "_radiosList", new System.Collections.Generic.List<RadioListItem>
+        {
+            new() { Serial = "0000-0000-1059-0001", AccountAskedOfThePlan = true },
+        });
+        var replan = typeof(RigSelectorDialog).GetMethod("ReplanRowAccountsIfTheListsMoved",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        int Asked(RigSelectorDialog.HeldLists lists) =>
+            ((System.Collections.IDictionary)replan.Invoke(dialog, new object[] { lists })!).Count;
+
+        var before = new RigSelectorDialog.HeldLists(new[] { ("a@example.com", Snapshot(true, false, revision: 0)) }, true);
+        var same = new RigSelectorDialog.HeldLists(new[] { ("a@example.com", Snapshot(true, false, revision: 0)) }, true);
+        var arrived = new RigSelectorDialog.HeldLists(new[] { ("a@example.com", Snapshot(true, true, revision: 1)) }, true);
+
+        Assert.Equal(1, Asked(before));                          // the first ask
+        Assert.Equal(0, Asked(same));                            // unchanged: nothing asked
+        Assert.Equal(1, Asked(arrived));                         // the list landed: asked again
+        Assert.Equal(0, Asked(arrived));
+        Assert.Equal(1, Asked(RigSelectorDialog.HeldLists.Unread));   // unread: asked every time
+        Assert.Equal(1, Asked(RigSelectorDialog.HeldLists.Unread));
+    }
+
+    /// <summary>
+    /// #1059: a row whose bound account is signed in but whose lists have not
+    /// answered says "checking", never "not heard from"; once SmartLink has
+    /// answered without the radio it says "not heard from" as before. And the
+    /// settle loop waits for answers, not sign-ins.
+    /// </summary>
+    [Fact]
+    public void A_row_signed_in_but_not_yet_answered_says_checking_and_the_settle_loop_waits_for_the_answer()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Lexicon.Load(Lexicon.Partitions);
+        var row = new RadioListItem
+        {
+            Serial = "0000-0000-1059-0002", ModelName = "FLEX-6300", Name = "Pending",
+            DiscoverySettled = true, ForeignAccount = true, ConnectAccount = LastSeen,
+            BoundAccountHasLiveSession = true, BoundAccountListPending = true,
+        };
+        Assert.Equal(Lexicon.Get("connect.row.checking"), row.WhereText);
+
+        row.BoundAccountListPending = false;                    // answered without it
+        row.SmartLinkAnsweredWithoutIt = true;
+        Assert.Contains("not heard from", row.WhereText);
+
+        string src = ReadSelectorSource();
+        int loop = src.IndexOf("while (PresenceStillSettling())", System.StringComparison.Ordinal);
+        int end = src.IndexOf("_presenceSettleDeadlineUtc = null;", loop, System.StringComparison.Ordinal);
+        string body = src.Substring(loop, end - loop);
+        Assert.Contains("var answered = ReadHeldLists().AnsweredAccounts();", body, System.StringComparison.Ordinal);
+        Assert.Contains("&& !answered.Contains(a));", body, System.StringComparison.Ordinal);
+        // ...and the row's flag is stamped from the card's own fact.
+        Assert.Contains("&& !r.SmartLinkAnsweredWithoutIt;", src, System.StringComparison.Ordinal);
     }
 
     private static string ReadSelectorSource()
@@ -537,14 +793,20 @@ public sealed class RadioListItemTextTests
         public Radios.SmartLink.SessionStatus Status => Radios.SmartLink.SessionStatus.Connected;
         public System.Exception? LastError => null;
         public int ReconnectAttemptCount => 0;
-        public System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> AvailableRadios => NoRadios;
+        /// <summary>
+        /// The radios this session's list names. None by default; the
+        /// Associations follow test sets it to make the radio come back
+        /// (#405 repair one), which is a newer list, so a new revision.
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> Listed { get; set; } = NoRadios;
+        public System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> AvailableRadios => Listed;
         public System.DateTime? LastRadioListUtc => Arrived ? ListLanded : null;
         // The same snapshot for the same state, as a real session's is (it
         // hands back its held fields), so the window's "have the lists moved"
         // comparison sees a move only when the list lands.
         public Radios.SmartLink.SessionRadioListSnapshot RadioListSnapshot => Arrived
-            ? new(NoRadios, ListLanded, SessionConnected: true, ArrivedOnTheLiveConnection: true,
-                ConnectionGeneration: 1, SessionId: SessionId) { ListRevision = 1 }
+            ? new(Listed, ListLanded, SessionConnected: true, ArrivedOnTheLiveConnection: true,
+                ConnectionGeneration: 1, SessionId: SessionId) { ListRevision = Listed.Count == 0 ? 1 : 2 }
             : new(NoRadios, null, SessionConnected: true, ArrivedOnTheLiveConnection: false,
                 ConnectionGeneration: -1, SessionId: SessionId) { ListRevision = 0 };
         public bool ListIsCurrent(long connectionGeneration) => Arrived && connectionGeneration == 1;

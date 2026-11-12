@@ -209,6 +209,34 @@ namespace Radios.Tests
             Assert.Empty(plan.Actions);
         }
 
+        /// <summary>
+        /// #1043 F4, ruled by Noel 2026-11-11 11:56 (nap question J9):
+        /// protection wins. While radio setup protection is on the plan asks
+        /// nothing at connect, whoever owns the radio, so the receipt for "Ask
+        /// Me at the Next Connect" says the question waits until protection is
+        /// off; with protection off the plan asks and the receipt says so.
+        /// The receipt is read against the plan, so the two cannot drift.
+        /// </summary>
+        [Theory]
+        [InlineData(RadioOwnership.Mine)]
+        [InlineData(RadioOwnership.SomeoneElses)]
+        [InlineData(RadioOwnership.Unset)]
+        public void The_receipt_says_what_the_next_connect_will_do_and_protection_wins(RadioOwnership ownership)
+        {
+            Lexicon.Load(Lexicon.Partitions);
+            foreach (bool protectionOn in new[] { true, false })
+            {
+                var s = Situation(ProfileGuestIntent.NotAnswered, ownership);
+                s.ChangeNothingArmed = protectionOn;
+                bool asks = ProfileStewardship.PlanConnect(s).AskWhoseRadioThisIs;
+                string key = ProfileStewardship.AskAtNextConnectReceiptKey(protectionOn);
+                Assert.Equal(!protectionOn, asks);
+                Assert.Equal(asks ? "settings.profile_guest.ask_next_connect" : "settings.profile_guest.ask_after_protection", key);
+                Assert.False(string.IsNullOrWhiteSpace(Lexicon.Get(key)));
+                Assert.NotEqual(key, Lexicon.Get(key));   // the key resolves to a sentence
+            }
+        }
+
         // ---- wiring, read from source ----
 
         [Fact]
@@ -231,7 +259,9 @@ namespace Radios.Tests
             Assert.True(at >= 0);
             string body = src.Substring(at, src.IndexOf("RebuildCurrentMenu();", at, StringComparison.Ordinal) - at);
             Assert.Contains("Rig.AskProfileQuestionAtNextConnect();", body, StringComparison.Ordinal);
-            Assert.Contains("\"settings.profile_guest.ask_next_connect\"", body, StringComparison.Ordinal);
+            // The receipt comes from the one decision that also knows about
+            // protection (#1043 F4), fed the radio's live protection state.
+            Assert.Contains("Radios.ProfileStewardship.AskAtNextConnectReceiptKey(Rig.ChangeNothingActive)", body, StringComparison.Ordinal);
             // The default arm's "leave this radio's profiles alone" is untrue
             // for this row, so the row has its own case ahead of it.
             Assert.True(body.IndexOf("case Radios.ProfileGuestIntent.NotAnswered:", StringComparison.Ordinal)

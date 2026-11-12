@@ -622,6 +622,26 @@ namespace Radios
         // ------------------------------------------------------------------
 
         /// <summary>
+        /// The receipt for "Ask Me at the Next Connect" under Profiles on This
+        /// Radio (#680), as a lexicon key: the question waits for the next
+        /// connect, or, while radio setup protection is on, until protection is
+        /// off (#1043 F4, ruled by Noel 2026-11-11 11:56, nap question J9).
+        /// </summary>
+        /// <remarks>
+        /// Protection wins over the question: <see cref="PlanConnect"/> asks
+        /// nothing while <see cref="ProfileSituation.ChangeNothingArmed"/> is
+        /// set, ownership notwithstanding, so a receipt promising a question at
+        /// the next connect would promise what will not happen. The marker is
+        /// still saved either way, and the question is asked at the first
+        /// connect after protection is turned off.
+        /// </remarks>
+        /// <param name="protectionOn">Radio setup protection is on for this radio now.</param>
+        public static string AskAtNextConnectReceiptKey(bool protectionOn) =>
+            protectionOn
+                ? "settings.profile_guest.ask_after_protection"
+                : "settings.profile_guest.ask_next_connect";
+
+        /// <summary>
         /// What to do to this radio's profiles on connect. Never throws, never
         /// touches a radio, and returns an empty plan whenever the answer is
         /// "nothing" — which is the answer for every radio the operator has not

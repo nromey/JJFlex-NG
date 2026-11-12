@@ -1071,8 +1071,9 @@ public partial class ScreenFieldsPanel : UserControl
         _voxCheck.Checked += (s, e) =>
         {
             if (_polling) return;
-            // No callsign, no VOX (#335, J8): the box is put back and nothing
-            // is written. Simple VOX only (break-in in CW is J4).
+            // No callsign, no VOX (#335, J8), and in CW no break-in (J4): the
+            // box is put back and nothing is written. Asked before the tone
+            // refusal: the callsign refusal comes first at every door.
             if (ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX box"))
             {
                 _polling = true;

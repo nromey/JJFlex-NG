@@ -1,0 +1,1 @@
+- You can now add and remove coarse and fine tuning steps in the list S opens, or restore the starting lists. Press OK to save your lists with your operator settings; the tuning keys and Settings will use them too.

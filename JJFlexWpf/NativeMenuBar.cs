@@ -671,7 +671,12 @@ public class NativeMenuBar : IDisposable
         switch (intent)
         {
             case Radios.ProfileGuestIntent.NotAnswered:
-                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.ask_next_connect"));
+                // Protection wins (#1043 F4, J9): while radio setup protection
+                // is on nothing is asked at connect, so the receipt says the
+                // question waits until it is off. The marker above is saved
+                // either way. Not saved: the "not_saved" branch above.
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    Radios.ProfileStewardship.AskAtNextConnectReceiptKey(Rig.ChangeNothingActive)));
                 break;
             case Radios.ProfileGuestIntent.UseMyTransmitAudio:
                 var chosen = Rig.LocalTransmitAudioProfileChoice;
@@ -2116,9 +2121,10 @@ public class NativeMenuBar : IDisposable
         // --- Voice chain ---
         AddChecked(parent, "&VOX On/Off", () =>
         {
-            // No callsign, no VOX (#335, J8): asked before ToggleDSP writes and
-            // announces "VOX on", and said after the menu closes. Simple VOX
-            // only (break-in in CW is J4); turning VOX off is never asked.
+            // No callsign, no VOX (#335, J8), and in CW no break-in (J4): asked
+            // before ToggleDSP writes and announces "VOX on" (and before the
+            // setter's tone refusal: the callsign refusal comes first), and
+            // said after the menu closes. Turning VOX off is never asked.
             if (Rig != null && Rig.Vox == FlexBase.OffOnValues.off
                 && ZeroPowerDoors.RefuseVoxOn(Rig, "the VOX menu", afterMenu: true)) return;
             ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v);

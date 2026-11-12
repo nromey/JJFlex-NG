@@ -401,6 +401,17 @@ namespace JJFlexWpf.Dialogs
         public bool SmartLinkAnsweredWithoutIt { get; set; }
 
         /// <summary>
+        /// Whether this row's bound account is signed in but SmartLink has not
+        /// answered without the radio yet (#1059): the same answered-list fact
+        /// the Network identity card reads (<see cref="SmartLinkAnsweredWithoutIt"/>),
+        /// stamped by the dialog on every refresh. While it is true the row
+        /// says "checking" rather than "not heard from", which would assert an
+        /// absence nothing has answered (#340, #382). <b>Defaults to false</b>,
+        /// so a row nothing has stamped reads as it did before.
+        /// </summary>
+        public bool BoundAccountListPending { get; set; }
+
+        /// <summary>
         /// What the Network identity card may say about whether a SmartLink
         /// list carries this radio (#398, repairs two and three): whether that
         /// list is still current, whether the lists that bear on it have
@@ -565,6 +576,19 @@ namespace JJFlexWpf.Dialogs
                 {
                     return Lexicon.Get("connect.row.account_not_signed_in",
                         ("account", BoundAccount), ("age", age));
+                }
+
+                // ...and one state later (#1059): signed in, but the lists that
+                // bear on this radio have not answered yet (before a session's
+                // first list, and after every reconnect until the new one
+                // lands). The same answered-list fact the identity card reads,
+                // so the row and the card cannot disagree. "Not heard from"
+                // below would be a verdict nothing has given.
+                if (BoundAccountListPending
+                    && !string.IsNullOrWhiteSpace(BoundAccount)
+                    && (ForeignAccount || FromAccountCache))
+                {
+                    return Lexicon.Get("connect.row.checking");
                 }
 
                 // Another account's radio — the only case where naming the
@@ -2377,70 +2401,92 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// The SmartLink accounts holding a live session at this instant.
-        ///
-        /// <para>This is the honest test behind #340. A saved account is not a
-        /// dialled one: the presence layer holds a session per silently-signable
-        /// account only once remote operation has been engaged, and an account
-        /// whose sign-in material has lapsed is skipped rather than churned. So
-        /// "we have an account for that radio" says nothing about whether we
-        /// have listened for it.</para>
-        ///
-        /// <para>Failure is answered with an EMPTY set, not with an exception
-        /// and not with a shrug: if the session table cannot be read, we
-        /// certainly cannot claim to have heard anything, and every affected row
-        /// falls back to saying we have not asked. Wrong in the safe direction.
-        /// </para>
+        /// Every held SmartLink session's account and radio list snapshot,
+        /// read ONCE (#1059): the one reader of the held lists, used by the
+        /// rows, the Network identity card, the replan of the rows' accounts
+        /// and the presence settle loop. <see cref="Read"/> is false when the
+        /// session table could not be read; each caller then gives its own
+        /// safe answer (see the members, and <see cref="ListsKey"/>).
         /// </summary>
-        private static HashSet<string> LiveSessionAccounts()
+        /// <remarks>
+        /// <para><b>Why one reader.</b> The merge of junk box batches 4 and 5
+        /// left two (<c>SessionListsNow</c> for the card and the replan's own
+        /// walk of the sessions), beside <c>LiveSessionAccounts</c> for the
+        /// rows: three readings of one table per repaint, each able to see a
+        /// different moment. The snapshot carries <c>SessionConnected</c>, the
+        /// same fact <c>IsConnected</c> gave, so nothing is lost by reading
+        /// only it.</para>
+        /// <para>A session with no account is kept, under "", because the
+        /// replan's change check compared it; the per-account views skip it,
+        /// as their predecessors did.</para>
+        /// </remarks>
+        internal readonly record struct HeldLists(
+            IReadOnlyList<(string Account, Radios.SmartLink.SessionRadioListSnapshot List)> Sessions, bool Read)
         {
-            var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try
+            /// <summary>The answer when the table could not be read.</summary>
+            public static HeldLists Unread { get; } =
+                new(Array.Empty<(string, Radios.SmartLink.SessionRadioListSnapshot)>(), false);
+
+            /// <summary>
+            /// The accounts holding a connected session (#340): whether
+            /// anything is in a position to hear from a radio at all. Empty
+            /// when unread: we certainly cannot claim to have heard anything,
+            /// and every affected row falls back to saying we have not asked.
+            /// </summary>
+            public HashSet<string> LiveAccounts() => Accounts(l => l.SessionConnected);
+
+            /// <summary>
+            /// The accounts whose session has ANSWERED: connected, and its list
+            /// arrived on that live connection (#1059; the predicate the card's
+            /// <see cref="Radios.NetworkIdentityInfo.SmartLinkAnsweredWithout"/>
+            /// and the plan's "every saved list has answered" use). A session
+            /// is connected before its first list, and again after every
+            /// reconnect until the new list lands. Empty when unread.
+            /// </summary>
+            public HashSet<string> AnsweredAccounts() =>
+                Accounts(l => l.SessionConnected && l.ArrivedOnTheLiveConnection);
+
+            /// <summary>
+            /// Each named account's list, for the card's answered-without test
+            /// (#398, repair three). Empty when unread, so nothing reads as
+            /// answered: wrong in the safe direction.
+            /// </summary>
+            public List<(string Account, Radios.SmartLink.SessionRadioListSnapshot List)> NamedLists() =>
+                Sessions.Where(x => !string.IsNullOrWhiteSpace(x.Account)).ToList();
+
+            private HashSet<string> Accounts(Func<Radios.SmartLink.SessionRadioListSnapshot, bool> keep)
             {
-                foreach (var session in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
-                {
-                    if (session != null && session.IsConnected
-                        && !string.IsNullOrWhiteSpace(session.AccountId))
-                    {
-                        live.Add(session.AccountId);
-                    }
-                }
+                var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (account, list) in Sessions)
+                    if (!string.IsNullOrWhiteSpace(account) && keep(list)) set.Add(account);
+                return set;
             }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine($"RigSelector.LiveSessionAccounts: {ex.Message}",
-                    System.Diagnostics.TraceLevel.Warning);
-            }
-            return live;
         }
 
         /// <summary>
-        /// Every held session's account and radio list snapshot, read once
-        /// (#398, repair three). The snapshot carries whether the list arrived
-        /// on the session's live connection, which a bare
-        /// <c>IsConnected</c> does not: a session is connected before its
-        /// first list. Failure answers with an EMPTY set, so nothing reads as
-        /// answered: wrong in the safe direction, as
-        /// <see cref="LiveSessionAccounts"/> is.
+        /// Read the held lists once (<see cref="HeldLists"/>). Takes the
+        /// session coordinator's lock, so callers ask it outside
+        /// <c>_radiosLock</c>. Failure answers <see cref="HeldLists.Unread"/>,
+        /// never a partial reading.
         /// </summary>
-        private static List<(string Account, Radios.SmartLink.SessionRadioListSnapshot List)> SessionListsNow()
+        internal static HeldLists ReadHeldLists()
         {
-            var lists = new List<(string Account, Radios.SmartLink.SessionRadioListSnapshot List)>();
+            var sessions = new List<(string Account, Radios.SmartLink.SessionRadioListSnapshot List)>();
             try
             {
                 foreach (var session in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
                 {
-                    if (session == null || string.IsNullOrWhiteSpace(session.AccountId)) continue;
-                    lists.Add((session.AccountId, session.RadioListSnapshot));
+                    if (session == null) continue;
+                    sessions.Add((session.AccountId ?? "", session.RadioListSnapshot));
                 }
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine($"RigSelector.SessionListsNow: {ex.Message}",
+                Tracing.TraceLine($"RigSelector.ReadHeldLists: {ex.Message}",
                     System.Diagnostics.TraceLevel.Warning);
-                lists.Clear();
+                return HeldLists.Unread;
             }
-            return lists;
+            return new HeldLists(sessions, true);
         }
 
         /// <summary>
@@ -2475,29 +2521,14 @@ namespace JJFlexWpf.Dialogs
         /// often, never once too few. If the sessions cannot be read the rows
         /// are asked every time.</para>
         /// </remarks>
-        private Dictionary<string, (string Account, bool RuledOut)> ReplanRowAccountsIfTheListsMoved()
+        private Dictionary<string, (string Account, bool RuledOut)> ReplanRowAccountsIfTheListsMoved(HeldLists lists)
         {
             var answers = new Dictionary<string, (string Account, bool RuledOut)>(StringComparer.OrdinalIgnoreCase);
 
-            List<object>? now = new();
-            try
-            {
-                foreach (var session in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
-                {
-                    if (session == null) continue;
-                    now.Add(session.AccountId ?? "");
-                    now.Add(session.RadioListSnapshot);
-                }
-                foreach (var account in Radios.FlexBase.SharedAccountManager.Accounts)
-                    now.Add(account?.Email ?? "");
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine($"RigSelector.ReplanRowAccountsIfTheListsMoved: {ex.Message}",
-                    System.Diagnostics.TraceLevel.Warning);
-                now = null;
-            }
-            if (now != null && _rowAccountsAskedAt != null && now.SequenceEqual(_rowAccountsAskedAt))
+            // The change check, on the one reading (#1059). An unread table
+            // has no key, which reads as moved: this caller's safe answer.
+            List<object>? now = ListsKey(lists);
+            if (!ListsMovedSince(now, _rowAccountsAskedAt))
                 return answers;
 
             List<string> serials;
@@ -2518,6 +2549,42 @@ namespace JJFlexWpf.Dialogs
             _rowAccountsAskedAt = now;
             return answers;
         }
+
+        /// <summary>
+        /// What the replan compares (#405 repair three): every held session's
+        /// account and whole list snapshot, then the saved accounts. Null when
+        /// either could not be read, which reads as moved, so the rows are
+        /// asked every time (that caller's safe answer: asked once too often,
+        /// never once too few). From the one reading (#1059).
+        /// </summary>
+        internal static List<object>? ListsKey(HeldLists lists)
+        {
+            if (!lists.Read) return null;
+            var key = new List<object>();
+            foreach (var (account, list) in lists.Sessions)
+            {
+                key.Add(account);
+                key.Add(list);
+            }
+            try
+            {
+                foreach (var account in Radios.FlexBase.SharedAccountManager.Accounts)
+                    key.Add(account?.Email ?? "");
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RigSelector.ListsKey: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return null;
+            }
+            return key;
+        }
+
+        /// <summary>The replan's change check: moved unless both readings
+        /// exist and are equal, element by element, by each snapshot's own
+        /// equality.</summary>
+        internal static bool ListsMovedSince(List<object>? now, List<object>? askedAt) =>
+            now == null || askedAt == null || !now.SequenceEqual(askedAt);
 
         // ------------------------------------------------------------------
         // Presence engagement (#382) — the gate, and the window it opens
@@ -2669,10 +2736,13 @@ namespace JJFlexWpf.Dialogs
                 // reading it inside the predicate takes the coordinator's lock
                 // once per row for an answer that cannot change mid-loop in any
                 // way worth acting on.
-                var live = LiveSessionAccounts();
+                // ANSWERED, not merely signed in (#1059): a session is
+                // connected before its first list arrives, and the rows wait
+                // for that list, so the loop does too.
+                var answered = ReadHeldLists().AnsweredAccounts();
                 bool anyPending = RosterBoundAccounts().Any(a =>
                     Radios.SmartLink.SmartLinkPresenceService.IsHolding(a)
-                    && !live.Contains(a));
+                    && !answered.Contains(a));
                 if (!anyPending) break;
             }
 
@@ -2704,12 +2774,12 @@ namespace JJFlexWpf.Dialogs
             // own lock, and nothing that holds that lock ever wants the list
             // lock. Cheap enough to redo per refresh — a saved-account-sized
             // set built from a snapshot of at most a handful of sessions.
-            var liveAccounts = LiveSessionAccounts();
-
-            // ...and every session's list, read once, for the identity card's
-            // "has SmartLink answered without this radio" (#398, repair three).
-            // Outside _radiosLock for the same reason.
-            var sessionLists = SessionListsNow();
+            // The held lists, read ONCE per refresh (#1059): the rows' live
+            // accounts, the identity card's answered lists (#398, repair
+            // three) and the replan below all come from this one reading.
+            var heldLists = ReadHeldLists();
+            var liveAccounts = heldLists.LiveAccounts();
+            var sessionLists = heldLists.NamedLists();
 
             // Read the settle window ONCE per refresh, so every row in a single
             // repaint agrees about whether we are still waiting. Reading it per
@@ -2768,7 +2838,7 @@ namespace JJFlexWpf.Dialogs
             // "registered to" and Enter kept "uses account". Same resolver as
             // the paint, asked here OUTSIDE _radiosLock for the same reason:
             // it reads the radio's record and the held sessions.
-            var replanned = ReplanRowAccountsIfTheListsMoved();
+            var replanned = ReplanRowAccountsIfTheListsMoved(heldLists);
 
             // Occupancy for WAN rows no sighting has fed, from the same bank
             // that made them live. Field-proven gap (2026-08-30, trace 17:20):
@@ -2840,6 +2910,14 @@ namespace JJFlexWpf.Dialogs
                     // has answered nothing.
                     r.SmartLinkAnsweredWithoutIt =
                         Radios.NetworkIdentityInfo.SmartLinkAnsweredWithout(r.Serial, r.BoundAccount, sessionLists);
+                    // ...and the row reads that same fact (#1059): a bound
+                    // account that is signed in, where SmartLink has not yet
+                    // answered without the radio, has not answered, so the row
+                    // says it is checking, not that it has not heard.
+                    r.BoundAccountListPending =
+                        !string.IsNullOrWhiteSpace(r.BoundAccount)
+                        && liveAccounts.Contains(r.BoundAccount)
+                        && !r.SmartLinkAnsweredWithoutIt;
                     // ...and which account a SmartLink connect would broker
                     // through, when that is not the one in play — resolved
                     // above, outside this lock. Cleared for every row it does

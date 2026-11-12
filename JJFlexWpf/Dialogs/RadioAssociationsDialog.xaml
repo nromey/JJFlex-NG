@@ -26,7 +26,22 @@
 
         <ListBox x:Name="RadioList" Grid.Row="1" Margin="0,0,0,8"
                  AutomationProperties.Name="Known radios and their accounts"
-                 SelectionChanged="RadioList_SelectionChanged"/>
+                 SelectionChanged="RadioList_SelectionChanged">
+            <!-- One source for a row's printed text and its accessible name,
+                 through a binding that follows the row as the SmartLink lists
+                 move while this window is open (#405 repair one), as the radio
+                 list does (#1008). -->
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding DisplayText, Mode=OneWay}"/>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="AutomationProperties.Name" Value="{Binding DisplayText, Mode=OneWay}"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
+        </ListBox>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
             <Label Content="Connect _using:" Target="{Binding ElementName=AccountCombo}"

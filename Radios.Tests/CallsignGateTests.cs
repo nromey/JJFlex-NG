@@ -198,20 +198,134 @@ public sealed class CallsignGateTests : IDisposable
     }
 
     /// <summary>
-    /// In CW the same setter switches break-in, which is NOT refused tonight
-    /// (night question J4). Told apart by the TRANSMIT slice's mode, the one
-    /// answer the doors share.
+    /// In CW the same setter switches break-in, and turning it on with no
+    /// callsign is refused too (#335, ruled by Noel 2026-11-11 11:51, night
+    /// question J4): nothing queued and nothing sent. Turning it off never is,
+    /// and a callsign lets the same press through. Told apart from simple VOX
+    /// by the TRANSMIT slice's mode, the answer the doors share.
     /// </summary>
+    /// <remarks>Until J4 this test was <c>Break_in_on_a_CW_transmit_slice_is_not_refused</c>
+    /// and pinned the opposite, as the open question then required.</remarks>
     [Fact]
-    public void Break_in_on_a_CW_transmit_slice_is_not_refused()
+    public void Break_in_on_a_CW_transmit_slice_is_refused_and_off_is_not()
     {
         using var c = NoCallsign();
         Field(c.Tx, "_demodMode", "CW");
         Assert.False(c.F.Rig.VoxOnWouldTurnOnSimpleVox);
+        Assert.True(c.F.Rig.VoxOnWouldTurnOnBreakIn);
+        Assert.True(CallsignRefusalReached(c, () => c.F.Rig.Vox = FlexBase.OffOnValues.on));
+        Assert.Equal(0, c.F.Rig.q.Count);                 // nothing queued: refused at the setter
+        RunQueue(c);
+        Assert.Equal(0, Sent(c, "break_in 1"));
+        Assert.False(c.F.Vendor.Radio.CWBreakIn);
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+
+        // Off is never refused, even with no callsign.
+        c.F.Vendor.Radio.CWBreakIn = true;
+        c.F.Rig.Vox = FlexBase.OffOnValues.off;
+        Assert.Equal(1, c.F.Rig.q.Count);
+        RunQueue(c);
+        Assert.False(c.F.Vendor.Radio.CWBreakIn);
+
+        // Positive control: with a callsign the same press turns break-in on.
+        _call = FakeCall;
         c.F.Rig.Vox = FlexBase.OffOnValues.on;
         RunQueue(c);
         Assert.True(c.F.Vendor.Radio.CWBreakIn);
         Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+    }
+
+    /// <summary>
+    /// The two predicates are siblings: at most one is true, each from the
+    /// transmit slice's mode, and neither with no transmit slice.
+    /// </summary>
+    [Fact]
+    public void Simple_VOX_and_break_in_are_told_apart_by_the_transmit_slice()
+    {
+        using var c = NoCallsign();
+        Assert.True(c.F.Rig.VoxOnWouldTurnOnSimpleVox);
+        Assert.False(c.F.Rig.VoxOnWouldTurnOnBreakIn);
+        Field(c.Tx, "_demodMode", "CW");
+        Assert.False(c.F.Rig.VoxOnWouldTurnOnSimpleVox);
+        Assert.True(c.F.Rig.VoxOnWouldTurnOnBreakIn);
+        Assert.False(FlexBase.TurnsOnBreakIn(null!));
+        Field(c.F.Rig, "_TXVFO", -1);
+        Assert.False(c.F.Rig.VoxOnWouldTurnOnBreakIn);
+    }
+
+    /// <summary>
+    /// The callsign refusal comes first (the orchestrator's one rule for
+    /// #335): with a transmit reference armed, which refuses VOX on with its
+    /// own sentence, a press with no callsign hears the callsign sentence and
+    /// only that, in voice and in CW. Positive control: with a callsign the
+    /// reference's own refusal is still heard, so the reference really was
+    /// armed.
+    /// </summary>
+    [Theory]
+    [InlineData("USB")]
+    [InlineData("CW")]
+    public void The_callsign_refusal_comes_before_the_tone_and_reference_refusal(string mode)
+    {
+        using var c = NoCallsign();
+        Field(c.Tx, "_demodMode", mode);
+        var lease = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(VoxPauseOwner.Lease));
+        Field(c.F.Rig, "_referenceVoxLease", lease);
+        try
+        {
+            Assert.True(c.F.Rig.TxReferenceArmed);
+            // The callsign refusal is the one reached: its sentence is said
+            // (the throttle's stamp is how a test sees that), and the
+            // reference refusal, which returns before it, is not.
+            Assert.True(CallsignRefusalReached(c, () => c.F.Rig.Vox = FlexBase.OffOnValues.on));
+            Assert.Equal(0, c.F.Rig.q.Count);
+
+            _call = FakeCall;
+            // With a callsign the reference still refuses: nothing queued.
+            Assert.False(CallsignRefusalReached(c, () => c.F.Rig.Vox = FlexBase.OffOnValues.on));
+            Assert.Equal(0, c.F.Rig.q.Count);
+        }
+        finally { Field(c.F.Rig, "_referenceVoxLease", null!); }
+    }
+
+    /// <summary>
+    /// The VOX hold's restore puts back the radio's OWN break-in, and it is
+    /// never refused for a missing callsign: the radio's front panel is left
+    /// alone (J4). Its write does not come through the <see cref="FlexBase.Vox"/>
+    /// setter, which is the writer the gate stands on.
+    /// </summary>
+    [Fact]
+    public void The_hold_puts_the_radios_own_break_in_back_with_no_callsign()
+    {
+        using var c = NoCallsign();
+        Field(c.Tx, "_demodMode", "CW");
+        Field(c.F.Rig, "_IsConnected", true);
+        c.F.Vendor.Status("transmit break_in=1");
+        c.F.Vendor.Status($"interlock state=READY source=SW tx_client_handle=0x{Radios.Tests.StationConnect.RigOnVendorRadio.OurHandle:X8}");
+        Assert.True(c.F.Vendor.Radio.CWBreakIn);
+
+        var lease = c.F.Rig.VoxPauses.Acquire(FlexBase.VoxSetting.CwBreakIn);
+        Assert.NotNull(lease);
+        RunQueue(c);
+        Assert.False(c.F.Vendor.Radio.CWBreakIn);                  // the hold switched it off
+
+        Assert.True(lease!.Release(immediate: true));
+        Assert.True(c.F.Vendor.Radio.CWBreakIn);                   // ...and put the radio's own value back
+        Assert.True(Sent(c, "break_in 1") >= 1);
+        Assert.True(c.F.Rig.OperatorCallsignMissing);              // still no callsign: the restore was not asked
+    }
+
+    /// <summary>
+    /// Whether <paramref name="press"/> reached the no-callsign refusal and
+    /// said its sentence, read from the refusal's own throttle stamp (this
+    /// project's speech is silenced under test, so its history is empty).
+    /// </summary>
+    private static bool CallsignRefusalReached(RadioCase c, Action press)
+    {
+        var stamp = typeof(FlexBase).GetField("_lastNoCallsignSpokenMs",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        stamp.SetValue(c.F.Rig, 0L);
+        press();
+        return (long)stamp.GetValue(c.F.Rig)! != 0;
     }
 
     [Fact]
@@ -261,7 +375,10 @@ public sealed class CallsignGateTests : IDisposable
         Assert.Contains("if (RefusedForNoCallsign(\"CW typing\")) return false;", flex, StringComparison.Ordinal);
         string audio = Src("Radios/FlexBase.RemoteAudio.cs");
         Assert.Contains("if (RefusedForNoCallsign(\"a recording for VOX\")) return;", audio, StringComparison.Ordinal);
-        Assert.Contains("if (val && simpleVox && RefusedForNoCallsign(\"VOX\")) return;", flex, StringComparison.Ordinal);
+        // Both halves of VOX on (J8 and J4), asked before the tone refusal.
+        Assert.Contains("if (val && TurnsOnSimpleVox(s) && RefusedForNoCallsign(\"VOX\")) return;\n"
+            + "                if (val && TurnsOnBreakIn(s) && RefusedForNoCallsign(\"CW break-in\")) return;\n"
+            + "                if (val && (TxToneEngaged || TxReferenceArmed))", flex, StringComparison.Ordinal);
     }
 
     /// <summary>

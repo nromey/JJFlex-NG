@@ -252,6 +252,20 @@ Public Class PersonalData
         Public FineTuneStep As Integer = 100
 
         ''' <summary>
+        ''' The operator's own coarse step list in Hz (#346 part two, ruled by
+        ''' Noel 2026-11-09 20:39 and 2026-11-11 11:45). Nothing (the default,
+        ''' and every file written before this) means the starting list; it is
+        ''' edited in the list S opens and fed to Radios.TuningSteps, never kept
+        ''' as a second table.
+        ''' </summary>
+        Public CoarseStepList As Integer() = Nothing
+
+        ''' <summary>
+        ''' The operator's own fine step list in Hz; see CoarseStepList.
+        ''' </summary>
+        Public FineStepList As Integer() = Nothing
+
+        ''' <summary>
         ''' Validated UI mode. Returns Classic for unknown or not-yet-implemented values.
         ''' </summary>
         <XmlIgnore()> Friend Property CurrentUIMode As UIMode
@@ -392,6 +406,10 @@ Public Class PersonalData
             ' 5000 Hz and 100 Hz defaults over the operator's remembered steps.
             CoarseTuneStep = p.CoarseTuneStep
             FineTuneStep = p.FineTuneStep
+            ' ...and the step lists (#346 part two), for the same reason: an
+            ' Operators dialog save writes this copy back over the record.
+            CoarseStepList = If(p.CoarseStepList Is Nothing, Nothing, CType(p.CoarseStepList.Clone(), Integer()))
+            FineStepList = If(p.FineStepList Is Nothing, Nothing, CType(p.FineStepList.Clone(), Integer()))
         End Sub
         Friend Sub New(p As personal)
             fileName = p.fileName

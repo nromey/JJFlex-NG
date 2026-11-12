@@ -61,6 +61,9 @@ namespace Radios.Tests
                 object original = Activator.CreateInstance(record)!;
                 record.GetField("CoarseTuneStep", any)!.SetValue(original, 2500);
                 record.GetField("FineTuneStep", any)!.SetValue(original, 10);
+                // ...and the step lists (#346 part two).
+                record.GetField("CoarseStepList", any)!.SetValue(original, new[] { 250, 3000 });
+                record.GetField("FineStepList", any)!.SetValue(original, new[] { 2, 20 });
                 // Positive control that the fields are read: a field the
                 // constructor has always copied survives too.
                 record.GetField("callSign", any)!.SetValue(original, "N0CALL");
@@ -72,6 +75,11 @@ namespace Radios.Tests
                 Assert.Equal("N0CALL", record.GetField("callSign", any)!.GetValue(edited));
                 Assert.Equal(2500, record.GetField("CoarseTuneStep", any)!.GetValue(edited));
                 Assert.Equal(10, record.GetField("FineTuneStep", any)!.GetValue(edited));
+                Assert.Equal(new[] { 250, 3000 }, (int[])record.GetField("CoarseStepList", any)!.GetValue(edited)!);
+                Assert.Equal(new[] { 2, 20 }, (int[])record.GetField("FineStepList", any)!.GetValue(edited)!);
+                // A copy, not the same array: editing one must not edit the other.
+                Assert.NotSame(record.GetField("CoarseStepList", any)!.GetValue(original),
+                    record.GetField("CoarseStepList", any)!.GetValue(edited));
             }
             finally
             {

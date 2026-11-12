@@ -1,0 +1,1 @@
+- The receipt for Ask Me at the Next Connect now explains that the profile question waits while radio setup protection is on.

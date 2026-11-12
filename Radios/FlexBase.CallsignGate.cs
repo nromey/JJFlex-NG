@@ -95,16 +95,37 @@ namespace Radios
         /// The selected slice's mode (<see cref="Mode"/>) is NOT this answer:
         /// with a CW slice selected and an SSB transmit slice, or the reverse,
         /// it disagrees with what the setter writes.</para>
-        /// <para>Break-in is not refused for a missing callsign tonight: that is
-        /// night question J4, unruled.</para>
+        /// <para>Break-in is its sibling, <see cref="VoxOnWouldTurnOnBreakIn"/>:
+        /// both are refused with no callsign (J8 for VOX, J4 for break-in), and
+        /// every door asks both. They are kept as two answers, not merged into
+        /// one, because the trace names which of the two was refused.</para>
         /// </remarks>
         public bool VoxOnWouldTurnOnSimpleVox => TurnsOnSimpleVox(VFOToSlice(TXVFO));
+
+        /// <summary>
+        /// Whether turning VOX on now would turn the radio's CW BREAK-IN on
+        /// (#335, ruled by Noel 2026-11-11 11:51, night question J4): true when
+        /// the TRANSMIT slice is in CW, where the same control switches
+        /// break-in. False with no transmit slice. The sibling of
+        /// <see cref="VoxOnWouldTurnOnSimpleVox"/>; at most one of the two is
+        /// true, and the setter and every door ask both.
+        /// </summary>
+        /// <remarks>Only JJ Flexible's own press is refused. The radio's front
+        /// panel is left alone, and VoxHold's restore, which puts back the
+        /// radio's OWN break-in, writes the radio directly and is never
+        /// refused.</remarks>
+        public bool VoxOnWouldTurnOnBreakIn => TurnsOnBreakIn(VFOToSlice(TXVFO));
 
         /// <summary>The decision, given the transmit slice: simple VOX unless
         /// there is none or it is in CW. Pure, so the setter and the property
         /// cannot tell the two apart differently.</summary>
         internal static bool TurnsOnSimpleVox(Flex.Smoothlake.FlexLib.Slice txSlice)
             => txSlice != null && txSlice.DemodMode != "CW";
+
+        /// <summary>The break-in decision, given the transmit slice: a CW
+        /// transmit slice. Pure, like <see cref="TurnsOnSimpleVox"/>.</summary>
+        internal static bool TurnsOnBreakIn(Flex.Smoothlake.FlexLib.Slice txSlice)
+            => txSlice != null && txSlice.DemodMode == "CW";
 
         private long _lastNoCallsignSpokenMs;
 

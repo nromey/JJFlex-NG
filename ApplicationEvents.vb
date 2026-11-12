@@ -330,8 +330,26 @@ Namespace My
                 Function(record)
                     Dim op = DirectCast(record, PersonalData.personal_v1)
                     Return (op.CoarseTuneStep, op.FineTuneStep)
-                End Function)
+                End Function,
+                Sub(record, coarseList, fineList)
+                    Dim op = DirectCast(record, PersonalData.personal_v1)
+                    op.CoarseStepList = coarseList
+                    op.FineStepList = fineList
+                End Sub)
             WpfMainWindow.StepMemory = _stepMemory
+
+            ' #346 part two: the operator's own step lists FEED the one table
+            ' the ladder keys, the S picker and Settings read. Asked at every
+            ' read, so the operator now current is always the one used, with or
+            ' without a radio; Nothing means the starting list.
+            Radios.TuningSteps.OperatorCoarse =
+                Function() As IReadOnlyList(Of Integer)
+                    Return If(CurrentOp Is Nothing, Nothing, CurrentOp.CoarseStepList)
+                End Function
+            Radios.TuningSteps.OperatorFine =
+                Function() As IReadOnlyList(Of Integer)
+                    Return If(CurrentOp Is Nothing, Nothing, CurrentOp.FineStepList)
+                End Function
 
             ' Run VB-side initialization (moved from Form1_Load).
             ' Note: MigrateConfigFiles runs inside InitializeApplication before openTheRadio
