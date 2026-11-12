@@ -1,0 +1,1 @@
+- Your keyer speed now has its own field in Settings, under Tuning; I've kept it separate from the CW notification speed.

@@ -1,0 +1,1 @@
+- The explanation before Save Station Setup to Radio now has a “Don't show this explanation again” checkbox; after you check it and choose Save to radio, later saves skip the explanation. You can restore it in Settings, under Notifications, from Messages You Have Silenced.

@@ -1,0 +1,1 @@
+- A push to talk hold in a dialog now stays released when that dialog closes or loses focus, even if your screen reader repeats the held key.

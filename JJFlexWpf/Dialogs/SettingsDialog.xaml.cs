@@ -26,7 +26,7 @@ namespace JJFlexWpf.Dialogs
         public FlexBase? Rig
         {
             get => _rig;
-            set { _rig = value; RefreshNetworkTabFromRig(); RefreshRadioSetupTab(); RefreshAudioTabFromRig(); }
+            set { _rig = value; RefreshNetworkTabFromRig(); RefreshRadioSetupTab(); RefreshAudioTabFromRig(); RefreshKeyerSpeedFromRig(); }
         }
 
         /// <summary>
@@ -230,6 +230,9 @@ namespace JJFlexWpf.Dialogs
             // The mode cycle: Notifications tab, Mode Cycle. See SettingsDialog.ModeCycle.cs.
             InitializeModeCycle();
 
+            // The keyer speed (#879): Tuning tab. See SettingsDialog.KeyerSpeed.cs.
+            InitializeKeyerSpeed();
+
             // The reflected cut's full explanation is Ctrl+F1, on demand —
             // NOT AutomationProperties.HelpText, which NVDA recites as the
             // control's description on every focus (#91).
@@ -324,6 +327,12 @@ namespace JJFlexWpf.Dialogs
             FreqUnitsCombo.Items.Add(Lexicon.Get("settings.tuning.frequency_units_kilohertz"));
             FreqUnitsCombo.Items.Add(Lexicon.Get("settings.tuning.frequency_units_megahertz"));
             FreqUnitsCombo.SelectedIndex = (int)_pttConfig.FrequencyDisplayUnits;
+
+            // One switch for "hertz" on spoken filter widths (#979), worded by Codex.
+            FilterUnitsCheckbox.Content = Lexicon.Get("settings.filter.units_label");
+            System.Windows.Automation.AutomationProperties.SetName(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_label"));
+            JJFlexHelp.SetText(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_help"));
+            FilterUnitsCheckbox.IsChecked = _audioConfig.FilterWidthUnits;
 
             // License tab — populate from LicenseConfig
             foreach (var (label, _) in LicenseClassMap)
@@ -1439,6 +1448,9 @@ namespace JJFlexWpf.Dialogs
                 return false;
             }
 
+            // The keyer speed (#879), validated with the rest before anything is written.
+            if (!ValidateKeyerSpeed()) return false;
+
             // Write back to PttConfig (Validate() will clamp)
             _pttConfig.TimeoutSeconds = timeout;
             _pttConfig.TuneReminderSeconds = tuneReminder;
@@ -1466,6 +1478,9 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.BandMemoryEnabled = BandMemoryEnabled;
             if (FreqUnitsCombo.SelectedIndex >= 0)
                 _pttConfig.FrequencyDisplayUnits = (Radios.FrequencyUnits)FreqUnitsCombo.SelectedIndex;
+            // #979: with the audio settings, so it is kept with no radio
+            // connected; made live by _audioConfig.Apply() below.
+            _audioConfig.FilterWidthUnits = FilterUnitsCheckbox.IsChecked != false;
 
             // Tuning debounce
             _audioConfig.TuneDebounceEnabled = TuneDebounceCheckbox.IsChecked == true;
@@ -1702,6 +1717,7 @@ namespace JJFlexWpf.Dialogs
             var refused = new List<string>(); // refused by the change-nothing hold: neither sent nor saved
             if (!CommitPortForwardIfDirty(queued, applied, refused)) return false;
             CommitSystemWideKeysIfDirty(applied);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
+            CommitKeyerSpeedIfChanged(queued, applied);   // #879: see SettingsDialog.KeyerSpeed.cs
 
             SettingsApplied?.Invoke();
 

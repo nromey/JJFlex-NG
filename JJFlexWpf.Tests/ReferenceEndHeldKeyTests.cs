@@ -384,12 +384,20 @@ public sealed class ReferenceEndHeldKeyTests : IDisposable
     /// Until 7h-3 that up dropped the dialog's window (the controller was no
     /// longer holding), and a window loss with the controller idle returned
     /// before anything cleared the latch. Driven through the door's own window
-    /// events. Then the latch is clear, and a new press keys.
+    /// events.
     /// </summary>
+    /// <remarks>
+    /// <b>Changed by #900.</b> This test used to assert that the window going
+    /// CLEARED the latch, and that the next down then keyed. Under JAWS that
+    /// next down is the same held key's re-down landing in the next window,
+    /// which is exactly #900: it keyed the radio again. Now the latch and the
+    /// filter's pending release stay, the re-down keys nothing, and the latch
+    /// ends at the release the filter confirms; a press after that keys.
+    /// </remarks>
     [Theory]
     [InlineData(true)]    // the dialog closes
     [InlineData(false)]   // the dialog loses focus to another window
-    public void A_dialog_going_after_the_app_ended_its_hold_takes_the_latch_with_it(bool closes)
+    public void A_dialog_going_after_the_app_ended_its_hold_keeps_the_latch_until_the_real_release(bool closes)
     {
         AssertTheDeskIsSafe();
         WireDialogDoor();
@@ -403,21 +411,29 @@ public sealed class ReferenceEndHeldKeyTests : IDisposable
         Assert.Same(w, DialogTransmitKeys.HoldWindow);   // the mutation: the up drops the window while the latch waits
 
         if (closes) w.Close(); else w.LoseFocus();
-        Assert.False(Latched, "the dialog went and the latch it left stayed");   // the mutation: window loss asks only whether the controller holds
-        Assert.False(_filter.ReleasePending);
-        Assert.Null(DialogTransmitKeys.HoldWindow);
+        Assert.True(Latched, "the dialog went and took the latch with it (#900)");
+        Assert.True(_filter.ReleasePending, "the window loss threw away the filter's reading of the key (#900)");
+        Assert.Null(DialogTransmitKeys.HoldWindow);   // the window stops listening all the same
         Assert.Equal(Idle, _controller.State);
 
-        Edge(true);                                    // a new press, anywhere: it keys
+        Edge(true);                                    // the reader's re-down, in the next window: keys nothing
+        Assert.Equal(Idle, _controller.State);
+        Edge(false);
+        DeferralRunsOut();                             // let go: the release is real
+        Assert.False(Latched);
+
+        Edge(true);                                    // a new press: it keys
         Assert.Equal(Hold, _controller.State);
     }
 
     /// <summary>
-    /// The window goes straight after the end, before any up: the latch goes
-    /// with it all the same.
+    /// The window goes straight after the end, before any up. Since #900 the
+    /// latch stays (it said the window took it, which let the same held key's
+    /// next re-down key the radio); a press the filter reads as fresh still
+    /// keys, and ends the latch.
     /// </summary>
     [Fact]
-    public void A_dialog_closing_right_at_the_end_takes_the_latch_with_it()
+    public void A_dialog_closing_right_at_the_end_keeps_the_latch_and_a_fresh_press_still_keys()
     {
         AssertTheDeskIsSafe();
         WireDialogDoor();
@@ -426,9 +442,10 @@ public sealed class ReferenceEndHeldKeyTests : IDisposable
         TheReferenceEndsAndTheAppLetsGo();
         Assert.True(Latched);
         w.Close();
-        Assert.False(Latched);
+        Assert.True(Latched);
         Assert.True(DialogTransmitKeys.KeyDown(new FakeWindow(), CtrlSpace, false, false));
         Assert.Equal(Hold, _controller.State);
+        Assert.False(Latched, "a fresh press ends the latch");
     }
 
     /// <summary>

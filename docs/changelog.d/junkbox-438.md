@@ -1,0 +1,1 @@
+- The Fix tool's report now shows your radio's firmware version without the misleading “Firmware this app expects” line.

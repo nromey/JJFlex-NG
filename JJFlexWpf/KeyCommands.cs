@@ -509,11 +509,11 @@ public class KeyCommands
                 "Switch to FM mode", "FM", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "fm", "frequency", "modulation", "repeater" }, ShortActionLabel = "switch to F M" },
             new(CommandValues.ModeDIGU, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGU"),
-                "Switch to DIGU mode", "DIGU", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "digu", "digital", "upper", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital upper" },
+                "Switch to digital USB", "DIGU", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "digu", "digital", "usb", "upper", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital USB" },
             new(CommandValues.ModeDIGL, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGL"),
-                "Switch to DIGL mode", "DIGL", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "digl", "digital", "lower", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital lower" },
+                "Switch to digital LSB", "DIGL", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "digl", "digital", "lsb", "lower", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital LSB" },
 
             // ── TX Filter ──
             new(CommandValues.TXFilterLowDown, KeyTypes.Command, TXFilterLowDownHandler,
@@ -1253,12 +1253,12 @@ public class KeyCommands
     // write, in their own words when it took the step as asked.
     private static void SayTxLowMoved(Radios.FilterApplied applied)
         => Radios.ScreenReaderOutput.Speak(Radios.FilterReadouts.Tx(applied,
-            (l, h) => Radios.Lexicon.Get("audio.tx_filter.low_moved", ("newLow", l), ("width", h - l)),
+            (l, h) => Radios.Lexicon.Get("audio.tx_filter.low_moved", ("newLow", l), ("width", Radios.HertzSpeech.WholeHertz(h - l))),
             Radios.ScreenReaderOutput.CurrentVerbosity), Radios.VerbosityLevel.Terse);
 
     private static void SayTxHighMoved(Radios.FilterApplied applied)
         => Radios.ScreenReaderOutput.Speak(Radios.FilterReadouts.Tx(applied,
-            (l, h) => Radios.Lexicon.Get("audio.tx_filter.high_moved", ("newHigh", h), ("width", h - l)),
+            (l, h) => Radios.Lexicon.Get("audio.tx_filter.high_moved", ("newHigh", h), ("width", Radios.HertzSpeech.WholeHertz(h - l))),
             Radios.ScreenReaderOutput.CurrentVerbosity), Radios.VerbosityLevel.Terse);
 
     private void SpeakTXFilterHandler() => SpeakTXFilterWidth();

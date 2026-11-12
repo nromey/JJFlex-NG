@@ -84,8 +84,10 @@ namespace JJFlexWpf;
 /// modifiers are doing by then; the keyed window losing activation; the keyed
 /// window closing. A key-up goes through the ordinary edge, which may defer
 /// it while a screen reader's synthetic pairs are being absorbed. Window loss
-/// is not a key-up: it goes through <see cref="ReleaseNow"/>, which drops the
-/// deferral and unkeys immediately. The window stays subscribed until the
+/// is not a key-up: it goes through <see cref="ReleaseNow"/>, which unkeys
+/// immediately and (since #900) latches the hold it ended, so the same held
+/// key's next synthetic down in another window keys nothing until the hold
+/// filter confirms a real release. The window stays subscribed until the
 /// controller has actually left the hold, not merely until the first key-up;
 /// when a deferred release finally runs, MainWindow's timer calls
 /// <see cref="HoldReleased"/> and the subscriptions go (repair round two,
@@ -189,7 +191,11 @@ internal static class DialogTransmitKeys
     /// <summary>Escape while transmitting: unkey through the controller, as Home's step 3 does. True when it unkeyed.</summary>
     internal static Func<bool>? EscapeUnkey { get; set; }
 
-    /// <summary>The keyed window is gone or lost focus: unkey NOW, dropping any deferred release.</summary>
+    /// <summary>
+    /// The keyed window is gone or lost focus: unkey NOW. MainWindow latches
+    /// the hold it ends, keeping the hold filter's reading of the key, so the
+    /// same held key's next synthetic down in another window keys nothing (#900).
+    /// </summary>
     internal static Action? ReleaseNow { get; set; }
 
     /// <summary>An Audio Check session is active, in any phase, and owns the transmitter.</summary>
@@ -351,7 +357,10 @@ internal static class DialogTransmitKeys
     /// Whether the hold in flight is really this door's is MainWindow's
     /// question, answered inside <see cref="ReleaseNow"/>. A hold the app has
     /// already ended, whose latch still waits for a release, goes the same way
-    /// (round five repair, 7h-3): the release can no longer come through here.
+    /// (round five repair, 7h-3): the release can no longer come through here,
+    /// so the window stops listening. Since #900 MainWindow keeps that latch,
+    /// and latches a hold this ends, until the hold filter confirms a real
+    /// release wherever the key's next edges land.
     /// </summary>
     internal static void HoldWindowLost(string why)
     {

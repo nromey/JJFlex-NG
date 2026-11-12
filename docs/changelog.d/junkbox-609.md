@@ -1,0 +1,1 @@
+- The equalizer window now explains that you can try adjustments before pressing Finished, with the equalizer switched on.

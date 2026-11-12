@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Radios;
 using Xunit;
 
@@ -121,7 +122,196 @@ namespace Radios.Tests
             Assert.Equal(SystemWidePttWatch.Verdict.Quiet, w.Poll(justUnder, physicallyDown: true, controllerHolding: true));
             Assert.Equal(SystemWidePttWatch.Verdict.KillHoldTooLong,
                 w.Poll(SystemWidePttWatch.MaxHoldMs, physicallyDown: true, controllerHolding: true));
-            Assert.Equal(PttConfig.HardKillSeconds * 1000, SystemWidePttWatch.MaxHoldMs);
+            // #1020: this pinned the ceiling AT the controller's limit, which
+            // made the two kills race once the controller had a limit of its
+            // own for a held key. It now sits a grace beyond it, so in a
+            // working window the controller always gets there first.
+            Assert.Equal(PttConfig.HardKillSeconds * 1000 + SystemWidePttWatch.ReleaseGraceMs, SystemWidePttWatch.MaxHoldMs);
+        }
+
+        // ── #1020: one hold, counted from its first press; one kill ──
+
+        /// <summary>
+        /// A JAWS hold as the hook sees it: a first gap at the repeat delay,
+        /// then a synthetic up and down every 250 ms, polled in between.
+        /// Returns the first verdict that is not Quiet, and when.
+        /// </summary>
+        /// <remarks>
+        /// This ordering (UP, then DOWN a millisecond later) leaves the watch
+        /// HELD through each long interval. The opposite ordering, DOWN then
+        /// UP, leaves it in a posted release instead, and is replayed at every
+        /// poll phase by <see cref="DownUpReplay"/> below (#1020 repair one):
+        /// this helper alone could not see the ceiling missed there.
+        /// </remarks>
+        private static (SystemWidePttWatch.Verdict Verdict, long At) JawsHold(SystemWidePttWatch w, long untilMs, System.Func<long, bool> controllerHolding)
+        {
+            long t = 0;
+            w.NoteDown(t);
+            long nextPair = 512;
+            while (t < untilMs)
+            {
+                t += Poll;
+                if (t >= nextPair)
+                {
+                    w.NoteUp(t);            // the synthetic up
+                    w.NoteDown(t + 1);      // and its down, almost at once
+                    nextPair = t + 250;
+                }
+                var v = w.Poll(t + 2, physicallyDown: true, controllerHolding(t));
+                if (v != SystemWidePttWatch.Verdict.Quiet) return (v, t);
+            }
+            return (SystemWidePttWatch.Verdict.Quiet, t);
+        }
+
+        [Fact]
+        public void A_jaws_hold_reaches_the_ceiling_counted_from_its_first_press()
+        {
+            // The 2026-11-08 checker's replay: a down every 250 ms for sixteen
+            // minutes gave no verdict, because every down restamped the hold.
+            var w = new SystemWidePttWatch();
+            var (verdict, at) = JawsHold(w, 16 * 60_000, _ => true);
+            Assert.Equal(SystemWidePttWatch.Verdict.KillHoldTooLong, verdict);
+            Assert.InRange(at, SystemWidePttWatch.MaxHoldMs - Poll, SystemWidePttWatch.MaxHoldMs + 300);
+        }
+
+        [Fact]
+        public void A_hold_the_controller_has_already_ended_is_not_killed_a_second_time()
+        {
+            // One hold, one kill: the controller ends a held key at its own
+            // limit, and the key may well still be down (the operator's hand,
+            // or JAWS's pairs going on). The watch must neither unkey nor
+            // speak for it.
+            long controllerKilledAt = PttConfig.HardKillSeconds * 1000L;
+            var w = new SystemWidePttWatch();
+            var (verdict, _) = JawsHold(w, 20 * 60_000, t => t < controllerKilledAt);
+            Assert.Equal(SystemWidePttWatch.Verdict.Quiet, verdict);
+            Assert.True(w.Busy, "the key is still held; the watch still watches it");
+
+            // The control: a frozen window, where the controller cannot end it.
+            var frozen = new SystemWidePttWatch();
+            Assert.Equal(SystemWidePttWatch.Verdict.KillHoldTooLong, JawsHold(frozen, 20 * 60_000, _ => true).Verdict);
+        }
+
+        [Fact]
+        public void A_gap_as_long_as_the_absorbers_longest_bridge_starts_a_new_hold()
+        {
+            var w = new SystemWidePttWatch();
+            w.NoteDown(0);
+            w.NoteUp(10 * 60_000);
+            // Just inside the bridge: the same hold, so the ceiling is still ten minutes away from the first press.
+            var same = new SystemWidePttWatch();
+            same.NoteDown(0);
+            same.NoteUp(10 * 60_000);
+            same.NoteDown(10 * 60_000 + PttHoldSpan.ContinuesWithinMs - 1);
+            Assert.Equal(SystemWidePttWatch.Verdict.KillHoldTooLong,
+                same.Poll(SystemWidePttWatch.MaxHoldMs, physicallyDown: true, controllerHolding: true));
+            // At the bridge: a new hold, counted afresh.
+            w.NoteDown(10 * 60_000 + PttHoldSpan.ContinuesWithinMs);
+            Assert.Equal(SystemWidePttWatch.Verdict.Quiet,
+                w.Poll(SystemWidePttWatch.MaxHoldMs, physicallyDown: true, controllerHolding: true));
+            Assert.Equal(PttHoldFilter.MaxFirstGapDeferMs, PttHoldSpan.ContinuesWithinMs);
+        }
+
+        // ── #1020 repair one: DOWN-then-UP pairs, polled at every phase ──
+
+        /// <summary>
+        /// A held key delivered as synthetic DOWN-then-UP pairs: the genuine
+        /// press at <paramref name="startMs"/>, the first synthetic up at the
+        /// repeat delay (512 ms), then a down every 250 ms with its up 1 ms
+        /// after it, until <paramref name="endMs"/>. Between pairs the watch
+        /// sits in a posted release, which is where the ceiling was missed.
+        /// </summary>
+        private static List<(long At, bool Down)> DownUpPairs(long startMs, long endMs)
+        {
+            var events = new List<(long, bool)> { (startMs, true), (startMs + 512, false) };
+            for (long t = startMs + 762; t < endMs; t += 250)
+            {
+                events.Add((t, true));
+                events.Add((t + 1, false));
+            }
+            return events;
+        }
+
+        /// <summary>
+        /// Replays hook edges and polls every <see cref="Poll"/> ms starting at
+        /// <paramref name="phaseMs"/>; an edge at or before a poll's time is
+        /// delivered first. The key reads physically down only inside a pair.
+        /// Returns the first verdict that is not Quiet, and when.
+        /// </summary>
+        private static (SystemWidePttWatch.Verdict Verdict, long At) DownUpReplay(
+            SystemWidePttWatch w, List<(long At, bool Down)> events, int phaseMs, long untilMs,
+            System.Func<long, bool> controllerHolding)
+        {
+            int next = 0;
+            bool down = false;
+            for (long t = phaseMs; t < untilMs; t += Poll)
+            {
+                while (next < events.Count && events[next].At <= t)
+                {
+                    var e = events[next++];
+                    if (e.Down) w.NoteDown(e.At); else w.NoteUp(e.At);
+                    down = e.Down;
+                }
+                var v = w.Poll(t, physicallyDown: down, controllerHolding(t));
+                if (v != SystemWidePttWatch.Verdict.Quiet) return (v, t);
+            }
+            return (SystemWidePttWatch.Verdict.Quiet, untilMs);
+        }
+
+        [Fact]
+        public void A_frozen_window_under_down_then_up_pairs_reaches_the_ceiling_at_every_poll_phase()
+        {
+            // The 2026-11-11 check's replay: the window is frozen, so the
+            // controller reports the hold throughout, and the pairs go on for
+            // sixteen minutes. 49 phases of 50 used to reach no verdict at all.
+            var pairs = DownUpPairs(0, 16 * 60_000);
+            for (int phase = 0; phase < Poll; phase++)
+            {
+                var (verdict, at) = DownUpReplay(new SystemWidePttWatch(), pairs, phase, 16 * 60_000, _ => true);
+                Assert.True(verdict == SystemWidePttWatch.Verdict.KillHoldTooLong,
+                    "phase " + phase + ": " + verdict + " at " + at);
+                Assert.InRange(at, SystemWidePttWatch.MaxHoldMs, SystemWidePttWatch.MaxHoldMs + Poll - 1);
+            }
+        }
+
+        [Fact]
+        public void A_healthy_window_that_ended_the_hold_itself_is_not_killed_again_under_down_then_up_pairs()
+        {
+            // One hold, one kill: the controller ends the hold at its own
+            // limit and the pairs go on (the key is still held). The watch
+            // must say nothing at any phase, for five minutes past it.
+            long controllerEndedAt = PttConfig.HardKillSeconds * 1000L;
+            var pairs = DownUpPairs(0, 20 * 60_000);
+            for (int phase = 0; phase < Poll; phase++)
+            {
+                var (verdict, at) = DownUpReplay(new SystemWidePttWatch(), pairs, phase, 20 * 60_000,
+                    t => t < controllerEndedAt);
+                Assert.True(verdict == SystemWidePttWatch.Verdict.Quiet,
+                    "phase " + phase + ": " + verdict + " at " + at + " for a hold the controller had already ended");
+            }
+        }
+
+        [Fact]
+        public void A_real_release_ends_the_count_and_the_next_hold_gets_its_own_ceiling()
+        {
+            // Pairs for ten minutes, then the operator really lets go: the
+            // pairs stop and the controller honours the release after the
+            // absorber's deferral. Five seconds later a new hold starts, and
+            // then the window freezes. The new hold is killed at ITS first
+            // press plus the ceiling, never at the old one's.
+            long releasedAt = 10 * 60_000;
+            long honouredAt = releasedAt + 2_000;
+            long secondPress = releasedAt + 5_000;
+            var events = DownUpPairs(0, releasedAt);
+            events.AddRange(DownUpPairs(secondPress, secondPress + 16 * 60_000));
+            for (int phase = 0; phase < Poll; phase += 7)
+            {
+                var (verdict, at) = DownUpReplay(new SystemWidePttWatch(), events, phase, secondPress + 16 * 60_000,
+                    t => t < honouredAt || t >= secondPress);
+                Assert.True(verdict == SystemWidePttWatch.Verdict.KillHoldTooLong,
+                    "phase " + phase + ": " + verdict + " at " + at);
+                Assert.InRange(at, secondPress + SystemWidePttWatch.MaxHoldMs, secondPress + SystemWidePttWatch.MaxHoldMs + Poll - 1);
+            }
         }
 
         [Fact]

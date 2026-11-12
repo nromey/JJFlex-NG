@@ -1090,7 +1090,12 @@ namespace Radios.ChainChecks
             Line("Model", () => rig.RadioModel);
             Line("Serial number", () => rig.SelectedRadioSerial);
             Line("Firmware version", () => rig.RadioFirmwareVersion);
-            Line("Firmware this app expects", () => FlexBase.LibraryExpectedFirmwareVersion);
+            // No "Firmware this app expects" line (#438): it printed FlexLib's
+            // generated FirmwareRequiredVersion, a vendor constant that did not
+            // move when FlexLib 4.2.20 was vendored, directly under the radio's
+            // real firmware, where it read as a mismatch warning against the
+            // firmware this app ships for. The radio's own version is the fact a
+            // reader of this report needs.
             Line("Nickname", () => rig.RadioNickname);
             Line("Callsign", () => rig.RadioCallsign);
             Line("Connected", () => rig.IsConnected ? "yes" : "no");

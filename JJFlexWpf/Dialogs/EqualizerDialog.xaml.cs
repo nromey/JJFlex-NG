@@ -89,6 +89,8 @@ public partial class EqualizerDialog : JJFlexDialog
     public EqualizerDialog()
     {
         InitializeComponent();
+        // #609: worded by Codex 2026-11-11.
+        ChangesLiveNote.Text = Lexicon.Get("audio.eq.changes_live");
         Loaded += EqualizerDialog_Loaded;
     }
 

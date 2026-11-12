@@ -45,15 +45,21 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_key_held_too_long_still_drops_the_carrier_and_says_the_key_was_held()
+        public void A_key_held_too_long_still_drops_the_carrier_and_says_the_limit_was_reached()
         {
             string arm = Arm("KillHoldTooLong");
             Assert.Contains("KillTransmitNow(", arm);
-            Assert.Contains("Lexicon.Get(\"audio.ptt.systemwide_held_too_long\"", arm);
+            Assert.Contains("Lexicon.Get(\"audio.ptt.systemwide_held_too_long\")", arm);
 
-            string said = Lexicon.Get("audio.ptt.systemwide_held_too_long",
-                ("minutes", SystemWidePttWatch.MaxHoldMs / 60000));
-            Assert.Contains("was held for 15 minutes", said);
+            // Codex's words (2026-11-11). The old sentence said the key "was
+            // held for 15 minutes", which this test pinned; that is untrue for
+            // a key re-pressed inside the hold's bridge, which the watch still
+            // counts from the earlier press (#1020, N1). The sentence now says
+            // what the watch knows: the limit was reached and the key released.
+            string said = Lexicon.Get("audio.ptt.systemwide_held_too_long");
+            Assert.Equal("The push to talk time limit was reached. JJ Flexible Radio Access released its transmit key. "
+                         + "Let go of the key before pressing it again.", said);
+            Assert.DoesNotContain("was held for", said);
             Assert.DoesNotContain("not seen", said);
             Assert.DoesNotContain("{minutes}", said);
         }

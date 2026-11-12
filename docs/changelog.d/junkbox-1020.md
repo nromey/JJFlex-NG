@@ -1,0 +1,1 @@
+- A held push to talk now warns you 30, 15 and 5 seconds before its fifteen-minute limit, counted from the first press, then releases the transmit key.

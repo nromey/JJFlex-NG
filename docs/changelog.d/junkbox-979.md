@@ -1,0 +1,1 @@
+- Filter widths now include “hertz” by default: Terse says “500 hertz” where it previously said “500”. The new switch in Settings, under Tuning, turns that word off at every speech level and leaves Terse's “k” alone.

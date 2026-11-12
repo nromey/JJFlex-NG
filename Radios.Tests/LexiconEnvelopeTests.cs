@@ -1203,7 +1203,7 @@ namespace Radios.Tests
                 // watchdog's two spoken outcomes, replacing the one shared
                 // sentence (audio.ptt.systemwide_watchdog_unkeyed, retired) that
                 // was false on both. release_not_honoured is Noel's ruled
-                // sentence; held_too_long is DRAFT PROSE.
+                // sentence; held_too_long was worded by Codex 2026-11-11.
                 "audio.ptt.systemwide_release_not_honoured",
                 "audio.ptt.systemwide_held_too_long",
                 // Junk box 2026-11-08 (#911): push to talk or the lock refused
@@ -2869,6 +2869,31 @@ namespace Radios.Tests
                 // #1040: Check your audio did not start because Back up first did not
                 // finish. A PLACEHOLDER: Codex writes it; classified when written.
                 "audio.check.not_started_backup_unfinished",
+                // Junk box #879 (2026-11-11): the keyer speed field on the Tuning
+                // tab. The label is Noel's; the rest are worded by Codex.
+                "settings.keyer.speed_label",
+                "settings.keyer.speed_help",
+                "settings.keyer.speed_out_of_range",
+                "settings.keyer.speed_waits_for_radio",
+                "settings.keyer.speed_not_this_radio",
+                "settings.keyer.speed_ownership_unknown",
+                "settings.keyer.speed_not_saved",
+                // Junk box #979 (2026-11-11): one switch for the word hertz on
+                // spoken filter widths. Worded by Codex.
+                "settings.filter.width_named",
+                "settings.filter.units_label",
+                "settings.filter.units_help",
+                // Junk box #776 (2026-11-11): the silenced-messages label for the
+                // station save's explanation. Worded by Codex.
+                "settings.silenced.station_save",
+                // Junk box #609 (2026-11-11): the equalizer's one line. Worded by Codex.
+                "audio.eq.changes_live",
+                // Junk box #1020 (2026-11-11): a held push to talk's own warnings
+                // and limit outcome, worded by Codex; the lock keeps its own.
+                "audio.ptt.hold_limit_approaching",
+                "audio.ptt.hold_limit_soon",
+                "audio.ptt.hold_limit_ending",
+                "audio.ptt.hold_limit_released",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

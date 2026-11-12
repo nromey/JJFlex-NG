@@ -201,12 +201,18 @@ namespace Radios
         }
 
         /// <summary>
-        /// The firmware version the vendored FlexLib was built against.
+        /// The firmware version in the vendored FlexLib's generated
+        /// <c>FirmwareRequiredVersion</c>.
         ///
         /// FlexLib demands an <b>exact</b> match — `_version != _req_version` sets
-        /// UpdateRequired — so this is not a floor, it is a specific build. Ours is
-        /// pinned well behind current firmware, which is expected while main still
-        /// vendors the older FlexLib.
+        /// UpdateRequired — so this is not a floor, it is a specific build. It is
+        /// a vendor constant, NOT a statement of what this app needs: it reads
+        /// 3.3.32.8203 and did not move when main vendored FlexLib 4.2.20 on
+        /// 2026-08-11 (the file has one commit, the v4.0.1 drop). Do not read it
+        /// as "behind because main vendors an older FlexLib"; that was this
+        /// comment's explanation until #438 and stopped being true that day.
+        /// Radio Setup shows it framed as the library's; the Fixer report no
+        /// longer prints it.
         /// </summary>
         public static string LibraryExpectedFirmwareVersion
         {

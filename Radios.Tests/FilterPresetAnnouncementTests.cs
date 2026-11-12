@@ -39,7 +39,7 @@ namespace Radios.Tests
 
         [Theory]
         [InlineData(VerbosityLevel.Chatty, "Narrow, filter -125 to 125, width 250 hertz")]
-        [InlineData(VerbosityLevel.Terse, "Narrow, 250")]   // J30: Terse drops the unit under 1 kHz
+        [InlineData(VerbosityLevel.Terse, "Narrow, 250 hertz")]   // #979: units on by default; J30's bare "250" is the off form
         public void A_narrow_cw_preset(VerbosityLevel level, string heard)
             => Assert.Equal(heard, new FilterPreset("Narrow", -125, 125).Announcement("CW", level));
 

@@ -33,7 +33,7 @@ namespace Radios.Tests
 
         [Theory]
         [InlineData(VerbosityLevel.Chatty, "Example preset, mic gain 50, filter 300 to 800, width 500 hertz, tuned for MIC")]
-        [InlineData(VerbosityLevel.Terse, "Example preset, mic gain 50, filter 500, tuned for MIC")]
+        [InlineData(VerbosityLevel.Terse, "Example preset, mic gain 50, filter 500 hertz, tuned for MIC")]   // #979: units on by default
         public void A_narrow_preset_tuned_for_an_input(VerbosityLevel level, string heard)
             => Assert.Equal(heard, Preset(300, 800, "MIC").FormatForSpeech(level));
 
