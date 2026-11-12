@@ -210,7 +210,7 @@ public sealed class TunePressTests : IDisposable
         // rather than cutting it, and only on this route.
         string answer = Body(main, "private void AnnounceTuneWhenTheRadioAnswers()");
         Assert.Contains("bool tuneOnInterrupts = !_tuneAnswerFollowsLead;", answer);
-        Assert.Contains("(\"audio.tune.tune_on\"), VerbosityLevel.Terse, tuneOnInterrupts)", answer);
+        Assert.Contains("(\"audio.tune.tune_on\"), VerbosityLevel.Terse, tuneOnInterrupts,", answer);   // its owner follows (repair round 2)
     }
 
     [Fact]

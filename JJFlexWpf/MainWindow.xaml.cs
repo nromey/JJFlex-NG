@@ -4015,6 +4015,7 @@ public partial class MainWindow : UserControl
     private void ConnectionChanged(FlexBase rig)
     {
         if (!ReferenceEquals(rig, RigControl)) return;
+        if (!rig.IsConnected) TuneAnswers.Ended("the connection fell");   // #1127, repair round 2
         if (!rig.IsConnected) EndTuneAnswer("the connection fell");
         if (_sessionTitle.OwesNoRadioTitle(rig.IsConnected)) ShowNoRadioTitle();
     }
@@ -4641,6 +4642,7 @@ public partial class MainWindow : UserControl
 
         PollTimerEnabled = false;
         _radioPowerOn = false;
+        TuneAnswers.Ended("the radio's events were unwired");   // #1127, repair round 2
         EndTuneAnswer("the radio's events were unwired");
         StopWatchingConnection();
 
@@ -6564,6 +6566,7 @@ public partial class MainWindow : UserControl
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
 
+        TuneAnswers.Ended("the radio powered off");   // #1127, repair round 2
         EndTuneAnswer("the radio powered off");
 
         _radioPowerOn = false;
@@ -7308,6 +7311,8 @@ public partial class MainWindow : UserControl
         // have measured lying (1.008 off an open port, 2026-08-22).
         float capturedSwr = newState ? float.NaN : RigControl.TuneCycleSettledComputedSwr;
         RigControl.TxTune = newState;
+        // A new owner for what is said about this carrier (#1127, repair round 2).
+        if (newState) TuneAnswers.Started("a new tune carrier was asked for");
         // Plumbing only (#571, Astra B6): the carrier is RF, so the transmit
         // episode hears about it and an unheard off-air sentence is withdrawn
         // rather than replayed under it. The carrier is NOT held and keys
@@ -7329,6 +7334,8 @@ public partial class MainWindow : UserControl
     /// <summary>What a tune carrier going off says and sounds, from the toggle or from <see cref="TurnTuneCarrierOff"/>.</summary>
     private void TuneOffFeedback(float capturedSwr)
     {
+        // Whatever still says this carrier is up goes before "Tune off" (#1127, repair round 2).
+        TuneAnswers.Ended("tune off");
         EndTuneAnswer("tune off");
         // Stop ATU progress earcon in case auto-ATU started a tune cycle
         EarconPlayer.StopATUProgressEarcon();
@@ -7394,6 +7401,9 @@ public partial class MainWindow : UserControl
         // The tune key's carrier says its own sentence first (#1127), so its
         // "Tune on" waits behind it; from the toggle, "Tune on" is the lead.
         bool tuneOnInterrupts = !_tuneAnswerFollowsLead;
+        // The carrier this answer belongs to (repair round 2): its "Tune on" is
+        // never delivered once that carrier has ended or a later one started.
+        long carrier = TuneAnswers.Current;
         var waited = Stopwatch.StartNew();
         var answer = new Radios.TuneAnswerWatch(rig.ReadTuneStanding,
             () => ReferenceEquals(RigControl, rig) && _radioPowerOn && rig.IsConnected,
@@ -7412,7 +7422,9 @@ public partial class MainWindow : UserControl
             if (step == Radios.TuneWatchStep.Keyed)
             {
                 EndTuneAnswer("the tune keyed");
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, tuneOnInterrupts);
+                TuneAnswers.Keyed(carrier);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, tuneOnInterrupts,
+                    subject: Radios.Speech.SpeechSubject.TuneKeyed, stillValid: TuneAnswers.KeyedAnswerStillTrue(carrier));
             }
             else if (step == Radios.TuneWatchStep.NotKeyed)
             {
@@ -7435,6 +7447,12 @@ public partial class MainWindow : UserControl
         _tuneAnswerWatch?.Stop();
         _tuneAnswerWatch = null;
     }
+
+    private Radios.TuneCarrierAnswers? _tuneAnswers;
+
+    /// <summary>The owner of what is said about each tune carrier (#1127, repair round 2).</summary>
+    private Radios.TuneCarrierAnswers TuneAnswers =>
+        System.Threading.LazyInitializer.EnsureInitialized(ref _tuneAnswers, () => new Radios.TuneCarrierAnswers());
 
     /// <summary>
     /// This tune's question is over: stop waiting, and retire a not-keyed
@@ -7475,11 +7493,17 @@ public partial class MainWindow : UserControl
     /// own timer, which would say the cut reminder again after the carrier has
     /// gone. <see cref="TuneReminder.End"/> touches no UI.
     /// </summary>
-    private void TuneCarrierFellHandler() => _tuneReminder.End("the radio dropping tune");
+    private void TuneCarrierFellHandler()
+    {
+        // Its "Tune on" too, by whatever road the carrier went (#1127, repair round 2).
+        TuneAnswers.RadioDropped("the radio dropping tune");
+        _tuneReminder.End("the radio dropping tune");
+    }
 
     /// <summary>At receive no carrier of ours is up, whoever ended it. As above, on the event's own thread.</summary>
     private void TuneReminderTransmitEdge(object sender, bool transmit)
     {
+        if (!transmit) TuneAnswers.RadioDropped("the radio going to receive");   // #1127, repair round 2
         if (!transmit) _tuneReminder.End("the radio going to receive");
     }
 
@@ -7566,6 +7590,7 @@ public partial class MainWindow : UserControl
         // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
+        TuneAnswers.Started("an ATU tune was asked for");   // a carrier too (#1127, repair round 2)
         _pttController?.NoteAtuTuning(true);   // #571, Astra B6: an ATU cycle is RF; see ToggleTuneCarrier
         Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_tuning"), VerbosityLevel.Terse, true,
             subject: Radios.Speech.SpeechSubject.TunePressSent);
