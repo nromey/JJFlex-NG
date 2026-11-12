@@ -382,8 +382,22 @@ public partial class ScreenFieldsPanel
     /// the expander at this engine (or at Side for none), with Advanced
     /// revealed when asked, and put focus there.
     /// </summary>
+    /// <remarks>
+    /// <b>Focus waits for layout (Track E follow-up E3, ruled S11).</b> After
+    /// the Audio menu's "Advanced settings..." focus stayed on the frequency
+    /// display (the Track S walk). The focus was asked for at Normal priority,
+    /// before the expander had laid out the fields this call had just built:
+    /// a new field is not yet visible to WPF then, and Focus() on it simply
+    /// fails, leaving focus where <see cref="MainWindow.FocusHome"/> put it.
+    /// Now the panel is shown if the operator had hidden it (as
+    /// <see cref="ToggleCategory"/> does), and focus is asked for at Loaded
+    /// priority after a layout pass, with one more try at idle; a focus that
+    /// still does not land is traced. Not verifiable without a window: the
+    /// live check is the orchestrator's, with jjprobe.
+    /// </remarks>
     public void OpenNoise(string? engineId, bool advanced)
     {
+        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         DspExpander.IsExpanded = true;
         var noise = NoiseCtl;
         if (noise == null) return;
@@ -394,18 +408,45 @@ public partial class ScreenFieldsPanel
             finally { _noiseRebuilding = false; }
             if (advanced && !noise.IsAdvanced(engineId)) noise.SetAdvanced(engineId, true);
             ShowNoiseSide(engineId);
-            Dispatcher.BeginInvoke(() => (advanced && _noiseAdvancedLevers.Children.Count > 0
-                ? (UIElement)_noiseAdvancedLevers.Children[0] : _noiseEngine).Focus());
+            FocusNoiseWhenLaidOut(() => NoiseOpenTarget(advanced, _noiseAdvancedLevers, _noiseEngine), advanced ? "the first Advanced lever" : "Engine");
             return;
         }
         if (engineId != null)
         {
             // A blanker or notch: those fields stay below, as they were.
-            Dispatcher.BeginInvoke(() => _nbCheck.Focus());
+            FocusNoiseWhenLaidOut(() => _nbCheck, "Noise Blanker");
             return;
         }
         ShowNoiseSide(selectEngine: null);
-        Dispatcher.BeginInvoke(() => _noiseSide.Focus());
+        FocusNoiseWhenLaidOut(() => _noiseSide, "Side");
+    }
+
+    /// <summary>
+    /// Where opening an engine's fields lands: its first Advanced lever when
+    /// Advanced was asked for and it has one, otherwise the Engine field.
+    /// </summary>
+    internal static UIElement NoiseOpenTarget(bool advanced, Panel advancedLevers, UIElement engine) =>
+        advanced && advancedLevers.Children.Count > 0 ? advancedLevers.Children[0] : engine;
+
+    /// <summary>
+    /// Focus a noise field once the panel has laid it out (E3): at Loaded
+    /// priority after a layout pass, then once more at idle, tracing a focus
+    /// that never lands. The target is read at each try, so a rebuild between
+    /// the two tries is followed.
+    /// </summary>
+    private void FocusNoiseWhenLaidOut(Func<UIElement?> target, string what)
+    {
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+        {
+            UpdateLayout();
+            if (target()?.Focus() == true) return;
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
+            {
+                bool landed = target()?.Focus() == true;
+                JJTrace.Tracing.TraceLine("OpenNoise: focus on " + what + (landed ? " landed on the second try" : " did not land"),
+                    System.Diagnostics.TraceLevel.Info);
+            });
+        });
     }
 
     private readonly List<(CycleFieldControl Field, NoiseLever Lever, IReadOnlyList<(double? Shown, string? Choice, string Text)> Steps)> _radioExtraFields = new();

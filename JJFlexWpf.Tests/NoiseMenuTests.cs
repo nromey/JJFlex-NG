@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using JJFlexWpf.Controls;
 using Radios;
 using Xunit;
 
@@ -118,6 +120,64 @@ public sealed class NoiseMenuTests
         int shared = popup.IndexOf("$\"{label}: {stateText}\"", StringComparison.Ordinal);
         Assert.True(ours > 0 && shared > ours, "the noise rows must be handled before the shared suffix is written");
         Assert.Contains("NoiseToggleRowText(baseText, isOn)", popup);
+    }
+
+    /// <summary>
+    /// Track E follow-up E3 (S11): after the Audio menu's "Advanced
+    /// settings..." focus stayed on the frequency display (the Track S walk).
+    /// Where focus is meant to land: the first Advanced lever when Advanced was
+    /// asked for and the engine has one, else the Engine field. Controls built
+    /// unhosted on a private STA thread; no window.
+    /// </summary>
+    [Fact]
+    public void Advanced_settings_lands_on_the_first_Advanced_lever_and_otherwise_on_the_Engine_field()
+    {
+        RunOnSta(() =>
+        {
+            var engine = new System.Windows.Controls.Button();
+            var levers = new System.Windows.Controls.StackPanel();
+            Assert.Same(engine, ScreenFieldsPanel.NoiseOpenTarget(advanced: true, levers, engine));
+            var first = new System.Windows.Controls.Button();
+            levers.Children.Add(first);
+            levers.Children.Add(new System.Windows.Controls.Button());
+            Assert.Same(first, ScreenFieldsPanel.NoiseOpenTarget(advanced: true, levers, engine));
+            Assert.Same(engine, ScreenFieldsPanel.NoiseOpenTarget(advanced: false, levers, engine));
+        });
+    }
+
+    /// <summary>
+    /// E3, the part a windowless test can reach: the focus is asked for after
+    /// layout, not at Normal priority before the new fields exist to WPF, on
+    /// every branch of OpenNoise, and the panel is shown first. Whether focus
+    /// really lands is the orchestrator's live check with jjprobe.
+    /// </summary>
+    [Fact]
+    public void Opening_noise_on_Home_asks_for_focus_only_after_layout_on_every_branch()
+    {
+        string panel = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.Noise.cs");
+        string open = Body(panel, "public void OpenNoise(string? engineId, bool advanced)", "internal static UIElement NoiseOpenTarget(");
+        Assert.Contains("if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;", open);
+        Assert.Equal(3, Count(open, "FocusNoiseWhenLaidOut("));
+        Assert.DoesNotContain(".Focus()", open);
+        Assert.DoesNotContain("Dispatcher.BeginInvoke(", open);
+        string focus = Body(panel, "private void FocusNoiseWhenLaidOut(", "private readonly List<(CycleFieldControl Field, NoiseLever Lever");
+        Assert.Contains("DispatcherPriority.Loaded", focus);
+        Assert.Contains("UpdateLayout();", focus);
+        Assert.True(focus.IndexOf("UpdateLayout();", StringComparison.Ordinal) < focus.IndexOf(".Focus()", StringComparison.Ordinal));
+    }
+
+    private static void RunOnSta(Action body)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { body(); }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "The test thread did not finish.");
+        if (failure != null) throw failure;
     }
 
     private static string Source(params string[] path)
