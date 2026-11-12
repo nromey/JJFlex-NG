@@ -445,7 +445,7 @@ public class NativeMenuBar : IDisposable
                 if (_noiseToggleItems.Contains(id))
                 {
                     _itemNames[id] = baseText;
-                    ModifyMenuW(itemPopup, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)id, NoiseToggleRowText(baseText, isOn));
+                    RewriteNoiseToggle(itemPopup, id, baseText, isOn);
                     continue;
                 }
 
@@ -3264,6 +3264,18 @@ public class NativeMenuBar : IDisposable
         // The id AddChecked just registered, as AddRadioChecked takes it.
         _noiseToggleItems.Add(_checkItems[^1].id);
     }
+
+    /// <summary>
+    /// The one place a noise toggle's row is rewritten. ModifyMenuW REPLACES
+    /// an item's flags along with its text, so a rewrite with MF_STRING alone
+    /// clears the MF_CHECKED that CheckMenuItem set a line earlier, and a
+    /// running engine's row stopped being natively checked (repair round 1,
+    /// Codex's first finding). The check state goes in the same call, so text
+    /// and mark always agree.
+    /// </summary>
+    private static void RewriteNoiseToggle(IntPtr popup, int id, string baseText, bool isOn) =>
+        ModifyMenuW(popup, (uint)id, MF_BYCOMMAND | MF_STRING | (isOn ? MF_CHECKED : MF_UNCHECKED), (UIntPtr)id,
+            NoiseToggleRowText(baseText, isOn));
 
     /// <summary>
     /// A noise toggle's row as the menu shows it: the name (with any marker
