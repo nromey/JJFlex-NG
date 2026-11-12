@@ -378,7 +378,7 @@ namespace JJFlexWpf
         {
             if (!queued) { _speaker.Say(text, subject, level); return; }
             _speaker.SayAfter(text, subject, level);
-            if (subject == SpeechSubject.NoiseHelperState) _helperNoticeOwed = true;
+            if (subject is SpeechSubject.NoiseHelperState or SpeechSubject.NoiseRadioSibling) _noticesOwed.Add(subject);
         }
 
         /// <summary>As <see cref="Say(string, string, VerbosityLevel)"/>, but after whatever is being said, never cutting it (<see cref="INoiseSpeaker.SayAfter"/>).</summary>
@@ -390,26 +390,44 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Whether a slot's or the helper's unasked notice (a failed start, the
-        /// helper's cap, the helper back) may still be unheard. Such a notice is
-        /// about ONE picture of the slots; it is retired the moment that picture
-        /// changes (repair round 2).
+        /// The queued notices nobody asked for that may still be unheard, by
+        /// subject: a slot's or the helper's (a failed start, the helper's cap,
+        /// the helper back) and the radio's sibling observation ("The radio turned
+        /// Standard NR off."). Each is about ONE picture of the noise settings and
+        /// is retired the moment that picture changes (repair round 2 of the
+        /// Track E follow-up for the helper's; repair round 2 of follow-up 2 for
+        /// the sibling's, after a preset turned the engine back on and the queued
+        /// "off" was rescued after the preset's summary). These are the only
+        /// queued noise sentences, and every one has this owner.
         /// </summary>
-        private bool _helperNoticeOwed;
+        private readonly HashSet<string> _noticesOwed = new(StringComparer.Ordinal);
 
         /// <summary>
-        /// The slots' picture changed (an engine chosen, swapped or turned off, a
+        /// The noise settings changed (an engine chosen, swapped or turned off, a
         /// selection that now processes, a mode group entered, a preset, Escape, a
-        /// disconnect): a queued notice about the old picture is obsolete. Called
-        /// before the change's own sentence, so the interrupt that sentence makes
-        /// cannot rescue the old notice behind it. Never silences anything else.
+        /// disconnect): every queued notice about the old picture is obsolete.
+        /// Called before the change's own sentence, so the interrupt that sentence
+        /// makes cannot rescue the old notice behind it. Never silences anything
+        /// else, and does nothing when nothing is owed.
         /// </summary>
         private void RetireHelperNotice(string why)
         {
-            if (!_helperNoticeOwed) return;
-            _helperNoticeOwed = false;
-            _speaker.Retire(SpeechSubject.NoiseHelperState, why);
-            System.Diagnostics.Trace.WriteLine("NoiseController: retired the queued noise notice (" + why + ")");
+            RetireNotice(SpeechSubject.NoiseHelperState, why);
+            RetireNotice(SpeechSubject.NoiseRadioSibling, why);
+        }
+
+        /// <summary>
+        /// Only the radio's own noise state changed (one of its switches written,
+        /// the slice the radio reads changed): the sibling observation is obsolete,
+        /// and a computer slot's notice is still true.
+        /// </summary>
+        private void RetireSiblingNotice(string why) => RetireNotice(SpeechSubject.NoiseRadioSibling, why);
+
+        private void RetireNotice(string subject, string why)
+        {
+            if (!_noticesOwed.Remove(subject)) return;
+            _speaker.Retire(subject, why);
+            System.Diagnostics.Trace.WriteLine("NoiseController: retired the queued noise notice on " + subject + " (" + why + ")");
         }
 
         private bool Chatty => _speaker.Verbosity >= VerbosityLevel.Chatty;
@@ -494,6 +512,9 @@ namespace JJFlexWpf
         private void WriteRadioSwitch(DenoiseEngineEntry e, INoiseRadio r, bool on, string source, bool byApp)
         {
             FollowActiveSlice();
+            // Every radio switch written (the layer, the brackets, a preset, Escape)
+            // makes a queued sibling observation about the old switches obsolete.
+            RetireSiblingNotice("a radio noise switch was written");
             bool was = IsOn(e.Id);
             r.WriteSwitch(e, on);
             _switchShadow[e.Id] = (on, _clock() + ShadowMs, r.SliceIdentity);
@@ -540,7 +561,7 @@ namespace JJFlexWpf
                         // The radio did it in answer to our write, so Escape
                         // counts it among the layer's changes and puts it back.
                         NoteRadioTouched(id, level: false);
-                        SayAfter(L("audio.noise_surface.radio_turned_off", ("engine", Lexicon.Get(e.LabelKey))), SpeechSubject.NoiseEngineSwitch);
+                        SayAfter(L("audio.noise_surface.radio_turned_off", ("engine", Lexicon.Get(e.LabelKey))), SpeechSubject.NoiseRadioSibling);
                     }
                 }
             });

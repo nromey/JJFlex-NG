@@ -713,6 +713,18 @@ namespace Radios.Speech
         /// </summary>
         public const string NoiseHelperState = "noise-helper-state";
 
+        /// <summary>
+        /// The radio turned one of its own noise engines off after another went
+        /// on ("The radio turned Standard NR off."), seen by the check that runs
+        /// after a radio switch. Not asked for, so it is queued, and on its own
+        /// subject so that retiring it, once the radio's noise state it describes
+        /// changes (a preset, Escape, an engine switch, a slice change), never
+        /// discards an ordinary switch answer (Sprint 49 Track E follow-up 2,
+        /// repair round 2: a preset turned the engine back on and the old "off"
+        /// sentence was rescued after the preset's own summary).
+        /// </summary>
+        public const string NoiseRadioSibling = "noise-radio-sibling";
+
         /// <summary>The answer to "say what noise reduction is active". A newer answer covers an unheard older one.</summary>
         public const string NoiseActiveSummary = "noise-active-summary";
 

@@ -1426,6 +1426,114 @@ public sealed class NoiseControllerTests
         Assert.Equal("RNNoise off.", f.Spoken.Last);
     }
 
+    // ── Repair round 2 (Codex's second check of track e3) ──
+
+    private sealed class RoundTwoPresetStore : INoisePresetStore
+    {
+        private AudioChainPresets _store = AudioChainPresets.CreateDefaults();
+        public AudioChainPresets Load() => _store;
+        public bool Save(AudioChainPresets store) { _store = store; return true; }
+    }
+
+    /// <summary>Standard NR on, Spectral NR turned on, and the radio turns Standard NR off: the sibling check queues its observation.</summary>
+    private static string QueueSiblingNotice(NoiseFixture f)
+    {
+        f.Radio.Switches["radio_nr"] = true;
+        f.Noise.Toggle("radio_nrs", "test");
+        f.Radio.Switches["radio_nr"] = false;
+        f.Clock.RunAll();
+        return Lexicon.Get("audio.noise_surface.radio_turned_off", VerbosityLevel.Chatty, ("engine", "Standard NR"));
+    }
+
+    /// <summary>
+    /// Codex's probe, kept, through the REAL arbiter: the queued "The radio turned
+    /// Standard NR off." survived a preset that turned Standard NR back on (the
+    /// preset retired only the helper's notice and spoke on its own subject), and
+    /// was rescued about 0.63 s after the preset's summary, an "off" right after
+    /// the opposite outcome. The sibling notice now has its own subject and an
+    /// owner that retires it before the preset's sentence. The positive control
+    /// shows the same arbiter DOES rescue it after an unrelated interrupt, so the
+    /// instrument can see the defect.
+    /// </summary>
+    [Fact]
+    public void A_queued_sibling_notice_is_not_rescued_after_a_preset_turns_that_engine_back_on()
+    {
+        using (var f = new NoiseFixture())
+        {
+            var speaker = new SilentArbiterSpeaker();
+            typeof(NoiseController).GetField("_speaker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(f.Noise, speaker);
+            try
+            {
+                f.Noise.PresetStore = new RoundTwoPresetStore();
+                f.Radio.Switches["radio_nr"] = true;
+                Assert.NotNull(f.Noise.SavePreset("Standard back", true, false, PresetCollision.Ask, "test"));
+                string old = QueueSiblingNotice(f);
+                Assert.Contains(speaker.Calls, c => c.Text == old && !c.Interrupt && !c.Salvaged);
+                f.Noise.ApplyPreset("Standard back", "test");
+                Assert.True(f.Radio.Switches["radio_nr"]);
+                speaker.Replayed.Wait(2500);
+                Assert.DoesNotContain(speaker.Calls, c => c.Text == old && c.Salvaged);
+            }
+            finally { speaker.Dispose(); }
+        }
+        // Positive control: the same notice, an interrupt that changes nothing it describes.
+        var kept = new SilentArbiterSpeaker();
+        try
+        {
+            kept.SayAfter("The radio turned Standard NR off.", SpeechSubject.NoiseRadioSibling, VerbosityLevel.Terse);
+            kept.Say("level 50", SpeechSubject.NoiseLevel, VerbosityLevel.Terse);
+            Assert.True(kept.Replayed.Wait(2500), "the arbiter never rescued the unretired sibling notice, so this instrument cannot see the defect");
+        }
+        finally { kept.Dispose(); }
+    }
+
+    /// <summary>
+    /// Every change to the radio's noise state or the picture the sibling notice
+    /// describes retires it, before that change's own sentence: a preset, Escape's
+    /// revert, a radio switch from the layer, the slice the radio reads changing,
+    /// a mode group entered, the 0 key, a computer engine switch, a disconnect.
+    /// Only its own subject is retired, so no switch answer is ever discarded.
+    /// </summary>
+    [Theory]
+    [InlineData("preset")]
+    [InlineData("escape")]
+    [InlineData("radio switch")]
+    [InlineData("slice change")]
+    [InlineData("mode group")]
+    [InlineData("zero key")]
+    [InlineData("computer switch")]
+    [InlineData("disconnect")]
+    public void Every_change_to_what_a_sibling_notice_described_retires_it_first(string change)
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.PresetStore = new RoundTwoPresetStore();
+        f.Radio.Switches["radio_nr"] = true;
+        f.Noise.SavePreset("Standard back", true, false, PresetCollision.Ask, "test");
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.Toggle("rnnoise", "test");
+        QueueSiblingNotice(f);
+        Assert.Empty(f.Spoken.Retired);
+        int saidBefore = f.Spoken.Said.Count;
+        switch (change)
+        {
+            case "preset": f.Noise.ApplyPreset("Standard back", "test"); break;
+            case "escape": f.Noise.RestoreSnapshot(snap, "test"); break;
+            case "radio switch": f.Noise.Toggle("radio_nrl", "test"); break;
+            case "slice change": f.Radio.SliceIdentity = "slice B"; f.Noise.NoteActiveSlice(1); break;
+            case "mode group": f.Radio.Mode = "CW"; f.Noise.OnModeChanged("CW"); break;
+            case "zero key": f.Noise.ComputerOffAndBack("test"); break;
+            case "computer switch": f.Noise.Toggle("nr4", "test"); break;
+            case "disconnect": f.Noise.Detach(); break;
+        }
+        var retired = Assert.Single(f.Spoken.Retired);
+        Assert.Equal(SpeechSubject.NoiseRadioSibling, retired.Subject);
+        // Retiring it a second time does nothing: nothing is owed now.
+        f.Noise.Toggle("radio_nrl", "test");
+        Assert.Single(f.Spoken.Retired);
+        Assert.True(f.Spoken.Said.Count >= saidBefore);
+    }
+
     [Fact]
     public void Every_change_goes_through_the_one_journal()
     {
