@@ -47,7 +47,9 @@ internal sealed class NoiseFixture : IDisposable
         public void SayAfter(string text, string subject, VerbosityLevel level) { SaidAfter.Add(Said.Count); Said.Add((text, subject, level)); }
         /// <summary>Every subject the controller declared obsolete (<see cref="INoiseSpeaker.Retire"/>), with its reason.</summary>
         public List<(string Subject, string Why)> Retired { get; } = new();
-        public void Retire(string subject, string why) => Retired.Add((subject, why));
+        /// <summary>How many sentences had been said when each <see cref="Retired"/> entry was made, so a test can show a retirement came before a sentence.</summary>
+        public List<int> RetiredAt { get; } = new();
+        public void Retire(string subject, string why) { Retired.Add((subject, why)); RetiredAt.Add(Said.Count); }
         public string Last => Said.Count == 0 ? "" : Said[^1].Text;
         public void Clear() { Said.Clear(); SaidAfter.Clear(); }
     }

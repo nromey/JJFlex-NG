@@ -2392,15 +2392,24 @@ public class NativeMenuBar : IDisposable
                 // to leave the menu to find out, then come back.
                 AddRadioChecked(modeSub, m + accel, () =>
                 {
-                    if (Rig == null) { SpeakNoRadio(); return; }
-                    Rig.Mode = m;
-                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)));
+                    if (Rig is not { } rig) { SpeakNoRadio(); return; }
+                    // The radio is asked AT THE CLICK, so the setter captures the
+                    // slice the operator is on now (#1117, repair round 1: asked
+                    // half a second later, a newer choice or another slice could
+                    // be overwritten). Only the sentence waits for the menu to
+                    // close, with the noise controller's answer held behind it.
+                    var noiseAnswer = _window.Noise.HoldModeAnswer();
+                    int slice = rig.RXVFO;
+                    _window.AskRadioForMode(() => rig.Mode = m);
+                    int choice = _window.ModeChoices;
+                    SayModeAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)), rig, slice, choice, noiseAnswer);
                 },
                 () => string.Equals(Rig?.Mode, m, StringComparison.OrdinalIgnoreCase));
             }
             AddSep(modeSub);
-            AddWired(modeSub, "Next Mode\tAlt+M", () => _window.CycleMode(1));
-            AddWired(modeSub, "Previous Mode\tAlt+Shift+M", () => _window.CycleMode(-1));
+            // Asked for at the click; said once the menu has closed (#1117, repair round 1).
+            AddWired(modeSub, "Next Mode\tAlt+M", () => SayCycledModeAfterMenuClose(_window.CycleModeQuietly(1)));
+            AddWired(modeSub, "Previous Mode\tAlt+Shift+M", () => SayCycledModeAfterMenuClose(_window.CycleModeQuietly(-1)));
 
             // Audio
             var audioSub = AddSubmenu(slice, "Audio");
@@ -3412,6 +3421,40 @@ public class NativeMenuBar : IDisposable
     /// Speak a message after the menu closes. Uses a 150ms delay so the screen reader
     /// picks up the speech after the menu closes and focus returns to the main window.
     /// </summary>
+    /// <summary>
+    /// Next and Previous Mode from the Slice menu: the row asks for the mode at
+    /// the click, through the same write Alt+M uses (<c>CycleModeQuietly</c>),
+    /// and its word is said here once the menu has closed. Said at the click it
+    /// was cut by the menu's own close announcements, live on the 8600, and the
+    /// noise sentence behind it was lost (#1117, repair round 1). The hold is
+    /// taken after the write, in the same handler: the radio's confirmation
+    /// reaches the noise controller through the dispatcher, so it cannot arrive
+    /// before this returns. No radio: silent, as Alt+M has always been.
+    /// </summary>
+    private void SayCycledModeAfterMenuClose(string? mode)
+    {
+        if (mode == null || Rig is not { } rig) return;
+        SayModeAfterMenuClose(mode, rig, rig.RXVFO, _window.ModeChoices, _window.Noise.HoldModeAnswer());
+    }
+
+    /// <summary>
+    /// A mode row's sentence, said once the menu has closed, with the noise
+    /// controller's answer joined to it as one interrupting utterance under its
+    /// own subject (see <see cref="MenuModeSentence"/> for why, from the 8600
+    /// harness), and dropped if a newer mode choice, another radio or another
+    /// slice came first.
+    /// </summary>
+    private void SayModeAfterMenuClose(string sentence, FlexBase rig, int slice, int choice, JJFlexWpf.IModeAnswerHold noiseAnswer)
+    {
+        _window.Dispatcher.BeginInvoke(() => MenuModeSentence.SayWhenTheMenuHasClosed(
+            sentence,
+            stillCurrent: () => _window.ModeChoices == choice && ReferenceEquals(Rig, rig) && rig.RXVFO == slice,
+            noiseAnswer,
+            delay: ms => System.Threading.Tasks.Task.Delay(ms),
+            sayNow: (text, level) => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Interrupt, level,
+                subject: Radios.Speech.SpeechSubject.ModeChoice)));
+    }
+
     private void SpeakAfterMenuClose(string message,
         Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse)
     {

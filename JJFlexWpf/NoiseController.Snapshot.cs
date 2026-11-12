@@ -192,8 +192,8 @@ namespace JJFlexWpf
             if (_pipeline() is { } p)
             {
                 RetireHelperNotice("the noise settings were put back");
-                changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings);
-                changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings);
+                changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings, source);
+                changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings, source);
             }
             ClearListening();
             ForgetZero();
@@ -201,7 +201,7 @@ namespace JJFlexWpf
             return changed;
         }
 
-        private bool RestoreSlot(PcDenoiseSlot slot, (bool On, string Engine) want, Radios.DenoiseEngineSettings[] settings)
+        private bool RestoreSlot(PcDenoiseSlot slot, (bool On, string Engine) want, Radios.DenoiseEngineSettings[] settings, string source)
         {
             bool changed = false;
             var now = slot.ExportSettings();
@@ -218,7 +218,7 @@ namespace JJFlexWpf
             string target = want.Engine.Length > 0 ? want.Engine : slot.ChosenEngineId;
             // The mode's rule (B4), then the settings and the choice; an engine
             // still chosen rebuilds when a model or estimator went back (B3).
-            if (slot.RestoreAndSelect(AdmitForMode(slot, back, target), target)) changed = true;
+            if (slot.RestoreAndSelect(AdmitForMode(slot, back, target, source), target)) changed = true;
             if (slot.Enabled != want.On) { slot.Enabled = want.On; changed = true; }
             return changed;
         }

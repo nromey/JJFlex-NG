@@ -52,6 +52,32 @@ namespace JJFlexWpf
         public void Retire(string subject, string why) => ScreenReaderOutput.Supersede(subject, why);
     }
 
+    /// <summary>
+    /// The noise controller's answer to a mode change, held for a surface that
+    /// says the mode change itself, later (<see cref="NoiseController.HoldModeAnswer"/>).
+    /// Disposing releases it, queued behind whatever is being said.
+    /// </summary>
+    public interface IModeAnswerHold : IDisposable
+    {
+        /// <summary>
+        /// End the hold and take the held answer, to say it joined to the
+        /// surface's own sentence under <paramref name="subject"/>; null when
+        /// there is none to say (no group change, or it went stale). Once taken
+        /// or disposed, a hold does nothing more.
+        /// </summary>
+        (string Text, VerbosityLevel Level)? TakeJoined(string subject);
+
+        /// <summary>
+        /// True once a later operator action has been answered since this hold
+        /// was taken (<see cref="NoiseController.NoteOperatorAction"/>): any key
+        /// the operator pressed after the click, or any noise action that
+        /// answered. The surface's own late sentence is then stale and must not
+        /// interrupt that newer answer (#1117, repair round 3: the menu's "Mode
+        /// CW" cut a band announcement made 316 ms after the click).
+        /// </summary>
+        bool OutlivedByANewerAnswer { get; }
+    }
+
     /// <summary>A delay the controller waits before acting (the settle before an engine field applies; the check for a sibling the radio switched off).</summary>
     public interface INoiseScheduler
     {
@@ -329,14 +355,37 @@ namespace JJFlexWpf
         private int _utteranceDepth;
 
         /// <summary>
+        /// Set by the outermost action that answers something ANOTHER subsystem
+        /// has just said (a mode change, whose mode word the mode path speaks):
+        /// the action's one utterance goes out after what is being said, under
+        /// this subject, never over it (#1117). Null for every other action,
+        /// whose utterance is the answer to a press and interrupts.
+        /// </summary>
+        private string? _utteranceAfterUnder;
+
+        /// <summary>
+        /// Journal entries the running action owes but must record after its own
+        /// (a model the mode's rule chose while an engine was being chosen,
+        /// #1118): recorded in order when the outermost action ends, so the
+        /// journal reads the cause first. Null outside an action.
+        /// </summary>
+        private List<Action>? _journalAfterAction;
+
+        /// <summary>
         /// Start an action: every sentence said until the returned scope is
         /// disposed goes out as one utterance (<see cref="_utterance"/>). Nests:
         /// only the outermost scope speaks. Use with <c>using var oneUtterance = OneUtterance();</c>
         /// at the top of every entry point that changes noise settings.
         /// </summary>
-        private UtteranceScope OneUtterance()
+        /// <param name="afterWhatIsSaidUnder">
+        /// Only for an action that follows another subsystem's own sentence (a
+        /// mode change): its utterance is queued behind what is being said, under
+        /// this subject, and owned like the other queued notices
+        /// (<see cref="_noticesOwed"/>). Read from the outermost scope only.
+        /// </param>
+        private UtteranceScope OneUtterance(string? afterWhatIsSaidUnder = null)
         {
-            if (_utteranceDepth++ == 0) _utterance = new();
+            if (_utteranceDepth++ == 0) { _utterance = new(); _utteranceAfterUnder = afterWhatIsSaidUnder; _utteranceRefused = null; }
             return new UtteranceScope(this);
         }
 
@@ -362,6 +411,17 @@ namespace JJFlexWpf
             if (--_utteranceDepth > 0) return;
             var parts = _utterance ?? new();
             _utterance = null;
+            string? afterUnder = _utteranceAfterUnder;
+            _utteranceAfterUnder = null;
+            var journal = _journalAfterAction;
+            _journalAfterAction = null;
+            if (journal != null) foreach (var record in journal) record();
+            var refused = (IReadOnlyList<(string EngineId, Unavailability Reason)>?)_utteranceRefused ?? Array.Empty<(string, Unavailability)>();
+            _utteranceRefused = null;
+            // Before this action's own sentence: a queued mode sentence that now
+            // states something false is retired, so this sentence's interrupt
+            // cannot rescue it (repair round 1, B2).
+            CheckModeNotice("what it stated changed");
             if (parts.Count == 0) return;
             var heard = parts.Count == 1 ? parts : parts.Where(p => (int)p.Level <= (int)_speaker.Verbosity).ToList();
             foreach (var held in parts.Except(heard))
@@ -369,16 +429,41 @@ namespace JJFlexWpf
             var said = heard.Count > 0 ? heard : parts;
             string text = said.Count == 1 ? said[0].Text : string.Join(" ", said.Select(p => p.Text.Trim()));
             var level = said.Min(p => p.Level);
+            // A mode change's sentence follows the mode word, never cuts it (#1117),
+            // and waits for a surface that says the mode change later (the menu).
+            if (afterUnder != null) DeliverModeNotice(new ModeNotice(text, afterUnder, level, refused, SlotFacts()));
             // Queued only when every part was: an answer to a press still interrupts.
-            if (said.All(p => p.Queued)) Deliver(text, said[0].Subject, level, queued: true);
+            else if (said.All(p => p.Queued)) Deliver(text, said[0].Subject, level, queued: true);
             else Deliver(text, said[0].Subject, level, queued: false);
         }
 
         private void Deliver(string text, string subject, VerbosityLevel level, bool queued)
         {
-            if (!queued) { _speaker.Say(text, subject, level); return; }
+            if (!queued)
+            {
+                // An answer to an operator's action: a surface's late reply to an
+                // older one must not interrupt it (repair round 3).
+                _operatorActions++;
+                _speaker.Say(text, subject, level);
+                return;
+            }
             _speaker.SayAfter(text, subject, level);
-            if (subject is SpeechSubject.NoiseHelperState or SpeechSubject.NoiseRadioSibling) _noticesOwed.Add(subject);
+            if (subject is SpeechSubject.NoiseHelperState or SpeechSubject.NoiseRadioSibling or SpeechSubject.NoiseModeStart) _noticesOwed.Add(subject);
+        }
+
+        /// <summary>
+        /// A model the mode's rule chose in place of the one asked for or held
+        /// (NNR in CW), journalled under the road that caused it and after that
+        /// road's own entry: choosing NNR in CW was journalled "from mode change",
+        /// before the switch it belonged to (#1118). Inside an action it waits for
+        /// the action to end (<see cref="_journalAfterAction"/>); outside one it is
+        /// recorded at once.
+        /// </summary>
+        private void JournalModelAdmission(string source, string engineId, string from, string to)
+        {
+            void Record() => NoiseSettingsJournal.Record(NoiseJournalKind.Model, source, engineId, "model", from, to, byJjFlexible: true);
+            if (_utteranceDepth > 0) (_journalAfterAction ??= new()).Add(Record);
+            else Record();
         }
 
         /// <summary>As <see cref="Say(string, string, VerbosityLevel)"/>, but after whatever is being said, never cutting it (<see cref="INoiseSpeaker.SayAfter"/>).</summary>
@@ -397,8 +482,11 @@ namespace JJFlexWpf
         /// is retired the moment that picture changes (repair round 2 of the
         /// Track E follow-up for the helper's; repair round 2 of follow-up 2 for
         /// the sibling's, after a preset turned the engine back on and the queued
-        /// "off" was rescued after the preset's summary). These are the only
-        /// queued noise sentences, and every one has this owner.
+        /// "off" was rescued after the preset's summary). Since #1117 a mode
+        /// change's own sentence is queued too, behind the mode word, on
+        /// <see cref="SpeechSubject.NoiseModeStart"/>: it describes the computer
+        /// slots as the new group left them. These are the only queued noise
+        /// sentences, and every one has this owner.
         /// </summary>
         private readonly HashSet<string> _noticesOwed = new(StringComparer.Ordinal);
 
@@ -410,10 +498,265 @@ namespace JJFlexWpf
         /// makes cannot rescue the old notice behind it. Never silences anything
         /// else, and does nothing when nothing is owed.
         /// </summary>
-        private void RetireHelperNotice(string why)
+        /// <param name="why">Trace prose.</param>
+        /// <param name="modeNoticeToo">
+        /// False only for a selection that now processes: that makes a queued mode
+        /// sentence ("Back in CW: ..., NNR on.") truer, not obsolete, and it can
+        /// arrive within milliseconds, before the mode word has even finished
+        /// (#1117).
+        /// </param>
+        private void RetireHelperNotice(string why, bool modeNoticeToo = true)
         {
             RetireNotice(SpeechSubject.NoiseHelperState, why);
             RetireNotice(SpeechSubject.NoiseRadioSibling, why);
+            if (modeNoticeToo) RetireModeNotice(why);
+        }
+
+        /// <summary>
+        /// A queued or held mode-change sentence (#1117) is obsolete: the computer
+        /// slots it described were changed by the operator, a preset, Escape,
+        /// another mode group or a disconnect, or something it states is no longer
+        /// true (<see cref="CheckModeNotice"/>). A radio switch alone leaves it true.
+        /// </summary>
+        private void RetireModeNotice(string why)
+        {
+            _modeNotice = null;
+            if (_heldModeNotice != null)
+            {
+                _heldModeNotice = null;
+                System.Diagnostics.Trace.WriteLine("NoiseController: dropped the held mode-change sentence (" + why + ")");
+            }
+            RetireNotice(SpeechSubject.NoiseModeStart, why);
+            // The menu's sentence carries the noise answer joined to it (repair round 2).
+            RetireNotice(SpeechSubject.ModeChoice, why);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The mode-change sentence: what it states, and a surface that says
+        //  the mode change after the radio confirmed it (#1117, repair rounds 1 and 2)
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// A mode change's one utterance, with the facts it states: <paramref name="SlotFacts"/>
+        /// (<see cref="SlotFacts"/>, read when it was composed) and, for every
+        /// engine it said could not run, the reason it SAID (repair round 2: a
+        /// reason probed again later could already be another one).
+        /// </summary>
+        private sealed record ModeNotice(string Text, string Subject, VerbosityLevel Level,
+            IReadOnlyList<(string EngineId, Unavailability Reason)> Refused, string SlotFacts);
+
+        /// <summary>The queued mode sentence that may still be unheard, while it is owed (<see cref="_noticesOwed"/>).</summary>
+        private ModeNotice? _modeNotice;
+
+        /// <summary>A mode sentence held for a surface that says the mode change itself, later (<see cref="HoldModeAnswer"/>).</summary>
+        private ModeNotice? _heldModeNotice;
+        private int _modeAnswerHolds;
+
+        /// <summary>
+        /// Which connection the holds belong to. A disconnect clears every hold
+        /// and moves this on, so a hold from before it, released late, can never
+        /// release a hold taken after it (repair round 2, Codex).
+        /// </summary>
+        private int _modeAnswerHoldGeneration;
+
+        /// <summary>
+        /// The engines the running action said could not run, with the reason as
+        /// it was said (<see cref="SpeakUnavailable"/>, and DeepFilterNet3 when a
+        /// voice starting point falls back to RNNoise because of it).
+        /// </summary>
+        private List<(string EngineId, Unavailability Reason)>? _utteranceRefused;
+
+        /// <summary>The longest a hold lasts if its surface never releases it; the menu releases it about half a second after the click.</summary>
+        public const int ModeAnswerHoldMs = 3000;
+
+        /// <summary>Record, for the action's sentence, that it says <paramref name="engineId"/> cannot run for <paramref name="reason"/>.</summary>
+        private void NoteSaidCannotRun(string engineId, Unavailability reason)
+        {
+            if (_utterance != null) (_utteranceRefused ??= new()).Add((engineId, reason));
+        }
+
+        /// <summary>
+        /// The computer slots as a mode sentence states them: each slot on or off,
+        /// its chosen engine and every setting of that engine (the sentences name
+        /// NNR's model and DeepFilterNet3's limit). Repair round 1, B2 (Codex).
+        /// </summary>
+        private string SlotFacts()
+        {
+            var facts = new System.Text.StringBuilder();
+            if (_pipeline() is { } p)
+                foreach (var slot in new[] { p.SpectralSlot, p.NeuralSlot })
+                {
+                    facts.Append(slot.Enabled ? "on " : "off ").Append(slot.ChosenEngineId);
+                    if (_catalog.Find(slot.ChosenEngineId) is { } e)
+                        foreach (var d in e.Settings)
+                        {
+                            try
+                            {
+                                var v = slot.GetSetting(e.Id, d.Name);
+                                facts.Append(' ').Append(d.Name).Append('=').Append(v.Choice ?? v.Number.ToString("R", CultureInfo.InvariantCulture));
+                            }
+                            catch (ArgumentException) { }
+                        }
+                    facts.Append(';');
+                }
+            return facts.ToString();
+        }
+
+        /// <summary>
+        /// Whether everything a mode sentence states still holds: the slots as it
+        /// stated them, and every engine it said could not run still unable to,
+        /// for the reason it gave. The reasons are compared with what is true
+        /// NOW; the recorded ones are those the sentence was composed from, never
+        /// a second probe (repair round 2: a helper recovering between composing
+        /// and recording left a "not running" sentence recorded as "runs", so
+        /// NNR's later processing did not retire it).
+        /// </summary>
+        private bool StillTrue(ModeNotice notice) =>
+            SlotFacts() == notice.SlotFacts
+            && notice.Refused.All(r => _catalog.Find(r.EngineId) is not { } e || SafeAvailability(e) == r.Reason);
+
+        /// <summary>
+        /// Retire the queued (or held) mode sentence if anything it states is no
+        /// longer true, and keep it while all of it still holds, as a selection
+        /// that starts the engine it named on does. Called at the end of every
+        /// action, before that action's own sentence, and on every result nobody
+        /// asked for (a slot's selection, the helper's state).
+        /// </summary>
+        private void CheckModeNotice(string why)
+        {
+            var notice = _heldModeNotice ?? (_modeNotice is { } owed && _noticesOwed.Contains(owed.Subject) ? owed : null);
+            if (notice == null || StillTrue(notice)) return;
+            RetireModeNotice(why);
+        }
+
+        private void DeliverModeNotice(ModeNotice notice)
+        {
+            if (_modeAnswerHolds > 0)
+            {
+                _heldModeNotice = notice;
+                System.Diagnostics.Trace.WriteLine("NoiseController: holding the mode-change sentence for the surface that says the mode: '" + notice.Text + "'");
+                return;
+            }
+            Deliver(notice.Text, notice.Subject, notice.Level, queued: true);
+            _modeNotice = notice;
+        }
+
+        /// <summary>
+        /// For a surface that writes a mode at the operator's action but says it
+        /// later (the Slice menu's mode rows, once the menu has closed): the noise
+        /// controller's answer to the mode change is held. The surface either
+        /// takes it, to say it joined to its own sentence
+        /// (<see cref="IModeAnswerHold.TakeJoined"/>), or disposes the hold, and
+        /// the answer is then queued behind whatever is being said. A newer mode
+        /// group, any change to what the held sentence states, or a disconnect
+        /// drops it. Holds nest; one never released ends on its own after
+        /// <see cref="ModeAnswerHoldMs"/>.
+        /// </summary>
+        public IModeAnswerHold HoldModeAnswer()
+        {
+            _modeAnswerHolds++;
+            var hold = new ModeAnswerHold(this, _modeAnswerHoldGeneration, _operatorActions);
+            hold.Expiry = _scheduler.After(TimeSpan.FromMilliseconds(ModeAnswerHoldMs), hold.Dispose);
+            return hold;
+        }
+
+        /// <summary>A disconnect: no hold outlives the connection it was taken on (repair round 2).</summary>
+        private void ClearModeAnswerHolds()
+        {
+            _modeAnswerHolds = 0;
+            _modeAnswerHoldGeneration++;
+            _heldModeNotice = null;
+        }
+
+        /// <summary>One hold ends. Returns the held sentence when this was the last hold and what it states still holds; null otherwise.</summary>
+        private ModeNotice? EndModeAnswerHold(int generation)
+        {
+            if (generation != _modeAnswerHoldGeneration || _modeAnswerHolds == 0 || --_modeAnswerHolds > 0) return null;
+            if (_heldModeNotice is not { } held) return null;
+            _heldModeNotice = null;
+            if (!StillTrue(held))
+            {
+                System.Diagnostics.Trace.WriteLine("NoiseController: dropped the held mode-change sentence (what it stated changed while it was held)");
+                return null;
+            }
+            return held;
+        }
+
+        private void ReleaseModeAnswer(int generation)
+        {
+            if (EndModeAnswerHold(generation) is { } held) DeliverModeNotice(held);
+        }
+
+        /// <summary>
+        /// The surface takes the held answer to say it joined to its own sentence,
+        /// under <paramref name="subject"/>: one utterance, so nothing of ours
+        /// waits queued behind the surface's sentence to be withdrawn if that
+        /// sentence's own cancel lands on it (the NVDA race the harness saw on the
+        /// menu routes). The controller still owns it under that subject and
+        /// retires it when what it states changes.
+        /// </summary>
+        private (string Text, VerbosityLevel Level)? TakeModeAnswer(int generation, string subject)
+        {
+            if (EndModeAnswerHold(generation) is not { } held) return null;
+            _modeNotice = held with { Subject = subject };
+            _noticesOwed.Add(subject);
+            System.Diagnostics.Trace.WriteLine("NoiseController: the mode-change sentence is said joined to the surface's own: '" + held.Text + "'");
+            return (held.Text, held.Level);
+        }
+
+        /// <summary>
+        /// How many operator actions have been answered (repair round 3): every
+        /// key the operator presses, noted by the main window, and every noise
+        /// action whose sentence answers it (<see cref="Deliver"/>, an
+        /// interrupt). A hold remembers the count it was taken at.
+        /// </summary>
+        private long _operatorActions;
+
+        /// <summary>
+        /// The operator did something after a surface took a hold (the main
+        /// window calls this for every key pressed): every hold taken before now
+        /// is outlived, so the surface's late reply is dropped rather than
+        /// interrupting the newer action's answer (#1117, repair round 3). The
+        /// held noise answer is not dropped by this; it is still released, queued,
+        /// behind whatever the newer action says.
+        /// </summary>
+        /// <param name="why">Trace prose.</param>
+        public void NoteOperatorAction(string why)
+        {
+            _operatorActions++;
+            if (_modeAnswerHolds > 0)
+                System.Diagnostics.Trace.WriteLine("NoiseController: a pending mode reply is outlived (" + why + ")");
+        }
+
+        private sealed class ModeAnswerHold : IModeAnswerHold
+        {
+            private readonly NoiseController _owner;
+            private readonly int _generation;
+            private readonly long _actionsAtHold;
+            private bool _released;
+            public IDisposable? Expiry;
+            public ModeAnswerHold(NoiseController owner, int generation, long actionsAtHold)
+            {
+                _owner = owner; _generation = generation; _actionsAtHold = actionsAtHold;
+            }
+
+            public bool OutlivedByANewerAnswer => _owner._operatorActions != _actionsAtHold;
+
+            public (string Text, VerbosityLevel Level)? TakeJoined(string subject)
+            {
+                if (_released) return null;
+                _released = true;
+                Expiry?.Dispose();
+                return _owner.TakeModeAnswer(_generation, subject);
+            }
+
+            public void Dispose()
+            {
+                if (_released) return;
+                _released = true;
+                Expiry?.Dispose();
+                _owner.ReleaseModeAnswer(_generation);
+            }
         }
 
         /// <summary>
@@ -596,10 +939,10 @@ namespace JJFlexWpf
             }
             string? replaced = slot.Enabled && slot.ChosenEngineId != e.Id && slot.ChosenEngineId.Length > 0 ? slot.ChosenEngineId : null;
             RetireHelperNotice("a computer noise engine was chosen");
-            if (model != null) SetModelQuietly(e, slot, model);
+            if (model != null) SetModelQuietly(e, slot, model, source);
             // The CW model the mode's rule chose is said AFTER the switch, in the
             // same utterance (#1110): the answer to the press comes first.
-            string? cwModel = ApplyModeRulesForChoice(e, slot);
+            string? cwModel = ApplyModeRulesForChoice(e, slot, source);
             slot.Select(e.Id, out _);
             slot.Enabled = true;
             // The engine pushed out of the slot is part of the same change (#1018
@@ -688,6 +1031,7 @@ namespace JJFlexWpf
                 or Unavailability.LibraryMissing or Unavailability.ModelMissing or Unavailability.NotDownloaded
                 or Unavailability.LicenceNotAccepted or Unavailability.NoSupportedGpu;
             if (kept && canComeTrue && Chatty) text += " " + L("audio.noise_surface.choice_kept");
+            NoteSaidCannotRun(e.Id, reason);
             Say(text, SpeechSubject.NoiseUnavailable);
         }
 
@@ -838,7 +1182,10 @@ namespace JJFlexWpf
         public void OnSelectionResult(DenoiseSelectionResult result)
         {
             // A selection that now processes makes an earlier failure untrue (repair round 2).
-            if (result.Processing) { RetireHelperNotice("a noise engine started processing"); return; }
+            // A selection that now processes keeps a mode sentence that named its
+            // engine on, and retires one whose refusal it made false (repair round 1, B2).
+            CheckModeNotice("a noise engine's selection result changed what it stated");
+            if (result.Processing) { RetireHelperNotice("a noise engine started processing", modeNoticeToo: false); return; }
             if (!result.SlotStopped) return;
             // Queued behind whatever is being said (repair round 1): on every
             // refusal path that still puts an engine in the slot, the refusal
@@ -856,6 +1203,7 @@ namespace JJFlexWpf
         /// </summary>
         public void OnHelperStateChanged(WdspHelperStateChange change, IReadOnlyList<string> engines)
         {
+            CheckModeNotice("the noise helper's state changed what it stated");
             // Unasked, like a slot's result: after whatever is being said (repair round 1).
             if (change == WdspHelperStateChange.CapReached)
                 SayAfter(L("audio.noise_surface.start_failed"), SpeechSubject.NoiseHelperState, VerbosityLevel.Critical);

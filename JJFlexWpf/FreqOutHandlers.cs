@@ -1048,8 +1048,10 @@ public class FreqOutHandlers
         var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, Rig?.Mode, display);
         var rig = Rig;
         if (rig != null && outcome.Correction != null)
-            SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,
-                Radios.Speech.SpeechIntent.Interrupt);
+        {
+            _window.AskRadioForMode(() => SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,
+                Radios.Speech.SpeechIntent.Interrupt));
+        }
         else
             Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true);
         CancelQuickType();
@@ -3778,6 +3780,11 @@ public class FreqOutHandlers
             }
         }
 
+        // Every band jump counts as a mode choice before its write: the radio's
+        // band memory can answer it with another mode, and a late reply about an
+        // older mode choice must not follow it (#1117, repair round 3, the
+        // harness's R3-5 and Codex).
+        _window.NoteModeChoice();
         SetRXFrequency(targetFreq);
         _lastBand = targetBand;
 
@@ -3795,7 +3802,9 @@ public class FreqOutHandlers
         var jump = BandJumpOutcome(bandName, freqStr,
             targetBand == Bands.BandNames.m60 && Rig != null, License?.Country ?? "US", targetFreq, mode);
         if (jump.Correction != null && Rig != null)
-            SixtyMeterModeDelivery.Deliver(Rig, jump.Arrival, jump.Correction, Radios.Speech.SpeechIntent.Interrupt);
+        {
+            _window.AskRadioForMode(() => SixtyMeterModeDelivery.Deliver(Rig, jump.Arrival, jump.Correction, Radios.Speech.SpeechIntent.Interrupt));
+        }
         else
             Radios.ScreenReaderOutput.Speak(jump.Arrival, VerbosityLevel.Terse, interrupt: true);
         EarconPlayer.BandBoundaryBeep();

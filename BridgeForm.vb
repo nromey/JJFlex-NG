@@ -204,6 +204,11 @@ Public Class ShellForm
                           " msg=0x" & msg.Msg.ToString("X") &
                           " inMenuLoop=" & _inNativeMenuLoop.ToString())
 
+        ' Any key outlives a pending late reply, such as the Slice menu's mode
+        ' sentence (#1117, repair round 3). Keys inside the native menu belong
+        ' to the menu, not to a later action.
+        If Not _inNativeMenuLoop Then WpfContent?.NoteOperatorKey()
+
         ' Let DoCommandHandler try first (scope-aware key routing)
         If WpfContent?.DoCommandHandler IsNot Nothing Then
             If WpfContent.DoCommandHandler(keyData) Then

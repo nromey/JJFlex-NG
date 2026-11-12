@@ -71,7 +71,8 @@ Public Class MemoryScan
 
         ' Start the scan
         memoryID = 0
-        RigControl.SelectMemoryByName(memories(memoryID))
+        ' A memory carries its mode: a mode request like any other (#1117).
+        WpfMainWindow.AskRadioForMode(Sub() RigControl.SelectMemoryByName(memories(memoryID)))
         scanTimer.Interval = TimeSpan.FromMilliseconds(CInt(SpeedBox.Text) * 100)
         scanTimer.Start()
 
@@ -99,7 +100,7 @@ Public Class MemoryScan
 
     Friend Sub ScanTimer_Tick(ByVal sender As System.Object, ByVal e As System.EventArgs)
         memoryID = (memoryID + 1) Mod memories.Count
-        RigControl.SelectMemoryByName(memories(memoryID))
+        WpfMainWindow.AskRadioForMode(Sub() RigControl.SelectMemoryByName(memories(memoryID)))
     End Sub
 
     Private Sub ManageButton_Click(sender As System.Object, e As System.EventArgs) Handles ManageButton.Click

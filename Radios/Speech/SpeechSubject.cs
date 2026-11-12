@@ -736,6 +736,17 @@ namespace Radios.Speech
         /// </summary>
         public const string NoiseModeStart = "noise-mode-start";
 
+        /// <summary>
+        /// The Slice menu's mode sentence ("Mode CW selected", or Next Mode's
+        /// "CW"), said once the menu has closed, with the noise controller's
+        /// answer to that mode change joined to it. Owned twice: any newer mode
+        /// choice, by any road, retires it (MainWindow.NoteModeChoice), and the
+        /// noise controller retires it once what its noise part states is no
+        /// longer true (#1117, repair round 2: queued with no subject, an older
+        /// "Mode CW" could be rescued after a newer "USB").
+        /// </summary>
+        public const string ModeChoice = "mode-choice";
+
         /// <summary>A noise preset applied, saved, renamed or deleted. The newest covers an unheard older one.</summary>
         public const string NoisePreset = "noise-preset";
 
