@@ -2752,7 +2752,7 @@ public class NativeMenuBar : IDisposable
                 AddSep(antSub);
                 AddWired(antSub, "Start tune\tCtrl+T", () =>
                 {
-                    if (Rig?.FlexTunerOn == false && ZeroPowerDoors.RefuseTunePress(Rig, "the ATU menu", afterMenu: true)) return;
+                    if (Rig?.FlexTunerOn == false && Rig?.TuneAskedOrUp == false && ZeroPowerDoors.RefuseTunePress(Rig, "the ATU menu", afterMenu: true)) return;
                     _window.StartATUTuneCycle();
                 });
             }
