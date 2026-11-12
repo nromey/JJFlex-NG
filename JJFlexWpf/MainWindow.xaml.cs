@@ -3272,7 +3272,17 @@ public partial class MainWindow : UserControl
     {
         bool held = _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
         end();
-        if (held) LatchAppEndedHold(why);
+        if (held)
+        {
+            LatchAppEndedHold(why);
+            // Only the repeat guard goes, as at a dialog's window loss (#900):
+            // the up it waits for may never reach us (focus can leave before
+            // the key comes up), and a guard left set silently swallowed the
+            // next press. Every door drops a held key's repeats before the
+            // edge, so the guard is not what stops a held key keying again;
+            // the latch and the hold filter are (the second check of #1089, N1).
+            _pttKeyDown = false;
+        }
         else ResetPttInput();
     }
 

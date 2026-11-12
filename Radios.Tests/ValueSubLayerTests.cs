@@ -3195,7 +3195,8 @@ namespace Radios.Tests
             int outside = main.IndexOf("private void EndTransmitOutsideTheEdges(string why, Action end)", StringComparison.Ordinal);
             Assert.True(outside >= 0);
             string outsideBody = main[outside..main.IndexOf("\n    }", outside, StringComparison.Ordinal)];
-            Assert.Contains("if (held) LatchAppEndedHold(why);\n        else ResetPttInput();", outsideBody.Replace("\r\n", "\n"));
+            Assert.Contains("if (held)\n        {\n            LatchAppEndedHold(why);", outsideBody.Replace("\r\n", "\n"));
+            Assert.Contains("_pttKeyDown = false;\n        }\n        else ResetPttInput();", outsideBody.Replace("\r\n", "\n"));
             int helper = main.IndexOf("private void ResetPttInput()", StringComparison.Ordinal);
             Assert.True(helper >= 0);
             string helperBody = main.Substring(helper, 400);

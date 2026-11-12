@@ -331,6 +331,46 @@ public sealed class EscapeKillHeldKeyTests : IDisposable
         Assert.Equal(Hold, _controller.State);
     }
 
+    /// <summary>
+    /// The second check of #1089, N1: the real key-up never reaches the app
+    /// (focus left before the space bar came up), so the latch leaves a
+    /// repeat guard nobody will clear. The operator's next press must key, as
+    /// it did before the latch: the guard is cleared at the latch, as #900
+    /// clears it at a dialog's window loss.
+    /// </summary>
+    [Theory]
+    [InlineData("home")]
+    [InlineData("dialog")]
+    [InlineData("off")]
+    public void When_the_real_up_is_lost_after_the_app_ends_a_hold_the_next_press_keys(string door)
+    {
+        AssertTheDeskIsSafe();
+        var w = new FakeWindow();
+        Action down = HomeDown;
+        if (door == "dialog")
+        {
+            Assert.True(DialogTransmitKeys.KeyDown(w, CtrlSpace, false, false));
+            down = () => DialogTransmitKeys.KeyDown(w, CtrlSpace, false, false);
+        }
+        else HomeDown();
+        Assert.Equal(Hold, _controller.State);
+
+        switch (door)
+        {
+            case "home": Call("EndTransmitOutsideTheEdges", "Escape on Home", (Action)(() => _controller.EscapeUnlock())); break;
+            case "dialog": Assert.True(DialogTransmitKeys.KeyDown(w, Keys.Escape, false, false)); break;
+            case "off": Call("RadioStoppedTransmitting"); break;
+        }
+        Assert.Equal(Idle, _controller.State);
+        Assert.True(Latched, "positive control: the hold was latched");
+
+        // No up: it went to whatever took the keyboard. Then a new press.
+        Thread.Sleep(PttHoldFilter.ImplausibleReleaseMs + 30);
+        down();
+        Assert.Equal(Hold, _controller.State);
+        Assert.False(Latched, "a fresh press ends the latch");
+    }
+
     // ── a lock has no key held: its input state goes as before ──
 
     [Fact]
