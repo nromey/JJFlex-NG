@@ -1778,18 +1778,35 @@ namespace JJFlexWpf.Dialogs
         /// settings only. Until #1088 the failures went into the applied list,
         /// so OK with nothing waiting said only "Settings saved." and OK with
         /// something waiting listed the failure under "Done right away".
+        /// <para><b>Push-to-talk changes with no radio to keep them are a
+        /// failure like any other</b> (#1088, the words round): their sentence
+        /// leads the failures in every combination. Until then it was the
+        /// spoken summary's key only, so OK with anything waiting returned
+        /// before reading it and the advisory never said it, and could even
+        /// say everything was saved.</para>
+        /// <para><b>On Apply with something waiting there is no aggregate
+        /// summary</b> (#1088, the words round): a waiting note can be a
+        /// declined or denied change that was not saved at all, so "Your other
+        /// settings were applied" or "saved" ahead of it was untrue. The notes
+        /// speak for themselves.</para>
         /// </remarks>
         internal static (string? Advisory, string? Spoken, bool Interrupt) CommitAnnouncement(bool closing, bool pttDropped,
             IReadOnlyList<string> refused, IReadOnlyList<string> queued, IReadOnlyList<string> applied,
             IReadOnlyList<string>? failed = null)
         {
             failed ??= Array.Empty<string>();
+            if (pttDropped)
+            {
+                var withPtt = new List<string>(failed.Count + 1) { Lexicon.Get("settings.commit.ptt_not_saved") };
+                withPtt.AddRange(failed);
+                failed = withPtt;
+            }
             bool holdRefused = refused.Count > 0;
             bool anyFailed = failed.Count > 0;
             if (closing && queued.Count > 0)
             {
-                // DRAFT (repair two): the lead when a change was refused, or
-                // did not land (#1088): not everything was saved.
+                // The lead when a change was refused, or did not land (#1088):
+                // the same words today, two keys so either can change alone.
                 var body = new System.Text.StringBuilder(Lexicon.Get(holdRefused || anyFailed
                     ? "settings.commit.some_items_wait_lead_refused"
                     : "settings.commit.some_items_wait_lead"));
@@ -1825,7 +1842,10 @@ namespace JJFlexWpf.Dialogs
             }
 
             var said = CommitSummary(closing, pttDropped, holdRefused, anyFailed);
-            string summary = Lexicon.Get(said.Key);
+            // Apply with something waiting: no aggregate summary, the notes
+            // speak (see the remarks).
+            bool notesSpeak = !closing && queued.Count > 0;
+            string summary = notesSpeak ? "" : Lexicon.Get(said.Key);
             // OK closes the dialog, and Home's return announcement interrupts
             // about 70 ms into the hold's sentence; the arbiter replays only
             // what is still owed, which was this summary alone (the 2026-11-09
@@ -1839,11 +1859,11 @@ namespace JJFlexWpf.Dialogs
             if (!closing)
             {
                 if (queued.Count > 0)
-                    summary += Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
+                    summary = summary.TrimEnd() + Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
                 else if (applied.Count > 0)
                     summary += " " + string.Join(" ", applied);
             }
-            return (null, summary, said.Interrupt);
+            return (null, summary.Trim(), said.Interrupt);
         }
 
         /// <summary>
@@ -1859,9 +1879,12 @@ namespace JJFlexWpf.Dialogs
         {
             // A failure is not saved, so the summary speaks for the others,
             // as it does for a refusal (#1088). It does not wait its turn: the
-            // failure's own sentence is in the same utterance.
-            string key = pttDropped ? "settings.commit.ptt_not_saved"
-                : holdRefused || anyFailed ? (closing ? "settings.commit.saved_others_spoken" : "settings.commit.applied_others_spoken")
+            // failure's own sentence is in the same utterance. Push-to-talk
+            // changes with nowhere to go are such a failure: their own
+            // sentence is said by CommitAnnouncement, and the summary is the
+            // ordinary one for the others (#1088, the words round).
+            string key = pttDropped || holdRefused || anyFailed
+                ? (closing ? "settings.commit.saved_others_spoken" : "settings.commit.applied_others_spoken")
                 : closing ? "settings.commit.saved_spoken" : "settings.commit.applied_spoken";
             return (key, !holdRefused);
         }

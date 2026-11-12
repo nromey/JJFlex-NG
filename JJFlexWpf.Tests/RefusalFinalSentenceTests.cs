@@ -38,7 +38,7 @@ public sealed class RefusalFinalSentenceTests
         Assert.False(ok.Interrupt);
         // The other settings' sentence is true for them, and never claims the
         // radio change.
-        Assert.Equal("Your other settings were applied.", Lexicon.Get(apply.Key));
+        Assert.Equal("Your other settings were saved.", Lexicon.Get(apply.Key));
         Assert.Equal("Your other settings were saved.", Lexicon.Get(ok.Key));
     }
 
@@ -48,10 +48,12 @@ public sealed class RefusalFinalSentenceTests
         AssertWindowless();
         Assert.Equal(("settings.commit.applied_spoken", true), SettingsDialog.CommitSummary(false, false, false));
         Assert.Equal(("settings.commit.saved_spoken", true), SettingsDialog.CommitSummary(true, false, false));
-        Assert.Equal(("settings.commit.ptt_not_saved", true), SettingsDialog.CommitSummary(true, true, false));
-        // The PTT sentence already says the other settings were saved; with a
-        // refusal it waits its turn too.
-        Assert.Equal(("settings.commit.ptt_not_saved", false), SettingsDialog.CommitSummary(false, true, true));
+        // Push-to-talk changes with nowhere to go: CommitAnnouncement says
+        // their sentence, and the summary is the ordinary one for the others
+        // (the words round: the PTT key is the PTT outcome only now).
+        Assert.Equal(("settings.commit.saved_others_spoken", true), SettingsDialog.CommitSummary(true, true, false));
+        // With a refusal it waits its turn too.
+        Assert.Equal(("settings.commit.applied_others_spoken", false), SettingsDialog.CommitSummary(false, true, true));
     }
 
     [Fact]
@@ -98,7 +100,7 @@ public sealed class RefusalFinalSentenceTests
         Assert.NotNull(said.Advisory);
         Assert.DoesNotContain("Everything you set was saved", said.Advisory!, StringComparison.Ordinal);
         Assert.StartsWith(Lexicon.Get("settings.commit.some_items_wait_lead_refused"), said.Advisory!, StringComparison.Ordinal);
-        Assert.StartsWith("Your other settings were saved.", said.Advisory!, StringComparison.Ordinal);
+        Assert.StartsWith("Some changes need your attention:", said.Advisory!, StringComparison.Ordinal);
         // The waiting preference's receipt is still there, and true.
         Assert.Contains(Queued, said.Advisory!, StringComparison.Ordinal);
         // And the refusal, re-readable, after the window change cut it off.
@@ -117,15 +119,16 @@ public sealed class RefusalFinalSentenceTests
     }
 
     [Fact]
-    public void Apply_with_something_waiting_and_a_refusal_speaks_for_the_other_settings_behind_the_hold()
+    public void Apply_with_something_waiting_and_a_refusal_lets_the_waiting_note_speak_behind_the_hold()
     {
         AssertWindowless();
         var said = SettingsDialog.CommitAnnouncement(closing: false, pttDropped: false,
             refused: new[] { Refusal }, queued: new[] { Queued }, applied: Array.Empty<string>());
         Assert.Null(said.Advisory);
         Assert.False(said.Interrupt);
-        Assert.StartsWith("Your other settings were applied.", said.Spoken!, StringComparison.Ordinal);
-        Assert.Contains(Queued, said.Spoken!, StringComparison.Ordinal);
+        // The words round (#1088): no aggregate summary over a waiting note.
+        Assert.Equal(Lexicon.Get("settings.commit.waiting_lead").Trim() + " " + Queued, said.Spoken);
+        Assert.DoesNotContain("Your other settings were", said.Spoken!, StringComparison.Ordinal);
         Assert.DoesNotContain("Settings applied.", said.Spoken!, StringComparison.Ordinal);
     }
 
@@ -139,7 +142,7 @@ public sealed class RefusalFinalSentenceTests
         Assert.Equal((Refusal + " Your other settings were saved.", false), (ok.Spoken, ok.Interrupt));
         // Apply does not close: the hold's sentence is heard whole, so it is not repeated.
         var apply = SettingsDialog.CommitAnnouncement(false, false, new[] { Refusal }, Array.Empty<string>(), Array.Empty<string>());
-        Assert.Equal(("Your other settings were applied.", false), (apply.Spoken, apply.Interrupt));
+        Assert.Equal(("Your other settings were saved.", false), (apply.Spoken, apply.Interrupt));
         var plain = SettingsDialog.CommitAnnouncement(false, false, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
         Assert.Equal(("Settings applied.", true), (plain.Spoken, plain.Interrupt));
         var plainOk = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
@@ -187,9 +190,18 @@ public sealed class RefusalFinalSentenceTests
             somethingWaits ? new[] { Queued } : Array.Empty<string>(),
             new[] { "Radio name saved." }, failed: new[] { KeyerNotSaved });
         Assert.Null(apply.Advisory);
-        Assert.StartsWith(KeyerNotSaved + " Your other settings were applied.", apply.Spoken!, StringComparison.Ordinal);
         Assert.DoesNotContain("Settings applied.", apply.Spoken!, StringComparison.Ordinal);
-        if (somethingWaits) Assert.Contains(Queued, apply.Spoken!, StringComparison.Ordinal);
+        if (somethingWaits)
+        {
+            // The words round (#1088): the failure, then the waiting note,
+            // and no aggregate summary between them.
+            Assert.Equal(KeyerNotSaved + Lexicon.Get("settings.commit.waiting_lead") + Queued, apply.Spoken);
+            Assert.DoesNotContain("Your other settings were", apply.Spoken!, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.StartsWith(KeyerNotSaved + " Your other settings were saved.", apply.Spoken!, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -208,7 +220,98 @@ public sealed class RefusalFinalSentenceTests
         AssertWindowless();
         Assert.Equal(("settings.commit.saved_others_spoken", true), SettingsDialog.CommitSummary(true, false, false, anyFailed: true));
         Assert.Equal(("settings.commit.applied_others_spoken", true), SettingsDialog.CommitSummary(false, false, false, anyFailed: true));
-        Assert.Equal(("settings.commit.ptt_not_saved", true), SettingsDialog.CommitSummary(true, true, false, anyFailed: true));
+        Assert.Equal(("settings.commit.saved_others_spoken", true), SettingsDialog.CommitSummary(true, true, false, anyFailed: true));
+    }
+
+    // ---- #1088, the words round: the push-to-talk outcome in every
+    // combination, and no aggregate summary over a waiting note on Apply ----
+
+    private static string PttNotSaved => Lexicon.Get("settings.commit.ptt_not_saved");
+    private static string ProfileNotSaved => "Workshop radio: profile not saved.";
+
+    [Fact]
+    public void OK_with_push_to_talk_dropped_and_something_waiting_says_the_push_to_talk_outcome()
+    {
+        AssertWindowless();
+        // Push-to-talk edited with no radio, and a keyer speed saved for the
+        // next connect: the advisory used to return before the PTT outcome
+        // was read, and lead with "Everything you set was saved".
+        var said = SettingsDialog.CommitAnnouncement(true, pttDropped: true, Array.Empty<string>(),
+            new[] { Lexicon.Get("settings.keyer.speed_waits_for_radio") }, Array.Empty<string>());
+        Assert.Null(said.Spoken);
+        Assert.NotNull(said.Advisory);
+        Assert.Contains(PttNotSaved, said.Advisory!, StringComparison.Ordinal);
+        Assert.Contains(Lexicon.Get("settings.keyer.speed_waits_for_radio"), said.Advisory!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Everything you set was saved", said.Advisory!, StringComparison.Ordinal);
+        Assert.StartsWith(Lexicon.Get("settings.commit.some_items_wait_lead_refused"), said.Advisory!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OK_with_push_to_talk_dropped_a_failure_and_something_waiting_says_both_outcomes()
+    {
+        AssertWindowless();
+        var said = SettingsDialog.CommitAnnouncement(true, pttDropped: true, Array.Empty<string>(),
+            new[] { Queued }, Array.Empty<string>(), failed: new[] { ProfileNotSaved });
+        Assert.Contains(PttNotSaved, said.Advisory!, StringComparison.Ordinal);
+        Assert.Contains(ProfileNotSaved, said.Advisory!, StringComparison.Ordinal);
+        Assert.True(said.Advisory!.IndexOf(PttNotSaved, StringComparison.Ordinal)
+                    < said.Advisory.IndexOf(ProfileNotSaved, StringComparison.Ordinal),
+            "the push-to-talk outcome does not lead the failures");
+    }
+
+    [Fact]
+    public void Apply_with_push_to_talk_dropped_and_something_waiting_says_the_push_to_talk_outcome_and_the_note()
+    {
+        AssertWindowless();
+        var apply = SettingsDialog.CommitAnnouncement(false, pttDropped: true, Array.Empty<string>(),
+            new[] { Queued }, new[] { "Radio name saved." });
+        Assert.Null(apply.Advisory);
+        Assert.Equal(PttNotSaved + Lexicon.Get("settings.commit.waiting_lead") + Queued, apply.Spoken);
+        Assert.DoesNotContain("Your other settings were", apply.Spoken!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Push_to_talk_dropped_with_nothing_waiting_says_its_outcome_then_the_others_once()
+    {
+        AssertWindowless();
+        var ok = SettingsDialog.CommitAnnouncement(true, true, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
+        Assert.Equal((PttNotSaved + " Your other settings were saved.", true), (ok.Spoken, ok.Interrupt));
+        var apply = SettingsDialog.CommitAnnouncement(false, true, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
+        Assert.Equal((PttNotSaved + " Your other settings were saved.", true), (apply.Spoken, apply.Interrupt));
+        // With another failure, the summary is still said once, after both.
+        var both = SettingsDialog.CommitAnnouncement(true, true, Array.Empty<string>(), Array.Empty<string>(),
+            Array.Empty<string>(), failed: new[] { KeyerNotSaved });
+        Assert.Equal(PttNotSaved + " " + KeyerNotSaved + " Your other settings were saved.", both.Spoken);
+    }
+
+    [Fact]
+    public void Apply_with_a_failure_and_a_setting_waiting_for_the_next_connection_never_says_the_others_were_applied()
+    {
+        AssertWindowless();
+        string waits = Lexicon.Get("settings.keyer.speed_waits_for_radio");
+        var apply = SettingsDialog.CommitAnnouncement(false, false, Array.Empty<string>(), new[] { waits },
+            Array.Empty<string>(), failed: new[] { ProfileNotSaved });
+        Assert.Equal(ProfileNotSaved + Lexicon.Get("settings.commit.waiting_lead") + waits, apply.Spoken);
+        Assert.DoesNotContain("Your other settings were", apply.Spoken!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_declined_port_change_is_never_covered_by_a_saved_or_applied_summary()
+    {
+        AssertWindowless();
+        // Answered No: it sits in the waiting list, and was not saved at all.
+        string declined = Lexicon.Get("settings.network.forwarding_declined");
+        var apply = SettingsDialog.CommitAnnouncement(false, false, Array.Empty<string>(), new[] { declined },
+            new[] { "Radio name saved." });
+        Assert.Equal(Lexicon.Get("settings.commit.waiting_lead").Trim() + " " + declined, apply.Spoken);
+        Assert.DoesNotContain("Settings applied.", apply.Spoken!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Your other settings were", apply.Spoken!, StringComparison.Ordinal);
+
+        var ok = SettingsDialog.CommitAnnouncement(true, false, Array.Empty<string>(), new[] { declined },
+            Array.Empty<string>());
+        Assert.Contains(declined, ok.Advisory!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Everything you set was saved", ok.Advisory!, StringComparison.Ordinal);
+        Assert.DoesNotContain("were saved", ok.Advisory!.Replace(declined, ""), StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -2181,9 +2181,6 @@ settings.com_port.try_again_title	ef39ad5e614a2403
 settings.commit.applied_spoken	acab99860673c3f8
 settings.commit.done_right_away_lead	f588e40b5e94a220
 settings.commit.saved_spoken	4c73b46df33b36b0
-settings.commit.some_items_wait_lead	342e92cce33f4171
-settings.commit.some_items_wait_title	831f45ffe283a937
-settings.commit.waiting_lead	be2d83bbf5334e19
 settings.cw.no_message_at_position	6b5b4893e0dafff5
 settings.cw.no_message_on_key	9b15a76b53bae65a
 settings.cw.no_messages_configured	1c4afc837b7949c3
