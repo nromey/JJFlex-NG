@@ -113,6 +113,34 @@ namespace Radios.Tests
             Assert.False(StoreFor("A_op").IsSuppressed(One));
         }
 
+        /// <summary>
+        /// Batch 12 repair round 1 (Codex's Noted item on #1106): the marker
+        /// was written even when an operator's copy failed, which made a
+        /// partial carry-over permanent. Now the marker waits until every listed
+        /// operator's file is there, so the next start makes the missing copy,
+        /// and a copy that was written is never made again.
+        /// </summary>
+        [Fact]
+        public void A_copy_that_could_not_be_written_is_made_at_the_next_start_and_a_written_one_never_twice()
+        {
+            Account().Suppress(One);
+            // A's copy cannot be written: a folder stands where its file goes.
+            string blocked = AdvisorySuppression.OperatorFile(_root, "A_op");
+            Directory.CreateDirectory(blocked);
+
+            Assert.True(AdvisorySuppression.CarryOverAtUpgrade(_root, new[] { "A_op", "B_op" }));
+            Assert.False(File.Exists(AdvisorySuppression.CarriedOverMarkerFile(_root)));
+            Assert.True(StoreFor("B_op").IsSuppressed(One));
+            Assert.Equal(1, StoreFor("B_op").Clear());   // B restores it before the next start
+
+            Directory.Delete(blocked);
+            Assert.True(AdvisorySuppression.CarryOverAtUpgrade(_root, new[] { "A_op", "B_op" }));
+            Assert.True(File.Exists(AdvisorySuppression.CarriedOverMarkerFile(_root)));
+            Assert.True(StoreFor("A_op").IsSuppressed(One));
+            Assert.False(StoreFor("B_op").IsSuppressed(One));   // never copied into twice
+            Assert.False(AdvisorySuppression.CarryOverAtUpgrade(_root, new[] { "A_op", "B_op" }));
+        }
+
         /// <summary>The application makes the carry-over at startup, before the operator in use is recorded.</summary>
         [Fact]
         public void Startup_makes_the_carry_over_before_the_operator_is_recorded()

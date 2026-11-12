@@ -507,6 +507,24 @@ namespace Radios
                     // operator's file does not exist yet, and written at once.
                     foreach (string name in names)
                         _ = new AdvisorySuppressionStore(OperatorFile(root, name), carryOverFrom: account).Count;
+
+                    // The marker only once every listed operator's file is
+                    // there (batch 12 repair round 1): a copy that failed to
+                    // write would otherwise be made permanent. Without it the
+                    // next start runs this again, and the store copies only
+                    // where its file is still missing, so an operator whose
+                    // copy was written is never copied into twice. The store
+                    // replaces its file in one step, so one that exists is whole.
+                    var notWritten = names.Where(n => !File.Exists(OperatorFile(root, n))).ToList();
+                    if (notWritten.Count > 0)
+                    {
+                        Tracing.TraceLine("AdvisorySuppression: the Windows account's silenced messages could not be carried to "
+                            + string.Join(", ", notWritten) + "; the carry-over runs again at the next start",
+                            System.Diagnostics.TraceLevel.Warning);
+                        _default = null;
+                        _defaultFor = null;
+                        return true;
+                    }
                 }
                 UpgradeMarker.Write(CarriedOverMarkerFile(root), names, "AdvisorySuppression");
                 Tracing.TraceLine("AdvisorySuppression: the Windows account's silenced messages "

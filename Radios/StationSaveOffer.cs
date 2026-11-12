@@ -145,6 +145,20 @@ namespace Radios
             foreach (string name in names)
                 if (!File.Exists(OperatorFile(root, name)))
                     Write(root, name, accountValue);
+            // The marker only once every listed operator's file is there
+            // (batch 12 repair round 1): a write that failed would otherwise
+            // be made permanent. Without it the next start runs this again,
+            // and writes only where a file is still missing, so an operator
+            // whose file was written is never written twice. Write replaces
+            // the file in one step, so a file that exists is a whole one.
+            var notWritten = names.Where(n => !File.Exists(OperatorFile(root, n))).ToList();
+            if (notWritten.Count > 0)
+            {
+                Tracing.TraceLine("StationSaveOffer: the account's setting could not be carried to "
+                    + string.Join(", ", notWritten) + "; the carry-over runs again at the next start",
+                    System.Diagnostics.TraceLevel.Warning);
+                return true;
+            }
             UpgradeMarker.Write(MarkerFile(root), names, "StationSaveOffer");
             Tracing.TraceLine("StationSaveOffer: the account's setting (" + (accountValue ? "offer" : "no offer")
                 + ") carried to " + names.Count.ToString(CultureInfo.InvariantCulture)

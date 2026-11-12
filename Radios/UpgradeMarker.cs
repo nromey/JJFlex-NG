@@ -20,9 +20,11 @@ namespace Radios
     /// carry-over is made for every operator listed at that first start, and
     /// then this file is written. Its existence is the whole answer to "has the
     /// upgrade happened"; the list inside is for a person reading the folder,
-    /// not for the code. Written after the copies, so a start that stops part
-    /// way repeats the carry-over (each copy is skipped for an operator whose
-    /// file is already there) rather than leaving someone out.</para>
+    /// not for the code. Written after the copies, and only once every listed
+    /// operator's file is there (batch 12 repair round 1), so a start that
+    /// stops part way, or a copy that could not be written, repeats the
+    /// carry-over at the next start (each copy is skipped for an operator whose
+    /// file is already there) rather than leaving someone out for good.</para>
     /// <para>Plain JSON beside the stores it describes, so support can read it
     /// and deleting it is the documented way to make the carry-over run again
     /// at the next start.</para>

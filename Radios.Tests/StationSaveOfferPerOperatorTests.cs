@@ -132,6 +132,34 @@ namespace Radios.Tests
             Assert.True(StationSaveOffer.Read(_root, "A_op"));
         }
 
+        /// <summary>
+        /// Batch 12 repair round 1 (Codex's Noted item on #1113): the marker
+        /// was written even when an operator's file failed to write, so that
+        /// operator stayed off for good. Now the marker waits until every
+        /// listed operator's file is there; the next start writes the missing
+        /// one, and never writes again over one that was written.
+        /// </summary>
+        [Fact]
+        public void A_setting_that_could_not_be_written_is_carried_at_the_next_start_and_a_written_one_never_twice()
+        {
+            Directory.CreateDirectory(_root);
+            // A's file cannot be written: a folder stands where it goes.
+            string blocked = StationSaveOffer.OperatorFile(_root, "A_op");
+            Directory.CreateDirectory(blocked);
+
+            Assert.True(StationSaveOffer.CarryOverAtUpgrade(_root, new[] { "A_op", "B_op" }, accountValue: true));
+            Assert.False(File.Exists(StationSaveOffer.MarkerFile(_root)));
+            Assert.True(StationSaveOffer.Read(_root, "B_op"));
+            StationSaveOffer.Write(_root, "B_op", false);   // B turns the offer off before the next start
+
+            Directory.Delete(blocked);
+            Assert.True(StationSaveOffer.CarryOverAtUpgrade(_root, new[] { "A_op", "B_op" }, accountValue: true));
+            Assert.True(File.Exists(StationSaveOffer.MarkerFile(_root)));
+            Assert.True(StationSaveOffer.Read(_root, "A_op"));
+            Assert.False(StationSaveOffer.Read(_root, "B_op"));   // never written twice
+            Assert.False(StationSaveOffer.CarryOverAtUpgrade(_root, new[] { "A_op", "B_op" }, accountValue: true));
+        }
+
         [Fact]
         public void An_unreadable_file_reads_as_off()
         {
