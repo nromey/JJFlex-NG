@@ -440,6 +440,21 @@ public partial class ScreenFieldsPanel
 
     private DeferredNoiseFocus? _noiseFocus;
 
+    /// <summary>
+    /// Every keyboard focus change in the app, to the noise focus request (repair
+    /// round 2): a class handler, so a move anywhere counts, including one that
+    /// later comes back. Handled events too, because a control that marks its
+    /// focus event handled has still taken focus. LostKeyboardFocus with no new
+    /// element is the app losing focus to another window.
+    /// </summary>
+    private static void WatchKeyboardFocus(Action<object?> changed)
+    {
+        EventManager.RegisterClassHandler(typeof(UIElement), System.Windows.Input.Keyboard.GotKeyboardFocusEvent,
+            new System.Windows.Input.KeyboardFocusChangedEventHandler((s, e) => changed(e.NewFocus)), true);
+        EventManager.RegisterClassHandler(typeof(UIElement), System.Windows.Input.Keyboard.LostKeyboardFocusEvent,
+            new System.Windows.Input.KeyboardFocusChangedEventHandler((s, e) => { if (e.NewFocus == null) changed(null); }), true);
+    }
+
     /// <summary>The panel's one focus request, wired to the dispatcher, WPF's keyboard focus and the panel's state. Hiding, collapsing or unloading the panel cancels it.</summary>
     private DeferredNoiseFocus NoiseFocus
     {
@@ -452,7 +467,8 @@ public partial class ScreenFieldsPanel
                 focused: () => System.Windows.Input.Keyboard.FocusedElement,
                 shownEngine: () => _noiseFieldsFor,
                 ready: () => IsVisible && DspExpander.IsExpanded && PresentationSource.FromVisual(this) != null,
-                trace: line => JJTrace.Tracing.TraceLine(line, System.Diagnostics.TraceLevel.Info));
+                trace: line => JJTrace.Tracing.TraceLine(line, System.Diagnostics.TraceLevel.Info),
+                watchFocus: WatchKeyboardFocus);
             IsVisibleChanged += (s, e) => { if (e.NewValue is false) _noiseFocus.Cancel(); };
             Unloaded += (s, e) => _noiseFocus.Cancel();
             return _noiseFocus;

@@ -19,9 +19,10 @@ namespace JJFlexWpf.Controls;
 /// </para>
 /// <list type="bullet">
 /// <item>it is the newest request (a later one, or <see cref="Cancel"/>, retires it);</item>
-/// <item>keyboard focus is still where it was when the request was made, so
-/// the operator has not moved it, and the app has not lost focus to another
-/// window (WPF clears keyboard focus when its window deactivates);</item>
+/// <item>something had keyboard focus when the request was made (its owner),
+/// and focus has not moved off it since, not even for a moment: a move away
+/// and back, or the app losing focus and getting it again, cancels (repair
+/// round 2; WPF clears keyboard focus when its window deactivates);</item>
 /// <item>the fields still show the engine the request was made for;</item>
 /// <item>the panel is still there to take focus: shown, expanded, connected.</item>
 /// </list>
@@ -41,17 +42,40 @@ internal sealed class DeferredNoiseFocus
     private readonly Action<string> _trace;
     private int _generation;
 
+    /// <summary>The element focus was on when the newest request was made: its owner.</summary>
+    private object? _owner;
+
+    /// <summary>
+    /// Whether focus has been anywhere but the owner since the newest request
+    /// (repair round 2). Endpoint equality is not evidence that focus never
+    /// moved: Tab away then Shift+Tab back, or leaving the app and returning,
+    /// ends where it began, and an old idle retry would then take focus.
+    /// </summary>
+    private bool _movedSinceRequest;
+
     /// <param name="afterLayout">Run an action once the panel has laid out (Loaded priority after a layout pass).</param>
     /// <param name="whenIdle">Run an action when the app is idle (ApplicationIdle priority).</param>
     /// <param name="focused">The element that has keyboard focus now, or null.</param>
     /// <param name="shownEngine">The engine the noise fields show now.</param>
     /// <param name="ready">Whether the panel can take focus now: shown, expanded, connected to a window.</param>
     /// <param name="trace">Where a cancelled or failed request is recorded.</param>
+    /// <param name="watchFocus">
+    /// Subscribes a callback to every keyboard focus change in the app, with the
+    /// element that now has focus (null when the app lost it). Every move counts,
+    /// not only where focus ends up.
+    /// </param>
     public DeferredNoiseFocus(Action<Action> afterLayout, Action<Action> whenIdle, Func<object?> focused,
-        Func<string?> shownEngine, Func<bool> ready, Action<string> trace)
+        Func<string?> shownEngine, Func<bool> ready, Action<string> trace, Action<Action<object?>> watchFocus)
     {
         _afterLayout = afterLayout; _whenIdle = whenIdle; _focused = focused;
         _shownEngine = shownEngine; _ready = ready; _trace = trace;
+        watchFocus(FocusChanged);
+    }
+
+    /// <summary>Every focus change: a move to anything but the owner, nothing included, means the operator (or another window) has moved on.</summary>
+    private void FocusChanged(object? now)
+    {
+        if (!ReferenceEquals(now, _owner)) _movedSinceRequest = true;
     }
 
     /// <summary>Retire any request still waiting: the panel was hidden, collapsed or unloaded.</summary>
@@ -67,11 +91,16 @@ internal sealed class DeferredNoiseFocus
         int generation = ++_generation;
         object? focusedAtRequest = _focused();
         string? engineAtRequest = _shownEngine();
+        _owner = focusedAtRequest;
+        _movedSinceRequest = false;
 
         string? Stale()
         {
             if (generation != _generation) return "a later request or a cancel replaced it";
-            if (!ReferenceEquals(_focused(), focusedAtRequest)) return "focus moved since it was asked for";
+            // No element had focus when it was asked for: nobody owns the request,
+            // so it may not take focus (the app may not even be the active window).
+            if (focusedAtRequest == null) return "nothing had focus when it was asked for";
+            if (_movedSinceRequest || !ReferenceEquals(_focused(), focusedAtRequest)) return "focus moved since it was asked for";
             if (!string.Equals(_shownEngine(), engineAtRequest, StringComparison.Ordinal)) return "the fields show another engine";
             if (!_ready()) return "the panel is not showing";
             return null;

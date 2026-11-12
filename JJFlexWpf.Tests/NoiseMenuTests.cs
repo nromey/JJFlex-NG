@@ -170,6 +170,9 @@ public sealed class NoiseMenuTests
         Assert.Contains("shownEngine: () => _noiseFieldsFor", focus);
         Assert.Contains("IsVisibleChanged += (s, e) => { if (e.NewValue is false) _noiseFocus.Cancel(); };", focus);
         Assert.Contains("Unloaded += (s, e) => _noiseFocus.Cancel();", focus);
+        // Repair round 2: every focus move is watched, not only where focus ends up.
+        Assert.Contains("watchFocus: WatchKeyboardFocus", focus);
+        Assert.Contains("Keyboard.GotKeyboardFocusEvent", focus);
         Assert.Contains("_noiseFocus?.Cancel();", Body(panel, "private void OnDspExpanderCollapsed()", "\n    }"));
     }
 
@@ -186,8 +189,12 @@ public sealed class NoiseMenuTests
         public int Calls;
         public bool Lands = true;
         public readonly DeferredNoiseFocus Focus;
-        public FocusRig() => Focus = new DeferredNoiseFocus(Layout.Enqueue, Idle.Enqueue, () => Focused, () => Engine, () => Ready, Trace.Add);
-        public Func<Func<bool>?> Target(string name) => () => () => { Calls++; if (Lands) Focused = name; return Lands; };
+        private Action<object?>? _notify;
+        public FocusRig() => Focus = new DeferredNoiseFocus(Layout.Enqueue, Idle.Enqueue, () => Focused, () => Engine, () => Ready, Trace.Add,
+            watch => _notify = watch);
+        /// <summary>Focus moves, as WPF raises it: the element now focused, or null when the app lost focus.</summary>
+        public void MoveTo(object? element) { Focused = element; _notify?.Invoke(element); }
+        public Func<Func<bool>?> Target(string name) => () => () => { Calls++; if (Lands) MoveTo(name); return Lands; };
         public void RunLayout() { while (Layout.Count > 0) Layout.Dequeue()(); }
         public void RunIdle() { while (Idle.Count > 0) Idle.Dequeue()(); }
     }
@@ -219,7 +226,7 @@ public sealed class NoiseMenuTests
         rig.Focus.Request(rig.Target("floor"), "floor");
         rig.RunLayout();                                  // first try fails
         rig.Lands = true;
-        rig.Focused = "mode field";                       // the operator moved on before idle
+        rig.MoveTo("mode field");                         // the operator moved on before idle
         rig.RunIdle();
         Assert.Equal(1, rig.Calls);
         Assert.Equal("mode field", rig.Focused);
@@ -228,7 +235,7 @@ public sealed class NoiseMenuTests
         // And before the first try too: the app lost focus to another window.
         rig = new FocusRig();
         rig.Focus.Request(rig.Target("floor"), "floor");
-        rig.Focused = null;
+        rig.MoveTo(null);
         rig.RunLayout();
         Assert.Equal(0, rig.Calls);
     }
@@ -268,6 +275,61 @@ public sealed class NoiseMenuTests
         rig.Focus.Request(rig.Target("floor"), "floor");
         rig.RunLayout();
         Assert.Equal(0, rig.Calls);
+    }
+
+    /// <summary>
+    /// Repair round 2, Codex's probe kept: after a failed first try, focus moves
+    /// away and back to the very element it started on before the idle retry.
+    /// Comparing the endpoints alone said nothing had moved, and the old request
+    /// took focus. Every move now counts.
+    /// </summary>
+    [Fact]
+    public void A_deferred_noise_focus_is_dropped_after_focus_moves_away_and_back()
+    {
+        var rig = new FocusRig { Lands = false };
+        object home = rig.Focused!;
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        Assert.Equal(1, rig.Calls);
+        rig.MoveTo("mode field");                         // Tab elsewhere
+        rig.MoveTo(home);                                 // Shift+Tab back
+        rig.Lands = true;
+        rig.RunIdle();
+        Assert.Equal(1, rig.Calls);
+        Assert.Same(home, rig.Focused);
+
+        // The app losing focus and getting it back counts the same way.
+        rig = new FocusRig { Lands = false };
+        home = rig.Focused!;
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.MoveTo(null);
+        rig.MoveTo(home);
+        rig.Lands = true;
+        rig.RunIdle();
+        Assert.Equal(1, rig.Calls);
+
+        // Positive control (Codex's): a request still owned does land on its idle retry.
+        rig = new FocusRig { Lands = false };
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.Lands = true;
+        rig.RunIdle();
+        Assert.Equal(2, rig.Calls);
+        Assert.Equal("floor", rig.Focused);
+    }
+
+    /// <summary>Repair round 2, Codex's probe kept: with nothing focused when it was asked for, no one owns the request, so it never focuses.</summary>
+    [Fact]
+    public void A_deferred_noise_focus_asked_for_with_nothing_focused_never_focuses()
+    {
+        var rig = new FocusRig();
+        rig.Focused = null;
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.RunIdle();
+        Assert.Equal(0, rig.Calls);
+        Assert.Contains(rig.Trace, t => t.Contains("cancelled"));
     }
 
     // ── Repair round 1: a noise row keeps its native check mark ──
