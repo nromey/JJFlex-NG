@@ -77,6 +77,85 @@ public sealed class NoiseControllerTests
         }
     }
 
+    /// <summary>
+    /// Repair round 1, Codex's third finding (its probe, kept): entering CW for
+    /// the first time with RNNoise on puts NNR in the neural slot through the
+    /// starting point, not through TurnComputerOn. With NNR's helper missing
+    /// the refusal named only NNR, and the StartingPoint entry held only
+    /// "nnr off -> on". It now names RNNoise and journals it "on -> off".
+    /// </summary>
+    [Fact]
+    public void A_first_CW_refusal_names_and_journals_the_engine_it_replaced()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "cw-swap-test");
+        f.Settle();
+        Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.RunningEngineId);
+        f.Spoken.Clear();
+        f.Unavailable["nnr"] = Unavailability.HelperMissing;
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Kind == NoiseJournalKind.StartingPoint && e.Label == "cw") lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.OnModeChanged("CW");
+        }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise")), f.Spoken.Last);
+        Assert.Equal(SpeechSubject.NoiseUnavailable, f.Spoken.Said[^1].Subject);
+        lock (entries)
+        {
+            // The journal is one static stream shared by every test class, so look
+            // for this entry rather than assume it is the only one.
+            var expected = new[] { new NoiseJournalChange("nnr", "", "off", "on"), new NoiseJournalChange("rnnoise", "", "on", "off") };
+            Assert.Contains(entries, e => e.Changes.SequenceEqual(expected));
+        }
+    }
+
+    /// <summary>
+    /// The same starting point when NNR can run: its sentence names RNNoise too,
+    /// and coming back to voice (a remembered group) puts RNNoise back saying
+    /// both "NNR off" and "RNNoise on", journalling both (repair round 1: every
+    /// swap outside TurnComputerOn, found by searching for the slot's Select).
+    /// </summary>
+    [Fact]
+    public void A_starting_point_and_a_mode_restore_that_swap_engines_name_and_journal_both()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "swap-modes");
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Kind is NoiseJournalKind.StartingPoint or NoiseJournalKind.ModeRestore) lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.OnModeChanged("CW");
+            Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise")),
+                f.Spoken.Said.Last(s => s.Subject == SpeechSubject.NoiseModeStart).Text);
+
+            f.Spoken.Clear();
+            f.Radio.Mode = "USB";
+            f.Noise.OnModeChanged("USB");
+            Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.ChosenEngineId);
+            string restore = f.Spoken.Said.Last(s => s.Subject == SpeechSubject.NoiseModeStart).Text;
+            Assert.Contains(Lexicon.Get("audio.noise_surface.phrase_off", ("engine", "NNR")), restore);
+            Assert.Contains(Lexicon.Get("audio.noise_surface.phrase_on", ("engine", "RNNoise")), restore);
+        }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        lock (entries)
+        {
+            Assert.Contains(entries, e => e.Kind == NoiseJournalKind.StartingPoint
+                && e.Changes.Contains(new NoiseJournalChange("rnnoise", "", "on", "off")) && e.Changes.Contains(new NoiseJournalChange("nnr", "", "off", "on")));
+            Assert.Contains(entries, e => e.Kind == NoiseJournalKind.ModeRestore
+                && e.Changes.Contains(new NoiseJournalChange("nnr", "", "on", "off")) && e.Changes.Contains(new NoiseJournalChange("rnnoise", "", "off", "on")));
+        }
+    }
+
     [Fact]
     public void An_ordinary_swap_journals_both_engines_and_a_start_with_nothing_replaced_journals_one()
     {

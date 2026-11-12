@@ -146,7 +146,9 @@ public sealed class NoiseModeMemoryTests
         f.Noise.OnModeChanged("USB");
         Assert.True(f.Noise.IsOn("rnnoise"));
         Assert.False(f.Pipeline.SpectralSlot.Enabled);
-        Assert.Equal("Back in a voice mode: NR4 off, RNNoise on.", f.Spoken.Last);
+        // RNNoise replaces NNR in the neural slot: since repair round 1 of the Track E
+        // follow-up the engine it pushes out is named too (#1018 item 2).
+        Assert.Equal("Back in a voice mode: NR4 off, NNR off, RNNoise on.", f.Spoken.Last);
         f.Noise.OnModeChanged("CW");
         Assert.True(f.Noise.IsOn("nnr"));
         Assert.True(f.Noise.IsOn("nr4"));

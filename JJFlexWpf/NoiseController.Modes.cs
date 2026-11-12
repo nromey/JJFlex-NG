@@ -155,8 +155,12 @@ namespace JJFlexWpf
                 if (beforeOn == slot.Enabled && (!slot.Enabled || beforeId == slot.ChosenEngineId)) return;
                 if (beforeOn && beforeId != slot.ChosenEngineId && slot.Enabled)
                 {
+                    // A swap in an enabled slot: the engine pushed out is named
+                    // and journalled too (repair round 1, #1018 item 2).
+                    phrases.Add(L("audio.noise_surface.phrase_off", ("engine", NameOf(beforeId))));
                     phrases.Add(L("audio.noise_surface.phrase_on", ("engine", NameOf(slot.ChosenEngineId))));
                     changes.Add(new(slot.ChosenEngineId, "", "off", "on"));
+                    changes.Add(new(beforeId, "", "on", "off"));
                 }
                 else if (slot.Enabled)
                 {
@@ -204,6 +208,7 @@ namespace JJFlexWpf
                 p.SpectralSlot.Enabled = false;
             }
             string? sentence = null;
+            string? replaced = null;
             switch (g)
             {
                 case NoiseModeGroup.Voice:
@@ -212,7 +217,7 @@ namespace JJFlexWpf
                     bool dfnRuns = dfn?.Factory != null && SafeAvailability(dfn) == Unavailability.None;
                     string id = dfnRuns ? "deepfilternet3" : "rnnoise";
                     if (_catalog.Find(id) is not { Factory: not null } e) break;
-                    StartNeural(p, e, changes);
+                    replaced = StartNeural(p, e, changes);
                     sentence = dfnRuns
                         ? L("audio.noise_surface.start_voice", ("limit", ValueText(new NoiseLever("deepfilternet3", "attenuation_limit_db", "", NoiseLeverKind.Setting,
                             e.Settings.First(d => d.Name == "attenuation_limit_db")))))
@@ -226,9 +231,11 @@ namespace JJFlexWpf
                     string current = p.NeuralSlot.GetSetting("nnr", "model").Choice ?? "standard";
                     if (mem != null && !NoiseModeRules.IsCwModel(current)) mem.NnrVoiceModelOwed = current;
                     p.NeuralSlot.TrySetSetting("nnr", "model", new EngineSettingValue(0, model));
-                    StartNeural(p, e, changes);
+                    replaced = StartNeural(p, e, changes);
                     var reason = SafeAvailability(e);
-                    if (reason != Unavailability.None) { SpeakUnavailable(e, reason, kept: true); sentence = null; break; }
+                    // The refusal still leaves NNR in the slot, so the engine it
+                    // pushed out is named (repair round 1, Codex's third finding).
+                    if (reason != Unavailability.None) { SpeakUnavailable(e, reason, kept: true, replaced: replaced); sentence = null; break; }
                     sentence = L(!measured ? "audio.noise_surface.start_cw_unmeasured"
                         : fast ? "audio.noise_surface.start_cw_fast" : "audio.noise_surface.start_cw_slow");
                     break;
@@ -245,16 +252,26 @@ namespace JJFlexWpf
             if (mem != null) { var gm = mem.For(g); gm.Known = true; Capture(gm, p); }
             NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.StartingPoint, source, true, changes, GroupWord(g)));
             _persist();
-            if (sentence != null) Say(sentence, SpeechSubject.NoiseModeStart);
+            if (sentence != null) Say(WithReplaced(sentence, replaced), SpeechSubject.NoiseModeStart);
         }
 
-        private void StartNeural(RxAudioPipeline p, DenoiseEngineEntry e, List<NoiseJournalChange> changes)
+        /// <summary>
+        /// Put a starting point's engine in the neural slot and turn it on.
+        /// Returns the engine it pushed out of an enabled slot, if any, which is
+        /// journalled in the same entry as "on -> off" after the new engine's
+        /// "off -> on", as every other swap is (repair round 1, #1018 item 2).
+        /// </summary>
+        private string? StartNeural(RxAudioPipeline p, DenoiseEngineEntry e, List<NoiseJournalChange> changes)
         {
             string before = p.NeuralSlot.Enabled ? p.NeuralSlot.ChosenEngineId : "";
             p.NeuralSlot.Select(e.Id, out _);
             p.NeuralSlot.Enabled = true;
             Current = e.Id; CurrentLeverIndex = 0;
-            if (before != e.Id) changes.Add(new(e.Id, "", "off", "on"));
+            if (before == e.Id) return null;
+            changes.Add(new(e.Id, "", "off", "on"));
+            if (before.Length == 0) return null;
+            changes.Add(new(before, "", "on", "off"));
+            return before;
         }
 
         private static void Capture(NoiseGroupMemory gm, RxAudioPipeline p)
