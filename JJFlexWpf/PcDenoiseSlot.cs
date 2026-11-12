@@ -93,6 +93,22 @@ namespace JJFlexWpf
         public DenoiseDirection Direction => DenoiseDirection.Receive;
         public string ChosenEngineId => Volatile.Read(ref _choice).Id;
         public string RunningEngineId => Volatile.Read(ref _runningBuild)?.Id ?? "";
+
+        private string _processingId = "";
+        /// <summary>
+        /// The engine that processed the last receive buffer this slot was given,
+        /// or "" when that buffer went through unprocessed: the slot off, nothing
+        /// built yet, a failed start, Captured noise with no profile, the spectral
+        /// slot paused while a noise profile is being captured, or the engine
+        /// passing audio through because it became unavailable (a helper that
+        /// died). Written by the audio thread on every buffer, so it is what the
+        /// operator actually hears processed. Not <see cref="RunningEngineId"/>,
+        /// which is the bank the slot holds and survives every one of those gates
+        /// (#1103 repair round 1, Codex: Captured noise kept its id with no
+        /// profile and was read as working). Says nothing about buffers that never
+        /// arrived: with no audio flowing it keeps the last buffer's answer.
+        /// </summary>
+        public string ProcessingEngineId => Volatile.Read(ref _processingId);
         /// <summary>
         /// What the running bank delays the audio by, in samples (engine plus any
         /// frame carry); 0 with nothing running. Says nothing about WHICH engine
@@ -424,6 +440,7 @@ namespace JJFlexWpf
             {
                 if (_wasActive) { running?.ClearCarry(); _warming?.Bank.ClearCarry(); }
                 _wasActive = false;
+                Volatile.Write(ref _processingId, "");
                 // Keep the built choice, but do not warm or announce it with no audio.
                 return;
             }
@@ -450,7 +467,13 @@ namespace JJFlexWpf
                     StopFailedChoice(failedBuild.Choice);
                     return;
                 }
-                if (running != null) running.Process(audio, GetStrength(run!.Id));
+                string processedBy = "";
+                if (running != null)
+                {
+                    long runningFailed = running.FallbackFrames;
+                    running.Process(audio, GetStrength(run!.Id));
+                    if (runningFailed == running.FallbackFrames) processedBy = run.Id;
+                }
                 if (produced) _warmSamples += audio.Length / _channels;
                 else _warmSamples = 0;
                 if (_warmSamples >= _sampleRate / 10 && ReferenceEquals(choice, Volatile.Read(ref _choice)))
@@ -468,18 +491,24 @@ namespace JJFlexWpf
                     _warming = null;
                     if (old != null) Retire(old);
                     _announced = choice.Generation;
+                    processedBy = choice.Id;
                     Publish(choice, true);
                 }
+                Volatile.Write(ref _processingId, processedBy);
                 return;
             }
             if (running != null)
             {
                 long late = running.LateFrames, failed = running.FallbackFrames;
                 running.Process(audio, GetStrength(run!.Id));
+                // A frame the engine passed through because it became unavailable
+                // was not processed: the id stays, the processing does not.
+                Volatile.Write(ref _processingId, failed == running.FallbackFrames ? run.Id : "");
                 if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
                     late == running.LateFrames && failed == running.FallbackFrames)
                 { _announced = choice.Generation; Publish(choice, true); }
             }
+            else Volatile.Write(ref _processingId, "");
         }
 
         private void StopFailedChoice(Choice choice)
@@ -488,6 +517,7 @@ namespace JJFlexWpf
             // leaves a failure on its choice; the next buffer applies it,
             // including while disabled, before reporting that the slot stopped.
             var old = Interlocked.Exchange(ref _runningBuild, null)?.Bank;
+            Volatile.Write(ref _processingId, "");
             if (old != null) Retire(old);
             _runningApplied = null;
             if (_warming != null) { Retire(_warming.Bank); _warming = null; }

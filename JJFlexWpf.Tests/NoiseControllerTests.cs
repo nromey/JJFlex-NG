@@ -1277,6 +1277,93 @@ public sealed class NoiseControllerTests
         Assert.Contains(Lexicon.Get("audio.noise_surface.active.waiting", VerbosityLevel.Chatty, ("engine", "NNR")), f.Noise.ActiveSummary());
     }
 
+    // ── Repair round 1 (Codex's check of track e3) ──
+
+    private static float[] Buffer() => Enumerable.Repeat(0.1f, 960).ToArray();
+
+    private static void CaptureProfile(NoiseFixture f)
+    {
+        f.Pipeline.StartNoiseSampling(1);
+        for (int i = 0; i < 130 && !f.Pipeline.HasNoiseProfile; i++) f.Pipeline.Process(Buffer());
+        Assert.True(f.Pipeline.HasNoiseProfile);
+    }
+
+    private static string WaitingSummary(NoiseFixture f, string id) =>
+        Lexicon.Get("audio.noise_surface.active.waiting", VerbosityLevel.Chatty, ("engine", f.Noise.NameOf(id)));
+
+    /// <summary>
+    /// Codex's probe, kept: Captured noise holds a built bank under its id from
+    /// the moment the slot exists, and keeps it after its profile is cleared, but
+    /// with no profile the slot passes the audio through untouched. The summary
+    /// read "On this computer: Captured noise, amount ..." in both cases. It now
+    /// reads what the slot processed: "not running yet". The audio is checked
+    /// byte for byte, so the test proves nothing was processed, and the cleared
+    /// case first proves that something was.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Captured_noise_without_a_profile_reads_as_not_running_even_with_a_built_bank(bool clearAfterRunning)
+    {
+        using var f = new NoiseFixture();
+        if (clearAfterRunning) CaptureProfile(f);
+        f.Noise.Toggle("spectral_capture", "test");
+        var audio = Buffer();
+        if (clearAfterRunning)
+        {
+            f.Pipeline.Process(audio);
+            Assert.Contains(audio, x => x != 0.1f);
+            Assert.DoesNotContain(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+            f.Pipeline.ClearNoiseProfile();
+        }
+        Assert.False(f.Pipeline.HasNoiseProfile);
+        Assert.Equal("spectral_capture", f.Pipeline.SpectralSlot.RunningEngineId);
+        audio = Buffer();
+        f.Pipeline.Process(audio);
+        Assert.All(audio, x => Assert.Equal(0.1f, x));
+        Assert.Contains(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+    }
+
+    /// <summary>
+    /// The other gates where the slot keeps an engine's id and processes nothing:
+    /// the spectral slot pauses while a noise profile is captured, and an engine
+    /// that becomes unavailable mid-run (a helper that died) passes audio through.
+    /// Each reads "not running yet" while it lasts, and its settings again after.
+    /// </summary>
+    [Fact]
+    public void A_paused_or_passing_through_engine_reads_as_not_running_yet()
+    {
+        using var f = new NoiseFixture();
+        CaptureProfile(f);
+        f.Noise.Toggle("spectral_capture", "test");
+        f.Pipeline.Process(Buffer());
+        Assert.DoesNotContain(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+
+        // Capturing a new profile: the spectral slot is paused, its id kept.
+        f.Pipeline.StartNoiseSampling(1);
+        var audio = Buffer();
+        f.Pipeline.Process(audio);
+        Assert.True(f.Pipeline.IsNoiseSampling);
+        Assert.Equal("spectral_capture", f.Pipeline.SpectralSlot.RunningEngineId);
+        Assert.All(audio, x => Assert.Equal(0.1f, x));
+        Assert.Contains(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+        for (int i = 0; i < 130 && f.Pipeline.IsNoiseSampling; i++) f.Pipeline.Process(Buffer());
+        f.Pipeline.Process(Buffer());
+        Assert.DoesNotContain(WaitingSummary(f, "spectral_capture"), f.Noise.ActiveSummary());
+
+        // An engine that dies mid-run: the id stays, the audio passes through.
+        f.Noise.Toggle("deepfilternet3", "test");
+        f.Settle();
+        Assert.DoesNotContain(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
+        f.Dead["deepfilternet3"] = true;
+        f.Pipeline.Process(Buffer());
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.RunningEngineId);
+        Assert.Contains(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
+        f.Dead.TryRemove("deepfilternet3", out _);
+        f.Pipeline.Process(Buffer());
+        Assert.DoesNotContain(WaitingSummary(f, "deepfilternet3"), f.Noise.ActiveSummary());
+    }
+
     [Fact]
     public void Every_change_goes_through_the_one_journal()
     {

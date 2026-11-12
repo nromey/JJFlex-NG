@@ -719,14 +719,18 @@ namespace JJFlexWpf
                 // An engine is chosen but not running (#1103): never read its
                 // settings as if it were working. With PC audio off nothing reaches
                 // the computer's engines at all, so it waits for PC audio, whether
-                // or not it ran before (placeholder for Codex). Otherwise, while the
-                // slot has not started it (it cannot run here, it is still building
-                // or warming, it failed to start, no receive audio has arrived yet,
-                // or Captured noise has no profile to work from) it is "not running
-                // yet". Before #1103 only the first of those was said.
+                // or not it ran before (placeholder for Codex). Otherwise it is "not
+                // running yet" unless it processed the last receive buffer: it
+                // cannot run here, it is still building or warming, it failed to
+                // start, no receive audio has arrived yet, Captured noise has no
+                // profile, a noise profile is being captured, or the engine is
+                // passing audio through because it became unavailable. Judged on
+                // what the slot processed, never on the bank it holds: the slot
+                // keeps a bank's id through every one of those gates (repair round
+                // 1, Codex: Captured noise with no profile read as working).
                 if (_radio() is { PcAudioOn: false })
                     item = L("audio.noise_surface.active.waiting_pc_audio", ("engine", name));
-                else if (slot.RunningEngineId != e.Id)
+                else if (slot.ProcessingEngineId != e.Id)
                     item = L("audio.noise_surface.active.waiting", ("engine", name));
                 pcItems.Add(item);
             }
