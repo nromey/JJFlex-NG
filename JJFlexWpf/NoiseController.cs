@@ -66,6 +66,16 @@ namespace JJFlexWpf
         /// or disposed, a hold does nothing more.
         /// </summary>
         (string Text, VerbosityLevel Level)? TakeJoined(string subject);
+
+        /// <summary>
+        /// True once a later operator action has been answered since this hold
+        /// was taken (<see cref="NoiseController.NoteOperatorAction"/>): any key
+        /// the operator pressed after the click, or any noise action that
+        /// answered. The surface's own late sentence is then stale and must not
+        /// interrupt that newer answer (#1117, repair round 3: the menu's "Mode
+        /// CW" cut a band announcement made 316 ms after the click).
+        /// </summary>
+        bool OutlivedByANewerAnswer { get; }
     }
 
     /// <summary>A delay the controller waits before acting (the settle before an engine field applies; the check for a sibling the radio switched off).</summary>
@@ -429,7 +439,14 @@ namespace JJFlexWpf
 
         private void Deliver(string text, string subject, VerbosityLevel level, bool queued)
         {
-            if (!queued) { _speaker.Say(text, subject, level); return; }
+            if (!queued)
+            {
+                // An answer to an operator's action: a surface's late reply to an
+                // older one must not interrupt it (repair round 3).
+                _operatorActions++;
+                _speaker.Say(text, subject, level);
+                return;
+            }
             _speaker.SayAfter(text, subject, level);
             if (subject is SpeechSubject.NoiseHelperState or SpeechSubject.NoiseRadioSibling or SpeechSubject.NoiseModeStart) _noticesOwed.Add(subject);
         }
@@ -638,7 +655,7 @@ namespace JJFlexWpf
         public IModeAnswerHold HoldModeAnswer()
         {
             _modeAnswerHolds++;
-            var hold = new ModeAnswerHold(this, _modeAnswerHoldGeneration);
+            var hold = new ModeAnswerHold(this, _modeAnswerHoldGeneration, _operatorActions);
             hold.Expiry = _scheduler.After(TimeSpan.FromMilliseconds(ModeAnswerHoldMs), hold.Dispose);
             return hold;
         }
@@ -687,13 +704,43 @@ namespace JJFlexWpf
             return (held.Text, held.Level);
         }
 
+        /// <summary>
+        /// How many operator actions have been answered (repair round 3): every
+        /// key the operator presses, noted by the main window, and every noise
+        /// action whose sentence answers it (<see cref="Deliver"/>, an
+        /// interrupt). A hold remembers the count it was taken at.
+        /// </summary>
+        private long _operatorActions;
+
+        /// <summary>
+        /// The operator did something after a surface took a hold (the main
+        /// window calls this for every key pressed): every hold taken before now
+        /// is outlived, so the surface's late reply is dropped rather than
+        /// interrupting the newer action's answer (#1117, repair round 3). The
+        /// held noise answer is not dropped by this; it is still released, queued,
+        /// behind whatever the newer action says.
+        /// </summary>
+        /// <param name="why">Trace prose.</param>
+        public void NoteOperatorAction(string why)
+        {
+            _operatorActions++;
+            if (_modeAnswerHolds > 0)
+                System.Diagnostics.Trace.WriteLine("NoiseController: a pending mode reply is outlived (" + why + ")");
+        }
+
         private sealed class ModeAnswerHold : IModeAnswerHold
         {
             private readonly NoiseController _owner;
             private readonly int _generation;
+            private readonly long _actionsAtHold;
             private bool _released;
             public IDisposable? Expiry;
-            public ModeAnswerHold(NoiseController owner, int generation) { _owner = owner; _generation = generation; }
+            public ModeAnswerHold(NoiseController owner, int generation, long actionsAtHold)
+            {
+                _owner = owner; _generation = generation; _actionsAtHold = actionsAtHold;
+            }
+
+            public bool OutlivedByANewerAnswer => _owner._operatorActions != _actionsAtHold;
 
             public (string Text, VerbosityLevel Level)? TakeJoined(string subject)
             {

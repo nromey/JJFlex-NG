@@ -1380,14 +1380,13 @@ public sealed class NoiseControllerTests
     /// second after the click, so a newer mode choice, another slice or another
     /// radio could be overwritten by the older click. The write is back AT THE
     /// CLICK (FlexBase's setter captures its slice there), and only the sentence
-    /// waits for the menu to close. The harness's checks 7 and 8: the row's
-    /// interrupt lost the NVDA cancel race and took the noise sentence with it,
-    /// and Next and Previous Mode were cut by the menu's close, so the sentence
-    /// is now QUEUED after the close, with the noise answer held behind it. A
-    /// source pin: the menu cannot be driven without a window.
+    /// waits for the menu to close, as one interrupt with the noise answer
+    /// joined (repair round 2). Round 3: the write goes through the mode funnel
+    /// (MainWindow.AskRadioForMode), still at the click. A source pin: the menu
+    /// cannot be driven without a window.
     /// </summary>
     [Fact]
-    public void The_Slice_menu_asks_the_radio_at_the_click_and_says_the_mode_queued_after_the_menu_closes()
+    public void The_Slice_menu_asks_the_radio_at_the_click_and_says_the_mode_after_the_menu_closes()
     {
         string menu = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "NativeMenuBar.cs")).Replace("\r\n", "\n");
         string Body(string start, string end)
@@ -1402,7 +1401,7 @@ public sealed class NoiseControllerTests
         // The mode rows: hold the noise answer, then write at the click, then hand the sentence on. No wait before the write.
         string row = Body("AddRadioChecked(modeSub, m + accel, () =>", "() => string.Equals(Rig?.Mode, m");
         int hold = row.IndexOf("_window.Noise.HoldModeAnswer()", StringComparison.Ordinal);
-        int write = row.IndexOf("rig.Mode = m;", StringComparison.Ordinal);
+        int write = row.IndexOf("_window.AskRadioForMode(() => rig.Mode = m);", StringComparison.Ordinal);
         int say = row.IndexOf("SayModeAfterMenuClose(", StringComparison.Ordinal);
         Assert.True(hold >= 0 && write > hold && say > write, "hold " + hold + ", write " + write + ", say " + say);
         Assert.DoesNotContain("Delay", row);
@@ -1591,49 +1590,6 @@ public sealed class NoiseControllerTests
     }
 
     /// <summary>
-    /// Every road that asks the radio for the active slice's mode counts a mode
-    /// choice (repair round 2, Codex: the band jump's 60 m correction did not, so
-    /// an older menu sentence was still said after it). Found by search, not by
-    /// a list: every write of a mode, every 60 m correction and every memory
-    /// recall in the WPF project and the app's own VB files must have
-    /// NoteModeChoice in the lines just before it. Code inside "#If 0" is not
-    /// compiled and is skipped. Not roads: a memory's stored mode edited in the
-    /// Memories dialog (mem.Mode, the radio is not asked), and the transmit mode
-    /// the Fixer and the tone ladder set and put back inside a running check.
-    /// </summary>
-    [Fact]
-    public void Every_road_that_asks_the_radio_for_a_mode_counts_a_mode_choice()
-    {
-        string root = RepoRoot();
-        var files = Directory.GetFiles(Path.Combine(root, "JJFlexWpf"), "*.cs", SearchOption.AllDirectories)
-            .Where(p => !p.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) && !p.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
-            .Concat(Directory.GetFiles(root, "*.vb", SearchOption.TopDirectoryOnly));
-        var road = new System.Text.RegularExpressions.Regex(
-            @"(\b(RigControl|Rig|rig)\.Mode\s*=[^=])|SixtyMeterModeDelivery\.Deliver\(|\bmem\.Select\(\)|SelectMemoryByName\(|SelectMemory\(\)");
-        var found = new List<string>();
-        var missing = new List<string>();
-        foreach (string file in files)
-        {
-            var lines = File.ReadAllLines(file);
-            bool disabled = false;
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string t = lines[i].Trim();
-                if (t.StartsWith("#If 0", StringComparison.OrdinalIgnoreCase)) { disabled = true; continue; }
-                if (disabled && t.StartsWith("#End If", StringComparison.OrdinalIgnoreCase)) { disabled = false; continue; }
-                if (disabled || t.StartsWith("//") || t.StartsWith("'") || t.StartsWith("///") || !road.IsMatch(lines[i])) continue;
-                if (lines[i].Contains("public ") || lines[i].Contains("Function ") || lines[i].Contains("Sub ")) continue;   // a declaration, not a call
-                string where = Path.GetFileName(file) + ":" + (i + 1) + "  " + t;
-                found.Add(where);
-                bool counted = Enumerable.Range(Math.Max(0, i - 25), i - Math.Max(0, i - 25)).Any(j => lines[j].Contains("NoteModeChoice"));
-                if (!counted) missing.Add(where);
-            }
-        }
-        Assert.True(found.Count >= 10, "the search found only " + found.Count + " roads, so it is not seeing them: " + string.Join(" | ", found));
-        Assert.True(missing.Count == 0, "roads that ask the radio for a mode without counting a mode choice:\n" + string.Join("\n", missing));
-    }
-
-    /// <summary>
     /// Codex's probe, kept: the reason a refusal is RECORDED is the reason it was
     /// SAID. The helper reports "not running" when the CW starting point composes
     /// its refusal and recovers before the action ends; round 1 probed it again
@@ -1739,6 +1695,162 @@ public sealed class NoiseControllerTests
         Assert.Empty(f.Spoken.Said);                                // still held for the current surface
         next.Dispose();
         Assert.Single(f.Spoken.Said);
+    }
+
+    // ── Repair round 3 (Codex's third run, and the harness's R3-5) ──
+
+    /// <summary>
+    /// Codex's diagnostic, flipped to the correct behaviour: the menu's late
+    /// reply must not cut a NEWER action's answer. Menu CW holds the noise
+    /// answer; the operator turns RNNoise on before the menu has closed; that
+    /// answer interrupts. Round 2 then interrupted it with the older "Mode CW
+    /// selected", and the real arbiter never rescued the newer answer. Now any
+    /// later answered action outlives the hold, and the reply is dropped.
+    /// </summary>
+    [Fact]
+    public async System.Threading.Tasks.Task A_late_menu_reply_does_not_cut_a_newer_noise_answer()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB"); f.Noise.Toggle("rnnoise", "test");
+        var speaker = new SilentArbiterSpeaker();
+        typeof(NoiseController).GetField("_speaker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(f.Noise, speaker);
+        try
+        {
+            var ledger = new ModeChoiceLedger(speaker.Retire); int choice = ledger.Note();
+            var hold = f.Noise.HoldModeAnswer(); Mode(f, "CW");
+            var release = new System.Threading.Tasks.TaskCompletionSource();
+            var pending = MenuModeSentence.SayWhenTheMenuHasClosed("Mode CW selected", () => ledger.Count == choice, hold, _ => release.Task,
+                (text, level) => speaker.Say(text, SpeechSubject.ModeChoice, level));
+            f.Noise.Toggle("rnnoise", "test");                     // the newer action, answered
+            var newer = speaker.Calls.Last();
+            Assert.True(newer.Interrupt);
+            release.SetResult(); await pending;
+            Assert.Equal(newer, speaker.Calls.Last());              // nothing after it
+            Assert.DoesNotContain(speaker.Calls, c => c.Text.StartsWith("Mode CW selected"));
+        }
+        finally { speaker.Dispose(); }
+    }
+
+    /// <summary>
+    /// Codex's other probe, flipped the same way: a newer noise action that also
+    /// makes the held noise part false leaves nothing to say, not even the mode
+    /// prefix on its own.
+    /// </summary>
+    [Fact]
+    public async System.Threading.Tasks.Task A_late_menu_reply_is_dropped_whole_when_a_newer_noise_action_answered()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB"); f.Noise.Toggle("rnnoise", "test"); f.Spoken.Clear();
+        var hold = f.Noise.HoldModeAnswer(); Mode(f, "CW");
+        var release = new System.Threading.Tasks.TaskCompletionSource();
+        string? said = null;
+        var pending = MenuModeSentence.SayWhenTheMenuHasClosed("Mode CW selected", () => true, hold, _ => release.Task,
+            (text, level) => said = text);
+        f.Noise.Toggle("rnnoise", "test");
+        release.SetResult(); await pending;
+        Assert.Null(said);
+    }
+
+    /// <summary>
+    /// The harness's R3-5 (menu CW, Alt+Down 316 ms later: the band announcement
+    /// cut at its first word, by us) and Codex's band-memory replay, flipped.
+    /// Two signals now come before the menu's reply, each enough on its own: the
+    /// key itself (the main window notes every key, <see cref="NoiseController.NoteOperatorAction"/>)
+    /// and the band jump, counted as a mode choice before its frequency write
+    /// (its band memory may answer with another mode). Either way the reply,
+    /// with or without a contradictory noise part, is not said.
+    /// </summary>
+    [Theory]
+    [InlineData("a key")]
+    [InlineData("a band jump")]
+    public async System.Threading.Tasks.Task A_band_jump_after_the_menu_click_drops_its_reply(string signal)
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB"); f.Noise.Toggle("rnnoise", "test");
+        var ledger = new ModeChoiceLedger((_, _) => { }); int choice = ledger.Note();
+        var hold = f.Noise.HoldModeAnswer(); Mode(f, "CW");
+        var release = new System.Threading.Tasks.TaskCompletionSource();
+        string? said = null;
+        var pending = MenuModeSentence.SayWhenTheMenuHasClosed("Mode CW selected", () => ledger.Count == choice, hold, _ => release.Task,
+            (text, level) => said = text);
+        if (signal == "a key") f.Noise.NoteOperatorAction("Alt+Down");
+        else ledger.Note();
+        Mode(f, "LSB");                                            // the radio's band memory answers with LSB
+        release.SetResult(); await pending;
+        Assert.Null(said);
+    }
+
+    /// <summary>
+    /// What the menu reply's lifetime needs from the windows that own the keys
+    /// and the band jump: every key, from WPF and from the shell (outside the
+    /// native menu), is noted before anything else, and the band jump counts a
+    /// mode choice before it writes the frequency. A source pin: neither window
+    /// can run windowless.
+    /// </summary>
+    [Fact]
+    public void Every_key_and_every_band_jump_outlive_a_late_menu_reply()
+    {
+        string root = RepoRoot();
+        string main = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "MainWindow.xaml.cs")).Replace("\r\n", "\n");
+        int handler = main.IndexOf("private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)", StringComparison.Ordinal);
+        Assert.True(handler >= 0);
+        int note = main.IndexOf("NoteOperatorKey();", handler, StringComparison.Ordinal);
+        int firstReturn = main.IndexOf("return;", handler, StringComparison.Ordinal);
+        Assert.True(note > handler && note < firstReturn, "PreviewKeyDown must note the key before any branch that returns");
+        Assert.Contains("public void NoteOperatorKey() => _noise?.NoteOperatorAction(", main);
+
+        string shell = File.ReadAllText(Path.Combine(root, "BridgeForm.vb")).Replace("\r\n", "\n");
+        int cmd = shell.IndexOf("Protected Overrides Function ProcessCmdKey", StringComparison.Ordinal);
+        int shellNote = shell.IndexOf("If Not _inNativeMenuLoop Then WpfContent?.NoteOperatorKey()", cmd, StringComparison.Ordinal);
+        int claim = shell.IndexOf("WpfContent.DoCommandHandler(keyData)", cmd, StringComparison.Ordinal);
+        Assert.True(shellNote > cmd && shellNote < claim, "the shell must note the key before a command can claim it");
+
+        string freq = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "FreqOutHandlers.cs")).Replace("\r\n", "\n");
+        int jump = freq.IndexOf("public void BandJump(Bands.BandNames targetBand)", StringComparison.Ordinal);
+        int counted = freq.IndexOf("_window.NoteModeChoice();", jump, StringComparison.Ordinal);
+        int written = freq.IndexOf("SetRXFrequency(targetFreq);", jump, StringComparison.Ordinal);
+        Assert.True(jump >= 0 && counted > jump && written > counted, "the band jump must count a mode choice before its frequency write");
+    }
+
+    // Codex's other round-3 probes, kept as guards (they passed at 7413a6ea).
+
+    [Fact]
+    public void An_old_connections_hold_cannot_take_the_new_connections_answer()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB"); f.Noise.Toggle("rnnoise", "test");
+        var old = f.Noise.HoldModeAnswer(); Mode(f, "CW");
+        f.Noise.Detach(); f.Noise.Attach("USB"); f.Spoken.Clear();
+        var next = f.Noise.HoldModeAnswer(); Mode(f, "CW");
+        Assert.Null(old.TakeJoined(SpeechSubject.ModeChoice));
+        old.Dispose(); Assert.Empty(f.Spoken.Said);
+        Assert.NotNull(next.TakeJoined(SpeechSubject.ModeChoice));
+        Assert.Null(next.TakeJoined(SpeechSubject.ModeChoice));
+        next.Dispose(); f.Clock.RunAll(); Assert.Empty(f.Spoken.Said);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void The_joined_subject_is_retired_by_either_owner_even_if_the_menu_queued_it(bool newerChoice)
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB"); f.Noise.Toggle("rnnoise", "test");
+        var speaker = new SilentArbiterSpeaker();
+        typeof(NoiseController).GetField("_speaker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(f.Noise, speaker);
+        try
+        {
+            var ledger = new ModeChoiceLedger(speaker.Retire); ledger.Note();
+            var hold = f.Noise.HoldModeAnswer(); Mode(f, "CW");
+            string? old = null;
+            MenuModeSentence.SayWhenTheMenuHasClosed("Mode CW selected", () => true, hold, _ => System.Threading.Tasks.Task.CompletedTask,
+                (text, level) => { old = text; speaker.SayAfter(text, SpeechSubject.ModeChoice, level); }).GetAwaiter().GetResult();
+            Assert.Contains("NNR", old!);
+            if (newerChoice) ledger.Note(); else f.Noise.Toggle("rnnoise", "test");
+            speaker.ModeWord("new answer");
+            Assert.False(System.Threading.SpinWait.SpinUntil(() => speaker.Calls.Any(c => c.Text == old && c.Salvaged), 1500));
+        }
+        finally { speaker.Dispose(); }
     }
 
     // ── Repair round 1, B2 (Codex's probes, kept): a queued mode sentence is retired when anything it states becomes false ──

@@ -1049,9 +1049,8 @@ public class FreqOutHandlers
         var rig = Rig;
         if (rig != null && outcome.Correction != null)
         {
-            _window.NoteModeChoice();
-            SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,
-                Radios.Speech.SpeechIntent.Interrupt);
+            _window.AskRadioForMode(() => SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,
+                Radios.Speech.SpeechIntent.Interrupt));
         }
         else
             Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true);
@@ -3781,6 +3780,11 @@ public class FreqOutHandlers
             }
         }
 
+        // Every band jump counts as a mode choice before its write: the radio's
+        // band memory can answer it with another mode, and a late reply about an
+        // older mode choice must not follow it (#1117, repair round 3, the
+        // harness's R3-5 and Codex).
+        _window.NoteModeChoice();
         SetRXFrequency(targetFreq);
         _lastBand = targetBand;
 
@@ -3799,9 +3803,7 @@ public class FreqOutHandlers
             targetBand == Bands.BandNames.m60 && Rig != null, License?.Country ?? "US", targetFreq, mode);
         if (jump.Correction != null && Rig != null)
         {
-            // A mode asked for, like any other road (#1117, repair round 2).
-            _window.NoteModeChoice();
-            SixtyMeterModeDelivery.Deliver(Rig, jump.Arrival, jump.Correction, Radios.Speech.SpeechIntent.Interrupt);
+            _window.AskRadioForMode(() => SixtyMeterModeDelivery.Deliver(Rig, jump.Arrival, jump.Correction, Radios.Speech.SpeechIntent.Interrupt));
         }
         else
             Radios.ScreenReaderOutput.Speak(jump.Arrival, VerbosityLevel.Terse, interrupt: true);

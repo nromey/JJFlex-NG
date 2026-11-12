@@ -2399,9 +2399,9 @@ public class NativeMenuBar : IDisposable
                     // be overwritten). Only the sentence waits for the menu to
                     // close, with the noise controller's answer held behind it.
                     var noiseAnswer = _window.Noise.HoldModeAnswer();
-                    int choice = _window.NoteModeChoice();
                     int slice = rig.RXVFO;
-                    rig.Mode = m;
+                    _window.AskRadioForMode(() => rig.Mode = m);
+                    int choice = _window.ModeChoices;
                     SayModeAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)), rig, slice, choice, noiseAnswer);
                 },
                 () => string.Equals(Rig?.Mode, m, StringComparison.OrdinalIgnoreCase));

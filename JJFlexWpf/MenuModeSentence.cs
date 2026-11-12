@@ -70,6 +70,16 @@ namespace JJFlexWpf
                     System.Diagnostics.Trace.WriteLine("MenuModeSentence: dropped '" + sentence + "' (a newer mode choice, radio or slice came first)");
                     return;
                 }
+                // Any later operator action that has been answered (a key pressed
+                // after the click, a noise action) outlives it: interrupting now
+                // would cut that newer answer (repair round 3, the harness's R3-5:
+                // a band announcement cut at its first word). Nothing is delayed
+                // further; the reply is simply not said.
+                if (noiseAnswer.OutlivedByANewerAnswer)
+                {
+                    System.Diagnostics.Trace.WriteLine("MenuModeSentence: dropped '" + sentence + "' (a later action was answered first)");
+                    return;
+                }
                 var level = VerbosityLevel.Terse;
                 string text = sentence;
                 if (noiseAnswer.TakeJoined(SpeechSubject.ModeChoice) is { } joined)

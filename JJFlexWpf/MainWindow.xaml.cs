@@ -2756,6 +2756,8 @@ public partial class MainWindow : UserControl
         // ExecuteActionToolbarItem code retained in this file for the future
         // redesign to build on.
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        // Any key outlives a pending late reply (#1117, repair round 3).
+        NoteOperatorKey();
         if (rawKey == Key.Tab && (Keyboard.Modifiers == ModifierKeys.Control ||
             Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) &&
             (FreqOut.IsKeyboardFocusWithin || FieldsPanel.IsKeyboardFocusWithin))
@@ -4152,8 +4154,7 @@ public partial class MainWindow : UserControl
                 Tracing.TraceLine("mode: no power", TraceLevel.Error);
                 return;
             }
-            NoteModeChoice();
-            RigControl.Mode = v?.ToString();
+            AskRadioForMode(() => RigControl.Mode = v?.ToString());
         };
         _comboControls.Add(ModeControl);
         _enableDisableControls.Add(ModeControl);
@@ -6117,9 +6118,8 @@ public partial class MainWindow : UserControl
         {
             if (memRef is Flex.Smoothlake.FlexLib.Memory mem)
             {
-                // A memory carries its mode: a mode choice like any other (#1117, repair round 2).
-                NoteModeChoice();
-                mem.Select();
+                // A memory carries its mode: a mode request like any other (#1117).
+                AskRadioForMode(() => mem.Select());
             }
         };
 
@@ -7254,13 +7254,12 @@ public partial class MainWindow : UserControl
         // Frequency first, then mode, the order this method and the band jump
         // have always used.
         RigControl.Frequency = stop.FrequencyHz;
-        if (stop.ChannelMode != null || stop.Correction != null) NoteModeChoice();
 
         if (stop.Correction == null)
         {
             // A channel stop, or the segment on a mode already permitted
             // there. Unchanged from before #312.
-            if (stop.ChannelMode != null) RigControl.Mode = stop.ChannelMode;
+            if (stop.ChannelMode != null) AskRadioForMode(() => RigControl.Mode = stop.ChannelMode);
             // Queue, not interrupt, exactly as before; keyed so a newer stop
             // retires an unheard older one rather than both being rescued
             // after an interrupt.
@@ -7273,8 +7272,8 @@ public partial class MainWindow : UserControl
         // is "switching"; a refusal (transmitting, no slice of ours) says the
         // mode was not changed. "Mode set" is never claimed, because nothing
         // here hears the radio agree.
-        Radios.SixtyMeterModeDelivery.Deliver(RigControl, stop.Arrival, stop.Correction,
-            Radios.Speech.SpeechIntent.Queue);
+        AskRadioForMode(() => Radios.SixtyMeterModeDelivery.Deliver(RigControl, stop.Arrival, stop.Correction,
+            Radios.Speech.SpeechIntent.Queue));
     }
 
     #endregion
@@ -7305,7 +7304,6 @@ public partial class MainWindow : UserControl
     public string? CycleModeQuietly(int direction)
     {
         if (RigControl == null || !_radioPowerOn) return null;
-        NoteModeChoice();
 
         string currentMode = RigControl.Mode ?? "USB";
         int idx = Array.IndexOf(CommonModes, currentMode);
@@ -7318,7 +7316,7 @@ public partial class MainWindow : UserControl
 
         int next = (idx + direction + CommonModes.Length) % CommonModes.Length;
         string newMode = CommonModes[next];
-        RigControl.Mode = newMode;
+        AskRadioForMode(() => RigControl.Mode = newMode);
         return newMode;
     }
 
@@ -7336,8 +7334,37 @@ public partial class MainWindow : UserControl
     /// </summary>
     public int ModeChoices => _modeChoices.Count;
 
-    /// <summary>Count a mode choice (<see cref="ModeChoices"/>). Returns the new count.</summary>
+    /// <summary>
+    /// Count a mode choice (<see cref="ModeChoices"/>) with no request of its
+    /// own: a band jump, whose band memory on the radio may answer with another
+    /// mode (repair round 3). Every request goes through
+    /// <see cref="AskRadioForMode"/>, which counts it. Returns the new count.
+    /// </summary>
     public int NoteModeChoice() => _modeChoices.Note();
+
+    /// <summary>
+    /// THE road every mode request takes (#1117, repair round 3): count the
+    /// choice, then ask. Counting at each road separately let one road forget
+    /// (Codex, round 2: the band jump's 60 m correction), and a text search for
+    /// roads could be evaded. A structural test (Radios.Tests'
+    /// ModeRequestFunnelTests) finds every mode write, 60 m correction and
+    /// memory recall in the WPF project and the app's VB files and fails on one
+    /// made outside this call.
+    /// </summary>
+    /// <param name="ask">The request itself, run at once, on the operator's action: a write of the mode, a 60 m correction, a memory recalled.</param>
+    public void AskRadioForMode(Action ask)
+    {
+        NoteModeChoice();
+        ask();
+    }
+
+    /// <summary>
+    /// Every key the operator presses, from the shell or from WPF: a late reply
+    /// still pending from an older action (the Slice menu's mode sentence) is
+    /// outlived and will not interrupt this newer one's answer (#1117, repair
+    /// round 3).
+    /// </summary>
+    public void NoteOperatorKey() => _noise?.NoteOperatorAction("a key was pressed");
 
     /// <summary>
     /// Jump directly to a specific mode.
@@ -7346,7 +7373,6 @@ public partial class MainWindow : UserControl
     public void SetMode(string mode)
     {
         if (RigControl == null || !_radioPowerOn) return;
-        NoteModeChoice();
 
         string currentMode = RigControl.Mode ?? "";
         if (string.Equals(currentMode, mode, StringComparison.OrdinalIgnoreCase))
@@ -7356,7 +7382,7 @@ public partial class MainWindow : UserControl
                 VerbosityLevel.Terse, true);
             return;
         }
-        RigControl.Mode = mode;
+        AskRadioForMode(() => RigControl.Mode = mode);
         Radios.ScreenReaderOutput.Speak(mode, VerbosityLevel.Terse, true);
     }
 
