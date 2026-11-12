@@ -81,9 +81,10 @@ verbosity-gated).
 One preflight guards the spawn: if any operator profile's
 `*_autoConnectV2.xml` would auto-connect, the tier DEFERS instead of
 spawning, because the instance would connect to the radio as a second
-MultiFlex client — and `FlexBase.setupFromScratch()` sets `RFPower=100`
-unconditionally on a radio it has never seen (Sprint 33 Track G). The
-app has no `--no-autoconnect` switch today, so reading the same config
+MultiFlex client and change its state behind the operator's back. (This
+paragraph used to add that `FlexBase.setupFromScratch()` sets
+`RFPower=100` on a radio it has never seen; that method was removed on
+2026-11-11, #59, and the preflight stands without it.) The app has no `--no-autoconnect` switch today, so reading the same config
 the app reads is the only honest gate. If such a switch is ever added,
 this preflight should become a launch argument instead.
 
