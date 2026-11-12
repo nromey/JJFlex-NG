@@ -113,6 +113,7 @@ namespace JJFlexWpf
             var phrases = new List<string>();
             if (preset.ReceiveNoise is { } noise)
             {
+                RetireHelperNotice("a noise preset was applied");
                 ApplySlot(p.SpectralSlot, noise.Spectral, changes, phrases);
                 ApplySlot(p.NeuralSlot, noise.Neural, changes, phrases);
                 if (_radio() is { } r)
@@ -155,7 +156,16 @@ namespace JJFlexWpf
             slot.Enabled = want.On;
             if (!(wasOn == slot.Enabled && (!slot.Enabled || wasId == slot.ChosenEngineId)))
             {
-                if (slot.Enabled)
+                if (slot.Enabled && wasOn && wasId.Length > 0 && wasId != slot.ChosenEngineId)
+                {
+                    // A swap in an enabled slot: the engine pushed out is named
+                    // and journalled too (repair round 1, #1018 item 2).
+                    changes.Add(new(slot.ChosenEngineId, "", "off", "on"));
+                    changes.Add(new(wasId, "", "on", "off"));
+                    phrases.Add(L("audio.noise_surface.phrase_off", ("engine", NameOf(wasId))));
+                    phrases.Add(L("audio.noise_surface.phrase_on", ("engine", NameOf(slot.ChosenEngineId))));
+                }
+                else if (slot.Enabled)
                 {
                     changes.Add(new(slot.ChosenEngineId, "", "off", "on"));
                     phrases.Add(L("audio.noise_surface.phrase_on", ("engine", NameOf(slot.ChosenEngineId))));

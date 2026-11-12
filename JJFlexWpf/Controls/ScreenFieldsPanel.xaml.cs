@@ -1228,8 +1228,9 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_rig == null) return;
 
-        // The four unreadable noise levels are per slice: a slice change
-        // writes the held intents to the new one (Sprint 49 Track E, E2).
+        // The unreadable noise level (NR Filter's, since the Track E follow-up
+        // reads the other three from the radio, #1012) is per slice: a slice
+        // change writes the held intent to the new one (Sprint 49 Track E, E2).
         FindMainWindow()?.Noise.NoteActiveSlice(_rig.RXVFO);
 
         _polling = true;

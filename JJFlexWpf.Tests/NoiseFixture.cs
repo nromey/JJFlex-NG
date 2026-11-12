@@ -42,8 +42,14 @@ internal sealed class NoiseFixture : IDisposable
         public VerbosityLevel Verbosity { get; set; } = VerbosityLevel.Chatty;
         public List<(string Text, string Subject, VerbosityLevel Level)> Said { get; } = new();
         public void Say(string text, string subject, VerbosityLevel level) => Said.Add((text, subject, level));
+        /// <summary>The sentences said after what was being said rather than over it (<see cref="INoiseSpeaker.SayAfter"/>), by their index in <see cref="Said"/>.</summary>
+        public HashSet<int> SaidAfter { get; } = new();
+        public void SayAfter(string text, string subject, VerbosityLevel level) { SaidAfter.Add(Said.Count); Said.Add((text, subject, level)); }
+        /// <summary>Every subject the controller declared obsolete (<see cref="INoiseSpeaker.Retire"/>), with its reason.</summary>
+        public List<(string Subject, string Why)> Retired { get; } = new();
+        public void Retire(string subject, string why) => Retired.Add((subject, why));
         public string Last => Said.Count == 0 ? "" : Said[^1].Text;
-        public void Clear() => Said.Clear();
+        public void Clear() { Said.Clear(); SaidAfter.Clear(); }
     }
 
     internal sealed class Scheduler : INoiseScheduler

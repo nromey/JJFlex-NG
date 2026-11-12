@@ -2181,6 +2181,8 @@ namespace Radios.Tests
                 "audio.noise_surface.not_in_version",
                 "audio.noise_surface.pc_audio_off",
                 "audio.noise_surface.choice_kept",
+                // Track E follow-up C (#1018 item 2): a refusal that still swapped engines names the one it replaced. Placeholder for Codex.
+                "audio.noise_surface.replaced_clause",
                 "audio.noise_surface.delay_clause",
                 "audio.noise_surface.unavailable.none",
                 "audio.noise_surface.unavailable.librarymissing",
@@ -2232,6 +2234,9 @@ namespace Radios.Tests
                 "audio.noise_surface.active.none",
                 "audio.noise_surface.active.radio_item",
                 "audio.noise_surface.active.waiting",
+                // Track E follow-up E1 (S11): the summary names the model and the noise floor. Placeholders for Codex.
+                "audio.noise_surface.active.model",
+                "audio.noise_surface.active.floor",
                 "audio.noise_surface.zero_off",
                 "audio.noise_surface.zero_on",
                 "audio.noise_surface.zero_already",
@@ -2240,6 +2245,8 @@ namespace Radios.Tests
                 "audio.noise_surface.no_favourites",
                 "audio.noise_surface.defaults",
                 "audio.noise_surface.defaults_radio",
+                // Track E follow-up E2 (S11): Return to defaults names the Advanced noise floor it reset. Placeholder for Codex.
+                "audio.noise_surface.defaults_floor",
                 "audio.noise_surface.defaults_switch",
                 "audio.noise_surface.group.voice",
                 "audio.noise_surface.group.cw",
@@ -2257,6 +2264,10 @@ namespace Radios.Tests
                 "audio.noise_layer.entered",
                 "audio.noise_layer.switches_only",
                 "audio.noise_menu.on",
+                // Track E follow-up D (S10): a noise toggle reads name, state, shortcut.
+                "audio.noise_menu.row_state",
+                "audio.noise_menu.state_on",
+                "audio.noise_menu.state_off",
                 "audio.noise_menu.up",
                 "audio.noise_menu.down",
                 "audio.noise_menu.advanced",

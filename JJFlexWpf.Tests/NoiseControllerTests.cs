@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Radios;
 using Radios.Speech;
@@ -29,6 +30,364 @@ public sealed class NoiseControllerTests
         Assert.False(f.Noise.IsOn("nr4"));
         Assert.Equal("Captured noise on, replacing NR4.", f.Spoken.Last);
         Assert.Equal(SpeechSubject.NoiseEngineSwitch, f.Spoken.Said[^1].Subject);
+    }
+
+    /// <summary>
+    /// #1018 item 2 (Track E follow-up C): the two refusals that still put the
+    /// pressed engine in its slot (it cannot run here; PC audio is off) used to
+    /// say only their own sentence, so the engine pushed out went silently.
+    /// Each now names it, at every verbosity; and the journal records the swap
+    /// as one entry carrying both engines, not a bare "off -> on".
+    /// </summary>
+    [Theory]
+    [InlineData(VerbosityLevel.Chatty)]
+    [InlineData(VerbosityLevel.Terse)]
+    [InlineData(VerbosityLevel.Critical)]
+    public void A_refused_start_that_still_swaps_engines_names_the_one_it_replaced_and_journals_both(VerbosityLevel verbosity)
+    {
+        using var f = new NoiseFixture();
+        f.Spoken.Verbosity = verbosity;
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Source == "swap-test") lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try
+        {
+            // The helper is missing: NNR is kept as the choice, and RNNoise has stopped.
+            f.Noise.Toggle("rnnoise", "swap-test");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Noise.Toggle("nnr", "swap-test");
+            Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise")), f.Spoken.Last);
+            Assert.Equal(SpeechSubject.NoiseUnavailable, f.Spoken.Said[^1].Subject);
+
+            // PC audio is off: DeepFilterNet3 is kept as the choice, and NNR (the slot's last) has gone.
+            f.Radio.PcAudioOn = false;
+            f.Noise.Toggle("deepfilternet3", "swap-test");
+            Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "NNR")), f.Spoken.Last);
+        }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        lock (entries)
+        {
+            var swaps = entries.Where(e => e.Kind == NoiseJournalKind.Switch && e.Changes.Count == 2).ToList();
+            Assert.Equal(2, swaps.Count);
+            Assert.Equal(new NoiseJournalChange("nnr", "", "off", "on"), swaps[0].Changes[0]);
+            Assert.Equal(new NoiseJournalChange("rnnoise", "", "on", "off"), swaps[0].Changes[1]);
+            Assert.Equal(new NoiseJournalChange("deepfilternet3", "", "off", "on"), swaps[1].Changes[0]);
+            Assert.Equal(new NoiseJournalChange("nnr", "", "on", "off"), swaps[1].Changes[1]);
+        }
+    }
+
+    /// <summary>
+    /// Repair round 1, Codex's third finding (its probe, kept): entering CW for
+    /// the first time with RNNoise on puts NNR in the neural slot through the
+    /// starting point, not through TurnComputerOn. With NNR's helper missing
+    /// the refusal named only NNR, and the StartingPoint entry held only
+    /// "nnr off -> on". It now names RNNoise and journals it "on -> off".
+    /// </summary>
+    [Fact]
+    public void A_first_CW_refusal_names_and_journals_the_engine_it_replaced()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "cw-swap-test");
+        f.Settle();
+        Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.RunningEngineId);
+        f.Spoken.Clear();
+        f.Unavailable["nnr"] = Unavailability.HelperMissing;
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Kind == NoiseJournalKind.StartingPoint && e.Label == "cw") lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.OnModeChanged("CW");
+        }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise")), f.Spoken.Last);
+        Assert.Equal(SpeechSubject.NoiseUnavailable, f.Spoken.Said[^1].Subject);
+        lock (entries)
+        {
+            // The journal is one static stream shared by every test class, so look
+            // for this entry rather than assume it is the only one.
+            var expected = new[] { new NoiseJournalChange("nnr", "", "off", "on"), new NoiseJournalChange("rnnoise", "", "on", "off") };
+            Assert.Contains(entries, e => e.Changes.SequenceEqual(expected));
+        }
+    }
+
+    /// <summary>
+    /// The same starting point when NNR can run: its sentence names RNNoise too,
+    /// and coming back to voice (a remembered group) puts RNNoise back saying
+    /// both "NNR off" and "RNNoise on", journalling both (repair round 1: every
+    /// swap outside TurnComputerOn, found by searching for the slot's Select).
+    /// </summary>
+    [Fact]
+    public void A_starting_point_and_a_mode_restore_that_swap_engines_name_and_journal_both()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "swap-modes");
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Kind is NoiseJournalKind.StartingPoint or NoiseJournalKind.ModeRestore) lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try
+        {
+            f.Radio.Mode = "CW";
+            f.Noise.OnModeChanged("CW");
+            Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise")),
+                f.Spoken.Said.Last(s => s.Subject == SpeechSubject.NoiseModeStart).Text);
+
+            f.Spoken.Clear();
+            f.Radio.Mode = "USB";
+            f.Noise.OnModeChanged("USB");
+            Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.ChosenEngineId);
+            string restore = f.Spoken.Said.Last(s => s.Subject == SpeechSubject.NoiseModeStart).Text;
+            Assert.Contains(Lexicon.Get("audio.noise_surface.phrase_off", ("engine", "NNR")), restore);
+            Assert.Contains(Lexicon.Get("audio.noise_surface.phrase_on", ("engine", "RNNoise")), restore);
+        }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        lock (entries)
+        {
+            Assert.Contains(entries, e => e.Kind == NoiseJournalKind.StartingPoint
+                && e.Changes.Contains(new NoiseJournalChange("rnnoise", "", "on", "off")) && e.Changes.Contains(new NoiseJournalChange("nnr", "", "off", "on")));
+            Assert.Contains(entries, e => e.Kind == NoiseJournalKind.ModeRestore
+                && e.Changes.Contains(new NoiseJournalChange("nnr", "", "on", "off")) && e.Changes.Contains(new NoiseJournalChange("rnnoise", "", "off", "on")));
+        }
+    }
+
+    /// <summary>
+    /// Repair round 1, the harness check on the 8600: with the helper missing,
+    /// the refusal that names the replaced engine was cut at its first word,
+    /// 27 ms in, by the slot's own "could not start" sentence, which
+    /// interrupted. A result nobody asked for now waits its turn
+    /// (<see cref="INoiseSpeaker.SayAfter"/>), on every path that refuses and
+    /// still swaps: the direct switch and the first-CW starting point.
+    /// </summary>
+    [Fact]
+    public void A_failed_start_after_a_refusal_is_said_after_it_and_never_over_it()
+    {
+        foreach (bool viaCw in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            f.Noise.Attach("USB");
+            f.Noise.Toggle("rnnoise", "test");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Spoken.Clear();
+            if (viaCw) { f.Radio.Mode = "CW"; f.Noise.OnModeChanged("CW"); }
+            else f.Noise.Toggle("nnr", "test");
+            int refusal = f.Spoken.Said.FindLastIndex(s => s.Text.Contains(Lexicon.Get("audio.noise_surface.replaced_clause", ("other", "RNNoise"))));
+            Assert.True(refusal >= 0, "no refusal naming RNNoise (" + (viaCw ? "first CW" : "direct") + ")");
+            Assert.DoesNotContain(refusal, f.Spoken.SaidAfter);   // the answer to a press still speaks at once
+
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", false, "helper missing") { SlotStopped = true });
+            Assert.Equal(L("audio.noise_surface.start_failed", VerbosityLevel.Chatty), f.Spoken.Last);
+            Assert.Contains(f.Spoken.Said.Count - 1, f.Spoken.SaidAfter);
+        }
+
+        // The helper's own unasked sentences wait their turn too.
+        using var g = new NoiseFixture();
+        g.Noise.OnHelperStateChanged(WdspHelperStateChange.CapReached, Array.Empty<string>());
+        Assert.Contains(g.Spoken.Said.Count - 1, g.Spoken.SaidAfter);
+    }
+
+    [Fact]
+    public void The_screen_readers_noise_speaker_queues_what_it_says_after()
+    {
+        // The queue itself is the arbiter's (SpeechIntent.Queue: never cuts what is speaking).
+        // A source pin, because ScreenReaderOutput is the live speech path.
+        string source = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "NoiseController.cs")).Replace("\r\n", "\n");
+        Assert.Contains("public void SayAfter(string text, string subject, VerbosityLevel level) =>\n            ScreenReaderOutput.Speak(text, SpeechIntent.Queue, level, subject: subject);", source);
+    }
+
+    private static string L(string key, VerbosityLevel level) => Lexicon.Get(key, level);
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        return dir!.FullName;
+    }
+
+    /// <summary>
+    /// Repair round 2, the live harness's R2-4 shape: a quick visit to CW queues
+    /// NNR's failure, and coming back to voice restores RNNoise. The queued
+    /// failure was about the old picture; it is retired when the group changes,
+    /// before the restore speaks, so it cannot be rescued behind "RNNoise on".
+    /// The same for a replacement, a selection that recovers, and the helper's
+    /// "back" sentence.
+    /// </summary>
+    [Fact]
+    public void A_queued_noise_notice_is_retired_once_the_slots_picture_it_described_changes()
+    {
+        // A mode group change.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.Attach("USB");
+            f.Noise.Toggle("rnnoise", "test");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Radio.Mode = "CW"; f.Noise.OnModeChanged("CW");
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", false, "helper missing") { SlotStopped = true });
+            Assert.Empty(f.Spoken.Retired);
+            int before = f.Spoken.Said.Count;
+            f.Radio.Mode = "USB"; f.Noise.OnModeChanged("USB");
+            Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.Contains(f.Spoken.Retired, r => r.Subject == SpeechSubject.NoiseHelperState);
+            Assert.True(f.Spoken.Said.Count > before);     // the restore still speaks
+        }
+
+        // A replacement, and a selection that now processes.
+        foreach (bool byResult in new[] { false, true })
+        {
+            using var f = new NoiseFixture();
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Noise.Toggle("nnr", "test");
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", false, "helper missing") { SlotStopped = true });
+            if (byResult) f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "nnr", true));
+            else f.Noise.Toggle("rnnoise", "test");
+            Assert.Single(f.Spoken.Retired, r => r.Subject == SpeechSubject.NoiseHelperState);
+        }
+
+        // The helper's "back" sentence is owned the same way.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.OnHelperStateChanged(WdspHelperStateChange.BackAfterCap, new[] { "nnr" });
+            Assert.Contains(f.Spoken.Said.Count - 1, f.Spoken.SaidAfter);
+            f.Noise.Toggle("nr4", "test");
+            Assert.Single(f.Spoken.Retired, r => r.Subject == SpeechSubject.NoiseHelperState);
+        }
+
+        // Nothing queued: nothing is retired, so no other speech is ever touched.
+        using (var f = new NoiseFixture())
+        {
+            f.Noise.Toggle("rnnoise", "test");
+            f.Noise.Toggle("nr4", "test");
+            f.Radio.Mode = "CW"; f.Noise.OnModeChanged("CW");
+            Assert.Empty(f.Spoken.Retired);
+        }
+    }
+
+    // ── Repair round 2: Codex's real-arbiter probe, kept ──
+
+    /// <summary>
+    /// The real SpeechArbiter, isolated behind an inert sink: no screen reader,
+    /// no process-wide speech state, no window, sound or radio. Reflection
+    /// reaches the arbiter so production needs no InternalsVisibleTo for a test.
+    /// </summary>
+    private sealed class SilentArbiterSpeaker : INoiseSpeaker
+    {
+        private readonly object _arbiter;
+        private readonly Type _type;
+        private long _ticket;
+        public readonly System.Collections.Concurrent.ConcurrentQueue<(string Text, bool Interrupt, bool Salvaged)> Calls = new();
+        public VerbosityLevel Verbosity => VerbosityLevel.Chatty;
+        public readonly System.Threading.ManualResetEventSlim Replayed = new(false);
+
+        public SilentArbiterSpeaker()
+        {
+            var assembly = typeof(ScreenReaderOutput).Assembly;
+            _type = assembly.GetType("Radios.Speech.SpeechArbiter")!;
+            var ctor = _type.GetConstructors().Single();
+            var sinkType = ctor.GetParameters()[2].ParameterType;
+            var invoke = sinkType.GetMethod("Invoke")!;
+            var parameters = invoke.GetParameters().Select(p => System.Linq.Expressions.Expression.Parameter(p.ParameterType, p.Name)).ToArray();
+            var ticket = System.Linq.Expressions.Expression.Call(System.Linq.Expressions.Expression.Constant(this),
+                typeof(SilentArbiterSpeaker).GetMethod(nameof(Sink))!, parameters[0], parameters[1], parameters[5]);
+            var handoff = System.Linq.Expressions.Expression.Call(invoke.ReturnType.GetMethod("TrackedAs",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public)!, ticket);
+            var sink = System.Linq.Expressions.Expression.Lambda(sinkType, handoff, parameters).Compile();
+            var clock = Activator.CreateInstance(assembly.GetType("Radios.Speech.SystemSpeechClock")!);
+            _arbiter = ctor.Invoke(new object?[] { clock, (Func<VerbosityLevel>)(() => Verbosity), sink,
+                (Action)(() => { }), (Action<string, VerbosityLevel, SpeechIntent?, string?>)((_, _, _, _) => { }), null, null, null });
+        }
+
+        public long Sink(string text, bool interrupt, bool salvaged)
+        {
+            Calls.Enqueue((text, interrupt, salvaged));
+            if (salvaged) Replayed.Set();
+            return System.Threading.Interlocked.Increment(ref _ticket);
+        }
+
+        public void Say(string text, string subject, VerbosityLevel level) => Emit(text, subject, level, true);
+        public void SayAfter(string text, string subject, VerbosityLevel level) => Emit(text, subject, level, false);
+        public void Retire(string subject, string why) => _type.GetMethod("Supersede")!.Invoke(_arbiter, new object?[] { subject, why, "noise test" });
+        private void Emit(string text, string subject, VerbosityLevel level, bool interrupt) =>
+            _type.GetMethod("Emit")!.Invoke(_arbiter, new object?[] { text, interrupt,
+                interrupt ? SpeechIntent.Latest : SpeechIntent.Queue, level, "noise test", subject, false });
+        public void Dispose() => _type.GetMethod("DiscardAll")!.Invoke(_arbiter, null);
+    }
+
+    [Fact]
+    public void A_queued_failure_is_not_rescued_after_a_successful_engine_change_through_the_real_arbiter()
+    {
+        using var f = new NoiseFixture();
+        var speaker = new SilentArbiterSpeaker();
+        typeof(NoiseController).GetField("_speaker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(f.Noise, speaker);
+        try
+        {
+            f.Noise.Attach("USB");
+            f.Unavailable["nnr"] = Unavailability.HelperMissing;
+            f.Noise.Toggle("nnr", "test");
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural,
+                "nnr", false, "helper missing") { SlotStopped = true });
+            string failure = Lexicon.Get("audio.noise_surface.start_failed", VerbosityLevel.Chatty);
+            Assert.Contains(speaker.Calls, c => c.Text == failure && !c.Interrupt && !c.Salvaged);
+            f.Noise.Toggle("rnnoise", "test");
+            f.Settle();
+            Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.RunningEngineId);
+            f.Noise.OnSelectionResult(new DenoiseSelectionResult(DenoiseDirection.Receive, DenoiseFamily.Neural, "rnnoise", true));
+            speaker.Replayed.Wait(2500);
+            Assert.DoesNotContain(speaker.Calls, c => c.Text == failure && c.Salvaged);
+        }
+        finally { speaker.Dispose(); }
+    }
+
+    /// <summary>The instrument's positive control (Codex's): without a retirement, the real arbiter DOES rescue a queued sentence after an interrupt on another subject.</summary>
+    [Fact]
+    public void The_real_arbiter_rescues_an_unretired_queued_notice_and_drops_a_retired_one()
+    {
+        var kept = new SilentArbiterSpeaker();
+        try
+        {
+            kept.SayAfter("old helper state", SpeechSubject.NoiseHelperState, VerbosityLevel.Terse);
+            kept.Say("engine running", SpeechSubject.NoiseEngineSwitch, VerbosityLevel.Terse);
+            Assert.True(kept.Replayed.Wait(2500), "the arbiter never rescued the unretired notice, so this instrument cannot see the defect");
+        }
+        finally { kept.Dispose(); }
+
+        var retired = new SilentArbiterSpeaker();
+        try
+        {
+            retired.SayAfter("old helper state", SpeechSubject.NoiseHelperState, VerbosityLevel.Terse);
+            retired.Retire(SpeechSubject.NoiseHelperState, "positive control");
+            retired.Say("engine running", SpeechSubject.NoiseEngineSwitch, VerbosityLevel.Terse);
+            retired.Replayed.Wait(900);
+            Assert.DoesNotContain(retired.Calls, c => c.Salvaged);
+        }
+        finally { retired.Dispose(); }
+    }
+
+    [Fact]
+    public void An_ordinary_swap_journals_both_engines_and_a_start_with_nothing_replaced_journals_one()
+    {
+        using var f = new NoiseFixture();
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Source == "swap-test-2") lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try
+        {
+            f.Noise.Toggle("nr4", "swap-test-2");
+            f.Noise.Toggle("spectral_capture", "swap-test-2");
+        }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        lock (entries)
+        {
+            Assert.Equal(2, entries.Count);
+            Assert.Equal(new[] { new NoiseJournalChange("nr4", "", "off", "on") }, entries[0].Changes);
+            Assert.Equal(new[] { new NoiseJournalChange("spectral_capture", "", "off", "on"), new NoiseJournalChange("nr4", "", "on", "off") },
+                entries[1].Changes);
+        }
     }
 
     [Fact]
@@ -223,19 +582,24 @@ public sealed class NoiseControllerTests
     }
 
     [Fact]
-    public void A_radio_level_steps_fine_then_coarse_and_the_unreported_ones_are_held_as_intents_per_radio()
+    public void A_radio_level_steps_fine_then_coarse_and_the_unreported_one_is_held_as_an_intent_per_radio()
     {
         using var f = new NoiseFixture();
-        f.Radio.Levels["radio_nrl"] = 15;
-        var level = f.Noise.Levers("radio_nrl", false)[0];
+        f.Radio.Levels["radio_nrf"] = 15;
+        var level = f.Noise.Levers("radio_nrf", false)[0];
         f.Noise.Adjust(level, +1, "test");
-        Assert.Equal(20, f.Radio.Levels["radio_nrl"]);
-        Assert.Equal(20, f.Held.Get("1234-5678", "radio_nrl"));
-        // A reported level is the radio's own; nothing is held for it.
+        Assert.Equal(20, f.Radio.Levels["radio_nrf"]);
+        Assert.Equal(20, f.Held.Get("1234-5678", "radio_nrf"));
+        // A reported level is the radio's own; nothing is held for it, and
+        // Legacy NR is reported since the Track E follow-up (#1012).
         f.Noise.Adjust(f.Noise.Levers("radio_nb", false)[0], +1, "test");
         Assert.Null(f.Held.Get("1234-5678", "radio_nb"));
+        f.Radio.Levels["radio_nrl"] = 15;
+        f.Noise.Adjust(f.Noise.Levers("radio_nrl", false)[0], +1, "test");
+        Assert.Equal(20, f.Radio.Levels["radio_nrl"]);
+        Assert.Null(f.Held.Get("1234-5678", "radio_nrl"));
         // Another radio keeps its own.
-        Assert.Null(f.Held.Get("9999", "radio_nrl"));
+        Assert.Null(f.Held.Get("9999", "radio_nrf"));
     }
 
     [Fact]
@@ -244,18 +608,52 @@ public sealed class NoiseControllerTests
         using var f = new NoiseFixture();
         f.Noise.Attach("USB");
         Assert.Empty(f.Radio.Writes.Where(w => w.Contains(".level")));
-        f.Held.Set("1234-5678", "radio_nrl", 30);
-        f.Held.Set("1234-5678", "radio_anfl", 40);
-        f.Held.Set("other-radio", "radio_nrs", 50);
+        f.Held.Set("1234-5678", "radio_nrf", 30);
+        f.Held.Set("other-radio", "radio_nrf", 50);
         f.Noise.Attach("USB");
-        Assert.Contains("radio_nrl.level=30", f.Radio.Writes);
-        Assert.Contains("radio_anfl.level=40", f.Radio.Writes);
-        Assert.DoesNotContain(f.Radio.Writes, w => w.StartsWith("radio_nrs") || w.StartsWith("radio_nrf") || w.StartsWith("radio_nb"));
+        Assert.Equal(new[] { "radio_nrf.level=30" }, f.Radio.Writes.Where(w => w.Contains(".level")));
         f.Radio.Writes.Clear();
         f.Noise.NoteActiveSlice(0);
         Assert.Empty(f.Radio.Writes);
         f.Noise.NoteActiveSlice(1);
-        Assert.Equal(new[] { "radio_nrl.level=30", "radio_anfl.level=40" }, f.Radio.Writes);
+        Assert.Equal(new[] { "radio_nrf.level=30" }, f.Radio.Writes);
+    }
+
+    /// <summary>
+    /// S12, ruled by Noel 2026-11-11 20:30 ("go with radio"): once Legacy NR,
+    /// Legacy Auto-Notch and Spectral NR are reported (#1012), a level saved
+    /// for them before is never written on connect or on a slice change; they
+    /// follow whatever the radio already has. NR Filter is still restored.
+    /// And what Space reports is the radio's level, not the stale intent (the
+    /// 2026-11-08 walk heard "Legacy NR, level 1" while the radio ran 100).
+    /// </summary>
+    [Fact]
+    public void The_three_reported_levels_follow_the_radio_on_connect_and_Space_reports_the_radios_level()
+    {
+        using var f = new NoiseFixture();
+        foreach (var id in new[] { "radio_nrl", "radio_anfl", "radio_nrs" }) f.Held.Set("1234-5678", id, 1);
+        f.Held.Set("1234-5678", "radio_nrf", 30);
+        f.Radio.Levels["radio_nrl"] = 100;
+        f.Radio.Levels["radio_anfl"] = 40;
+        f.Radio.Levels["radio_nrs"] = 25;
+
+        f.Noise.Attach("USB");
+        f.Noise.NoteActiveSlice(0);
+        f.Noise.NoteActiveSlice(1);
+
+        Assert.Equal(new[] { "radio_nrf.level=30", "radio_nrf.level=30" }, f.Radio.Writes.Where(w => w.Contains(".level")));
+        Assert.Equal(100, f.Radio.Levels["radio_nrl"]);
+        Assert.Equal(40, f.Radio.Levels["radio_anfl"]);
+        Assert.Equal(25, f.Radio.Levels["radio_nrs"]);
+
+        f.Radio.Switches["radio_nrl"] = true;
+        f.Radio.Switches["radio_anfl"] = true;
+        f.Radio.Switches["radio_nrs"] = true;
+        string summary = f.Noise.ActiveSummary();
+        Assert.Contains("Legacy NR, level 100", summary);
+        Assert.Contains("Legacy Auto-Notch, level 40", summary);
+        Assert.Contains("Spectral NR, level 25", summary);
+        Assert.Equal(100, f.Noise.NumberOf(f.Noise.Levers("radio_nrl", false)[0]));
     }
 
     // ── Return to defaults (D4) ──
@@ -274,13 +672,47 @@ public sealed class NoiseControllerTests
         Assert.Equal(0.5, f.Pipeline.SpectralSlot.GetSetting("nr4", "smoothing").Number);
         Assert.Equal(1f, f.Pipeline.SpectralSlot.GetStrength("nr4"));
         Assert.True(f.Noise.IsOn("nr4"));
-        // #1019: the floor is Advanced on NR4, so the sentence names only the main levers.
-        Assert.Equal("NR4 back to its defaults: reduction 20 decibels.", f.Spoken.Last);
+        // The floor is Advanced on NR4 (#1019). It was reset but not named; since
+        // the Track E follow-up (E2, S11) the sentence names it after the main levers.
+        Assert.Equal("NR4 back to its defaults: reduction 20 decibels, "
+            + Lexicon.Get("audio.noise_surface.defaults_floor", ("value", f.Noise.ValueText(f.Noise.FloorLeverOf("nr4")!))) + ".", f.Spoken.Last);
         Assert.Equal(SpeechSubject.NoiseDefaults, f.Spoken.Said[^1].Subject);
 
         f.Noise.Toggle("nr4", "test");
         f.Noise.ReturnToDefaults("nr4", "test");
         Assert.False(f.Noise.IsOn("nr4"));
+    }
+
+    /// <summary>
+    /// Track E follow-up E2 (S11): the Track S walk heard "NNR back to its
+    /// defaults: depth 25 decibels, model Standard voice." with the Advanced
+    /// noise floor reset but not named. Every engine whose floor is Advanced
+    /// now names it once; an engine whose floor is its main lever (RNNoise,
+    /// NR2) already named it and does not name it twice.
+    /// </summary>
+    [Theory]
+    [InlineData("nnr", true)]
+    [InlineData("deepfilternet3", true)]
+    [InlineData("nr4", true)]
+    [InlineData("spectral_capture", true)]
+    [InlineData("rnnoise", false)]
+    [InlineData("nr2", false)]
+    public void Return_to_defaults_names_the_noise_floor_it_reset_once(string id, bool advancedFloor)
+    {
+        using var f = new NoiseFixture();
+        var floor = f.Noise.FloorLeverOf(id)!;
+        Assert.Equal(advancedFloor, floor.Advanced);
+        f.Noise.Set(floor, 55, null, "test");
+        f.Noise.ReturnToDefaults(id, "test");
+        Assert.Equal(NoiseFloor.DefaultFloor(id, DenoiseDirection.Receive), f.Noise.NumberOf(floor));
+        // The whole sentence: the main levers by name and value (the floor among
+        // them where it is main), then the Advanced floor's own fact where it is not.
+        var values = f.Noise.Levers(id, includeAdvanced: false)
+            .Select(l => f.Noise.LeverName(l).ToLowerInvariant() + " " + f.Noise.ValueText(l)).ToList();
+        Assert.Equal(!advancedFloor, f.Noise.Levers(id, includeAdvanced: false).Contains(floor));
+        if (advancedFloor) values.Add(Lexicon.Get("audio.noise_surface.defaults_floor", ("value", f.Noise.ValueText(floor))));
+        Assert.Equal(Lexicon.Get("audio.noise_surface.defaults", VerbosityLevel.Chatty,
+            ("engine", f.Noise.NameOf(id)), ("values", string.Join(", ", values))), f.Spoken.Last);
     }
 
     [Fact]
@@ -445,9 +877,53 @@ public sealed class NoiseControllerTests
         f.Noise.Toggle("nnr", "test");
         f.Settle();
         // #1019: NNR's levers lead with its Depth, so the summary reads them in that order.
-        Assert.Equal("On the radio: Legacy NR, level 8. On this computer: NNR, depth 25 decibels, Standard voice.", f.Noise.ActiveSummary());
+        // Track E follow-up E1: then the noise floor (NNR's model is already a main lever, so it is not named twice).
+        Assert.Equal("On the radio: Legacy NR, level 8. On this computer: NNR, depth 25 decibels, Standard voice, "
+            + Lexicon.Get("audio.noise_surface.active.floor", ("value", f.Noise.ValueText(f.Noise.FloorLeverOf("nnr")!))) + ".", f.Noise.ActiveSummary());
         f.Spoken.Verbosity = VerbosityLevel.Terse;
         Assert.Equal("Radio: Legacy NR 8. Computer: NNR.", f.Noise.ActiveSummary());
+    }
+
+    /// <summary>
+    /// Track E follow-up E1 (S11, "yep fold em"): the Track S walk heard "On
+    /// this computer: RNNoise." after choosing a model, with no model and no
+    /// noise floor. RNNoise's model is an Advanced lever and its floor is its
+    /// one main lever, a Floor rather than a Setting, so the summary named
+    /// neither. Both are now facts of the summary (placeholder words for
+    /// Codex), at Chatty only, like the other details; a model already among
+    /// the main levers (NNR's) is not named twice.
+    /// </summary>
+    [Fact]
+    public void The_active_summary_names_RNNoises_model_and_every_engines_noise_floor()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.Adjust(f.Noise.FloorLeverOf("rnnoise")!, +1, "test");
+        f.Settle();
+        var model = f.Noise.Levers("rnnoise", true).Single(l => l.Key == "model");
+        string summary = f.Noise.ActiveSummary();
+        string rnFloor = Lexicon.Get("audio.noise_surface.active.floor", ("value", f.Noise.ValueText(f.Noise.FloorLeverOf("rnnoise")!)));
+        Assert.Contains("RNNoise, " + Lexicon.Get("audio.noise_surface.active.model", ("model", f.Noise.ValueText(model))) + ", " + rnFloor, summary);
+        Assert.Contains("15", f.Noise.ValueText(f.Noise.FloorLeverOf("rnnoise")!));
+
+        // Every computer engine's floor, in both slots; the model only where one is not already named.
+        f.Noise.Toggle("nr4", "test");
+        f.Settle();
+        string nr4Floor = Lexicon.Get("audio.noise_surface.active.floor", ("value", f.Noise.ValueText(f.Noise.FloorLeverOf("nr4")!)));
+        Assert.Contains("NR4, ", f.Noise.ActiveSummary());
+        Assert.Contains(nr4Floor, f.Noise.ActiveSummary());
+        Assert.Contains(rnFloor, f.Noise.ActiveSummary());
+
+        f.Spoken.Verbosity = VerbosityLevel.Terse;
+        Assert.DoesNotContain(rnFloor, f.Noise.ActiveSummary());
+        Assert.DoesNotContain(nr4Floor, f.Noise.ActiveSummary());
+    }
+
+    private static int CountOf(string s, string what)
+    {
+        int n = 0;
+        for (int i = s.IndexOf(what, StringComparison.Ordinal); i >= 0; i = s.IndexOf(what, i + what.Length, StringComparison.Ordinal)) n++;
+        return n;
     }
 
     [Fact]

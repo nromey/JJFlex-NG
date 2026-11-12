@@ -1,4 +1,8 @@
+using System;
+using System.IO;
 using System.Linq;
+using System.Threading;
+using JJFlexWpf.Controls;
 using Radios;
 using Xunit;
 
@@ -75,6 +79,343 @@ public sealed class NoiseMenuTests
         Assert.Equal("DeepFilterNet3, model missing", f.Noise.MarkedName("deepfilternet3"));
         Assert.Equal("NVIDIA NR, not in this version", f.Noise.MarkedName("nvidia_afx"));
         Assert.Contains(f.Noise.Engines(DenoiseGroup.NoiseReduction), e => e.Id == "nnr");
+    }
+
+    /// <summary>
+    /// S10, ruled by Noel 2026-11-11 20:29 ("name first", confirmed "yep"):
+    /// every noise toggle on the Audio menu reads name, then state, then the
+    /// shortcut. The 2026-11-08 walk heard "On, Ctrl+J, N, N: Off". The
+    /// assembled row is what a screen reader reads: the text before the tab,
+    /// then the shortcut column.
+    /// </summary>
+    [Theory]
+    [InlineData("Legacy NR\tCtrl+J, N, L", false, "Legacy NR, Off, Ctrl+J, N, L")]
+    [InlineData("Legacy NR\tCtrl+J, N, L", true, "Legacy NR, On, Ctrl+J, N, L")]
+    [InlineData("Neural NR, needs subscription\tCtrl+J, N, R", false, "Neural NR, needs subscription, Off, Ctrl+J, N, R")]
+    [InlineData("Favourite", false, "Favourite, Off")]
+    [InlineData("Neural NR favourite", true, "Neural NR favourite, On")]
+    public void A_noise_toggle_reads_name_then_state_then_shortcut(string text, bool on, string heard)
+    {
+        string row = NativeMenuBar.NoiseToggleRowText(text, on);
+        // The state sits before the tab, never inside the shortcut column.
+        int tab = row.IndexOf('\t');
+        if (tab >= 0) Assert.DoesNotContain(on ? "On" : "Off", row.Substring(tab));
+        Assert.Equal(heard, row.Replace("\t", ", "));
+    }
+
+    [Fact]
+    public void Every_noise_toggle_on_the_Audio_menu_is_built_name_first_and_the_popup_writes_it_that_way()
+    {
+        // A source pin, because the menu builder and its popup handler need a window.
+        string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
+        string build = Body(menu, "private void BuildNoiseItems(IntPtr parent, DenoiseGroup group)", "private const string MenuSource");
+        Assert.DoesNotContain("AddChecked(", build);
+        Assert.Equal(4, Count(build, "AddNoiseToggle("));
+        // The engine's own switch is named for the engine, not "On".
+        Assert.Contains("AddNoiseToggle(sub, isRadio ? R(name + chord) : name + chord,", build);
+        Assert.DoesNotContain("audio.noise_menu.on\"", build);
+        // The popup handler gives these rows their own text before the shared ": On" suffix.
+        string popup = Body(menu, "public void HandleInitMenuPopup(IntPtr wParam)", "public void UpdateFeatureGates");
+        int ours = popup.IndexOf("_noiseToggleItems.Contains(id)", StringComparison.Ordinal);
+        int shared = popup.IndexOf("$\"{label}: {stateText}\"", StringComparison.Ordinal);
+        Assert.True(ours > 0 && shared > ours, "the noise rows must be handled before the shared suffix is written");
+        Assert.Contains("RewriteNoiseToggle(itemPopup, id, baseText, isOn);", popup);
+    }
+
+    /// <summary>
+    /// Track E follow-up E3 (S11): after the Audio menu's "Advanced
+    /// settings..." focus stayed on the frequency display (the Track S walk).
+    /// Where focus is meant to land: the first Advanced lever when Advanced was
+    /// asked for and the engine has one, else the Engine field. Controls built
+    /// unhosted on a private STA thread; no window.
+    /// </summary>
+    [Fact]
+    public void Advanced_settings_lands_on_the_first_Advanced_lever_and_otherwise_on_the_Engine_field()
+    {
+        RunOnSta(() =>
+        {
+            var engine = new System.Windows.Controls.Button();
+            var levers = new System.Windows.Controls.StackPanel();
+            Assert.Same(engine, ScreenFieldsPanel.NoiseOpenTarget(advanced: true, levers, engine));
+            var first = new System.Windows.Controls.Button();
+            levers.Children.Add(first);
+            levers.Children.Add(new System.Windows.Controls.Button());
+            Assert.Same(first, ScreenFieldsPanel.NoiseOpenTarget(advanced: true, levers, engine));
+            Assert.Same(engine, ScreenFieldsPanel.NoiseOpenTarget(advanced: false, levers, engine));
+        });
+    }
+
+    /// <summary>
+    /// E3, the part a windowless test can reach: the focus is asked for after
+    /// layout, not at Normal priority before the new fields exist to WPF, on
+    /// every branch of OpenNoise, and the panel is shown first. Whether focus
+    /// really lands is the orchestrator's live check with jjprobe.
+    /// </summary>
+    [Fact]
+    public void Opening_noise_on_Home_asks_for_focus_only_after_layout_on_every_branch()
+    {
+        string panel = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.Noise.cs");
+        string open = Body(panel, "public void OpenNoise(string? engineId, bool advanced)", "internal static UIElement NoiseOpenTarget(");
+        Assert.Contains("if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;", open);
+        Assert.Equal(3, Count(open, "FocusNoiseWhenLaidOut("));
+        Assert.DoesNotContain(".Focus()", open);
+        Assert.DoesNotContain("Dispatcher.BeginInvoke(", open);
+        // Every branch goes through the one owned request (repair round 1), wired
+        // to layout, WPF's keyboard focus, the engine shown and the panel's state.
+        string focus = Body(panel, "private void FocusNoiseWhenLaidOut(", "private readonly List<(CycleFieldControl Field, NoiseLever Lever");
+        Assert.Contains("NoiseFocus.Request(", focus);
+        Assert.Contains("DispatcherPriority.Loaded, () => { UpdateLayout(); act(); }", focus);
+        Assert.Contains("DispatcherPriority.ApplicationIdle", focus);
+        Assert.Contains("focused: () => System.Windows.Input.Keyboard.FocusedElement", focus);
+        Assert.Contains("shownEngine: () => _noiseFieldsFor", focus);
+        Assert.Contains("IsVisibleChanged += (s, e) => { if (e.NewValue is false) _noiseFocus.Cancel(); };", focus);
+        Assert.Contains("Unloaded += (s, e) => _noiseFocus.Cancel();", focus);
+        // Repair round 2: every focus move is watched, not only where focus ends up.
+        Assert.Contains("watchFocus: WatchKeyboardFocus", focus);
+        Assert.Contains("Keyboard.GotKeyboardFocusEvent", focus);
+        Assert.Contains("_noiseFocus?.Cancel();", Body(panel, "private void OnDspExpanderCollapsed()", "\n    }"));
+    }
+
+    // ── Repair round 1: the deferred focus request is owned and cancellable ──
+
+    private sealed class FocusRig
+    {
+        public readonly System.Collections.Generic.Queue<Action> Layout = new();
+        public readonly System.Collections.Generic.Queue<Action> Idle = new();
+        public readonly System.Collections.Generic.List<string> Trace = new();
+        public object? Focused = "frequency display";
+        public string? Engine = "nnr";
+        public bool Ready = true;
+        public int Calls;
+        public bool Lands = true;
+        public readonly DeferredNoiseFocus Focus;
+        private Action<object?>? _notify;
+        public FocusRig() => Focus = new DeferredNoiseFocus(Layout.Enqueue, Idle.Enqueue, () => Focused, () => Engine, () => Ready, Trace.Add,
+            watch => _notify = watch);
+        /// <summary>Focus moves, as WPF raises it: the element now focused, or null when the app lost focus.</summary>
+        public void MoveTo(object? element) { Focused = element; _notify?.Invoke(element); }
+        public Func<Func<bool>?> Target(string name) => () => () => { Calls++; if (Lands) MoveTo(name); return Lands; };
+        public void RunLayout() { while (Layout.Count > 0) Layout.Dequeue()(); }
+        public void RunIdle() { while (Idle.Count > 0) Idle.Dequeue()(); }
+    }
+
+    [Fact]
+    public void A_deferred_noise_focus_lands_after_layout_and_retries_once_at_idle()
+    {
+        var rig = new FocusRig();
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        Assert.Equal(0, rig.Calls);                       // nothing before layout
+        rig.RunLayout();
+        Assert.Equal(1, rig.Calls);
+        Assert.Equal("floor", rig.Focused);
+        Assert.Empty(rig.Idle);
+
+        // Not laid out yet on the first try: one more at idle, then it gives up and says so.
+        rig = new FocusRig { Lands = false };
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.RunIdle();
+        Assert.Equal(2, rig.Calls);
+        Assert.Contains(rig.Trace, t => t.Contains("did not land"));
+    }
+
+    [Fact]
+    public void A_deferred_noise_focus_never_lands_after_the_operator_moves_focus_between_tries()
+    {
+        var rig = new FocusRig { Lands = false };
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();                                  // first try fails
+        rig.Lands = true;
+        rig.MoveTo("mode field");                         // the operator moved on before idle
+        rig.RunIdle();
+        Assert.Equal(1, rig.Calls);
+        Assert.Equal("mode field", rig.Focused);
+        Assert.Contains(rig.Trace, t => t.Contains("cancelled"));
+
+        // And before the first try too: the app lost focus to another window.
+        rig = new FocusRig();
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.MoveTo(null);
+        rig.RunLayout();
+        Assert.Equal(0, rig.Calls);
+    }
+
+    [Fact]
+    public void A_deferred_noise_focus_is_dropped_by_a_later_request_an_engine_change_or_the_panel_going_away()
+    {
+        // A later request: the older one never calls focus, even though it was queued first.
+        var rig = new FocusRig();
+        int older = 0;
+        rig.Focus.Request(() => () => { older++; return true; }, "older");
+        rig.Focus.Request(rig.Target("newer"), "newer");
+        rig.RunLayout();
+        Assert.Equal(0, older);
+        Assert.Equal(1, rig.Calls);
+
+        // The fields now show another engine.
+        rig = new FocusRig { Lands = false };
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.Engine = "rnnoise";
+        rig.Lands = true;
+        rig.RunIdle();
+        Assert.Equal(1, rig.Calls);
+
+        // Hidden, then shown again before idle: the cancel holds.
+        rig = new FocusRig { Lands = false };
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.Focus.Cancel();
+        rig.Lands = true;
+        rig.RunIdle();
+        Assert.Equal(1, rig.Calls);
+
+        // Not showing at all.
+        rig = new FocusRig { Ready = false };
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        Assert.Equal(0, rig.Calls);
+    }
+
+    /// <summary>
+    /// Repair round 2, Codex's probe kept: after a failed first try, focus moves
+    /// away and back to the very element it started on before the idle retry.
+    /// Comparing the endpoints alone said nothing had moved, and the old request
+    /// took focus. Every move now counts.
+    /// </summary>
+    [Fact]
+    public void A_deferred_noise_focus_is_dropped_after_focus_moves_away_and_back()
+    {
+        var rig = new FocusRig { Lands = false };
+        object home = rig.Focused!;
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        Assert.Equal(1, rig.Calls);
+        rig.MoveTo("mode field");                         // Tab elsewhere
+        rig.MoveTo(home);                                 // Shift+Tab back
+        rig.Lands = true;
+        rig.RunIdle();
+        Assert.Equal(1, rig.Calls);
+        Assert.Same(home, rig.Focused);
+
+        // The app losing focus and getting it back counts the same way.
+        rig = new FocusRig { Lands = false };
+        home = rig.Focused!;
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.MoveTo(null);
+        rig.MoveTo(home);
+        rig.Lands = true;
+        rig.RunIdle();
+        Assert.Equal(1, rig.Calls);
+
+        // Positive control (Codex's): a request still owned does land on its idle retry.
+        rig = new FocusRig { Lands = false };
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.Lands = true;
+        rig.RunIdle();
+        Assert.Equal(2, rig.Calls);
+        Assert.Equal("floor", rig.Focused);
+    }
+
+    /// <summary>Repair round 2, Codex's probe kept: with nothing focused when it was asked for, no one owns the request, so it never focuses.</summary>
+    [Fact]
+    public void A_deferred_noise_focus_asked_for_with_nothing_focused_never_focuses()
+    {
+        var rig = new FocusRig();
+        rig.Focused = null;
+        rig.Focus.Request(rig.Target("floor"), "floor");
+        rig.RunLayout();
+        rig.RunIdle();
+        Assert.Equal(0, rig.Calls);
+        Assert.Contains(rig.Trace, t => t.Contains("cancelled"));
+    }
+
+    // ── Repair round 1: a noise row keeps its native check mark ──
+
+    [Theory]
+    [InlineData(true, "Legacy NR, On\tCtrl+J, N, L")]
+    [InlineData(false, "Legacy NR, Off\tCtrl+J, N, L")]
+    public void A_noise_row_rewritten_on_opening_keeps_its_native_check_state(bool on, string text)
+    {
+        // Codex's probe, kept: an unshown native popup and a menu bar holding only
+        // its check-item collections. No window, app, sound or radio.
+        IntPtr popup = CreatePopupMenu();
+        Assert.NotEqual(IntPtr.Zero, popup);
+        try
+        {
+            const int id = 42;
+            const string label = "Legacy NR\tCtrl+J, N, L";
+            Assert.True(AppendMenuW(popup, 0, (UIntPtr)id, label));
+            var menu = (NativeMenuBar)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(NativeMenuBar));
+            void Put(string name, object value) => typeof(NativeMenuBar).GetField(name,
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(menu, value);
+            Put("_checkItems", new System.Collections.Generic.List<(IntPtr, int, Func<bool>, string, bool)> { (popup, id, () => on, label, true) });
+            Put("_radioGroupItems", new System.Collections.Generic.HashSet<int>());
+            Put("_noiseToggleItems", new System.Collections.Generic.HashSet<int> { id });
+            Put("_itemNames", new System.Collections.Generic.Dictionary<int, string>());
+            menu.HandleInitMenuPopup(popup);
+            var buffer = new System.Text.StringBuilder(256);
+            Assert.True(GetMenuStringW(popup, (uint)id, buffer, buffer.Capacity, 0) > 0);
+            Assert.Equal(text, buffer.ToString());
+            uint state = GetMenuState(popup, (uint)id, 0);
+            Assert.True(((state & 8) != 0) == on, "MF_CHECKED does not match the state; native flags = 0x" + state.ToString("X"));
+
+            // A second opening after the state changed: still in step.
+            Put("_checkItems", new System.Collections.Generic.List<(IntPtr, int, Func<bool>, string, bool)> { (popup, id, () => !on, label, true) });
+            menu.HandleInitMenuPopup(popup);
+            Assert.True(((GetMenuState(popup, (uint)id, 0) & 8) != 0) == !on);
+        }
+        finally { DestroyMenu(popup); }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr CreatePopupMenu();
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern bool AppendMenuW(IntPtr menu, uint flags, UIntPtr id, string text);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetMenuState(IntPtr menu, uint id, uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int GetMenuStringW(IntPtr menu, uint id, System.Text.StringBuilder text, int count, uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool DestroyMenu(IntPtr menu);
+
+    private static void RunOnSta(Action body)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { body(); }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "The test thread did not finish.");
+        if (failure != null) throw failure;
+    }
+
+    private static string Source(params string[] path)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        return File.ReadAllText(Path.Combine(dir!.FullName, Path.Combine(path))).Replace("\r\n", "\n");
+    }
+
+    private static string Body(string source, string from, string to)
+    {
+        int at = source.IndexOf(from, StringComparison.Ordinal);
+        Assert.True(at >= 0, "not found: " + from);
+        int end = source.IndexOf(to, at, StringComparison.Ordinal);
+        Assert.True(end > at, "not found after it: " + to);
+        return source.Substring(at, end - at);
+    }
+
+    private static int Count(string s, string what)
+    {
+        int n = 0;
+        for (int i = s.IndexOf(what, StringComparison.Ordinal); i >= 0; i = s.IndexOf(what, i + what.Length, StringComparison.Ordinal)) n++;
+        return n;
     }
 
     [Fact]

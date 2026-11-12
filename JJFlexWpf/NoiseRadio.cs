@@ -24,7 +24,7 @@ namespace JJFlexWpf
         bool PcAudioOn { get; }
         bool ReadSwitch(DenoiseEngineEntry engine);
         void WriteSwitch(DenoiseEngineEntry engine, bool on);
-        /// <summary>The radio's current level (for an unreported level, only what this session wrote, or zero).</summary>
+        /// <summary>The radio's current level (for the one unreported level, NR Filter's, only what this session wrote, or zero).</summary>
         int ReadLevel(DenoiseEngineEntry engine);
         void WriteLevel(DenoiseEngineEntry engine, int level);
         /// <summary>Why a write of this capability would be refused, hardware first, then the licence; null when it is open.</summary>
@@ -35,7 +35,7 @@ namespace JJFlexWpf
         bool ClosedByHardware(RadioCapability capability);
     }
 
-    /// <summary>Per-radio held levels for the four levels the radio never reports back (ruled 2026-11-07, question 16).</summary>
+    /// <summary>Per-radio held levels for the levels the radio never reports back (ruled 2026-11-07, question 16): today only NR Filter's, since the Track E follow-up reads Legacy NR, Spectral NR and Legacy Auto-Notch from the radio (#1012, S5, S12).</summary>
     public interface INoiseIntentStore
     {
         int? Get(string serial, string engineId);

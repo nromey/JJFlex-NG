@@ -2146,6 +2146,25 @@ namespace Flex.Smoothlake.FlexLib
                             }
                             break;
 
+                        // JJFlex carried patch (MIGRATION.md, "Slice noise levels in status"):
+                        // the radio reports lms_anf_level back as anfl_level. Set the field only;
+                        // the public setter would send "slice set" back to the radio.
+                        case "anfl_level":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 100)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_anfl_level == (int)temp)
+                                    continue;
+
+                                _anfl_level = (int)temp;
+                                RaisePropertyChanged(nameof(ANFL_Level));
+                            }
+                            break;
+
                         case "anft":
                             {
                                 if (!uint.TryParse(value, out uint temp) || temp > 1)
@@ -2780,6 +2799,25 @@ namespace Flex.Smoothlake.FlexLib
                             }
                             break;
 
+                        // JJFlex carried patch (MIGRATION.md, "Slice noise levels in status"):
+                        // the radio reports lms_nr_level back as nrl_level. Set the field only;
+                        // the public setter would send "slice set" back to the radio.
+                        case "nrl_level":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 100)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_nrl_level == (int)temp)
+                                    continue;
+
+                                _nrl_level = (int)temp;
+                                RaisePropertyChanged(nameof(NRL_Level));
+                            }
+                            break;
+
                         case "nrf":
                             {
                                 if (!uint.TryParse(value, out uint temp) || temp > 1)
@@ -2825,6 +2863,25 @@ namespace Flex.Smoothlake.FlexLib
 
                                 _nrs_on = Convert.ToBoolean(temp);
                                 RaisePropertyChanged(nameof(NRSOn));
+                            }
+                            break;
+
+                        // JJFlex carried patch (MIGRATION.md, "Slice noise levels in status"):
+                        // the radio reports speex_nr_level back as nrs_level. Set the field only;
+                        // the public setter would send "slice set" back to the radio.
+                        case "nrs_level":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 100)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_nrs_level == (int)temp)
+                                    continue;
+
+                                _nrs_level = (int)temp;
+                                RaisePropertyChanged(nameof(NRSLevel));
                             }
                             break;
 

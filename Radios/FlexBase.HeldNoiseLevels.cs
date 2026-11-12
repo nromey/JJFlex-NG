@@ -6,10 +6,20 @@ using JJTrace;
 namespace Radios
 {
     /// <summary>
-    /// The four noise levels the radio never reports back (ruled 2026-11-07,
-    /// question 16): Legacy NR, Spectral NR, NR Filter and Legacy Auto-Notch.
-    /// FlexLib's status parser has no case for any of them, so the app holds
-    /// each as an intent per radio and writes it.
+    /// The slice noise levels the held write path can send. Question 16
+    /// (ruled 2026-11-07) held four as intents, on the premise that the radio
+    /// never reports them. Three of the four ARE reported, under other keys:
+    /// Legacy NR's <c>lms_nr_level</c> comes back as <c>nrl_level</c>, Legacy
+    /// Auto-Notch's <c>lms_anf_level</c> as <c>anfl_level</c>, Spectral NR's
+    /// <c>speex_nr_level</c> as <c>nrs_level</c> (read from an 8600 on
+    /// 2026-11-08, #1012). Stock FlexLib did not parse those keys; the carried
+    /// patch in <c>Slice.StatusUpdate</c> (MIGRATION.md item 21, ruled S5) does,
+    /// so the noise catalog now reads those three from the radio like any
+    /// other level (ruled S12, 2026-11-11: on connect they follow the radio).
+    /// Only <see cref="NoiseReductionFilter"/> is still held: the radio does not
+    /// report <c>nrf_level</c> at all. The other three members stay because the
+    /// write path below is general and its tests pin FlexLib's setters for all
+    /// four.
     /// </summary>
     public enum HeldNoiseLevel
     {
@@ -25,12 +35,13 @@ namespace Radios
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Why these four cannot use their ordinary setters.</b> FlexLib's
+    /// <b>Why a held level cannot use its ordinary setter.</b> FlexLib's
     /// setter for each (<c>Slice.NRL_Level</c>, <c>NRSLevel</c>,
     /// <c>NRFLevel</c>, <c>ANFL_Level</c>) begins
     /// <c>if (value == _field) return;</c>, comparing against its own cached
-    /// field. For a reported level that cache follows the radio; for these
-    /// four nothing ever updates it, so it holds only what FlexLib itself last
+    /// field. For a reported level that cache follows the radio (since the
+    /// Track E follow-up that includes NRL, NRS and ANFL); for an unreported
+    /// one (NRF) nothing ever updates it, so it holds only what FlexLib itself last
     /// wrote, starting at 0 on a fresh slice. A held intent equal to that cache
     /// (a saved 0 on a new connection, or any value FlexLib wrote earlier to a
     /// slice that has since been changed by another program) was therefore

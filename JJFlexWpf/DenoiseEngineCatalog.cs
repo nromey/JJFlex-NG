@@ -27,21 +27,25 @@ namespace JJFlexWpf
     /// give one level three ranges.
     /// </summary>
     /// <param name="ReportedBack">
-    /// False for the four levels FlexLib's status parser never reads
-    /// (Legacy NR, Spectral NR, NR Filter, Legacy Auto-Notch): the value a
-    /// surface shows for those is JJ Flexible's held intent, never a reading.
+    /// False only for NR Filter's level, which the radio does not report: the
+    /// value a surface shows for it is JJ Flexible's held intent, never a
+    /// reading. Legacy NR, Spectral NR and Legacy Auto-Notch were held the
+    /// same way until the Track E follow-up: the radio reports them as
+    /// <c>nrl_level</c>, <c>nrs_level</c> and <c>anfl_level</c>, and the carried
+    /// FlexLib patch (MIGRATION.md item 21, #1012, ruled S5) now parses them,
+    /// so they follow the radio, connect included (ruled S12, 2026-11-11).
     /// </param>
     /// <param name="Held">
-    /// For those same four, which held level this is. Their write goes
-    /// through <see cref="FlexBase.WriteHeldNoiseLevel"/>, never the ordinary
-    /// setter, because FlexLib's setter drops a value equal to its own cached
-    /// field, and for an unreported level that cache is not the radio's
-    /// (repair round 1, B7). Null for every level the radio reports.
+    /// For a held level, which one it is. Its write goes through
+    /// <see cref="FlexBase.WriteHeldNoiseLevel"/>, never the ordinary setter,
+    /// because FlexLib's setter drops a value equal to its own cached field,
+    /// and for an unreported level that cache is not the radio's (repair
+    /// round 1, B7). Null for every level the radio reports.
     /// </param>
     public sealed record RadioLevelSpec(int Min, int Max, bool ReportedBack,
         Func<FlexBase, int> Read, Action<FlexBase, int> Write, HeldNoiseLevel? Held = null)
     {
-        /// <summary>A level the radio never reports back: held as an intent, written through the held path.</summary>
+        /// <summary>A level the radio never reports back (today only NR Filter's): held as an intent, written through the held path.</summary>
         public static RadioLevelSpec HeldBy(HeldNoiseLevel held, int min, int max, Func<FlexBase, int> read) =>
             new(min, max, false, read, (r, v) => r.WriteHeldNoiseLevel(held, v), held);
 
@@ -252,16 +256,16 @@ namespace JJFlexWpf
                     r => r.NoiseReductionLevel, (r, v) => r.NoiseReductionLevel = v));
             yield return new("radio_nrl", DenoiseSide.Radio, null, "audio.denoise.radio_nrl", Receive,
                 ReadRadio: r => r.NoiseReductionLegacy, WriteRadio: (r, v) => r.NoiseReductionLegacy = v,
-                Level: RadioLevelSpec.HeldBy(HeldNoiseLevel.LegacyNoiseReduction, LegacyNrLevelMin, LegacyNrLevelMax,
-                    r => r.NoiseReductionLegacyLevel));
+                Level: new RadioLevelSpec(LegacyNrLevelMin, LegacyNrLevelMax, true,
+                    r => r.NoiseReductionLegacyLevel, (r, v) => r.NoiseReductionLegacyLevel = v));
             yield return new("radio_rnn", DenoiseSide.Radio, null, "audio.denoise.radio_rnn", Receive,
                 Capability: RadioCapability.NoiseReductionNeural,
                 ReadRadio: r => r.NeuralNoiseReduction, WriteRadio: (r, v) => r.NeuralNoiseReduction = v);
             yield return new("radio_nrs", DenoiseSide.Radio, null, "audio.denoise.radio_nrs", Receive,
                 Capability: RadioCapability.NoiseReductionSpectral,
                 ReadRadio: r => r.SpectralNoiseReduction, WriteRadio: (r, v) => r.SpectralNoiseReduction = v,
-                Level: RadioLevelSpec.HeldBy(HeldNoiseLevel.SpectralNoiseReduction, FlexBase.SpectralNoiseReductionValueMin, FlexBase.SpectralNoiseReductionValueMax,
-                    r => r.SpectralNoiseReductionLevel));
+                Level: new RadioLevelSpec(FlexBase.SpectralNoiseReductionValueMin, FlexBase.SpectralNoiseReductionValueMax, true,
+                    r => r.SpectralNoiseReductionLevel, (r, v) => r.SpectralNoiseReductionLevel = v));
             yield return new("radio_nrf", DenoiseSide.Radio, null, "audio.denoise.radio_nrf", Receive,
                 Capability: RadioCapability.NoiseReductionFilter,
                 ReadRadio: r => r.NoiseReductionFilter, WriteRadio: (r, v) => r.NoiseReductionFilter = v,
@@ -307,8 +311,8 @@ namespace JJFlexWpf
                     r => r.AutoNotchLevel, (r, v) => r.AutoNotchLevel = v));
             yield return new("radio_anfl", DenoiseSide.Radio, null, "audio.denoise.radio_anfl", Receive,
                 ReadRadio: r => r.AutoNotchLegacy, WriteRadio: (r, v) => r.AutoNotchLegacy = v, Group: DenoiseGroup.BlankersAndNotches,
-                Level: RadioLevelSpec.HeldBy(HeldNoiseLevel.LegacyAutoNotch, FlexBase.AutoNotchLegacyLevelMin, FlexBase.AutoNotchLegacyLevelMax,
-                    r => r.AutoNotchLegacyLevel));
+                Level: new RadioLevelSpec(FlexBase.AutoNotchLegacyLevelMin, FlexBase.AutoNotchLegacyLevelMax, true,
+                    r => r.AutoNotchLegacyLevel, (r, v) => r.AutoNotchLegacyLevel = v));
             yield return new("radio_anft", DenoiseSide.Radio, null, "audio.denoise.radio_anft", Receive,
                 Capability: RadioCapability.AutoNotchFft,
                 ReadRadio: r => r.AutoNotchFFT, WriteRadio: (r, v) => r.AutoNotchFFT = v, Group: DenoiseGroup.BlankersAndNotches);

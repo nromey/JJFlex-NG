@@ -116,6 +116,21 @@ public class NativeMenuBar : IDisposable
     /// </para>
     /// </remarks>
     private readonly HashSet<int> _radioGroupItems = new();
+
+    /// <summary>
+    /// Ids of the Audio menu's noise toggles (Sprint 49 Track E follow-up D,
+    /// #1018 item 1), which read name, then state, then the shortcut.
+    /// </summary>
+    /// <remarks>
+    /// The shared toggle path writes "{text}: {state}" at the end of the whole
+    /// row, so on a row with a shortcut the state landed inside the key column
+    /// and was read after the chord: "On, Ctrl+J, N, N: Off". Ruled by Noel
+    /// 2026-11-11 20:29 (S10, "name first", confirmed "yep"): name, state,
+    /// shortcut, as in "Legacy NR, Off, Ctrl+J, N, N", for every noise row.
+    /// Only these rows change; the shared suffix stays as it is for every
+    /// other menu (<see cref="NoiseToggleRowText"/>).
+    /// </remarks>
+    private readonly HashSet<int> _noiseToggleItems = new();
     // Top-level popup handle → menu name (for screen reader announcement on open)
     private readonly Dictionary<IntPtr, string> _popupNames = new();
     /// <summary>
@@ -207,6 +222,7 @@ public class NativeMenuBar : IDisposable
         _checkItems.Clear();
         _recorderMenuLabels.Clear();
         _radioGroupItems.Clear();
+        _noiseToggleItems.Clear();
         _popupNames.Clear();
 
         // NOT reset — see the remarks on _nextId. Wrapped only at the 16-bit
@@ -423,6 +439,15 @@ public class NativeMenuBar : IDisposable
                 // telling the operator what they did not pick. See the remarks
                 // on _radioGroupItems (#311).
                 if (_radioGroupItems.Contains(id)) continue;
+
+                // A noise toggle: the state goes after the name, before the
+                // shortcut column (S10).
+                if (_noiseToggleItems.Contains(id))
+                {
+                    _itemNames[id] = baseText;
+                    RewriteNoiseToggle(itemPopup, id, baseText, isOn);
+                    continue;
+                }
 
                 // Update text with state suffix so screen readers always announce on/off
                 string stateText = isOn ? "On" : "Off";
@@ -693,15 +718,18 @@ public class NativeMenuBar : IDisposable
             {
                 // A plain check item, and its favourite as a second item below
                 // it, since a check item has no submenu to hold one (D4).
-                AddChecked(parent, R(named + chord), () => AfterMenu(n => n.Toggle(id, MenuSource)),
+                AddNoiseToggle(parent, R(named + chord), () => AfterMenu(n => n.Toggle(id, MenuSource)),
                     () => _window.Noise.IsOn(id), radio);
-                AddChecked(parent, SwitchOnlyFavouriteLabel(name),
+                AddNoiseToggle(parent, SwitchOnlyFavouriteLabel(name),
                     () => AfterMenu(n => n.ToggleFavourite(id, MenuSource)), () => _window.Noise.IsFavourite(id));
                 continue;
             }
 
             var sub = AddSubmenu(parent, isRadio ? R(named) : named);
-            AddChecked(sub, isRadio ? R(Radios.Lexicon.Get("audio.noise_menu.on") + chord) : Radios.Lexicon.Get("audio.noise_menu.on") + chord,
+            // The engine's own switch reads its name, its state, then its
+            // shortcut: "Legacy NR, Off, Ctrl+J, N, N" (S10). It read "On"
+            // before the shortcut, with the state after it.
+            AddNoiseToggle(sub, isRadio ? R(name + chord) : name + chord,
                 () => AfterMenu(n => n.Toggle(id, MenuSource)), () => _window.Noise.IsOn(id), !isRadio || radio);
 
             foreach (var lever in noise.Levers(id, includeAdvanced: false))
@@ -740,7 +768,7 @@ public class NativeMenuBar : IDisposable
             // engine it says why it cannot act (no factory level is known).
             AddWired(sub, isRadio ? R(Radios.Lexicon.Get("audio.noise_menu.defaults")) : Radios.Lexicon.Get("audio.noise_menu.defaults"),
                 () => AfterMenu(n => n.ReturnToDefaults(id, MenuSource)), !isRadio || radio);
-            AddChecked(sub, Radios.Lexicon.Get("audio.noise_menu.favourite"),
+            AddNoiseToggle(sub, Radios.Lexicon.Get("audio.noise_menu.favourite"),
                 () => AfterMenu(n => n.ToggleFavourite(id, MenuSource)), () => _window.Noise.IsFavourite(id));
             BuildNoisePresetItems(AddSubmenu(sub, Radios.Lexicon.Get("audio.noise_menu.presets")), id);
 
@@ -3223,6 +3251,46 @@ public class NativeMenuBar : IDisposable
         _handlers[id] = handler;
         _itemNames[id] = text;
         _checkItems.Add((popup, id, stateGetter, text, enabled));
+    }
+
+    /// <summary>
+    /// Add one of the Audio menu's noise toggles: a check item whose state is
+    /// written after its name and before its shortcut (S10, see
+    /// <see cref="_noiseToggleItems"/>).
+    /// </summary>
+    private void AddNoiseToggle(IntPtr popup, string text, Action handler, Func<bool> stateGetter, bool enabled = true)
+    {
+        AddChecked(popup, text, handler, stateGetter, enabled);
+        // The id AddChecked just registered, as AddRadioChecked takes it.
+        _noiseToggleItems.Add(_checkItems[^1].id);
+    }
+
+    /// <summary>
+    /// The one place a noise toggle's row is rewritten. ModifyMenuW REPLACES
+    /// an item's flags along with its text, so a rewrite with MF_STRING alone
+    /// clears the MF_CHECKED that CheckMenuItem set a line earlier, and a
+    /// running engine's row stopped being natively checked (repair round 1,
+    /// Codex's first finding). The check state goes in the same call, so text
+    /// and mark always agree.
+    /// </summary>
+    private static void RewriteNoiseToggle(IntPtr popup, int id, string baseText, bool isOn) =>
+        ModifyMenuW(popup, (uint)id, MF_BYCOMMAND | MF_STRING | (isOn ? MF_CHECKED : MF_UNCHECKED), (UIntPtr)id,
+            NoiseToggleRowText(baseText, isOn));
+
+    /// <summary>
+    /// A noise toggle's row as the menu shows it: the name (with any marker
+    /// it carries), then its state, then the shortcut after the tab, so a
+    /// screen reader reads "Legacy NR, Off, Ctrl+J, N, N" (S10, ruled by Noel
+    /// 2026-11-11 20:29). A row with no shortcut reads "Favourite, Off".
+    /// </summary>
+    internal static string NoiseToggleRowText(string text, bool isOn)
+    {
+        text ??= "";
+        int tab = text.IndexOf('\t');
+        string name = tab < 0 ? text : text.Substring(0, tab);
+        string shortcut = tab < 0 ? "" : text.Substring(tab);
+        string state = Radios.Lexicon.Get(isOn ? "audio.noise_menu.state_on" : "audio.noise_menu.state_off");
+        return Radios.Lexicon.Get("audio.noise_menu.row_state", ("row", name), ("state", state)) + shortcut;
     }
 
     /// <summary>

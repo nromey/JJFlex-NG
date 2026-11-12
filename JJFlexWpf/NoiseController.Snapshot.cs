@@ -186,6 +186,7 @@ namespace JJFlexWpf
             }
             if (_pipeline() is { } p)
             {
+                RetireHelperNotice("the noise settings were put back");
                 changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings);
                 changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings);
             }

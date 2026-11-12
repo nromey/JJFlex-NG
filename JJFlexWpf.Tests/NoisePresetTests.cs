@@ -93,6 +93,37 @@ public sealed class NoisePresetTests
         Assert.Equal("Balanced capture preset: Captured noise on, RNNoise on.", f.Spoken.Last);
     }
 
+    /// <summary>
+    /// Repair round 1 (#1018 item 2, found by searching every slot Select
+    /// outside TurnComputerOn): a preset that swaps the engine in a slot that
+    /// was already on named only the engine it turned on, and journalled only
+    /// that. It now says the replaced engine went off and journals it too.
+    /// </summary>
+    [Fact]
+    public void A_preset_that_swaps_engines_in_slots_already_on_names_and_journals_the_ones_it_replaced()
+    {
+        var (f, _, _) = Rig();
+        using var _f = f;
+        f.Noise.Toggle("nr4", "test");
+        f.Noise.Toggle("nnr", "test");
+        var entries = new List<NoiseJournalEntry>();
+        void Listen(NoiseJournalEntry e) { if (e.Kind == NoiseJournalKind.PresetApplied && e.Source == "preset-swap") lock (entries) entries.Add(e); }
+        NoiseSettingsJournal.Recorded += Listen;
+        try { f.Noise.ApplyPreset("Balanced capture", "preset-swap"); }
+        finally { NoiseSettingsJournal.Recorded -= Listen; }
+        Assert.True(f.Noise.IsOn("spectral_capture"));
+        Assert.True(f.Noise.IsOn("rnnoise"));
+        Assert.Equal("Balanced capture preset: NR4 off, Captured noise on, NNR off, RNNoise on.", f.Spoken.Last);
+        lock (entries)
+        {
+            var changes = Assert.Single(entries).Changes;
+            Assert.Contains(new NoiseJournalChange("nr4", "", "on", "off"), changes);
+            Assert.Contains(new NoiseJournalChange("spectral_capture", "", "off", "on"), changes);
+            Assert.Contains(new NoiseJournalChange("nnr", "", "on", "off"), changes);
+            Assert.Contains(new NoiseJournalChange("rnnoise", "", "off", "on"), changes);
+        }
+    }
+
     [Fact]
     public void A_schema_2_preset_applies_the_transmit_chain_and_leaves_noise_reduction_alone()
     {

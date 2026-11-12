@@ -363,12 +363,12 @@ public sealed class NoiseRepairRoundOneTests
         var catalog = new DenoiseEngineCatalog();
         var held = catalog.Entries.Where(e => e.Level != null && !e.Level.ReportedBack)
             .ToDictionary(e => e.Id, e => e.Level!.Held);
+        // Since the Track E follow-up (#1012, S5) the radio's own status
+        // carries Legacy NR, Spectral NR and Legacy Auto-Notch; only NR
+        // Filter's level is unreported, so only it is held.
         Assert.Equal(new Dictionary<string, HeldNoiseLevel?>
         {
-            ["radio_nrl"] = HeldNoiseLevel.LegacyNoiseReduction,
-            ["radio_nrs"] = HeldNoiseLevel.SpectralNoiseReduction,
             ["radio_nrf"] = HeldNoiseLevel.NoiseReductionFilter,
-            ["radio_anfl"] = HeldNoiseLevel.LegacyAutoNotch,
         }, held);
         Assert.All(catalog.Entries.Where(e => e.Level is { ReportedBack: true }), e => Assert.Null(e.Level!.Held));
     }
@@ -489,8 +489,10 @@ public sealed class NoiseRepairRoundOneTests
         int body = menu.IndexOf("private void BuildNoiseItems(IntPtr parent, DenoiseGroup group)", StringComparison.Ordinal);
         Assert.True(body > 0);
         string switchOnly = menu.Substring(body, menu.IndexOf("continue;", body, StringComparison.Ordinal) - body);
-        Assert.Contains("AddChecked(parent, R(named + chord),", switchOnly);
-        Assert.Contains("AddChecked(parent, SwitchOnlyFavouriteLabel(name),", switchOnly);
+        // AddNoiseToggle since the Track E follow-up (S10): a check item whose
+        // state reads after the name and before the shortcut.
+        Assert.Contains("AddNoiseToggle(parent, R(named + chord),", switchOnly);
+        Assert.Contains("AddNoiseToggle(parent, SwitchOnlyFavouriteLabel(name),", switchOnly);
         Assert.DoesNotContain("R(SwitchOnlyFavouriteLabel", switchOnly);
         Assert.DoesNotContain("engine_favourite", switchOnly);
     }

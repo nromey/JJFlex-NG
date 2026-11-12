@@ -382,8 +382,22 @@ public partial class ScreenFieldsPanel
     /// the expander at this engine (or at Side for none), with Advanced
     /// revealed when asked, and put focus there.
     /// </summary>
+    /// <remarks>
+    /// <b>Focus waits for layout (Track E follow-up E3, ruled S11).</b> After
+    /// the Audio menu's "Advanced settings..." focus stayed on the frequency
+    /// display (the Track S walk). The focus was asked for at Normal priority,
+    /// before the expander had laid out the fields this call had just built:
+    /// a new field is not yet visible to WPF then, and Focus() on it simply
+    /// fails, leaving focus where <see cref="MainWindow.FocusHome"/> put it.
+    /// Now the panel is shown if the operator had hidden it (as
+    /// <see cref="ToggleCategory"/> does), and focus is asked for at Loaded
+    /// priority after a layout pass, with one more try at idle; a focus that
+    /// still does not land is traced. Not verifiable without a window: the
+    /// live check is the orchestrator's, with jjprobe.
+    /// </remarks>
     public void OpenNoise(string? engineId, bool advanced)
     {
+        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         DspExpander.IsExpanded = true;
         var noise = NoiseCtl;
         if (noise == null) return;
@@ -394,18 +408,71 @@ public partial class ScreenFieldsPanel
             finally { _noiseRebuilding = false; }
             if (advanced && !noise.IsAdvanced(engineId)) noise.SetAdvanced(engineId, true);
             ShowNoiseSide(engineId);
-            Dispatcher.BeginInvoke(() => (advanced && _noiseAdvancedLevers.Children.Count > 0
-                ? (UIElement)_noiseAdvancedLevers.Children[0] : _noiseEngine).Focus());
+            FocusNoiseWhenLaidOut(() => NoiseOpenTarget(advanced, _noiseAdvancedLevers, _noiseEngine), advanced ? "the first Advanced lever" : "Engine");
             return;
         }
         if (engineId != null)
         {
             // A blanker or notch: those fields stay below, as they were.
-            Dispatcher.BeginInvoke(() => _nbCheck.Focus());
+            FocusNoiseWhenLaidOut(() => _nbCheck, "Noise Blanker");
             return;
         }
         ShowNoiseSide(selectEngine: null);
-        Dispatcher.BeginInvoke(() => _noiseSide.Focus());
+        FocusNoiseWhenLaidOut(() => _noiseSide, "Side");
+    }
+
+    /// <summary>
+    /// Where opening an engine's fields lands: its first Advanced lever when
+    /// Advanced was asked for and it has one, otherwise the Engine field.
+    /// </summary>
+    internal static UIElement NoiseOpenTarget(bool advanced, Panel advancedLevers, UIElement engine) =>
+        advanced && advancedLevers.Children.Count > 0 ? advancedLevers.Children[0] : engine;
+
+    /// <summary>
+    /// Focus a noise field once the panel has laid it out (E3): at Loaded
+    /// priority after a layout pass, then once more at idle, through
+    /// <see cref="DeferredNoiseFocus"/>, which drops the request the moment it
+    /// is no longer the operator's (repair round 1): a later request, focus
+    /// moved, another engine shown, or the panel hidden, collapsed or unloaded.
+    /// </summary>
+    private void FocusNoiseWhenLaidOut(Func<UIElement?> target, string what) =>
+        NoiseFocus.Request(() => target() is { } element ? (Func<bool>)element.Focus : null, what);
+
+    private DeferredNoiseFocus? _noiseFocus;
+
+    /// <summary>
+    /// Every keyboard focus change in the app, to the noise focus request (repair
+    /// round 2): a class handler, so a move anywhere counts, including one that
+    /// later comes back. Handled events too, because a control that marks its
+    /// focus event handled has still taken focus. LostKeyboardFocus with no new
+    /// element is the app losing focus to another window.
+    /// </summary>
+    private static void WatchKeyboardFocus(Action<object?> changed)
+    {
+        EventManager.RegisterClassHandler(typeof(UIElement), System.Windows.Input.Keyboard.GotKeyboardFocusEvent,
+            new System.Windows.Input.KeyboardFocusChangedEventHandler((s, e) => changed(e.NewFocus)), true);
+        EventManager.RegisterClassHandler(typeof(UIElement), System.Windows.Input.Keyboard.LostKeyboardFocusEvent,
+            new System.Windows.Input.KeyboardFocusChangedEventHandler((s, e) => { if (e.NewFocus == null) changed(null); }), true);
+    }
+
+    /// <summary>The panel's one focus request, wired to the dispatcher, WPF's keyboard focus and the panel's state. Hiding, collapsing or unloading the panel cancels it.</summary>
+    private DeferredNoiseFocus NoiseFocus
+    {
+        get
+        {
+            if (_noiseFocus != null) return _noiseFocus;
+            _noiseFocus = new DeferredNoiseFocus(
+                afterLayout: act => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () => { UpdateLayout(); act(); }),
+                whenIdle: act => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, act),
+                focused: () => System.Windows.Input.Keyboard.FocusedElement,
+                shownEngine: () => _noiseFieldsFor,
+                ready: () => IsVisible && DspExpander.IsExpanded && PresentationSource.FromVisual(this) != null,
+                trace: line => JJTrace.Tracing.TraceLine(line, System.Diagnostics.TraceLevel.Info),
+                watchFocus: WatchKeyboardFocus);
+            IsVisibleChanged += (s, e) => { if (e.NewValue is false) _noiseFocus.Cancel(); };
+            Unloaded += (s, e) => _noiseFocus.Cancel();
+            return _noiseFocus;
+        }
     }
 
     private readonly List<(CycleFieldControl Field, NoiseLever Lever, IReadOnlyList<(double? Shown, string? Choice, string Text)> Steps)> _radioExtraFields = new();
@@ -477,5 +544,9 @@ public partial class ScreenFieldsPanel
     }
 
     /// <summary>Listen to what was removed is never left on: leaving the expander clears it.</summary>
-    private void OnDspExpanderCollapsed() => NoiseCtl?.ClearListening();
+    private void OnDspExpanderCollapsed()
+    {
+        NoiseCtl?.ClearListening();
+        _noiseFocus?.Cancel();
+    }
 }
