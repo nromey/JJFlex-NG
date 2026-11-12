@@ -328,7 +328,7 @@ namespace JJFlexWpf
         /// <summary>
         /// The lexicon key of a lever's Ctrl+F1 line. The noise floor and Listen to
         /// what was removed share one line each; a radio level has one per
-        /// engine (four of them are held intents); every setting has its own.
+        /// engine (NR Filter's is a held intent; the rest are the radio's own, #1012); every setting has its own.
         /// </summary>
         public static string HelpKey(NoiseLever lever) => lever.Kind switch
         {
