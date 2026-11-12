@@ -2308,8 +2308,12 @@ namespace Radios
         /// is true or it will report a fault every single time the operator
         /// tunes up.</para>
         /// <para>Read live from the radio rather than from
-        /// <see cref="FlexTunerOn"/>, which is a latch set by our own code and
-        /// is known to stick true when the tuner is bypassed.</para>
+        /// <see cref="FlexTunerOn"/>, which is a latch set by our own code, not
+        /// the radio's report. In automatic type it is cleared only by a
+        /// change in the tuner's status to one that ends a tune
+        /// (<see cref="AtuStatusEndsTheTune"/>), so a cycle the radio answers
+        /// without such a change, or one that times out, leaves it set; out of
+        /// automatic type it follows the tune carrier down.</para>
         /// </summary>
         public bool ATUTuneInProgress => theRadio?.ATUTuneStatus == ATUTuneStatus.InProgress;
 
