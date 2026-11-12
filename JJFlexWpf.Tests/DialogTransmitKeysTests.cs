@@ -109,7 +109,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
     {
         DialogTransmitKeys.HoldWindowLost("test teardown");
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
-        foreach (var name in new[] { "PttEdge", "HoldInFlight", "EscapeUnkey", "ReleaseNow", "SessionOwnsTransmitter",
+        foreach (var name in new[] { "PttEdge", "HoldInFlight", "AppEndedHoldPending", "EscapeUnkey", "ReleaseNow", "SessionOwnsTransmitter",
                                      "WindowHandlesCheckEscape", "CheckEscapeElsewhere" })
             typeof(DialogTransmitKeys).GetProperty(name, BindingFlags.Static | BindingFlags.NonPublic)?.SetValue(null, null);
         ((System.Windows.Threading.DispatcherTimer?)typeof(MainWindow).GetField("_pttDeferTimer", Any)?.GetValue(_main))?.Stop();
@@ -532,12 +532,20 @@ public sealed class DialogTransmitKeysTests : IDisposable
     }
 
     [Fact]
-    public void Escape_during_a_deferred_release_forgets_the_hold_so_the_next_ctrl_space_keys()
+    public void Escape_during_a_deferred_release_latches_the_hold_until_the_deferral_runs_out()
     {
-        // Repair round two, Codex B1: Escape unkeyed, but the hold filter's
-        // pending deferral read the next Ctrl+Space as a continuation of a
-        // hold Escape had already ended, and consumed it without keying.
+        // Repair round two, Codex B1, as #1089 now settles it. B1 found Escape
+        // unkeying while the hold filter's pending deferral read the next
+        // Ctrl+Space as a continuation, and made Escape FORGET the hold so that
+        // press keyed. But a pending deferral is the filter saying the key may
+        // still be down: under JAWS that next down is the operator's own hold
+        // arriving as a synthetic pair, and keying on it is the defect #1089
+        // closes. So Escape latches the hold (as a window loss does since #900):
+        // a down inside the deferral is the hold continuing and keys nothing;
+        // once the deferral runs out with no re-down, the release is real and
+        // the next press keys. This test pinned the forgetting until #1089.
         AssertTheDeskIsSafe(); WireDoor();
+        Door("AppEndedHoldPending", (Func<bool>)(() => (bool)Get("_pttHoldEndedByApp")!));
         var w = new FakeWindow();
         Assert.True(Down(w, Keys.Space | Keys.Control));
         _pttFilter.NoteDown(Environment.TickCount64);
@@ -547,14 +555,18 @@ public sealed class DialogTransmitKeysTests : IDisposable
 
         Assert.True(Down(w, Keys.Escape));
         Assert.Equal(Idle, _controller.State);
-        Assert.False(_pttFilter.ReleasePending);          // the mutation control: drop ResetPttInput() from HandleDialogEscapeUnkey and this fails
-        Assert.False((bool)Get("_pttKeyDown")!);
-        var timer = Get("_pttDeferTimer") as System.Windows.Threading.DispatcherTimer;
-        Assert.False(timer?.IsEnabled ?? false, "the deferral timer must be stopped by Escape");
+        Assert.True(_pttFilter.ReleasePending, "Escape threw away the filter's reading of the key");
+        Assert.True((bool)Get("_pttHoldEndedByApp")!, "Escape forgot the hold instead of latching it");
+
+        Assert.True(Down(w, Keys.Space | Keys.Control));   // the reader's re-down
+        Assert.Equal(Idle, _controller.State);            // the hold continuing: keys nothing
+
+        DialogTransmitKeys.KeyUp(Keys.Space);              // the operator lets go
+        DeferTimerExpires();
+        Assert.False((bool)Get("_pttHoldEndedByApp")!, "a real release ends the latch");
 
         Assert.True(Down(w, Keys.Space | Keys.Control));
-        Assert.Equal(Hold, _controller.State);            // keys fresh, not swallowed
-        Assert.Equal(2, _downs);
+        Assert.Equal(Hold, _controller.State);            // a press after a real release keys
     }
 
     [Fact]

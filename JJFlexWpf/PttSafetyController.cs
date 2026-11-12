@@ -824,12 +824,26 @@ namespace JJFlexWpf
         private void FinishOwnedKill()
         {
             if (State == PttState.Idle) return;
+            bool held = State == PttState.PttHold;
             EarconPlayer.HardKillTone();
             string outcome = _pendingKillOutcome ?? Lexicon.Get("audio.ptt.kill_stopped");
             string? subject = _pendingKillSubject;
             _pendingKillOutcome = null;
             _pendingKillSubject = null;
             GoIdle(outcome, forceSpeech: true, subject: subject);
+            // #1089: a kill that ends a HELD push to talk ends a hold the
+            // operator may still be pressing, exactly as the time limit does
+            // (#1020): MainWindow latches it, so a screen reader's next
+            // synthetic down keys nothing until a real release. Until this the
+            // kill left the key edges believing the hold was still theirs.
+            if (held)
+            {
+                try { HoldEndedByApp?.Invoke("a hard kill ended it"); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("PTT: latching the hold the kill ended failed: " + ex.Message, TraceLevel.Error);
+                }
+            }
         }
 
         /// <summary>
