@@ -31,10 +31,45 @@ public sealed class TunePressTests : IDisposable
     [InlineData(true, FlexBase.FlexTunerTypes.manual, TunePressOutcome.TuneCarrier)] // after a Fail or a bypass
     [InlineData(false, FlexBase.FlexTunerTypes.manual, TunePressOutcome.TuneCarrier)] // no ATU (refused before)
     [InlineData(false, FlexBase.FlexTunerTypes.auto, TunePressOutcome.NoTuner)]     // refused, as before
-    [InlineData(false, FlexBase.FlexTunerTypes.none, TunePressOutcome.NoTuner)]     // refused, as before
-    [InlineData(true, FlexBase.FlexTunerTypes.none, TunePressOutcome.TunerOff)]     // not ruled; as before
+    // None cannot arise (below). Were it to, it would mean an ATU switched off,
+    // which the ruling treats as bypassed. Until repair round 1 these two rows
+    // pinned a refusal and a fourth outcome, "sends nothing", that described a
+    // state no rig reaches (Opus's N5).
+    [InlineData(false, FlexBase.FlexTunerTypes.none, TunePressOutcome.TuneCarrier)]
+    [InlineData(true, FlexBase.FlexTunerTypes.none, TunePressOutcome.TuneCarrier)]
     public void What_the_tune_key_does_in_each_tuner_state(bool hasAtu, FlexBase.FlexTunerTypes type, TunePressOutcome expected) =>
         Assert.Equal(expected, TunePress.For(hasAtu, type));
+
+    /// <summary>
+    /// Why the tuner type is never none (Opus's N5): asking for anything but
+    /// automatic goes through setFlexTunerTypeNotAuto, which yields manual
+    /// when the rig has the manual tune capability; every rig starts with it
+    /// and nothing takes it away; and nothing else writes the type but that,
+    /// automatic, or an automatic value through the setter.
+    /// </summary>
+    [Fact]
+    public void The_tuner_type_none_cannot_arise()
+    {
+        Assert.Contains(RigCaps.Caps.ManualATGet, RigCaps.DefaultCapsList);
+
+        using var c = new RadioCase();
+        Assert.True(c.F.Rig.MyCaps.HasCap(RigCaps.Caps.ManualATGet));
+        Assert.Equal(FlexBase.FlexTunerTypes.manual, c.F.Rig.FlexTunerType);
+        typeof(FlexBase).GetMethod("setFlexTunerTypeNotAuto", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(c.F.Rig, null);
+        Assert.Equal(FlexBase.FlexTunerTypes.manual, c.F.Rig.FlexTunerType);
+
+        string radios = string.Join("\n", Directory.GetFiles(Path.Combine(FieldKeyMapScan.RepoRoot(), "Radios"), "*.cs", SearchOption.TopDirectoryOnly)
+            .Select(File.ReadAllText));
+        Assert.DoesNotMatch(new Regex(@"ResetCap\([^;]*ManualAT"), radios);
+        var writes = Regex.Matches(radios, @"_FlexTunerType\s*=[^=][^;]*;").Select(m => Regex.Replace(m.Value, @"\s+", " ")).ToList();
+        Assert.NotEmpty(writes);
+        Assert.All(writes, w => Assert.True(
+            w == "_FlexTunerType = FlexTunerTypes.auto;"
+            || w == "_FlexTunerType = value;"
+            || w == "_FlexTunerType = (MyCaps.HasCap(RigCaps.Caps.ManualATGet)) ? FlexTunerTypes.manual : FlexTunerTypes.none;", w));
+        Assert.Contains("if (value == FlexTunerTypes.auto) _FlexTunerType = value;", radios);
+    }
 
     // ---- what actually goes out ----
 

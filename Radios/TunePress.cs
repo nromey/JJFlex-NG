@@ -18,15 +18,8 @@ namespace Radios
         /// </summary>
         TuneCarrier,
 
-        /// <summary>No ATU, and a type that would ask for one: refused, as before.</summary>
+        /// <summary>No ATU, and automatic type, which would ask an ATU to tune: refused, as before.</summary>
         NoTuner,
-
-        /// <summary>
-        /// An ATU, with the tuner type the operator set to none. Not ruled
-        /// (#1127's ruling names a failed or bypassed ATU and a radio with
-        /// none); left exactly as it was, which sends nothing.
-        /// </summary>
-        TunerOff,
     }
 
     /// <summary>
@@ -46,11 +39,25 @@ namespace Radios
     /// </remarks>
     public static class TunePress
     {
+        /// <remarks>
+        /// <para><b>The type is manual or automatic; none never arises</b>
+        /// (batch 12 repair round 1, Opus's N5). Asking for none (the ATU
+        /// switched off, ATU Mode none) goes through
+        /// <c>FlexBase.setFlexTunerTypeNotAuto</c>, which yields manual
+        /// whenever the rig has <see cref="RigCaps.Caps.ManualATGet"/>, and
+        /// every rig has it: it is in <see cref="RigCaps.DefaultCapsList"/> and
+        /// nothing resets it (<c>TunePressTests.The_tuner_type_none_cannot_arise</c>
+        /// pins both). There used to be a fourth outcome here for an ATU with
+        /// type none, described as sending nothing; it could not occur, and
+        /// had it occurred the press would have set the latch with no write
+        /// and said "ATU tuning". None is now read as what it would mean, an
+        /// ATU switched off, which the ruling treats as bypassed: the tune
+        /// carrier's key.</para>
+        /// </remarks>
         public static TunePressOutcome For(bool radioHasAtu, FlexBase.FlexTunerTypes type)
         {
-            if (type == FlexBase.FlexTunerTypes.manual) return TunePressOutcome.TuneCarrier;
-            if (!radioHasAtu) return TunePressOutcome.NoTuner;
-            return type == FlexBase.FlexTunerTypes.auto ? TunePressOutcome.AtuTune : TunePressOutcome.TunerOff;
+            if (type != FlexBase.FlexTunerTypes.auto) return TunePressOutcome.TuneCarrier;
+            return radioHasAtu ? TunePressOutcome.AtuTune : TunePressOutcome.NoTuner;
         }
     }
 }
