@@ -516,6 +516,7 @@
   "connect.selector.switch_cached": "Last known radios for {email}: {cached} listed. Refreshing.",
   "connect.selector.switch_no_cache": "Switched to {email}. No saved radio list for this account yet. Fetching.",
   "connect.selector.switching_account": "{radioName} uses account {email}. Switching to {email} and refreshing the radio list.",
+  "connect.selector.switching_to_last_seen_account": {"text": "{radioName} was last seen under account {email}. I'll switch to that account and refresh the radio list.", "delivery": null},
   "connect.selector.test_offline": "{rowName} is not answering. There is nothing to test until it turns up.",
   "connect.selector.test_unavailable": "Connection testing not available",
   "connect.selector.this_account": "this account",

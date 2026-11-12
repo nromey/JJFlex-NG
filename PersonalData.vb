@@ -387,6 +387,11 @@ Public Class PersonalData
             QrzLogbookApiKey = p.QrzLogbookApiKey
             QrzLogbookApiKeyEncrypted = p.QrzLogbookApiKeyEncrypted
             DecryptedQrzLogbookApiKey = p.DecryptedQrzLogbookApiKey
+            ' The tuning steps travel with an edited copy (#346 J2). Before this,
+            ' saving any edit in the Operators dialog (a callsign) wrote the
+            ' 5000 Hz and 100 Hz defaults over the operator's remembered steps.
+            CoarseTuneStep = p.CoarseTuneStep
+            FineTuneStep = p.FineTuneStep
         End Sub
         Friend Sub New(p As personal)
             fileName = p.fileName

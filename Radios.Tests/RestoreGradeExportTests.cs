@@ -205,7 +205,7 @@ namespace Radios.Tests
             Assert.False(export.WalkRan);
             Assert.False(export.AnyLoadRequested); // nothing was touched
             Assert.Contains("[profile walk skipped]", export.Text);
-            Assert.Contains("change nothing is on for this radio", export.Text);
+            Assert.Contains("radio setup protection is on for this radio", export.Text);
             Assert.DoesNotContain("[global profile:", export.Text);
             Assert.Contains("nothing was loaded = the walk was skipped, so the radio was not touched",
                 export.Text);

@@ -119,16 +119,6 @@ public sealed class DelegateSurfaceTests
     /// </summary>
     private static readonly Dictionary<string, string> AwaitingDecision = new(StringComparer.Ordinal)
     {
-        ["FreqOutHandlers.SaveStepSizes"] =
-            "#346. Declared, invoked from ApplyStepSizes and MainWindow.ApplySettingsChanges, " +
-            "assigned by nothing, and PersonalData.CoarseTuneStep/FineTuneStep are read and " +
-            "written by nothing - so a step size the operator picks lives for the session and " +
-            "is gone at exit. Left unwired ON PURPOSE pending Noel's ruling on the save " +
-            "policy (a ladder key fires many times a second under repeat, and " +
-            "PersonalData.Write is a synchronous whole-record save) and on whether a step " +
-            "changed mid-QSO should become the permanent default. Operator consequence is " +
-            "real; the decision is not this test's to make.",
-
         ["MessageDialog.CheckSuppressed"] =
             "#700's neighbour. The 'don't show again' feature was built and never adopted: no " +
             "caller sets PersistenceTag and no caller sets ShowDontShowAgain, so the box is " +

@@ -1067,9 +1067,9 @@
                             <CheckBox x:Name="RadioProfileChangeNothingCheck" Margin="0,0,0,4"
                                       Checked="RadioProfileChangeNothing_Toggled"
                                       Unchecked="RadioProfileChangeNothing_Toggled"
-                                      AutomationProperties.Name="Change nothing on this radio"
+                                      AutomationProperties.Name="Protect this radio's setup"
                    local:JJFlexHelp.Text="While this is on, JJ Flexible Radio Access connects and operates as usual but leaves this radio's own setup alone: no profiles created or loaded, no settings applied at connect, no changes to its name, network, registration, or firmware. It says so at each connect, and names this setting whenever it declines something. Turn it on before connecting to a radio that has to stay exactly as it is — after a factory reset, or while someone else's setup is under test.">
-                                <TextBlock Text="Change nothing on this radio" TextWrapping="Wrap"/>
+                                <TextBlock Text="Protect this radio's setup" TextWrapping="Wrap"/>
                             </CheckBox>
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
                                        Style="{StaticResource DialogLabel}"
@@ -1984,7 +1984,21 @@
                               AutomationProperties.Name="Slice list">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Which way the up and down arrows walk the slice letters, on the Slice field and the Slice Operations field. This does not change what any key is bound to — only which slice each arrow reaches."/>
+                                       Text="Choose whether Up and Down tune or switch slices on the Slice field, and whether they tune or adjust volume on the Slice operations field. The direction setting applies only when the arrows switch slices."/>
+
+                            <!-- #517, ruled by Noel 2026-11-09 21:01: one box per
+                                 field. Labels DRAFT for Codex. Unchecked, the
+                                 Slice field's arrows switch slices in the
+                                 direction below; the Slice operations field's
+                                 change the slice's volume. -->
+                            <CheckBox x:Name="SliceFieldArrowsTuneCheckbox" Margin="0,0,0,4"
+                                      AutomationProperties.Name="Tune with Up and Down on the Slice field">
+                                <TextBlock Text="Tune with Up and Down on the Slice field" TextWrapping="Wrap"/>
+                            </CheckBox>
+                            <CheckBox x:Name="SliceOpsFieldArrowsTuneCheckbox" Margin="0,0,0,8"
+                                      AutomationProperties.Name="Tune with Up and Down in Slice operations">
+                                <TextBlock Text="Tune with Up and Down in Slice operations" TextWrapping="Wrap"/>
+                            </CheckBox>
 
                             <GroupBox Header="Slice arrow direction" Margin="0,0,0,8"
                                       AutomationProperties.Name="Slice arrow direction">

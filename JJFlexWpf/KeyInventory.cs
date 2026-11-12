@@ -162,10 +162,13 @@ public static class KeyInventory
             new[] { "tune", "tuning", "coarse", "step", "control", "frequency" }),
         new("Home", "Any Home field", "Shift+Up / Shift+Down", "Tune by your fine step",
             new[] { "tune", "tuning", "fine", "step", "shift", "frequency" }),
-        // Pan left the slice row for the audio layer (#517; Noel 2026-09-21:
-        // "pagedown speaking pan in audio is fine"). The keys answer with where
-        // it went and pan nothing. DRAFT PROSE: awaiting Noel.
-        new("Home", "Any Home field", "Page Up / Page Down", "Say where pan went: the audio layer, JJ key A then P",
+        // Pan left the slice row's OTHER fields for the audio layer (#517;
+        // Noel 2026-09-21: "pagedown speaking pan in audio is fine"); there the
+        // keys answer with where it went and pan nothing. On Slice and Slice
+        // operations they pan again (2026-11-09 20:51), and those fields' own
+        // rows say so: this row is appended to their Ctrl+F1 list too, so it
+        // names the fields it covers. DRAFT PROSE: awaiting Noel.
+        new("Home", "Any Home field", "Page Up / Page Down", "On Home fields other than Slice and Slice operations, announces the pan shortcut: press the JJ key, A, then P",
             new[] { "pan", "stereo", "balance", "audio layer", "page up", "page down" }),
         new("Home", "Any Home field", "M", "Mute or unmute the active slice",
             new[] { "mute", "unmute", "audio", "slice" }),
@@ -200,10 +203,13 @@ public static class KeyInventory
         // ── Slice field ──
         new("Slice", "Slice field", "Space", "Next slice (wraps around)",
             new[] { "slice", "next", "cycle" }),
-        // The bare arrows tune here since #517 (Noel, 2026-09-20). Slice
-        // selection keeps Space, V, the letters and the digits. DRAFT PROSE.
-        new("Slice", "Slice field", "Up / Down", "Tune by your coarse step",
-            new[] { "tune", "tuning", "coarse", "step", "frequency" }),
+        // The bare arrows are a choice in Settings (#517, Noel 2026-11-09
+        // 21:01): by default they switch slices in the slice arrow order;
+        // with "Tune with Up and Down on the Slice field" checked they tune by the
+        // coarse step. Static wording naming both, so the default lives only
+        // in AccessibilityConfig. DRAFT PROSE.
+        new("Slice", "Slice field", "Up / Down", "Tunes by your coarse step when ‘Tune with Up and Down on the Slice field’ is checked in Settings, under Accessibility; switches slices when it is unchecked",
+            new[] { "slice", "next", "previous", "cycle", "tune", "tuning", "coarse", "step" }),
         // 0-9, not 0-7: the handler answers every digit, and a digit past
         // your last slice says "no such slice" instead of going quiet (#358).
         // No supported radio has more than 8 slices, so 8 and 9 only ever
@@ -212,16 +218,25 @@ public static class KeyInventory
             new[] { "slice", "jump", "letter", "number", "digit" }),
         new("Slice", "Slice field", "T", "Make this slice the transmit slice",
             new[] { "transmit", "tx", "slice" }),
-        // Home centred pan here until #517; it now says where pan went, as
-        // Page Up and Page Down do from every field. DRAFT PROSE.
-        new("Slice", "Slice field", "Home", "Say where pan went: the audio layer, JJ key A then P",
-            new[] { "pan", "center", "stereo", "audio layer" }),
+        // Pan is back on this field (#517, Noel 2026-11-09 20:51), with the
+        // rows it had before the 2026-11-09 batch.
+        new("Slice", "Slice field", "Page Up", "Pan hard right",
+            new[] { "pan", "right", "stereo" }),
+        new("Slice", "Slice field", "Home", "Pan center",
+            new[] { "pan", "center", "stereo" }),
+        new("Slice", "Slice field", "Page Down", "Pan hard left",
+            new[] { "pan", "left", "stereo" }),
 
         // ── Slice operations field ──
-        // The bare arrows tune here since #517 (Noel, 2026-09-20); slice
-        // volume is the audio layer's V and the Volume field. DRAFT PROSE.
-        new("SliceOps", "Slice operations field", "Up / Down", "Tune by your coarse step",
-            new[] { "tune", "tuning", "coarse", "step", "frequency" }),
+        // The bare arrows are a choice in Settings (#517, Noel 2026-11-09
+        // 21:01): by default they tune by the coarse step; with "Tune with Up
+        // and Down in Slice operations" unchecked they change the slice's
+        // volume. Static wording naming both. DRAFT PROSE.
+        new("SliceOps", "Slice operations field", "Up / Down", "Tunes by your coarse step when ‘Tune with Up and Down in Slice operations’ is checked in Settings, under Accessibility; adjusts the slice's volume when it is unchecked",
+            new[] { "tune", "tuning", "coarse", "step", "frequency", "volume", "gain" }),
+        // Pan is back on this field (#517, Noel 2026-11-09 20:51).
+        new("SliceOps", "Slice operations field", "Page Up / Page Down", "Pan right or left",
+            new[] { "pan", "stereo", "balance" }),
         new("SliceOps", "Slice operations field", "Space", "Toggle mute",
             new[] { "mute", "unmute", "toggle" }),
         new("SliceOps", "Slice operations field", "M", "Mute or unmute",

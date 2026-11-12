@@ -81,32 +81,72 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// #517 (ruled by Noel 2026-09-20): the bare arrows TUNE on the Slice
-        /// and Slice operations fields, so nothing walks the slice list by
-        /// arrow and nothing in the field handlers reads this setting any
-        /// more. This test said the opposite until 2026-11-09 (it pinned every
-        /// arrow-key slice cycler to the setting); it now pins that the
-        /// arrows no longer cycle slices at all, while the setting, its
-        /// control and the saved value above stay as they are until Noel rules
-        /// whether the setting waits for the slice layer or leaves Settings.
+        /// #517, ruled by Noel 2026-11-09 20:50 and 21:01: the Slice field's
+        /// arrows switch slices again, unless "Tune with Up and Down on the Slice field"
+        /// is checked, and while they switch slices they honour this setting.
+        /// The Slice operations field never walked the slice list, so it never
+        /// reads the setting. This test said "no arrow key cycles slices on
+        /// Home" from the morning of 2026-11-09 until the 21:01 ruling reversed
+        /// that; before the morning it pinned BOTH fields to the setting, which
+        /// was never true of Slice operations.
         /// </summary>
         [Fact]
-        public void NoArrowKeyCyclesSlicesOnHomeSoTheSettingHasNoReaderThere()
+        public void TheSliceFieldsArrowsHonourTheSettingAndSliceOperationsNeverReadsIt()
         {
-            string source = Read("JJFlexWpf/FreqOutHandlers.cs");
+            string source = Read("JJFlexWpf/FreqOutHandlers.cs").Replace("\r\n", "\n");
 
-            // Positive control: the file still cycles slices (Space and V), so
-            // an empty or wrongly-resolved read cannot pass the checks below.
-            Assert.Contains("CycleVFO(1, wrap: true)", source, StringComparison.Ordinal);
+            Assert.Contains("private static int SliceStepForDownArrow =>\n        Radios.AccessibilityConfig.Current.SliceStepForDownArrow;", source, StringComparison.Ordinal);
+            Assert.Contains("private static int SliceStepForUpArrow => -SliceStepForDownArrow;", source, StringComparison.Ordinal);
 
-            var arrows = Regex.Matches(source,
-                @"case\s+Key\.(Up|Down)\s*:\s*(?://[^\n]*\n\s*)*CycleVFO\(");
-            Assert.True(arrows.Count == 0,
-                "An arrow key cycles slices on Home again, against #517: "
-                + string.Join("; ", System.Linq.Enumerable.Select(
-                    System.Linq.Enumerable.Cast<Match>(arrows), m => m.Value.Trim())));
-            Assert.DoesNotContain("AccessibilityConfig.Current.SliceStepForDownArrow", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("SliceStepForUpArrow =>", source, StringComparison.Ordinal);
+            string slice = Body(source, "public void AdjustSlice(FrequencyDisplay.DisplayField field, KeyEventArgs e)");
+            Assert.Contains("CycleVFO(key == Key.Up ? SliceStepForUpArrow : SliceStepForDownArrow);", slice, StringComparison.Ordinal);
+
+            string ops = Body(source, "public void AdjustSliceOps(FrequencyDisplay.DisplayField field, KeyEventArgs e)");
+            Assert.Contains("AdjustGain(", ops, StringComparison.Ordinal);   // positive control: the body was read
+            Assert.DoesNotContain("SliceStepFor", ops, StringComparison.Ordinal);
+            Assert.DoesNotContain("CycleVFO(", ops, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheTwoArrowBoxesSurviveASaveAndLoadAndAnOldFileKeepsTheDefaults()
+        {
+            string dir = Path.Combine(Path.GetTempPath(),
+                "jjflex-slice-arrows-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                new AccessibilityConfig { SliceFieldArrowsTune = true, SliceOpsFieldArrowsTune = false }
+                    .Save(dir, "tester");
+                var loaded = AccessibilityConfig.Load(dir, "tester");
+                Assert.True(loaded.SliceFieldArrowsTune);
+                Assert.False(loaded.SliceOpsFieldArrowsTune);
+
+                // A file written before the boxes existed: the initialisers win.
+                File.WriteAllText(Path.Combine(dir, "older_accessibilityConfig.xml"),
+                    "<?xml version=\"1.0\"?><AccessibilityConfig><SliceArrowOrder>BottomToTop</SliceArrowOrder></AccessibilityConfig>");
+                var older = AccessibilityConfig.Load(dir, "older");
+                Assert.Equal(SliceArrowOrder.BottomToTop, older.SliceArrowOrder);   // the file was read
+                Assert.False(older.SliceFieldArrowsTune);
+                Assert.True(older.SliceOpsFieldArrowsTune);
+            }
+            finally
+            {
+                try { Directory.Delete(dir, recursive: true); } catch { /* temp dir */ }
+                AccessibilityConfig.Load(dir, "tester-absent");
+            }
+        }
+
+        private static string Body(string source, string signature)
+        {
+            int at = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(at >= 0, signature + " was not found");
+            int open = source.IndexOf('{', at), depth = 0;
+            for (int i = open; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}' && --depth == 0) return source.Substring(open, i - open + 1);
+            }
+            throw new InvalidOperationException(signature);
         }
 
         private static string Read(string relative)

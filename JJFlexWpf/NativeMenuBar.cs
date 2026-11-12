@@ -2102,7 +2102,14 @@ public class NativeMenuBar : IDisposable
 
         // --- Voice chain ---
         AddChecked(parent, "&VOX On/Off", () =>
-            ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
+        {
+            // No callsign, no VOX (#335, J8): asked before ToggleDSP writes and
+            // announces "VOX on", and said after the menu closes. Simple VOX
+            // only (break-in in CW is J4); turning VOX off is never asked.
+            if (Rig != null && Rig.Vox == FlexBase.OffOnValues.off
+                && ZeroPowerDoors.RefuseVoxOn(Rig, "the VOX menu", afterMenu: true)) return;
+            ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v);
+        },
             () => Rig?.Vox == FlexBase.OffOnValues.on);
         AddWired(parent, "Mic Gain &Up", () =>
             AdjustValue("Mic Gain", () => Rig.MicGain, v => Rig.MicGain = v, 5, 0, 100));
@@ -3890,8 +3897,9 @@ public class NativeMenuBar : IDisposable
     {
         var pttConfig = _window.CurrentPttConfig ?? new PttConfig();
         var handlers = _window.FreqHandlers;
-        int coarseStep = handlers?.CoarseTuneStep ?? 1000;
-        int fineStep = handlers?.FineTuneStep ?? 10;
+        // The handlers' steps with a radio, the operator's saved steps without
+        // (#346 repair one): what the next connect will use.
+        var (coarseStep, fineStep) = _window.StepSizesForSettings();
         var licenseConfig = handlers?.License;
 
         // User-scope config lives at BaseConfigDir (root). The FreqHandlers

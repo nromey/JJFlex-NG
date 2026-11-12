@@ -60,6 +60,7 @@ public sealed class CallsignDoorsTests : IDisposable
     {
         ZeroPowerDoors.AtZeroOverride = null;
         ZeroPowerDoors.NoCallsignOverride = null;
+        ZeroPowerDoors.SimpleVoxOverride = null;
         ZeroPowerDoors.Answered = null;
         ZeroPowerDoors.Clock = () => Environment.TickCount64;
         ZeroPowerDoors.Forget();
@@ -169,6 +170,105 @@ public sealed class CallsignDoorsTests : IDisposable
     {
         ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
         Assert.Equal(new[] { NoCall }, Said(_controller.PttDown));
+    }
+
+    /// <summary>
+    /// Said at Critical (ruled by Noel 2026-11-09 20:29, night question J9), so
+    /// the operator's Off does not silence it: no key works until a callsign is
+    /// entered. The Terse test above stays green either way; this is the one
+    /// that tells the levels apart. The zero-power refusal staying at Terse is
+    /// <c>ZeroPowerDoorsTests.The_sentence_is_not_Critical_so_the_operators_Off_silences_it</c>.
+    /// </summary>
+    [Fact]
+    public void The_refusal_is_said_even_at_the_operators_Off()
+    {
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;       // what Off is
+        Assert.Equal(new[] { NoCall }, Said(_controller.PttDown));
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        Assert.Equal(new[] { NoCall }, Said(() => ZeroPowerDoors.RefuseTransmitPress(_rig, "a send")));
+    }
+
+    /// <summary>
+    /// A menu press says it after the menu closes, and at the same Critical
+    /// level: the delayed path carries the level too.
+    /// </summary>
+    [Fact]
+    public void A_menu_refusal_is_said_after_the_menu_closes_even_at_Off()
+    {
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;
+        string marker = "marker " + Guid.NewGuid().ToString("N");
+        ScreenReaderOutput.Speak(marker, VerbosityLevel.Critical, true);
+        Assert.True(ZeroPowerDoors.RefuseTunePress(_rig, "the tune menu", afterMenu: true));
+        Assert.Empty(ScreenReaderOutput.RecentMessages.TakeWhile(m => m != marker));   // not yet: the menu is closing
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        List<string> said;
+        do
+        {
+            System.Threading.Thread.Sleep(50);
+            said = ScreenReaderOutput.RecentMessages.TakeWhile(m => m != marker).ToList();
+        } while (said.Count == 0 && DateTime.UtcNow < deadline);
+        Assert.Equal(new[] { NoCall }, said);
+    }
+
+    // ── J8: turning VOX on with no callsign ──────────────────────────────
+
+    private bool _simpleVox = true;
+
+    /// <summary>
+    /// Turning simple VOX on is refused with the same sentence (ruled by Noel
+    /// 2026-11-09 20:28, night question J8). In CW the same control switches
+    /// break-in, which is not refused (J4): the doors ask the radio's one
+    /// answer, stood in for here.
+    /// </summary>
+    [Fact]
+    public void Turning_simple_VOX_on_is_refused_and_break_in_is_not()
+    {
+        ZeroPowerDoors.SimpleVoxOverride = rig => ReferenceEquals(rig, _rig) && _simpleVox;
+        Assert.Equal(new[] { NoCall }, Said(() => Assert.True(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX field"))));
+        Assert.Equal(new[] { "callsign: the VOX field" }, _answers);
+
+        _simpleVox = false;                          // a CW transmit slice: break-in
+        Assert.Empty(Said(() => Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX menu"))));
+
+        _simpleVox = true;
+        _noCallsign = false;                         // the positive control: a callsign lets it through
+        Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX box"));
+        Assert.Single(_answers);
+    }
+
+    /// <summary>
+    /// With no transmit slice the setter writes nothing, so the door refuses
+    /// nothing: the real answer, read from an unconnected radio.
+    /// </summary>
+    [Fact]
+    public void With_no_transmit_slice_the_VOX_door_refuses_nothing()
+    {
+        Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX field"));
+        Assert.Empty(_answers);
+    }
+
+    /// <summary>
+    /// The three doors that turn VOX on ask before they write, each through
+    /// the one VOX question (never the selected slice's mode), and the menu's
+    /// says it after the menu closes.
+    /// </summary>
+    [Fact]
+    public void The_three_VOX_doors_ask_before_they_write()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string Src(params string[] parts) =>
+            File.ReadAllText(Path.Combine(new[] { dir!.FullName }.Concat(parts).ToArray())).Replace("\r\n", "\n");
+        Assert.Contains("if (newState == FlexBase.OffOnValues.on && ZeroPowerDoors.RefuseVoxOn(Rig, \"the VOX field\"))",
+            Src("JJFlexWpf", "FreqOutHandlers.cs"), StringComparison.Ordinal);
+        Assert.Contains("&& ZeroPowerDoors.RefuseVoxOn(Rig, \"the VOX menu\", afterMenu: true)) return;",
+            Src("JJFlexWpf", "NativeMenuBar.cs"), StringComparison.Ordinal);
+        Assert.Contains("if (ZeroPowerDoors.RefuseVoxOn(_rig, \"the VOX box\"))",
+            Src("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs"), StringComparison.Ordinal);
+        string doors = Src("JJFlexWpf", "ZeroPowerDoors.cs");
+        Assert.Contains("try { return rig.VoxOnWouldTurnOnSimpleVox; }", doors, StringComparison.Ordinal);
     }
 
     [Fact]

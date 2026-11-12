@@ -41,6 +41,58 @@ namespace Radios.Tests
             finally { Record("", ""); }
         }
 
+        /// <summary>
+        /// #405 repair one, Codex B1: the same record, but now every saved
+        /// account's list has arrived on its live connection and none lists
+        /// the radio (it is switched off). The plan's verdict stands: no saved
+        /// account lists it, the connect uses none, and its announcement falls
+        /// back as before. The radio list's account is still the saved
+        /// last-seen one, NOT the unsaved choice, because "every saved list
+        /// ruled it out" is not "neither account is saved". Beside the cold
+        /// start above, through the real sessions and the real record.
+        /// </summary>
+        [Fact]
+        public void Once_every_saved_list_has_answered_without_the_radio_the_list_still_names_the_saved_last_seen_one()
+        {
+            var saved = new[] { Operator, Owner };
+            Record(ChosenNotSaved, Owner);
+            try
+            {
+                // Cold start first: no list has arrived, so the plan signs in
+                // as the saved last-seen account and both answers agree.
+                Assert.Equal(Owner, FlexBase.RadioListAccountFor(Radio6300, saved));
+                // ...and it is the plan's own account, not a remembered one.
+                FlexBase.RadioListAccountFor(Radio6300, out bool coldRuledOut, saved);
+                Assert.False(coldRuledOut);
+
+                Listed(Operator);                 // both saved accounts answer...
+                Listed(Owner);                    // ...and neither lists the radio
+                var plan = FlexBase.PlanSmartLinkSignIn(FlexBase.TakeAccountPictureFor(Radio6300, saved: saved));
+                Assert.Equal(FlexBase.SmartLinkSignInPlanKind.NotListedByAnySavedAccount, plan.Kind);   // the verdict, kept
+                Assert.Equal("", FlexBase.ConnectAccountFor(Radio6300, saved));     // the connect uses none
+                Assert.Equal(Operator, FlexBase.AccountThatWillBroker(Radio6300, Operator, saved));
+
+                Assert.Equal(Owner, FlexBase.RadioListAccountFor(Radio6300, saved)); // the identity, kept
+
+                // #405 repair two (Codex, 2026-11-10): and the list is told the
+                // account is only remembered, so it does not word it as a
+                // current registration.
+                Assert.Equal(Owner, FlexBase.RadioListAccountFor(Radio6300, out bool ruledOut, saved));
+                Assert.True(ruledOut);
+            }
+            finally { Record("", ""); }
+
+            // Control: when neither recorded account is saved, the same
+            // all-answered state names nothing, and the row keeps its refusal.
+            Record(ChosenNotSaved, "seen-elsewhere@example.com");
+            try
+            {
+                Assert.Equal("", FlexBase.RadioListAccountFor(Radio6300, out bool noneRuledOut, saved));
+                Assert.False(noneRuledOut);   // nothing named, so nothing remembered
+            }
+            finally { Record("", ""); }
+        }
+
         [Fact]
         public void A_saved_chosen_account_is_the_one_named()
         {

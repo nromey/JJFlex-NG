@@ -2138,7 +2138,6 @@ settings.audio.pc_audio_still_off	973ba0f898e207a2
 settings.audio.pc_audio_still_off_choose_devices	e16eed9ff3b90c12
 settings.audio.pc_output_volume_label	532cef01d80afcb4
 settings.auto_connect.applied	6586e5b4cc3ec3ce
-settings.auto_connect.radio_name_accessible	c9fd494d8cbbe6d2
 settings.band.digital_segment	815a0a18ad42da2d
 settings.band.entering	ea7fef6825bae1e2
 settings.band.entering_subband	757dd4485fa0690a
@@ -2325,11 +2324,7 @@ settings.guard.action.private_ip	24d6f0ce61fb80c1
 settings.guard.action.registration	73c14819d94ef35e
 settings.guard.action.rem_on	6fda9395303412ab
 settings.guard.action.rename	bf164e9822d4287c
-settings.guard.connected	46790f605db9d905
-settings.guard.firmware_blocked	5ad87425ec525e5e
-settings.guard.layout_save_blocked	219798595dee7e31
 settings.guard.layout_save_roster_unknown	ede3abb0ffe86e84
-settings.guard.mic_stays	5026c938bda08e57
 settings.home.destination_chatty	a90713a910e9b0f6
 settings.home.destination_chatty_with_freq	cd140c5df183db26
 settings.home.destination_terse	3c950013dfde891b
@@ -2590,7 +2585,6 @@ settings.profile.cascade_on_warning_rem_on	0417a2e5abd11188
 settings.profile.cascade_status_tail	bf42de353ba55c71
 settings.profile.delete_failed	e02aa28d5f9f7882
 settings.profile.describe	f8b96a59d89bf1f5
-settings.profile.describe_change_nothing	9cb8342fe8721964
 settings.profile.describe_fixed_punch_port	4376e6fc26e538a1
 settings.profile.describe_mode_automatic	0607ad4a1bca9476
 settings.profile.describe_mode_forward_only	ecc60847857a5752
@@ -2638,7 +2632,6 @@ settings.profile.remote_firmware_updates_label	71941992f349b060
 settings.profile.remote_port_allowed_warning	3578fd1d184204d9
 settings.profile.remote_port_changes_label	b3ce15bfe42dcc0a
 settings.profile.rename_failed_locally_updated	4504ffa36bd24b5e
-settings.profile.rename_held	3d20f29a854d3e60
 settings.profile.rename_queued	784c0e4268c66583
 settings.profile.report_saved	62087d8183edc7bd
 settings.profile.save_failed	1ddf3e3b160d3350
@@ -2649,7 +2642,6 @@ settings.profile.saved_owned_someone_elses	7862e046c623e8b0
 settings.profile.saved_owned_unanswered	008cf0bf023a23e8
 settings.profile.saved_reachable_in_person	4dabd0d3f4a872a9
 settings.profile.saved_rem_on_applied_now	4b8af4d7b979e478
-settings.profile.saved_rem_on_held	ddb230bb69c79f1c
 settings.profile.saved_rem_on_leave_alone	eb55bc6f05acd01e
 settings.profile.saved_rem_on_queued	85f18488839429a1
 settings.profile.saved_rem_on_queued_relay_note	b1638888ed38d96c
@@ -2840,7 +2832,6 @@ settings.repeat.no_previous_message	8f917f2c7f178182
 settings.repeat.no_recent_cw	48488027ef1573a4
 settings.restore_export.busy	dfb905fe055d9e05
 settings.restore_export.failed	a1319ffca4bfd36d
-settings.restore_export.saved_no_walk	66a0398e2a094b86
 settings.rit.off	15c68f1933e48946
 settings.rit.on	26c35169607f687f
 settings.ritxit.adjust_mode	293f739242f7f911

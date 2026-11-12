@@ -34,9 +34,20 @@ public sealed class StatusTextNameTests
     public void The_name_is_the_text_whenever_there_is_text()
     {
         AssertWindowless();
-        const string warning = "Change nothing is on for this radio. Nothing you do here is sent to it.";
+        const string warning = "Radio setup protection is on for this radio. Nothing you do here is sent to it.";
         Assert.Equal(warning, StatusTextName.NameFor("Radio profile status", warning));
         Assert.Equal("Ready", StatusTextName.NameFor("Test status", "  Ready  "));
+    }
+
+    [Fact]
+    public void A_label_and_value_line_reads_the_label_then_the_value()
+    {
+        AssertWindowless();
+        Assert.Equal("Low frequency, 14.100", StatusTextName.NameFor("Low frequency", " 14.100 ", labelFirst: true));
+        Assert.Equal("Low frequency", StatusTextName.NameFor("Low frequency", "", labelFirst: true));
+        Assert.Equal("14.100", StatusTextName.NameFor(null, "14.100", labelFirst: true));
+        // The control: the same pair without the mode is the value alone.
+        Assert.Equal("14.100", StatusTextName.NameFor("Low frequency", "14.100", labelFirst: false));
     }
 
     [Fact]
@@ -87,7 +98,7 @@ public sealed class StatusTextNameTests
             line.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent, line));
             try
             {
-                const string warning = "Change nothing is on for this radio. Nothing you do here is sent to it.";
+                const string warning = "Radio setup protection is on for this radio. Nothing you do here is sent to it.";
                 line.Text = warning;
                 Assert.Equal(warning, System.Windows.Automation.AutomationProperties.GetName(line));
                 line.Text = "Ready";
@@ -98,6 +109,34 @@ public sealed class StatusTextNameTests
             finally
             {
                 // Let the descriptor go, as a closed dialog's line does.
+                line.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.UnloadedEvent, line));
+            }
+        });
+    }
+
+    [Fact]
+    public void A_loaded_label_first_line_reads_label_then_value_and_follows_its_text()
+    {
+        // Same shape as above, a lone TextBlock on a private STA thread, with
+        // the mode set the way XAML sets it: label first, then the flag.
+        OnSta(() =>
+        {
+            var line = new System.Windows.Controls.TextBlock();
+            StatusTextName.SetLabel(line, "Low frequency");
+            StatusTextName.SetLabelFirst(line, true);
+            Assert.Equal("Low frequency", System.Windows.Automation.AutomationProperties.GetName(line));
+            line.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent, line));
+            try
+            {
+                line.Text = "14.100";
+                Assert.Equal("Low frequency, 14.100", System.Windows.Automation.AutomationProperties.GetName(line));
+                line.Text = "14.250";
+                Assert.Equal("Low frequency, 14.250", System.Windows.Automation.AutomationProperties.GetName(line));
+                line.Text = "";
+                Assert.Equal("Low frequency", System.Windows.Automation.AutomationProperties.GetName(line));
+            }
+            finally
+            {
                 line.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.UnloadedEvent, line));
             }
         });
@@ -123,31 +162,51 @@ public sealed class StatusTextNameTests
     // ---- the class ----
 
     /// <summary>
-    /// Waiting, with the reason. The label and value pairs need a decision
-    /// not yet made: their fixed name is a field's label ("Frequency",
-    /// "Source log file"), so the right name carries both, not the value
-    /// alone. (The seventeen SettingsDialog.xaml lines that waited here on
-    /// Sprint 49 and the recordings work moved in the third 2026-11-09 junk
-    /// box batch; Sprint 49's only hunk in that file is on the Audio tab.)
+    /// Waiting, with the reason. The eight label and value pairs moved to
+    /// label-then-value (ruled by Noel 2026-11-09 20:35: "Frequency, 14.100").
+    /// The six Logging pane lines below wait for a different reason: their
+    /// text already carries its own label ("Freq: ---"), so label then value
+    /// would read "Frequency, Freq: ---", and their setters
+    /// (LogEntryControl.SetFreqLabel and the other five) have no caller, so
+    /// the text is always that placeholder. What their name should be is a
+    /// question for whoever wires them.
     /// </summary>
     private static readonly HashSet<string> Waiting = new(StringComparer.Ordinal)
     {
-        // Label and value pairs: a design decision, not built.
-        "JJFlexWpf/Dialogs/AutoConnectSettingsDialog.xaml:RadioNameText",
-        "JJFlexWpf/Dialogs/ConnectionTesterDialog.xaml:RadioInfoText",
-        "JJFlexWpf/Dialogs/ExportDialog.xaml:FromName",
-        "JJFlexWpf/Dialogs/ExportDialog.xaml:ToName",
-        "JJFlexWpf/Dialogs/ImportDialog.xaml:FromName",
-        "JJFlexWpf/Dialogs/ImportDialog.xaml:ToName",
+        // Text carries its own label and never changes: see above.
         "JJFlexWpf/LogEntryControl.xaml:DupLabel",
         "JJFlexWpf/LogEntryControl.xaml:FreqLabel",
         "JJFlexWpf/LogEntryControl.xaml:ModeLabel",
         "JJFlexWpf/LogEntryControl.xaml:BandLabel",
         "JJFlexWpf/LogEntryControl.xaml:DateTimeLabel",
         "JJFlexWpf/LogEntryControl.xaml:SerialLabel",
-        "JJFlexWpf/MainWindow.xaml:PanLowFreq",
-        "JJFlexWpf/MainWindow.xaml:PanHighFreq",
     };
+
+    /// <summary>The eight lines read label then value (#1022 J3).</summary>
+    private static readonly (string File, string Name, string Label)[] LabelFirstLines =
+    {
+        ("JJFlexWpf/Dialogs/AutoConnectSettingsDialog.xaml", "RadioNameText", "Radio name"),
+        ("JJFlexWpf/Dialogs/ConnectionTesterDialog.xaml", "RadioInfoText", "Radio information"),
+        ("JJFlexWpf/Dialogs/ExportDialog.xaml", "FromName", "Source log file"),
+        ("JJFlexWpf/Dialogs/ExportDialog.xaml", "ToName", "Destination file"),
+        ("JJFlexWpf/Dialogs/ImportDialog.xaml", "FromName", "Source ADIF file"),
+        ("JJFlexWpf/Dialogs/ImportDialog.xaml", "ToName", "Destination log file"),
+        ("JJFlexWpf/MainWindow.xaml", "PanLowFreq", "Low frequency"),
+        ("JJFlexWpf/MainWindow.xaml", "PanHighFreq", "High frequency"),
+    };
+
+    [Fact]
+    public void The_label_and_value_lines_read_label_then_value()
+    {
+        AssertWindowless();
+        foreach (var (file, name, label) in LabelFirstLines)
+        {
+            string el = Element(Read(file.Split('/')), name);
+            Assert.Contains("local:StatusTextName.Label=\"" + label + "\"", el, StringComparison.Ordinal);
+            Assert.Contains("local:StatusTextName.LabelFirst=\"True\"", el, StringComparison.Ordinal);
+            Assert.DoesNotContain("AutomationProperties.Name=", el, StringComparison.Ordinal);
+        }
+    }
 
     [Fact]
     public void No_status_line_hides_its_text_behind_a_fixed_name()

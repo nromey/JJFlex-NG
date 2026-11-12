@@ -217,22 +217,16 @@ public class FreqOutHandlers
     /// Callback to persist step sizes to the operator profile.
     /// </summary>
     /// <remarks>
-    /// <b>NOTHING ASSIGNS THIS.</b> Verified 2026-08-27: the property is
-    /// declared here, invoked from <c>MainWindow.ApplySettingsChanges</c> and
-    /// from <see cref="ApplyStepSizes"/>, and set nowhere in any .cs, .vb or
-    /// .xaml file. <c>PersonalData.CoarseTuneStep</c> and
-    /// <c>FineTuneStep</c> exist on the operator record and are likewise read
-    /// and written by nothing. So a step size chosen in Settings — and now a
-    /// step size chosen with a key — lives for the session and is gone at
-    /// exit. The doc comment here used to say "Set by ApplicationEvents.vb",
-    /// which was description drift.
-    /// <para>Left as found rather than wired, because connecting it is a
-    /// decision, not a repair: a ladder key can fire many times a second
-    /// under key repeat, and <c>PersonalData.Write</c> serialises the whole
-    /// operator record synchronously. Whoever connects it needs a save policy
-    /// (debounce, or save on exit) and needs Noel's ruling on whether a
-    /// mid-QSO step change should become the permanent default. Reported as
-    /// an out-of-scope finding of #302.</para>
+    /// Wired by ApplicationEvents.vb's FreqOutHandlersWireCallback to
+    /// <see cref="StepSizeMemory.Note"/> (#346 J2, ruled by Noel 2026-11-09
+    /// 20:38: the step last chosen, by any route, is the step the operator
+    /// starts with next time, on every radio). The operator's saved steps
+    /// (<c>PersonalData.CoarseTuneStep</c> and <c>FineTuneStep</c>) are loaded
+    /// through <see cref="ApplyStepSizes"/> BEFORE this is assigned, and with
+    /// it unassigned at an operator switch, because <see cref="ApplyStepSizes"/>
+    /// always invokes it. The write is debounced there, so a key-repeat walk
+    /// does not serialise the operator record on every repeat. Until
+    /// 2026-11-09 nothing assigned this, and a chosen step was gone at exit.
     /// </remarks>
     public Action<int, int>? SaveStepSizes { get; set; }
 
@@ -1339,15 +1333,16 @@ public class FreqOutHandlers
     // Restoring a VFO or memory field by pattern-matching this file must NOT
     // bring M and V back with it.
 
-    // SliceStepForUpArrow and SliceStepForDownArrow WERE HERE (#318), the
-    // direction the Slice field's arrows walked the slice list, read from the
-    // slice arrow order setting. Since #517 (ruled by Noel 2026-09-20: "slice
-    // lost arrow as well with substitution being letters and arrows coming
-    // back in slice layering") the bare arrows TUNE on Slice and Slice
-    // operations, so nothing walks the list by arrow and nothing reads the
-    // setting. The setting, its control and the saved value are left alone
-    // on purpose: whether it waits for the slice layer or leaves Settings is
-    // Noel's to rule.
+    /// <summary>
+    /// The slice step Down-arrow means on the Slice field while its arrows
+    /// switch slices, and Up-arrow's negation of it: the slice arrow order
+    /// setting (#318). Read by the Slice field only; the Slice operations
+    /// field's arrows never walked the slice list.
+    /// </summary>
+    private static int SliceStepForDownArrow =>
+        Radios.AccessibilityConfig.Current.SliceStepForDownArrow;
+
+    private static int SliceStepForUpArrow => -SliceStepForDownArrow;
 
     private void CycleVFO(int direction, bool wrap = false)
     {
@@ -1573,28 +1568,52 @@ public class FreqOutHandlers
             default:
                 switch (key)
                 {
-                    // The bare arrows TUNE by the coarse step (#517, ruled by
-                    // Noel 2026-09-20: "Do we really need gain for arrows?
-                    // We'd use tuning most often", and "slice lost arrow as
-                    // well with substitution being letters and arrows coming
-                    // back in slice layering"). Slice selection keeps this
-                    // field's letters A to H, Space and V, and the JJ key's
-                    // slice keys. The same TuneByStep the tuning commands run.
+                    // The bare arrows are the operator's choice (#517, ruled by
+                    // Noel 2026-11-09 21:01): "Tune with Up and Down on the Slice field"
+                    // in Settings, Accessibility, Slice list. Unchecked (the
+                    // default, AccessibilityConfig's initialiser) they switch
+                    // slices in the slice arrow order, as before the
+                    // 2026-11-09 batch; checked, they tune by the coarse step
+                    // through the same TuneByStep the tuning commands run. The
+                    // box is read in this one branch, so flipping the default
+                    // later is one line there.
                     case Key.Up:
-                        TuneByStep(coarse: true, 1);
-                        e.Handled = true;
-                        break;
                     case Key.Down:
-                        TuneByStep(coarse: true, -1);
+                        if (Radios.AccessibilityConfig.Current.SliceFieldArrowsTune)
+                            TuneByStep(coarse: true, key == Key.Up ? 1 : -1);
+                        else
+                            CycleVFO(key == Key.Up ? SliceStepForUpArrow : SliceStepForDownArrow);
                         e.Handled = true;
                         break;
-                    // Pan left this field with #517: Page Up and Page Down say
-                    // where it went for every field (TryHandleSliceRowKey), and
-                    // Home, which centred pan here, says the same thing rather
-                    // than quietly becoming the jump to the first field (this
-                    // IS the first field, so the jump would do nothing).
+                    // Pan is back on this field whatever the box says (Noel,
+                    // 2026-11-09 20:51), exactly as before the 2026-11-09
+                    // batch: Page Down hard left, Home centre, Page Up hard
+                    // right. The audio layer's P stays as well.
+                    case Key.PageDown:
+                        if (Rig.ValidVFO(vfo))
+                        {
+                            Rig.SetVFOPan(vfo, FlexBase.MinPan);
+                            Radios.ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.pan.left"), VerbosityLevel.Terse);
+                        }
+                        e.Handled = true;
+                        break;
                     case Key.Home:
-                        SayWherePanWent();
+                        if (Rig.ValidVFO(vfo))
+                        {
+                            Rig.SetVFOPan(vfo, (FlexBase.MaxPan - FlexBase.MinPan) / 2);
+                            Radios.ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.pan.center"), VerbosityLevel.Terse);
+                        }
+                        e.Handled = true;
+                        break;
+                    case Key.PageUp:
+                        if (Rig.ValidVFO(vfo))
+                        {
+                            Rig.SetVFOPan(vfo, FlexBase.MaxPan);
+                            Radios.ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.pan.right"), VerbosityLevel.Terse);
+                        }
                         e.Handled = true;
                         break;
                 }
@@ -1655,14 +1674,24 @@ public class FreqOutHandlers
                 coalesceKey: "slice-volume");
     }
 
+    private void AdjustPan(int vfo, int delta)
+    {
+        if (Rig == null) return;
+        int current = Rig.GetVFOPan(vfo);
+        int newVal = Math.Clamp(current + delta, FlexBase.MinPan, FlexBase.MaxPan);
+        Rig.SetVFOPan(vfo, newVal);
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get("settings.pan.level", ("level", newVal)), VerbosityLevel.Terse);
+    }
+
     #endregion
 
     #region AdjustSliceOps
 
     /// <summary>
-    /// Slice Operations field handler — tuning and mute.
-    /// Up/Down tune by the coarse step (#517; volume and pan moved to the
-    /// audio layer), Space = mute toggle.
+    /// Slice Operations field handler — tuning or volume, pan, and mute.
+    /// Up/Down tune by the coarse step or change the slice's volume, the
+    /// operator's choice (#517), PageUp/PageDown = pan, Space = mute toggle.
     ///
     /// <para>
     /// Sprint 26 Phase 8 Jim-parity: letter shortcuts match Jim's original
@@ -1705,17 +1734,31 @@ public class FreqOutHandlers
 
         switch (key)
         {
-            // The bare arrows TUNE by the coarse step (#517, ruled by Noel
-            // 2026-09-20). Gain moved to the audio layer's slice volume (JJ
-            // key A, then V) and the Volume field; pan to the audio layer's P.
-            // Page Up and Page Down say where pan went, from
-            // TryHandleSliceRowKey, before this switch.
+            // The bare arrows are the operator's choice (#517, ruled by Noel
+            // 2026-11-09 21:01): "Tune with Up and Down in Slice operations"
+            // in Settings, Accessibility, Slice list. Checked (the default,
+            // AccessibilityConfig's initialiser) they tune by the coarse step;
+            // unchecked they change this slice's volume, as before the
+            // 2026-11-09 batch. Read in this one branch.
             case Key.Up:
-                TuneByStep(coarse: true, 1);
+            case Key.Down:
+                if (Radios.AccessibilityConfig.Current.SliceOpsFieldArrowsTune)
+                    TuneByStep(coarse: true, key == Key.Up ? 1 : -1);
+                else if (Rig.ValidVFO(vfo))
+                    AdjustGain(vfo, key == Key.Up ? FlexBase.GainIncrement : -FlexBase.GainIncrement);
                 e.Handled = true;
                 break;
-            case Key.Down:
-                TuneByStep(coarse: true, -1);
+            // Pan is back on this field whatever the box says (Noel,
+            // 2026-11-09 20:51), exactly as before the 2026-11-09 batch.
+            // TryHandleSliceRowKey lets Page Up and Page Down through to here.
+            case Key.PageUp:
+                if (Rig.ValidVFO(vfo))
+                    AdjustPan(vfo, FlexBase.PanIncrement);
+                e.Handled = true;
+                break;
+            case Key.PageDown:
+                if (Rig.ValidVFO(vfo))
+                    AdjustPan(vfo, -FlexBase.PanIncrement);
                 e.Handled = true;
                 break;
             default:
@@ -2151,6 +2194,14 @@ public class FreqOutHandlers
             || (ch == 'V' && Keyboard.Modifiers == ModifierKeys.None))
         {
             var newState = Rig.ToggleOffOn(Rig.Vox);
+            // No callsign, no VOX (#335, J8): asked before the write, so the
+            // field does not then announce "VOX on". Simple VOX only; break-in
+            // in CW is not refused (J4). Turning VOX off is never asked.
+            if (newState == FlexBase.OffOnValues.on && ZeroPowerDoors.RefuseVoxOn(Rig, "the VOX field"))
+            {
+                e.Handled = true;
+                return;
+            }
             if (newState == FlexBase.OffOnValues.on && (Rig.TxToneEngaged || Rig.TxReferenceArmed))
             {
                 Radios.ScreenReaderOutput.Speak(Rig.TxReferenceArmed
@@ -2566,13 +2617,14 @@ public class FreqOutHandlers
             e.Handled = true;
             return true;
         }
-        // Page Up and Page Down on every field of the slice row say where pan
-        // went, and pan nothing (#517; Noel, 2026-09-21: "pagedown speaking
-        // pan in audio is fine, that's what we had planned for anyway"). On
-        // every field, not only the two that panned: FrequencyDisplay's
-        // Page Down jump to Frequency went in the same change, so without
-        // this Page Down would fall silent everywhere else.
-        if (key == Key.PageUp || key == Key.PageDown)
+        // Page Up and Page Down on the OTHER fields of the slice row say where
+        // pan went, and pan nothing (#517; Noel, 2026-09-21: "pagedown
+        // speaking pan in audio is fine, that's what we had planned for
+        // anyway"). FrequencyDisplay's Page Down jump to Frequency is gone, so
+        // without this Page Down would fall silent there. On the Slice and
+        // Slice operations fields they pan again (Noel, 2026-11-09 20:51), so
+        // those two are let through to their own handlers.
+        if ((key == Key.PageUp || key == Key.PageDown) && !PageKeysPan(field.Key))
         {
             SayWherePanWent();
             e.Handled = true;
@@ -2589,6 +2641,12 @@ public class FreqOutHandlers
         }
         return false;
     }
+
+    /// <summary>
+    /// The two slice-row fields whose Page Up and Page Down pan (#517, ruled by
+    /// Noel 2026-11-09 20:51): Slice and Slice operations. Pure.
+    /// </summary>
+    internal static bool PageKeysPan(string? fieldKey) => fieldKey == "Slice" || fieldKey == "SliceOps";
 
     /// <summary>
     /// The relocation answer for the keys that panned on the slice row (#517).
