@@ -708,10 +708,10 @@ Public Class PersonalData
             Dim theOp As personal_v1 = PersonalInfo.theOp
             ' Note theOp won't be the same as the original personalInfo.theOp.
             theOp.fileName = opFileName(theOp)
-            ' See if the filename has changed.
-            If ops(id).fileName <> theOp.fileName Then
-                File.Delete(ops(id).pathName)
-            End If
+            ' The file the operator was in. A changed name moves the operator to
+            ' a new file, and the old one goes only once the new one is written
+            ' (SaveThenRetireOld): deleted first, a failed write lost the record.
+            Dim oldPath As String = ops(id).pathName
             ops.RemoveAt(id)
             ops.Insert(id, theOp)
             ' Reset the default if changed.
@@ -719,13 +719,41 @@ Public Class PersonalData
             If (dfltID <> id) And theOp.DefaultFlag Then
                 DefaultID = id ' handles the reset.
             End If
-            write(theOp)
+            SaveThenRetireOld(oldPath, theOp.pathName, Function() TryWrite(theOp))
             ' Report the change if the current one.
             If id = CurrentID Then
                 reportEvent()
             End If
         End If
         Return rv
+    End Function
+
+    ''' <summary>
+    ''' Save an edited operator, then remove the file it used to be in when the
+    ''' edit moved it to a new one. The old file is removed ONLY after the save
+    ''' reports success, so a save that fails leaves the operator's record on
+    ''' disk where it was. Paths are compared ignoring case: a callsign whose
+    ''' letters only changed case names the same file on Windows, and removing
+    ''' the "old" one would remove the file just written.
+    ''' </summary>
+    ''' <param name="oldPath">The file the operator was in before the edit.</param>
+    ''' <param name="newPath">The file the edited operator is saved to.</param>
+    ''' <param name="save">Writes the edited operator to newPath; true when it was written.</param>
+    ''' <returns>True when the save succeeded.</returns>
+    Friend Shared Function SaveThenRetireOld(oldPath As String, newPath As String, save As Func(Of Boolean)) As Boolean
+        If Not save() Then
+            Tracing.TraceLine("PersonalData: the edited operator was not saved; its old file is kept", TraceLevel.Error)
+            Return False
+        End If
+        If Not String.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase) Then
+            Try
+                File.Delete(oldPath)
+            Catch ex As Exception
+                ' The edit is saved; an old file left behind costs a stale copy, not the record.
+                Tracing.ErrMessageTrace(ex)
+            End Try
+        End If
+        Return True
     End Function
 
     Public Function RemoveAt(ByVal id As Integer) As Boolean
@@ -828,6 +856,15 @@ Public Class PersonalData
     End Sub
 
     Friend Sub Write(ByVal op As personal_v1)
+        TryWrite(op)
+    End Sub
+
+    ''' <summary>
+    ''' Write, saying whether the operator was written: false when the write
+    ''' failed (traced). For a caller that must not go on as though it had
+    ''' been, such as removing the operator's old file.
+    ''' </summary>
+    Friend Function TryWrite(ByVal op As personal_v1) As Boolean
         ' Encrypt credentials before writing to disk.
         op.EncryptCredentials()
 
@@ -836,10 +873,12 @@ Public Class PersonalData
         Try
             Dim xs As New XmlSerializer(GetType(personal_v1))
             AtomicFile.Write(op.pathName, Sub(cfgFile) xs.Serialize(cfgFile, op))
+            Return True
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
+            Return False
         End Try
-    End Sub
+    End Function
 
     Friend Event ConfigEvent As EventHandler(Of ConfigArgs)
     Friend Sub reportEvent()

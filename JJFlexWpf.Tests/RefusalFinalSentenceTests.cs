@@ -70,7 +70,8 @@ public sealed class RefusalFinalSentenceTests
         Assert.Contains("FilePortForwardOutcome(outcome, NetworkCurrentStateText.Text,", branch, StringComparison.Ordinal);
         string router = Body(text, "internal static string? FilePortForwardOutcome(");
         int isRefused = router.IndexOf("if (outcome == GuardedOutcome.Refused)", StringComparison.Ordinal);
-        int noted = router.IndexOf("refused.Add(Lexicon.Get(\"settings.guard.refused\"", StringComparison.Ordinal);
+        // The sentence comes from the hold's one builder (#1086 F5).
+        int noted = router.IndexOf("refused.Add(FlexBase.HoldRefusalSentence(\"settings.guard.action.ports\"))", StringComparison.Ordinal);
         Assert.True(isRefused > 0 && noted > isRefused, "the hold's refusal is not carried out of the port-forward commit");
 
         // ... into the list the whole commit owns, and every final word
@@ -595,7 +596,7 @@ public sealed class RefusalFinalSentenceTests
         int end = text.IndexOf("else if (sent != GuardedOutcome.Done)", at, StringComparison.Ordinal);
         string branch = text.Substring(at, end - at);
         int refresh = branch.IndexOf("RefreshSetupStatuses(startARegistrationCheck: false);", StringComparison.Ordinal);
-        int reason = branch.IndexOf("SetupRegisterStatus.Text = Lexicon.Get(\"settings.guard.refused\"", StringComparison.Ordinal);
+        int reason = branch.IndexOf("SetupRegisterStatus.Text = FlexBase.HoldRefusalSentence(\"settings.guard.action.registration\")", StringComparison.Ordinal);
         Assert.True(refresh > 0 && reason > refresh,
             "the refresh rewrites the registration line after the hold's reason is written");
         Assert.Equal(-1, branch.IndexOf("RefreshSetupStatuses", refresh + 1, StringComparison.Ordinal));

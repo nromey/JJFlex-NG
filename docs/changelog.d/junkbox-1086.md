@@ -1,1 +1,2 @@
-- Your operator profiles, license settings, filter presets and several other settings now keep their previous saved contents if a new save fails.
+- If a choice under Profiles on This Radio cannot be saved, you now hear that it was not saved at every verbosity setting, Off included.
+- Changing an operator's callsign or name no longer risks losing that operator: the old settings file is removed only after the new one is safely written.
