@@ -153,8 +153,14 @@ public sealed class TxNoiseChainTests
     }
 
     [Fact]
-    public void Strength_and_a_live_setting_change_at_once_while_keyed_and_a_rebuild_setting_waits()
+    public void Strength_and_the_continuous_levers_stay_live_while_keyed_and_a_rebuild_setting_waits()
     {
+        // The ruling: strength live, engine changes at the unkey. A setting that
+        // needs no new instance is a continuous lever, live TODAY by the one
+        // policy, TxNoiseChain.ContinuousLeversLiveWhileKeyed, while S15 asks
+        // whether it is like strength (repair round 1, R3). If that flips, the
+        // "amount" line below must expect AtUnkey.
+        Assert.True(TxNoiseChain.ContinuousLeversLiveWhileKeyed);
         var rig = new Rig();
         rig.Chain.SetEnabled(DenoiseFamily.Neural, true);
         rig.Run();
@@ -210,12 +216,165 @@ public sealed class TxNoiseChainTests
     [Fact]
     public void Both_slots_run_spectral_then_neural_and_their_delays_add()
     {
+        // Unequal, non-zero delays (repair round 1, R6): the spectral engine is
+        // 100 samples late and halves, the neural one 260 late and triples, so
+        // the output must be 1.5 times the input, 360 samples late, and the
+        // chain must report 360. A sum hard-coded to anything else goes red.
+        var catalog = new DenoiseEngineCatalog(new[]
+        {
+            new DenoiseEngineEntry("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "label", new[] { DenoiseDirection.Transmit },
+                (_, _) => new TxLatchTests.DelayEngine("nr4", 0.5f, 100), () => Unavailability.None),
+            new DenoiseEngineEntry("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Transmit },
+                (_, _) => new TxLatchTests.DelayEngine("rnnoise", 3f, 260), () => Unavailability.None),
+        });
+        var chain = new TxNoiseChain(catalog);
+        chain.SetStrength("nr4", 1f); chain.SetStrength("rnnoise", 1f);
+        chain.SetEnabled(DenoiseFamily.Spectral, true);
+        chain.SetEnabled(DenoiseFamily.Neural, true);
+        int frames = 480 * 4;
+        var input = Enumerable.Range(0, frames).Select(i => (float)Math.Sin(i * 0.013) * 0.4f).ToArray();
+        var output = new float[frames];
+        for (int b = 0; b < 4; b++)
+        {
+            var buf = new float[960];
+            for (int i = 0; i < 480; i++) buf[2 * i] = buf[2 * i + 1] = input[b * 480 + i];
+            chain.Process(buf, buf.Length, 48000, false);
+            for (int i = 0; i < 480; i++) output[b * 480 + i] = buf[2 * i];
+            Assert.Equal(360, chain.AppliedLatencySamples);
+        }
+        for (int i = 0; i < 360; i++) Assert.Equal(0f, output[i]);
+        for (int i = 360; i < frames; i++) Assert.Equal(1.5f * input[i - 360], output[i], 5);
+    }
+
+    // ── A setup replaces the slots (repair round 1, R2; Codex's two reproductions, made permanent) ──
+
+    [Fact]
+    public void An_untouched_saved_setup_restores_the_default_engine()
+    {
+        var chain = new TxNoiseChain(new TransmitSlotTests.Catalog().Value);
+        var original = chain.CaptureSlots();
+        Assert.Equal("", original.Neural.EngineId);
+        chain.ChooseEngine(DenoiseFamily.Neural, "b");
+        chain.SetEnabled(DenoiseFamily.Neural, true);
+        chain.ApplySlots(original.Spectral, original.Neural);
+        Assert.Equal(TxNoiseChain.DefaultNeuralEngine, chain.ChosenEngineId(DenoiseFamily.Neural));
+        Assert.False(chain.WantsEnabled(DenoiseFamily.Neural));
+    }
+
+    [Fact]
+    public void An_untouched_saved_setup_restores_the_default_strength()
+    {
+        var chain = new TxNoiseChain(new TransmitSlotTests.Catalog().Value);
+        var original = chain.CaptureSlots();
+        float initial = chain.GetStrength("rnnoise");
+        chain.SetStrength("rnnoise", 0.123f);
+        chain.ApplySlots(original.Spectral, original.Neural);
+        Assert.Equal(initial, chain.GetStrength("rnnoise"));
+    }
+
+    [Fact]
+    public void A_setup_brings_no_value_of_an_engine_it_does_not_name()
+    {
+        var chain = new TxNoiseChain(Catalog());
+        chain.SetStrength("nnr", 0.25f);
+        chain.SetSetting("nnr", "amount", new(3));
+        var setup = new TxNoiseSlotSetup
+        {
+            Enabled = true, EngineId = "rnnoise",
+            Engines = { new DenoiseEngineSettings { EngineId = "rnnoise", Direction = DenoiseDirection.Transmit, Strength = 0.5f } },
+        };
+        chain.ApplySlots(null, setup);
+        Assert.Equal(0.5f, chain.GetStrength("rnnoise"));
+        Assert.Equal(NoiseFloor.DefaultStrength("nnr", DenoiseDirection.Transmit), chain.GetStrength("nnr"));
+        Assert.Equal(1.0, chain.NeuralSlot.GetSetting("nnr", "amount").Number);
+        Assert.Equal(TxNoiseChain.DefaultSpectralEngine, chain.ChosenEngineId(DenoiseFamily.Spectral)); // a missing slot is the default, off
+        Assert.False(chain.WantsEnabled(DenoiseFamily.Spectral));
+    }
+
+    // ── A whole setup and the gate's on and off wait for the unkey (repair round 1, R3) ──
+
+    [Fact]
+    public void A_whole_setup_applied_while_keyed_waits_and_a_later_request_still_wins()
+    {
         var rig = new Rig();
-        rig.Chain.SetEnabled(DenoiseFamily.Spectral, true);
         rig.Chain.SetEnabled(DenoiseFamily.Neural, true);
-        rig.Chain.SetSetting("nr4", "amount", new(1.5));
-        Assert.All(rig.Run(), v => Assert.Equal(3f, v)); // 1 x 1.5 then x 2
-        Assert.Equal(0, rig.Chain.AppliedLatencySamples);
+        rig.Run();
+        Volatile.Write(ref rig.Keyed, true);
+        var setup = new TxNoiseSlotSetup
+        {
+            Enabled = true, EngineId = "nnr",
+            Engines = { new DenoiseEngineSettings { EngineId = "nnr", Direction = DenoiseDirection.Transmit, Strength = 0.5f } },
+        };
+        Assert.Equal(TxChangeTiming.AtUnkey, rig.Chain.ApplySlots(null, setup).Timing);
+        Assert.True(rig.Chain.HasDeferredChanges);
+        Assert.Equal("rnnoise", rig.Chain.ChosenEngineId(DenoiseFamily.Neural));      // nothing yet, not even the choice
+        Assert.Equal(1f, rig.Chain.GetStrength("rnnoise"));
+        // Asked for after the setup, so it must still win: it waits behind it.
+        Assert.Equal(TxChangeTiming.AtUnkey, rig.Chain.SetEnabled(DenoiseFamily.Neural, false).Timing);
+        rig.Chain.SetStrength("nnr", 0.75f);
+        for (int i = 0; i < 5; i++) Assert.All(rig.Run(), v => Assert.Equal(2f, v));
+
+        Volatile.Write(ref rig.Keyed, false);
+        rig.Run();                                                    // the unkey edge runs the held changes
+        Until(() => !rig.Chain.HasDeferredChanges);
+        Assert.Equal("nnr", rig.Chain.ChosenEngineId(DenoiseFamily.Neural));
+        Assert.False(rig.Chain.WantsEnabled(DenoiseFamily.Neural));
+        Assert.Equal(0.75f, rig.Chain.GetStrength("nnr"));
+    }
+
+    [Fact]
+    public void A_whole_setup_and_the_gates_on_and_off_wait_for_the_unkey_through_the_conditioning_owner()
+    {
+        var chain = new TxNoiseChain(Catalog());
+        bool keyed = true;
+        chain.KeySource = () => Volatile.Read(ref keyed);
+        TxAudioConditioning.UseChainForTest(chain);
+        bool gateBefore = TxAudioConditioning.GateEnabled;
+        float holdBefore = TxAudioConditioning.GateHoldMs;
+        try
+        {
+            Volatile.Write(ref keyed, false);
+            TxAudioConditioning.GateEnabled = false;
+            TxAudioConditioning.GateHoldMs = 150;
+            Volatile.Write(ref keyed, true);
+
+            Assert.Equal(TxChangeTiming.AtUnkey, TxAudioConditioning.SetGateEnabled(true).Timing);
+            Assert.False(TxAudioConditioning.GateEnabled);
+            var setup = TxAudioConditioning.CaptureSetup("Loud room");
+            setup.Gate.HoldMs = 500;
+            setup.Neural.Enabled = true;
+            Assert.Equal(TxChangeTiming.AtUnkey, TxAudioConditioning.ApplySetup(setup).Timing);
+            Assert.Equal(150, TxAudioConditioning.GateHoldMs);   // the whole setup waits, gate included
+            Assert.False(chain.WantsEnabled(DenoiseFamily.Neural));
+
+            Volatile.Write(ref keyed, false);
+            chain.ApplyDeferred();
+            Assert.Equal(500, TxAudioConditioning.GateHoldMs);
+            Assert.True(chain.WantsEnabled(DenoiseFamily.Neural));
+            // The setup came after the gate request, so its gate (off) wins.
+            Assert.False(TxAudioConditioning.GateEnabled);
+        }
+        finally
+        {
+            chain.KeySource = null;
+            TxAudioConditioning.GateEnabled = gateBefore;
+            TxAudioConditioning.GateHoldMs = holdBefore;
+            TxAudioConditioning.UseChainForTest(null!);
+        }
+    }
+
+    [Fact]
+    public void The_conditioner_adopts_a_requested_gate_on_or_off_only_on_an_unkeyed_buffer()
+    {
+        var cond = new JJPortaudio.TxAudioConditioner();
+        bool keyed = true;
+        cond.KeySource = () => keyed;
+        var buf = new float[960];
+        cond.RequestGateEnabled(true);
+        for (int i = 0; i < 5; i++) { cond.Process(buf, buf.Length, 48000); Assert.False(cond.Gate.Enabled); }
+        keyed = false;
+        cond.Process(buf, buf.Length, 48000);
+        Assert.True(cond.Gate.Enabled);
     }
 
     [Fact]

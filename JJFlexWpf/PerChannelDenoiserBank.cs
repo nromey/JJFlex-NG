@@ -224,20 +224,22 @@ namespace JJFlexWpf
         public int LatchFadeSamples { get; set; } = DefaultLatchFadeSamples;
 
         /// <summary>
-        /// The latch fade: 12 samples at 48 kHz, a quarter of a millisecond,
-        /// half a raised cosine. Ruled "the smallest fade possible" (Noel
-        /// 2026-11-18 08:18), so this is the SHORTEST length that measured
-        /// click-free, not a comfortable one. <c>TxLatchFadeMeasurementTests</c>
-        /// has RNNoise clean the reference voice over a fan's rumble and mains
-        /// hum, latches at thirty different frames, and measures the high-band
-        /// energy (second difference) in the 2 ms around each switch against
-        /// the louder of the two signals unswitched. Measured 2026-11-18, worst
-        /// of thirty: a hard cut +7.3 dB; 6 samples +0.43; 12 samples +0.06;
-        /// 24 samples and every longer fade +0.01, the instrument's floor.
-        /// Twelve is the first within 0.1 dB of the floor. The test fails if
-        /// this constant is not the shortest such length.
+        /// The latch fade: 10 samples at 48 kHz, about 0.21 ms, half a raised
+        /// cosine. Ruled "the smallest fade possible" (Noel 2026-11-18 08:18),
+        /// so this is the SHORTEST length that measured click-free on the test
+        /// fixture, not a comfortable one, and not a universal claim: the bench
+        /// checks it on real audio. <c>TxLatchFadeMeasurementTests</c> has
+        /// RNNoise clean the reference voice over a fan's rumble and mains hum,
+        /// latches at thirty different frames, and measures the high-band energy
+        /// (second difference) in the 2 ms around each switch against the louder
+        /// of the two signals unswitched, at EVERY length from 0 to 24 samples
+        /// and some longer. Measured 2026-11-18, worst of thirty: a hard cut
+        /// +7.31 dB; 2 samples +2.68; 6 samples +0.43; 9 samples +0.11;
+        /// 10 samples +0.07; 16 samples and every longer fade +0.01, the floor.
+        /// Ten is the first within 0.1 dB of the floor. (It was 12 until repair
+        /// round 1: the first search tried only 0, 6, 12 and 24.)
         /// </summary>
-        public const int DefaultLatchFadeSamples = 12;
+        public const int DefaultLatchFadeSamples = 10;
 
         /// <summary>Clear the latch (the transmit slot calls it at the unkey). The engine is asked again from the next frame.</summary>
         public void ReleaseLatch()

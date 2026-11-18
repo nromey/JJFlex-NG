@@ -419,9 +419,12 @@ public sealed class NoiseFloorFlipTests
     {
         "JJFlexWpf/PcDenoiseSlot.cs", "JJFlexWpf/NoiseController.Levers.cs", "JJFlexWpf/NoiseController.Presets.cs",
         "JJFlexWpf/RxAudioPipeline.cs",
-        // Sprint 49 Track H: the transmit chain (TxNoiseChain, the transmit
-        // twin of RxAudioPipeline) and TxAudioConditioning's legacy NrStrength.
-        // Sprint 49 Track H2: the controller's transmit half.
+        // Sprint 49 Track H: the transmit owners, the twin of RxAudioPipeline.
+        // TxNoiseChain owns the two transmit slots, as RxAudioPipeline owns the
+        // receive ones; TxAudioConditioning's NrStrength is the transmit twin
+        // of RxAudioPipeline's RnnStrength, and every surface reaches it through
+        // NoiseFloor's one conversion. Sprint 49 Track H2: the controller's
+        // transmit half, which the Transmit menu, Home and the layer call.
         "JJFlexWpf/TxNoiseChain.cs", "JJFlexWpf/TxAudioConditioning.cs", "JJFlexWpf/NoiseController.Transmit.cs",
     };
 

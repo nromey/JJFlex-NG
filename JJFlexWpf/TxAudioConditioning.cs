@@ -95,6 +95,24 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>How the mid-over fallback notice is given (repair round 1, R1).</summary>
+        public enum TxNoticeRoute { ToneAndWords, WordsOnlyNoAlertChannel, WordsOnlyCaptureHearsOutput }
+
+        /// <summary>
+        /// The tone only on the alert channel, and only when the transmit
+        /// microphone is not a wire that could carry it back (a loopback or a
+        /// virtual cable, or a Windows default that is one). Words otherwise.
+        /// This closes the routes the app can see. A loudspeaker the microphone
+        /// hears in the room is physics, and screen reader speech has the same
+        /// exposure; nothing here claims to solve it.
+        /// </summary>
+        internal static TxNoticeRoute ChooseNoticeRoute(bool alertChannelLive, string captureDevice, string windowsDefaultInput)
+        {
+            if (!alertChannelLive) return TxNoticeRoute.WordsOnlyNoAlertChannel;
+            if (JJPortaudio.Devices.CapturesComputerOutput(captureDevice ?? "", windowsDefaultInput)) return TxNoticeRoute.WordsOnlyCaptureHearsOutput;
+            return TxNoticeRoute.ToneAndWords;
+        }
+
         /// <summary>
         /// Wire a chain's two reports to the operator and the trace: a slot that
         /// fell back mid-over (item C) and each over's frame counts (item D).
@@ -110,16 +128,28 @@ namespace JJFlexWpf
         /// "Wouldn't transmit a beep on air", then "the one line or few words
         /// with a tone (short beep)"). A short earcon on the operator's ALERT
         /// channel, the existing calm "something failed" tone, and a few words.
-        /// Nothing here touches the transmit audio: the earcon player owns its
-        /// own output device and mixer, and the transmit frames are built only
-        /// by <c>TxFramePipeline</c> from the microphone or an engaged source.
-        /// <c>TxFallbackNoticeTests</c> fails if the tone ever reaches a frame.
+        /// What this guarantees, and no more (repair round 1, R1): the tone is
+        /// never written into the transmit buffers (the earcon player owns its
+        /// own mixer and device; transmit frames are built only by
+        /// <c>TxFramePipeline</c>); it plays ONLY on the alert channel, never the
+        /// system-beep fallback, so with no alert output it is words only; and
+        /// it is not played when the transmit microphone is a loopback or a
+        /// virtual cable that could carry it back by wire
+        /// (<see cref="ChooseNoticeRoute"/>). A loudspeaker the microphone hears
+        /// across the room is acoustic, as screen reader speech is, and is not
+        /// solved here. The route taken is traced every time.
         /// </summary>
         private static void TellFellBack(TxNoiseChain chain, string engineId)
         {
             try
             {
-                EarconPlayer.ProblemRecordedTone();
+                var route = ChooseNoticeRoute(EarconPlayer.AlertChannelLive, _rig?.TransmitCaptureDeviceName ?? "", null);
+                bool toned = route == TxNoticeRoute.ToneAndWords && EarconPlayer.ProblemRecordedToneOnAlertChannelOnly();
+                Trace.WriteLine("TxAudioConditioning: transmit fallback notice: "
+                    + (toned ? "tone on the alert channel and words"
+                       : route == TxNoticeRoute.WordsOnlyNoAlertChannel ? "words only: the alert channel has no output, and the system beep is never used for this"
+                       : route == TxNoticeRoute.WordsOnlyCaptureHearsOutput ? "words only: the transmit microphone is a loopback or virtual cable that could carry the tone"
+                       : "words only: the tone did not play (warning sounds off, or the alert channel went away)"));
                 var row = chain.Catalog.Find(engineId);
                 string engine = row != null ? Lexicon.Get(row.LabelKey) : engineId;
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.denoise.tx.fell_back", ("engine", engine)),
@@ -174,7 +204,14 @@ namespace JJFlexWpf
             // the meter's block count and only recomputes while transmitting,
             // which is exactly when the floor estimate is improving.
             _policyTimer = new System.Timers.Timer(500) { AutoReset = true };
-            _policyTimer.Elapsed += (s, e) => RefreshDerivedThreshold();
+            _policyTimer.Elapsed += (s, e) =>
+            {
+                RefreshDerivedThreshold();
+                // R3's backstop: held changes run once unkeyed, even through an
+                // over in CW, where the noise chain is stood aside and never
+                // sees the unkey.
+                _chain?.ApplyDeferred();
+            };
             _policyTimer.Start();
 
             Trace.WriteLine("TxAudioConditioning: attached");
@@ -316,8 +353,31 @@ namespace JJFlexWpf
         public static bool GateEnabled
         {
             get { lock (_gate) return _gateIntent.Enabled; }
-            set { lock (_gate) _gateIntent.Enabled = value; var c = Conditioner; if (c != null) c.Gate.Enabled = value; }
+            set { SetGateEnabled(value); }
         }
+
+        /// <summary>
+        /// Turn the gate on or off (repair round 1, R3): like an engine change,
+        /// it waits for the unkey when keyed, and the returned timing says so;
+        /// held with no radio (#1077). Unkeyed, the conditioner still adopts it
+        /// only on an unkeyed buffer.
+        /// </summary>
+        public static TxChangeResult SetGateEnabled(bool on) => Chain.RunOrDefer(() => SetGateEnabledNow(on));
+
+        private static void SetGateEnabledNow(bool on)
+        {
+            lock (_gate) _gateIntent.Enabled = on;
+            Conditioner?.RequestGateEnabled(on);
+        }
+
+        /// <summary>A continuous gate lever: live or held for the unkey by the one policy, <see cref="TxNoiseChain.ContinuousLeversLiveWhileKeyed"/>.</summary>
+        private static void GateLever(Action<TxNoiseGateSetup> intent, Action<JJPortaudio.TxNoiseGate> live) =>
+            Chain.Continuous(() =>
+            {
+                lock (_gate) intent(_gateIntent);
+                var c = Conditioner;
+                if (c != null) live(c.Gate);
+            });
 
         /// <summary>
         /// Margin above the measured noise floor for the derived threshold,
@@ -326,7 +386,7 @@ namespace JJFlexWpf
         public static float ThresholdMarginDb
         {
             get { return _thresholdMarginDb; }
-            set { _thresholdMarginDb = Math.Clamp(value, 3f, 15f); }
+            set { float v = Math.Clamp(value, 3f, 15f); Chain.Continuous(() => _thresholdMarginDb = v); }
         }
 
         /// <summary>Derive the threshold from the measured floor (default) or
@@ -341,43 +401,43 @@ namespace JJFlexWpf
         public static float GateThresholdDb
         {
             get { var c = Conditioner; if (c != null) return c.Gate.ThresholdDb; lock (_gate) return _gateIntent.ThresholdDb; }
-            set { lock (_gate) _gateIntent.ThresholdDb = value; var c = Conditioner; if (c != null) c.Gate.ThresholdDb = value; }
+            set { GateLever(g => g.ThresholdDb = value, g => g.ThresholdDb = value); }
         }
 
         /// <summary>Gate attack, ms. Held with no radio.</summary>
         public static float GateAttackMs
         {
             get { lock (_gate) return _gateIntent.AttackMs; }
-            set { lock (_gate) _gateIntent.AttackMs = value; var c = Conditioner; if (c != null) c.Gate.AttackMs = value; }
+            set { GateLever(g => g.AttackMs = value, g => g.AttackMs = value); }
         }
 
         /// <summary>Gate hold, ms. Held with no radio.</summary>
         public static float GateHoldMs
         {
             get { lock (_gate) return _gateIntent.HoldMs; }
-            set { lock (_gate) _gateIntent.HoldMs = value; var c = Conditioner; if (c != null) c.Gate.HoldMs = value; }
+            set { GateLever(g => g.HoldMs = value, g => g.HoldMs = value); }
         }
 
         /// <summary>Gate release, ms. Held with no radio.</summary>
         public static float GateReleaseMs
         {
             get { lock (_gate) return _gateIntent.ReleaseMs; }
-            set { lock (_gate) _gateIntent.ReleaseMs = value; var c = Conditioner; if (c != null) c.Gate.ReleaseMs = value; }
+            set { GateLever(g => g.ReleaseMs = value, g => g.ReleaseMs = value); }
         }
 
         /// <summary>Gate depth, dB. Held with no radio.</summary>
         public static float GateRangeDb
         {
             get { lock (_gate) return _gateIntent.RangeDb; }
-            set { lock (_gate) _gateIntent.RangeDb = value; var c = Conditioner; if (c != null) c.Gate.RangeDb = value; }
+            set { GateLever(g => g.RangeDb = value, g => g.RangeDb = value); }
         }
 
         /// <summary>Copy the held gate settings onto a rig's gate (attach, and after applying a setup).</summary>
-        private static void PushGate(JJPortaudio.TxNoiseGate gate)
+        private static void PushGate(JJPortaudio.TxNoiseGate gate, bool includeOnOff = true)
         {
             TxNoiseGateSetup g;
             lock (_gate) g = _gateIntent.Clone();
-            gate.Enabled = g.Enabled;
+            if (includeOnOff) gate.Enabled = g.Enabled;
             if (!_autoThreshold) gate.ThresholdDb = g.ThresholdDb;
             gate.AttackMs = g.AttackMs;
             gate.HoldMs = g.HoldMs;
@@ -441,14 +501,29 @@ namespace JJFlexWpf
         public static TxChangeResult ApplySetup(TxNoiseSetup setup)
         {
             if (setup == null) throw new ArgumentNullException(nameof(setup));
-            var result = Chain.ApplySlots(setup.Spectral, setup.Neural);
+            // A copy now: the caller's object may change before the unkey.
+            var copy = setup.Clone();
+            return Chain.RunOrDefer(() => ApplySetupNow(copy));
+        }
+
+        /// <summary>
+        /// A whole setup, now, as ONE change (repair round 1, R3: a setup chosen
+        /// or a microphone switched while keyed waits for the unkey entirely,
+        /// gate included). The slots are replaced, not overlaid (R2).
+        /// </summary>
+        private static void ApplySetupNow(TxNoiseSetup setup)
+        {
+            Chain.ApplySlotsNow(setup.Spectral, setup.Neural);
             var g = (setup.Gate ?? new TxNoiseGateSetup()).Clone();
             _autoThreshold = g.AutoThreshold;
             _thresholdMarginDb = Math.Clamp(g.ThresholdMarginDb, 3f, 15f);
             lock (_gate) _gateIntent = g;
             var c = Conditioner;
-            if (c != null) PushGate(c.Gate);
-            return result;
+            if (c != null)
+            {
+                PushGate(c.Gate, includeOnOff: false);
+                c.RequestGateEnabled(g.Enabled);
+            }
         }
 
         private static readonly HashSet<string> _missingSaid = new(StringComparer.OrdinalIgnoreCase);
@@ -491,16 +566,16 @@ namespace JJFlexWpf
         }
 
         /// <summary>Back to the recommended state: RNNoise at its default floor, off; spectral off; the gate as shipped, its threshold derived from the floor again.</summary>
-        public static TxChangeResult ResetToRecommended()
+        public static TxChangeResult ResetToRecommended() => Chain.RunOrDefer(() =>
         {
-            var result = ApplySetup(TxNoiseSetupMigration.FromConditioning("", new TxConditioningSettings()));
-            Chain.SetEnabled(DenoiseFamily.Spectral, false);
+            // The recommended setup replaces both slots (spectral off, RNNoise
+            // at its default floor and off) and the gate, as one change.
+            ApplySetupNow(TxNoiseSetupMigration.FromConditioning("", new TxConditioningSettings()));
             var gate = Conditioner?.Gate;
             if (gate != null) gate.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
             lock (_gate) _gateIntent.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
             RefreshDerivedThreshold();
-            return result;
-        }
+        });
     }
 
     // TxConditioningSettings moved to Radios\MicrophoneProfile.cs

@@ -222,12 +222,14 @@ namespace Radios
         {
             try
             {
-                string device = remoteInputDevice?.Name ?? "";
-                var verdict = TxCallbackVerdictStore.Default()?.Find(device, TxCallbackRate.Fast);
+                var capture = ExpectedTxCapture(OpusTxSampleRateSetting);
+                var verdict = TxCallbackRate.Store?.Find(capture, TxCallbackRate.Fast);
                 var decision = TxCallbackRate.Decide(JJPortaudio.AudioBuffering.ConfiguredTxCallbacksPerSecond(),
-                    TxCallbackRate.HelperFrameCostP99Nanos, verdict);
+                    TxCallbackRate.HelperFrameCostP99Nanos, verdict, DateTime.UtcNow);
                 TxAudioCallbacksPerSecond = decision.CallbacksPerSecond;
                 _txCallbackRateThisStream = TxAudioCallbacksPerSecond;
+                TxCallbackRate.CurrentCapture = capture;
+                TxCallbackRate.CurrentRate = _txCallbackRateThisStream;
                 Tracing.TraceLine("remoteAudioProc: transmit capture at " + TxAudioCallbacksPerSecond
                     + " callbacks a second: " + decision.Reason, TraceLevel.Info);
             }
@@ -245,19 +247,33 @@ namespace Radios
         /// flags over the whole run, and the verdict kept for this machine and
         /// device. The machine's next connect decides from it.
         /// </summary>
+        /// <summary>
+        /// The capture the transmit stream will open as (repair round 1, R7):
+        /// the device, its host API, the requested rate, and mono or stereo. If
+        /// the device refuses the rate, the judged stream's identity differs and
+        /// no verdict matches, which falls back to the shipped rate.
+        /// </summary>
+        private TxCaptureIdentity ExpectedTxCapture(uint rate) => new(remoteInputDevice?.Name ?? "",
+            remoteInputDevice?.hostApiTypeId ?? -1, (int)rate, remoteInputDevice?.maxInputChannels == 1 ? 1 : 2);
+
         private void JudgeTxCallbackRate(JJPortaudio.JJAudioStream stream)
         {
             try
             {
                 var (callbacks, overflows, underflows) = stream.InputDropouts;
-                var verdict = TxCallbackRate.Judge(remoteInputDevice?.Name ?? "", _txCallbackRateThisStream,
+                var capture = new TxCaptureIdentity(remoteInputDevice?.Name ?? "", remoteInputDevice?.hostApiTypeId ?? -1,
+                    (int)stream.SampleRate, stream.Channels == 1 ? 1 : 2);
+                var verdict = TxCallbackRate.Judge(capture, _txCallbackRateThisStream,
                     callbacks, overflows, underflows, DateTime.UtcNow);
                 if (verdict == null) return;
-                TxCallbackVerdictStore.Default()?.Record(verdict);
+                var store = TxCallbackRate.Store;
+                bool kept = store != null && store.Record(verdict);
                 Tracing.TraceLine("remoteAudioProc: transmit capture at " + verdict.CallbacksPerSecond
                     + " callbacks a second " + (verdict.Passed ? "held" : "dropped audio") + " over "
                     + callbacks + " callbacks (" + overflows + " input overflows, " + underflows
-                    + " underflows); kept for this machine", verdict.Passed ? TraceLevel.Info : TraceLevel.Error);
+                    + " underflows); " + (kept ? "kept for this machine"
+                        : "NOT kept: the verdict could not be saved, so the next connect will not know it"),
+                    verdict.Passed && kept ? TraceLevel.Info : TraceLevel.Error);
             }
             catch (Exception ex)
             {

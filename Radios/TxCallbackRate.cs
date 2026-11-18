@@ -7,11 +7,29 @@ using System.Xml.Serialization;
 
 namespace Radios
 {
+    /// <summary>
+    /// What a dropout verdict was measured on (repair round 1, R7): the capture
+    /// device's name, its host API, and the format the stream opened at. A pass
+    /// on one of these says nothing about another, so each is part of the key.
+    /// </summary>
+    public sealed record TxCaptureIdentity(string Device, int HostApi, int SampleRate, int Channels);
+
     /// <summary>One machine's measured answer: did the microphone deliver this callback rate without dropouts?</summary>
     public sealed class TxCallbackVerdict
     {
         /// <summary>The capture device's name, as the stream opened it.</summary>
         public string Device { get; set; } = "";
+        /// <summary>PortAudio's host API type id for that device.</summary>
+        public int HostApi { get; set; } = -1;
+        /// <summary>The rate the stream actually opened at.</summary>
+        public int SampleRate { get; set; }
+        /// <summary>1 on a mono device, 2 otherwise.</summary>
+        public int Channels { get; set; }
+
+        /// <summary>Whether this verdict was measured on exactly this capture.</summary>
+        public bool Describes(TxCaptureIdentity capture) => capture != null
+            && string.Equals(Device, capture.Device ?? "", StringComparison.OrdinalIgnoreCase)
+            && HostApi == capture.HostApi && SampleRate == capture.SampleRate && Channels == capture.Channels;
         public int CallbacksPerSecond { get; set; }
         public bool Passed { get; set; }
         public long Callbacks { get; set; }
@@ -80,6 +98,9 @@ namespace Radios
         /// <summary>A faster run shorter than this many seconds proves nothing either way and records no verdict.</summary>
         public const int MinimumSecondsForVerdict = 20;
 
+        /// <summary>A pass older than this is not trusted (repair round 1, R7): drivers, power plans and loads change.</summary>
+        public static readonly TimeSpan MaxVerdictAge = TimeSpan.FromDays(30);
+
         private static long _helperCost = -1;
 
         /// <summary>
@@ -90,7 +111,54 @@ namespace Radios
         public static long? HelperFrameCostP99Nanos
         {
             get { long v = Interlocked.Read(ref _helperCost); return v < 0 ? null : v; }
-            set => Interlocked.Exchange(ref _helperCost, value ?? -1);
+            set
+            {
+                Interlocked.Exchange(ref _helperCost, value ?? -1);
+                // Off the caller's thread: the helper's handshake arrives under
+                // its host's lock, and this reads a file.
+                ThreadPool.QueueUserWorkItem(_ => Reconsider());
+            }
+        }
+
+        /// <summary>The capture the transmit stream opened on this session, set at each open; null before one.</summary>
+        public static TxCaptureIdentity? CurrentCapture { get; set; }
+
+        /// <summary>The rate the capture opened at this session (0 before one).</summary>
+        public static int CurrentRate { get; set; }
+
+        /// <summary>
+        /// What the NEXT capture open would choose, worked out again whenever the
+        /// helper's benchmark arrives (repair round 1, R7), since the rate is
+        /// otherwise chosen only at connect, often before the helper has started.
+        /// It applies from the next capture open; the running stream is never
+        /// reopened for it. Null until a capture has opened.
+        /// </summary>
+        public static Decision? NextOpen { get; private set; }
+
+        /// <summary>Tests only: a store under a scratch root in place of the app's.</summary>
+        internal static TxCallbackVerdictStore? StoreForTest { get; set; }
+
+        /// <summary>The store verdicts are read from and kept in: the app's, under the settings root.</summary>
+        public static TxCallbackVerdictStore? Store => StoreForTest ?? TxCallbackVerdictStore.Default();
+
+        /// <summary>Work out <see cref="NextOpen"/> again and trace it, once the helper's cost is known.</summary>
+        public static void Reconsider()
+        {
+            var capture = CurrentCapture;
+            if (capture == null) return;
+            try
+            {
+                var decision = Decide(JJPortaudio.AudioBuffering.ConfiguredTxCallbacksPerSecond(), HelperFrameCostP99Nanos,
+                    Store?.Find(capture, Fast), DateTime.UtcNow);
+                NextOpen = decision;
+                JJTrace.Tracing.TraceLine("TxCallbackRate: the helper's benchmark arrived; the next transmit capture open would run at "
+                    + decision.CallbacksPerSecond + " a second (" + decision.Reason + "); this one stays at " + CurrentRate,
+                    System.Diagnostics.TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("TxCallbackRate: could not reconsider the rate: " + ex.Message, System.Diagnostics.TraceLevel.Error);
+            }
         }
 
         /// <summary>Why the rate was chosen, for the trace.</summary>
@@ -103,23 +171,28 @@ namespace Radios
         /// a passed dropout verdict at that rate. Anything unknown is the shipped
         /// rate, which is never worse than today.
         /// </summary>
-        public static Decision Decide(int? overrideRate, long? helperCostP99Nanos, TxCallbackVerdict? verdictAtFast)
+        public static Decision Decide(int? overrideRate, long? helperCostP99Nanos, TxCallbackVerdict? verdictAtFast, DateTime nowUtc)
         {
             if (overrideRate is int forced) return new(forced, "set for this launch by " + JJPortaudio.AudioBuffering.TxCallbackRateEnvironmentVariable);
             if (helperCostP99Nanos is not long cost) return new(Shipped, "no helper benchmark yet this session");
             if (cost >= CostBudgetNanos) return new(Shipped, $"the helper's frame cost ({cost / 1000} microseconds at the 99th percentile) is over the {CostBudgetNanos / 1000} budget");
             if (verdictAtFast == null) return new(Shipped, $"this microphone has not yet been measured at {Fast} a second");
             if (!verdictAtFast.Passed) return new(Shipped, $"this microphone dropped audio at {Fast} a second (measured {verdictAtFast.MeasuredUtc:yyyy-MM-dd})");
+            if (nowUtc - verdictAtFast.MeasuredUtc > MaxVerdictAge)
+                return new(Shipped, $"this microphone's pass at {Fast} a second is from {verdictAtFast.MeasuredUtc:yyyy-MM-dd}, older than {MaxVerdictAge.TotalDays:0} days; it needs measuring again");
             return new(Fast, $"the helper's cost and this microphone both measured fit at {Fast} a second");
         }
 
         /// <summary>The verdict a closing stream earns, or null when it ran too briefly (or at the shipped rate) to say anything.</summary>
-        public static TxCallbackVerdict? Judge(string device, int rate, long callbacks, long overflows, long underflows, DateTime nowUtc)
+        public static TxCallbackVerdict? Judge(TxCaptureIdentity capture, int rate, long callbacks, long overflows, long underflows, DateTime nowUtc)
         {
-            if (rate == Shipped || rate <= 0 || callbacks < (long)rate * MinimumSecondsForVerdict) return null;
+            if (capture == null || rate == Shipped || rate <= 0 || callbacks < (long)rate * MinimumSecondsForVerdict) return null;
             return new TxCallbackVerdict
             {
-                Device = device ?? "",
+                Device = capture.Device ?? "",
+                HostApi = capture.HostApi,
+                SampleRate = capture.SampleRate,
+                Channels = capture.Channels,
                 CallbacksPerSecond = rate,
                 Passed = overflows == 0 && underflows == 0,
                 Callbacks = callbacks,
@@ -134,7 +207,7 @@ namespace Radios
     /// The per-machine verdicts, in <c>{settings root}\txCallbackChecks.xml</c>
     /// (resolved from <see cref="RadioConfig.AppDataRoot"/>). Per machine
     /// because the settings root is; per device and rate because that is what
-    /// was measured. A newer verdict for the same device and rate replaces the
+    /// was measured (name, host API and format, R7). A newer verdict for the same capture and rate replaces the
     /// older one. An unreadable file reads as no verdicts (the shipped rate)
     /// and is overwritten by the next verdict: it holds measurements, not the
     /// operator's choices.
@@ -154,10 +227,9 @@ namespace Radios
             return string.IsNullOrEmpty(root) ? null : new TxCallbackVerdictStore(root);
         }
 
-        public TxCallbackVerdict? Find(string device, int rate)
+        public TxCallbackVerdict? Find(TxCaptureIdentity capture, int rate)
         {
-            lock (Gate) return Read().Verdicts.LastOrDefault(v => v.CallbacksPerSecond == rate
-                && string.Equals(v.Device, device ?? "", StringComparison.OrdinalIgnoreCase));
+            lock (Gate) return Read().Verdicts.LastOrDefault(v => v.CallbacksPerSecond == rate && v.Describes(capture));
         }
 
         public bool Record(TxCallbackVerdict verdict)
@@ -166,8 +238,8 @@ namespace Radios
             lock (Gate)
             {
                 var file = Read();
-                file.Verdicts.RemoveAll(v => v.CallbacksPerSecond == verdict.CallbacksPerSecond
-                    && string.Equals(v.Device, verdict.Device, StringComparison.OrdinalIgnoreCase));
+                var key = new TxCaptureIdentity(verdict.Device, verdict.HostApi, verdict.SampleRate, verdict.Channels);
+                file.Verdicts.RemoveAll(v => v.CallbacksPerSecond == verdict.CallbacksPerSecond && v.Describes(key));
                 file.Verdicts.Add(verdict);
                 try
                 {

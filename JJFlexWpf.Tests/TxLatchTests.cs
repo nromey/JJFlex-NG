@@ -197,9 +197,64 @@ public sealed class TxLatchTests
         Assert.Equal(2, told.Count);
     }
 
-    [Fact]
-    public void The_failure_notice_plays_on_the_alert_channel_and_never_reaches_a_transmit_frame()
+    // ── The notice's route (repair round 1, R1) ──
+
+    [Theory]
+    [InlineData(true, "Microphone (USB Audio Device)", "", TxAudioConditioning.TxNoticeRoute.ToneAndWords)]
+    [InlineData(false, "Microphone (USB Audio Device)", "", TxAudioConditioning.TxNoticeRoute.WordsOnlyNoAlertChannel)]
+    [InlineData(true, "Speakers (Realtek(R) Audio) [Loopback]", "", TxAudioConditioning.TxNoticeRoute.WordsOnlyCaptureHearsOutput)]
+    [InlineData(true, "CABLE Output (VB-Audio Virtual Cable)", "", TxAudioConditioning.TxNoticeRoute.WordsOnlyCaptureHearsOutput)]
+    [InlineData(true, "Line 1 (Virtual Audio Cable)", "", TxAudioConditioning.TxNoticeRoute.WordsOnlyCaptureHearsOutput)]
+    [InlineData(true, "Microsoft Sound Mapper - Input", "VoiceMeeter Output (VB-Audio VoiceMeeter VAIO)", TxAudioConditioning.TxNoticeRoute.WordsOnlyCaptureHearsOutput)]
+    [InlineData(true, "", "Stereo Mix [Loopback]", TxAudioConditioning.TxNoticeRoute.WordsOnlyCaptureHearsOutput)]
+    [InlineData(true, "Microsoft Sound Mapper - Input", "Microphone (USB Audio Device)", TxAudioConditioning.TxNoticeRoute.ToneAndWords)]
+    public void The_tone_plays_only_on_a_live_alert_channel_and_never_when_the_microphone_can_carry_it(
+        bool alertLive, string capture, string windowsDefault, TxAudioConditioning.TxNoticeRoute expected)
     {
+        Assert.Equal(expected, TxAudioConditioning.ChooseNoticeRoute(alertLive, capture, windowsDefault));
+    }
+
+    [Fact]
+    public void With_no_alert_channel_the_notice_tone_is_never_the_system_beep()
+    {
+        bool master = EarconPlayer.EarconsEnabled;
+        bool warnings = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.Warnings);
+        EarconPlayer.EarconsEnabled = true;
+        EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Warnings, true);
+        EarconPlayer.TestAlertMixer = null;
+        try
+        {
+            Assert.False(EarconPlayer.AlertChannelLive, "an alert channel is live in this test process, so this proves nothing");
+            long beepsBefore = Interlocked.Read(ref EarconPlayer.FallbackBeepsRequested);
+            Assert.False(EarconPlayer.ProblemRecordedToneOnAlertChannelOnly());
+            Assert.Equal(beepsBefore, Interlocked.Read(ref EarconPlayer.FallbackBeepsRequested));
+            // The positive control: the ordinary tone, asked the same way, does fall back.
+            EarconPlayer.ProblemRecordedTone();
+            Assert.Equal(beepsBefore + 1, Interlocked.Read(ref EarconPlayer.FallbackBeepsRequested));
+
+            var mixer = new NAudio.Wave.SampleProviders.MixingSampleProvider(
+                NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(EarconPlayer.MixerSampleRate, 2));
+            EarconPlayer.TestAlertMixer = mixer;
+            Assert.True(EarconPlayer.ProblemRecordedToneOnAlertChannelOnly());
+            Assert.NotEmpty(mixer.MixerInputs);
+        }
+        finally
+        {
+            EarconPlayer.TestAlertMixer = null;
+            EarconPlayer.EarconsEnabled = master;
+            EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Warnings, warnings);
+        }
+    }
+
+    [Fact]
+    public void The_failure_notice_is_not_written_into_the_transmit_buffers()
+    {
+        // What this proves, and only this: the notice's tone goes to the alert
+        // mixer and is not written into any frame the pipeline sends. It is
+        // NOT end-to-end isolation: a microphone that hears the alert device by
+        // wire (loopback, virtual cable) is closed by the route choice tested
+        // below, and one that hears a loudspeaker in the room is physics, which
+        // nothing here claims to solve (repair round 1, R1).
         var k = new Killable();
         var chain = new TxNoiseChain(k.Catalog);
         chain.SetStrength("rnnoise", 1f);

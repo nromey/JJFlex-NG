@@ -116,6 +116,16 @@ namespace JJPortaudio
         /// <summary>Key-downs seen at a buffer boundary since this chain was made. A test and trace counter.</summary>
         public long KeyDowns { get; private set; }
 
+        private int _gateRequest = -1; // -1 none; 0 off; 1 on
+
+        /// <summary>
+        /// Turn the gate on or off at the next UNKEYED buffer (Sprint 49 Track H,
+        /// repair round 1, R3): like a noise engine change, the gate's on and off
+        /// never land mid-over. Writing <c>Gate.Enabled</c> directly still works
+        /// at once, for code that owns its own timing (attach, tests).
+        /// </summary>
+        public void RequestGateEnabled(bool on) => System.Threading.Volatile.Write(ref _gateRequest, on ? 1 : 0);
+
         /// <summary>Read the key state for this buffer. Runs before the bypass, so a CW over still counts as an over.</summary>
         private bool ReadKey()
         {
@@ -166,7 +176,11 @@ namespace JJPortaudio
         /// </summary>
         public void Process(float[] buffer, int count, uint sampleRate)
         {
-            ReadKey();
+            if (!ReadKey())
+            {
+                int request = System.Threading.Interlocked.Exchange(ref _gateRequest, -1);
+                if (request >= 0) Gate.Enabled = request == 1;
+            }
             if (_bypassAll) return;
 
             var nr = NoiseReducer;

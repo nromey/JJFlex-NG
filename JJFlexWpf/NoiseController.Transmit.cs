@@ -56,14 +56,9 @@ namespace JJFlexWpf
     {
         public bool Enabled => TxAudioConditioning.GateEnabled;
 
-        // MERGE NOTE (Track H repair round 1): the repaired TxAudioConditioning
-        // answers the gate's on and off with a timing; take it from there at
-        // the merge. Until then the setter is live, so the answer is Now.
-        public TxChangeResult SetEnabled(bool on)
-        {
-            TxAudioConditioning.GateEnabled = on;
-            return TxChangeResult.Now;
-        }
+        // Track H repair round 1: the gate's on and off wait for the unkey while
+        // keyed, and say so; the Workshop's old toggle did this, and it lives here now.
+        public TxChangeResult SetEnabled(bool on) => TxAudioConditioning.SetGateEnabled(on);
         public bool AutoThreshold { get => TxAudioConditioning.AutoThreshold; set => TxAudioConditioning.AutoThreshold = value; }
         public float MarginDb { get => TxAudioConditioning.ThresholdMarginDb; set => TxAudioConditioning.ThresholdMarginDb = value; }
         public float ThresholdDb { get => TxAudioConditioning.GateThresholdDb; set => TxAudioConditioning.GateThresholdDb = value; }
