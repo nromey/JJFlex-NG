@@ -306,6 +306,86 @@ namespace JJFlexWpf
             return _defaults.GetOrAdd(id, made);
         }
 
+        // ── What the TRANSMIT audio thread reads (Sprint 49 Track H, repair round 3) ──
+        //
+        // A whole setup must not reach the air partway through an over. Its
+        // engine and on-or-off already wait for an unkeyed buffer; its LIVE
+        // values (each engine's strength and settings) did not: the control side
+        // wrote them into the store, and a keyed buffer read them from there.
+        // So on transmit the audio thread reads a published view instead: the
+        // values in force now, plus a whole replacement waiting to be adopted.
+        // The control side is the only writer of both and never blocks the audio
+        // thread (a compare-and-swap, no lock); the audio thread adopts the
+        // waiting replacement only on an unkeyed buffer, by swapping in a view
+        // the control side already built. A lone strength or live-setting
+        // request still reaches the view in force at once (strength is ruled
+        // live; the other levers follow TxNoiseChain.ContinuousLeversLiveWhileKeyed),
+        // and is applied to the waiting replacement too, so the later request
+        // still wins once it is adopted. Receive reads the store, as before.
+
+        private sealed class TxView
+        {
+            public static readonly TxView Empty = new(new Dictionary<string, Parameters>(), null);
+            public readonly Dictionary<string, Parameters> Current;
+            public readonly Dictionary<string, Parameters>? Pending;
+            /// <summary>The waiting replacement as the view in force, built here so adopting it allocates nothing on the audio thread.</summary>
+            public readonly TxView? Adopted;
+            public TxView(Dictionary<string, Parameters> current, Dictionary<string, Parameters>? pending)
+            {
+                Current = current; Pending = pending;
+                Adopted = pending == null ? null : new TxView(pending, null);
+            }
+        }
+        private TxView _txView = TxView.Empty;
+
+        /// <summary>Transmit: what the audio thread uses for an engine now. Never allocates, never blocks.</summary>
+        private Parameters ParametersForAudio(string id)
+        {
+            if (_direction != DenoiseDirection.Transmit) return ParametersFor(id);
+            return Volatile.Read(ref _txView).Current.TryGetValue(id, out var p) ? p : DefaultParameters(id);
+        }
+
+        /// <summary>A lone live request: applied to the view in force and to any waiting replacement.</summary>
+        private void PublishLive(string id, Func<Parameters, Parameters> change)
+        {
+            if (_direction != DenoiseDirection.Transmit) return;
+            while (true)
+            {
+                var was = Volatile.Read(ref _txView);
+                var current = new Dictionary<string, Parameters>(was.Current);
+                current[id] = change(was.Current.TryGetValue(id, out var c) ? c : DefaultParameters(id));
+                Dictionary<string, Parameters>? pending = null;
+                if (was.Pending != null)
+                {
+                    pending = new Dictionary<string, Parameters>(was.Pending);
+                    pending[id] = change(was.Pending.TryGetValue(id, out var q) ? q : DefaultParameters(id));
+                }
+                if (ReferenceEquals(Interlocked.CompareExchange(ref _txView, new TxView(current, pending), was), was)) return;
+            }
+        }
+
+        /// <summary>A whole replacement: the store as it now stands, waiting for an unkeyed buffer.</summary>
+        private void PublishWhole()
+        {
+            if (_direction != DenoiseDirection.Transmit) return;
+            var snapshot = new Dictionary<string, Parameters>(_settings);
+            while (true)
+            {
+                var was = Volatile.Read(ref _txView);
+                if (ReferenceEquals(Interlocked.CompareExchange(ref _txView, new TxView(was.Current, snapshot), was), was)) return;
+            }
+        }
+
+        /// <summary>On the audio thread, unkeyed: adopt a waiting replacement, if any. No allocation, no lock.</summary>
+        private void AdoptPendingView()
+        {
+            var was = Volatile.Read(ref _txView);
+            if (was.Adopted != null) Interlocked.CompareExchange(ref _txView, was.Adopted, was);
+        }
+
+        /// <summary>Tests only: whether a whole replacement is waiting for an unkeyed buffer.</summary>
+        internal bool HasPendingView => Volatile.Read(ref _txView).Pending != null;
+
         /// <summary>Tests only: the parameters an engine reads now, to prove an untouched engine's are one instance.</summary>
         internal object ParametersForTest(string id) => ParametersFor(id);
 
@@ -316,6 +396,7 @@ namespace JJFlexWpf
             if (!float.IsFinite(value)) return;
             _settings.AddOrUpdate(id, key => DefaultParameters(key) with { Strength = Math.Clamp(value, 0, 1) },
                 (_, p) => p with { Strength = Math.Clamp(value, 0, 1) });
+            PublishLive(id, p => p with { Strength = Math.Clamp(value, 0, 1) });
         }
         public IReadOnlyList<EngineSettingDescriptor> SettingsFor(string id)
         {
@@ -340,6 +421,7 @@ namespace JJFlexWpf
             // silently set its floor to 0.
             _settings.AddOrUpdate(id, key => MakeParameters(key, DefaultParameters(key).Strength, new Dictionary<string, EngineSettingValue> { [name] = value }),
                 (key, p) => MakeParameters(key, p.Strength, new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value }));
+            PublishLive(id, p => MakeParameters(id, p.Strength, new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value }));
             // A rebuild setting (a new delay, or NR4's estimator) only takes
             // effect in a new instance, built under the warm-up cross-fade.
             if (descriptor.NeedsRebuild && ChosenEngineId == id) Select(id, out _, force: true);
@@ -449,9 +531,11 @@ namespace JJFlexWpf
             }
             catch { bank.Dispose(); throw; }
         }
-        private void ApplyParameters(PerChannelDenoiserBank bank, string id, ref Parameters? applied)
+        private void ApplyParameters(PerChannelDenoiserBank bank, string id, ref Parameters? applied) =>
+            ApplyParameters(bank, ParametersFor(id), ref applied);
+
+        private static void ApplyParameters(PerChannelDenoiserBank bank, Parameters p, ref Parameters? applied)
         {
-            var p = ParametersFor(id);
             if (ReferenceEquals(p, applied)) return;
             // On the audio thread: an array and two for loops, nothing else (repair round 2).
             var live = p.Live;
@@ -597,6 +681,9 @@ namespace JJFlexWpf
                 if (swap) { StopFailedChoice(choice); return; }
             }
             else if (choice.Id != RunningEngineId) RequestBuild(choice);
+            // Repair round 3: a whole setup's live values are adopted here, on
+            // an unkeyed buffer, with its engine swap, and never mid-over.
+            if (swap) AdoptPendingView();
             if (swap)
             {
                 InstallHook?.Invoke("before-ready-take");
@@ -632,9 +719,10 @@ namespace JJFlexWpf
             // Keyed (no swap permitted): a late or failed frame latches the
             // bank dry for the rest of the over, never frame by frame (item C).
             running.LatchFallback = !swap;
-            ApplyParameters(running, run!.Id, ref _runningApplied);
+            var inForce = ParametersForAudio(run!.Id);
+            ApplyParameters(running, inForce, ref _runningApplied);
             long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames, latched = running.LatchedFrames;
-            running.Process(audio, GetStrength(run.Id));
+            running.Process(audio, inForce.Strength);
             LastBufferProcessed = true;
             LastBufferClean = running.EngineFrames != took && late == running.LateFrames
                 && failed == running.FallbackFrames && latched == running.LatchedFrames && !running.Latched;
@@ -783,6 +871,8 @@ namespace JJFlexWpf
             var before = RebuildValues(chosen);
             _settings.Clear();
             RestoreSettings(records);
+            // Transmit: the whole replacement waits for an unkeyed buffer (repair round 3).
+            PublishWhole();
             if (id != chosen) return Select(id, out _);
             if (!before.SequenceEqual(RebuildValues(chosen))) Select(chosen, out _, force: !RunningIsCurrent(chosen));
             return true;
