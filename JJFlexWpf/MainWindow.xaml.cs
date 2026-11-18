@@ -1311,6 +1311,11 @@ public partial class MainWindow : UserControl
                     RigControl.RigFields.RigUpdate?.Invoke();
                 }
 
+                // #1123 (Sprint 49 Track H2): receive noise reduction follows the
+                // active slice's mode even when Home's fields are hidden, so it
+                // cannot wait for the fields' own poll below.
+                _noise?.FollowReceiveMode("the main window's poll");
+
                 // Update screen fields panel (Sprint 14)
                 if (FieldsPanel.Visibility == Visibility.Visible)
                 {

@@ -544,4 +544,73 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
 
     private static string Describe(NoiseModeMemoryConfig m) =>
         string.Join("|", new[] { m.Voice, m.Cw, m.Digital }.Select(g => g.Known + ":" + g.Spectral.On + g.Spectral.EngineId + ":" + g.Neural.On + g.Neural.EngineId));
+
+    // ── Item 7: #1123, the active slice's mode ──
+
+    [Fact]
+    public void Moving_to_a_CW_slice_enters_CWs_group_and_moving_back_enters_voice_again()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.Attach("USB");
+        f.Noise.NoteActiveSlice(0);
+        f.Noise.Toggle("rnnoise", "test");                  // voice: RNNoise
+        f.Noise.OnModeChanged("CW");                        // CW: its starting point, NNR
+        Assert.True(f.Noise.IsOn("nnr"));
+        f.Noise.OnModeChanged("USB");
+        Assert.True(f.Noise.IsOn("rnnoise"));
+
+        // Slice B is in CW. The radio reports no mode change when the active
+        // slice changes: only the slice and its mode, read by the poll.
+        f.Radio.SliceIdentity = "slice B";
+        f.Radio.Mode = "CW";
+        f.Spoken.Clear();
+        f.Noise.NoteActiveSlice(1);
+        Assert.Equal(NoiseModeGroup.Cw, f.Noise.CurrentGroup);
+        Assert.True(f.Noise.IsOn("nnr"));
+        Assert.Contains(SpeechSubject.NoiseModeStart, f.Spoken.Said.Select(s => s.Subject));
+
+        // And back to slice A, in USB.
+        f.Radio.SliceIdentity = "slice A";
+        f.Radio.Mode = "USB";
+        f.Noise.NoteActiveSlice(0);
+        Assert.Equal(NoiseModeGroup.Voice, f.Noise.CurrentGroup);
+        Assert.True(f.Noise.IsOn("rnnoise"));
+
+        // The main window's poll reaches the same path when Home's fields are hidden.
+        f.Radio.SliceIdentity = "slice B";
+        f.Radio.Mode = "CW";
+        f.Noise.FollowReceiveMode("test");
+        Assert.True(f.Noise.IsOn("nnr"));
+        // A second report of the same group does nothing more.
+        f.Spoken.Clear();
+        f.Noise.OnModeChanged("CW");
+        Assert.Empty(f.Spoken.Said);
+    }
+
+    [Fact]
+    public void Before_a_connect_has_entered_a_group_the_slice_follow_does_nothing()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Radio.Mode = "CW";
+        f.Noise.FollowReceiveMode("test");
+        f.Noise.NoteActiveSlice(1);
+        Assert.Empty(f.Spoken.Said);
+        Assert.False(f.Config.NoiseModeMemory.Cw.Known);
+    }
+
+    [Fact]
+    public void The_main_window_poll_follows_the_receive_mode_whether_or_not_Home_is_shown()
+    {
+        // Source pin: the main window's poll asks the controller before, and
+        // outside, the field panel's visibility check (#1123).
+        string source = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "MainWindow.xaml.cs"));
+        int follow = source.IndexOf("_noise?.FollowReceiveMode(", StringComparison.Ordinal);
+        int panel = source.IndexOf("if (FieldsPanel.Visibility == Visibility.Visible)", StringComparison.Ordinal);
+        Assert.True(follow > 0 && panel > follow, "the poll must follow the receive mode before the panel's own visibility check");
+        // And the live radio reads the ACTIVE slice's mode, never the transmit one.
+        string radio = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "NoiseRadio.cs"));
+        Assert.Contains("public string ReceiveMode => _rig.RXMode", radio);
+    }
 }
