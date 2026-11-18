@@ -753,8 +753,9 @@ public sealed class TxNoiseChainTests
             cond.Process(buf, buf.Length, 48000);
             Assert.Equal((false, 150f, 25f, true), (cond.Gate.Enabled, cond.Gate.HoldMs, cond.Gate.RangeDb, cond.AutoThresholdInForce));
         }
-        cond.Gate.RangeDb = 12;                               // a lone lever, live
-        cond.ChangeStagedGate(g => g.RangeDb = 12);           // and on the staged set, as the owner does
+        cond.ChangeGate(g => g.RangeDb = 12);                 // a lone lever: in force, and in the staged set
+        cond.Process(buf, buf.Length, 48000);                 // still keyed: the lever is live...
+        Assert.Equal((12f, 150f, false), (cond.Gate.RangeDb, cond.Gate.HoldMs, cond.Gate.Enabled)); // ...the setup is not
         Assert.True(cond.HasStagedGate);
         keyed = false;
         cond.Process(buf, buf.Length, 48000);
