@@ -99,7 +99,8 @@ public sealed class PcDenoiseSlotTests
         public void Dispose() => Pipeline.Dispose();
     }
     private static DenoiseEngineEntry Row(string id, DenoiseFamily family, Func<IReadOnlyDictionary<string, EngineSettingValue>, IDenoiseEngine>? factory) =>
-        new(id, DenoiseSide.Pc, family, "label", new[] { DenoiseDirection.Receive }, factory, () => Unavailability.None, SettingDescriptors: Engine.Descriptors);
+        new(id, DenoiseSide.Pc, family, "label", new[] { DenoiseDirection.Receive },
+            factory == null ? null : (initial, _) => factory(initial), () => Unavailability.None, SettingDescriptors: Engine.Descriptors);
     private static float[] Audio() => Enumerable.Repeat(0.1f, 960).ToArray();
     private static void Until(Func<bool> predicate, Action? step = null)
     {
@@ -553,7 +554,7 @@ public sealed class PcDenoiseSlotTests
         // built here with no helper has had no handshake, so it holds none.
         // NoiseCatalogTests pins the mirror against Track A's documented offer.
         foreach (var row in catalog.Entries.Where(e => e.Factory != null && DenoiseEngineCatalog.HelperMirror(e.Id) == null)) {
-            using var engine = row.Factory!(row.Settings.ToDictionary(d => d.Name, d => d.Default));
+            using var engine = row.Factory!(row.Settings.ToDictionary(d => d.Name, d => d.Default), DenoiseDirection.Receive);
             Assert.Equal(row.Settings, engine.Settings);
             var slot = row.Family == DenoiseFamily.Spectral ? spectral : neural;
             foreach (var descriptor in row.Settings) {
@@ -659,7 +660,7 @@ public sealed class PcDenoiseSlotTests
         bool holdBuild = false;
         var defaults = new DenoiseEngineCatalog();
         var catalog = new DenoiseEngineCatalog(defaults.Entries.Select(e => e.Id == "deepfilternet3"
-            ? e with { Factory = _ => {
+            ? e with { Factory = (_, _) => {
                 if (Volatile.Read(ref holdBuild)) { buildEntered.Set(); Assert.True(buildRelease.Wait(5000)); }
                 var engine = new DeepFilterNet3Engine(9, lib);
                 Assert.True(engine.IsAvailable, engine.UnavailabilityDetail); made.Add(engine); return engine;

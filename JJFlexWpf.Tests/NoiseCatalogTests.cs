@@ -281,7 +281,7 @@ public sealed class NoiseCatalogTests
         {
             new DenoiseEngineEntry("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr4",
                 new[] { DenoiseDirection.Receive },
-                initial => { var est = SpecbleachEngine.EstimatorFrom(initial); built.Enqueue(est); return new PassEngine(); },
+                (initial, _) => { var est = SpecbleachEngine.EstimatorFrom(initial); built.Enqueue(est); return new PassEngine(); },
                 () => Unavailability.None, SettingDescriptors: SpecbleachEngine.SettingDescriptors),
         }));
         Assert.True(p.SpectralSlot.Select("nr4", out _));

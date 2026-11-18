@@ -24,9 +24,9 @@ public sealed class NoiseSlotResultTests
         var rows = new[]
         {
             new DenoiseEngineEntry("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.rnnoise", new[] { DenoiseDirection.Receive },
-                _ => throw new InvalidOperationException("rnnoise.dll is the wrong architecture"), () => Unavailability.InitFailed),
+                (_, _) => throw new InvalidOperationException("rnnoise.dll is the wrong architecture"), () => Unavailability.InitFailed),
             new DenoiseEngineEntry("spectral_capture", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.spectral_capture", new[] { DenoiseDirection.Receive },
-                _ => new NoiseFixture.Engine("spectral_capture", SpectralCaptureEngine.SettingDescriptors, new Dictionary<string, EngineSettingValue>(), 0),
+                (_, _) => new NoiseFixture.Engine("spectral_capture", SpectralCaptureEngine.SettingDescriptors, new Dictionary<string, EngineSettingValue>(), 0),
                 () => Unavailability.None, SettingDescriptors: SpectralCaptureEngine.SettingDescriptors),
         };
         return new RxAudioPipeline(catalog: new DenoiseEngineCatalog(rows));

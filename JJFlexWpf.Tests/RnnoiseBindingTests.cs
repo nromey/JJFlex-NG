@@ -130,7 +130,7 @@ public sealed class RnnoiseBindingTests
     [Fact]
     public void App_catalog_and_transmit_factory_pin_corrected_scaling()
     {
-        using var engine = new DenoiseEngineCatalog().Find("rnnoise")!.Factory!(new Dictionary<string, EngineSettingValue>());
+        using var engine = new DenoiseEngineCatalog().Find("rnnoise")!.Factory!(new Dictionary<string, EngineSettingValue>(), Radios.DenoiseDirection.Receive);
         Assert.Equal(RnnoiseScaling.Corrected, Assert.IsType<RnnoiseEngine>(engine).Scaling);
         using var provider = TxAudioConditioning.CreateNoiseReductionProvider();
         for (int ch = 0; ch < 2; ch++)

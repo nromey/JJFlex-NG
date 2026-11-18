@@ -90,7 +90,36 @@ namespace JJFlexWpf
         private bool _wasActive;
         private float[] _nextAudio = Array.Empty<float>();
         public DenoiseFamily Family { get; }
-        public DenoiseDirection Direction => DenoiseDirection.Receive;
+
+        private readonly DenoiseDirection _direction;
+        /// <summary>
+        /// Which audio this slot cleans, fixed at construction (Sprint 49 Track
+        /// H, item A): receive, or the microphone on transmit. One class serves
+        /// both, so there is one chooser vocabulary, not two (ruled 2026-10-20).
+        /// The catalog's factory is handed this direction, so a helper engine
+        /// opens a channel of the matching kind. A transmit slot never warms up
+        /// or cross-fades between engines: every change it would make waits for
+        /// <see cref="SwapPermitted"/> (the unkey, item B), and is then a cut.
+        /// </summary>
+        public DenoiseDirection Direction => _direction;
+
+        /// <summary>
+        /// Transmit only (item B): asked once per buffer on the audio thread;
+        /// while it answers false (the radio is keyed), the slot changes nothing
+        /// anyone could hear. A delivered build waits in its mailbox, a failed
+        /// choice leaves the running engine alone, and the swap happens on the
+        /// first buffer it answers true. Null means always permitted. Ignored
+        /// by a receive slot, whose changes go through the warm-up instead.
+        /// </summary>
+        internal Func<bool>? SwapPermitted { get; set; }
+
+        /// <summary>
+        /// Transmit only: the delay, in samples per channel, the last buffer
+        /// this slot was given went out with; 0 when the slot passed it
+        /// through untouched (off, nothing built). The transmit chain adds the
+        /// two slots' figures for the conditioner's aligned residual monitor.
+        /// </summary>
+        internal int LastAppliedLatencySamples { get; private set; }
         public string ChosenEngineId => Volatile.Read(ref _choice).Id;
         public string RunningEngineId => Volatile.Read(ref _runningBuild)?.Id ?? "";
 
@@ -183,12 +212,14 @@ namespace JJFlexWpf
         }
 
         internal PcDenoiseSlot(DenoiseFamily family, string initialId, int sampleRate, int channels,
-            DenoiseEngineCatalog catalog)
+            DenoiseEngineCatalog catalog, DenoiseDirection direction = DenoiseDirection.Receive)
         {
+            // The direction first: the default parameters below read it.
+            _direction = direction;
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
             // Every engine's default parameters, made here rather than on the audio thread (repair round 1).
             foreach (var row in catalog.Entries) DefaultParameters(row.Id);
-            _choice = new Choice(0, initialId);
+            _choice = new Choice(0, initialId, direction);
             var entry = catalog.Find(initialId);
             _choice.Entry = entry;
             if (entry?.Factory != null && entry.Family == family && entry.Serves(Direction))
@@ -299,7 +330,7 @@ namespace JJFlexWpf
             lock (_control)
             {
                 if (_closed != 0) { refusal = "disposed"; return false; }
-                choice = new Choice(_choice.Generation + 1, id) { Entry = entry, Force = force };
+                choice = new Choice(_choice.Generation + 1, id, _direction) { Entry = entry, Force = force };
                 Volatile.Write(ref _choice, choice);
                 var abandoned = Interlocked.Exchange(ref _ready, null);
                 abandoned?.Bank.Dispose(); // mailbox ownership is now ours, never the audio thread's
@@ -381,7 +412,8 @@ namespace JJFlexWpf
             }
             var initial = new System.Collections.ObjectModel.ReadOnlyDictionary<string, EngineSettingValue>(values);
             builtFrom = initial;
-            var bank = new PerChannelDenoiserBank(() => entry.Factory!(initial), _channels);
+            var direction = _direction;
+            var bank = new PerChannelDenoiserBank(() => entry.Factory!(initial, direction), _channels);
             try
             {
                 Parameters? applied = null;
@@ -405,6 +437,7 @@ namespace JJFlexWpf
         internal void Process(float[] audio, bool permitted, bool profilePresent, bool capturing,
             Action<PerChannelDenoiserBank>? prepareSpectral)
         {
+            if (_direction == DenoiseDirection.Transmit) { ProcessTransmit(audio, permitted); return; }
             var choice = Volatile.Read(ref _choice);
             if (Volatile.Read(ref choice.Failure) != null)
             {
@@ -510,6 +543,75 @@ namespace JJFlexWpf
             }
             else Volatile.Write(ref _processingId, "");
         }
+
+        /// <summary>
+        /// The transmit path (Sprint 49 Track H, items A and B). No warm-up and
+        /// no engine-to-engine cross-fade, both deliberately: a transmit change
+        /// is applied only while unkeyed (<see cref="SwapPermitted"/>), so there
+        /// is nobody on the air to smooth it for, and a warm-up would only delay
+        /// the change into the next over. A delivered build is installed with a
+        /// cut on the first permitted buffer. While keyed, nothing that changes
+        /// what goes out happens here: not a swap, not a failed choice stopping
+        /// the running engine. The bank's own fallback (a late or failed frame
+        /// goes out as the dry signal at the same delay) still protects the
+        /// over, and the transmit chain latches it (item C).
+        /// </summary>
+        private void ProcessTransmit(float[] audio, bool permitted)
+        {
+            LastAppliedLatencySamples = 0;
+            bool swap = SwapPermitted?.Invoke() ?? true;
+            var choice = Volatile.Read(ref _choice);
+            if (Volatile.Read(ref choice.Failure) != null)
+            {
+                // Keyed: the failure waits for the unkey, and the engine that
+                // was running keeps running.
+                if (swap) { StopFailedChoice(choice); return; }
+            }
+            else if (choice.Id != RunningEngineId) RequestBuild(choice);
+            if (swap)
+            {
+                InstallHook?.Invoke("before-ready-take");
+                var ready = Interlocked.Exchange(ref _ready, null);
+                if (ready != null)
+                {
+                    choice = Volatile.Read(ref _choice);
+                    if (!ReferenceEquals(ready.Choice, choice)) Retire(ready.Bank);
+                    else
+                    {
+                        var outgoing = Volatile.Read(ref _runningBuild)?.Bank;
+                        // One reference, made on the worker (repair round 5's rule).
+                        Volatile.Write(ref _runningBuild, ready.Running);
+                        _runningApplied = ready.Applied;
+                        if (outgoing != null) Retire(outgoing);
+                        _announced = choice.Generation;
+                        Publish(choice, true);
+                    }
+                }
+            }
+            var run = Volatile.Read(ref _runningBuild);
+            var running = run?.Bank;
+            bool active = Enabled && permitted;
+            if (!active || running == null)
+            {
+                if (_wasActive) running?.ClearCarry();
+                _wasActive = false;
+                Volatile.Write(ref _processingId, "");
+                return;
+            }
+            _wasActive = true;
+            running.ListenToRemoved = false;
+            ApplyParameters(running, run!.Id, ref _runningApplied);
+            long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames;
+            running.Process(audio, GetStrength(run.Id));
+            LastAppliedLatencySamples = running.LatencySamples;
+            if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
+            if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
+                late == running.LateFrames && failed == running.FallbackFrames)
+            { _announced = choice.Generation; Publish(choice, true); }
+        }
+
+        /// <summary>Transmit only (item C): the bank the audio thread runs now, for the chain's latch and counts. Read on the audio thread.</summary>
+        internal PerChannelDenoiserBank? RunningBank => Volatile.Read(ref _runningBuild)?.Bank;
 
         /// <summary>
         /// What one buffer through <paramref name="bank"/> proves: "" when any frame

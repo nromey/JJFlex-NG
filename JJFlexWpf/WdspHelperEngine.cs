@@ -209,7 +209,7 @@ namespace JJFlexWpf
         /// the engine is simply unavailable and the slot's build fails.
         /// </summary>
         /// <param name="engineId">The catalog id, "nnr" or "nr2".</param>
-        /// <param name="direction">Only receive is wired.</param>
+        /// <param name="direction">Which of the helper's channel kinds to open: receive, or transmit for the microphone (Sprint 49 Track H; the catalog's factory passes the slot's direction).</param>
         /// <param name="starting">Starting values, sent as the channel's initial settings.</param>
         public WdspHelperEngine(string engineId, DenoiseDirection direction = DenoiseDirection.Receive,
             IReadOnlyDictionary<string, EngineSettingValue>? starting = null)

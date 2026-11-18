@@ -137,7 +137,7 @@ internal sealed class NoiseFixture : IDisposable
             var row = real.Find(id)!;
             return row with
             {
-                Factory = row.Factory == null ? null : initial => { Built.Add(id); return new Engine(id, row.Settings, initial, latency, () => !Dead.ContainsKey(id)); },
+                Factory = row.Factory == null ? null : (initial, _) => { Built.Add(id); return new Engine(id, row.Settings, initial, latency, () => !Dead.ContainsKey(id)); },
                 Probe = () => Unavailable.TryGetValue(id, out var why) ? why : Unavailability.None,
             };
         }

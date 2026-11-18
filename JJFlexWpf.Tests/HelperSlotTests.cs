@@ -35,11 +35,11 @@ public sealed class HelperSlotTests
             var rows = new[] {
                 new DenoiseEngineEntry("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr",
                     new[] { DenoiseDirection.Receive, DenoiseDirection.Transmit },
-                    initial => { var e = new WdspHelperEngine(host, "nnr", DenoiseDirection.Receive, initial); Made.Add(e); return e; },
+                    (initial, direction) => { var e = new WdspHelperEngine(host, "nnr", direction, initial); Made.Add(e); return e; },
                     () => host.Probe("nnr")),
                 // The spectral slot's own engine, so saving the settings finds its descriptors.
                 new DenoiseEngineEntry("spectral_capture", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.spectral_capture",
-                    new[] { DenoiseDirection.Receive }, _ => new SpectralCaptureEngine(), () => Unavailability.None,
+                    new[] { DenoiseDirection.Receive }, (_, _) => new SpectralCaptureEngine(), () => Unavailability.None,
                     SettingDescriptors: SpectralCaptureEngine.SettingDescriptors),
             };
             Pipeline = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(rows));
@@ -194,7 +194,7 @@ public sealed class HelperSlotTests
             var e = new ModelEngine(id, initial); made.Add(e); return e;
         }
         DenoiseEngineEntry Row(string id) => new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
-            initial => Make(id, initial), () => Unavailability.None, SettingDescriptors: ModelEngine.Descriptors);
+            (initial, _) => Make(id, initial), () => Unavailability.None, SettingDescriptors: ModelEngine.Descriptors);
         using var pipeline = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("a"), Row("b") }));
         var slot = pipeline.NeuralSlot;
         pipeline.RnnEnabled = true;
@@ -234,7 +234,7 @@ public sealed class HelperSlotTests
     public void The_swap_to_a_warmed_bank_allocates_nothing_on_the_audio_thread()
     {
         DenoiseEngineEntry Row(string id) => new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
-            initial => new ModelEngine(id, initial), () => Unavailability.None, SettingDescriptors: ModelEngine.Descriptors);
+            (initial, _) => new ModelEngine(id, initial), () => Unavailability.None, SettingDescriptors: ModelEngine.Descriptors);
         using var pipeline = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("a"), Row("b") }));
         var slot = pipeline.NeuralSlot;
         pipeline.RnnEnabled = true;
@@ -271,7 +271,7 @@ public sealed class HelperSlotTests
     public void A_delay_readout_taken_during_a_swap_never_mixes_two_engines()
     {
         DenoiseEngineEntry Row(string id) => new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
-            initial => new ModelEngine(id, initial), () => Unavailability.None, SettingDescriptors: ModelEngine.Descriptors);
+            (initial, _) => new ModelEngine(id, initial), () => Unavailability.None, SettingDescriptors: ModelEngine.Descriptors);
         using var pipeline = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("a"), Row("b") }));
         var slot = pipeline.NeuralSlot;
         pipeline.RnnEnabled = true;
