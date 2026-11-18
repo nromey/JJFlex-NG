@@ -116,6 +116,8 @@ namespace JJPortaudio
         /// </summary>
         public uint SampleRate { get { return (aud != null) ? aud.SampleRate : 0; } }
         public double InputDrainMilliseconds => aud?.InputDrainMilliseconds ?? 0;
+        /// <summary>Callbacks so far and the input overflows and underflows PortAudio flagged among them (Sprint 49 Track H, item D's dropout check).</summary>
+        public (long Callbacks, long Overflows, long Underflows) InputDropouts => aud?.InputDropouts ?? (0, 0, 0);
         /// <summary>
         /// Channels this stream opened with: 1 on a genuinely mono device, 2
         /// otherwise. The audio itself is stereo either way — a mono capture is

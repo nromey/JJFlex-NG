@@ -138,6 +138,41 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// Environment variable that sets the TRANSMIT capture's callback rate
+        /// for one launch (Sprint 49 Track H, item D), the bench's lever for
+        /// "try smaller callbacks": 10, 20, 50 or 100 measured against each
+        /// other without a rebuild. A testing lever like
+        /// <see cref="RxCallbackRateEnvironmentVariable"/>: never a setting,
+        /// never a UI toggle. Without it, the machine's own measurements decide
+        /// (Radios.TxCallbackRate).
+        /// </summary>
+        public const string TxCallbackRateEnvironmentVariable = "JJFLEX_TX_CALLBACKS_PER_SEC";
+
+        /// <summary>
+        /// The transmit callback rate the environment sets for this launch, or
+        /// null when it sets none (or sets something unusable, which is traced).
+        /// Read every time it is asked: it is asked once per stream open.
+        /// </summary>
+        public static int? ConfiguredTxCallbacksPerSecond() => ParseTxCallbackRate(ReadTxVariable());
+
+        private static string ReadTxVariable()
+        {
+            try { return Environment.GetEnvironmentVariable(TxCallbackRateEnvironmentVariable); }
+            catch { return null; }
+        }
+
+        /// <summary>The parse, apart from the environment, for tests: a whole number 1 to 100, or null.</summary>
+        public static int? ParseTxCallbackRate(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            if (int.TryParse(raw.Trim(), out int rate) && rate >= 1 && rate <= 100) return rate;
+            JJTrace.Tracing.TraceLine("AudioBuffering: " + TxCallbackRateEnvironmentVariable + "=\"" + raw
+                + "\" is not a whole number of callbacks a second between 1 and 100; ignored",
+                System.Diagnostics.TraceLevel.Error);
+            return null;
+        }
+
+        /// <summary>
         /// Bytes of VITA-49 header on every audio packet, header and trailer
         /// together. Read from <c>VitaOpusDataPacket</c>, which sizes its
         /// packet as <c>payload/4 + 7</c> 32-bit words.

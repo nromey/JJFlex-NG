@@ -333,6 +333,47 @@ public sealed class TxNoiseChainTests
         finally { field.SetValue(null, previous); }
     }
 
+    [Fact]
+    public void The_helpers_transmit_frame_cost_is_its_worst_known_transmit_engine()
+    {
+        // Item D: the first of the two measurements, the helper's own benchmark.
+        var none = Array.Empty<EngineSettingDescriptor>();
+        WdspHelloAck Ack(params WdspEngineOffer[] engines) =>
+            new(1, "fixture", "2.11", "0123456789abcdef0123456789abcdef01234567", "fftw", 16, Array.Empty<WdspFingerprint>(), engines);
+        Assert.Equal(2_500_000L, WdspHost.TransmitFrameCostP99(Ack(
+            new WdspEngineOffer("nnr", 3, 48000, 480, 2448, 200, 1_000_000, 2_500_000, none),
+            new WdspEngineOffer("nr2", 3, 48000, 480, 3840, 200, 200_000, 400_000, none),
+            new WdspEngineOffer("nr2_rx_only", 1, 48000, 480, 1, 200, 1, 9_000_000, none),   // unknown engine: ignored
+            new WdspEngineOffer("nr2", 1, 48000, 480, 1, 200, 1, 8_000_000, none))));       // receive only: ignored
+        Assert.Null(WdspHost.TransmitFrameCostP99(Ack(new WdspEngineOffer("nnr", 1, 48000, 480, 2448, 200, 1, 9, none))));
+    }
+
+    [Fact]
+    public void Each_over_reports_its_frame_counts_and_how_the_buffers_arrived()
+    {
+        // Item D, measure first: ten frames back to back per capture callback
+        // must read as bursts of ten.
+        var rig = new Rig();
+        rig.Chain.SetEnabled(DenoiseFamily.Neural, true);
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        rig.Chain.OverReport += reports.Enqueue;
+        rig.Run();
+        Volatile.Write(ref rig.Keyed, true);
+        for (int callback = 0; callback < 3; callback++)
+        {
+            for (int frame = 0; frame < 10; frame++) rig.Run();
+            Thread.Sleep(30);
+        }
+        Volatile.Write(ref rig.Keyed, false);
+        rig.Run();
+        Until(() => !reports.IsEmpty);
+        string line = reports.Single();
+        Assert.Contains("Neural rnnoise: engine frames 30, late 0, failed 0, latched dry 0", line);
+        Assert.Contains("Spectral off", line);
+        Assert.Contains("30 buffers", line);
+        Assert.Contains("longest burst 10 buffers", line);
+    }
+
     private sealed class ApproxPair : IEqualityComparer<(float, float)>
     {
         public bool Equals((float, float) a, (float, float) b) => Math.Abs(a.Item1 - b.Item1) < 1e-6 && Math.Abs(a.Item2 - b.Item2) < 1e-6;

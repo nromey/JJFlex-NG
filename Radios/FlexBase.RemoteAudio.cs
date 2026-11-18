@@ -210,6 +210,62 @@ namespace Radios
         /// below one callback a second. <c>Audio.Open</c> refuses too — this is
         /// the early, nameable refusal, not the only one.
         /// </summary>
+        private int _txCallbackRateThisStream;
+
+        /// <summary>
+        /// Sprint 49 Track H, item D: pick the transmit capture's callback rate
+        /// for the stream about to open, from the bench's override or this
+        /// machine's own two measurements (<see cref="TxCallbackRate.Decide"/>),
+        /// and say in the trace which and why.
+        /// </summary>
+        private void ChooseTxCallbackRate()
+        {
+            try
+            {
+                string device = remoteInputDevice?.Name ?? "";
+                var verdict = TxCallbackVerdictStore.Default()?.Find(device, TxCallbackRate.Fast);
+                var decision = TxCallbackRate.Decide(JJPortaudio.AudioBuffering.ConfiguredTxCallbacksPerSecond(),
+                    TxCallbackRate.HelperFrameCostP99Nanos, verdict);
+                TxAudioCallbacksPerSecond = decision.CallbacksPerSecond;
+                _txCallbackRateThisStream = TxAudioCallbacksPerSecond;
+                Tracing.TraceLine("remoteAudioProc: transmit capture at " + TxAudioCallbacksPerSecond
+                    + " callbacks a second: " + decision.Reason, TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                _txCallbackRateThisStream = TxAudioCallbacksPerSecond;
+                Tracing.TraceLine("remoteAudioProc: transmit callback rate kept at " + TxAudioCallbacksPerSecond
+                    + ": " + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// Sprint 49 Track H, item D: a capture stream that ran faster than the
+        /// shipped rate is judged as it closes, from PortAudio's own dropout
+        /// flags over the whole run, and the verdict kept for this machine and
+        /// device. The machine's next connect decides from it.
+        /// </summary>
+        private void JudgeTxCallbackRate(JJPortaudio.JJAudioStream stream)
+        {
+            try
+            {
+                var (callbacks, overflows, underflows) = stream.InputDropouts;
+                var verdict = TxCallbackRate.Judge(remoteInputDevice?.Name ?? "", _txCallbackRateThisStream,
+                    callbacks, overflows, underflows, DateTime.UtcNow);
+                if (verdict == null) return;
+                TxCallbackVerdictStore.Default()?.Record(verdict);
+                Tracing.TraceLine("remoteAudioProc: transmit capture at " + verdict.CallbacksPerSecond
+                    + " callbacks a second " + (verdict.Passed ? "held" : "dropped audio") + " over "
+                    + callbacks + " callbacks (" + overflows + " input overflows, " + underflows
+                    + " underflows); kept for this machine", verdict.Passed ? TraceLevel.Info : TraceLevel.Error);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: the transmit callback dropout check was not recorded: "
+                    + ex.Message, TraceLevel.Error);
+            }
+        }
+
         private static int ValidateCallbackRate(int value, string direction, int current,
             POpusCodec.Enums.Delay frameDuration)
         {
@@ -960,6 +1016,7 @@ namespace Radios
             // stays running; losing the radio because the microphone failed is
             // the wrong trade.
             uint txRate = OpusTxSampleRateSetting;
+            ChooseTxCallbackRate();
             opusInputAvailable = opusInputChannel.PortAudioStream.OpenOpus(
                 Devices.DeviceTypes.input, txRate, sendOpusInput,
                 null, TxAudioCallbacksPerSecond, OpusTxEncodeProfile);
@@ -1352,6 +1409,7 @@ namespace Radios
                 stopOpusInputChannel();
                 if (opusInputChannel.PortAudioStream != null)
                 {
+                    JudgeTxCallbackRate(opusInputChannel.PortAudioStream);
                     opusInputChannel.PortAudioStream.Close();
                     opusInputChannel.PortAudioStream = null;
                 }

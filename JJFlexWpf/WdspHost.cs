@@ -739,6 +739,7 @@ namespace JJFlexWpf
                             TraceHello(ack);
                             c.Hello = ack;
                             _lastHello = ack;
+                            Radios.TxCallbackRate.HelperFrameCostP99Nanos = TransmitFrameCostP99(ack);
                             c.HelloAt = now;
                             Volatile.Write(ref c.LastReceive, now);
                             c.HelloDone = true;
@@ -781,6 +782,24 @@ namespace JJFlexWpf
                 SetStateLocked(WdspHelperState.Starting, "starting");
                 start = true;
             }
+        }
+
+        /// <summary>
+        /// The worst 99th-percentile frame cost, in nanoseconds, over the engines
+        /// this helper offers for transmit and JJ Flexible knows: the helper's
+        /// own self-benchmark, the first of the two measurements that decide
+        /// whether this machine earns a faster transmit callback rate (Sprint 49
+        /// Track H, item D). Null when it offers none for transmit.
+        /// </summary>
+        internal static long? TransmitFrameCostP99(WdspHelloAck ack)
+        {
+            long? worst = null;
+            foreach (var e in ack.Engines)
+            {
+                if ((e.Directions & (1 << WdspProtocol.Transmit)) == 0 || !KnownEngines.Contains(e.Id) || e.CalibrationFrames == 0) continue;
+                worst = Math.Max(worst ?? 0, e.P99Nanos);
+            }
+            return worst;
         }
 
         private void TraceHello(WdspHelloAck ack)
