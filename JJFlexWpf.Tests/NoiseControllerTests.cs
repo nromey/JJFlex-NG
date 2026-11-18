@@ -485,7 +485,7 @@ public sealed class NoiseControllerTests
         Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
         Assert.True(f.Pipeline.NeuralSlot.Enabled);
         Assert.Contains("missing from this installation", f.Spoken.Last);
-        Assert.EndsWith("Your choice is kept and will start when it can.", f.Spoken.Last);
+        Assert.EndsWith("Your choice is saved.", f.Spoken.Last);
         Assert.Equal("Helper missing", f.Noise.Marker("nnr"));
     }
 
