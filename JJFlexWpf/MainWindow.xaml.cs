@@ -146,6 +146,10 @@ public partial class MainWindow : UserControl
         // the first connect. Every lambda resolves at call time, because both
         // of the values they read are set later, during startup.
         Dialogs.AudioWorkshopDialog.OpenAudioDevices = () => AudioSetupCallback?.Invoke();
+        // The Workshop's PC Cleanup door (Sprint 49 Track H2): the controls live on Home now.
+        Dialogs.AudioWorkshopDialog.OpenTransmitNoiseOnHome = () => OpenTransmitNoiseOnHome(null, advanced: false);
+        // The Workshop's preset buttons carry the noise sections (Track H2 repair round 1, item 6).
+        Dialogs.AudioWorkshopDialog.NoiseSource = () => Noise;
         Dialogs.AudioWorkshopDialog.AudioDevicesPath = () => AudioDevicesFilePath;
         // #835: where Check your audio finds the radio when a door has none
         // to hand (the Workshop opened from Settings carries no radio).
@@ -944,6 +948,23 @@ public partial class MainWindow : UserControl
             new TimerNoiseScheduler(a => Dispatcher.BeginInvoke(a)));
         noise.PresetStore = new FilePresetStore(() => OpenParms == null ? null : (OpenParms.ConfigDirectory, OpenParms.GetOperatorName()));
         noise.TransmitChain = new RigTransmitChain(() => RigControl);
+        // A dialog's answer as it closes is said once focus has landed (Sprint 49
+        // Track H2 bench round, item 2).
+        noise.AfterWindowSettles = say => WindowSettledSpeech.After(Dispatcher, say);
+        // A renamed transmit noise setup: every microphone that named it follows
+        // (Track H's contract, Sprint 49 Track H2's Manage setups).
+        noise.RepointMicrophones = (radioId, from, to) =>
+        {
+            if (OpenParms == null) return 0;
+            string dir = OpenParms.ConfigDirectory, op = OpenParms.GetOperatorName();
+            var store = Radios.MicrophoneProfileStore.Load(dir, op);
+            int changed = store.RepointNoiseSetup(radioId, from, to);
+            // The save's answer matters (repair round 1, item 10): a microphone
+            // store that did not land leaves the old pointer on disk, so the
+            // controller puts the rename back.
+            if (changed > 0 && !store.Save(dir, op)) return NoiseController.RepointNotSaved;
+            return changed;
+        };
         WdspHost.Default.StateChanged += (s, e) =>
             Dispatcher.BeginInvoke(() => noise.OnHelperStateChanged(e.Change, e.Engines));
         return noise;
@@ -1297,6 +1318,11 @@ public partial class MainWindow : UserControl
                 {
                     RigControl.RigFields.RigUpdate?.Invoke();
                 }
+
+                // #1123 (Sprint 49 Track H2): receive noise reduction follows the
+                // active slice's mode even when Home's fields are hidden, so it
+                // cannot wait for the fields' own poll below.
+                _noise?.FollowReceiveMode("the main window's poll");
 
                 // Update screen fields panel (Sprint 14)
                 if (FieldsPanel.Visibility == Visibility.Visible)

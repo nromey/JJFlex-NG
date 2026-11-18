@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Automation;
@@ -25,7 +26,11 @@ public partial class AudioWorkshopDialog
     private void LoadPreset_Click(object sender, RoutedEventArgs e)
     {
         var presets = GetPresetsCallback?.Invoke();
-        if (presets == null || presets.Presets.Count == 0)
+        // Every preset the store holds, the chain presets first and then the
+        // noise-only ones this toolbar's own Save can make (Sprint 49 Track H2
+        // repair round 2, item 3; part five: "this toolbar lists all presets").
+        var all = presets == null ? new List<AudioChainPreset>() : WorkshopPresetList(presets);
+        if (presets == null || all.Count == 0)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.preset.none_available"), VerbosityLevel.Terse);
             return;
@@ -38,7 +43,7 @@ public partial class AudioWorkshopDialog
 
         var listBox = new ListBox { Margin = new Thickness(0, 0, 0, 8) };
         AutomationProperties.SetName(listBox, "Audio presets");
-        foreach (var p in presets.Presets)
+        foreach (var p in all)
             listBox.Items.Add(p.Name);
         if (listBox.Items.Count > 0) listBox.SelectedIndex = 0;
         DockPanel.SetDock(listBox, Dock.Top);
@@ -53,7 +58,7 @@ public partial class AudioWorkshopDialog
         {
             int idx = listBox.SelectedIndex;
             if (idx < 0) return;
-            var preset = presets.Presets[idx];
+            var preset = all[idx];
 
             var confirm = new ConfirmActionDialog(
                 Lexicon.Get("audio.preset.delete_title"),
@@ -63,7 +68,8 @@ public partial class AudioWorkshopDialog
             if (confirm.ShowDialog() != true)
                 return;
 
-            presets.Presets.RemoveAt(idx);
+            if (!presets.Presets.Remove(preset)) presets.NoisePresets.Remove(preset);
+            all.RemoveAt(idx);
             listBox.Items.RemoveAt(idx);
 
             // A delete that could not be written is a delete that undoes itself
@@ -117,17 +123,25 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(cancelBtn, "Cancel");
         okBtn.Click += (s2, e2) =>
         {
-            if (listBox.SelectedIndex >= 0 && _rig != null)
+            var preset = listBox.SelectedIndex >= 0 ? all[listBox.SelectedIndex] : null;
+            // A noise-only preset touches no radio setting, so it needs no radio;
+            // a chain preset does, as it always has.
+            if (preset != null && (_rig != null || !preset.HoldsTransmitChain))
             {
-                var preset = presets.Presets[listBox.SelectedIndex];
                 // ApplyTo reports what could not be applied faithfully — an
                 // EQ the radio has not reported, a preset tuned for a
-                // different input (#51). Those ride the load announcement.
-                string note = preset.ApplyTo(_rig);
+                // different input (#51). Those ride the load announcement. A
+                // noise-only preset never applies a transmit chain of defaults.
+                string note = preset.HoldsTransmitChain && _rig != null ? preset.ApplyTo(_rig) : "";
+                // The noise sections a preset holds (Sprint 49 Track H2 repair
+                // round 1, item 6). A preset made before they existed has none,
+                // and loads exactly as it always did.
+                string noise = NoiseSource?.Invoke()?.ApplyNoiseSectionsForWorkshop(preset, "audio workshop") ?? "";
                 PollTxAudio();
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("audio.preset.loaded", ("preset", preset.Name)) +
-                    (string.IsNullOrEmpty(note) ? "" : ". " + note),
+                    (string.IsNullOrEmpty(note) ? "" : ". " + note) +
+                    (string.IsNullOrEmpty(noise) ? "" : ". " + noise),
                     VerbosityLevel.Terse);
             }
             picker.Close();
@@ -154,7 +168,7 @@ public partial class AudioWorkshopDialog
         }
 
         // Prompt for name with a simple input dialog
-        var inputDialog = new JJFlexDialog { Title = "Save Audio Preset", Width = 350, Height = 180 };
+        var inputDialog = new JJFlexDialog { Title = "Save Audio Preset", Width = 350, SizeToContent = SizeToContent.Height };
         inputDialog.ResizeMode = ResizeMode.NoResize;
         var panel = new StackPanel { Margin = new Thickness(12) };
 
@@ -165,6 +179,20 @@ public partial class AudioWorkshopDialog
         var nameBox = new TextBox { Margin = new Thickness(0, 0, 0, 8) };
         AutomationProperties.SetName(nameBox, "Preset name");
         panel.Children.Add(nameBox);
+
+        // Part five: the Workshop's save holds all three sections, each
+        // pre-ticked (Sprint 49 Track H2 repair round 1, item 6). The words are
+        // the noise save dialog's own.
+        CheckBox Section(string key)
+        {
+            var box = new CheckBox { Content = Lexicon.Get(key), IsChecked = true, Margin = new Thickness(0, 2, 0, 2) };
+            AutomationProperties.SetName(box, Lexicon.Get(key));
+            panel.Children.Add(box);
+            return box;
+        }
+        var includeNoise = Section("audio.noise_presets.include_noise");
+        var includeTxNoise = Section("audio.noise_presets.include_tx_noise");
+        var includeChain = Section("audio.noise_presets.include_chain");
 
         var okBtn = new Button { Content = "OK", MinWidth = 80, Height = 28, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
         var cancelBtn = new Button { Content = "Cancel", MinWidth = 80, Height = 28, IsCancel = true };
@@ -178,16 +206,40 @@ public partial class AudioWorkshopDialog
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.please_enter_a_name"), VerbosityLevel.Terse);
                 return;
             }
+            bool chain = includeChain.IsChecked == true, rx = includeNoise.IsChecked == true, tx = includeTxNoise.IsChecked == true;
+            var noise = NoiseSource?.Invoke();
+            if (!chain)
+            {
+                // Noise sections only: the noise presets' own store, so an older
+                // build can never apply it as a transmit chain of defaults.
+                if ((!rx && !tx) || noise == null)
+                {
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.noise_presets.need_section"), VerbosityLevel.Terse);
+                    return;
+                }
+                // Said once this name dialog has closed and focus is back in the
+                // Workshop (Sprint 49 Track H2 bench round, item 2): said at the
+                // close, it was cut at its first word.
+                using (var answer = noise.HoldAnswer())
+                {
+                    answer.AfterTheWindowCloses();
+                    noise.SavePreset(name, rx, false, tx, PresetCollision.KeepBoth, "audio workshop");
+                }
+                inputDialog.Close();
+                return;
+            }
             var preset = AudioChainPreset.CaptureFrom(_rig, name, ReadSavedPcInputName());
+            WithNoiseSections(preset, rx, tx);
             var presets = GetPresetsCallback?.Invoke() ?? AudioChainPresets.CreateDefaults();
             presets.Presets.Add(preset);
-            if (PersistPresets(presets))
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.preset.saved", ("preset", name)),
-                    VerbosityLevel.Terse);
-            else
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.preset.save_failed", ("preset", name), ("reason", PresetSaveFailed)),
-                    VerbosityLevel.Critical);
+            // Said once this name dialog has closed and focus is back in the
+            // Workshop (bench round, item 2), the same way as the noise-only save.
+            bool persisted = PersistPresets(presets);
+            string said = persisted
+                ? Lexicon.Get("audio.preset.saved", ("preset", name))
+                : Lexicon.Get("audio.preset.save_failed", ("preset", name), ("reason", PresetSaveFailed));
+            var level = persisted ? VerbosityLevel.Terse : VerbosityLevel.Critical;
+            WindowSettledSpeech.After(Dispatcher, () => ScreenReaderOutput.Speak(said, Radios.Speech.SpeechIntent.Queue, level));
             inputDialog.Close();
         };
         cancelBtn.Click += (s2, e2) => inputDialog.Close();
@@ -220,6 +272,9 @@ public partial class AudioWorkshopDialog
             var preset = AudioChainPreset.CaptureFrom(_rig,
                 System.IO.Path.GetFileNameWithoutExtension(sfd.FileName),
                 ReadSavedPcInputName());
+            // An export carries the noise sections too, so a shared preset is
+            // the whole picture (Sprint 49 Track H2 repair round 1, item 6).
+            WithNoiseSections(preset, receive: true, transmit: true);
             // Save reports whether the file landed. A failed write announced
             // as an export is the lying-receipt pattern this dialog keeps
             // finding — never say "exported" on faith.
@@ -232,6 +287,27 @@ public partial class AudioWorkshopDialog
                     Lexicon.Get("audio.preset.export_failed", ("file", System.IO.Path.GetFileName(sfd.FileName))),
                     VerbosityLevel.Critical);
         }
+    }
+
+    /// <summary>
+    /// What the Workshop's Load lists: the chain presets in their saved order,
+    /// then the noise-only presets (receive, transmit or both, with no transmit
+    /// chain), which Save puts in their own list so an older build never sees
+    /// them. Old chain presets are listed exactly as before, first.
+    /// </summary>
+    internal static List<AudioChainPreset> WorkshopPresetList(AudioChainPresets presets) =>
+        presets.Presets.Concat(presets.NoisePresets).ToList();
+
+    /// <summary>The app's noise controller, for the noise sections of a preset (Sprint 49 Track H2 repair round 1, item 6). Set by MainWindow.</summary>
+    public static Func<NoiseController?>? NoiseSource { get; set; }
+
+    /// <summary>Add the receive and transmit noise sections, as the noise controller captures them, to a preset the Workshop made.</summary>
+    private static void WithNoiseSections(AudioChainPreset preset, bool receive, bool transmit)
+    {
+        if (NoiseSource?.Invoke() is not { } noise) return;
+        preset.SchemaVersion = AudioChainPreset.CurrentSchemaVersion;
+        if (receive) preset.ReceiveNoise = noise.CaptureReceiveNoise();
+        if (transmit) preset.TransmitNoise = noise.CaptureTransmitSetup(preset.Name);
     }
 
     /// <summary>

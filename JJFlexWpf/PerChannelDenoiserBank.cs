@@ -71,6 +71,10 @@ namespace JJFlexWpf
         private readonly int[] _delayAt;
         internal bool HasProcessedSinceGap { get; private set; }
         private readonly bool[] _failing; // per channel: currently in a fallback stretch
+        private readonly float[] _lastWet;   // per channel: the last wet sample of the last frame, for the latch's fade
+        private readonly float[] _lastDry;   // the same frame's last delayed dry sample
+        private readonly int[] _fadeAt;      // per channel: samples of the latch fade already applied; -1 none running
+        private readonly float[] _fadeFrom;  // per channel: the residual the fade starts from
 
         /// <param name="engineFactory">Called once per channel. Every instance must report the same frame length.</param>
         /// <param name="channels">Interleaved channel count, at least 1.</param>
@@ -98,6 +102,11 @@ namespace JJFlexWpf
                 throw new InvalidOperationException("An engine reported a frame length below one sample.");
 
             _failing = new bool[channels];
+            _lastWet = new float[channels];
+            _lastDry = new float[channels];
+            _fadeAt = new int[channels];
+            _fadeFrom = new float[channels];
+            Array.Fill(_fadeAt, -1);
             _delay = new float[channels][];
             _delayAt = new int[channels];
             _in = new float[channels][];
@@ -182,6 +191,63 @@ namespace JJFlexWpf
 
         public long LateFrames { get; private set; }
 
+        // ── The transmit latch (Sprint 49 Track H, item C) ──
+
+        /// <summary>
+        /// Transmit, while keyed: the first late or failed frame LATCHES the
+        /// bank dry for the rest of the over, instead of falling back frame by
+        /// frame. Per-frame fallback is right for receive and wrong on the air:
+        /// an engine that misses intermittently would alternate processed and
+        /// unprocessed 10 ms frames, which is the stutter #737 forbids. While
+        /// latched the engine is not called; every frame is the dry signal at
+        /// the delay the bank already held (ruling 2: no jump in the timeline,
+        /// never silence), and the switch into it is faded over
+        /// <see cref="LatchFadeSamples"/>. Set by the transmit slot each buffer;
+        /// false (receive, or unkeyed) keeps the per-frame behaviour.
+        /// </summary>
+        public bool LatchFallback { get; set; }
+
+        /// <summary>True from the first late or failed frame of a latching over until <see cref="ReleaseLatch"/>.</summary>
+        public bool Latched { get; private set; }
+
+        /// <summary>Times the bank has latched since it was built.</summary>
+        public long Latches { get; private set; }
+
+        /// <summary>Frames, summed over channels, sent dry because the bank was latched (the engine was not asked).</summary>
+        public long LatchedFrames { get; private set; }
+
+        /// <summary>
+        /// How long the switch into the latched dry signal is faded, in samples
+        /// per channel. Defaults to <see cref="DefaultLatchFadeSamples"/>, the
+        /// shortest that measured click-free (see there).
+        /// </summary>
+        public int LatchFadeSamples { get; set; } = DefaultLatchFadeSamples;
+
+        /// <summary>
+        /// The latch fade: 10 samples at 48 kHz, about 0.21 ms, half a raised
+        /// cosine. Ruled "the smallest fade possible" (Noel 2026-11-18 08:18),
+        /// so this is the SHORTEST length that measured click-free on the test
+        /// fixture, not a comfortable one, and not a universal claim: the bench
+        /// checks it on real audio. <c>TxLatchFadeMeasurementTests</c> has
+        /// RNNoise clean the reference voice over a fan's rumble and mains hum,
+        /// latches at thirty different frames, and measures the high-band energy
+        /// (second difference) in the 2 ms around each switch against the louder
+        /// of the two signals unswitched, at EVERY length from 0 to 24 samples
+        /// and some longer. Measured 2026-11-18, worst of thirty: a hard cut
+        /// +7.31 dB; 2 samples +2.68; 6 samples +0.43; 9 samples +0.11;
+        /// 10 samples +0.07; 16 samples and every longer fade +0.01, the floor.
+        /// Ten is the first within 0.1 dB of the floor. (It was 12 until repair
+        /// round 1: the first search tried only 0, 6, 12 and 24.)
+        /// </summary>
+        public const int DefaultLatchFadeSamples = 10;
+
+        /// <summary>Clear the latch (the transmit slot calls it at the unkey). The engine is asked again from the next frame.</summary>
+        public void ReleaseLatch()
+        {
+            Latched = false;
+            Array.Fill(_fadeAt, -1);
+        }
+
         /// <summary>
         /// Frames, summed over channels, the engine itself took: processed, or
         /// accepted and not yet answered (late). A buffer too short to complete a
@@ -249,10 +315,27 @@ namespace JJFlexWpf
 
                     if (inCount == f)
                     {
-                        bool produced = RunEngine(ch, engine, inBuf, wet.AsSpan(outCount, f));
+                        bool latchedBefore = Latched;
+                        bool produced = !latchedBefore && RunEngine(ch, engine, inBuf, wet.AsSpan(outCount, f));
                         if (produced) AdoptDelay(ch, engine.LatencySamples);
                         DelayFrame(ch, inBuf, dry.AsSpan(outCount, f));
-                        if (!produced) Array.Copy(dry, outCount, wet, outCount, f);
+                        if (!produced)
+                        {
+                            Array.Copy(dry, outCount, wet, outCount, f);
+                            if (latchedBefore) LatchedFrames++;
+                            else if (LatchFallback) { Latched = true; Latches++; }
+                            if (Latched && _fadeAt[ch] < 0)
+                            {
+                                // The switch into dry for this channel: start
+                                // from what the engine was removing at the end
+                                // of the last frame, and fade that to nothing.
+                                _fadeAt[ch] = 0;
+                                _fadeFrom[ch] = _lastWet[ch] - _lastDry[ch];
+                            }
+                            if (_fadeAt[ch] >= 0) Fade(ch, wet.AsSpan(outCount, f), dry.AsSpan(outCount, f));
+                        }
+                        _lastWet[ch] = wet[outCount + f - 1];
+                        _lastDry[ch] = dry[outCount + f - 1];
                         outCount += f;
                         inCount = 0;
                     }
@@ -313,6 +396,25 @@ namespace JJFlexWpf
         public void Dispose()
         {
             foreach (var e in _engines) e.Dispose();
+        }
+
+        /// <summary>
+        /// One frame of the latch fade: wet is dry plus the residual the engine
+        /// was removing when it stopped, faded out on a half raised cosine. So
+        /// the output carries on from the last processed sample instead of
+        /// stepping by the removed noise, and lands on the dry signal (aligned
+        /// to the same delay) after <see cref="LatchFadeSamples"/>. The wet side
+        /// of a true cross-fade does not exist once the engine has stopped,
+        /// which is why the residual is continued rather than the engine.
+        /// </summary>
+        private void Fade(int ch, Span<float> wet, ReadOnlySpan<float> dry)
+        {
+            int length = Math.Max(0, LatchFadeSamples);
+            int at = _fadeAt[ch];
+            float from = _fadeFrom[ch];
+            for (int i = 0; i < wet.Length && at < length; i++, at++)
+                wet[i] = dry[i] + from * (float)(0.5 * (1 + Math.Cos(Math.PI * at / length)));
+            _fadeAt[ch] = at;
         }
 
         /// <summary>

@@ -137,7 +137,9 @@ namespace JJFlexWpf
         /// marked, never hidden. A change builds a new engine under the warm-up
         /// cross-fade (<see cref="EngineSettingDescriptor.ChangesLatency"/>: v0.1.1's
         /// delay is half the 0.2 models'). The default is the newest, which ships
-        /// today; transmit always runs the newest (TxAudioConditioning). Declared on
+        /// today, in both directions; since Sprint 49 Track H transmit has its own
+        /// RNNoise in its own slot, so a model chosen for receive never reaches the
+        /// microphone and the reverse. Declared on
         /// the engine, as DeepFilterNet3's are (#1016), so tools/nrbench needs no
         /// catalog to compile this file.
         /// </summary>

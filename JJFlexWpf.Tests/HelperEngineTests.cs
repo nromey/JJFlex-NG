@@ -45,7 +45,7 @@ public sealed class HelperEngineTests
     {
         var row = new DenoiseEngineCatalog().Find("nnr")!;
         Assert.NotNull(row.Factory);
-        using var engine = Assert.IsType<WdspHelperEngine>(row.Factory!(new Dictionary<string, EngineSettingValue>()));
+        using var engine = Assert.IsType<WdspHelperEngine>(row.Factory!(new Dictionary<string, EngineSettingValue>(), DenoiseDirection.Receive));
         Assert.False(engine.OfflineWait);
         Assert.Equal(WdspHelperEngine.DefaultPipelineDepth, engine.PipelineDepth);
         Assert.Equal("nnr", engine.Id);
@@ -266,7 +266,7 @@ public sealed class HelperEngineTests
         var row = new DenoiseEngineCatalog().Find(id)!;
         var initial = new Dictionary<string, EngineSettingValue>();
         if (model != null) initial["model"] = new EngineSettingValue(0, model);
-        using var engine = Assert.IsType<WdspHelperEngine>(row.Factory!(initial));
+        using var engine = Assert.IsType<WdspHelperEngine>(row.Factory!(initial, DenoiseDirection.Receive));
         Assert.Equal(depth, engine.PipelineDepth);
         Assert.Equal(depth, WdspPipelineDepth.For(id, model));
     }

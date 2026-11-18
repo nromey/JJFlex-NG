@@ -104,6 +104,60 @@ namespace JJPortaudio
         /// <summary>Encode failures. Never zero silently — see <see cref="Emit"/>.</summary>
         public long EncodeFailures { get; private set; }
 
+        // ── Stage faults (Sprint 49 Track H, item E; #1074) ──
+        //
+        // Every stage before the encoder (injection, conditioning, metering)
+        // used to run bare, so an exception in any of them escaped Emit into
+        // the capture callback's catch, which returns paAbort and STOPS the
+        // microphone stream, while the radio can stay keyed. Nothing restarts
+        // an aborted capture: startOpusInputChannel returns at once while
+        // opusInputChannel.Started is true, and nothing on the abort path sets
+        // it false (FlexBase.RemoteAudio.cs). So now a stage that throws is
+        // put back to the audio it was given, skipped until the key state next
+        // changes (the rest of the over, or of the receive stretch), and traced
+        // once. The encoder is the one stage still allowed to stop the stream:
+        // with no encoder there is nothing to send.
+
+        private float[] _beforeSource = Array.Empty<float>();
+        private float[] _beforeConditioner = Array.Empty<float>();
+        private bool _sourceFaulted, _conditionerFaulted, _meterFaulted;
+        private bool _lastKeyed;
+
+        /// <summary>
+        /// Asked once per frame: is the radio keyed (our Mox or the radio's
+        /// interlock)? A stage fault lasts until the answer changes. Null reads
+        /// as never keyed, so a fault then lasts until <see cref="ResetStageFaults"/>.
+        /// A source that throws reads as keyed.
+        /// </summary>
+        public Func<bool> KeySource { get; set; }
+
+        /// <summary>Stage exceptions caught since this pipeline was made: injection, conditioning or metering threw and the frame went out without that stage.</summary>
+        public long StageFailures { get; private set; }
+
+        /// <summary>Frames that went out with at least one stage skipped because it had faulted.</summary>
+        public long FramesWithStageSkipped { get; private set; }
+
+        /// <summary>Try every stage again from the next frame.</summary>
+        public void ResetStageFaults() => _sourceFaulted = _conditionerFaulted = _meterFaulted = false;
+
+        private void StageFault(string stage, Exception ex)
+        {
+            StageFailures++;
+            // Once per fault, not per frame: a stage that throws throws every
+            // frame, and a hundred lines a second is the trace flood this file
+            // already guards against for the encoder.
+            Tracing.TraceLine("TxFramePipeline: the " + stage + " stage threw (" + ex.GetType().Name + ": " + ex.Message
+                + "); the audio goes on without it until the key state changes",
+                TraceLevel.Error);
+        }
+
+        private static float[] Snapshot(float[] buffer, int count, ref float[] into)
+        {
+            if (into.Length < count) into = new float[count];
+            Array.Copy(buffer, into, count);
+            return into;
+        }
+
         /// <summary>Zero the counters. Call at the start of a transmission.</summary>
         public void ResetCounters()
         {
@@ -147,24 +201,78 @@ namespace JJPortaudio
         /// </returns>
         public bool Emit(float[] buffer, int floatCount, uint sampleRate, Func<bool> stillRunning = null)
         {
+            bool keyed;
+            var keySource = KeySource;
+            if (keySource == null) keyed = false;
+            else
+            {
+                try { keyed = keySource(); }
+                catch { keyed = true; }
+            }
+            if (keyed != _lastKeyed)
+            {
+                _lastKeyed = keyed;
+                ResetStageFaults();
+            }
+            bool skipped = false;
+
             // Injection. Every source is called, engaged or not: an idle one
             // still needs the buffer to stamp its stream-gap clock and run its
             // release ramp. See TxInputSourceMux.Process.
-            Source?.Process(buffer, floatCount, sampleRate);
+            var source = _sourceFaulted ? null : Source;
+            skipped |= _sourceFaulted && Source != null;
+            if (source != null)
+            {
+                var before = Snapshot(buffer, floatCount, ref _beforeSource);
+                try { source.Process(buffer, floatCount, sampleRate); }
+                catch (Exception ex)
+                {
+                    Array.Copy(before, buffer, floatCount); // the microphone as captured
+                    _sourceFaulted = true;
+                    source = null;
+                    skipped = true;
+                    StageFault("injection", ex);
+                }
+            }
 
             // Conditioning, unless the engaged source is a calibrated
             // reference. The question is the SOURCE's to answer — a tone says
             // bypass because -10 dBFS in must read -10 dBFS on the radio's
             // meter, a recorded voice says don't because the whole point is to
             // measure the chain a voice really travels.
-            if (Conditioner != null
-                && (Source == null || !Source.Engaged || !Source.BypassesConditioning))
+            var conditioner = Conditioner;
+            if (conditioner != null && _conditionerFaulted) skipped = true;
+            else if (conditioner != null
+                && (source == null || !source.Engaged || !source.BypassesConditioning))
             {
-                Conditioner(buffer, floatCount, sampleRate);
+                var before = Snapshot(buffer, floatCount, ref _beforeConditioner);
+                try { conditioner(buffer, floatCount, sampleRate); }
+                catch (Exception ex)
+                {
+                    // Unprocessed, never silence: the audio as it reached the
+                    // conditioner, even if it threw halfway through rewriting it.
+                    Array.Copy(before, buffer, floatCount);
+                    _conditionerFaulted = true;
+                    skipped = true;
+                    StageFault("conditioning", ex);
+                }
             }
 
             // Metering last, so it reads what the encoder is about to receive.
-            Meter?.Process(buffer, floatCount, sampleRate);
+            // It only observes, so a fault there changes no audio.
+            var meter = Meter;
+            if (meter != null && _meterFaulted) skipped = true;
+            else if (meter != null)
+            {
+                try { meter.Process(buffer, floatCount, sampleRate); }
+                catch (Exception ex)
+                {
+                    _meterFaulted = true;
+                    skipped = true;
+                    StageFault("loudness meter", ex);
+                }
+            }
+            if (skipped) FramesWithStageSkipped++;
 
             try { BeforeEncode?.Invoke(buffer, floatCount, sampleRate); }
             catch { TapFailures++; } // an observer must never interrupt transmit audio

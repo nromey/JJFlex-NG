@@ -109,15 +109,16 @@ public sealed class DenoiseContractTests
     [Fact]
     public void Receive_selection_cannot_change_the_transmit_provider()
     {
-        using var tx = TxAudioConditioning.CreateNoiseReductionProvider();
+        var tx = TxAudioConditioning.CreateChain();
         using var rx = new RxAudioPipeline();
-        Assert.Equal("rnnoise", tx.EngineId);
-        Assert.False(tx.Enabled);
-        Assert.Equal(0.8f, tx.Strength);
+        Assert.Equal("rnnoise", tx.ChosenEngineId(DenoiseFamily.Neural));
+        Assert.False(tx.WantsEnabled(DenoiseFamily.Neural));
+        Assert.Equal(0.8f, tx.GetStrength("rnnoise"));
         Assert.True(rx.SelectPcEngine("deepfilternet3"));
         rx.NeuralSlot.SetStrength("deepfilternet3", 0.3f);
-        Assert.Equal("rnnoise", tx.EngineId);
-        Assert.Equal(0.8f, tx.Strength);
+        rx.NeuralSlot.SetStrength("rnnoise", 0.1f);
+        Assert.Equal("rnnoise", tx.ChosenEngineId(DenoiseFamily.Neural));
+        Assert.Equal(0.8f, tx.GetStrength("rnnoise"));
         using var corrected = new RnnoiseEngine(RnnoiseScaling.Corrected);
         Assert.Equal("rnnoise", corrected.Id);
     }

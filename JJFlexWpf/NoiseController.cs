@@ -110,8 +110,15 @@ namespace JJFlexWpf
     /// Listen to what was removed switch. The value lives in the radio or the
     /// slot; this only says where.
     /// </summary>
+    /// <remarks>
+    /// <see cref="Direction"/> (Sprint 49 Track H2): which chain the lever
+    /// belongs to. A transmit lever reads and writes the transmit chain's slot
+    /// for its engine (<see cref="TxNoiseChain"/>), through the chain's intent
+    /// calls, and is spoken on the transmit subjects. Receive is the default,
+    /// so every lever built before transmit existed means what it always did.
+    /// </remarks>
     public sealed record NoiseLever(string EngineId, string Key, string LabelKey, NoiseLeverKind Kind,
-        EngineSettingDescriptor? Descriptor = null, bool Advanced = false)
+        EngineSettingDescriptor? Descriptor = null, bool Advanced = false, DenoiseDirection Direction = DenoiseDirection.Receive)
     {
         /// <summary>NNR's Depth is the mask floor shown as a positive number, so up means more depth and a more negative floor (ruled S8 18:49).</summary>
         public bool Inverted => EngineId == "nnr" && Key == "mask_floor_db";
@@ -198,18 +205,48 @@ namespace JJFlexWpf
 
         public NoiseController(DenoiseEngineCatalog catalog, Func<INoiseRadio?> radio, Func<RxAudioPipeline?> pipeline,
             Func<AudioOutputConfig?> config, Action persist, INoiseSpeaker speaker, INoiseIntentStore intents,
-            INoiseScheduler scheduler, INnrCwCostSource? cwCost = null, Func<long>? clock = null)
+            INoiseScheduler scheduler, INnrCwCostSource? cwCost = null, Func<long>? clock = null, Func<TxNoiseChain?>? transmitChain = null)
         {
             _catalog = catalog; _radio = radio; _pipeline = pipeline; _config = config; _persist = persist;
             _speaker = speaker; _intents = intents; _scheduler = scheduler;
             _cwCost = cwCost ?? new UnmeasuredNnrCwCost();
             _clock = clock ?? (() => Environment.TickCount64);
+            // The transmit chain is the session's own (Track H), radio or no
+            // radio; asked for only when a transmit road is used, so a receive
+            // test never builds one.
+            _txChain = transmitChain ?? (() => TxAudioConditioning.Chain);
         }
 
         public DenoiseEngineCatalog Catalog => _catalog;
 
-        /// <summary>The engine the noise layer last touched; its levers are what Up, Down and Tab work on.</summary>
-        public string? Current { get; private set; }
+        /// <summary>
+        /// The engine the noise layer last touched; its levers are what Up, Down
+        /// and Tab work on. An assignment here points the cursor at RECEIVE; the
+        /// transmit half points it with its direction (Track H2 repair round 1,
+        /// item 2), and the layer acts on it only in that direction.
+        /// </summary>
+        public string? Current
+        {
+            get => _current;
+            private set
+            {
+                // An engine this version cannot run is never the cursor, by any
+                // road (Sprint 49 Track H2 bench rounds 1 and 2): its levers and
+                // favourite would act on something that is not there. An engine that
+                // is only unavailable now (no helper, a model missing) stays a valid
+                // intent and may be.
+                if (NotInThisVersion(value)) return;
+                _current = value;
+                _currentDirection = DenoiseDirection.Receive;
+                // A newer cursor assignment, by any action, makes an older delayed
+                // one stale (Track H2 repair round 2: Codex's same-session stress case).
+                _cursorEpoch++;
+            }
+        }
+        private string? _current;
+
+        /// <summary>A computer engine this build has no factory for (NVIDIA NR today): refused, never a choice or the cursor.</summary>
+        private bool NotInThisVersion(string? id) => id != null && _catalog.Find(id) is { Side: DenoiseSide.Pc, Factory: null };
 
         /// <summary>Which lever of <see cref="Current"/> the layer's arrows adjust; 0 is the primary lever.</summary>
         public int CurrentLeverIndex { get; private set; }
@@ -383,6 +420,52 @@ namespace JJFlexWpf
         /// this subject, and owned like the other queued notices
         /// (<see cref="_noticesOwed"/>). Read from the outermost scope only.
         /// </param>
+        /// <summary>
+        /// Says a sentence once a window that is closing has gone and the reader
+        /// has announced where focus landed (Sprint 49 Track H2 bench round,
+        /// item 2). Set by the main window to <see cref="WindowSettledSpeech.After"/>;
+        /// null (a test) says it at once.
+        /// </summary>
+        public Action<Action>? AfterWindowSettles { get; set; }
+
+        /// <summary>
+        /// For a dialog whose action closes it, or returns to it from another
+        /// window: everything the controller says until the hold is disposed is
+        /// gathered as one utterance, as <see cref="OneUtterance"/> does; call
+        /// <see cref="AnswerHold.AfterTheWindowCloses"/> when a window is about to
+        /// change, and the utterance is said only once it has settled, queued,
+        /// because a screen reader flushes its speech on a window change
+        /// (project memory: speech flushes on window change). Left alone, the
+        /// hold says it at once, as before.
+        /// </summary>
+        public AnswerHold HoldAnswer()
+        {
+            if (_utteranceDepth++ == 0) { _utterance = new(); _utteranceAfterUnder = null; _utteranceRefused = null; }
+            return new AnswerHold(this);
+        }
+
+        /// <summary>The scope <see cref="HoldAnswer"/> returns.</summary>
+        public sealed class AnswerHold : IDisposable
+        {
+            private readonly NoiseController _owner;
+            private bool _afterWindow, _done;
+            internal AnswerHold(NoiseController owner) => _owner = owner;
+
+            /// <summary>The window is about to change: say the gathered answer once it has settled.</summary>
+            public void AfterTheWindowCloses() => _afterWindow = true;
+
+            public void Dispose()
+            {
+                if (_done) return;
+                _done = true;
+                if (_afterWindow && _owner._utteranceDepth == 1) _owner._utteranceAfterWindow = true;
+                _owner.EndUtterance();
+            }
+        }
+
+        /// <summary>Set for the outermost scope's end only: deliver its utterance after the window settles.</summary>
+        private bool _utteranceAfterWindow;
+
         private UtteranceScope OneUtterance(string? afterWhatIsSaidUnder = null)
         {
             if (_utteranceDepth++ == 0) { _utterance = new(); _utteranceAfterUnder = afterWhatIsSaidUnder; _utteranceRefused = null; }
@@ -413,6 +496,8 @@ namespace JJFlexWpf
             _utterance = null;
             string? afterUnder = _utteranceAfterUnder;
             _utteranceAfterUnder = null;
+            bool afterWindow = _utteranceAfterWindow;
+            _utteranceAfterWindow = false;
             var journal = _journalAfterAction;
             _journalAfterAction = null;
             if (journal != null) foreach (var record in journal) record();
@@ -432,6 +517,14 @@ namespace JJFlexWpf
             // A mode change's sentence follows the mode word, never cuts it (#1117),
             // and waits for a surface that says the mode change later (the menu).
             if (afterUnder != null) DeliverModeNotice(new ModeNotice(text, afterUnder, level, refused, SlotFacts()));
+            // A dialog's answer as its window closes (bench round, item 2): said
+            // once the window has gone and focus has landed, queued behind the
+            // reader's own announcement of where it landed.
+            else if (afterWindow && AfterWindowSettles is { } later)
+            {
+                var subject = said[0].Subject;
+                later(() => Deliver(text, subject, level, queued: true));
+            }
             // Queued only when every part was: an answer to a press still interrupts.
             else if (said.All(p => p.Queued)) Deliver(text, said[0].Subject, level, queued: true);
             else Deliver(text, said[0].Subject, level, queued: false);
@@ -797,7 +890,10 @@ namespace JJFlexWpf
             using var oneUtterance = OneUtterance();
             var e = _catalog.Find(id);
             if (e == null) return;
-            Current = id; CurrentLeverIndex = 0;
+            // An engine this version cannot run is refused and never becomes the
+            // arrows' engine (Sprint 49 Track H2 bench round, item 9; the transmit
+            // twin was seen at the bench, and receive had the same line).
+            if (e.Side == DenoiseSide.Radio || e.Factory != null) { Current = id; CurrentLeverIndex = 0; }
             if (e.Side == DenoiseSide.Radio) { ToggleRadio(e, source); return; }
             bool on = IsOn(id);
             if (on) TurnComputerOff(e, source, speak: true);
@@ -1008,9 +1104,11 @@ namespace JJFlexWpf
             replaced == null ? sentence : sentence + " " + L("audio.noise_surface.replaced_clause", ("other", NameOf(replaced)));
 
         /// <summary>The refusal ladder for a computer engine that cannot run: the engine's name, the reason, the engine it replaced if any, the action; the kept clause at Chatty only where the choice can come true.</summary>
-        private void SpeakUnavailable(DenoiseEngineEntry e, Unavailability reason, bool kept, string? replaced = null)
+        private void SpeakUnavailable(DenoiseEngineEntry e, Unavailability reason, bool kept, string? replaced = null,
+            DenoiseDirection direction = DenoiseDirection.Receive)
         {
-            string name = Lexicon.Get(e.LabelKey);
+            bool transmit = direction == DenoiseDirection.Transmit;
+            string name = transmit ? TxName(e.Id) : Lexicon.Get(e.LabelKey);
             string key = reason switch
             {
                 Unavailability.LibraryMissing => "audio.noise_surface.unavailable.librarymissing",
@@ -1026,13 +1124,15 @@ namespace JJFlexWpf
                 Unavailability.None => "audio.noise_surface.unavailable.none",
                 _ => "audio.noise_surface.unavailable.initfailed",
             };
-            string text = WithReplaced(L(key, ("engine", name)), replaced);
+            string text = WithReplaced(L(key, ("engine", name)), transmit && replaced != null ? null : replaced);
+            if (transmit && replaced != null) text += " " + L("audio.noise_surface.replaced_clause", ("other", TxName(replaced)));
             bool canComeTrue = reason is Unavailability.HelperNotRunning or Unavailability.HelperMissing or Unavailability.HelperVersionMismatch
                 or Unavailability.LibraryMissing or Unavailability.ModelMissing or Unavailability.NotDownloaded
                 or Unavailability.LicenceNotAccepted or Unavailability.NoSupportedGpu;
             if (kept && canComeTrue && Chatty) text += " " + L("audio.noise_surface.choice_kept");
-            NoteSaidCannotRun(e.Id, reason);
-            Say(text, SpeechSubject.NoiseUnavailable);
+            // A transmit refusal is not a receive mode sentence's business (#1117's facts are receive's).
+            if (!transmit) NoteSaidCannotRun(e.Id, reason);
+            Say(text, transmit ? SpeechSubject.TransmitNoiseUnavailable : SpeechSubject.NoiseUnavailable);
         }
 
         /// <summary>
@@ -1083,10 +1183,13 @@ namespace JJFlexWpf
         public void ChooseSlotEngine(DenoiseFamily family, string id, string source)
         {
             if (_settling.TryGetValue(family, out var pending)) { pending.Dispose(); _settling.Remove(family); }
+            // The cursor is pointed later only if no layer session or T has moved
+            // its ownership since (Track H2 repair round 1, item 2).
+            long epoch = _cursorEpoch;
             _settling[family] = _scheduler.After(TimeSpan.FromMilliseconds(EngineSettleMs), () =>
             {
                 _settling.Remove(family);
-                ApplySlotChoice(family, id, source);
+                ApplySlotChoice(family, id, source, epoch);
             });
         }
 
@@ -1097,14 +1200,14 @@ namespace JJFlexWpf
 
         public void NoteSlotChoicePending(DenoiseFamily family, string id) => _pendingChoice[family] = id;
 
-        private void ApplySlotChoice(DenoiseFamily family, string id, string source)
+        private void ApplySlotChoice(DenoiseFamily family, string id, string source, long epoch)
         {
             using var oneUtterance = OneUtterance();
             _pendingChoice.Remove(family);
             var slot = SlotOf(family);
             var e = _catalog.Find(id);
             if (slot == null || e == null || e.Family != family || slot.ChosenEngineId == id) return;
-            Current = id; CurrentLeverIndex = 0;
+            PointLater(id, DenoiseDirection.Receive, epoch);
             if (slot.Enabled) { TurnComputerOn(e, source, speak: true, model: null); return; }
             if (e.Factory == null)
             {
@@ -1211,7 +1314,20 @@ namespace JJFlexWpf
                 SayAfter(L("audio.noise_surface.helper_back", ("engines", JoinNames(engines))), SpeechSubject.NoiseHelperState);
         }
 
-        /// <summary>Forget the 0 key's "back" list (the layer closed; the operator moved on).</summary>
-        public void ForgetZero() => _zeroRestore = null;
+        /// <summary>Forget the 0 key's "back" lists, both directions' (the layer closed; the operator moved on; Track H2 repair round 1, item 3).</summary>
+        public void ForgetZero() { _zeroRestore = null; _txZeroRestore = null; }
+
+        /// <summary>
+        /// The noise layer closed (Track H2 repair round 1, items 2 and 3): the
+        /// layer's direction goes back to receive, both 0-key lists are
+        /// forgotten, and any cursor assignment still to come from work scheduled
+        /// during the session is stale.
+        /// </summary>
+        public void EndLayerSession()
+        {
+            ForgetZero();
+            LayerDirection = DenoiseDirection.Receive;
+            _cursorEpoch++;
+        }
     }
 }

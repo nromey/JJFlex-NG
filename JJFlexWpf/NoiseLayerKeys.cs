@@ -22,9 +22,18 @@ namespace JJFlexWpf
     /// exactly as they do in every other layer, Alt+F4 included.
     /// </para>
     /// <para>
-    /// T, Ctrl+B and Ctrl+W are deliberately unbound: they belong to work that
-    /// is held (transmit, and the computer blankers), and are refused like any
-    /// unknown key.
+    /// <b>T switches the layer's direction</b> (ruled 2026-11-07, question 6:
+    /// "t is fine, if, when we use it (in operation) it sucks we can add a
+    /// layer"; built in Sprint 49 Track H2). After T the same Ctrl letters act
+    /// on the transmit chain, and so do the arrows, Tab, Space, the brackets,
+    /// 0, the favourite and defaults keys and the preset brackets, until T
+    /// again or the layer closes. In the transmit direction a radio letter and
+    /// Captured noise's Ctrl+S do nothing and say so (part seven).
+    /// </para>
+    /// <para>
+    /// Ctrl+B and Ctrl+W stay unbound in both directions: the computer
+    /// blankers they were proposed for were dropped (#1027), so they are
+    /// refused like any unknown key.
     /// </para>
     /// </remarks>
     public sealed class NoiseLayerKeys
@@ -43,6 +52,9 @@ namespace JJFlexWpf
 
         /// <summary>Step to the previous preset (Noel, 21:08).</summary>
         public const Keys PreviousPresetKey = Keys.OemOpenBrackets | Keys.Shift | Keys.Alt;
+
+        /// <summary>Switch the layer between receive and transmit (ruled 2026-11-07, question 6). One constant, so moving it is one line.</summary>
+        public const Keys DirectionKey = Keys.T;
 
         /// <summary>Every engine key, chord to catalog id. The H list, the explorer and the near miss read <c>KeyInventory.NoiseLayerCommands</c>, which names the same chords; <c>NoiseLayerKeysTests</c> holds the two together.</summary>
         public static readonly IReadOnlyDictionary<Keys, string> EngineKeys = new Dictionary<Keys, string>
@@ -73,7 +85,7 @@ namespace JJFlexWpf
             LegacyAutoNotchKey, FavouriteKey, DefaultsKey, NextPresetKey, PreviousPresetKey,
         };
 
-        private const string Source = "noise layer";
+        private const string Source = NoiseController.LayerSource; // what makes a change the layer's own, for its Escape
         private readonly NoiseController _noise;
         private readonly Action<bool>? _tone;
 
@@ -94,38 +106,43 @@ namespace JJFlexWpf
         /// <summary>One key. True when the layer acted on it.</summary>
         public bool Handle(Keys k)
         {
+            bool transmit = _noise.LayerDirection == Radios.DenoiseDirection.Transmit;
             if (EngineKeys.TryGetValue(k, out string? id))
             {
-                bool before = _noise.IsOn(id);
-                _noise.Toggle(id, Source);
-                bool after = _noise.IsOn(id);
+                bool before = transmit ? _noise.TransmitIsOn(id) : _noise.IsOn(id);
+                if (transmit) _noise.TransmitToggle(id, Source);
+                else _noise.Toggle(id, Source);
+                bool after = transmit ? _noise.TransmitIsOn(id) : _noise.IsOn(id);
                 if (after != before) _tone?.Invoke(after);
                 return true;
             }
             switch (k)
             {
+                case DirectionKey: _noise.SwitchLayerDirection(); return true;
+                // The arrows, Home, End and Tab work the engine last touched, in
+                // the layer's direction (the controller's lever cursor follows it).
                 case Keys.Up: _noise.AdjustCurrent(+1, Source); return true;
                 case Keys.Down: _noise.AdjustCurrent(-1, Source); return true;
                 case Keys.Home: _noise.PlaceCurrent(-1, Source); return true;
                 case Keys.End: _noise.PlaceCurrent(+1, Source); return true;
                 case Keys.Tab: _noise.NextLever(+1); return true;
                 case Keys.Tab | Keys.Shift: _noise.NextLever(-1); return true;
-                case Keys.Space: _noise.SpeakActive(); return true;
-                case Keys.OemCloseBrackets: _noise.Step(+1, Source); return true;
-                case Keys.OemOpenBrackets: _noise.Step(-1, Source); return true;
-                // 0: every computer slot off, and back (ruled, questions 17 and 3).
-                case Keys.D0: _noise.ComputerOffAndBack(Source); return true;
-                case FavouriteKey: WithCurrent(id2 => _noise.ToggleFavourite(id2, Source)); return true;
-                case DefaultsKey: WithCurrent(id2 => _noise.ReturnToDefaults(id2, Source)); return true;
-                case NextPresetKey: _noise.StepPreset(+1, Source); return true;
-                case PreviousPresetKey: _noise.StepPreset(-1, Source); return true;
+                case Keys.Space: _noise.SpeakActiveInLayerDirection(); return true;
+                case Keys.OemCloseBrackets: if (transmit) _noise.TransmitStep(+1, Source); else _noise.Step(+1, Source); return true;
+                case Keys.OemOpenBrackets: if (transmit) _noise.TransmitStep(-1, Source); else _noise.Step(-1, Source); return true;
+                // 0: every computer slot off, and back (ruled, questions 17 and 3), in the layer's direction.
+                case Keys.D0: if (transmit) _noise.TransmitComputerOffAndBack(Source); else _noise.ComputerOffAndBack(Source); return true;
+                case FavouriteKey: WithCurrent(id2 => _noise.ToggleFavourite(id2, Source, _noise.LayerDirection)); return true;
+                case DefaultsKey: WithCurrent(id2 => { if (transmit) _noise.TransmitReturnToDefaults(id2, Source); else _noise.ReturnToDefaults(id2, Source); }); return true;
+                case NextPresetKey: if (transmit) _noise.StepTransmitPreset(+1, Source); else _noise.StepPreset(+1, Source); return true;
+                case PreviousPresetKey: if (transmit) _noise.StepTransmitPreset(-1, Source); else _noise.StepPreset(-1, Source); return true;
             }
             return false;
         }
 
         private void WithCurrent(Action<string> act)
         {
-            if (_noise.Current is string id) act(id);
+            if (_noise.CurrentInLayer is string id) act(id);
             else _noise.SpeakNoEngineYet();
         }
     }

@@ -80,7 +80,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 - **V** — The same audio layer, by the letter your fingers may know from volume mode — a second door to one room, kept as a courtesy
 - **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Escape reverts changes, Enter accepts. Speaks the number every time, on a 0-to-100 scale. The one Alt chord that opens a layer rather than doing something; pan's home is `A` then `P`
 - **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, Home and End send it straight to its limit, `T` and `R` switch between the transmit and receive filters, and `S` speaks it (see "The filter layer" below)
-- **N** — Enter the noise layer — ten switches, a letter each, one press flips one and says which way it went; Escape puts back every switch you flipped, Enter keeps them (see "The noise layer" below)
+- **N** — Opens the noise layer for engine switches and settings. It starts on receive; `T` switches between receive and transmit. The arrows adjust the last engine selected, `Space` reports the active settings, `Enter` keeps changes, and `Escape` restores the layer's engine settings, favourites and transmit gate and closes it. See “The noise layer” for the keys and cancellation limits.
 
 Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it lands, pressing `M` tells you the memories moved to `Alt+M`.
 
@@ -228,29 +228,58 @@ The bracket keys you already know are untouched: `[` and `]` still widen, `Shift
 
 ### The noise layer — Ctrl+J, then N
 
-Noise fighting used to be spread across the whole JJ key — eight plain letters and all four tiers for one subject. It is one room now. Press `Ctrl+J`, then `N`, and every key in the layer is a switch: one press flips it and tells you which way it went, "Noise Blanker on", "Auto Notch off". There is nothing to pick and nothing to ride, so the arrows have no job here — press one and the layer says so and stays put.
+Press `Ctrl+J`, release it, then press `N` to open the noise layer. It starts on receive. Engine keys switch an engine on or off; after selecting an engine, use Up and Down Arrow to adjust its current setting. `Tab` moves to its next setting and `Shift+Tab` to the previous one. `Home` and `End` choose the setting's minimum and maximum. These controls use the same settings as the menus and Home.
 
-The switches, and the letter for each. These letters are provisional; if one lands wrong under your hand, say so.
+Press `T` to switch the layer to transmit. The computer engine keys and adjustment keys will then act on the microphone cleanup settings. Press `T` again for receive. Each time the layer opens it starts on receive, and switching direction clears the engine selected for adjustment; choose an engine before using the arrows again. Transmit cleanup processes the computer microphone in voice modes and is bypassed in CW and digital modes. It does not process a microphone plugged into the radio.
 
-- **A** — Auto Notch: the radio hunts a steady carrier and notches it for you.
-- **B** — Noise Blanker, for pulse noise such as ignition and power-line crackle.
-- **W** — Wideband Noise Blanker, the blanker that works across the whole passband.
-- **N** — Noise Reduction, the radio's standard NR, for hiss.
-- **R** — the radio's own Neural Noise Reduction (RNN). On a radio that does not have it, the layer says so instead of pretending.
-- **S** — the radio's own Spectral Noise Reduction (NRS). Same honesty on a radio without it.
-- **Ctrl+N** — the NR Filter. Ctrl because plain `N` is noise reduction itself; the two share an initial by nature.
-- **P** — Audio Peak Filter, CW only. In any other mode it tells you it is CW only and changes nothing.
-- **Ctrl+R** — Neural Noise Reduction that runs on this computer, on every radio. The radio's own is plain `R`; this is its PC-side twin.
-- **Ctrl+S** — Spectral Noise Reduction that runs on this computer, on every radio. Its "on" sentence tells you when no noise profile is loaded and names `Ctrl+J`, `Alt+Q`, which captures one from anywhere.
+The radio's engine keys work on receive:
 
-And the keys every layer has:
+- **L** switches Legacy NR on or off.
+- **N** switches Standard NR on or off.
+- **R** switches Neural NR on or off.
+- **S** switches Spectral NR on or off.
+- **F** switches NR Filter on or off.
+- **B** switches Noise Blanker on or off.
+- **W** switches Wideband Noise Blanker on or off.
+- **A** switches FFT Auto-Notch on or off.
+- **O** switches Standard Auto-Notch on or off.
+- **Shift+Alt+A** switches Legacy Auto-Notch on or off.
+- **P** switches Audio Peak Filter on or off where the radio's mode permits it.
 
-- **Shift+A through Shift+H** — jump to that slice without leaving the layer. The radio's switches are per slice, so they follow you to the new one; whatever you flipped on the old slice stays flipped.
-- **Enter** — keep everything and leave.
-- **Escape** — put back every switch you flipped, out loud, and leave.
-- **H** — the layer's keys as a list you can arrow through, count first. `Shift slash` opens the JJ key explorer with this layer's branch open.
+The computer's engine keys use Control:
 
-The compander is not in this room, on purpose. It shapes your voice on transmit rather than fighting noise on receive, so its switch sits in the audio layer beside its level. The tracking notch manager (`Ctrl+J`, `Alt+N`) and the noise-profile capture (`Ctrl+J`, `Alt+Q`) are things you *open* or *do* rather than switches, so they stay on the Alt tier at the top level.
+- **Ctrl+R** switches RNNoise on or off.
+- **Ctrl+D** switches DeepFilterNet3 on or off.
+- **Ctrl+N** switches NNR on or off.
+- **Ctrl+2** switches NR2 on or off.
+- **Ctrl+4** switches NR4 on or off.
+- **Ctrl+S** switches Captured noise on or off on receive. Capture and manage its noise profiles through the Noise Profiles window.
+- **Ctrl+G** requests NVIDIA NR. This version lists the engine but cannot run it, and says so.
+
+After `T`, the same computer keys work on transmit except `Ctrl+S`: Captured noise is receive only. The radio keys are also receive only; pressing one in the transmit direction leaves its setting unchanged and says so. `Ctrl+B` and `Ctrl+W` have no binding in either direction.
+
+The other keys work in the current direction:
+
+- **T** switches between receive and transmit.
+- **Up / Down Arrow** increases or decreases the current setting. Increasing Noise floor mixes more original audio back in; it does not mean stronger reduction.
+- **Tab / Shift+Tab** moves to the next or previous setting of the selected engine.
+- **Home / End** chooses the current setting's minimum or maximum.
+- **[ / ]** switches to the previous or next favourite. On transmit, receive-only favourites are skipped. If no favourites apply to transmit, the brackets step through the transmit engine list instead.
+- **Space** reports the active noise settings without changing them.
+- **0** turns the computer noise reduction engines off; press it again to restore the engines it turned off during this layer session. It does not switch the radio engines or the transmit gate off.
+- **Shift+Alt+F** adds or removes the selected engine, including its model where applicable, from the shared favourites list.
+- **Shift+Alt+R** restores the selected engine's default settings.
+- **Shift+Alt+[ / Shift+Alt+]** applies the previous or next noise preset. A preset applies every section it contains, even if it includes both receive and transmit settings.
+- **Shift+A through Shift+H** selects that slice without leaving the layer. A radio change already made on the slice being left is kept. Computer receive settings follow the new active slice's mode group; transmit has no per-mode memory.
+- **Enter** keeps the changes and closes the layer.
+- **Escape** restores the layer's engine settings, favourites and transmit gate and closes the layer. The transmit engine and gate settings return when the radio is unkeyed if Escape is pressed during a transmission. Saved presets and transmit noise setups are kept.
+- **H** opens the noise layer's key list. **Shift+/** opens the JJ key explorer at this layer.
+
+Transmit engine switches, changes that rebuild a transmit engine, named transmit noise setups and a preset's transmit noise section take effect when unkeyed if requested while transmitting. The reply will say when a change is waiting. Noise floor and other continuous adjustments can change live unless an earlier change is already waiting. Read the particular control's help with `Ctrl+F1` for its purpose and range.
+
+The Transmit menu and Home's Transmission section provide the same transmit noise reduction controls. Home also has the noise gate, Listen to cleanup and named transmit noise setups. Show advanced noise gate settings to reach the monitor and setup fields. There is no gate toggle key in the noise layer.
+
+The compander remains in the audio layer, with its level. Tracking notch management remains a separate command at `Ctrl+J`, then `Alt+N`, and a quiet-band noise capture remains `Ctrl+J`, then `Alt+Q`.
 
 ### Tracking notch filters — Ctrl+J, then Alt+N
 

@@ -26,11 +26,10 @@ namespace JJFlexWpf
     /// can reach selects it.
     /// </para>
     /// <para>
-    /// The transmit chain uses this class too (<c>TxAudioConditioning</c>). Its
-    /// stream carries the mono microphone duplicated on both channels, and a
-    /// deterministic engine fed identical channels produces identical output.
-    /// Transmit shares the corrected input level, aligned blend, and delayed
-    /// dropout path, with one engine per channel.
+    /// The transmit chain used this class until Sprint 49 Track H, which moved
+    /// it to two transmit <see cref="PcDenoiseSlot"/>s (<see cref="TxNoiseChain"/>)
+    /// running one mono engine each. Today the offline bench
+    /// (<c>tools/nrbench</c>) and the tests are its only callers.
     /// </para>
     /// </remarks>
     public class NoiseReductionProvider : ISampleProvider, IDisposable
@@ -55,7 +54,7 @@ namespace JJFlexWpf
         /// Wet/dry mix: 0.0 = original signal only, 1.0 = fully processed. The
         /// operator meets it as a noise floor (#1019; <see cref="Radios.NoiseFloor"/>).
         /// Defaults to transmit RNNoise's default from the one source (floor 20),
-        /// since the transmit chain is this class's caller in the app.
+        /// as it did while the transmit chain was this class's caller.
         /// </summary>
         public float Strength { get; set; } = Radios.NoiseFloor.DefaultStrength("rnnoise", Radios.DenoiseDirection.Transmit);
 

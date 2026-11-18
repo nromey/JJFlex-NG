@@ -40,6 +40,33 @@ namespace JJFlexWpf
         internal Radios.DenoiseEngineSettings[] NeuralSettings { get; set; } = Array.Empty<Radios.DenoiseEngineSettings>();
         internal List<NoiseFavourite> Favourites { get; set; } = new();
         internal string MemoryXml { get; set; } = "";
+        /// <summary>
+        /// The transmit chain's two slots as the layer found them (Sprint 49
+        /// Track H2): T turns the layer's keys on the transmit chain, so Escape
+        /// puts the transmit slots back too. Null when no chain was reachable.
+        /// </summary>
+        internal TxNoiseSlotSetup? TransmitSpectral { get; set; }
+        internal TxNoiseSlotSetup? TransmitNeural { get; set; }
+        /// <summary>
+        /// The transmit gate as the layer found it (words round, the
+        /// orchestrator's decision): a preset applied inside the layer can change
+        /// the gate, so Escape puts the gate back too and "All changes reverted"
+        /// stays true. Null when no chain was reachable.
+        /// </summary>
+        internal TxNoiseGateSetup? TransmitGate { get; set; }
+
+        /// <summary>
+        /// What the layer itself last left each transmit part as (Escape
+        /// ownership round, like <see cref="TouchedSwitches"/> for the radio):
+        /// null for a part the layer has not changed. Escape puts a part back
+        /// only while it still reads as the layer left it, so a setup, Home or
+        /// the menu changing it afterwards keeps its change. Recorded when the
+        /// layer's change really ran: a change held for the unkey records at the
+        /// unkey, in order, or never if Escape withdrew it.
+        /// </summary>
+        internal TxNoiseSlotSetup? LeftSpectral { get; set; }
+        internal TxNoiseSlotSetup? LeftNeural { get; set; }
+        internal TxNoiseGateSetup? LeftGate { get; set; }
     }
 
     public sealed partial class NoiseController
@@ -62,6 +89,11 @@ namespace JJFlexWpf
             {
                 snap.Favourites = c.NoiseFavourites.Select(f => new NoiseFavourite { EngineId = f.EngineId, Model = f.Model, Name = f.Name }).ToList();
                 snap.MemoryXml = SerializeMemory(c.NoiseModeMemory);
+            }
+            if (_txChain() is { } chain)
+            {
+                (snap.TransmitSpectral, snap.TransmitNeural) = chain.CaptureSlots();
+                snap.TransmitGate = TransmitGate.Capture();
             }
             return snap;
         }
@@ -132,6 +164,118 @@ namespace JJFlexWpf
             if (_live is { } snap && !ReferenceEquals(now, snap.SliceIdentity)) ReadRadioPart(snap);
         }
 
+        // ── Which transmit changes are the layer's (Escape ownership round) ──
+
+        /// <summary>The noise layer's own source: a transmit write made with it while the layer's picture is live is the layer's to undo.</summary>
+        public const string LayerSource = "noise layer";
+
+        private int _ownTxDepth;
+
+        /// <summary>
+        /// Open around every transmit write that can carry the layer's source.
+        /// Null (nothing to do) unless the source is the layer's and its picture
+        /// is live; nested writes share the outermost. While open, every change
+        /// the chain holds is tagged with the picture, so Escape can withdraw it.
+        /// </summary>
+        private IDisposable? OwnTx(string source)
+        {
+            if (_ownTxDepth > 0 || source != LayerSource || _live is not { } snap || _txChain() is not { } chain) return null;
+            return new LayerTxWrite(this, snap, chain);
+        }
+
+        /// <summary>
+        /// One write by the layer. What the transmit parts read before it and
+        /// after it is taken through the chain's ordering, so a change held for
+        /// the unkey is measured when it runs, right after the changes held ahead
+        /// of it and before anything asked for later; both readings are tagged,
+        /// so Escape withdraws them with the change.
+        /// </summary>
+        private sealed class LayerTxWrite : IDisposable
+        {
+            private readonly NoiseController _owner;
+            private readonly NoiseSnapshot _snap;
+            private readonly TxNoiseChain _chain;
+            private readonly IDisposable _tag;
+            private TxPicture? _before;
+            private bool _done;
+
+            public LayerTxWrite(NoiseController owner, NoiseSnapshot snap, TxNoiseChain chain)
+            {
+                _owner = owner; _snap = snap; _chain = chain;
+                owner._ownTxDepth++;
+                _tag = chain.OwnedBy(snap);
+                chain.AfterHeld(() => _before = owner.ReadTx(chain));
+            }
+
+            public void Dispose()
+            {
+                if (_done) return;
+                _done = true;
+                try { _chain.AfterHeld(() => _owner.NoteLayerLeft(_snap, _before, _chain)); }
+                finally { _tag.Dispose(); _owner._ownTxDepth--; }
+            }
+        }
+
+        private sealed record TxPicture(TxNoiseSlotSetup Spectral, TxNoiseSlotSetup Neural, TxNoiseGateSetup Gate);
+
+        private TxPicture ReadTx(TxNoiseChain chain)
+        {
+            var (spectral, neural) = chain.CaptureSlots();
+            return new TxPicture(spectral, neural, TransmitGate.Capture());
+        }
+
+        /// <summary>
+        /// After one of the layer's writes ran: each part it changed is the
+        /// layer's now, as it left it. A part that had already moved since the
+        /// layer last left it (or since the picture, if the layer had not
+        /// touched it) was moved by someone else in between: that change is
+        /// kept, so it becomes what Escape puts the part back to.
+        /// </summary>
+        private void NoteLayerLeft(NoiseSnapshot snap, TxPicture? before, TxNoiseChain chain)
+        {
+            if (before == null || snap.TransmitSpectral == null || snap.TransmitNeural == null) return;
+            var now = ReadTx(chain);
+            if (DescribeTx(now.Spectral) != DescribeTx(before.Spectral))
+            {
+                if (DescribeTx(before.Spectral) != DescribeTx(snap.LeftSpectral ?? snap.TransmitSpectral)) snap.TransmitSpectral = before.Spectral;
+                snap.LeftSpectral = now.Spectral;
+            }
+            if (DescribeTx(now.Neural) != DescribeTx(before.Neural))
+            {
+                if (DescribeTx(before.Neural) != DescribeTx(snap.LeftNeural ?? snap.TransmitNeural)) snap.TransmitNeural = before.Neural;
+                snap.LeftNeural = now.Neural;
+            }
+            if (!SameGate(now.Gate, before.Gate))
+            {
+                if (snap.TransmitGate != null && !SameGate(before.Gate, snap.LeftGate ?? snap.TransmitGate)) snap.TransmitGate = before.Gate;
+                snap.LeftGate = now.Gate;
+            }
+        }
+
+        /// <summary>
+        /// The transmit parts Escape puts back: those the layer changed, that
+        /// still read as the layer left them, and that differ from the picture.
+        /// Asked at Escape and again when the put-back runs, so a change someone
+        /// else makes in between (held ahead of it, say) is kept.
+        /// </summary>
+        private (bool Spectral, bool Neural, bool Gate) LayerOwnedTx(NoiseSnapshot snap, TxPicture now)
+        {
+            bool spectral = snap.LeftSpectral != null && snap.TransmitSpectral != null
+                && DescribeTx(now.Spectral) == DescribeTx(snap.LeftSpectral) && DescribeTx(now.Spectral) != DescribeTx(snap.TransmitSpectral);
+            bool neural = snap.LeftNeural != null && snap.TransmitNeural != null
+                && DescribeTx(now.Neural) == DescribeTx(snap.LeftNeural) && DescribeTx(now.Neural) != DescribeTx(snap.TransmitNeural);
+            bool gate = snap.LeftGate != null && snap.TransmitGate != null
+                && SameGate(now.Gate, snap.LeftGate) && !SameGate(now.Gate, snap.TransmitGate);
+            return (spectral, neural, gate);
+        }
+
+        /// <summary>When the transmit part of the last <see cref="RestoreSnapshot"/> takes effect (Now when it had none).</summary>
+        public TxChangeTiming LastRestoreTiming { get; private set; } = TxChangeTiming.Now;
+
+        /// <summary>The layer's closing sentence after Escape, with the at-unkey sentence when the transmit part waits (repair round 1, item 4).</summary>
+        public string WithRestoreTiming(string closing) =>
+            LastRestoreTiming == TxChangeTiming.AtUnkey ? closing + " " + Lexicon.Get("audio.denoise.tx.at_unkey") : closing;
+
         /// <summary>The layer closed: nothing is live to put back any more.</summary>
         public void EndSnapshot() => _live = null;
 
@@ -194,6 +338,42 @@ namespace JJFlexWpf
                 RetireHelperNotice("the noise settings were put back");
                 changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings, source);
                 changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings, source);
+            }
+            // The transmit part (Track H2; Escape ownership round): only what the
+            // layer itself changed. First its own changes still held for the
+            // unkey are withdrawn, so a preset or setup asked for while keyed
+            // never lands after Escape; everyone else's held changes stay, in
+            // order. Its held records run as they are withdrawn (round 2), so a
+            // change that ran before an over cut its record off is still known;
+            // only a withdrawn CHANGE counts as something reverted. Then each part the layer changed and that still reads as the
+            // layer left it goes back to the picture: the two slots and the gate,
+            // through one change held while keyed (repair round 1, item 4), which
+            // asks again when it runs. A part someone else changed is kept.
+            LastRestoreTiming = TxChangeTiming.Now;
+            if (_txChain() is { } chain)
+            {
+                if (chain.CancelHeld(snap) > 0)
+                {
+                    NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes waiting for the unkey", "withdrawn");
+                    changed = true;
+                }
+                var owned = LayerOwnedTx(snap, ReadTx(chain));
+                if (owned.Spectral || owned.Neural || owned.Gate)
+                {
+                    if (owned.Spectral || owned.Neural) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
+                    var spectralBack = snap.TransmitSpectral?.Clone();
+                    var neuralBack = snap.TransmitNeural?.Clone();
+                    var gateBack = snap.TransmitGate?.Clone();
+                    LastRestoreTiming = chain.RunOrDefer(() =>
+                    {
+                        var still = LayerOwnedTx(snap, ReadTx(chain));
+                        if (still.Spectral) chain.ApplySlotNow(DenoiseFamily.Spectral, spectralBack);
+                        if (still.Neural) chain.ApplySlotNow(DenoiseFamily.Neural, neuralBack);
+                        if (still.Gate && gateBack != null) TransmitGate.ApplyNow(gateBack);
+                    }).Timing;
+                    NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes", "put back");
+                    changed = true;
+                }
             }
             ClearListening();
             ForgetZero();

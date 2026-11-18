@@ -81,6 +81,36 @@ namespace JJFlexWpf
                 if (!first) WriteRadioIntents("the active slice changed");
             }
             FollowActiveSlice();
+            FollowReceiveMode("the active slice was reported");
+        }
+
+        /// <summary>
+        /// #1123 (ruled S12, 2026-11-18 08:30: yes): computer noise reduction
+        /// follows the ACTIVE slice's mode when the operator moves to a slice in
+        /// another mode, exactly as per-mode memory follows a mode change. The
+        /// radio reports a mode change only for the active slice
+        /// (<c>FlexBase</c>'s DemodMode case raises <c>ModeChanged</c> only
+        /// while that slice is active), and a change of WHICH slice is active
+        /// raises nothing; the slice's own mode simply becomes the active mode
+        /// (<c>FlexBase</c>'s ActiveSlice case writes it). So whenever the
+        /// active slice is reported (Home's poll, the layer's slice jump, and the
+        /// main window's poll whether or not Home is shown), the receive mode's
+        /// group is compared with the group the controller is in, and a
+        /// difference is entered through the one mode-group path
+        /// (<see cref="OnModeChanged"/>'s), its sentence queued behind whatever
+        /// is being said. The noise picture stays global per mode group, never
+        /// per slice. Nothing happens before a connect has entered a group, and
+        /// a mode change the radio also reports is entered once: whichever road
+        /// arrives second finds the group already entered.
+        /// </summary>
+        /// <param name="why">Trace prose.</param>
+        public void FollowReceiveMode(string why)
+        {
+            if (_group is not { } now || _radio() is not { } r) return;
+            string mode = r.ReceiveMode;
+            if (mode.Length == 0 || NoiseModeRules.GroupOf(mode) == now) return;
+            System.Diagnostics.Trace.WriteLine($"NoiseController: the active slice's mode {mode} is another mode group; entering it ({why})");
+            EnterGroup(mode, attaching: false);
         }
 
         public void Detach()

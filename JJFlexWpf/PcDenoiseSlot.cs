@@ -42,7 +42,26 @@ namespace JJFlexWpf
             var live = new List<KeyValuePair<string, EngineSettingValue>>(values.Count);
             foreach (var pair in values)
                 if (!settings.Any(s => s.Name == pair.Key && s.NeedsRebuild)) live.Add(pair);
+            AddOmittedLiveDefaults(settings, values, live);
             return new Parameters(strength, values, live.ToArray());
+        }
+
+        /// <summary>
+        /// Transmit only (Sprint 49 Track H, repair round 2, R2): the live array
+        /// also carries every live setting the stored values OMIT, at its
+        /// descriptor default. The store stays sparse (an untouched value is
+        /// still not stored, #1019), but a running engine is told the default
+        /// for a value a new setup does not name, instead of keeping whatever
+        /// the previous setup had set while the getter reads the default.
+        /// Receive keeps its overlay behaviour; the same gap there is reported,
+        /// not changed, by this track.
+        /// </summary>
+        private void AddOmittedLiveDefaults(IReadOnlyList<EngineSettingDescriptor> settings,
+            IReadOnlyDictionary<string, EngineSettingValue> values, List<KeyValuePair<string, EngineSettingValue>> live)
+        {
+            if (_direction != DenoiseDirection.Transmit) return;
+            foreach (var d in settings)
+                if (!d.NeedsRebuild && !values.ContainsKey(d.Name)) live.Add(new(d.Name, d.Default));
         }
         private sealed record Choice(long Generation, string Id, DenoiseDirection Direction = DenoiseDirection.Receive)
         {
@@ -90,7 +109,42 @@ namespace JJFlexWpf
         private bool _wasActive;
         private float[] _nextAudio = Array.Empty<float>();
         public DenoiseFamily Family { get; }
-        public DenoiseDirection Direction => DenoiseDirection.Receive;
+
+        private readonly DenoiseDirection _direction;
+        /// <summary>
+        /// Which audio this slot cleans, fixed at construction (Sprint 49 Track
+        /// H, item A): receive, or the microphone on transmit. One class serves
+        /// both, so there is one chooser vocabulary, not two (ruled 2026-10-20).
+        /// The catalog's factory is handed this direction, so a helper engine
+        /// opens a channel of the matching kind. A transmit slot never warms up
+        /// or cross-fades between engines: every change it would make waits for
+        /// <see cref="SwapPermitted"/> (the unkey, item B), and is then a cut.
+        /// </summary>
+        public DenoiseDirection Direction => _direction;
+
+        /// <summary>
+        /// Transmit only (item B): asked once per buffer on the audio thread;
+        /// while it answers false (the radio is keyed), the slot changes nothing
+        /// anyone could hear. A delivered build waits in its mailbox, a failed
+        /// choice leaves the running engine alone, and the swap happens on the
+        /// first buffer it answers true. Null means always permitted. Ignored
+        /// by a receive slot, whose changes go through the warm-up instead.
+        /// </summary>
+        internal Func<bool>? SwapPermitted { get; set; }
+
+        /// <summary>
+        /// Transmit only: the delay, in samples per channel, the last buffer
+        /// this slot was given went out with; 0 when the slot passed it
+        /// through untouched (off, nothing built). The transmit chain adds the
+        /// two slots' figures for the conditioner's aligned residual monitor.
+        /// </summary>
+        internal int LastAppliedLatencySamples { get; private set; }
+
+        /// <summary>Transmit only: whether the running engine's bank took the last buffer (on, permitted, built). False means it passed through untouched.</summary>
+        internal bool LastBufferProcessed { get; private set; }
+
+        /// <summary>Transmit only: the last buffer was processed and the engine itself produced every frame of it (none late, failed or latched). The chain's "it has recovered".</summary>
+        internal bool LastBufferClean { get; private set; }
         public string ChosenEngineId => Volatile.Read(ref _choice).Id;
         public string RunningEngineId => Volatile.Read(ref _runningBuild)?.Id ?? "";
 
@@ -183,12 +237,14 @@ namespace JJFlexWpf
         }
 
         internal PcDenoiseSlot(DenoiseFamily family, string initialId, int sampleRate, int channels,
-            DenoiseEngineCatalog catalog)
+            DenoiseEngineCatalog catalog, DenoiseDirection direction = DenoiseDirection.Receive)
         {
+            // The direction first: the default parameters below read it.
+            _direction = direction;
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
             // Every engine's default parameters, made here rather than on the audio thread (repair round 1).
             foreach (var row in catalog.Entries) DefaultParameters(row.Id);
-            _choice = new Choice(0, initialId);
+            _choice = new Choice(0, initialId, direction);
             var entry = catalog.Find(initialId);
             _choice.Entry = entry;
             if (entry?.Factory != null && entry.Family == family && entry.Serves(Direction))
@@ -244,9 +300,91 @@ namespace JJFlexWpf
             // TryGetValue first: GetOrAdd with a lambda that captures this slot
             // would allocate a delegate on every call, on the audio thread too.
             if (_defaults.TryGetValue(id, out var cached)) return cached;
-            var made = new Parameters(NoiseFloor.DefaultStrength(id, Direction), NoValues, Array.Empty<KeyValuePair<string, EngineSettingValue>>());
+            var defaultsLive = new List<KeyValuePair<string, EngineSettingValue>>();
+            AddOmittedLiveDefaults(SettingsFor(id), NoValues, defaultsLive);
+            var made = new Parameters(NoiseFloor.DefaultStrength(id, Direction), NoValues, defaultsLive.ToArray());
             return _defaults.GetOrAdd(id, made);
         }
+
+        // ── What the TRANSMIT audio thread reads (Sprint 49 Track H, repair round 3) ──
+        //
+        // A whole setup must not reach the air partway through an over. Its
+        // engine and on-or-off already wait for an unkeyed buffer; its LIVE
+        // values (each engine's strength and settings) did not: the control side
+        // wrote them into the store, and a keyed buffer read them from there.
+        // So on transmit the audio thread reads a published view instead: the
+        // values in force now, plus a whole replacement waiting to be adopted.
+        // The control side is the only writer of both and never blocks the audio
+        // thread (a compare-and-swap, no lock); the audio thread adopts the
+        // waiting replacement only on an unkeyed buffer, by swapping in a view
+        // the control side already built. A lone strength or live-setting
+        // request still reaches the view in force at once (strength is ruled
+        // live; the other levers follow TxNoiseChain.ContinuousLeversLiveWhileKeyed),
+        // and is applied to the waiting replacement too, so the later request
+        // still wins once it is adopted. Receive reads the store, as before.
+
+        private sealed class TxView
+        {
+            public static readonly TxView Empty = new(new Dictionary<string, Parameters>(), null);
+            public readonly Dictionary<string, Parameters> Current;
+            public readonly Dictionary<string, Parameters>? Pending;
+            /// <summary>The waiting replacement as the view in force, built here so adopting it allocates nothing on the audio thread.</summary>
+            public readonly TxView? Adopted;
+            public TxView(Dictionary<string, Parameters> current, Dictionary<string, Parameters>? pending)
+            {
+                Current = current; Pending = pending;
+                Adopted = pending == null ? null : new TxView(pending, null);
+            }
+        }
+        private TxView _txView = TxView.Empty;
+
+        /// <summary>Transmit: what the audio thread uses for an engine now. Never allocates, never blocks.</summary>
+        private Parameters ParametersForAudio(string id)
+        {
+            if (_direction != DenoiseDirection.Transmit) return ParametersFor(id);
+            return Volatile.Read(ref _txView).Current.TryGetValue(id, out var p) ? p : DefaultParameters(id);
+        }
+
+        /// <summary>A lone live request: applied to the view in force and to any waiting replacement.</summary>
+        private void PublishLive(string id, Func<Parameters, Parameters> change)
+        {
+            if (_direction != DenoiseDirection.Transmit) return;
+            while (true)
+            {
+                var was = Volatile.Read(ref _txView);
+                var current = new Dictionary<string, Parameters>(was.Current);
+                current[id] = change(was.Current.TryGetValue(id, out var c) ? c : DefaultParameters(id));
+                Dictionary<string, Parameters>? pending = null;
+                if (was.Pending != null)
+                {
+                    pending = new Dictionary<string, Parameters>(was.Pending);
+                    pending[id] = change(was.Pending.TryGetValue(id, out var q) ? q : DefaultParameters(id));
+                }
+                if (ReferenceEquals(Interlocked.CompareExchange(ref _txView, new TxView(current, pending), was), was)) return;
+            }
+        }
+
+        /// <summary>A whole replacement: the store as it now stands, waiting for an unkeyed buffer.</summary>
+        private void PublishWhole()
+        {
+            if (_direction != DenoiseDirection.Transmit) return;
+            var snapshot = new Dictionary<string, Parameters>(_settings);
+            while (true)
+            {
+                var was = Volatile.Read(ref _txView);
+                if (ReferenceEquals(Interlocked.CompareExchange(ref _txView, new TxView(was.Current, snapshot), was), was)) return;
+            }
+        }
+
+        /// <summary>On the audio thread, unkeyed: adopt a waiting replacement, if any. No allocation, no lock.</summary>
+        private void AdoptPendingView()
+        {
+            var was = Volatile.Read(ref _txView);
+            if (was.Adopted != null) Interlocked.CompareExchange(ref _txView, was.Adopted, was);
+        }
+
+        /// <summary>Tests only: whether a whole replacement is waiting for an unkeyed buffer.</summary>
+        internal bool HasPendingView => Volatile.Read(ref _txView).Pending != null;
 
         /// <summary>Tests only: the parameters an engine reads now, to prove an untouched engine's are one instance.</summary>
         internal object ParametersForTest(string id) => ParametersFor(id);
@@ -258,6 +396,7 @@ namespace JJFlexWpf
             if (!float.IsFinite(value)) return;
             _settings.AddOrUpdate(id, key => DefaultParameters(key) with { Strength = Math.Clamp(value, 0, 1) },
                 (_, p) => p with { Strength = Math.Clamp(value, 0, 1) });
+            PublishLive(id, p => p with { Strength = Math.Clamp(value, 0, 1) });
         }
         public IReadOnlyList<EngineSettingDescriptor> SettingsFor(string id)
         {
@@ -282,6 +421,7 @@ namespace JJFlexWpf
             // silently set its floor to 0.
             _settings.AddOrUpdate(id, key => MakeParameters(key, DefaultParameters(key).Strength, new Dictionary<string, EngineSettingValue> { [name] = value }),
                 (key, p) => MakeParameters(key, p.Strength, new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value }));
+            PublishLive(id, p => MakeParameters(id, p.Strength, new Dictionary<string, EngineSettingValue>(p.Values) { [name] = value }));
             // A rebuild setting (a new delay, or NR4's estimator) only takes
             // effect in a new instance, built under the warm-up cross-fade.
             if (descriptor.NeedsRebuild && ChosenEngineId == id) Select(id, out _, force: true);
@@ -299,7 +439,7 @@ namespace JJFlexWpf
             lock (_control)
             {
                 if (_closed != 0) { refusal = "disposed"; return false; }
-                choice = new Choice(_choice.Generation + 1, id) { Entry = entry, Force = force };
+                choice = new Choice(_choice.Generation + 1, id, _direction) { Entry = entry, Force = force };
                 Volatile.Write(ref _choice, choice);
                 var abandoned = Interlocked.Exchange(ref _ready, null);
                 abandoned?.Bank.Dispose(); // mailbox ownership is now ours, never the audio thread's
@@ -381,7 +521,8 @@ namespace JJFlexWpf
             }
             var initial = new System.Collections.ObjectModel.ReadOnlyDictionary<string, EngineSettingValue>(values);
             builtFrom = initial;
-            var bank = new PerChannelDenoiserBank(() => entry.Factory!(initial), _channels);
+            var direction = _direction;
+            var bank = new PerChannelDenoiserBank(() => entry.Factory!(initial, direction), _channels);
             try
             {
                 Parameters? applied = null;
@@ -390,9 +531,11 @@ namespace JJFlexWpf
             }
             catch { bank.Dispose(); throw; }
         }
-        private void ApplyParameters(PerChannelDenoiserBank bank, string id, ref Parameters? applied)
+        private void ApplyParameters(PerChannelDenoiserBank bank, string id, ref Parameters? applied) =>
+            ApplyParameters(bank, ParametersFor(id), ref applied);
+
+        private static void ApplyParameters(PerChannelDenoiserBank bank, Parameters p, ref Parameters? applied)
         {
-            var p = ParametersFor(id);
             if (ReferenceEquals(p, applied)) return;
             // On the audio thread: an array and two for loops, nothing else (repair round 2).
             var live = p.Live;
@@ -405,6 +548,7 @@ namespace JJFlexWpf
         internal void Process(float[] audio, bool permitted, bool profilePresent, bool capturing,
             Action<PerChannelDenoiserBank>? prepareSpectral)
         {
+            if (_direction == DenoiseDirection.Transmit) { ProcessTransmit(audio, permitted); return; }
             var choice = Volatile.Read(ref _choice);
             if (Volatile.Read(ref choice.Failure) != null)
             {
@@ -510,6 +654,87 @@ namespace JJFlexWpf
             }
             else Volatile.Write(ref _processingId, "");
         }
+
+        /// <summary>
+        /// The transmit path (Sprint 49 Track H, items A and B). No warm-up and
+        /// no engine-to-engine cross-fade, both deliberately: a transmit change
+        /// is applied only while unkeyed (<see cref="SwapPermitted"/>), so there
+        /// is nobody on the air to smooth it for, and a warm-up would only delay
+        /// the change into the next over. A delivered build is installed with a
+        /// cut on the first permitted buffer. While keyed, nothing that changes
+        /// what goes out happens here: not a swap, not a failed choice stopping
+        /// the running engine. The bank's own fallback (a late or failed frame
+        /// goes out as the dry signal at the same delay) still protects the
+        /// over, and the transmit chain latches it (item C).
+        /// </summary>
+        private void ProcessTransmit(float[] audio, bool permitted)
+        {
+            LastAppliedLatencySamples = 0;
+            LastBufferProcessed = false;
+            LastBufferClean = false;
+            bool swap = SwapPermitted?.Invoke() ?? true;
+            var choice = Volatile.Read(ref _choice);
+            if (Volatile.Read(ref choice.Failure) != null)
+            {
+                // Keyed: the failure waits for the unkey, and the engine that
+                // was running keeps running.
+                if (swap) { StopFailedChoice(choice); return; }
+            }
+            else if (choice.Id != RunningEngineId) RequestBuild(choice);
+            // Repair round 3: a whole setup's live values are adopted here, on
+            // an unkeyed buffer, with its engine swap, and never mid-over.
+            if (swap) AdoptPendingView();
+            if (swap)
+            {
+                InstallHook?.Invoke("before-ready-take");
+                var ready = Interlocked.Exchange(ref _ready, null);
+                if (ready != null)
+                {
+                    choice = Volatile.Read(ref _choice);
+                    if (!ReferenceEquals(ready.Choice, choice)) Retire(ready.Bank);
+                    else
+                    {
+                        var outgoing = Volatile.Read(ref _runningBuild)?.Bank;
+                        // One reference, made on the worker (repair round 5's rule).
+                        Volatile.Write(ref _runningBuild, ready.Running);
+                        _runningApplied = ready.Applied;
+                        if (outgoing != null) Retire(outgoing);
+                        _announced = choice.Generation;
+                        Publish(choice, true);
+                    }
+                }
+            }
+            var run = Volatile.Read(ref _runningBuild);
+            var running = run?.Bank;
+            bool active = Enabled && permitted;
+            if (!active || running == null)
+            {
+                if (_wasActive) running?.ClearCarry();
+                _wasActive = false;
+                Volatile.Write(ref _processingId, "");
+                return;
+            }
+            _wasActive = true;
+            running.ListenToRemoved = false;
+            // Keyed (no swap permitted): a late or failed frame latches the
+            // bank dry for the rest of the over, never frame by frame (item C).
+            running.LatchFallback = !swap;
+            var inForce = ParametersForAudio(run!.Id);
+            ApplyParameters(running, inForce, ref _runningApplied);
+            long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames, latched = running.LatchedFrames;
+            running.Process(audio, inForce.Strength);
+            LastBufferProcessed = true;
+            LastBufferClean = running.EngineFrames != took && late == running.LateFrames
+                && failed == running.FallbackFrames && latched == running.LatchedFrames && !running.Latched;
+            LastAppliedLatencySamples = running.LatencySamples;
+            if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
+            if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
+                late == running.LateFrames && failed == running.FallbackFrames)
+            { _announced = choice.Generation; Publish(choice, true); }
+        }
+
+        /// <summary>Transmit only (item C): the bank the audio thread runs now, for the chain's latch and counts. Read on the audio thread.</summary>
+        internal PerChannelDenoiserBank? RunningBank => Volatile.Read(ref _runningBuild)?.Bank;
 
         /// <summary>
         /// What one buffer through <paramref name="bank"/> proves: "" when any frame
@@ -627,6 +852,30 @@ namespace JJFlexWpf
             // new choice only retires a warming build of the value undone.
             Select(chosen, out _, force: !RunningIsCurrent(chosen));
             return false;
+        }
+
+        /// <summary>
+        /// Replace EVERY stored engine setting with exactly <paramref name="records"/>
+        /// (an engine or a value not in them goes back to its default) and choose
+        /// <paramref name="id"/>; returns false, choosing nothing, when the slot
+        /// refuses it. For a whole transmit setup (Sprint 49 Track H, repair round
+        /// 1, R2): a setup stores only what was touched, so overlaying it on the
+        /// slot, as <see cref="RestoreAndSelect"/> does for a receive preset, let
+        /// the previous setup's engine and values leak into the new one (Codex's
+        /// check, 2026-11-18). The chosen engine rebuilds when a rebuild setting
+        /// now differs from what it was built with, as there.
+        /// </summary>
+        internal bool ReplaceSettingsAndSelect(IEnumerable<DenoiseEngineSettings> records, string id)
+        {
+            string chosen = ChosenEngineId;
+            var before = RebuildValues(chosen);
+            _settings.Clear();
+            RestoreSettings(records);
+            // Transmit: the whole replacement waits for an unkeyed buffer (repair round 3).
+            PublishWhole();
+            if (id != chosen) return Select(id, out _);
+            if (!before.SequenceEqual(RebuildValues(chosen))) Select(chosen, out _, force: !RunningIsCurrent(chosen));
+            return true;
         }
 
         private List<string> RebuildValues(string id) => SettingsFor(id).Where(d => d.NeedsRebuild)

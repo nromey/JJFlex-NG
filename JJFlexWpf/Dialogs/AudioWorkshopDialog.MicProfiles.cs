@@ -395,7 +395,7 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        string captureNotes = ApplyCaptureHalf(profile.Capture);
+        string captureNotes = ApplyCaptureHalf(profile.Capture, profile);
         var radioResult = profile.ApplyRadioHalf(_rig, _rig?.SelectedRadioSerial ?? "");
         if (radioResult.RadioHalfApplied) PollTxAudio();
 
@@ -580,6 +580,11 @@ public partial class AudioWorkshopDialog
 
             string radioHalfSpoken = "";
             string radioId = _rig?.SelectedRadioSerial ?? "";
+            // The transmit cleanup goes into this radio's named setup (Sprint
+            // 49 Track H, item F): the one this microphone already names here,
+            // or a new one named after the microphone. Conditioning above is
+            // still written, for an older build reading the same file.
+            if (_rig != null) SaveTransmitNoiseSetup(profile, radioId);
             if (_rig != null && !string.IsNullOrEmpty(radioId))
             {
                 if (referenceOption?.IsChecked == true)
@@ -778,7 +783,7 @@ public partial class AudioWorkshopDialog
     /// driven: the gate engine is transmit-conditioning work and reads them
     /// from the profile when it arrives.
     /// </summary>
-    private string ApplyCaptureHalf(MicCaptureSettings capture)
+    private string ApplyCaptureHalf(MicCaptureSettings capture, MicrophoneProfile? profile = null)
     {
         if (capture == null) return "";
         var notes = new List<string>();
@@ -808,19 +813,28 @@ public partial class AudioWorkshopDialog
             return string.Join(" ", notes);
         }
 
-        // The transmit cleanup half (PC NR + gate). Applied to the live
-        // chain when one is attached; the chain only exists while a radio is
-        // connected, so with no radio the truth is "not now", said out loud
-        // rather than silently no-opped — TxAudioConditioning's setters
-        // swallow writes when detached, which is exactly the kind of
-        // confident silence this dialog exists to end.
-        // (Track B, 2026-08-18, #44.)
-        if (capture.Conditioning != null)
+        // The transmit cleanup half (PC NR + gate). Since Sprint 49 Track H
+        // it lives in a named transmit noise setup per radio, which this
+        // microphone points at (item F). With a radio connected: move the old
+        // per-microphone settings into a setup once, then apply the setup the
+        // microphone names on this radio; a name the radio does not hold
+        // applies nothing and is said once. With no radio there is no radio
+        // to pick a setup for, so the truth is still "not now", said out loud.
+        // (Track B, 2026-08-18, #44, for the saying.)
+        string radioId = _rig?.SelectedRadioSerial ?? "";
+        bool hasCleanup = capture.Conditioning != null
+            || !string.IsNullOrEmpty(profile?.NoiseSetupNameFor(radioId));
+        if (hasCleanup)
         {
-            if (TxAudioConditioning.Conditioner != null)
+            if (TxAudioConditioning.Conditioner != null && profile != null)
             {
-                TxAudioConditioning.ApplySettings(capture.Conditioning);
-                PollTxCleanup();
+                string? said = ApplyTransmitNoiseSetup(profile, radioId);
+                if (!string.IsNullOrEmpty(said)) notes.Add(said);
+            }
+            else if (TxAudioConditioning.Conditioner != null && capture.Conditioning != null)
+            {
+                string said = ApplyOldCleanup(capture.Conditioning);
+                if (said.Length > 0) notes.Add(said);
             }
             else
             {
@@ -859,4 +873,71 @@ public partial class AudioWorkshopDialog
     }
 
     #endregion
+
+    /// <summary>
+    /// The transmit noise half of applying a microphone on the connected radio
+    /// (Sprint 49 Track H, item F): move its old settings into a named setup
+    /// once (and save the microphone store), then apply the setup it names
+    /// here. Returns what to say, or "" for nothing.
+    /// </summary>
+    /// <summary>
+    /// A microphone's old cleanup settings, applied as the whole setup they are
+    /// (Sprint 49 Track H2 repair round 1, item 4: the fallback roads speak the
+    /// timing too). Returns the at-unkey sentence when it waits, else "".
+    /// </summary>
+    private static string ApplyOldCleanup(TxConditioningSettings conditioning) =>
+        TxAudioConditioning.ApplySetup(TxNoiseSetupMigration.FromConditioning("", conditioning)).Timing == TxChangeTiming.AtUnkey
+            ? Lexicon.Get("audio.denoise.tx.at_unkey") : "";
+
+    private string ApplyTransmitNoiseSetup(MicrophoneProfile profile, string radioId)
+    {
+        var store = TxNoiseSetupStore.Default();
+        if (store == null || store.PathFor(radioId) == null)
+        {
+            return profile.Capture?.Conditioning != null ? ApplyOldCleanup(profile.Capture.Conditioning) : "";
+        }
+        var said = new List<string>();
+        var moved = TxNoiseSetupMigration.Migrate(profile, radioId, _rig?.RadioModel ?? "", store);
+        if (moved.ProfileChanged)
+        {
+            var mics = GetMicProfilesCallback?.Invoke();
+            if (mics != null && ReferenceEquals(mics.FindByName(profile.Name), profile)) SaveMicProfilesCallback?.Invoke(mics);
+            if (moved.Outcome == TxNoiseMigrationOutcome.Created)
+                said.Add(Lexicon.Get("audio.denoise.tx.setup_moved", ("setup", moved.SetupName)));
+        }
+        else if (moved.Outcome == TxNoiseMigrationOutcome.NotSaved && profile.Capture?.Conditioning != null)
+        {
+            // The setup could not be written: the old settings still apply, as they did before.
+            return ApplyOldCleanup(profile.Capture.Conditioning);
+        }
+        string name = profile.NoiseSetupNameFor(radioId);
+        var applied = TxAudioConditioning.ApplyNamedSetup(radioId, name, store);
+        if (applied.Outcome == TxSetupApplyOutcome.Missing && applied.FirstTime)
+            said.Add(Lexicon.Get("audio.denoise.tx.setup_missing", ("setup", name)));
+        if (applied.Timing == TxChangeTiming.AtUnkey)
+            said.Add(Lexicon.Get("audio.denoise.tx.at_unkey"));
+        return string.Join(" ", said);
+    }
+
+    /// <summary>
+    /// Save the live transmit noise state into the setup this microphone names
+    /// on the connected radio, or into a new one named after the microphone,
+    /// and point the microphone at it (Sprint 49 Track H, item F). The caller
+    /// saves the microphone store afterwards, as it does for every other half.
+    /// </summary>
+    private void SaveTransmitNoiseSetup(MicrophoneProfile profile, string radioId)
+    {
+        var store = TxNoiseSetupStore.Default();
+        if (store == null || store.PathFor(radioId) == null) return;
+        string name = profile.NoiseSetupNameFor(radioId);
+        if (string.IsNullOrEmpty(name)) name = profile.Name;
+        if (!store.Save(radioId, TxAudioConditioning.CaptureSetup(name)).Succeeded) return;
+        var binding = profile.FindSetupFor(radioId);
+        if (binding == null)
+        {
+            binding = new RadioProfileReference { RadioId = radioId, RadioModel = _rig?.RadioModel ?? "" };
+            profile.RadioSetups.Add(binding);
+        }
+        binding.NoiseSetupName = name;
+    }
 }

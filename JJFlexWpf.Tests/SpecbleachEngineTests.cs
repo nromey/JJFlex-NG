@@ -546,7 +546,7 @@ public sealed class SpecbleachEngineTests
         string lib = LibraryPath();
         var defaults = new DenoiseEngineCatalog();
         return new DenoiseEngineCatalog(defaults.Entries.Select(e => e.Id == "nr4"
-            ? e with { Factory = initial => {
+            ? e with { Factory = (initial, _) => {
                 beforeBuild?.Invoke();
                 var engine = new SpecbleachEngine(initial, lib);
                 Assert.True(engine.IsAvailable, engine.UnavailabilityDetail);

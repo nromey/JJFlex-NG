@@ -20,10 +20,36 @@ public partial class MainWindow
     }
 
     /// <summary>Save the current settings as a preset (the menu, Home's Save as preset).</summary>
-    public void ShowNoisePresetSave(bool fromNoise) =>
-        Dispatcher.BeginInvoke(() => Dialogs.NoisePresetSaveDialog.Show(Window.GetWindow(this), Noise, fromNoise));
+    public void ShowNoisePresetSave(bool fromNoise) => ShowNoisePresetSave(fromNoise, fromTransmit: false);
+
+    /// <summary>Save the current settings as a preset, from a transmit road: only the transmit noise box starts ticked (Sprint 49 Track H2).</summary>
+    public void ShowNoisePresetSave(bool fromNoise, bool fromTransmit) =>
+        Dispatcher.BeginInvoke(() => Dialogs.NoisePresetSaveDialog.Show(Window.GetWindow(this), Noise, fromNoise, fromTransmit));
 
     /// <summary>Manage presets: apply, rename, delete.</summary>
     public void ShowNoisePresetManager() =>
         Dispatcher.BeginInvoke(() => Dialogs.NoisePresetManagerDialog.Show(Window.GetWindow(this), Noise));
+
+    /// <summary>
+    /// The Transmit menu's "settings on Home" and "Advanced settings..." rows
+    /// (Sprint 49 Track H2): open the Transmission expander at its noise fields,
+    /// at an engine (or at Side for none), or at the gate, with Advanced
+    /// revealed when asked, and put focus there.
+    /// </summary>
+    public void OpenTransmitNoiseOnHome(string? engineId, bool advanced, bool gate = false)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            FocusHome();
+            FieldsPanel.OpenTransmitNoise(engineId, advanced, gate);
+        });
+    }
+
+    /// <summary>"Save current as setup...": name the live transmit chain and gate as one of this radio's setups (Sprint 49 Track H2).</summary>
+    public void ShowTransmitSetupSave() =>
+        Dispatcher.BeginInvoke(() => Dialogs.TransmitSetupSaveDialog.Show(Window.GetWindow(this), Noise));
+
+    /// <summary>"Manage setups...": apply, rename, delete, and copy to another radio (Sprint 49 Track H2).</summary>
+    public void ShowTransmitSetupManager() =>
+        Dispatcher.BeginInvoke(() => Dialogs.TransmitSetupManagerDialog.Show(Window.GetWindow(this), Noise));
 }

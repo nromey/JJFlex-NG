@@ -57,6 +57,9 @@ public class MicrophoneProfile
     [XmlArrayItem("StoredValues", typeof(RadioTxValues))]
     public List<RadioTxSetup> RadioSetups { get; set; } = new();
 
+    /// <summary>The transmit noise setup this microphone names on a radio, or "" when it names none there.</summary>
+    public string NoiseSetupNameFor(string radioId) => FindSetupFor(radioId)?.NoiseSetupName?.Trim() ?? "";
+
     /// <summary>The stage-two entry for a radio, or null when this microphone
     /// has never been set up on it.</summary>
     public RadioTxSetup? FindSetupFor(string radioId)
@@ -75,6 +78,11 @@ public class MicrophoneProfile
     public void SetSetupFor(RadioTxSetup setup)
     {
         if (setup == null || string.IsNullOrEmpty(setup.RadioId)) return;
+        // The transmit noise setup this microphone names here (Sprint 49
+        // Track H) is not part of the radio-side choice being replaced, so a
+        // new binding that names none keeps the one the old binding named.
+        if (string.IsNullOrWhiteSpace(setup.NoiseSetupName))
+            setup.NoiseSetupName = FindSetupFor(setup.RadioId)?.NoiseSetupName ?? "";
         RadioSetups.RemoveAll(s =>
             string.Equals(s.RadioId, setup.RadioId, StringComparison.OrdinalIgnoreCase));
         RadioSetups.Add(setup);
@@ -134,6 +142,20 @@ public class MicrophoneProfile
         switch (setup)
         {
             case RadioProfileReference reference:
+                if (string.IsNullOrWhiteSpace(reference.ProfileName)
+                    && !string.IsNullOrWhiteSpace(reference.NoiseSetupName))
+                {
+                    // Made by the transmit noise setup migration (Sprint 49
+                    // Track H) only to hold the setup's name for a microphone
+                    // that never had a radio mic profile here: it binds no
+                    // radio settings, so this is the no-binding case, said the
+                    // same way, and not a warning.
+                    return new MicProfileApplyResult
+                    {
+                        RadioHalfApplied = false,
+                        Message = "This profile has no radio settings for this radio, so the radio was left alone.",
+                    };
+                }
                 if (string.IsNullOrWhiteSpace(reference.ProfileName))
                 {
                     return new MicProfileApplyResult
@@ -270,6 +292,17 @@ public abstract class RadioTxSetup
     /// <summary>Last known model string, informational, so speech can say
     /// "your 6600" instead of a serial.</summary>
     public string RadioModel { get; set; } = "";
+
+    /// <summary>
+    /// The transmit noise setup this microphone uses on this radio, by name
+    /// (Sprint 49 Track H, item F; design part seven, "Storage, the ruled
+    /// shape"). The setup itself lives per radio in
+    /// <see cref="TxNoiseSetupStore"/>; several microphones may name one.
+    /// Empty: this microphone names none here. A name the radio's store does
+    /// not hold applies nothing, keeps the chain as it was, and is said once
+    /// (ruled 2026-11-07 07:52).
+    /// </summary>
+    public string NoiseSetupName { get; set; } = "";
 }
 
 /// <summary>The Flex shape: the NAME of a mic profile the radio itself owns.
@@ -325,6 +358,26 @@ public class MicrophoneProfileStore
         if (string.IsNullOrWhiteSpace(name)) return null;
         return Profiles.FirstOrDefault(p =>
             string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// After a transmit noise setup is renamed on a radio
+    /// (<see cref="TxNoiseSetupStore.Rename"/>), point every microphone that
+    /// named it on that radio at the new name. Returns how many changed; the
+    /// caller saves this store when it is more than none. Microphones on other
+    /// radios are untouched: setups are per radio.
+    /// </summary>
+    public int RepointNoiseSetup(string radioId, string from, string to)
+    {
+        int changed = 0;
+        foreach (var profile in Profiles)
+        {
+            var binding = profile.FindSetupFor(radioId);
+            if (binding == null || !TxNoiseSetupStore.NameEquals(binding.NoiseSetupName, from)) continue;
+            binding.NoiseSetupName = (to ?? "").Trim();
+            changed++;
+        }
+        return changed;
     }
 
     public static MicrophoneProfileStore Load(string configDirectory, string operatorName)

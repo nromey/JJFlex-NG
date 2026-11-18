@@ -45,12 +45,19 @@ namespace JJFlexWpf
         /// Add the engine, in the model it is set to now, to the end of the
         /// favourites, or take it out if it is already there. Says which.
         /// </summary>
-        public void ToggleFavourite(string id, string source)
+        public void ToggleFavourite(string id, string source) => ToggleFavourite(id, source, DenoiseDirection.Receive);
+
+        /// <summary>
+        /// As <see cref="ToggleFavourite(string, string)"/>, the engine in the model
+        /// its slot in <paramref name="direction"/> holds (Track H2: one list, and
+        /// the layer's favourite key after T marks the transmit engine as it is set).
+        /// </summary>
+        public void ToggleFavourite(string id, string source, DenoiseDirection direction)
         {
             var config = _config();
             if (config == null || _catalog.Find(id) == null) return;
             Current = id;
-            string? model = CurrentModel(id);
+            string? model = CurrentModel(id, direction);
             var existing = config.NoiseFavourites.FirstOrDefault(f => f.SameAs(id, model));
             var entry = existing ?? new NoiseFavourite { EngineId = id, Model = model };
             string name = FavouriteName(entry);
@@ -97,9 +104,17 @@ namespace JJFlexWpf
         public void BeginSession()
         {
             _stepIndex = -1;
+            _txStepIndex = -1;
             _toldNoFavourites = false;
             Current = null;
             CurrentLeverIndex = 0;
+            // Every layer session opens on receive; T turns it (Track H2). A cursor
+            // assignment from work scheduled before now is stale, and neither
+            // direction's 0-key list outlives the session it was made in
+            // (repair round 1, items 2 and 3).
+            LayerDirection = DenoiseDirection.Receive;
+            _cursorEpoch++;
+            ForgetZero();
         }
 
         /// <summary>The list the brackets walk: the favourites, or every engine when none is marked.</summary>

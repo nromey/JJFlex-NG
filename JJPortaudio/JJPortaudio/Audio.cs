@@ -836,6 +836,25 @@ namespace JJPortaudio
         /// never the requested rate, when reporting to an operator.
         /// </summary>
         public uint SampleRate { get { return CBData?.SampleRate ?? 0; } }
+        /// <summary>
+        /// This stream's callbacks so far, and how many of them PortAudio
+        /// flagged as an input overflow (input samples dropped) or underflow.
+        /// The dropout check for a faster transmit callback rate (Sprint 49
+        /// Track H, item D) reads these when the stream closes. Indexes follow
+        /// <c>statusFlagBits</c>: 0 input underflow, 1 input overflow.
+        /// </summary>
+        internal (long Callbacks, long Overflows, long Underflows) InputDropouts
+        {
+            get
+            {
+                var cb = CBData;
+                if (cb == null) return (0, 0, 0);
+                return (System.Threading.Interlocked.Read(ref cb.StatusCallbackCount),
+                    System.Threading.Interlocked.Read(ref cb.StatusFlagCounts[1]),
+                    System.Threading.Interlocked.Read(ref cb.StatusFlagCounts[0]));
+            }
+        }
+
         /// <summary>Measured input device delay plus this stream's callback buffer, in milliseconds.</summary>
         public double InputDrainMilliseconds
         {

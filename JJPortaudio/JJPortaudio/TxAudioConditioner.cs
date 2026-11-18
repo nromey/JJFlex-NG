@@ -99,6 +99,199 @@ namespace JJPortaudio
         private volatile bool _bypassAll;
 
         /// <summary>
+        /// Asked once per buffer, on the audio thread: is the radio keyed?
+        /// The app answers "our Mox OR the radio's interlock says transmitting"
+        /// (Sprint 49 Track H, item B), because VOX keys only the interlock, so
+        /// a key state built on our own Mox would miss every VOX over. Null
+        /// means no radio: never keyed. A source that throws reads as keyed,
+        /// which only ever defers a change.
+        /// </summary>
+        public Func<bool> KeySource { get; set; }
+
+        private volatile bool _keyed;
+
+        /// <summary>The key state the current (or last) buffer was processed under, read from <see cref="KeySource"/> at its start.</summary>
+        public bool Keyed => _keyed;
+
+        /// <summary>Key-downs seen at a buffer boundary since this chain was made. A test and trace counter.</summary>
+        public long KeyDowns { get; private set; }
+
+        // ── The gate's settings: one owner (Sprint 49 Track H, repair rounds 3 and 4) ──
+        //
+        // ONE published state holds the gate settings in force (Live) and a whole
+        // set waiting for an unkeyed buffer (Pending). Every writer goes through
+        // it: a whole setup stages Pending; a lone on-or-off changes Pending (so
+        // it, too, lands only unkeyed); a lone level or threshold-policy change
+        // changes Live AND Pending. The control side publishes each change as a
+        // new state with a compare-and-swap; the audio thread adopts Pending by
+        // swapping in a state the control side already built, and copies Live
+        // onto the gate whenever Live is a new object. So a later lone change
+        // always wins, whatever the audio thread is in the middle of: if the
+        // audio side adopted first, the change lands on the adopted Live; if the
+        // change landed first, the adoption carries it. Round 3 had a separate
+        // staged record the audio side TOOK and then applied, and a lone change
+        // made after the take found nothing to update and was overwritten
+        // (Codex's re-check 3). No lock and no allocation on the audio thread.
+
+        /// <summary>One complete set of gate settings. Immutable once published: change a <see cref="Copy"/>.</summary>
+        public sealed class StagedGate
+        {
+            public bool Enabled;
+            /// <summary>Whether <see cref="ThresholdDb"/> is applied (a manual threshold); a derived one is left to the app's tick.</summary>
+            public bool HasThreshold;
+            public float ThresholdDb = TxNoiseGate.DefaultThresholdDb;
+            public float AttackMs = 3f, HoldMs = 150f, ReleaseMs = 200f, RangeDb = 25f;
+            public bool AutoThreshold = true;
+            public float ThresholdMarginDb = 8f;
+            public StagedGate Copy() => (StagedGate)MemberwiseClone();
+        }
+
+        private sealed class GateState
+        {
+            public readonly StagedGate Live;
+            public readonly StagedGate Pending;
+            /// <summary>Pending as Live, built by the control side so adopting it allocates nothing on the audio thread.</summary>
+            public readonly GateState Adopted;
+            public GateState(StagedGate live, StagedGate pending)
+            {
+                Live = live; Pending = pending;
+                Adopted = pending == null ? null : new GateState(pending, null);
+            }
+        }
+
+        private GateState _gateState;
+        private StagedGate _appliedLive;
+
+        /// <summary>Tests only: called on the audio thread after a buffer has read (and maybe adopted) the gate state and before it writes the gate. Null in the app.</summary>
+        internal Action GateTakenForTest;
+
+        private void PublishGate(Func<GateState, GateState> change)
+        {
+            while (true)
+            {
+                var was = System.Threading.Volatile.Read(ref _gateState);
+                if (ReferenceEquals(System.Threading.Interlocked.CompareExchange(ref _gateState, change(was), was), was)) return;
+            }
+        }
+
+        private static StagedGate With(StagedGate from, Action<StagedGate> change)
+        {
+            var next = from.Copy();
+            change(next);
+            return next;
+        }
+
+        /// <summary>Stage a whole gate for the next unkeyed buffer. It replaces anything waiting, because it came later.</summary>
+        public void StageGate(StagedGate gate)
+        {
+            if (gate == null) throw new ArgumentNullException(nameof(gate));
+            var copy = gate.Copy();
+            PublishGate(was => new GateState(was.Live, copy));
+        }
+
+        /// <summary>
+        /// A lone level or threshold-policy change (depth, attack, hold, release,
+        /// threshold, margin, auto threshold): in force from the next buffer, and
+        /// carried into anything waiting, so it still wins when that is adopted.
+        /// </summary>
+        public void ChangeGate(Action<StagedGate> change)
+        {
+            if (change == null) throw new ArgumentNullException(nameof(change));
+            PublishGate(was => new GateState(With(was.Live, change), was.Pending == null ? null : With(was.Pending, change)));
+        }
+
+        /// <summary>Put a whole gate in force at once, with nothing waiting (attach: there is no over to protect yet).</summary>
+        public void SetGateInForce(StagedGate gate)
+        {
+            if (gate == null) throw new ArgumentNullException(nameof(gate));
+            var copy = gate.Copy();
+            PublishGate(_ => new GateState(copy, null));
+        }
+
+        /// <summary>
+        /// Turn the gate on or off at the next UNKEYED buffer (repair round 1,
+        /// R3): like a noise engine change, the gate's on and off never land
+        /// mid-over. It changes the waiting set (or starts one from the set in
+        /// force), so it is ordered with a staged setup by when it was asked.
+        /// </summary>
+        public void RequestGateEnabled(bool on) =>
+            PublishGate(was => new GateState(was.Live, With(was.Pending ?? was.Live, g => g.Enabled = on)));
+
+        /// <summary>Whether a whole gate (or an on-or-off) is waiting for an unkeyed buffer.</summary>
+        public bool HasStagedGate => System.Threading.Volatile.Read(ref _gateState).Pending != null;
+
+        /// <summary>The gate settings in force now (not yet necessarily copied onto <see cref="Gate"/> if no buffer has run since).</summary>
+        public StagedGate GateInForce => System.Threading.Volatile.Read(ref _gateState).Live;
+
+        /// <summary>Whether the gate's threshold is derived from the measured floor, as IN FORCE: a waiting setup changes it only when adopted. The app's derived-threshold tick reads this.</summary>
+        public bool AutoThresholdInForce => GateInForce.AutoThreshold;
+
+        /// <summary>The margin over the measured floor in force, dB; see <see cref="AutoThresholdInForce"/>.</summary>
+        public float ThresholdMarginInForceDb => GateInForce.ThresholdMarginDb;
+
+        /// <summary>On the audio thread: adopt anything waiting (unkeyed only), then copy the set in force onto the gate if it is new.</summary>
+        private void UpdateGate(bool keyed)
+        {
+            var state = System.Threading.Volatile.Read(ref _gateState);
+            if (!keyed && state.Adopted != null)
+            {
+                // A lost race means a control change published meanwhile; it is
+                // adopted on the next unkeyed buffer, carrying that change.
+                if (ReferenceEquals(System.Threading.Interlocked.CompareExchange(ref _gateState, state.Adopted, state), state))
+                    state = state.Adopted;
+            }
+            GateTakenForTest?.Invoke();
+            ApplyLive(state.Live);
+            // A lone change published while the copy above ran wins at once
+            // rather than one buffer later.
+            ApplyLive(System.Threading.Volatile.Read(ref _gateState).Live);
+        }
+
+        private void ApplyLive(StagedGate live)
+        {
+            if (ReferenceEquals(live, _appliedLive)) return;
+            Gate.AttackMs = live.AttackMs;
+            Gate.HoldMs = live.HoldMs;
+            Gate.ReleaseMs = live.ReleaseMs;
+            Gate.RangeDb = live.RangeDb;
+            if (live.HasThreshold) Gate.ThresholdDb = live.ThresholdDb;
+            Gate.Enabled = live.Enabled;
+            _appliedLive = live;
+        }
+
+        /// <summary>Starts the published state at the gate's own defaults, already applied, so code that writes <see cref="Gate"/> directly before any change is not overwritten.</summary>
+        public TxAudioConditioner()
+        {
+            var initial = new StagedGate();
+            _gateState = new GateState(initial, null);
+            _appliedLive = initial;
+        }
+
+        /// <summary>Read the key state for this buffer. Runs before the bypass, so a CW over still counts as an over.</summary>
+        private bool ReadKey()
+        {
+            var source = KeySource;
+            bool keyed;
+            if (source == null) keyed = false;
+            else
+            {
+                try { keyed = source(); }
+                catch { keyed = true; }
+            }
+            bool was = _keyed;
+            _keyed = keyed;
+            // With a real key state, the key-down is what resets the gate open
+            // (#1075), and a gap in the stream no longer does.
+            Gate.ResetsOnStreamGap = source == null;
+            if (keyed && !was)
+            {
+                KeyDowns++;
+                Gate.ResetOpen();
+            }
+            return keyed;
+        }
+
+        /// <summary>
         /// Policy bypass for non-voice modes (CW, digital): the whole chain
         /// steps aside, monitor included. Set by the app on mode changes —
         /// RNNoise is speech-trained and a gate has no business shaping data
@@ -124,6 +317,7 @@ namespace JJPortaudio
         /// </summary>
         public void Process(float[] buffer, int count, uint sampleRate)
         {
+            UpdateGate(ReadKey());
             if (_bypassAll) return;
 
             var nr = NoiseReducer;

@@ -122,6 +122,8 @@ internal sealed class NoiseFixture : IDisposable
     public DenoiseEngineCatalog Catalog { get; }
     public int Persisted;
     public bool RadioPresent = true;
+    /// <summary>False makes the controller's receive pipeline provider answer null, as it does before a radio's audio starts (Track H2 repair round 1).</summary>
+    public bool PipelinePresent = true;
     public Dictionary<string, Unavailability> Unavailable { get; } = new();
     public ConcurrentBag<string> Built { get; } = new();
     /// <summary>Engines whose built instances stop being available mid-run (a helper that died): the bank passes their audio through unprocessed.</summary>
@@ -137,7 +139,7 @@ internal sealed class NoiseFixture : IDisposable
             var row = real.Find(id)!;
             return row with
             {
-                Factory = row.Factory == null ? null : initial => { Built.Add(id); return new Engine(id, row.Settings, initial, latency, () => !Dead.ContainsKey(id)); },
+                Factory = row.Factory == null ? null : (initial, _) => { Built.Add(id); return new Engine(id, row.Settings, initial, latency, () => !Dead.ContainsKey(id)); },
                 Probe = () => Unavailable.TryGetValue(id, out var why) ? why : Unavailability.None,
             };
         }
@@ -145,8 +147,12 @@ internal sealed class NoiseFixture : IDisposable
         rows.AddRange(new[] { Pc("nr2"), Pc("nr4"), Pc("spectral_capture"), Pc("rnnoise", rnnoiseLatency), Pc("deepfilternet3"), Pc("nnr"), Pc("nvidia_afx") });
         Catalog = new DenoiseEngineCatalog(rows);
         Pipeline = new RxAudioPipeline(catalog: Catalog);
-        Noise = new NoiseController(Catalog, () => RadioPresent ? Radio : null, () => Pipeline, () => Config,
-            () => Persisted++, Spoken, Held, Clock, Cost);
+        Noise = new NoiseController(Catalog, () => RadioPresent ? Radio : null, () => PipelinePresent ? Pipeline : null, () => Config,
+            () => Persisted++, Spoken, Held, Clock, Cost, transmitChain: () => Transmit);
+        // A gate in memory, never the app's static one (words round: Escape's
+        // picture now holds the transmit gate, and another test class changing
+        // TxAudioConditioning's statics must not make a receive Escape see a change).
+        Noise.TransmitGate = new TransmitNoiseSurfaceTests.FakeGate();
     }
 
     /// <summary>
@@ -169,6 +175,15 @@ internal sealed class NoiseFixture : IDisposable
             Thread.Sleep(1);
         }
     }
+
+    private TxNoiseChain? _transmit;
+
+    /// <summary>
+    /// The transmit chain over the same fake engines (Sprint 49 Track H2),
+    /// made only when a transmit road asks for it, so a receive test builds
+    /// none it does not use.
+    /// </summary>
+    public TxNoiseChain Transmit => _transmit ??= new TxNoiseChain(Catalog);
 
     public void Dispose() => Pipeline.Dispose();
 }

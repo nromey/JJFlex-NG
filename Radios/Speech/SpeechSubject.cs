@@ -755,5 +755,55 @@ namespace Radios.Speech
 
         /// <summary>An engine returned to its defaults, or told there is no default to return to. The newest covers an unheard older one.</summary>
         public const string NoiseDefaults = "noise-defaults";
+
+        /// <summary>
+        /// A transmit noise change made while keyed, said to wait for the unkey
+        /// (Sprint 49 Track H, item B). Its own subject, never a receive noise
+        /// subject's, so a transmit sentence and a receive one never expire each
+        /// other (design part seven). The newest covers an unheard older one.
+        /// </summary>
+        public const string TransmitNoiseChange = "transmit-noise-change";
+
+        /// <summary>
+        /// A transmit noise setup moved from a microphone's old settings, or
+        /// found missing on this radio (Sprint 49 Track H, item F). The newest
+        /// covers an unheard older one.
+        /// </summary>
+        public const string TransmitNoiseSetup = "transmit-noise-setup";
+
+        /// <summary>
+        /// A transmit noise engine failed mid-over and the microphone went out
+        /// unprocessed (Sprint 49 Track H, item C). Said once until it recovers;
+        /// nothing newer on another subject makes it untrue.
+        /// </summary>
+        public const string TransmitNoiseFallback = "transmit-noise-fallback";
+
+        // ── The noise surface, transmit (Sprint 49 Track H2). The twins of the
+        //    receive subjects above, so a transmit sentence and a receive one
+        //    never expire each other (design part seven). ──
+
+        /// <summary>A transmit noise engine turned on or off, or replacing another in its slot. The receive twin is <see cref="NoiseEngineSwitch"/>; the newest covers an unheard older one.</summary>
+        public const string TransmitNoiseEngineSwitch = "transmit-noise-engine-switch";
+
+        /// <summary>A transmit noise lever's value: a floor, a limit, a depth, a model, the Advanced switch. The receive twin is <see cref="NoiseLevel"/>; each value covers an unheard older one.</summary>
+        public const string TransmitNoiseLevel = "transmit-noise-level";
+
+        /// <summary>Why a transmit noise engine cannot run, or why a key does nothing on transmit (a radio letter, a blanker). The receive twin is <see cref="NoiseUnavailable"/>; the next such answer covers an unheard older one.</summary>
+        public const string TransmitNoiseUnavailable = "transmit-noise-unavailable";
+
+        /// <summary>The answer to "say what transmit cleanup is active". The receive twin is <see cref="NoiseActiveSummary"/>; a newer answer covers an unheard older one.</summary>
+        public const string TransmitNoiseActiveSummary = "transmit-noise-active-summary";
+
+        /// <summary>A transmit engine returned to its defaults. The receive twin is <see cref="NoiseDefaults"/>; the newest covers an unheard older one.</summary>
+        public const string TransmitNoiseDefaults = "transmit-noise-defaults";
+
+        /// <summary>The transmit noise gate or the cleanup monitor: on or off, a lever's value, its defaults, what the monitor plays. No receive twin; the newest covers an unheard older one.</summary>
+        public const string TransmitNoiseGate = "transmit-noise-gate";
+
+        /// <summary>A preset applied from a transmit road, a transmit-only preset saved, or no transmit presets (Track H2 repair round 1). The receive twin is <see cref="NoisePreset"/>; the newest covers an unheard older one.</summary>
+        public const string TransmitNoisePreset = "transmit-noise-preset";
+
+        /// <summary>The noise layer's T: the keys now act on transmit, or on receive again. The newest covers an unheard older one.</summary>
+        public const string NoiseLayerDirection = "noise-layer-direction";
     }
 }

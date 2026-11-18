@@ -164,7 +164,10 @@ public sealed class RnnoiseModelSettingTests
         Assert.Equal(20, DenoiseEngineCatalog.ExpectedEngineDelayMs("rnnoise", RnnoiseModels.Newest));
         Assert.Equal(20, DenoiseEngineCatalog.ExpectedEngineDelayMs("rnnoise", RnnoiseModels.Tag));
         Assert.Equal(10, DenoiseEngineCatalog.ExpectedEngineDelayMs("rnnoise", RnnoiseModels.V011));
-        Assert.Null(DenoiseEngineCatalog.ExpectedEngineDelayMs("deepfilternet3", null));
+        // DeepFilterNet3's delay is fixed by the model, so it is known before it runs too
+        // (Sprint 49 Track H2 bench round, item 4: 1,440 samples, measured at the bench).
+        Assert.Equal(30, DenoiseEngineCatalog.ExpectedEngineDelayMs("deepfilternet3", null));
+        Assert.Null(DenoiseEngineCatalog.ExpectedEngineDelayMs("nr4", null));          // NR4's comes from the library at run time
         Assert.Equal(Radios.Lexicon.Get("audio.noise_surface.delay_figure", ("ms", 20)), f.Noise.DelayFigure("rnnoise"));
         f.Noise.Set(ModelLever(f), null, RnnoiseModels.V011, "test");
         Assert.Equal(Radios.Lexicon.Get("audio.noise_surface.delay_figure", ("ms", 10)), f.Noise.DelayFigure("rnnoise"));

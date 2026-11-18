@@ -194,7 +194,7 @@ public sealed class NoiseFloorFlipTests
         float tx = NoiseFloor.DefaultStrength("rnnoise", DenoiseDirection.Transmit);
         Assert.Equal(Bits(tx), Bits(TxAudioConditioning.DefaultNrStrength));
         Assert.Equal(Bits(tx), Bits(new TxConditioningSettings().NrStrength));
-        using (var provider = TxAudioConditioning.CreateNoiseReductionProvider()) Assert.Equal(Bits(tx), Bits(provider.Strength));
+        Assert.Equal(Bits(tx), Bits(TxAudioConditioning.CreateChain().GetStrength("rnnoise")));
         Assert.Equal(NoiseFloor.DefaultFloor("rnnoise", DenoiseDirection.Transmit), AudioWorkshopDialog.TxFloorField().Initial);
         Assert.Equal(20, AudioWorkshopDialog.TxFloorField().Initial);
     }
@@ -419,6 +419,13 @@ public sealed class NoiseFloorFlipTests
     {
         "JJFlexWpf/PcDenoiseSlot.cs", "JJFlexWpf/NoiseController.Levers.cs", "JJFlexWpf/NoiseController.Presets.cs",
         "JJFlexWpf/RxAudioPipeline.cs",
+        // Sprint 49 Track H: the transmit owners, the twin of RxAudioPipeline.
+        // TxNoiseChain owns the two transmit slots, as RxAudioPipeline owns the
+        // receive ones; TxAudioConditioning's NrStrength is the transmit twin
+        // of RxAudioPipeline's RnnStrength, and every surface reaches it through
+        // NoiseFloor's one conversion. Sprint 49 Track H2: the controller's
+        // transmit half, which the Transmit menu, Home and the layer call.
+        "JJFlexWpf/TxNoiseChain.cs", "JJFlexWpf/TxAudioConditioning.cs", "JJFlexWpf/NoiseController.Transmit.cs",
     };
 
     internal static IReadOnlyList<string> StrengthCallers(string root)

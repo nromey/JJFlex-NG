@@ -133,6 +133,29 @@ namespace JJPortaudio
             set { _rangeDb = Math.Clamp(value, 6f, 40f); }
         }
 
+        private volatile bool _resetPending;
+
+        /// <summary>
+        /// Whether a gap of more than 100 ms between buffers resets the gate
+        /// open. True when nothing better is known; the transmit conditioner
+        /// turns it off whenever it has a real key state (Sprint 49 Track H,
+        /// item E, #1075). Since #565 the microphone streams continuously, so a
+        /// key-down no longer makes a gap; meanwhile ten-frame bursts arriving
+        /// 100 ms apart, timed on a clock with about 15.6 ms resolution, could
+        /// read as a gap and reset the gate open in the middle of an over.
+        /// </summary>
+        public bool ResetsOnStreamGap { get; set; } = true;
+
+        /// <summary>
+        /// Reset OPEN at the next buffer: the key went down (item E, #1075).
+        /// The first syllable of an over must never meet a gate that woke up
+        /// closed. Safe from any thread; the audio thread applies it.
+        /// </summary>
+        public void ResetOpen() => _resetPending = true;
+
+        /// <summary>Times the gate has reset open since it was made: key-downs, or stream gaps where those still count. A test and trace counter.</summary>
+        public long Resets { get; private set; }
+
         /// <summary>True while the gate is passing speech at unity (including
         /// the hold time). For UI/announcement use.</summary>
         public bool IsOpen => _open;
@@ -159,15 +182,19 @@ namespace JJPortaudio
             long last = _lastProcessMs;
             _lastProcessMs = now;
 
+            bool reset = _resetPending;
+            if (reset) _resetPending = false;
             if (!_enabled) return;
 
             if (sampleRate == 0) sampleRate = 48000;
 
-            // Cold start (key-down after an unkey): reset OPEN. The gate must
-            // never eat the first syllable of a transmission while its
-            // detector warms up.
-            if (last == 0 || now - last > StreamGapMs)
+            // Cold start (key-down): reset OPEN. The gate must never eat the
+            // first syllable of a transmission while its detector warms up.
+            // The key-down is told by ResetOpen; a stream gap still counts
+            // only where nothing knows the key state.
+            if (reset || (ResetsOnStreamGap && (last == 0 || now - last > StreamGapMs)))
             {
+                Resets++;
                 _envPower = 0.0;
                 _gain = 1f;
                 _open = true;

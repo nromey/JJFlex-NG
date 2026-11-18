@@ -31,7 +31,7 @@ namespace JJFlexWpf;
 /// at all — one item with a mnemonic among bare siblings is the inconsistency
 /// to avoid, not the mnemonic itself.
 /// </summary>
-public class NativeMenuBar : IDisposable
+public partial class NativeMenuBar : IDisposable
 {
     #region Win32 P/Invoke
 
@@ -1879,6 +1879,11 @@ public class NativeMenuBar : IDisposable
         if (Rig == null)
         {
             AddWired(parent, "Connect a radio first", SpeakNoRadio);
+            // Transmit noise reduction and the gate are held with no radio
+            // (#1077, settings are intents), so their rows are here too
+            // (Sprint 49 Track H2).
+            AddSep(parent);
+            BuildTransmitNoiseItems(parent);
             return;
         }
 
@@ -1977,6 +1982,10 @@ public class NativeMenuBar : IDisposable
             SpeakAfterMenuClose(Radios.Lexicon.Get("audio.tx_filter.range",
                 ("low", Rig.TXFilterLow), ("high", Rig.TXFilterHigh)));
         });
+
+        // --- Transmit noise reduction and the gate (Sprint 49 Track H2) ---
+        // After the TX filter and before Dummy Load Mode, design part seven.
+        BuildTransmitNoiseItems(parent);
 
         AddSep(parent);
 
@@ -2257,10 +2266,23 @@ public class NativeMenuBar : IDisposable
                 AddChecked(selSub, $"Slice {Rig.VFOToLetter(i)}",
                     () =>
                     {
-                        if (Rig == null || !Rig.ValidVFO(sliceNum)) { SpeakNoRadio(); return; }
-                        Rig.RXVFO = sliceNum;
-                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.active",
-                            ("letter", Rig.VFOToLetter(sliceNum))));
+                        if (Rig is not { } rig || !rig.ValidVFO(sliceNum)) { SpeakNoRadio(); return; }
+                        // #1123 (Sprint 49 Track H2 bench round, item 8): a slice in
+                        // another mode group changes the computer noise reduction, and
+                        // the main window's poll said that BEFORE this row's "Slice A
+                        // active", which then cut it and had it said again. The noise
+                        // answer is held from the click and joined to the slice
+                        // sentence once the menu has closed, as the mode rows do (#1117).
+                        var noiseAnswer = _window.Noise.HoldModeAnswer();
+                        rig.RXVFO = sliceNum;
+                        string sentence = Radios.Lexicon.Get("settings.slice.active", ("letter", rig.VFOToLetter(sliceNum)));
+                        _window.Dispatcher.BeginInvoke(() => MenuModeSentence.SayWhenTheMenuHasClosed(
+                            sentence,
+                            stillCurrent: () => ReferenceEquals(Rig, rig) && rig.RXVFO == sliceNum,
+                            noiseAnswer,
+                            delay: ms => System.Threading.Tasks.Task.Delay(ms),
+                            sayNow: (text, level) => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Interrupt, level,
+                                subject: Radios.Speech.SpeechSubject.ModeChoice)));
                     },
                     () => Rig?.RXVFO == sliceNum);
             }

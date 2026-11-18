@@ -19,9 +19,16 @@ internal sealed class NoisePresetSaveDialog : JJFlexDialog
     private readonly TextBox _name = new();
     private readonly CheckBox _noise;
     private readonly CheckBox _chain;
+    private readonly CheckBox _transmitNoise;
     private readonly NoiseController? _controller;
 
-    internal NoisePresetSaveDialog(NoiseController? controller = null, bool fromNoise = true)
+    /// <param name="fromTransmit">
+    /// Opened from a transmit road (the Transmit menu's Presets, Home's
+    /// Transmission fields; Sprint 49 Track H2): only "Include transmit noise
+    /// reduction" starts ticked, as design part five pre-ticks the box that
+    /// matches where the dialog was opened from.
+    /// </param>
+    internal NoisePresetSaveDialog(NoiseController? controller = null, bool fromNoise = true, bool fromTransmit = false)
     {
         _controller = controller;
         Title = Lexicon.Get("audio.noise_presets.save_title");
@@ -36,11 +43,15 @@ internal sealed class NoisePresetSaveDialog : JJFlexDialog
         JJFlexHelp.SetText(_name, Lexicon.Get("audio.noise_help.presets.name"));
         panel.Children.Add(_name);
 
-        _noise = new CheckBox { Content = Lexicon.Get("audio.noise_presets.include_noise"), IsChecked = fromNoise, Margin = new Thickness(0, 2, 0, 2) };
+        _noise = new CheckBox { Content = Lexicon.Get("audio.noise_presets.include_noise"), IsChecked = fromNoise && !fromTransmit, Margin = new Thickness(0, 2, 0, 2) };
         AutomationProperties.SetName(_noise, Lexicon.Get("audio.noise_presets.include_noise"));
         JJFlexHelp.SetText(_noise, Lexicon.Get("audio.noise_help.presets.include_noise"));
         panel.Children.Add(_noise);
-        _chain = new CheckBox { Content = Lexicon.Get("audio.noise_presets.include_chain"), IsChecked = !fromNoise, Margin = new Thickness(0, 2, 0, 8) };
+        _transmitNoise = new CheckBox { Content = Lexicon.Get("audio.noise_presets.include_tx_noise"), IsChecked = fromTransmit, Margin = new Thickness(0, 2, 0, 2) };
+        AutomationProperties.SetName(_transmitNoise, Lexicon.Get("audio.noise_presets.include_tx_noise"));
+        JJFlexHelp.SetText(_transmitNoise, Lexicon.Get("audio.noise_help.presets.include_tx_noise"));
+        panel.Children.Add(_transmitNoise);
+        _chain = new CheckBox { Content = Lexicon.Get("audio.noise_presets.include_chain"), IsChecked = !fromNoise && !fromTransmit, Margin = new Thickness(0, 2, 0, 8) };
         AutomationProperties.SetName(_chain, Lexicon.Get("audio.noise_presets.include_chain"));
         JJFlexHelp.SetText(_chain, Lexicon.Get("audio.noise_help.presets.include_chain"));
         panel.Children.Add(_chain);
@@ -64,8 +75,8 @@ internal sealed class NoisePresetSaveDialog : JJFlexDialog
     {
         if (_controller == null) { CloseWithResult(false); return; }
         string name = _name.Text.Trim();
-        bool noise = _noise.IsChecked == true, chain = _chain.IsChecked == true;
-        if (name.Length == 0 || (!noise && !chain))
+        bool noise = _noise.IsChecked == true, chain = _chain.IsChecked == true, transmitNoise = _transmitNoise.IsChecked == true;
+        if (name.Length == 0 || (!noise && !chain && !transmitNoise))
         {
             ScreenReaderOutput.Speak(Lexicon.Get(name.Length == 0 ? "audio.noise_presets.need_name" : "audio.noise_presets.need_section"),
                 VerbosityLevel.Terse, interrupt: true);
@@ -78,12 +89,12 @@ internal sealed class NoisePresetSaveDialog : JJFlexDialog
             if (answer == null) return;
             collision = answer.Value;
         }
-        if (_controller.SavePreset(name, noise, chain, collision, "save dialog") != null) CloseWithResult(true);
+        if (_controller.SavePreset(name, noise, chain, transmitNoise, collision, "save dialog") != null) CloseWithResult(true);
     }
 
-    internal static void Show(Window? owner, NoiseController controller, bool fromNoise)
+    internal static void Show(Window? owner, NoiseController controller, bool fromNoise, bool fromTransmit = false)
     {
-        var dialog = new NoisePresetSaveDialog(controller, fromNoise) { Owner = owner };
+        var dialog = new NoisePresetSaveDialog(controller, fromNoise, fromTransmit) { Owner = owner };
         dialog.ShowModalDialog();
     }
 }

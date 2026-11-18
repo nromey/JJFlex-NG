@@ -15,6 +15,14 @@ namespace JJFlexWpf
         string Serial { get; }
         string Mode { get; }
         /// <summary>
+        /// The ACTIVE slice's mode, never the transmit slice's (#1123, Sprint 49
+        /// Track H2): what receive noise reduction follows when the operator
+        /// moves to a slice in another mode. <see cref="Mode"/> reads the
+        /// transmit mode while transmitting. Defaults to <see cref="Mode"/> for a
+        /// radio that knows no difference (the tests' fake).
+        /// </summary>
+        string ReceiveMode => Mode;
+        /// <summary>
         /// The slice every read and write here acts on right now: an opaque
         /// identity, compared by reference, never a number (repair round 2,
         /// B1). Null when no slice is active.
@@ -56,6 +64,7 @@ namespace JJFlexWpf
         public FlexNoiseRadio(FlexBase rig) => _rig = rig ?? throw new ArgumentNullException(nameof(rig));
         public string Serial => _rig.SelectedRadioSerial ?? "";
         public string Mode => _rig.Mode ?? "";
+        public string ReceiveMode => _rig.RXMode ?? "";
         public object? SliceIdentity => _rig.ActiveSliceIdentity;
         public bool PcAudioOn => _rig.PCAudio;
         public bool ReadSwitch(DenoiseEngineEntry engine) => engine.ReadRadio?.Invoke(_rig) == FlexBase.OffOnValues.on;
