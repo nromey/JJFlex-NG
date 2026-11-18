@@ -339,4 +339,63 @@ public sealed class TxLatchTests
         Assert.Equal(new[] { "nr4", "rnnoise" }, together.Single().Select(t => t.EngineId));
         Assert.Contains("audio.denoise.tx.fell_back_both", System.IO.File.ReadAllText(System.IO.Path.Combine(JJFlexWpf.Tests.Infrastructure.RepoPaths.RequireRoot(), "JJFlexWpf", "TxAudioConditioning.cs")));
     }
+
+    // ── Bench round 2, P3: a slot that recovers inside the gather window is not told ──
+
+    private (TxNoiseChain Chain, Func<DelayEngine?> Spectral, Func<DelayEngine?> Neural, Action<bool> Run) TwoSlots()
+    {
+        DelayEngine? spectral = null, neural = null;
+        var catalog = new DenoiseEngineCatalog(new[]
+        {
+            new DenoiseEngineEntry("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr4",
+                new[] { DenoiseDirection.Receive, DenoiseDirection.Transmit }, (_, _) => spectral = new DelayEngine("nr4", 1f, 0), () => Unavailability.None),
+            new DenoiseEngineEntry("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.rnnoise",
+                new[] { DenoiseDirection.Receive, DenoiseDirection.Transmit }, (_, _) => neural = new DelayEngine("rnnoise", 2f, 0), () => Unavailability.None),
+        });
+        var chain = new TxNoiseChain(catalog);
+        chain.SetStrength("nr4", 1f);
+        chain.SetStrength("rnnoise", 1f);
+        chain.SetEnabled(DenoiseFamily.Spectral, true);
+        chain.SetEnabled(DenoiseFamily.Neural, true);
+        void Run(bool keyed) { var b = Ones(); chain.Process(b, b.Length, 48000, keyed); }
+        Until(() => spectral != null && neural != null && chain.SpectralSlot.RunningIsCurrent("nr4") && chain.NeuralSlot.RunningIsCurrent("rnnoise"), () => Run(false));
+        Run(false);
+        return (chain, () => spectral, () => neural, Run);
+    }
+
+    [Fact]
+    public void A_slot_that_recovers_before_the_notice_is_given_is_not_told()
+    {
+        var (chain, spectral, _, run) = TwoSlots();
+        var together = new ConcurrentQueue<IReadOnlyList<(DenoiseFamily Family, string EngineId)>>();
+        chain.FellBackTogether += together.Enqueue;
+        run(true);
+        spectral()!.Dead = true;
+        run(true);                                                  // NR4 latches
+        Assert.True(chain.SpectralSlot.RunningBank!.Latched);
+        run(false);                                                 // the unkey releases it, inside the window
+        Thread.Sleep(TxNoiseChain.NoticeGatherMs * 3);
+        Assert.Empty(together);
+    }
+
+    [Fact]
+    public void Of_two_slots_in_one_notice_only_the_one_still_bypassed_is_named()
+    {
+        var (chain, spectral, neural, run) = TwoSlots();
+        var together = new ConcurrentQueue<IReadOnlyList<(DenoiseFamily Family, string EngineId)>>();
+        chain.FellBackTogether += together.Enqueue;
+        run(true);
+        spectral()!.Dead = true;
+        run(true);                                                  // NR4 latches...
+        run(false);                                                 // ...and is released at the unkey
+        run(true);                                                  // the next over
+        neural()!.Dead = true;
+        run(true);                                                  // RNNoise latches, inside the same window
+        Assert.True(chain.NeuralSlot.RunningBank!.Latched);
+        var wait = DateTime.UtcNow.AddSeconds(10);
+        while (together.IsEmpty && DateTime.UtcNow < wait) Thread.Sleep(5);
+        Thread.Sleep(TxNoiseChain.NoticeGatherMs * 2);
+        Assert.Single(together);
+        Assert.Equal(new[] { "rnnoise" }, together.Single().Select(t => t.EngineId));
+    }
 }

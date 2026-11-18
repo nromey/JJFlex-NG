@@ -211,6 +211,7 @@ namespace JJFlexWpf
         /// <summary>Point the cursor at an engine in a direction (an operator's action, now).</summary>
         private void Point(string? id, DenoiseDirection direction)
         {
+            if (NotInThisVersion(id)) return;   // never the cursor, and its direction is not taken either (bench round 2)
             Current = id;
             _currentDirection = direction;
         }
@@ -218,7 +219,7 @@ namespace JJFlexWpf
         /// <summary>Point the cursor from work scheduled at <paramref name="epoch"/>, only if nothing has moved the cursor's ownership since.</summary>
         private void PointLater(string id, DenoiseDirection direction, long epoch)
         {
-            if (epoch != _cursorEpoch) return;
+            if (epoch != _cursorEpoch || NotInThisVersion(id)) return;
             Point(id, direction);
             CurrentLeverIndex = 0;
         }
@@ -1229,6 +1230,14 @@ namespace JJFlexWpf
                 if (gate != null) TransmitGate.ApplyNow(gate);
                 return TxChangeResult.Now;
             }
+            // A whole request identical to what is in place, with nothing waiting
+            // ahead of it and no engine field choice still settling, changes
+            // nothing (bench round 2, Codex's P3): it is not queued, so a layer's
+            // Escape has nothing to withdraw and does not report a restoration.
+            // With anything waiting it is queued as before, because it may be
+            // overriding a different intent that would otherwise land.
+            if (!chain.HasDeferredChanges && _txSettling.Count == 0 && WholeAlreadyInPlace(chain, slots, spectral, neural, gate))
+                return TxChangeResult.Now;
             if (slots) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
             var spectralCopy = spectral?.Clone();
             var neuralCopy = neural?.Clone();
@@ -1238,6 +1247,18 @@ namespace JJFlexWpf
                 if (slots) chain.ApplySlotsNow(spectralCopy, neuralCopy);
                 if (gateCopy != null) TransmitGate.ApplyNow(gateCopy);
             });
+        }
+
+        /// <summary>Whether a whole request would leave both slots (when it names them) and the gate (when it names one) exactly as they are.</summary>
+        private bool WholeAlreadyInPlace(TxNoiseChain chain, bool slots, TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate)
+        {
+            if (slots)
+            {
+                var (spectralNow, neuralNow) = chain.CaptureSlots();
+                if (DescribeTx(spectralNow) != DescribeTx(spectral ?? new TxNoiseSlotSetup())
+                    || DescribeTx(neuralNow) != DescribeTx(neural ?? new TxNoiseSlotSetup())) return false;
+            }
+            return gate == null || SameGate(TransmitGate.Capture(), gate);
         }
 
         /// <summary>The live transmit chain and gate as a setup of this name.</summary>

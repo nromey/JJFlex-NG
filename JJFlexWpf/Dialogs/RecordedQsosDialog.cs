@@ -1266,14 +1266,13 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private void SayAfterFocusSettles(string text, bool refusal = false)
     {
         _status.Text = text;
-        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => _ = SayLaterAsync(text, refusal)));
-    }
-
-    private async Task SayLaterAsync(string text, bool refusal)
-    {
-        await Task.Delay(300);
-        if (refusal) Refuse(text, queue: true);
-        else Say(text, queue: true);
+        // The shared helper this window's own copy became (Sprint 49 Track H2
+        // bench round 2, at Codex's word): the same idle wait and 300 ms.
+        WindowSettledSpeech.After(Dispatcher, () =>
+        {
+            if (refusal) Refuse(text, queue: true);
+            else Say(text, queue: true);
+        });
     }
 
     private Button AddButton(Panel panel, string label, Action onClick, string helpKey)

@@ -1020,12 +1020,16 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         var (f, _) = Make();
         using var _f = f;
         bool oldAuto = TxAudioConditioning.AutoThreshold;
+        float oldMargin = TxAudioConditioning.ThresholdMarginDb;
         TxAudioConditioning.UseChainForTest(f.Transmit);
         try
         {
             f.Noise.TransmitGate = new AppTransmitGate();
             f.Noise.SetGateAutoThreshold(true, "home");
             f.Noise.SavePreset("Automatic", false, false, true, PresetCollision.Replace, "test");
+            // The preset must differ from the picture to be held at all (bench round 2:
+            // an identical whole request with nothing waiting queues nothing).
+            TxAudioConditioning.ThresholdMarginDb += 1;
             f.Transmit.KeySource = () => true;
             f.Noise.ApplyPreset("Automatic", "test", DenoiseDirection.Transmit);
             Assert.True(f.Transmit.HasDeferredChanges);
@@ -1039,6 +1043,7 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         {
             f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
             TxAudioConditioning.AutoThreshold = oldAuto;
+            TxAudioConditioning.ThresholdMarginDb = oldMargin;
             TxAudioConditioning.UseChainForTest(null!);
         }
     }
@@ -1055,12 +1060,14 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
             f.Noise.TransmitGate = new AppTransmitGate();
             TxAudioConditioning.ThresholdMarginDb = 8;
             f.Noise.SavePreset("Gate", false, false, true, PresetCollision.Replace, "test");
+            TxAudioConditioning.ThresholdMarginDb = 9;          // differs, so the preset is held (bench round 2)
             f.Transmit.KeySource = () => true;
             f.Noise.ApplyPreset("Gate", "test", DenoiseDirection.Transmit);
+            Assert.True(f.Transmit.HasDeferredChanges);
             f.Spoken.Clear();
             f.Noise.SetGate(f.Noise.GateLever(TxGateLever.Margin)!, 15, "home");
             string answer = f.Spoken.Last;
-            Assert.Equal(8, TxAudioConditioning.ThresholdMarginDb);
+            Assert.Equal(9, TxAudioConditioning.ThresholdMarginDb);
             f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
             Assert.Equal(15, TxAudioConditioning.ThresholdMarginDb);
             Assert.True(answer.Contains(AtUnkey) && answer.Contains("15"), answer);
@@ -1772,6 +1779,77 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         f.Radio.Levels["radio_wnb"] = 40;                               // positive control: a difference is written
         f.Noise.ApplyPreset("Same", "test");
         Assert.Contains("radio_wnb.level=90", f.Radio.Writes);
+    }
+
+    // ── Bench round 2 ──
+
+    [Fact]
+    public void Bench2_a_settled_choice_of_a_refused_engine_never_becomes_the_cursor_either_direction()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        var keys = LayerKeys(f);
+        EnterTransmit(f, keys);
+        f.Noise.TransmitChooseSlotEngine(DenoiseFamily.Neural, "nvidia_afx", "home");
+        f.Clock.RunAll();
+        keys.Handle(Keys.Up);
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.no_engine_yet", VerbosityLevel.Chatty), f.Spoken.Last);
+        Assert.Equal("rnnoise", f.Transmit.ChosenEngineId(DenoiseFamily.Neural));
+        f.Noise.ChooseSlotEngine(DenoiseFamily.Neural, "nvidia_afx", "home");   // receive's twin
+        f.Clock.RunAll();
+        Assert.NotEqual("nvidia_afx", f.Noise.Current);
+        // An engine only unavailable now is still a valid intent, and may be the cursor.
+        f.Noise.TransmitChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+        f.Clock.RunAll();
+        keys.Handle(Keys.Up);
+        Assert.NotEqual(Lexicon.Get("audio.noise_surface.tx.no_engine_yet", VerbosityLevel.Chatty), f.Spoken.Last);
+    }
+
+    [Fact]
+    public void Bench2_an_identical_preset_queues_nothing_so_Escape_reverts_nothing()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        f.Noise.SavePreset("Same", false, false, true, PresetCollision.Replace, "test");   // the picture as it is
+        var snap = f.Noise.TakeSnapshot();
+        f.Transmit.KeySource = () => true;
+        f.Noise.StepTransmitPreset(+1, NoiseController.LayerSource);
+        Assert.False(f.Transmit.HasDeferredChanges);
+        Assert.False(f.Noise.RestoreSnapshot(snap, "test"));
+    }
+
+    [Fact]
+    public void Bench2_an_identical_preset_still_overrides_a_different_intent_already_waiting()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        f.Noise.SavePreset("Off", false, false, true, PresetCollision.Replace, "test");    // gate off
+        f.Transmit.KeySource = () => true;
+        f.Noise.SetGateOn(true, "Home");                                // waiting for the unkey
+        f.Noise.StepTransmitPreset(+1, "transmit menu");               // the same as now, asked after it
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.False(gate.Enabled);                                     // the later request still wins
+    }
+
+    [Fact]
+    public void Bench2_the_gate_fields_are_never_rebuilt_out_from_under_a_focused_gate_field()
+    {
+        string panel = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.TransmitNoise.cs");
+        int side = panel.IndexOf("private void ShowTransmitNoiseSide(", StringComparison.Ordinal);
+        string body = panel.Substring(side, panel.IndexOf("private void ShowTransmitNoiseEngine(", StringComparison.Ordinal) - side);
+        Assert.Contains("if (_txGateAdvancedFields.IsKeyboardFocusWithin) _txGateRebuildOwed = true;", body);
+        Assert.DoesNotContain("\n        BuildTransmitGateFields();\n", body.Replace("\r\n", "\n"));
+        Assert.Contains("|| setupsChanged || _txGateRebuildOwed))", panel);
+    }
+
+    [Fact]
+    public void Bench2_the_two_placeholders_carry_Codexs_words()
+    {
+        Assert.Equal("NR2 and NNR for transmit bypassed until unkey.",
+            Lexicon.Get("audio.denoise.tx.fell_back_both", ("first", "NR2"), ("second", "NNR")));
+        Assert.Equal("Continue?", Lexicon.Get("audio.noise_setups.confirm_question"));
+        Assert.Contains("WindowSettledSpeech.After(Dispatcher, () =>", Source("JJFlexWpf", "Dialogs", "RecordedQsosDialog.cs"));
     }
 
     private static string Describe(TxNoiseChain chain)

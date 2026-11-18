@@ -248,8 +248,16 @@ public partial class ScreenFieldsPanel
         }
         finally { _txNoiseRebuilding = false; }
         ShowTransmitNoiseEngine(TxNoiseEngine);
-        BuildTransmitGateFields();
+        // The gate's fields do not depend on the engine: never rebuild them out
+        // from under a focused gate field (bench round 2, Codex's P3; connected
+        // and disconnected alike). Owed instead, and done by the poll once focus
+        // has left them.
+        if (_txGateAdvancedFields.IsKeyboardFocusWithin) _txGateRebuildOwed = true;
+        else BuildTransmitGateFields();
     }
+
+    /// <summary>A gate rebuild put off because focus was inside the gate's Advanced fields.</summary>
+    private bool _txGateRebuildOwed;
 
     /// <summary>Rebuild the engine's own fields: On's name, its levers, Advanced, defaults, favourite.</summary>
     private void ShowTransmitNoiseEngine(string? id)
@@ -318,6 +326,7 @@ public partial class ScreenFieldsPanel
         _txNoiseRebuilding = true;
         try
         {
+            _txGateRebuildOwed = false;
             _txGateFields.Clear();
             _txGateOn.IsChecked = noise.TransmitGate.Enabled;
             if (noise.GateLever(TxGateLever.Margin) is { } margin) SetupGateField(_txGateMargin, noise, margin);
@@ -531,9 +540,10 @@ public partial class ScreenFieldsPanel
                     : Enumerable.Empty<string>()));
         if (!standingInLevers && want.Length > 0 && want != _txNoiseFieldsFor) { ShowTransmitNoiseSide(selectEngine: want); return; }
         if (!standingInLevers && leversChanged) ShowTransmitNoiseEngine(_txNoiseFieldsFor);
-        // The setups are read from disk, so their list is checked about every two seconds, not every poll.
+        // The setups are read from disk, so their list is checked every twentieth poll: about two seconds
+        // on the radio's 100 ms poll, five on the disconnected 250 ms one.
         bool setupsChanged = ++_txPollCount % 20 == 0 && !noise.TransmitSetupNames().SequenceEqual(_txSetupNames);
-        if (!_txGateAdvancedFields.IsKeyboardFocusWithin && (noise.TransmitGate.AutoThreshold != _txGateBuiltAuto || setupsChanged))
+        if (!_txGateAdvancedFields.IsKeyboardFocusWithin && (noise.TransmitGate.AutoThreshold != _txGateBuiltAuto || setupsChanged || _txGateRebuildOwed))
             BuildTransmitGateFields();
         RefreshTransmitNoiseValues();
     }

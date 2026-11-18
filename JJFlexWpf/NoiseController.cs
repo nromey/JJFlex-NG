@@ -230,6 +230,12 @@ namespace JJFlexWpf
             get => _current;
             private set
             {
+                // An engine this version cannot run is never the cursor, by any
+                // road (Sprint 49 Track H2 bench rounds 1 and 2): its levers and
+                // favourite would act on something that is not there. An engine that
+                // is only unavailable now (no helper, a model missing) stays a valid
+                // intent and may be.
+                if (NotInThisVersion(value)) return;
                 _current = value;
                 _currentDirection = DenoiseDirection.Receive;
                 // A newer cursor assignment, by any action, makes an older delayed
@@ -238,6 +244,9 @@ namespace JJFlexWpf
             }
         }
         private string? _current;
+
+        /// <summary>A computer engine this build has no factory for (NVIDIA NR today): refused, never a choice or the cursor.</summary>
+        private bool NotInThisVersion(string? id) => id != null && _catalog.Find(id) is { Side: DenoiseSide.Pc, Factory: null };
 
         /// <summary>Which lever of <see cref="Current"/> the layer's arrows adjust; 0 is the primary lever.</summary>
         public int CurrentLeverIndex { get; private set; }

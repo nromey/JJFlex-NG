@@ -23,8 +23,8 @@ namespace JJFlexWpf
     /// reader's own announcement to start, then say it queued behind that
     /// announcement. It was private to that window; it is shared here so the
     /// transmit noise setup dialogs and the Audio Workshop's preset save use
-    /// the same timing rather than a guessed one. That window still has its own
-    /// copy; moving it here is left for whoever next touches it.
+    /// the same timing rather than a guessed one. That window now calls this
+    /// too (bench round 2).
     /// </para>
     /// </remarks>
     public static class WindowSettledSpeech

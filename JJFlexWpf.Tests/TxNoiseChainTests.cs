@@ -777,6 +777,8 @@ public sealed class TxNoiseChainTests
     {
         // A reference recording stops the microphone capture, so after its over
         // no unkeyed buffer arrives: the over never ended and the next merged in.
+        // The tick asks; the audio thread ends the over on its next buffer
+        // (bench round 2), before any of the new over's audio.
         var rig = new Rig();
         rig.Chain.SetEnabled(DenoiseFamily.Neural, true);
         var reports = new System.Collections.Concurrent.ConcurrentQueue<string>();
@@ -789,19 +791,78 @@ public sealed class TxNoiseChainTests
         Assert.False(rig.Chain.EndOverByKeyState(60_000));          // audio "still flowing": the buffer's job
         rig.Chain.SetEnabled(DenoiseFamily.Neural, false);          // asked for between the overs
         Assert.True(rig.Chain.EndOverByKeyState(0));
+        Assert.False(rig.Chain.EndOverByKeyState(0));               // already asked about this buffer
+        Assert.True(rig.Chain.NeuralSlot.Enabled);                  // the tick changes nothing the audio owns
+        Volatile.Write(ref rig.Keyed, true);
+        for (int i = 0; i < 3; i++) rig.Run();                     // over two: its first buffer ends over one
         Until(() => reports.Count == 1);
         Assert.Contains("5 buffers", reports.Single());
-        Assert.False(rig.Chain.NeuralSlot.Enabled);                 // the unkey's work was done by the key state
-        Assert.False(rig.Chain.EndOverByKeyState(0));               // no over open: nothing more
-        Volatile.Write(ref rig.Keyed, true);
-        for (int i = 0; i < 3; i++) rig.Run();                     // over two starts its own line
+        Assert.False(rig.Chain.NeuralSlot.Enabled);                 // the unkey's work, done at that boundary
         Volatile.Write(ref rig.Keyed, false);
         Assert.True(rig.Chain.EndOverByKeyState(0));
+        Volatile.Write(ref rig.Keyed, true);
+        rig.Run();
         Until(() => reports.Count == 2);
         Assert.Contains("3 buffers", reports.ToArray()[1]);
         // The app's policy tick (twice a second) is what asks.
         Assert.Contains("_chain?.EndOverByKeyState();", System.IO.File.ReadAllText(System.IO.Path.Combine(
             JJFlexWpf.Tests.Infrastructure.RepoPaths.RequireRoot(), "JJFlexWpf", "TxAudioConditioning.cs")));
+    }
+
+    /// <summary>Holds the policy tick at its trace line, on its own thread only, so a test can start an over in between.</summary>
+    private sealed class TickBarrier : System.Diagnostics.TraceListener
+    {
+        public int Thread;
+        public readonly ManualResetEventSlim Entered = new(), Release = new();
+        public override void Write(string? message) { }
+        public override void WriteLine(string? message)
+        {
+            if (Environment.CurrentManagedThreadId != Thread || message == null || !message.Contains("ends by the key state")) return;
+            Entered.Set();
+            Release.Wait(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Fact]
+    public void An_over_that_starts_while_the_tick_is_deciding_is_never_changed_by_the_old_overs_end()
+    {
+        // Codex's restart-after-claim schedule (bench round 2, P2): the tick sees
+        // the key up and no audio, and is paused there; capture starts the next
+        // over; an off is asked for (it waits for the unkey); the tick resumes.
+        // In round 1 the resumed tick turned the slot off inside the new over.
+        var rig = new Rig();
+        rig.Chain.SetEnabled(DenoiseFamily.Neural, true);
+        Until(() => rig.Chain.NeuralSlot.RunningIsCurrent("rnnoise") && rig.Chain.NeuralSlot.Enabled, () => rig.Run());
+        Volatile.Write(ref rig.Keyed, true);
+        Assert.All(rig.Run(), v => Assert.Equal(2f, v));
+        Volatile.Write(ref rig.Keyed, false);
+        var barrier = new TickBarrier();
+        System.Diagnostics.Trace.Listeners.Add(barrier);
+        try
+        {
+            bool asked = false;
+            var tick = new Thread(() => asked = rig.Chain.EndOverByKeyState(0));
+            barrier.Thread = tick.ManagedThreadId;
+            tick.Start();
+            Assert.True(barrier.Entered.Wait(TimeSpan.FromSeconds(10)), "the tick never reached its decision");
+            Volatile.Write(ref rig.Keyed, true);                    // the next over starts
+            Assert.All(rig.Run(), v => Assert.Equal(2f, v));
+            Assert.Equal(TxChangeTiming.AtUnkey, rig.Chain.SetEnabled(DenoiseFamily.Neural, false).Timing);
+            barrier.Release.Set();
+            Assert.True(tick.Join(TimeSpan.FromSeconds(10)));
+            Assert.True(asked);
+            for (int i = 0; i < 3; i++) Assert.All(rig.Run(), v => Assert.Equal(2f, v));   // never off mid-over
+            Assert.True(rig.Chain.NeuralSlot.Enabled);
+        }
+        finally
+        {
+            barrier.Release.Set();
+            System.Diagnostics.Trace.Listeners.Remove(barrier);
+        }
+        Volatile.Write(ref rig.Keyed, false);                       // the real unkey
+        rig.Run();
+        Assert.False(rig.Chain.NeuralSlot.Enabled);
+        Assert.All(rig.Run(), v => Assert.Equal(1f, v));
     }
 
     [Fact]
