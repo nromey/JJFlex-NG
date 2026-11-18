@@ -629,6 +629,140 @@ public sealed class TxNoiseChainTests
         Assert.Equal(1, count);
     }
 
+    // ── Repair round 3: a whole setup's live values never land mid-over (Codex's edge probes, made permanent) ──
+
+    /// <summary>Pauses the control thread inside an admitted setup, without touching production code.</summary>
+    private sealed class PausingDescriptors : IReadOnlyList<EngineSettingDescriptor>
+    {
+        private readonly IReadOnlyList<EngineSettingDescriptor> _inner;
+        public Action? Once;
+        public PausingDescriptors(IReadOnlyList<EngineSettingDescriptor> inner) => _inner = inner;
+        public int Count => _inner.Count;
+        public EngineSettingDescriptor this[int index] => _inner[index];
+        public IEnumerator<EngineSettingDescriptor> GetEnumerator()
+        {
+            Interlocked.Exchange(ref Once, null)?.Invoke();
+            return _inner.GetEnumerator();
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_whole_setups_non_strength_value_never_lands_partway_through_a_new_over(bool viaCoordinator)
+    {
+        var entries = Catalog().Entries;
+        var pause = new PausingDescriptors(entries.Single(e => e.Id == "nr4").Settings);
+        var c = new TxNoiseChain(new DenoiseEngineCatalog(entries.Select(e => e.Id == "nr4" ? e with { SettingDescriptors = pause } : e)));
+        bool keyed = false;
+        c.KeySource = () => Volatile.Read(ref keyed);
+        c.SetStrength("rnnoise", 1);
+        c.SetEnabled(DenoiseFamily.Neural, true);
+        float[] Run()
+        {
+            var b = Enumerable.Repeat(1f, 960).ToArray();
+            c.Process(b, b.Length, 48000, Volatile.Read(ref keyed));
+            return b;
+        }
+        Assert.All(Run(), v => Assert.Equal(2f, v));
+        Volatile.Write(ref keyed, true);
+        var setup = new TxNoiseSlotSetup { EngineId = "rnnoise", Enabled = true,
+            Engines = { new DenoiseEngineSettings { EngineId = "rnnoise", Direction = DenoiseDirection.Transmit, Strength = 1,
+                Values = { new DenoiseNamedValue { Name = "amount", Number = 3 } } } } };
+        if (viaCoordinator)
+        {
+            TxAudioConditioning.UseChainForTest(c);
+            TxAudioConditioning.ApplySetup(new TxNoiseSetup { Neural = setup });
+        }
+        else c.ApplySlots(null, setup);
+        Assert.True(c.HasDeferredChanges);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        Exception? workerError = null;
+        pause.Once = () => { entered.Set(); if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("release"); };
+        Volatile.Write(ref keyed, false);
+        var worker = new Thread(() => { try { c.ApplyDeferred(); } catch (Exception e) { workerError = e; } });
+        worker.Start();
+        var observed = new List<float>();
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(10)), "the setup was not admitted, so this proves nothing");
+            Volatile.Write(ref keyed, true); // a NEW over, after the drain's key check
+            for (int i = 0; i < 3; i++) Assert.All(Run(), v => Assert.Equal(2f, v));
+            release.Set();
+            Assert.True(worker.Join(TimeSpan.FromSeconds(10)));
+            Assert.Null(workerError);
+            for (int i = 0; i < 4; i++) observed.Add(Run()[0]);
+            Assert.True(observed.All(v => v == 2f), "the whole setup's amount landed mid-over: " + string.Join(", ", observed));
+            // And at the unkey it does land, whole.
+            Volatile.Write(ref keyed, false);
+            Assert.All(Run(), v => Assert.Equal(6f, v));
+            Assert.False(c.NeuralSlot.HasPendingView);
+        }
+        finally
+        {
+            release.Set();
+            if (worker.IsAlive) Assert.True(worker.Join(TimeSpan.FromSeconds(10)));
+            if (viaCoordinator) TxAudioConditioning.UseChainForTest(null!);
+        }
+    }
+
+    [Fact]
+    public void A_lone_strength_stays_live_mid_over_and_still_wins_over_a_waiting_setup()
+    {
+        // The standalone policy is unchanged: strength live. A setup admitted
+        // just before the over waits for the unkey; strength asked for during
+        // the over is heard at once and is not undone when the setup lands.
+        var c = new TxNoiseChain(Catalog());
+        bool keyed = false;
+        c.KeySource = () => Volatile.Read(ref keyed);
+        c.SetStrength("rnnoise", 1);
+        c.SetEnabled(DenoiseFamily.Neural, true);
+        float Run() { var b = Enumerable.Repeat(1f, 960).ToArray(); c.Process(b, b.Length, 48000, Volatile.Read(ref keyed)); return b[0]; }
+        Assert.Equal(2f, Run());
+        c.ApplySlots(null, new TxNoiseSlotSetup { EngineId = "rnnoise", Enabled = true,
+            Engines = { new DenoiseEngineSettings { EngineId = "rnnoise", Direction = DenoiseDirection.Transmit, Strength = 1,
+                Values = { new DenoiseNamedValue { Name = "amount", Number = 3 } } } } });
+        Assert.True(c.NeuralSlot.HasPendingView);            // admitted unkeyed, waiting for an unkeyed BUFFER
+        Volatile.Write(ref keyed, true);
+        Assert.Equal(2f, Run());
+        c.SetStrength("rnnoise", 0.5f);                       // half wet: 0.5 x 1 + 0.5 x 2
+        Assert.Equal(1.5f, Run());
+        Volatile.Write(ref keyed, false);
+        Assert.Equal(0.5f + 0.5f * 6f, Run());                // the setup's amount, with the later strength
+    }
+
+    [Fact]
+    public void A_whole_gate_staged_while_keyed_waits_for_an_unkeyed_buffer_and_a_later_lone_lever_still_wins()
+    {
+        var cond = new JJPortaudio.TxAudioConditioner();
+        bool keyed = true;
+        cond.KeySource = () => keyed;
+        cond.Gate.HoldMs = 150;
+        cond.Gate.RangeDb = 25;
+        var buf = new float[960];
+        cond.Process(buf, buf.Length, 48000);
+        cond.StageGate(new JJPortaudio.TxAudioConditioner.StagedGate
+        {
+            Enabled = true, HoldMs = 500, AttackMs = 3, ReleaseMs = 200, RangeDb = 30,
+            AutoThreshold = false, HasThreshold = true, ThresholdDb = -40, ThresholdMarginDb = 10,
+        });
+        for (int i = 0; i < 5; i++)
+        {
+            cond.Process(buf, buf.Length, 48000);
+            Assert.Equal((false, 150f, 25f, true), (cond.Gate.Enabled, cond.Gate.HoldMs, cond.Gate.RangeDb, cond.AutoThresholdInForce));
+        }
+        cond.Gate.RangeDb = 12;                               // a lone lever, live
+        cond.ChangeStagedGate(g => g.RangeDb = 12);           // and on the staged set, as the owner does
+        Assert.True(cond.HasStagedGate);
+        keyed = false;
+        cond.Process(buf, buf.Length, 48000);
+        Assert.False(cond.HasStagedGate);
+        Assert.Equal((true, 500f, 12f, -40f, false, 10f),
+            (cond.Gate.Enabled, cond.Gate.HoldMs, cond.Gate.RangeDb, cond.Gate.ThresholdDb, cond.AutoThresholdInForce, cond.ThresholdMarginInForceDb));
+    }
+
     private sealed class ApproxPair : IEqualityComparer<(float, float)>
     {
         public bool Equals((float, float) a, (float, float) b) => Math.Abs(a.Item1 - b.Item1) < 1e-6 && Math.Abs(a.Item2 - b.Item2) < 1e-6;

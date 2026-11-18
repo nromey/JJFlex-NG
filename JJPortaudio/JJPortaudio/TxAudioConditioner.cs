@@ -119,6 +119,78 @@ namespace JJPortaudio
         private int _gateRequest = -1; // -1 none; 0 off; 1 on
 
         /// <summary>
+        /// A whole set of gate settings waiting for an unkeyed buffer (Sprint 49
+        /// Track H, repair round 3): a whole transmit setup's gate, its on or off
+        /// AND its levels and threshold policy, so none of it lands partway
+        /// through an over. Published whole by the control side; the audio
+        /// thread takes it with one exchange, so nothing blocks it.
+        /// </summary>
+        public sealed class StagedGate
+        {
+            public bool Enabled;
+            /// <summary>Whether <see cref="ThresholdDb"/> is to be set (a manual threshold); a derived one is left to the app's tick.</summary>
+            public bool HasThreshold;
+            public float ThresholdDb;
+            public float AttackMs, HoldMs, ReleaseMs, RangeDb;
+            public bool AutoThreshold;
+            public float ThresholdMarginDb;
+            public StagedGate Copy() => (StagedGate)MemberwiseClone();
+        }
+
+        private StagedGate _stagedGate;
+
+        /// <summary>
+        /// Stage a whole gate for the next unkeyed buffer. It replaces any staged
+        /// set and any waiting on-or-off request, because it came later.
+        /// </summary>
+        public void StageGate(StagedGate gate)
+        {
+            System.Threading.Volatile.Write(ref _gateRequest, -1);
+            System.Threading.Volatile.Write(ref _stagedGate, gate);
+        }
+
+        /// <summary>
+        /// A lone gate change made while a staged set waits: applied to the staged
+        /// set too, so the later request still wins when it is adopted. Nothing
+        /// happens when nothing is staged. Lock-free.
+        /// </summary>
+        public void ChangeStagedGate(Action<StagedGate> change)
+        {
+            while (true)
+            {
+                var was = System.Threading.Volatile.Read(ref _stagedGate);
+                if (was == null) return;
+                var next = was.Copy();
+                change(next);
+                if (ReferenceEquals(System.Threading.Interlocked.CompareExchange(ref _stagedGate, next, was), was)) return;
+            }
+        }
+
+        /// <summary>Whether a whole gate is waiting for an unkeyed buffer.</summary>
+        public bool HasStagedGate => System.Threading.Volatile.Read(ref _stagedGate) != null;
+
+        private volatile bool _autoThresholdInForce = true;
+        private volatile float _thresholdMarginInForceDb = 8f;
+
+        /// <summary>
+        /// Whether the gate's threshold is derived from the measured floor, as IN
+        /// FORCE on this chain: a staged setup changes it only when adopted. The
+        /// app's derived-threshold tick reads this; a lone change sets it at once.
+        /// </summary>
+        public bool AutoThresholdInForce
+        {
+            get { return _autoThresholdInForce; }
+            set { _autoThresholdInForce = value; }
+        }
+
+        /// <summary>The margin over the measured floor in force, dB; see <see cref="AutoThresholdInForce"/>.</summary>
+        public float ThresholdMarginInForceDb
+        {
+            get { return _thresholdMarginInForceDb; }
+            set { _thresholdMarginInForceDb = value; }
+        }
+
+        /// <summary>
         /// Turn the gate on or off at the next UNKEYED buffer (Sprint 49 Track H,
         /// repair round 1, R3): like a noise engine change, the gate's on and off
         /// never land mid-over. Writing <c>Gate.Enabled</c> directly still works
@@ -178,6 +250,19 @@ namespace JJPortaudio
         {
             if (!ReadKey())
             {
+                // A whole staged gate first, then a lone on-or-off asked after it.
+                var staged = System.Threading.Interlocked.Exchange(ref _stagedGate, null);
+                if (staged != null)
+                {
+                    Gate.AttackMs = staged.AttackMs;
+                    Gate.HoldMs = staged.HoldMs;
+                    Gate.ReleaseMs = staged.ReleaseMs;
+                    Gate.RangeDb = staged.RangeDb;
+                    if (staged.HasThreshold) Gate.ThresholdDb = staged.ThresholdDb;
+                    _autoThresholdInForce = staged.AutoThreshold;
+                    _thresholdMarginInForceDb = staged.ThresholdMarginDb;
+                    Gate.Enabled = staged.Enabled;
+                }
                 int request = System.Threading.Interlocked.Exchange(ref _gateRequest, -1);
                 if (request >= 0) Gate.Enabled = request == 1;
             }

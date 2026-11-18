@@ -195,6 +195,8 @@ namespace JJFlexWpf
             cond.NoiseReducerAppliedLatencySamples = AppliedNrLatency;
             cond.MonitorSink = MonitorStage;
             PushGate(cond.Gate);
+            cond.AutoThresholdInForce = _autoThreshold;
+            cond.ThresholdMarginInForceDb = _thresholdMarginDb;
 
             rig.ModeChanged += OnModeChanged;
             ApplyModePolicy(rig.Mode ?? "");
@@ -278,14 +280,18 @@ namespace JJFlexWpf
         private static void RefreshDerivedThreshold()
         {
             var rig = _rig;
-            if (rig == null || !_autoThreshold) return;
+            // The policy IN FORCE on the chain, not the intent: a whole setup
+            // that is still waiting for the unkey has not changed it (repair
+            // round 3). The tick itself stays live while keyed (S15, pending).
+            var cond = rig?.TxConditioner;
+            if (cond == null || !cond.AutoThresholdInForce) return;
             try
             {
                 var profile = rig.TxLoudnessProfile;
                 if (!profile.IsValid) return;
                 if (profile.NoiseFloorLufs <= JJPortaudio.LufsMeter.Floor) return;
-                rig.TxConditioner.Gate.ThresholdDb =
-                    profile.NoiseFloorLufs + _thresholdMarginDb;
+                cond.Gate.ThresholdDb =
+                    profile.NoiseFloorLufs + cond.ThresholdMarginInForceDb;
             }
             catch (Exception ex)
             {
@@ -371,12 +377,16 @@ namespace JJFlexWpf
         }
 
         /// <summary>A continuous gate lever: live or held for the unkey by the one policy, <see cref="TxNoiseChain.ContinuousLeversLiveWhileKeyed"/>.</summary>
-        private static void GateLever(Action<TxNoiseGateSetup> intent, Action<JJPortaudio.TxNoiseGate> live) =>
+        private static void GateLever(Action<TxNoiseGateSetup> intent, Action<JJPortaudio.TxNoiseGate> live,
+            Action<JJPortaudio.TxAudioConditioner.StagedGate> staged) =>
             Chain.Continuous(() =>
             {
                 lock (_gate) intent(_gateIntent);
                 var c = Conditioner;
-                if (c != null) live(c.Gate);
+                if (c == null) return;
+                live(c.Gate);
+                // A whole setup's gate still waiting: the later lone change wins there too.
+                c.ChangeStagedGate(staged);
             });
 
         /// <summary>
@@ -386,7 +396,18 @@ namespace JJFlexWpf
         public static float ThresholdMarginDb
         {
             get { return _thresholdMarginDb; }
-            set { float v = Math.Clamp(value, 3f, 15f); Chain.Continuous(() => _thresholdMarginDb = v); }
+            set
+            {
+                float v = Math.Clamp(value, 3f, 15f);
+                Chain.Continuous(() =>
+                {
+                    _thresholdMarginDb = v;
+                    var c = Conditioner;
+                    if (c == null) return;
+                    c.ThresholdMarginInForceDb = v;
+                    c.ChangeStagedGate(g => g.ThresholdMarginDb = v);
+                });
+            }
         }
 
         /// <summary>Derive the threshold from the measured floor (default) or
@@ -394,50 +415,58 @@ namespace JJFlexWpf
         public static bool AutoThreshold
         {
             get { return _autoThreshold; }
-            set { _autoThreshold = value; }
+            set
+            {
+                // Live, outside the continuous-lever policy: S15 asks about it.
+                _autoThreshold = value;
+                var c = Conditioner;
+                if (c == null) return;
+                c.AutoThresholdInForce = value;
+                c.ChangeStagedGate(g => { g.AutoThreshold = value; g.HasThreshold = !value; });
+            }
         }
 
         /// <summary>The gate's threshold by hand, dB (used when <see cref="AutoThreshold"/> is off). Held with no radio.</summary>
         public static float GateThresholdDb
         {
             get { var c = Conditioner; if (c != null) return c.Gate.ThresholdDb; lock (_gate) return _gateIntent.ThresholdDb; }
-            set { GateLever(g => g.ThresholdDb = value, g => g.ThresholdDb = value); }
+            set { GateLever(g => g.ThresholdDb = value, g => g.ThresholdDb = value, g => g.ThresholdDb = value); }
         }
 
         /// <summary>Gate attack, ms. Held with no radio.</summary>
         public static float GateAttackMs
         {
             get { lock (_gate) return _gateIntent.AttackMs; }
-            set { GateLever(g => g.AttackMs = value, g => g.AttackMs = value); }
+            set { GateLever(g => g.AttackMs = value, g => g.AttackMs = value, g => g.AttackMs = value); }
         }
 
         /// <summary>Gate hold, ms. Held with no radio.</summary>
         public static float GateHoldMs
         {
             get { lock (_gate) return _gateIntent.HoldMs; }
-            set { GateLever(g => g.HoldMs = value, g => g.HoldMs = value); }
+            set { GateLever(g => g.HoldMs = value, g => g.HoldMs = value, g => g.HoldMs = value); }
         }
 
         /// <summary>Gate release, ms. Held with no radio.</summary>
         public static float GateReleaseMs
         {
             get { lock (_gate) return _gateIntent.ReleaseMs; }
-            set { GateLever(g => g.ReleaseMs = value, g => g.ReleaseMs = value); }
+            set { GateLever(g => g.ReleaseMs = value, g => g.ReleaseMs = value, g => g.ReleaseMs = value); }
         }
 
         /// <summary>Gate depth, dB. Held with no radio.</summary>
         public static float GateRangeDb
         {
             get { lock (_gate) return _gateIntent.RangeDb; }
-            set { GateLever(g => g.RangeDb = value, g => g.RangeDb = value); }
+            set { GateLever(g => g.RangeDb = value, g => g.RangeDb = value, g => g.RangeDb = value); }
         }
 
         /// <summary>Copy the held gate settings onto a rig's gate (attach, and after applying a setup).</summary>
-        private static void PushGate(JJPortaudio.TxNoiseGate gate, bool includeOnOff = true)
+        private static void PushGate(JJPortaudio.TxNoiseGate gate)
         {
             TxNoiseGateSetup g;
             lock (_gate) g = _gateIntent.Clone();
-            if (includeOnOff) gate.Enabled = g.Enabled;
+            gate.Enabled = g.Enabled;
             if (!_autoThreshold) gate.ThresholdDb = g.ThresholdDb;
             gate.AttackMs = g.AttackMs;
             gate.HoldMs = g.HoldMs;
@@ -530,12 +559,21 @@ namespace JJFlexWpf
             _autoThreshold = g.AutoThreshold;
             _thresholdMarginDb = Math.Clamp(g.ThresholdMarginDb, 3f, 15f);
             lock (_gate) _gateIntent = g;
-            var c = Conditioner;
-            if (c != null)
+            // The gate as a whole, on or off, levels and threshold policy, staged
+            // for the next unkeyed buffer (repair round 3): never partway through
+            // an over, even if this call is running when a key-down arrives.
+            Conditioner?.StageGate(new JJPortaudio.TxAudioConditioner.StagedGate
             {
-                PushGate(c.Gate, includeOnOff: false);
-                c.RequestGateEnabled(g.Enabled);
-            }
+                Enabled = g.Enabled,
+                HasThreshold = !g.AutoThreshold,
+                ThresholdDb = g.ThresholdDb,
+                AttackMs = g.AttackMs,
+                HoldMs = g.HoldMs,
+                ReleaseMs = g.ReleaseMs,
+                RangeDb = g.RangeDb,
+                AutoThreshold = g.AutoThreshold,
+                ThresholdMarginDb = Math.Clamp(g.ThresholdMarginDb, 3f, 15f),
+            });
         }
 
         private static readonly HashSet<string> _missingSaid = new(StringComparer.OrdinalIgnoreCase);
