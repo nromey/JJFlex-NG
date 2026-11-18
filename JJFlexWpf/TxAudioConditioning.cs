@@ -119,7 +119,8 @@ namespace JJFlexWpf
         /// </summary>
         internal static void HookNotices(TxNoiseChain chain)
         {
-            chain.FellBack += (family, engineId) => TellFellBack(chain, engineId);
+            // One notice for one failure (Sprint 49 Track H2 bench round, item 6).
+            chain.FellBackTogether += engines => TellFellBack(chain, engines);
             chain.OverReport += line => Trace.WriteLine(line);
         }
 
@@ -139,7 +140,7 @@ namespace JJFlexWpf
         /// across the room is acoustic, as screen reader speech is, and is not
         /// solved here. The route taken is traced every time.
         /// </summary>
-        private static void TellFellBack(TxNoiseChain chain, string engineId)
+        private static void TellFellBack(TxNoiseChain chain, IReadOnlyList<(DenoiseFamily Family, string EngineId)> engines)
         {
             try
             {
@@ -150,9 +151,11 @@ namespace JJFlexWpf
                        : route == TxNoticeRoute.WordsOnlyNoAlertChannel ? "words only: the alert channel has no output, and the system beep is never used for this"
                        : route == TxNoticeRoute.WordsOnlyCaptureHearsOutput ? "words only: the transmit microphone is a loopback or virtual cable that could carry the tone"
                        : "words only: the tone did not play (warning sounds off, or the alert channel went away)"));
-                var row = chain.Catalog.Find(engineId);
-                string engine = row != null ? Lexicon.Get(row.LabelKey) : engineId;
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.denoise.tx.fell_back", ("engine", engine)),
+                string Name(string id) => chain.Catalog.Find(id) is { } row ? Lexicon.Get(row.LabelKey) : id;
+                string sentence = engines.Count >= 2
+                    ? Lexicon.Get("audio.denoise.tx.fell_back_both", ("first", Name(engines[0].EngineId)), ("second", Name(engines[1].EngineId)))
+                    : Lexicon.Get("audio.denoise.tx.fell_back", ("engine", Name(engines[0].EngineId)));
+                ScreenReaderOutput.Speak(sentence,
                     Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
                     subject: Radios.Speech.SpeechSubject.TransmitNoiseFallback);
             }
@@ -207,6 +210,10 @@ namespace JJFlexWpf
             _policyTimer.Elapsed += (s, e) =>
             {
                 RefreshDerivedThreshold();
+                // An over the microphone capture never saw end (a file over:
+                // the capture is stopped while a recording sends) ends by the key
+                // state (Sprint 49 Track H2 bench round, item 5).
+                _chain?.EndOverByKeyState();
                 // R3's backstop: held changes run once unkeyed, even through an
                 // over in CW, where the noise chain is stood aside and never
                 // sees the unkey.

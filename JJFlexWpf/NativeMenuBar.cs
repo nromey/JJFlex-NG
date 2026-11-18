@@ -2266,10 +2266,23 @@ public partial class NativeMenuBar : IDisposable
                 AddChecked(selSub, $"Slice {Rig.VFOToLetter(i)}",
                     () =>
                     {
-                        if (Rig == null || !Rig.ValidVFO(sliceNum)) { SpeakNoRadio(); return; }
-                        Rig.RXVFO = sliceNum;
-                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.active",
-                            ("letter", Rig.VFOToLetter(sliceNum))));
+                        if (Rig is not { } rig || !rig.ValidVFO(sliceNum)) { SpeakNoRadio(); return; }
+                        // #1123 (Sprint 49 Track H2 bench round, item 8): a slice in
+                        // another mode group changes the computer noise reduction, and
+                        // the main window's poll said that BEFORE this row's "Slice A
+                        // active", which then cut it and had it said again. The noise
+                        // answer is held from the click and joined to the slice
+                        // sentence once the menu has closed, as the mode rows do (#1117).
+                        var noiseAnswer = _window.Noise.HoldModeAnswer();
+                        rig.RXVFO = sliceNum;
+                        string sentence = Radios.Lexicon.Get("settings.slice.active", ("letter", rig.VFOToLetter(sliceNum)));
+                        _window.Dispatcher.BeginInvoke(() => MenuModeSentence.SayWhenTheMenuHasClosed(
+                            sentence,
+                            stillCurrent: () => ReferenceEquals(Rig, rig) && rig.RXVFO == sliceNum,
+                            noiseAnswer,
+                            delay: ms => System.Threading.Tasks.Task.Delay(ms),
+                            sayNow: (text, level) => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Interrupt, level,
+                                subject: Radios.Speech.SpeechSubject.ModeChoice)));
                     },
                     () => Rig?.RXVFO == sliceNum);
             }

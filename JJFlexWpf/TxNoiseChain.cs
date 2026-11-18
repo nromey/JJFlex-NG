@@ -83,7 +83,21 @@ namespace JJFlexWpf
         private readonly int[] _noticeGiven = new int[2];
 
         // Item D: this over's counts, per slot, and the buffer timing.
-        private bool _wasKeyed;
+        // The over's end follows the KEY STATE, not the arrival of an unkeyed
+        // buffer (Sprint 49 Track H2 bench round, item 5). A file over (a
+        // reference recording, a voice message, Play from Computer) stops the
+        // microphone capture, so no unkeyed buffer arrives after it: the over
+        // never ended, the next file over merged into it, and the latch release
+        // and the held changes waited for the microphone. Whoever ends the over
+        // claims it: the audio thread on an unkeyed buffer, or the policy tick
+        // (EndOverByKeyState) once the key is up and no audio is arriving. The
+        // claim is one interlocked exchange; the audio thread takes no lock.
+        private int _overOpen;
+        private int _boundaryOwed;
+        private long _lastProcessTicks;
+
+        /// <summary>How long no transmit audio must have arrived, unkeyed, before the key state ends an over; the capture's own bursts come every 100 ms.</summary>
+        internal const int IdleBeforeKeyStateEndsOverMs = 300;
         private readonly OverCounts[] _over = { new(), new() };
         private long _overBuffers, _overStartTicks, _lastBufferTicks, _burst, _maxBurst, _bursts;
         private sealed class OverCounts
@@ -460,6 +474,23 @@ namespace JJFlexWpf
         public event Action<DenoiseFamily, string>? FellBack;
 
         /// <summary>
+        /// One notice for one failure (Sprint 49 Track H2 bench round, item 6):
+        /// every slot that latched within <see cref="NoticeGatherMs"/> of the
+        /// first, together, once. A helper's death latches both of its engines
+        /// in the same buffer, and the operator was given two tones and two
+        /// sentences for it, or one sentence naming only one engine.
+        /// <see cref="TxAudioConditioning"/> answers this one; <see cref="FellBack"/>
+        /// still fires per slot.
+        /// </summary>
+        public event Action<IReadOnlyList<(DenoiseFamily Family, string EngineId)>>? FellBackTogether;
+
+        /// <summary>How long after the first slot latches the notice waits for the other one.</summary>
+        internal const int NoticeGatherMs = 150;
+
+        private int _noticeFamilies;
+        private readonly string[] _noticeEngine = { "", "" };
+
+        /// <summary>
         /// One line per over (item D, measure first): for each slot that ran,
         /// its engine and how many frames went late, failed, or out latched
         /// dry; and how the buffers arrived (their count, how many came back
@@ -482,17 +513,22 @@ namespace JJFlexWpf
         internal void Process(float[] interleaved, int count, uint sampleRate, bool keyed)
         {
             AppliedLatencySamples = 0;
-            _bufferKeyed = keyed;
-            if (keyed && !_wasKeyed) StartOver();
-            else if (!keyed && _wasKeyed)
+            Volatile.Write(ref _lastProcessTicks, Stopwatch.GetTimestamp());
+            // The first buffer after an over the key state ended (item 5) is that
+            // unkey's boundary even when it is already keyed: nothing was heard in
+            // between, so what waits for an unkey is adopted here, before any of
+            // the new over's audio.
+            bool boundary = Volatile.Read(ref _boundaryOwed) != 0 && Interlocked.Exchange(ref _boundaryOwed, 0) == 1;
+            _bufferKeyed = keyed && !boundary;
+            if (keyed && Interlocked.CompareExchange(ref _overOpen, 1, 0) == 0) StartOver();
+            else if (!keyed && Interlocked.CompareExchange(ref _overOpen, 0, 1) == 1)
             {
                 EndOver();
                 // R3: a whole setup, and what was asked for after it, runs now.
                 if (HasDeferredChanges) ThreadPool.QueueUserWorkItem(_ => ApplyDeferred());
             }
-            _wasKeyed = keyed;
             if (keyed) NoteBufferTiming();
-            if (!keyed)
+            if (!keyed || boundary)
             {
                 // The only place on and off become audible (item B).
                 SpectralSlot.Enabled = WantsEnabled(DenoiseFamily.Spectral);
@@ -534,6 +570,48 @@ namespace JJFlexWpf
                     + (tell ? "; telling the operator." : "; already told, not again until it recovers."));
                 if (tell) FellBack?.Invoke(family, engine);
             });
+            if (!tell) return;
+            // One notice for one failure (item 6): the first slot to latch waits
+            // briefly for the other, and both are told together.
+            _noticeEngine[i] = engine;
+            if (Interlocked.Or(ref _noticeFamilies, 1 << i) == 0) ThreadPool.QueueUserWorkItem(_ => TellTogether());
+        }
+
+        private void TellTogether()
+        {
+            Thread.Sleep(NoticeGatherMs);
+            int families = Interlocked.Exchange(ref _noticeFamilies, 0);
+            var told = new List<(DenoiseFamily, string)>(2);
+            for (int i = 0; i < 2; i++)
+                if ((families & (1 << i)) != 0) told.Add(((DenoiseFamily)i, Volatile.Read(ref _noticeEngine[i])));
+            if (told.Count > 0) FellBackTogether?.Invoke(told);
+        }
+
+        /// <summary>
+        /// The policy tick's half of the over's end (item 5): once the key is up
+        /// and no transmit audio has arrived for <paramref name="idleMs"/>, end the
+        /// open over here, release a latched slot and start its rebuild while
+        /// receiving, run the held changes, and mark the next buffer as the unkey's
+        /// boundary. Does nothing while audio is still arriving (its own unkeyed
+        /// buffer ends the over) or with no over open. Returns whether it ended one.
+        /// </summary>
+        internal bool EndOverByKeyState(int idleMs = IdleBeforeKeyStateEndsOverMs)
+        {
+            if (Volatile.Read(ref _overOpen) == 0 || IsKeyed) return false;
+            long idle = Stopwatch.GetTimestamp() - Volatile.Read(ref _lastProcessTicks);
+            if (idle < idleMs * Stopwatch.Frequency / 1000) return false;
+            if (Interlocked.CompareExchange(ref _overOpen, 0, 1) != 1) return false;
+            Trace.WriteLine("TxNoiseChain: unkeyed with no transmit audio arriving (a file over, or the capture stopped); the over ends by the key state.");
+            EndOver();
+            // No buffer is running (idle above), so the slots' unkey work is done
+            // here; the boundary buffer repeats it harmlessly.
+            SpectralSlot.Enabled = WantsEnabled(DenoiseFamily.Spectral);
+            NeuralSlot.Enabled = WantsEnabled(DenoiseFamily.Neural);
+            Unlatch(DenoiseFamily.Spectral);
+            Unlatch(DenoiseFamily.Neural);
+            Volatile.Write(ref _boundaryOwed, 1);
+            ApplyDeferred();
+            return true;
         }
 
         /// <summary>Item C, at an unkeyed buffer: release a latched bank and rebuild the slot's own transmit engine (never receive's) on a worker.</summary>

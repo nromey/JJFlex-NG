@@ -109,7 +109,10 @@ namespace JJFlexWpf
         /// derived: <c>EngineLatencyTests</c> finds it by cross-correlation, and
         /// tools/nrbench reports the same 30.0 ms.
         /// </summary>
-        public int LatencySamples => (960 - FrameLength) + 2 * FrameLength;
+        public int LatencySamples => LatencyAtFrame(FrameLength);
+
+        /// <summary>The delay at a frame length, before an engine exists: the catalog's expected figure (Sprint 49 Track H2 bench round, item 4).</summary>
+        public static int LatencyAtFrame(int frameLength) => (960 - frameLength) + 2 * frameLength;
 
         /// <summary>Why <see cref="IsAvailable"/> is false, in plain words; empty when it is true.</summary>
         public Unavailability Unavailability { get; private set; }

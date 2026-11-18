@@ -283,19 +283,36 @@ namespace JJFlexWpf
         }
 
         /// <summary>Whether an engine's Advanced levers are revealed on Home (remembered per engine).</summary>
-        public bool IsAdvanced(string id) => _config()?.NoiseAdvancedEngines.Contains(id) == true;
+        public bool IsAdvanced(string id) => AdvancedShown(id);
 
         /// <summary>Reveal or hide an engine's Advanced levers on Home, remember it, and say so.</summary>
         public void SetAdvanced(string id, bool on)
         {
-            var config = _config();
-            if (config != null)
-            {
-                config.NoiseAdvancedEngines.Remove(id);
-                if (on) config.NoiseAdvancedEngines.Add(id);
-                _persist();
-            }
+            ShowAdvanced(id, on);
             Say(on ? L("audio.noise_surface.advanced_on", ("engine", NameOf(id))) : L("audio.noise_surface.advanced_off"), SpeechSubject.NoiseLevel);
+        }
+
+        /// <summary>
+        /// Which Advanced sections are open while no radio's settings are loaded
+        /// (Sprint 49 Track H2 bench round, item 1; settings are intents): the
+        /// list lives in the radio's audio config, which does not exist
+        /// disconnected, so Home's Advanced boxes ticked and revealed nothing.
+        /// Held here for the session; the config's own list wins once one exists.
+        /// </summary>
+        private readonly List<string> _advancedWithoutConfig = new();
+
+        private List<string> AdvancedList => _config()?.NoiseAdvancedEngines ?? _advancedWithoutConfig;
+
+        /// <summary>Whether an Advanced section (an engine's, a transmit engine's, or the gate's, by its key) is open, radio or no radio.</summary>
+        public bool AdvancedShown(string key) => AdvancedList.Contains(key);
+
+        /// <summary>Open or close an Advanced section by its key, silently; remembered in the radio's config when there is one.</summary>
+        public void ShowAdvanced(string key, bool on)
+        {
+            var list = AdvancedList;
+            list.Remove(key);
+            if (on) list.Add(key);
+            if (_config() != null) _persist();
         }
 
         /// <summary>

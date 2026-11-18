@@ -33,6 +33,9 @@ public partial class NativeMenuBar
     /// <summary>The source every transmit menu row journals under.</summary>
     private const string TransmitMenuSource = "transmit menu";
 
+    /// <summary>The controller whose setup changes rebuild this menu, so it is hooked once.</summary>
+    private NoiseController? _txSetupsHookedOn;
+
     /// <summary>Build the transmit noise rows into a Transmit submenu: the summary, the engines, the gate, the setups and the presets.</summary>
     private void BuildTransmitNoiseItems(IntPtr parent)
     {
@@ -102,6 +105,14 @@ public partial class NativeMenuBar
             () => _window.OpenTransmitNoiseOnHome(null, advanced: true, gate: true));
 
         // ── Transmit noise setups: this radio's, each applying; Save; Manage ──
+        // The list follows the store (bench round, item 3): a setup saved,
+        // renamed or deleted this session rebuilds the menu, coalesced like
+        // every other rebuild. Hooked once per controller.
+        if (!ReferenceEquals(_txSetupsHookedOn, noise))
+        {
+            noise.TransmitSetupsChanged += () => QueueMenuRebuild("transmit noise setups changed");
+            _txSetupsHookedOn = noise;
+        }
         var setups = AddSubmenu(parent, Radios.Lexicon.Get("audio.noise_menu.tx.setups"));
         IReadOnlyList<string> names;
         try { names = noise.TransmitSetupNames(); }
@@ -111,7 +122,10 @@ public partial class NativeMenuBar
             string n2 = setupName;
             AddWired(setups, n2, () => AfterMenu(n => n.ApplyTransmitSetup(n2, TransmitMenuSource)));
         }
-        AddWired(setups, Radios.Lexicon.Get("audio.noise_menu.tx.setup_save"), () => _window.ShowTransmitSetupSave());
+        // With no radio this says so once the menu has closed, and opens nothing
+        // (bench round, item 9).
+        AddWired(setups, Radios.Lexicon.Get("audio.noise_menu.tx.setup_save"),
+            () => AfterMenu(n => { if (n.TransmitSetupsReadyOrSay()) _window.ShowTransmitSetupSave(); }));
         AddWired(setups, Radios.Lexicon.Get("audio.noise_menu.tx.setup_manage"), () => _window.ShowTransmitSetupManager());
 
         // ── Presets holding a transmit section ──

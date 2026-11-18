@@ -217,7 +217,14 @@ public partial class AudioWorkshopDialog
                     ScreenReaderOutput.Speak(Lexicon.Get("audio.noise_presets.need_section"), VerbosityLevel.Terse);
                     return;
                 }
-                noise.SavePreset(name, rx, false, tx, PresetCollision.KeepBoth, "audio workshop");
+                // Said once this name dialog has closed and focus is back in the
+                // Workshop (Sprint 49 Track H2 bench round, item 2): said at the
+                // close, it was cut at its first word.
+                using (var answer = noise.HoldAnswer())
+                {
+                    answer.AfterTheWindowCloses();
+                    noise.SavePreset(name, rx, false, tx, PresetCollision.KeepBoth, "audio workshop");
+                }
                 inputDialog.Close();
                 return;
             }
@@ -225,13 +232,14 @@ public partial class AudioWorkshopDialog
             WithNoiseSections(preset, rx, tx);
             var presets = GetPresetsCallback?.Invoke() ?? AudioChainPresets.CreateDefaults();
             presets.Presets.Add(preset);
-            if (PersistPresets(presets))
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.preset.saved", ("preset", name)),
-                    VerbosityLevel.Terse);
-            else
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.preset.save_failed", ("preset", name), ("reason", PresetSaveFailed)),
-                    VerbosityLevel.Critical);
+            // Said once this name dialog has closed and focus is back in the
+            // Workshop (bench round, item 2), the same way as the noise-only save.
+            bool persisted = PersistPresets(presets);
+            string said = persisted
+                ? Lexicon.Get("audio.preset.saved", ("preset", name))
+                : Lexicon.Get("audio.preset.save_failed", ("preset", name), ("reason", PresetSaveFailed));
+            var level = persisted ? VerbosityLevel.Terse : VerbosityLevel.Critical;
+            WindowSettledSpeech.After(Dispatcher, () => ScreenReaderOutput.Speak(said, Radios.Speech.SpeechIntent.Queue, level));
             inputDialog.Close();
         };
         cancelBtn.Click += (s2, e2) => inputDialog.Close();

@@ -344,7 +344,10 @@ namespace JJFlexWpf
                 Say(L("audio.noise_surface.tx.receive_only", ("engine", NameOf(id))), SpeechSubject.TransmitNoiseUnavailable);
                 return;
             }
-            Point(id, DenoiseDirection.Transmit); CurrentLeverIndex = 0;
+            // An engine this version cannot run is refused and never becomes the
+            // arrows' engine (bench round, item 9): its levers and favourite would
+            // then act on something that is not there.
+            if (e.Factory != null) { Point(id, DenoiseDirection.Transmit); CurrentLeverIndex = 0; }
             if (TransmitIsOn(id)) TxTurnOff(e, source, speak: true);
             else TxTurnOn(e, source, speak: true, model: null, out _);
         }
@@ -697,19 +700,13 @@ namespace JJFlexWpf
 
         /// <summary>Whether an engine's Advanced levers are revealed in a direction (remembered per engine and direction).</summary>
         public bool IsAdvanced(string id, DenoiseDirection direction) =>
-            direction == DenoiseDirection.Receive ? IsAdvanced(id) : _config()?.NoiseAdvancedEngines.Contains(TxAdvancedKey(id)) == true;
+            direction == DenoiseDirection.Receive ? IsAdvanced(id) : AdvancedShown(TxAdvancedKey(id));
 
         /// <summary>Reveal or hide an engine's transmit Advanced levers on Home, remember it, and say so.</summary>
         public void SetAdvanced(string id, bool on, DenoiseDirection direction)
         {
             if (direction == DenoiseDirection.Receive) { SetAdvanced(id, on); return; }
-            var config = _config();
-            if (config != null)
-            {
-                config.NoiseAdvancedEngines.Remove(TxAdvancedKey(id));
-                if (on) config.NoiseAdvancedEngines.Add(TxAdvancedKey(id));
-                _persist();
-            }
+            ShowAdvanced(TxAdvancedKey(id), on);
             Say(on ? L("audio.noise_surface.advanced_on", ("engine", TxName(id))) : L("audio.noise_surface.advanced_off"), SpeechSubject.TransmitNoiseLevel);
         }
 
@@ -779,11 +776,23 @@ namespace JJFlexWpf
         public string TransmitActiveSummary()
         {
             var items = new List<string>();
+            bool offAtUnkey = false;
             var chain = _txChain();
             if (chain != null)
                 foreach (var family in new[] { DenoiseFamily.Spectral, DenoiseFamily.Neural })
                 {
-                    if (!chain.WantsEnabled(family)) continue;
+                    if (!chain.WantsEnabled(family))
+                    {
+                        // Switched off while keyed, still running to the unkey
+                        // (bench round, item 7): named as on, with the held clause.
+                        var running = chain.SlotOf(family);
+                        if (chain.IsKeyed && running.Enabled && _catalog.Find(running.RunningEngineId) is { } runningEntry)
+                        {
+                            items.Add(Lexicon.Get(runningEntry.LabelKey));
+                            offAtUnkey = true;
+                        }
+                        continue;
+                    }
                     var e = _catalog.Find(chain.ChosenEngineId(family));
                     if (e == null) continue;
                     string name = Lexicon.Get(e.LabelKey);
@@ -816,7 +825,7 @@ namespace JJFlexWpf
                     ? L("audio.noise_surface.tx.active.none") + " " + L("audio.noise_surface.tx.active.held")
                     : L("audio.noise_surface.tx.active.none");
             string summary = L("audio.noise_surface.tx.active", ("list", string.Join("; ", items)));
-            if (chain != null && chain.HasDeferredChanges)
+            if (chain != null && (chain.HasDeferredChanges || offAtUnkey))
                 summary += " " + L("audio.noise_surface.tx.active.held");
             if (_radio() is { } r && NoiseModeRules.GroupOf(r.Mode) != NoiseModeGroup.Voice)
                 summary += " " + L("audio.noise_surface.tx.active.bypassed");
@@ -845,8 +854,10 @@ namespace JJFlexWpf
         /// </summary>
         public IReadOnlyList<NoiseFavourite> TransmitStepList()
         {
-            var offered = Favourites.Where(f => _catalog.Find(f.EngineId) is { } e && OffersTransmit(e)).ToList();
-            return offered.Count > 0 ? offered : TransmitEngines().Select(e => new NoiseFavourite { EngineId = e.Id }).ToList();
+            // An engine this version cannot run is skipped, not stopped on and
+            // refused (bench round, item 9).
+            var offered = Favourites.Where(f => _catalog.Find(f.EngineId) is { Factory: not null } e && OffersTransmit(e)).ToList();
+            return offered.Count > 0 ? offered : TransmitEngines().Where(e => e.Factory != null).Select(e => new NoiseFavourite { EngineId = e.Id }).ToList();
         }
 
         /// <summary>
@@ -1163,6 +1174,20 @@ namespace JJFlexWpf
             return false;
         }
 
+        /// <summary>
+        /// Whether setups can be kept now, saying why not when they cannot (bench
+        /// round, item 9): "Save current as setup..." asks this before the name
+        /// dialog opens, so nobody types a name for nothing.
+        /// </summary>
+        public bool TransmitSetupsReadyOrSay()
+        {
+            using var oneUtterance = OneUtterance();
+            return SetupsReady(out _, out _);
+        }
+
+        /// <summary>Raised after this radio's setups changed here (saved, renamed or deleted), so a list built from them can follow (bench round, item 3).</summary>
+        public event Action? TransmitSetupsChanged;
+
         /// <summary>Apply one of this radio's setups: both slots and the gate. A slot change made while keyed waits for the unkey, and is said to.</summary>
         public void ApplyTransmitSetup(string name, string source)
         {
@@ -1242,7 +1267,11 @@ namespace JJFlexWpf
             var result = store.Save(radio, CaptureTransmitSetup(name));
             Say(result.Succeeded ? L("audio.noise_surface.tx.setup_saved", ("setup", name)) : L("audio.noise_surface.tx.setup_failed", ("setup", name)),
                 SpeechSubject.TransmitNoiseSetup);
-            if (result.Succeeded) NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, TxSource(source), "transmit setup", "saved", "", name);
+            if (result.Succeeded)
+            {
+                NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, TxSource(source), "transmit setup", "saved", "", name);
+                TransmitSetupsChanged?.Invoke();
+            }
             return result;
         }
 
@@ -1269,6 +1298,7 @@ namespace JJFlexWpf
                     return back.Succeeded ? new TxNoiseSetupResult(TxNoiseSetupOutcome.NotSaved, from) : new TxNoiseSetupResult(TxNoiseSetupOutcome.NotSaved, result.Name);
                 }
                 Say(L("audio.noise_surface.tx.setup_renamed", ("old", from), ("new", result.Name)), SpeechSubject.TransmitNoiseSetup);
+                TransmitSetupsChanged?.Invoke();
             }
             else Say(L(result.Outcome == TxNoiseSetupOutcome.NameTaken ? "audio.noise_surface.tx.setup_name_taken" : "audio.noise_surface.tx.setup_failed",
                 ("setup", (to ?? "").Trim())), SpeechSubject.TransmitNoiseSetup);
@@ -1283,6 +1313,7 @@ namespace JJFlexWpf
             var result = store.Delete(radio, name);
             Say(result.Succeeded ? L("audio.noise_surface.tx.setup_deleted", ("setup", name)) : L("audio.noise_surface.tx.setup_failed", ("setup", name)),
                 SpeechSubject.TransmitNoiseSetup);
+            if (result.Succeeded) TransmitSetupsChanged?.Invoke();
             return result;
         }
 

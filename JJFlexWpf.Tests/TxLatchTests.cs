@@ -301,4 +301,42 @@ public sealed class TxLatchTests
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Warnings, warnings);
         }
     }
+
+    // ── Sprint 49 Track H2 bench round, item 6: one failure, one notice ──
+
+    [Fact]
+    public void Both_slots_latching_on_one_failure_give_one_notice_naming_both()
+    {
+        DelayEngine? spectral = null, neural = null;
+        var catalog = new DenoiseEngineCatalog(new[]
+        {
+            new DenoiseEngineEntry("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr4",
+                new[] { DenoiseDirection.Receive, DenoiseDirection.Transmit }, (_, _) => spectral = new DelayEngine("nr4", 1f, 0), () => Unavailability.None),
+            new DenoiseEngineEntry("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.rnnoise",
+                new[] { DenoiseDirection.Receive, DenoiseDirection.Transmit }, (_, _) => neural = new DelayEngine("rnnoise", 2f, 0), () => Unavailability.None),
+        });
+        var chain = new TxNoiseChain(catalog);
+        chain.SetStrength("nr4", 1f);
+        chain.SetStrength("rnnoise", 1f);
+        chain.SetEnabled(DenoiseFamily.Spectral, true);
+        chain.SetEnabled(DenoiseFamily.Neural, true);
+        var together = new ConcurrentQueue<IReadOnlyList<(DenoiseFamily Family, string EngineId)>>();
+        chain.FellBackTogether += together.Enqueue;
+        int perSlot = 0;
+        chain.FellBack += (_, _) => Interlocked.Increment(ref perSlot);
+        void Run(bool keyed) { var b = Ones(); chain.Process(b, b.Length, 48000, keyed); }
+        Until(() => spectral != null && neural != null && chain.SpectralSlot.RunningIsCurrent("nr4") && chain.NeuralSlot.RunningIsCurrent("rnnoise"), () => Run(false));
+        Run(false);                                                  // both on, adopted on an unkeyed buffer
+        Run(true);
+        spectral!.Dead = true;
+        neural!.Dead = true;                                        // one failure takes both
+        for (int i = 0; i < 3; i++) Run(true);
+        var wait = DateTime.UtcNow.AddSeconds(10);
+        while (!(together.Count == 1 && Volatile.Read(ref perSlot) == 2) && DateTime.UtcNow < wait) Thread.Sleep(5);
+        Assert.True(together.Count == 1 && Volatile.Read(ref perSlot) == 2, $"together {together.Count}, per slot {perSlot}, spectral latched {chain.SpectralSlot.RunningBank?.Latched}, neural latched {chain.NeuralSlot.RunningBank?.Latched}, same {ReferenceEquals(chain.NeuralSlot.RunningBank?.EngineFor(0), neural)}, enabled {chain.NeuralSlot.Enabled}, processed {chain.NeuralSlot.LastBufferProcessed}, calls {neural.Calls}");
+        Thread.Sleep(TxNoiseChain.NoticeGatherMs * 2);
+        Assert.Single(together);                                   // one notice
+        Assert.Equal(new[] { "nr4", "rnnoise" }, together.Single().Select(t => t.EngineId));
+        Assert.Contains("audio.denoise.tx.fell_back_both", System.IO.File.ReadAllText(System.IO.Path.Combine(JJFlexWpf.Tests.Infrastructure.RepoPaths.RequireRoot(), "JJFlexWpf", "TxAudioConditioning.cs")));
+    }
 }

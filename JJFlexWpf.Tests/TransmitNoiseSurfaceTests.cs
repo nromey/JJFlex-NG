@@ -1599,6 +1599,181 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         Assert.Equal(new[] { "record 1", "record 2", "outside" }, order);
     }
 
+    // ── Bench round (the 2026-11-18 harness walk and dummy-load bench) ──
+
+    private static string Source(params string[] parts) => File.ReadAllText(Path.Combine(new[] { RepoPaths.RequireRoot() }.Concat(parts).ToArray()));
+
+    [Fact]
+    public void Bench_1_with_no_radio_the_gates_and_engines_Advanced_sections_still_open()
+    {
+        // No radio means no audio config: the Advanced boxes ticked and revealed nothing.
+        using var f = new NoiseFixture();
+        var noise = new NoiseController(f.Catalog, () => null, () => null, () => null, () => { },
+            new NoiseFixture.Speaker(), new NoiseFixture.Intents(), new NoiseFixture.Scheduler(), transmitChain: () => new TxNoiseChain(f.Catalog));
+        Assert.False(noise.AdvancedShown("tx:gate"));
+        noise.ShowAdvanced("tx:gate", true);
+        Assert.True(noise.AdvancedShown("tx:gate"));
+        noise.SetAdvanced("rnnoise", true, DenoiseDirection.Transmit);
+        Assert.True(noise.IsAdvanced("rnnoise", DenoiseDirection.Transmit));
+        noise.SetAdvanced("rnnoise", true);
+        Assert.True(noise.IsAdvanced("rnnoise"));
+        string panel = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.TransmitNoise.cs");
+        Assert.DoesNotContain("CurrentAudioConfig", panel);
+        Assert.Contains("StartTransmitNoiseNoRadioPoll();", panel);
+        Assert.Contains("if (_rig != null || !IsVisible || !TxExpander.IsExpanded || _polling) return;", panel);
+    }
+
+    [Fact]
+    public void Bench_2_a_setup_dialogs_answer_waits_for_the_window_to_settle_and_is_said_once_queued()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        var later = new List<Action>();
+        f.Noise.AfterWindowSettles = later.Add;
+        f.Spoken.Clear();
+        using (var answer = f.Noise.HoldAnswer())
+        {
+            answer.AfterTheWindowCloses();
+            Assert.True(f.Noise.SaveTransmitSetup("Contest", false, "test").Succeeded);
+        }
+        Assert.Empty(f.Spoken.Said);                                   // nothing as the window closes
+        Assert.Single(later);
+        later[0]();
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.setup_saved", ("setup", "Contest")), f.Spoken.Last);
+        Assert.Contains(0, f.Spoken.SaidAfter);                        // queued behind the reader's own announcement
+        // A hold left alone says it at once, as before.
+        f.Spoken.Clear();
+        using (f.Noise.HoldAnswer()) f.Noise.RenameTransmitSetup("Contest", "DX");
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.setup_renamed", ("old", "Contest"), ("new", "DX")), f.Spoken.Last);
+        Assert.Single(later);
+        string dialogs = Source("JJFlexWpf", "Dialogs", "TransmitSetupDialogs.cs");
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(dialogs, @"answer\.AfterTheWindowCloses\(\)").Count);
+        string workshop = Source("JJFlexWpf", "Dialogs", "AudioWorkshopDialog.Toolbar.cs");
+        Assert.Contains("WindowSettledSpeech.After(Dispatcher, () => ScreenReaderOutput.Speak(said", workshop);
+        Assert.Contains("answer.AfterTheWindowCloses();", workshop);
+        Assert.Contains("noise.AfterWindowSettles = say => WindowSettledSpeech.After(Dispatcher, say);", Source("JJFlexWpf", "MainWindow.xaml.cs"));
+    }
+
+    [Fact]
+    public void Bench_3_the_setups_menu_rebuilds_when_a_setup_is_saved_renamed_or_deleted()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        int changed = 0;
+        f.Noise.TransmitSetupsChanged += () => changed++;
+        f.Noise.SaveTransmitSetup("A", false, "test");
+        f.Noise.RenameTransmitSetup("A", "B");
+        f.Noise.DeleteTransmitSetup("B");
+        Assert.Equal(3, changed);
+        f.Noise.DeleteTransmitSetup("missing");
+        Assert.Equal(3, changed);                                      // nothing changed, nothing rebuilt
+        Assert.Contains("noise.TransmitSetupsChanged += () => QueueMenuRebuild(", Source("JJFlexWpf", "NativeMenuBar.TransmitNoise.cs"));
+    }
+
+    [Fact]
+    public void Bench_4_DeepFilterNet3_says_its_transmit_delay_before_it_has_run()
+    {
+        Assert.Equal(30, DenoiseEngineCatalog.ExpectedEngineDelayMs("deepfilternet3", null));
+        Assert.Equal(1440, DeepFilterNet3Engine.LatencyAtFrame(480));
+        var (f, _) = Make();
+        using var _f = f;
+        f.Spoken.Clear();
+        f.Noise.TransmitToggle("deepfilternet3", "test");
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.delay_clause", VerbosityLevel.Chatty, ("ms", 30)), f.Spoken.Last);
+        Assert.Equal(Lexicon.Get("audio.noise_surface.delay", ("ms", 30)), f.Noise.DelayText("deepfilternet3", DenoiseDirection.Transmit));
+        Assert.Contains("string delay = noise.DelayText(_txNoiseFieldsFor, DenoiseDirection.Transmit);", Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.TransmitNoise.cs"));
+    }
+
+    [Fact]
+    public void Bench_7_switching_off_while_keyed_reads_as_on_until_the_unkey()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (f.Transmit.NeuralSlot.RunningEngineId != "rnnoise" || !f.Transmit.NeuralSlot.Enabled)
+        {
+            Assert.True(DateTime.UtcNow < deadline, "the engine never ran");
+            var b = new float[960];
+            f.Transmit.Process(b, b.Length, 48000, false);
+            System.Threading.Thread.Sleep(2);
+        }
+        f.Transmit.KeySource = () => true;
+        f.Noise.TransmitToggle("rnnoise", "test");                      // off, mid-over
+        Assert.True(f.Transmit.NeuralSlot.Enabled);                     // still running to the unkey
+        string summary = f.Noise.TransmitActiveSummary();
+        Assert.NotEqual(Lexicon.Get("audio.noise_surface.tx.active.none"), summary);
+        Assert.Contains("RNNoise", summary);
+        Assert.EndsWith(Lexicon.Get("audio.noise_surface.tx.active.held"), summary);
+        f.Transmit.KeySource = () => false;
+        var u = new float[960];
+        f.Transmit.Process(u, u.Length, 48000, false);
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.active.none"), f.Noise.TransmitActiveSummary());
+    }
+
+    [Fact]
+    public void Bench_8_the_slice_menu_holds_the_noise_answer_and_joins_it_to_the_slice_sentence()
+    {
+        string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
+        int row = menu.IndexOf("Selection with active slice checkmark", StringComparison.Ordinal);
+        Assert.True(row > 0);
+        string body = menu.Substring(row, 2500);
+        Assert.Contains("var noiseAnswer = _window.Noise.HoldModeAnswer();", body);
+        Assert.Contains("MenuModeSentence.SayWhenTheMenuHasClosed(", body);
+        Assert.True(body.IndexOf("HoldModeAnswer", StringComparison.Ordinal) < body.IndexOf("rig.RXVFO = sliceNum", StringComparison.Ordinal),
+            "the hold must be taken before the slice changes, or the poll can answer first");
+    }
+
+    [Fact]
+    public void Bench_9_a_refused_engine_is_never_the_cursor_and_the_brackets_skip_it()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        var keys = LayerKeys(f);
+        EnterTransmit(f, keys);
+        keys.Handle(Keys.G | Keys.Control);
+        Assert.Equal(Lexicon.Get("audio.noise_surface.not_in_version", ("engine", Tx("NVIDIA NR"))), f.Spoken.Last);
+        keys.Handle(Keys.Up);                                           // the arrows have no engine: it was never the cursor
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.no_engine_yet", VerbosityLevel.Chatty), f.Spoken.Last);
+        f.Noise.Toggle("nvidia_afx", "test");                           // receive's twin
+        Assert.NotEqual("nvidia_afx", f.Noise.Current);
+        Assert.DoesNotContain(f.Noise.TransmitStepList(), x => x.EngineId == "nvidia_afx");
+        f.Noise.SetFavourite("nvidia_afx", true, "test");
+        Assert.DoesNotContain(f.Noise.TransmitStepList(), x => x.EngineId == "nvidia_afx");
+    }
+
+    [Fact]
+    public void Bench_9_setups_with_no_radio_refuse_before_the_name_and_the_questions_close_on_Escape()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        Assert.True(f.Noise.TransmitSetupsReadyOrSay());
+        f.RadioPresent = false;
+        f.Spoken.Clear();
+        Assert.False(f.Noise.TransmitSetupsReadyOrSay());
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.setups_need_radio"), f.Spoken.Last);
+        string dialogs = Source("JJFlexWpf", "Dialogs", "TransmitSetupDialogs.cs");
+        Assert.Contains("if (!controller.TransmitSetupsReadyOrSay()) return;", dialogs);
+        Assert.DoesNotContain("MessageBox", dialogs);
+        Assert.Contains("new ConfirmActionDialog(", dialogs);
+        Assert.Contains("if (n.TransmitSetupsReadyOrSay()) _window.ShowTransmitSetupSave();", Source("JJFlexWpf", "NativeMenuBar.TransmitNoise.cs"));
+    }
+
+    [Fact]
+    public void Bench_9_a_preset_writes_a_radio_level_only_when_it_differs()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Radio.Levels["radio_wnb"] = 90;
+        f.Noise.SavePreset("Same", true, false, PresetCollision.Replace, "test");
+        f.Radio.Writes.Clear();
+        f.Noise.ApplyPreset("Same", "test");
+        Assert.DoesNotContain(f.Radio.Writes, w => w.StartsWith("radio_wnb.level", StringComparison.Ordinal));
+        f.Radio.Levels["radio_wnb"] = 40;                               // positive control: a difference is written
+        f.Noise.ApplyPreset("Same", "test");
+        Assert.Contains("radio_wnb.level=90", f.Radio.Writes);
+    }
+
     private static string Describe(TxNoiseChain chain)
     {
         var (s, n) = chain.CaptureSlots();

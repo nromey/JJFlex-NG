@@ -164,8 +164,14 @@ namespace JJFlexWpf
         /// by its chosen model (#1019: v0.1.1 about 10 ms, the 0.2 models about 20).
         /// Null for any other engine.
         /// </summary>
-        public static int? ExpectedEngineDelayMs(string engineId, string? model) =>
-            engineId == "rnnoise" ? (int)Math.Round(RnnoiseModels.LatencySamples(model ?? RnnoiseModels.Default) / 48.0) : null;
+        public static int? ExpectedEngineDelayMs(string engineId, string? model) => engineId switch
+        {
+            "rnnoise" => (int)Math.Round(RnnoiseModels.LatencySamples(model ?? RnnoiseModels.Default) / 48.0),
+            // Fixed by the model (Sprint 49 Track H2 bench round, item 4: it said no
+            // delay on transmit, and the bench measured exactly this, 1,440 samples).
+            "deepfilternet3" => (int)Math.Round(DeepFilterNet3Engine.LatencyAtFrame(480) / 48.0),
+            _ => null,
+        };
 
         /// <summary>The NR2 descriptors the helper offers, mirrored for the same reason as <see cref="NnrMirror"/>. All five are Advanced (ruled, question 15); NR2's normal lever is Strength.</summary>
         public static readonly IReadOnlyList<EngineSettingDescriptor> Nr2Mirror = new[]

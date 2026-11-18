@@ -769,4 +769,58 @@ public sealed class TxNoiseChainTests
         public bool Equals((float, float) a, (float, float) b) => Math.Abs(a.Item1 - b.Item1) < 1e-6 && Math.Abs(a.Item2 - b.Item2) < 1e-6;
         public int GetHashCode((float, float) obj) => 0;
     }
+
+    // ── Sprint 49 Track H2 bench round, item 5: a file over still ends the over ──
+
+    [Fact]
+    public void A_file_over_ends_by_the_key_state_when_no_unkeyed_buffer_arrives()
+    {
+        // A reference recording stops the microphone capture, so after its over
+        // no unkeyed buffer arrives: the over never ended and the next merged in.
+        var rig = new Rig();
+        rig.Chain.SetEnabled(DenoiseFamily.Neural, true);
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        rig.Chain.OverReport += reports.Enqueue;
+        rig.Run();
+        Volatile.Write(ref rig.Keyed, true);
+        for (int i = 0; i < 5; i++) rig.Run();                     // over one, from the file
+        Assert.False(rig.Chain.EndOverByKeyState(0));               // still keyed: nothing
+        Volatile.Write(ref rig.Keyed, false);                      // the unkey; no buffer follows
+        Assert.False(rig.Chain.EndOverByKeyState(60_000));          // audio "still flowing": the buffer's job
+        rig.Chain.SetEnabled(DenoiseFamily.Neural, false);          // asked for between the overs
+        Assert.True(rig.Chain.EndOverByKeyState(0));
+        Until(() => reports.Count == 1);
+        Assert.Contains("5 buffers", reports.Single());
+        Assert.False(rig.Chain.NeuralSlot.Enabled);                 // the unkey's work was done by the key state
+        Assert.False(rig.Chain.EndOverByKeyState(0));               // no over open: nothing more
+        Volatile.Write(ref rig.Keyed, true);
+        for (int i = 0; i < 3; i++) rig.Run();                     // over two starts its own line
+        Volatile.Write(ref rig.Keyed, false);
+        Assert.True(rig.Chain.EndOverByKeyState(0));
+        Until(() => reports.Count == 2);
+        Assert.Contains("3 buffers", reports.ToArray()[1]);
+        // The app's policy tick (twice a second) is what asks.
+        Assert.Contains("_chain?.EndOverByKeyState();", System.IO.File.ReadAllText(System.IO.Path.Combine(
+            JJFlexWpf.Tests.Infrastructure.RepoPaths.RequireRoot(), "JJFlexWpf", "TxAudioConditioning.cs")));
+    }
+
+    [Fact]
+    public void After_an_over_the_key_state_ended_the_next_buffer_is_the_unkeys_boundary()
+    {
+        // An engine chosen while keyed is installed at that boundary, before the
+        // new over's audio, and never mid-over.
+        var rig = new Rig();
+        rig.Chain.SetEnabled(DenoiseFamily.Neural, true);
+        Until(() => rig.Chain.NeuralSlot.RunningIsCurrent("rnnoise") && rig.Chain.NeuralSlot.Enabled, () => rig.Run());
+        Volatile.Write(ref rig.Keyed, true);
+        Assert.All(rig.Run(), v => Assert.Equal(2f, v));            // RNNoise, gain 2
+        rig.Chain.ChooseEngine(DenoiseFamily.Neural, "nnr");        // gain 3, chosen mid-over
+        for (int i = 0; i < 30; i++) { Assert.All(rig.Run(), v => Assert.Equal(2f, v)); Thread.Sleep(10); }   // built meanwhile, never installed mid-over
+        Volatile.Write(ref rig.Keyed, false);
+        Assert.True(rig.Chain.EndOverByKeyState(0));
+        Volatile.Write(ref rig.Keyed, true);                        // the next file over
+        rig.Run();                                                  // the boundary buffer
+        Assert.True(rig.Chain.NeuralSlot.RunningIsCurrent("nnr"), "the engine chosen during the last over was not installed at its unkey's boundary");
+        Assert.All(rig.Run(), v => Assert.Equal(3f, v));
+    }
 }

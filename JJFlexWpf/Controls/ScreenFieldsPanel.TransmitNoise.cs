@@ -229,6 +229,7 @@ public partial class ScreenFieldsPanel
             BuildTransmitGateFields();
         };
         TxContent.Children.Add(_txGateDefaults);
+        StartTransmitNoiseNoRadioPoll();
     }
 
     /// <summary>Fill the Engine field for the current transmit side and show the engine's controls.</summary>
@@ -322,7 +323,9 @@ public partial class ScreenFieldsPanel
             if (noise.GateLever(TxGateLever.Margin) is { } margin) SetupGateField(_txGateMargin, noise, margin);
 
             _txGateAdvancedFields.Children.Clear();
-            bool advanced = FindMainWindow()?.CurrentAudioConfig?.NoiseAdvancedEngines.Contains(TxGateAdvancedKey) == true;
+            // Radio or no radio (bench round, item 1): the controller holds the
+            // open sections itself while no radio's config is loaded.
+            bool advanced = noise.AdvancedShown(TxGateAdvancedKey);
             _txGateAdvanced.IsChecked = advanced;
             _txGateBuiltAuto = noise.TransmitGate.AutoThreshold;
             _txSetupNames = noise.TransmitSetupNames();
@@ -425,10 +428,10 @@ public partial class ScreenFieldsPanel
 
     private void TransmitGateAdvancedChanged(bool on)
     {
-        if (_polling || _txNoiseRebuilding || FindMainWindow() is not { } mw || mw.CurrentAudioConfig is not { } cfg) return;
-        cfg.NoiseAdvancedEngines.Remove(TxGateAdvancedKey);
-        if (on) cfg.NoiseAdvancedEngines.Add(TxGateAdvancedKey);
-        mw.PersistDspSettings();
+        // No radio is not "nothing works" (bench round, item 1): this needed the
+        // radio's audio config, so with no radio the box ticked and revealed nothing.
+        if (_polling || _txNoiseRebuilding || NoiseCtl is not { } noise) return;
+        noise.ShowAdvanced(TxGateAdvancedKey, on);
         BuildTransmitGateFields();
     }
 
@@ -459,8 +462,47 @@ public partial class ScreenFieldsPanel
             _txListen.SuppressEvents = true;
             try { _txListen.SelectedIndex = noise.TransmitGate.MonitorMode; }
             finally { _txListen.SuppressEvents = false; }
+            // The Delay readout follows the running engine (bench round, item 4):
+            // it was set only when the engine was shown, so it went on saying
+            // "measured once it is running" after the engine had run.
+            string delay = noise.DelayText(_txNoiseFieldsFor, DenoiseDirection.Transmit);
+            if (_txNoiseDelay.Text != delay)
+            {
+                _txNoiseDelay.Text = delay;
+                AutomationProperties.SetName(_txNoiseDelay, delay);
+            }
         }
         finally { _polling = wasPolling; }
+    }
+
+    /// <summary>
+    /// The transmit fields' poll while no radio is connected (bench round, item
+    /// 1): the panel's own poll reads the radio and stops without one, so a
+    /// choice made on the Transmit menu or in the noise layer left Home saying
+    /// another engine was on. The transmit noise settings are this computer's,
+    /// so they are followed radio or no radio. Runs only while the Transmission
+    /// section is open with no radio; the radio's poll does it otherwise.
+    /// </summary>
+    private System.Windows.Threading.DispatcherTimer? _txNoRadioPoll;
+
+    private void StartTransmitNoiseNoRadioPoll()
+    {
+        _txNoRadioPoll = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(250),
+        };
+        _txNoRadioPoll.Tick += (s, e) => PollTransmitNoiseWithoutRadio();
+        TxExpander.Expanded += (s, e) => _txNoRadioPoll.Start();
+        TxExpander.Collapsed += (s, e) => _txNoRadioPoll.Stop();
+        if (TxExpander.IsExpanded) _txNoRadioPoll.Start();
+    }
+
+    private void PollTransmitNoiseWithoutRadio()
+    {
+        if (_rig != null || !IsVisible || !TxExpander.IsExpanded || _polling) return;
+        _polling = true;
+        try { PollTransmitNoise(); }
+        finally { _polling = false; }
     }
 
     /// <summary>The automatic threshold the gate fields were last built for; a change from elsewhere rebuilds them.</summary>
@@ -511,11 +553,7 @@ public partial class ScreenFieldsPanel
         UIElement target;
         if (gate)
         {
-            if (advanced && FindMainWindow()?.CurrentAudioConfig is { } cfg && !cfg.NoiseAdvancedEngines.Contains(TxGateAdvancedKey))
-            {
-                cfg.NoiseAdvancedEngines.Add(TxGateAdvancedKey);
-                FindMainWindow()?.PersistDspSettings();
-            }
+            if (advanced && !noise.AdvancedShown(TxGateAdvancedKey)) noise.ShowAdvanced(TxGateAdvancedKey, true);
             ShowTransmitNoiseSide(selectEngine: null);
             target = advanced && _txGateAdvancedFields.Children.Count > 0 ? _txGateAdvancedFields.Children[0] : _txGateOn;
         }

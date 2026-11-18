@@ -411,6 +411,52 @@ namespace JJFlexWpf
         /// this subject, and owned like the other queued notices
         /// (<see cref="_noticesOwed"/>). Read from the outermost scope only.
         /// </param>
+        /// <summary>
+        /// Says a sentence once a window that is closing has gone and the reader
+        /// has announced where focus landed (Sprint 49 Track H2 bench round,
+        /// item 2). Set by the main window to <see cref="WindowSettledSpeech.After"/>;
+        /// null (a test) says it at once.
+        /// </summary>
+        public Action<Action>? AfterWindowSettles { get; set; }
+
+        /// <summary>
+        /// For a dialog whose action closes it, or returns to it from another
+        /// window: everything the controller says until the hold is disposed is
+        /// gathered as one utterance, as <see cref="OneUtterance"/> does; call
+        /// <see cref="AnswerHold.AfterTheWindowCloses"/> when a window is about to
+        /// change, and the utterance is said only once it has settled, queued,
+        /// because a screen reader flushes its speech on a window change
+        /// (project memory: speech flushes on window change). Left alone, the
+        /// hold says it at once, as before.
+        /// </summary>
+        public AnswerHold HoldAnswer()
+        {
+            if (_utteranceDepth++ == 0) { _utterance = new(); _utteranceAfterUnder = null; _utteranceRefused = null; }
+            return new AnswerHold(this);
+        }
+
+        /// <summary>The scope <see cref="HoldAnswer"/> returns.</summary>
+        public sealed class AnswerHold : IDisposable
+        {
+            private readonly NoiseController _owner;
+            private bool _afterWindow, _done;
+            internal AnswerHold(NoiseController owner) => _owner = owner;
+
+            /// <summary>The window is about to change: say the gathered answer once it has settled.</summary>
+            public void AfterTheWindowCloses() => _afterWindow = true;
+
+            public void Dispose()
+            {
+                if (_done) return;
+                _done = true;
+                if (_afterWindow && _owner._utteranceDepth == 1) _owner._utteranceAfterWindow = true;
+                _owner.EndUtterance();
+            }
+        }
+
+        /// <summary>Set for the outermost scope's end only: deliver its utterance after the window settles.</summary>
+        private bool _utteranceAfterWindow;
+
         private UtteranceScope OneUtterance(string? afterWhatIsSaidUnder = null)
         {
             if (_utteranceDepth++ == 0) { _utterance = new(); _utteranceAfterUnder = afterWhatIsSaidUnder; _utteranceRefused = null; }
@@ -441,6 +487,8 @@ namespace JJFlexWpf
             _utterance = null;
             string? afterUnder = _utteranceAfterUnder;
             _utteranceAfterUnder = null;
+            bool afterWindow = _utteranceAfterWindow;
+            _utteranceAfterWindow = false;
             var journal = _journalAfterAction;
             _journalAfterAction = null;
             if (journal != null) foreach (var record in journal) record();
@@ -460,6 +508,14 @@ namespace JJFlexWpf
             // A mode change's sentence follows the mode word, never cuts it (#1117),
             // and waits for a surface that says the mode change later (the menu).
             if (afterUnder != null) DeliverModeNotice(new ModeNotice(text, afterUnder, level, refused, SlotFacts()));
+            // A dialog's answer as its window closes (bench round, item 2): said
+            // once the window has gone and focus has landed, queued behind the
+            // reader's own announcement of where it landed.
+            else if (afterWindow && AfterWindowSettles is { } later)
+            {
+                var subject = said[0].Subject;
+                later(() => Deliver(text, subject, level, queued: true));
+            }
             // Queued only when every part was: an answer to a press still interrupts.
             else if (said.All(p => p.Queued)) Deliver(text, said[0].Subject, level, queued: true);
             else Deliver(text, said[0].Subject, level, queued: false);
@@ -825,7 +881,10 @@ namespace JJFlexWpf
             using var oneUtterance = OneUtterance();
             var e = _catalog.Find(id);
             if (e == null) return;
-            Current = id; CurrentLeverIndex = 0;
+            // An engine this version cannot run is refused and never becomes the
+            // arrows' engine (Sprint 49 Track H2 bench round, item 9; the transmit
+            // twin was seen at the bench, and receive had the same line).
+            if (e.Side == DenoiseSide.Radio || e.Factory != null) { Current = id; CurrentLeverIndex = 0; }
             if (e.Side == DenoiseSide.Radio) { ToggleRadio(e, source); return; }
             bool on = IsOn(id);
             if (on) TurnComputerOff(e, source, speak: true);

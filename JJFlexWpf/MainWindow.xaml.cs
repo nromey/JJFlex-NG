@@ -948,6 +948,9 @@ public partial class MainWindow : UserControl
             new TimerNoiseScheduler(a => Dispatcher.BeginInvoke(a)));
         noise.PresetStore = new FilePresetStore(() => OpenParms == null ? null : (OpenParms.ConfigDirectory, OpenParms.GetOperatorName()));
         noise.TransmitChain = new RigTransmitChain(() => RigControl);
+        // A dialog's answer as it closes is said once focus has landed (Sprint 49
+        // Track H2 bench round, item 2).
+        noise.AfterWindowSettles = say => WindowSettledSpeech.After(Dispatcher, say);
         // A renamed transmit noise setup: every microphone that named it follows
         // (Track H's contract, Sprint 49 Track H2's Manage setups).
         noise.RepointMicrophones = (radioId, from, to) =>

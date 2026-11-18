@@ -187,7 +187,10 @@ namespace JJFlexWpf
                     {
                         if (_catalog.Find(re.EngineId) is not { Side: DenoiseSide.Radio } e) continue;
                         if (RadioRefusal(e, r, out _) != null) continue;
-                        if (re.Level is int level && e.Level != null)
+                        // Only a level that differs is written (bench round, item 9): a
+                        // same-value write changed nothing yet journalled a change and
+                        // set off the radio's "will not survive disconnect" receipt.
+                        if (re.Level is int level && e.Level != null && ReadRadioLevel(e) != level)
                         {
                             var lever = Levers(e.Id, false).First();
                             Write(lever, e, new EngineSettingValue(level), source);

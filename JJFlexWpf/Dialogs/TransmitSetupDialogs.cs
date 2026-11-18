@@ -61,16 +61,26 @@ internal sealed class TransmitSetupSaveDialog : JJFlexDialog
         bool replace = false;
         if (_controller.TransmitSetupNames().Any(n => TxNoiseSetupStore.NameEquals(n, name)))
         {
-            var sure = MessageBox.Show(this, Lexicon.Get("audio.noise_setups.replace_confirm", ("setup", name)),
-                Lexicon.Get("audio.noise_setups.save"), MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-            if (sure != MessageBoxResult.Yes) return;
+            if (!TransmitSetupConfirm.Ask(this, Lexicon.Get("audio.noise_setups.save"), Lexicon.Get("audio.noise_setups.replace_confirm", ("setup", name)))) return;
             replace = true;
         }
-        if (_controller.SaveTransmitSetup(name, replace, "save setup dialog").Succeeded) CloseWithResult(true);
+        // "Saved for this radio" is said once this dialog has closed and focus
+        // has landed (bench round, item 2): said at the close, the reader's own
+        // flush on the window change swallowed it every time. A refusal keeps the
+        // dialog open, so it is said at once.
+        using var answer = _controller.HoldAnswer();
+        if (_controller.SaveTransmitSetup(name, replace, "save setup dialog").Succeeded)
+        {
+            answer.AfterTheWindowCloses();
+            CloseWithResult(true);
+        }
     }
 
     internal static void Show(Window? owner, NoiseController controller)
     {
+        // With no radio there is nowhere to keep a setup: say so before the name
+        // is asked for, not after it is typed (bench round, item 9).
+        if (!controller.TransmitSetupsReadyOrSay()) return;
         var dialog = new TransmitSetupSaveDialog(controller) { Owner = owner };
         dialog.ShowModalDialog();
     }
@@ -140,17 +150,26 @@ internal sealed class TransmitSetupManagerDialog : JJFlexDialog
         string? name = EvidenceRenameDialog.Ask(this, Lexicon.Get("audio.noise_setups.noun"), old, old,
             Lexicon.Get("audio.noise_help.setups.rename"));
         if (string.IsNullOrWhiteSpace(name) || name == old) return;
-        _controller.RenameTransmitSetup(old, name);
+        // The rename prompt has just closed and focus is coming back here: the
+        // answer waits for that (bench round, item 2).
+        using (var answer = _controller.HoldAnswer())
+        {
+            answer.AfterTheWindowCloses();
+            _controller.RenameTransmitSetup(old, name);
+        }
         Fill();
     }
 
     private void Delete()
     {
         if (Selected is not string name || _controller == null) return;
-        var sure = MessageBox.Show(this, Lexicon.Get("audio.noise_setups.delete_confirm", ("setup", name)),
-            Lexicon.Get("audio.noise_setups.delete"), MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-        if (sure != MessageBoxResult.Yes) return;
-        _controller.DeleteTransmitSetup(name);
+        if (!TransmitSetupConfirm.Ask(this, Lexicon.Get("audio.noise_setups.delete"), Lexicon.Get("audio.noise_setups.delete_confirm", ("setup", name)))) return;
+        // The confirmation has just closed: the answer waits for focus to land back here.
+        using (var answer = _controller.HoldAnswer())
+        {
+            answer.AfterTheWindowCloses();
+            _controller.DeleteTransmitSetup(name);
+        }
         Fill();
     }
 
@@ -166,12 +185,19 @@ internal sealed class TransmitSetupManagerDialog : JJFlexDialog
         }
         var target = TransmitSetupCopyDialog.Ask(this, name, radios);
         if (target is not { } radio) return;
-        var result = _controller.CopyTransmitSetupToRadio(name, radio.RadioId, radio.Name, replace: false);
-        if (result.Outcome == TxNoiseSetupOutcome.NameTaken)
+        TxNoiseSetupResult result;
+        // The radio picker has just closed: the answer waits for focus to land back here.
+        using (var answer = _controller.HoldAnswer())
         {
-            var sure = MessageBox.Show(this, Lexicon.Get("audio.noise_setups.copy_replace_confirm", ("setup", name), ("radio", radio.Name)),
-                Lexicon.Get("audio.noise_setups.copy"), MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-            if (sure == MessageBoxResult.Yes) _controller.CopyTransmitSetupToRadio(name, radio.RadioId, radio.Name, replace: true);
+            result = _controller.CopyTransmitSetupToRadio(name, radio.RadioId, radio.Name, replace: false);
+            if (result.Outcome != TxNoiseSetupOutcome.NameTaken) answer.AfterTheWindowCloses();
+        }
+        if (result.Outcome == TxNoiseSetupOutcome.NameTaken
+            && TransmitSetupConfirm.Ask(this, Lexicon.Get("audio.noise_setups.copy"), Lexicon.Get("audio.noise_setups.copy_replace_confirm", ("setup", name), ("radio", radio.Name))))
+        {
+            using var answer = _controller.HoldAnswer();
+            answer.AfterTheWindowCloses();
+            _controller.CopyTransmitSetupToRadio(name, radio.RadioId, radio.Name, replace: true);
         }
     }
 
@@ -179,5 +205,21 @@ internal sealed class TransmitSetupManagerDialog : JJFlexDialog
     {
         var dialog = new TransmitSetupManagerDialog(controller) { Owner = owner };
         dialog.ShowModalDialog();
+    }
+}
+
+/// <summary>
+/// The setups' yes-or-no questions (Sprint 49 Track H2 bench round, item 9):
+/// the project's own confirmation dialog, which Escape closes as No. They
+/// were Windows message boxes, and a Yes/No message box has no Cancel, so
+/// Escape did nothing on them.
+/// </summary>
+internal static class TransmitSetupConfirm
+{
+    internal static bool Ask(Window owner, string title, string body)
+    {
+        var confirm = new ConfirmActionDialog(title, body,
+            question: Lexicon.Get("audio.noise_setups.confirm_question")) { Owner = owner };
+        return confirm.ShowDialog() == true;
     }
 }
