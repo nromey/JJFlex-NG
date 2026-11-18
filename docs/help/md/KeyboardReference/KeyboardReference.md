@@ -80,7 +80,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 - **V** — The same audio layer, by the letter your fingers may know from volume mode — a second door to one room, kept as a courtesy
 - **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Escape reverts changes, Enter accepts. Speaks the number every time, on a 0-to-100 scale. The one Alt chord that opens a layer rather than doing something; pan's home is `A` then `P`
 - **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, Home and End send it straight to its limit, `T` and `R` switch between the transmit and receive filters, and `S` speaks it (see "The filter layer" below)
-- **N** — Opens the noise layer for engine switches and settings. It starts on receive; `T` switches between receive and transmit. The arrows adjust the last engine selected, `Space` reports the active settings, `Enter` keeps changes, and `Escape` restores the layer's engine settings and closes it. See “The noise layer” for the keys and cancellation limits.
+- **N** — Opens the noise layer for engine switches and settings. It starts on receive; `T` switches between receive and transmit. The arrows adjust the last engine selected, `Space` reports the active settings, `Enter` keeps changes, and `Escape` restores the layer's engine settings, favourites and transmit gate and closes it. See “The noise layer” for the keys and cancellation limits.
 
 Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it lands, pressing `M` tells you the memories moved to `Alt+M`.
 
@@ -272,7 +272,7 @@ The other keys work in the current direction:
 - **Shift+Alt+[ / Shift+Alt+]** applies the previous or next noise preset. A preset applies every section it contains, even if it includes both receive and transmit settings.
 - **Shift+A through Shift+H** selects that slice without leaving the layer. A radio change already made on the slice being left is kept. Computer receive settings follow the new active slice's mode group; transmit has no per-mode memory.
 - **Enter** keeps the changes and closes the layer.
-- **Escape** restores the snapshotted engine settings and favourites and closes the layer. Transmit engine restoration made while keyed takes effect when unkeyed. Gate changes made by a preset, and saved preset or setup records, are not undone by this snapshot.
+- **Escape** restores the layer's engine settings, favourites and transmit gate and closes the layer. The transmit engine and gate settings return when the radio is unkeyed if Escape is pressed during a transmission. Saved presets and transmit noise setups are kept.
 - **H** opens the noise layer's key list. **Shift+/** opens the JJ key explorer at this layer.
 
 Transmit engine switches, changes that rebuild a transmit engine, named transmit noise setups and a preset's transmit noise section take effect when unkeyed if requested while transmitting. The reply will say when a change is waiting. Noise floor and other continuous adjustments can change live unless an earlier change is already waiting. Read the particular control's help with `Ctrl+F1` for its purpose and range.
