@@ -69,6 +69,12 @@ namespace Radios.Tests
 
         // ── Hand-built copies ───────────────────────────────────────────
 
+        /// <summary>
+        /// The lexicon call's opening text, split in two, so the source quoted in this file's
+        /// planted controls is not read as a lexicon call by LexiconKeyCoverageTests.
+        /// </summary>
+        private const string Get = "Lexicon" + ".Get(";
+
         /// <summary>Lines outside the hold's own builder that build its sentence.</summary>
         internal static List<string> HandBuiltCopies(string file, string text)
         {
@@ -147,9 +153,9 @@ namespace Radios.Tests
         [Fact]
         public void A_planted_hand_built_copy_is_caught()
         {
-            const string planted = "x.Text = Lexicon.Get(\"settings.guard.refused\",\n    (\"action\", Lexicon.Get(\"settings.guard.action.ports\")));";
+            string planted = "x.Text = " + Get + "\"settings.guard.refused\",\n    (\"action\", " + Get + "\"settings.guard.action.ports\")));";
             Assert.Single(HandBuiltCopies("Planted.cs", planted));
-            const string builder = "        public static string HoldRefusalSentence(string actionKey) =>\n            Lexicon.Get(\"settings.guard.refused\", (\"action\", Lexicon.Get(actionKey)));";
+            string builder = "        public static string HoldRefusalSentence(string actionKey) =>\n            " + Get + "\"settings.guard.refused\", (\"action\", " + Get + "actionKey)));";
             Assert.Empty(HandBuiltCopies("Radios" + Path.DirectorySeparatorChar + "FlexBase.cs", builder));
         }
 
@@ -167,7 +173,7 @@ namespace Radios.Tests
 
         internal static string? NotSavedCall(string menu)
         {
-            int at = menu.IndexOf("Radios.Lexicon.Get(\"settings.profile_guest.not_saved\")", StringComparison.Ordinal);
+            int at = menu.IndexOf("Radios." + Get + "\"settings.profile_guest.not_saved\")", StringComparison.Ordinal);
             if (at < 0) return null;
             int start = menu.LastIndexOf("SpeakAfterMenuClose(", at, StringComparison.Ordinal);
             int end = menu.IndexOf(";", at, StringComparison.Ordinal);
@@ -187,7 +193,7 @@ namespace Radios.Tests
         [Fact]
         public void The_not_saved_check_catches_a_call_at_the_default_level()
         {
-            const string planted = "SpeakAfterMenuClose(Radios.Lexicon.Get(\"settings.profile_guest.not_saved\"),\n    subject: Radios.Speech.SpeechSubject.ProfileGuestOutcome);";
+            string planted = "SpeakAfterMenuClose(Radios." + Get + "\"settings.profile_guest.not_saved\"),\n    subject: Radios.Speech.SpeechSubject.ProfileGuestOutcome);";
             Assert.DoesNotContain("VerbosityLevel.Critical", NotSavedCall(planted)!, StringComparison.Ordinal);
         }
 
