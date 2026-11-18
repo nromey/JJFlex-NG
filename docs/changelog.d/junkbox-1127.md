@@ -1,0 +1,1 @@
+- When the tuner is not set to automatic, or your radio has no built-in tuner, Ctrl+T now requests a tune carrier and says so. Press Ctrl+T again to turn the carrier off.

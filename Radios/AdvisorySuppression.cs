@@ -429,10 +429,12 @@ namespace Radios
     /// names, resolved again whenever that changes, with or without a radio.
     /// Until an operator has been chosen (first run), the Windows-account file
     /// this store used before is the one in use.</para>
-    /// <para><b>Carried over once.</b> An operator's own file starts, the first
-    /// time it is opened, as a copy of the Windows-account set, so nobody
-    /// suddenly hears a message they silenced. The old file is left where it
-    /// is.</para>
+    /// <para><b>Carried over once, at the upgrade (#1106).</b> Each operator
+    /// listed at the first start after the upgrade starts from a copy of the
+    /// Windows-account set, so nobody suddenly hears a message they silenced;
+    /// an operator added later starts with nothing silenced (ruled by Noel
+    /// 2026-11-12, J1). See <see cref="CarryOverAtUpgrade(IEnumerable{string})"/>.
+    /// The old file is left where it is.</para>
     /// </remarks>
     public static class AdvisorySuppression
     {
@@ -453,15 +455,89 @@ namespace Radios
         internal static string OperatorFile(string root, string operatorName) =>
             Path.Combine(root, operatorName + OperatorFileSuffix);
 
+        /// <summary>Written once the Windows-account set has been carried to the operators listed at the upgrade (#1106).</summary>
+        internal const string CarriedOverMarkerFileName = "suppressed-advisories-carried-over.json";
+
+        /// <summary>The carry-over marker under a settings root.</summary>
+        internal static string CarriedOverMarkerFile(string root) => Path.Combine(root, CarriedOverMarkerFileName);
+
         /// <summary>
         /// The store for an operator under a settings root: the Windows-account
-        /// file when no operator is named, otherwise the operator's own file,
-        /// carried over once from the Windows-account set.
+        /// file when no operator is named, otherwise the operator's own file.
         /// </summary>
+        /// <remarks>
+        /// <b>Nothing is carried over here any more (#1106).</b> Until then an
+        /// operator's file, the first time it was opened, started from the
+        /// Windows-account set, so an operator created after the upgrade (or a
+        /// renamed one, whose unique name and so whose file is new) started
+        /// with messages someone else had silenced. Ruled by Noel 2026-11-12
+        /// (J1): only operators that existed at the upgrade get the carry-over,
+        /// and <see cref="CarryOverAtUpgrade(IEnumerable{string})"/> makes it,
+        /// once, at startup.
+        /// </remarks>
         internal static AdvisorySuppressionStore StoreFor(string root, string? operatorName) =>
             string.IsNullOrEmpty(operatorName)
                 ? new AdvisorySuppressionStore(AccountFile(root))
-                : new AdvisorySuppressionStore(OperatorFile(root, operatorName), carryOverFrom: AccountFile(root));
+                : new AdvisorySuppressionStore(OperatorFile(root, operatorName));
+
+        /// <summary>
+        /// At startup, before the operator in use is recorded: the first time a
+        /// build with this rule runs, every operator listed now starts from the
+        /// Windows-account set (an operator whose own file already exists keeps
+        /// it). Then a marker is written and this never copies again, so an
+        /// operator added or renamed later starts with nothing silenced.
+        /// </summary>
+        public static void CarryOverAtUpgrade(IEnumerable<string> operatorNames) =>
+            CarryOverAtUpgrade(RadioConfig.AppDataRoot, operatorNames);
+
+        /// <returns>True when the carry-over ran now; false when it had run at an earlier start.</returns>
+        internal static bool CarryOverAtUpgrade(string root, IEnumerable<string> operatorNames)
+        {
+            lock (_gate)
+            {
+                if (File.Exists(CarriedOverMarkerFile(root))) return false;
+                var names = (operatorNames ?? Enumerable.Empty<string>())
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                string account = AccountFile(root);
+                if (File.Exists(account))
+                {
+                    // The store's own once-only copy: made only where the
+                    // operator's file does not exist yet, and written at once.
+                    foreach (string name in names)
+                        _ = new AdvisorySuppressionStore(OperatorFile(root, name), carryOverFrom: account).Count;
+
+                    // The marker only once every listed operator's file is
+                    // there (batch 12 repair round 1): a copy that failed to
+                    // write would otherwise be made permanent. Without it the
+                    // next start runs this again, and the store copies only
+                    // where its file is still missing, so an operator whose
+                    // copy was written is never copied into twice. The store
+                    // replaces its file in one step, so one that exists is whole.
+                    var notWritten = names.Where(n => !File.Exists(OperatorFile(root, n))).ToList();
+                    if (notWritten.Count > 0)
+                    {
+                        Tracing.TraceLine("AdvisorySuppression: the Windows account's silenced messages could not be carried to "
+                            + string.Join(", ", notWritten) + "; the next start makes those copies again",
+                            System.Diagnostics.TraceLevel.Warning);
+                        _default = null;
+                        _defaultFor = null;
+                        return true;
+                    }
+                }
+                UpgradeMarker.Write(CarriedOverMarkerFile(root), names, "AdvisorySuppression");
+                Tracing.TraceLine("AdvisorySuppression: the Windows account's silenced messages "
+                    + (File.Exists(account) ? "carried to " : "(none) noted for ")
+                    + names.Count.ToString(CultureInfo.InvariantCulture)
+                    + " operator(s) listed at the upgrade; an operator added later starts with nothing silenced",
+                    System.Diagnostics.TraceLevel.Info);
+                // A store resolved before this ran is read again from disk.
+                _default = null;
+                _defaultFor = null;
+                return true;
+            }
+        }
 
         /// <summary>
         /// The current operator's store, in <c>%AppData%\JJFlexRadio</c> — or

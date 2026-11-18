@@ -77,6 +77,11 @@ namespace Radios.Speech
         /// tune's reading. Pressing Tune again is NOT what covers it — that
         /// press is the retry a lost answer provokes, and it must deliver the
         /// answer rather than destroy it (#503, the 2026-09-01 case).
+        /// <para>Narrowed by #1127 (batch 12 repair round 2): a press that
+        /// STARTS a new carrier retires an unheard reading, because said inside
+        /// the new carrier it reads as that carrier's answer; the new carrier
+        /// gives its own when it ends. A press that starts nothing retires
+        /// nothing. See <see cref="TuneCarrierAnswers"/>.</para>
         /// </summary>
         public const string SwrAfterTune = "swr-after-tune";
 
@@ -177,6 +182,24 @@ namespace Radios.Speech
         /// unheard earlier one.
         /// </summary>
         public const string TuneAlreadyTuning = "tune-already-tuning";
+
+        /// <summary>
+        /// What a tune press sent (#1127): the ATU's tune in automatic type, a
+        /// plain tune carrier otherwise. The answer to the key just pressed; a
+        /// later press replaces an unheard earlier one.
+        /// </summary>
+        public const string TunePressSent = "tune-press-sent";
+
+        /// <summary>
+        /// The radio keyed the tune carrier we asked for: "Tune on" (#1127,
+        /// batch 12 repair round 2). True only while THAT carrier is up, so its
+        /// owner, <see cref="TuneCarrierAnswers"/>, retires an unheard one the
+        /// moment the carrier ends, by any road, or a later one starts. Until
+        /// then it had no subject, and a held tune key's first repeat turned the
+        /// carrier off while "Tune on" waited: the arbiter rescued it behind
+        /// "Tune off" and it was the last thing said, with nothing on the air.
+        /// </summary>
+        public const string TuneKeyed = "tune-keyed";
 
         /// <summary>
         /// A press that would key was refused because the rig reads 0 watts.

@@ -1,0 +1,1 @@
+- The offer to save your setup to the radio when you disconnect is now a separate choice for each operator. I've kept the previous choice for existing operators; new or renamed operators start with the offer turned off.

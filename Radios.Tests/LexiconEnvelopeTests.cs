@@ -1358,6 +1358,12 @@ namespace Radios.Tests
                 // delivery null.
                 "audio.tune.atu_already_tuning",
 
+                // Junk box batch 12 (2026-11-12), wording by Codex. What a
+                // tune press out of automatic type asked for: a plain tune
+                // carrier, never "ATU tuning" (ruled by Noel 2026-11-12, J4).
+                // Said only in answer to the press. TextOnly, delivery null.
+                "audio.tune.tune_carrier_sent",
+
                 // Junkbox #571 and #800, 2026-10-22: the hold on keying for
                 // five seconds after a reflected-power cut, and the one note
                 // that VOX was switched off for it. Classified rather than

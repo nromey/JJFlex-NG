@@ -1,0 +1,1 @@
+- Every Settings category now has the same name on screen and through your screen reader, so the directions match whichever way you use the dialog.

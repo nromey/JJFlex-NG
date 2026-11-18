@@ -318,7 +318,6 @@ class Panel
             // tree, and worth doing all at once so the panel keeps one voice.
             "NAME-EXCEEDS-LABEL SettingsDialog.xaml · Audio Devices, choose which sound devices to use",
             "NAME-EXCEEDS-LABEL SettingsDialog.xaml · Copy the last network diagnostic report to the clipboard as…",
-            "NAME-EXCEEDS-LABEL SettingsDialog.xaml · Diagnostics, diagnostic log and problem reporting settings",
             "NAME-EXCEEDS-LABEL SettingsDialog.xaml · Go to the Network tab to set the port",
             "NAME-EXCEEDS-LABEL SettingsDialog.xaml · Look for firmware for this radio on the JJ Flexible servers…",
             "NAME-EXCEEDS-LABEL SettingsDialog.xaml · Open the help document relevant to the current network state",

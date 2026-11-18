@@ -1,0 +1,1 @@
+- A new or renamed operator now starts with nothing silenced. I've kept the silenced messages for operators already set up when you first run this version.

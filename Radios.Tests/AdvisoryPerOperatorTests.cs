@@ -148,17 +148,24 @@ namespace Radios.Tests
             Assert.StartsWith(Path.GetFullPath(root), Path.GetFullPath(AdvisorySuppression.Default.FilePath), StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// #1106 (J1): this test said the opposite until then, pinning #1073's
+        /// carry-over for every operator's first store, which gave an operator
+        /// created after the upgrade messages someone else had silenced. The
+        /// carry-over is now made once, at the upgrade, for the operators listed
+        /// then (AdvisoryCarryOverAtUpgradeTests); the facade copies nothing.
+        /// </summary>
         [Fact]
-        public void Each_operators_first_store_carries_over_the_windows_account_set()
+        public void An_operator_the_upgrade_did_not_list_starts_with_nothing_silenced()
         {
             string root = RadioConfig.AppDataRoot;
             AdvisorySuppression.Suppress(Two);   // no operator yet: the Windows-account set
             try
             {
                 OperatorChange.Establish(root, _a);
-                Assert.True(AdvisorySuppression.IsSuppressed(Two));
+                Assert.False(AdvisorySuppression.IsSuppressed(Two));
                 OperatorChange.Announce(root, _b);
-                Assert.True(AdvisorySuppression.IsSuppressed(Two));
+                Assert.False(AdvisorySuppression.IsSuppressed(Two));
             }
             finally
             {
