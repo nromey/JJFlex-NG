@@ -236,6 +236,14 @@ namespace JJFlexWpf
                     changes.Add(new("tx:" + engine, "", "off", "on"));
                     phrases.Add(L("audio.noise_surface.phrase_on", ("engine", TxName(engine))));
                 }
+                // An off slot whose chosen engine changes is a change too (repair
+                // round 2, item 4): it is the engine the slot starts on when turned on.
+                if (!switched && !on && wasEngine != engine)
+                {
+                    changes.Add(new("tx:" + family, "engine", wasEngine, engine));
+                    phrases.Add(L("audio.noise_surface.tx.phrase_engine_choice", ("engine", TxName(engine))));
+                    continue;
+                }
                 // The setup replaces every engine's stored values, so any engine
                 // whose values differ changes. Named once, by the slot's engine.
                 if (!switched && TxEngineValues(now) != TxEngineValues(target))

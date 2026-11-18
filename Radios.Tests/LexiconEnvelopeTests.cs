@@ -2519,6 +2519,8 @@ namespace Radios.Tests
                 "audio.noise_surface.tx.preset_part",
                 "audio.noise_surface.tx.phrase_settings",
                 "audio.noise_surface.tx.phrase_gate",
+                // Track H2 repair round 2.
+                "audio.noise_surface.tx.phrase_engine_choice",
                 "audio.noise_surface.preset_what.tx_noise",
                 "audio.noise_surface.preset_what.rx_tx_noise",
                 "audio.noise_surface.preset_what.tx_noise_chain",

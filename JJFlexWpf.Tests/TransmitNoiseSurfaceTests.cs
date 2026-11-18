@@ -23,6 +23,7 @@ namespace JJFlexWpf.Tests;
 /// fakes, a fake gate, and a setup store in a temporary folder. Every test
 /// asserts the desk is safe first (an MTA thread, no window).
 /// </remarks>
+[Collection("Transmit conditioning statics")]
 public sealed class TransmitNoiseSurfaceTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "jjflex-h2-" + Guid.NewGuid().ToString("N"));
@@ -36,10 +37,19 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
     }
 
     /// <summary>The gate and the cleanup monitor, in memory.</summary>
+    /// <summary>
+    /// The gate and the cleanup monitor, in memory, DEFERRING LIKE THE REAL ONE
+    /// (repair round 2, item 2): with a chain, its on and off go through the
+    /// chain's held changes as TxAudioConditioning.SetGateEnabled does, and its
+    /// levels and Auto through the chain's continuous-lever order. An immediate
+    /// fake hid the stale-value replies Codex found through the real bridge.
+    /// </summary>
     internal sealed class FakeGate : ITransmitGate
     {
+        /// <summary>The chain whose order the gate follows; null answers by <see cref="Keyed"/> alone.</summary>
+        public TxNoiseChain? Chain;
         public bool Keyed;
-        public bool Enabled { get; private set; }
+        public bool Enabled { get; set; }
         public bool AutoThreshold { get; set; } = true;
         public float MarginDb { get; set; } = 8;
         public float ThresholdDb { get; set; } = -60;
@@ -50,7 +60,31 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         public bool MonitorAvailable { get; set; }
         public int MonitorMode { get; set; }
         public float MonitorVolume { get; set; } = 1;
-        public TxChangeResult SetEnabled(bool on) { Enabled = on; return Keyed ? TxChangeResult.AtUnkey : TxChangeResult.Now; }
+        public TxChangeResult SetEnabled(bool on)
+        {
+            if (Chain != null) return Chain.RunOrDefer(() => Enabled = on);
+            Enabled = on;
+            return Keyed ? TxChangeResult.AtUnkey : TxChangeResult.Now;
+        }
+        private TxChangeResult Level(Action write)
+        {
+            if (Chain != null) return Chain.Continuous(write);
+            write();
+            return TxChangeResult.Now;
+        }
+        public TxChangeResult SetAutoThreshold(bool on) => Level(() => AutoThreshold = on);
+        public TxChangeResult SetLevel(string key, float value) => Level(() =>
+        {
+            switch (key)
+            {
+                case TxGateLever.Margin: MarginDb = value; break;
+                case TxGateLever.Threshold: ThresholdDb = value; break;
+                case TxGateLever.Attack: AttackMs = value; break;
+                case TxGateLever.Hold: HoldMs = value; break;
+                case TxGateLever.Release: ReleaseMs = value; break;
+                case TxGateLever.Depth: RangeDb = value; break;
+            }
+        });
         public TxNoiseGateSetup Capture() => new()
         {
             Enabled = Enabled, AutoThreshold = AutoThreshold, ThresholdMarginDb = MarginDb, ThresholdDb = ThresholdDb,
@@ -73,7 +107,7 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
     private (NoiseFixture F, FakeGate Gate) Make()
     {
         var f = new NoiseFixture();
-        var gate = new FakeGate();
+        var gate = new FakeGate { Chain = f.Transmit };
         f.Noise.TransmitGate = gate;
         f.Radio.Serial = Radio8600;
         var store = new TxNoiseSetupStore(_root);
@@ -464,12 +498,14 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
     {
         var (f, gate) = Make();
         using var _f = f;
-        gate.Keyed = true;
+        f.Transmit.KeySource = () => true;
         f.Noise.SetGateOn(true, "test");
-        Assert.True(gate.Enabled);
+        Assert.False(gate.Enabled);                           // held, as the real gate is
         Assert.EndsWith(AtUnkey, f.Spoken.Last);
         Assert.Equal(SpeechSubject.TransmitNoiseGate, f.Spoken.Said[^1].Subject);
-        gate.Keyed = false;
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.True(gate.Enabled);
 
         var margin = f.Noise.GateLever(TxGateLever.Margin)!;
         f.Noise.SetGate(margin, 15, "test");
@@ -970,5 +1006,305 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         Assert.DoesNotContain(AtUnkey, f.Spoken.Last);
         Assert.False(f.Transmit.HasDeferredChanges);
         Assert.Equal(asked + NoiseFloor.Step * NoiseController.FloorSign(+1), f.Noise.NumberOf(floor));
+    }
+
+    // ── Repair round 2 (Codex's re-check of 4797e9b2) ──
+
+    [Fact]
+    public void A_newer_gate_auto_choice_follows_a_held_setup_through_the_real_bridge()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        bool oldAuto = TxAudioConditioning.AutoThreshold;
+        TxAudioConditioning.UseChainForTest(f.Transmit);
+        try
+        {
+            f.Noise.TransmitGate = new AppTransmitGate();
+            f.Noise.SetGateAutoThreshold(true, "home");
+            f.Noise.SavePreset("Automatic", false, false, true, PresetCollision.Replace, "test");
+            f.Transmit.KeySource = () => true;
+            f.Noise.ApplyPreset("Automatic", "test", DenoiseDirection.Transmit);
+            Assert.True(f.Transmit.HasDeferredChanges);
+            f.Spoken.Clear();
+            f.Noise.SetGateAutoThreshold(false, "home");
+            Assert.EndsWith(AtUnkey, f.Spoken.Last);           // it waits behind the setup, and says so
+            f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
+            Assert.False(TxAudioConditioning.AutoThreshold);  // the newer choice wins
+        }
+        finally
+        {
+            f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
+            TxAudioConditioning.AutoThreshold = oldAuto;
+            TxAudioConditioning.UseChainForTest(null!);
+        }
+    }
+
+    [Fact]
+    public void A_gate_margin_held_after_a_setup_says_its_asked_value_and_timing_through_the_real_bridge()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        float oldMargin = TxAudioConditioning.ThresholdMarginDb;
+        TxAudioConditioning.UseChainForTest(f.Transmit);
+        try
+        {
+            f.Noise.TransmitGate = new AppTransmitGate();
+            TxAudioConditioning.ThresholdMarginDb = 8;
+            f.Noise.SavePreset("Gate", false, false, true, PresetCollision.Replace, "test");
+            f.Transmit.KeySource = () => true;
+            f.Noise.ApplyPreset("Gate", "test", DenoiseDirection.Transmit);
+            f.Spoken.Clear();
+            f.Noise.SetGate(f.Noise.GateLever(TxGateLever.Margin)!, 15, "home");
+            string answer = f.Spoken.Last;
+            Assert.Equal(8, TxAudioConditioning.ThresholdMarginDb);
+            f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
+            Assert.Equal(15, TxAudioConditioning.ThresholdMarginDb);
+            Assert.True(answer.Contains(AtUnkey) && answer.Contains("15"), answer);
+        }
+        finally
+        {
+            f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
+            TxAudioConditioning.ThresholdMarginDb = oldMargin;
+            TxAudioConditioning.UseChainForTest(null!);
+        }
+    }
+
+    [Fact]
+    public void A_held_default_floor_says_the_default_it_asked_for()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        var floor = f.Noise.FloorLeverOf("rnnoise", DenoiseDirection.Transmit)!;
+        f.Noise.Set(floor, 70, null, "test");
+        Assert.Equal(70, f.Noise.NumberOf(floor));
+        f.Transmit.KeySource = () => true;
+        f.Transmit.ApplySlots(f.Transmit.CaptureSlots().Spectral, f.Transmit.CaptureSlots().Neural);
+        f.Spoken.Clear();
+        f.Noise.TransmitReturnToDefaults("rnnoise", "test");
+        Assert.Equal(70, f.Noise.NumberOf(floor));
+        Assert.Contains(AtUnkey, f.Spoken.Last);
+        Assert.Contains("20", f.Spoken.Last);
+        Assert.DoesNotContain("70", f.Spoken.Last);
+        f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
+        Assert.Equal(20, f.Noise.NumberOf(floor));
+    }
+
+    [Fact]
+    public void The_gates_held_defaults_say_the_defaults_asked_for()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        gate.MarginDb = 13;
+        f.Transmit.KeySource = () => true;
+        f.Noise.GateReturnToDefaults("test");
+        Assert.Equal(13, gate.MarginDb);                      // held
+        Assert.Contains(new TxNoiseGateSetup().ThresholdMarginDb.ToString("0", System.Globalization.CultureInfo.InvariantCulture), f.Spoken.Last);
+        Assert.DoesNotContain("13", f.Spoken.Last);
+        Assert.EndsWith(AtUnkey, f.Spoken.Last);
+    }
+
+    [Fact]
+    public void A_preset_that_changes_an_off_slots_engine_does_not_say_nothing_changed()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("nnr", "test"); f.Noise.TransmitToggle("nnr", "test");
+        f.Noise.SavePreset("Off", false, false, true, PresetCollision.Replace, "test");
+        f.Transmit.ChooseEngine(DenoiseFamily.Neural, "rnnoise");
+        f.Spoken.Clear();
+        f.Noise.ApplyPreset("Off", "test", DenoiseDirection.Transmit);
+        Assert.Equal("nnr", f.Transmit.ChosenEngineId(DenoiseFamily.Neural));
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.preset_nothing_changed"), f.Spoken.Last);
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.phrase_engine_choice", ("engine", Tx("NNR"))), f.Spoken.Last);
+    }
+
+    [Fact]
+    public void A_held_setup_from_all_off_is_still_in_the_active_readout()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("nnr", "test");
+        f.Noise.SavePreset("Enabled", false, false, true, PresetCollision.Replace, "test");
+        f.Noise.TransmitToggle("nnr", "test");
+        f.Transmit.KeySource = () => true;
+        f.Noise.ApplyPreset("Enabled", "test", DenoiseDirection.Transmit);
+        Assert.True(f.Transmit.HasDeferredChanges);
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.active.held"), f.Noise.TransmitActiveSummary());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_same_session_settle_never_steals_a_newer_cursor(bool transmit)
+    {
+        // Codex's adversarial stress case. Not reachable from the UI as far as I
+        // can establish (the layer owns the keyboard, and only Home's engine
+        // fields and the Noise Profiles window schedule a settle), but cheap to
+        // close: any newer cursor assignment makes an older delayed one stale.
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.BeginSession();
+        if (transmit)
+        {
+            f.Noise.SwitchLayerDirection();
+            f.Noise.TransmitChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+            f.Noise.TransmitToggle("nr4", "noise layer");
+        }
+        else
+        {
+            f.Noise.ChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+            f.Noise.Toggle("nr4", "noise layer");
+        }
+        Assert.Equal("nr4", f.Noise.CurrentInLayer);
+        f.Clock.RunAll();
+        Assert.Equal("nnr", transmit ? f.Transmit.ChosenEngineId(DenoiseFamily.Neural) : f.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.Equal("nr4", f.Noise.CurrentInLayer);
+    }
+
+    [Fact]
+    public void The_Workshops_load_list_holds_the_noise_only_presets_its_save_makes_after_the_chain_presets()
+    {
+        var store = new AudioChainPresets();
+        store.Presets.Add(new AudioChainPreset("Ragchew"));
+        store.NoisePresets.Add(new AudioChainPreset("Desk") { HoldsTransmitChain = false, TransmitNoise = new TxNoiseSetup() });
+        Assert.Equal(new[] { "Ragchew", "Desk" }, Dialogs.AudioWorkshopDialog.WorkshopPresetList(store).Select(p => p.Name));
+    }
+
+    // ── H3's edge probe through H2's own whole-change roads ──
+
+    private sealed class PausingDescriptors : IReadOnlyList<EngineSettingDescriptor>
+    {
+        private readonly IReadOnlyList<EngineSettingDescriptor> _inner;
+        public Action? Once;
+        public PausingDescriptors(IReadOnlyList<EngineSettingDescriptor> inner) => _inner = inner;
+        public int Count => _inner.Count;
+        public EngineSettingDescriptor this[int index] => _inner[index];
+        public IEnumerator<EngineSettingDescriptor> GetEnumerator()
+        {
+            System.Threading.Interlocked.Exchange(ref Once, null)?.Invoke();
+            return _inner.GetEnumerator();
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    /// <summary>
+    /// Codex's H3 edge probe, driven through each H2 road that applies a whole
+    /// transmit change: a held change is admitted, paused part way, a new over
+    /// starts, and the audio must not change until the next unkeyed buffer,
+    /// when the whole change lands. The test engines multiply by gain (RNNoise
+    /// 2) and "amount": 2 before, 6 after.
+    /// </summary>
+    [Theory]
+    [InlineData("setup")]
+    [InlineData("preset")]
+    [InlineData("escape")]
+    public void A_whole_change_through_H2s_roads_never_lands_partway_through_a_new_over(string road)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var entries = TxNoiseChainTests.Catalog().Entries;
+        var pause = new PausingDescriptors(entries.Single(e => e.Id == "nr4").Settings);
+        var catalog = new DenoiseEngineCatalog(entries.Select(e => e.Id == "nr4" ? e with { SettingDescriptors = pause } : e));
+        var c = new TxNoiseChain(catalog);
+        bool keyed = false;
+        c.KeySource = () => System.Threading.Volatile.Read(ref keyed);
+        var radio = new NoiseFixture.FakeRadio { Serial = Radio8600 };
+        var config = new AudioOutputConfig();
+        var noise = new NoiseController(catalog, () => radio, () => null, () => config, () => { },
+            new NoiseFixture.Speaker(), new NoiseFixture.Intents(), new NoiseFixture.Scheduler(), transmitChain: () => c);
+        var setups = new TxNoiseSetupStore(_root);
+        noise.TransmitSetupStore = () => setups;
+        noise.TransmitGate = new FakeGate { Chain = c };
+        var presets = new MemoryPresets();
+        noise.PresetStore = presets;
+
+        c.SetStrength("rnnoise", 1);
+        c.SetEnabled(DenoiseFamily.Neural, true);
+        float[] Run()
+        {
+            var b = Enumerable.Repeat(1f, 960).ToArray();
+            c.Process(b, b.Length, 48000, System.Threading.Volatile.Read(ref keyed));
+            return b;
+        }
+        Assert.All(Run(), v => Assert.Equal(2f, v));
+
+        // What each road will put in place: the neural slot's RNNoise at amount 3.
+        var target = new TxNoiseSetup
+        {
+            Name = "Probe",
+            Neural = new TxNoiseSlotSetup { EngineId = "rnnoise", Enabled = true,
+                Engines = { new DenoiseEngineSettings { EngineId = "rnnoise", Direction = DenoiseDirection.Transmit, Strength = 1,
+                    Values = { new DenoiseNamedValue { Name = "amount", Number = 3 } } } } },
+        };
+        NoiseSnapshot? snap = null;
+        if (road == "escape")
+        {
+            // The picture Escape puts back holds amount 3; the layer then moved it to 1.
+            c.SetSetting("rnnoise", "amount", new EngineSettingValue(3));
+            Assert.All(Run(), v => Assert.Equal(6f, v));
+            snap = noise.TakeSnapshot();
+            c.SetSetting("rnnoise", "amount", new EngineSettingValue(1));
+            Assert.All(Run(), v => Assert.Equal(2f, v));
+        }
+        else if (road == "setup") Assert.True(setups.Save(Radio8600, target).Succeeded);
+        else presets.Store.NoisePresets.Add(new AudioChainPreset("Probe") { HoldsTransmitChain = false, TransmitNoise = target });
+
+        System.Threading.Volatile.Write(ref keyed, true);
+        switch (road)
+        {
+            case "setup": noise.ApplyTransmitSetup("Probe", "test"); break;
+            case "preset": noise.ApplyPreset("Probe", "test", DenoiseDirection.Transmit); break;
+            case "escape": Assert.True(noise.RestoreSnapshot(snap!, "test")); break;
+        }
+        Assert.True(c.HasDeferredChanges, road + ": the road did not hold its change while keyed");
+
+        using var entered = new System.Threading.ManualResetEventSlim();
+        using var release = new System.Threading.ManualResetEventSlim();
+        Exception? workerError = null;
+        pause.Once = () => { entered.Set(); if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("release"); };
+        System.Threading.Volatile.Write(ref keyed, false);
+        var worker = new System.Threading.Thread(() => { try { c.ApplyDeferred(); } catch (Exception e) { workerError = e; } });
+        worker.Start();
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(10)), road + ": the change was not admitted, so this proves nothing");
+            System.Threading.Volatile.Write(ref keyed, true); // a NEW over, after the drain's key check
+            for (int i = 0; i < 3; i++) Assert.All(Run(), v => Assert.Equal(2f, v));
+            release.Set();
+            Assert.True(worker.Join(TimeSpan.FromSeconds(10)));
+            Assert.Null(workerError);
+            var observed = Enumerable.Range(0, 4).Select(_ => Run()[0]).ToList();
+            Assert.True(observed.All(v => v == 2f), road + ": the whole change landed mid-over: " + string.Join(", ", observed));
+            System.Threading.Volatile.Write(ref keyed, false);
+            Assert.All(Run(), v => Assert.Equal(6f, v));
+        }
+        finally
+        {
+            release.Set();
+            if (worker.IsAlive) Assert.True(worker.Join(TimeSpan.FromSeconds(10)));
+        }
+    }
+
+    [Fact]
+    public void The_gates_whole_defaults_run_inside_one_held_change_and_reach_the_gate_only_at_the_unkey()
+    {
+        // The gate half of H3's staging is TxAudioConditioner.StageGate, which
+        // needs a connected radio's conditioner; this proves H2's road reaches
+        // the gate's whole-apply ONLY through the held change. The app's
+        // ApplyNow is TxAudioConditioning.ApplyGateNow, which stages (source pin below).
+        var (f, gate) = Make();
+        using var _f = f;
+        gate.MarginDb = 13;
+        f.Transmit.KeySource = () => true;
+        f.Noise.GateReturnToDefaults("test");
+        Assert.Equal(13, gate.MarginDb);
+        f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
+        Assert.Equal(new TxNoiseGateSetup().ThresholdMarginDb, gate.MarginDb);
+        string source = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "TxAudioConditioning.cs"));
+        int apply = source.IndexOf("internal static void ApplyGateNow", StringComparison.Ordinal);
+        Assert.True(apply > 0 && source.IndexOf("StageGate(", apply, StringComparison.Ordinal) > apply,
+            "ApplyGateNow must stage the gate for an unkeyed buffer (Track H repair round 3)");
+        string bridge = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "NoiseController.Transmit.cs"));
+        Assert.Contains("public void ApplyNow(TxNoiseGateSetup gate) => TxAudioConditioning.ApplyGateNow(gate);", bridge);
     }
 }

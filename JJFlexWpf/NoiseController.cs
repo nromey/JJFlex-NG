@@ -228,7 +228,14 @@ namespace JJFlexWpf
         public string? Current
         {
             get => _current;
-            private set { _current = value; _currentDirection = DenoiseDirection.Receive; }
+            private set
+            {
+                _current = value;
+                _currentDirection = DenoiseDirection.Receive;
+                // A newer cursor assignment, by any action, makes an older delayed
+                // one stale (Track H2 repair round 2: Codex's same-session stress case).
+                _cursorEpoch++;
+            }
         }
         private string? _current;
 

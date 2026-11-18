@@ -176,6 +176,7 @@
   "audio.noise_surface.tx.preset_part": {"text": "WORDING PLACEHOLDER: for transmit: {list}", "delivery": null},
   "audio.noise_surface.tx.phrase_settings": {"text": "WORDING PLACEHOLDER: {engine} settings", "delivery": null},
   "audio.noise_surface.tx.phrase_gate": {"text": "WORDING PLACEHOLDER: noise gate settings", "delivery": null},
+  "audio.noise_surface.tx.phrase_engine_choice": {"text": "WORDING PLACEHOLDER: {engine} chosen, off", "delivery": null},
   "audio.cleanup.residual_monitor_meaning": "Plays while you transmit. Hearing your own words here means the cleanup is eating your voice — turn the strength down until they fade.",
   "audio.device.advice_lower_boost": "Microphone Boost is at plus {boost} dB — lower the Boost slider below first, then run the check again.",
   "audio.device.advice_lower_in_windows": "Lower this microphone's input level in Windows Sound settings and run the check again.",

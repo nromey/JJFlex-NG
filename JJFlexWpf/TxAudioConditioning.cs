@@ -377,7 +377,7 @@ namespace JJFlexWpf
         }
 
         /// <summary>A continuous gate lever: live or held for the unkey by the one policy, <see cref="TxNoiseChain.ContinuousLeversLiveWhileKeyed"/>.</summary>
-        private static void GateLever(Action<TxNoiseGateSetup> intent, Action<JJPortaudio.TxNoiseGate> live,
+        private static TxChangeResult GateLever(Action<TxNoiseGateSetup> intent, Action<JJPortaudio.TxNoiseGate> live,
             Action<JJPortaudio.TxAudioConditioner.StagedGate> staged) =>
             Chain.Continuous(() =>
             {
@@ -396,18 +396,21 @@ namespace JJFlexWpf
         public static float ThresholdMarginDb
         {
             get { return _thresholdMarginDb; }
-            set
+            set { SetThresholdMargin(value); }
+        }
+
+        /// <summary>The margin, with its timing (Sprint 49 Track H2 repair round 2: the controller speaks what it gets).</summary>
+        public static TxChangeResult SetThresholdMargin(float db)
+        {
+            float v = Math.Clamp(db, 3f, 15f);
+            return Chain.Continuous(() =>
             {
-                float v = Math.Clamp(value, 3f, 15f);
-                Chain.Continuous(() =>
-                {
-                    _thresholdMarginDb = v;
-                    var c = Conditioner;
-                    if (c == null) return;
-                    c.ThresholdMarginInForceDb = v;
-                    c.ChangeStagedGate(g => g.ThresholdMarginDb = v);
-                });
-            }
+                _thresholdMarginDb = v;
+                var c = Conditioner;
+                if (c == null) return;
+                c.ThresholdMarginInForceDb = v;
+                c.ChangeStagedGate(g => g.ThresholdMarginDb = v);
+            });
         }
 
         /// <summary>Derive the threshold from the measured floor (default) or
@@ -415,16 +418,38 @@ namespace JJFlexWpf
         public static bool AutoThreshold
         {
             get { return _autoThreshold; }
-            set
-            {
-                // Live, outside the continuous-lever policy: S15 asks about it.
-                _autoThreshold = value;
-                var c = Conditioner;
-                if (c == null) return;
-                c.AutoThresholdInForce = value;
-                c.ChangeStagedGate(g => { g.AutoThreshold = value; g.HasThreshold = !value; });
-            }
+            set { SetAutoThreshold(value); }
         }
+
+        /// <summary>
+        /// The automatic threshold on or off, IN ORDER (Sprint 49 Track H2 repair
+        /// round 2, item 1; changed with the orchestrator's authority): through
+        /// <see cref="TxNoiseChain.Continuous"/>, like every other gate lever, so a
+        /// choice made while an older whole setup is held waits behind it and
+        /// wins. It was a direct write, so the older setup overwrote the newer
+        /// choice at the unkey. Whether it is live while keyed is still S15's
+        /// question; with nothing held it is live, as before.
+        /// </summary>
+        public static TxChangeResult SetAutoThreshold(bool on) => Chain.Continuous(() =>
+        {
+            _autoThreshold = on;
+            var c = Conditioner;
+            if (c == null) return;
+            c.AutoThresholdInForce = on;
+            c.ChangeStagedGate(g => { g.AutoThreshold = on; g.HasThreshold = !on; });
+        });
+
+        /// <summary>One gate level by key (the controller's gate levers), with its timing: threshold, attack, hold, release or depth.</summary>
+        public static TxChangeResult SetGateLevel(string key, float value) => key switch
+        {
+            "threshold" => GateLever(g => g.ThresholdDb = value, g => g.ThresholdDb = value, g => g.ThresholdDb = value),
+            "attack" => GateLever(g => g.AttackMs = value, g => g.AttackMs = value, g => g.AttackMs = value),
+            "hold" => GateLever(g => g.HoldMs = value, g => g.HoldMs = value, g => g.HoldMs = value),
+            "release" => GateLever(g => g.ReleaseMs = value, g => g.ReleaseMs = value, g => g.ReleaseMs = value),
+            "depth" => GateLever(g => g.RangeDb = value, g => g.RangeDb = value, g => g.RangeDb = value),
+            "margin" => SetThresholdMargin(value),
+            _ => new TxChangeResult(TxChangeTiming.Refused, "unknown-gate-lever"),
+        };
 
         /// <summary>The gate's threshold by hand, dB (used when <see cref="AutoThreshold"/> is off). Held with no radio.</summary>
         public static float GateThresholdDb

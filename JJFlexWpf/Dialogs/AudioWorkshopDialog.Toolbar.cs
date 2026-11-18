@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Automation;
@@ -25,7 +26,11 @@ public partial class AudioWorkshopDialog
     private void LoadPreset_Click(object sender, RoutedEventArgs e)
     {
         var presets = GetPresetsCallback?.Invoke();
-        if (presets == null || presets.Presets.Count == 0)
+        // Every preset the store holds, the chain presets first and then the
+        // noise-only ones this toolbar's own Save can make (Sprint 49 Track H2
+        // repair round 2, item 3; part five: "this toolbar lists all presets").
+        var all = presets == null ? new List<AudioChainPreset>() : WorkshopPresetList(presets);
+        if (presets == null || all.Count == 0)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.preset.none_available"), VerbosityLevel.Terse);
             return;
@@ -38,7 +43,7 @@ public partial class AudioWorkshopDialog
 
         var listBox = new ListBox { Margin = new Thickness(0, 0, 0, 8) };
         AutomationProperties.SetName(listBox, "Audio presets");
-        foreach (var p in presets.Presets)
+        foreach (var p in all)
             listBox.Items.Add(p.Name);
         if (listBox.Items.Count > 0) listBox.SelectedIndex = 0;
         DockPanel.SetDock(listBox, Dock.Top);
@@ -53,7 +58,7 @@ public partial class AudioWorkshopDialog
         {
             int idx = listBox.SelectedIndex;
             if (idx < 0) return;
-            var preset = presets.Presets[idx];
+            var preset = all[idx];
 
             var confirm = new ConfirmActionDialog(
                 Lexicon.Get("audio.preset.delete_title"),
@@ -63,7 +68,8 @@ public partial class AudioWorkshopDialog
             if (confirm.ShowDialog() != true)
                 return;
 
-            presets.Presets.RemoveAt(idx);
+            if (!presets.Presets.Remove(preset)) presets.NoisePresets.Remove(preset);
+            all.RemoveAt(idx);
             listBox.Items.RemoveAt(idx);
 
             // A delete that could not be written is a delete that undoes itself
@@ -117,13 +123,16 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(cancelBtn, "Cancel");
         okBtn.Click += (s2, e2) =>
         {
-            if (listBox.SelectedIndex >= 0 && _rig != null)
+            var preset = listBox.SelectedIndex >= 0 ? all[listBox.SelectedIndex] : null;
+            // A noise-only preset touches no radio setting, so it needs no radio;
+            // a chain preset does, as it always has.
+            if (preset != null && (_rig != null || !preset.HoldsTransmitChain))
             {
-                var preset = presets.Presets[listBox.SelectedIndex];
                 // ApplyTo reports what could not be applied faithfully — an
                 // EQ the radio has not reported, a preset tuned for a
-                // different input (#51). Those ride the load announcement.
-                string note = preset.ApplyTo(_rig);
+                // different input (#51). Those ride the load announcement. A
+                // noise-only preset never applies a transmit chain of defaults.
+                string note = preset.HoldsTransmitChain && _rig != null ? preset.ApplyTo(_rig) : "";
                 // The noise sections a preset holds (Sprint 49 Track H2 repair
                 // round 1, item 6). A preset made before they existed has none,
                 // and loads exactly as it always did.
@@ -271,6 +280,15 @@ public partial class AudioWorkshopDialog
                     VerbosityLevel.Critical);
         }
     }
+
+    /// <summary>
+    /// What the Workshop's Load lists: the chain presets in their saved order,
+    /// then the noise-only presets (receive, transmit or both, with no transmit
+    /// chain), which Save puts in their own list so an older build never sees
+    /// them. Old chain presets are listed exactly as before, first.
+    /// </summary>
+    internal static List<AudioChainPreset> WorkshopPresetList(AudioChainPresets presets) =>
+        presets.Presets.Concat(presets.NoisePresets).ToList();
 
     /// <summary>The app's noise controller, for the noise sections of a preset (Sprint 49 Track H2 repair round 1, item 6). Set by MainWindow.</summary>
     public static Func<NoiseController?>? NoiseSource { get; set; }

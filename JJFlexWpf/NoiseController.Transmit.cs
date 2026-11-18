@@ -27,13 +27,27 @@ namespace JJFlexWpf
         /// </summary>
         TxChangeResult SetEnabled(bool on);
         /// <summary>The threshold follows the measured room floor plus <see cref="MarginDb"/>; off, <see cref="ThresholdDb"/> is used as set.</summary>
-        bool AutoThreshold { get; set; }
-        float MarginDb { get; set; }
-        float ThresholdDb { get; set; }
-        float AttackMs { get; set; }
-        float HoldMs { get; set; }
-        float ReleaseMs { get; set; }
-        float RangeDb { get; set; }
+        bool AutoThreshold { get; }
+        float MarginDb { get; }
+        float ThresholdDb { get; }
+        float AttackMs { get; }
+        float HoldMs { get; }
+        float ReleaseMs { get; }
+        float RangeDb { get; }
+
+        /// <summary>
+        /// The automatic threshold on or off, in order behind anything held
+        /// (repair round 2, item 1). Returns when it takes effect.
+        /// </summary>
+        TxChangeResult SetAutoThreshold(bool on);
+
+        /// <summary>
+        /// One gate level (<see cref="TxGateLever"/>'s keys: margin, threshold,
+        /// attack, hold, release, depth). Returns when it takes effect, so the
+        /// controller speaks the value asked for and its timing rather than a
+        /// getter that still reads the old value (repair round 2, item 2).
+        /// </summary>
+        TxChangeResult SetLevel(string key, float value);
 
         /// <summary>Whether a radio's transmit chain is attached, so the cleanup monitor can play (it needs the chain's tap).</summary>
         bool MonitorAvailable { get; }
@@ -65,13 +79,15 @@ namespace JJFlexWpf
         // Track H repair round 1: the gate's on and off wait for the unkey while
         // keyed, and say so; the Workshop's old toggle did this, and it lives here now.
         public TxChangeResult SetEnabled(bool on) => TxAudioConditioning.SetGateEnabled(on);
-        public bool AutoThreshold { get => TxAudioConditioning.AutoThreshold; set => TxAudioConditioning.AutoThreshold = value; }
-        public float MarginDb { get => TxAudioConditioning.ThresholdMarginDb; set => TxAudioConditioning.ThresholdMarginDb = value; }
-        public float ThresholdDb { get => TxAudioConditioning.GateThresholdDb; set => TxAudioConditioning.GateThresholdDb = value; }
-        public float AttackMs { get => TxAudioConditioning.GateAttackMs; set => TxAudioConditioning.GateAttackMs = value; }
-        public float HoldMs { get => TxAudioConditioning.GateHoldMs; set => TxAudioConditioning.GateHoldMs = value; }
-        public float ReleaseMs { get => TxAudioConditioning.GateReleaseMs; set => TxAudioConditioning.GateReleaseMs = value; }
-        public float RangeDb { get => TxAudioConditioning.GateRangeDb; set => TxAudioConditioning.GateRangeDb = value; }
+        public bool AutoThreshold => TxAudioConditioning.AutoThreshold;
+        public float MarginDb => TxAudioConditioning.ThresholdMarginDb;
+        public float ThresholdDb => TxAudioConditioning.GateThresholdDb;
+        public float AttackMs => TxAudioConditioning.GateAttackMs;
+        public float HoldMs => TxAudioConditioning.GateHoldMs;
+        public float ReleaseMs => TxAudioConditioning.GateReleaseMs;
+        public float RangeDb => TxAudioConditioning.GateRangeDb;
+        public TxChangeResult SetAutoThreshold(bool on) => TxAudioConditioning.SetAutoThreshold(on);
+        public TxChangeResult SetLevel(string key, float value) => TxAudioConditioning.SetGateLevel(key, value);
         public bool MonitorAvailable => TxAudioConditioning.Conditioner != null;
         public int MonitorMode
         {
@@ -715,9 +731,13 @@ namespace JJFlexWpf
                 changes.Add(new NoiseJournalChange(id, d.Name, Describe(was), Describe(d.Default)));
             }
             NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.ReturnToDefaults, TxSource(source), false, changes, NameOf(id)));
-            var said = Levers(id, includeAdvanced: false, DenoiseDirection.Transmit).Select(l => LeverName(l).ToLowerInvariant() + " " + ValueText(l)).ToList();
+            // The defaults ASKED FOR (repair round 2, item 2): a held part has not
+            // reached the getters yet, so reading them back named the old values.
+            string DefaultText(NoiseLever l) => HeldValueText(l, l.Kind == NoiseLeverKind.Floor
+                ? new EngineSettingValue(NoiseFloor.DefaultFloor(id, DenoiseDirection.Transmit)) : l.Descriptor!.Default);
+            var said = Levers(id, includeAdvanced: false, DenoiseDirection.Transmit).Select(l => LeverName(l).ToLowerInvariant() + " " + DefaultText(l)).ToList();
             if (FloorLeverOf(id, DenoiseDirection.Transmit) is { Advanced: true } advancedFloor)
-                said.Add(L("audio.noise_surface.defaults_floor", ("value", ValueText(advancedFloor))));
+                said.Add(L("audio.noise_surface.defaults_floor", ("value", DefaultText(advancedFloor))));
             Say(L("audio.noise_surface.defaults", ("engine", TxName(id)), ("values", string.Join(", ", said))), SpeechSubject.TransmitNoiseDefaults);
             SayAtUnkey(timing);
         }
@@ -767,7 +787,11 @@ namespace JJFlexWpf
                 items.Add(gate.AutoThreshold
                     ? L("audio.noise_surface.tx.active.gate_auto", ("margin", GateValueText(GateLever(TxGateLever.Margin)!)))
                     : L("audio.noise_surface.tx.active.gate_fixed", ("threshold", GateValueText(GateLever(TxGateLever.Threshold)!))));
-            if (items.Count == 0) return L("audio.noise_surface.tx.active.none");
+            // All off now, with a whole change still held: say both (repair round 2, item 5).
+            if (items.Count == 0)
+                return chain != null && chain.HasDeferredChanges
+                    ? L("audio.noise_surface.tx.active.none") + " " + L("audio.noise_surface.tx.active.held")
+                    : L("audio.noise_surface.tx.active.none");
             string summary = L("audio.noise_surface.tx.active", ("list", string.Join("; ", items)));
             if (chain != null && chain.HasDeferredChanges)
                 summary += " " + L("audio.noise_surface.tx.active.held");
@@ -934,21 +958,18 @@ namespace JJFlexWpf
             };
         }
 
-        private void WriteGate(TxGateLever lever, double value)
+        /// <summary>One gate lever written, with the gate's own answer about when (repair round 2, item 2). The monitor's volume is the listening tool's, live.</summary>
+        private TxChangeResult WriteGate(TxGateLever lever, double value)
         {
             var g = TransmitGate;
             float v = (float)value;
-            switch (lever.Key)
-            {
-                case TxGateLever.Margin: g.MarginDb = v; break;
-                case TxGateLever.Threshold: g.ThresholdDb = v; break;
-                case TxGateLever.Attack: g.AttackMs = v; break;
-                case TxGateLever.Hold: g.HoldMs = v; break;
-                case TxGateLever.Release: g.ReleaseMs = v; break;
-                case TxGateLever.Depth: g.RangeDb = v; break;
-                case TxGateLever.MonitorVolume: g.MonitorVolume = v / 100f; break;
-            }
+            if (lever.Key == TxGateLever.MonitorVolume) { g.MonitorVolume = v / 100f; return TxChangeResult.Now; }
+            return g.SetLevel(lever.Key, v);
         }
+
+        /// <summary>A gate lever's value as spoken from a value asked for (a held write reads the old one back).</summary>
+        private string GateValueTextOf(TxGateLever lever, double value) =>
+            WithUnit(Math.Round(value).ToString("0", CultureInfo.InvariantCulture), lever.UnitKey);
 
         /// <summary>A gate lever's value as spoken, its unit at Chatty.</summary>
         public string GateValueText(TxGateLever lever) =>
@@ -983,9 +1004,12 @@ namespace JJFlexWpf
             using var oneUtterance = OneUtterance();
             var g = TransmitGate;
             bool was = g.AutoThreshold;
-            g.AutoThreshold = on;
-            if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Lever, TxSource(source), "gate", "auto_threshold", Words(was), Words(on));
+            // In order behind anything held (repair round 2, item 1), and said with its timing.
+            var timing = g.SetAutoThreshold(on);
+            if (was != on || timing.Timing == TxChangeTiming.AtUnkey)
+                NoiseSettingsJournal.Record(NoiseJournalKind.Lever, TxSource(source), "gate", "auto_threshold", Words(was), Words(on));
             Say(L(on ? "audio.noise_surface.tx.gate_auto_on" : "audio.noise_surface.tx.gate_auto_off"), SpeechSubject.TransmitNoiseGate);
+            SayAtUnkey(timing);
         }
 
         /// <summary>A gate lever one step up or down; at an end it stays and says so.</summary>
@@ -1008,10 +1032,18 @@ namespace JJFlexWpf
         {
             using var oneUtterance = OneUtterance();
             double was = GateNumber(lever);
-            WriteGate(lever, Math.Clamp(value, lever.Min, lever.Max));
+            double asked = Math.Clamp(value, lever.Min, lever.Max);
+            var timing = WriteGate(lever, asked);
+            if (timing.Timing == TxChangeTiming.Refused)
+            {
+                Say(L("audio.noise_surface.lever_refused", ("lever", GateLeverName(lever))), SpeechSubject.TransmitNoiseGate);
+                return;
+            }
             NoiseSettingsJournal.Record(NoiseJournalKind.Lever, TxSource(source), "gate", lever.Key,
-                was.ToString(CultureInfo.InvariantCulture), GateNumber(lever).ToString(CultureInfo.InvariantCulture));
-            Say(L("audio.noise_surface.tx.gate_lever", ("lever", GateLeverName(lever)), ("value", GateValueText(lever))), SpeechSubject.TransmitNoiseGate);
+                was.ToString(CultureInfo.InvariantCulture), asked.ToString(CultureInfo.InvariantCulture));
+            // The value asked for, and when it takes effect: a held write is not yet what the getter reads.
+            Say(L("audio.noise_surface.tx.gate_lever", ("lever", GateLeverName(lever)), ("value", GateValueTextOf(lever, asked))), SpeechSubject.TransmitNoiseGate);
+            SayAtUnkey(timing);
         }
 
         /// <summary>
@@ -1028,10 +1060,23 @@ namespace JJFlexWpf
             var fresh = new TxNoiseGateSetup { Enabled = g.Enabled };
             var timing = ApplyWholeTransmit(null, null, fresh);
             NoiseSettingsJournal.Record(NoiseJournalKind.ReturnToDefaults, TxSource(source), "gate", "", "", "defaults");
-            var said = GateLevers(includeAdvanced: false).Select(l => GateLeverName(l).ToLowerInvariant() + " " + GateValueText(l));
+            // The defaults asked for, not the getters, which a held change has not reached yet (item 2).
+            var said = AllGateLevers.Where(l => !l.Advanced).Select(l => GateLeverName(l).ToLowerInvariant() + " " + GateValueTextOf(l, GateSetupValue(fresh, l)));
             Say(L("audio.noise_surface.tx.gate_defaults", ("values", string.Join(", ", said))), SpeechSubject.TransmitNoiseGate);
             SayAtUnkey(timing);
         }
+
+        /// <summary>A gate lever's value in a setup record.</summary>
+        private static double GateSetupValue(TxNoiseGateSetup g, TxGateLever lever) => lever.Key switch
+        {
+            TxGateLever.Margin => g.ThresholdMarginDb,
+            TxGateLever.Threshold => g.ThresholdDb,
+            TxGateLever.Attack => g.AttackMs,
+            TxGateLever.Hold => g.HoldMs,
+            TxGateLever.Release => g.ReleaseMs,
+            TxGateLever.Depth => g.RangeDb,
+            _ => 0,
+        };
 
         /// <summary>The cleanup monitor's four choices, in <c>TxAudioConditioner.MonitorModes</c> order.</summary>
         public static readonly string[] ListenToCleanupKeys =
