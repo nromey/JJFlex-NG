@@ -129,7 +129,14 @@ namespace JJPortaudio
             }
             bool was = _keyed;
             _keyed = keyed;
-            if (keyed && !was) KeyDowns++;
+            // With a real key state, the key-down is what resets the gate open
+            // (#1075), and a gap in the stream no longer does.
+            Gate.ResetsOnStreamGap = source == null;
+            if (keyed && !was)
+            {
+                KeyDowns++;
+                Gate.ResetOpen();
+            }
             return keyed;
         }
 

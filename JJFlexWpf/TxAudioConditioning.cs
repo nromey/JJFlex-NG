@@ -156,10 +156,11 @@ namespace JJFlexWpf
             var cond = rig.TxConditioner;
             // Keyed means our Mox OR the radio's interlock (item B): VOX keys
             // only the interlock, so Mox alone would apply changes mid-over
-            // for a VOX operator. Read on the audio thread, once per buffer.
-            Func<bool> keyed = () => rig.Transmit || rig.RadioInterlockReportsTransmit;
-            cond.KeySource = keyed;
-            chain.KeySource = keyed;
+            // for a VOX operator. FlexBase hands the same question to the
+            // conditioner itself when the transmit stream opens; the chain
+            // asks it on the control side to say whether a change waits.
+            cond.KeySource = rig.TransmitKeySource;
+            chain.KeySource = rig.TransmitKeySource;
             cond.NoiseReducer = NrStage;
             cond.NoiseReducerAppliedLatencySamples = AppliedNrLatency;
             cond.MonitorSink = MonitorStage;
@@ -191,7 +192,6 @@ namespace JJFlexWpf
                 cond.NoiseReducer = null;
                 cond.NoiseReducerAppliedLatencySamples = null;
                 cond.MonitorSink = null;
-                cond.KeySource = null;
                 cond.MonitorMode = JJPortaudio.TxAudioConditioner.MonitorModes.Off;
             }
             var chain = _chain;

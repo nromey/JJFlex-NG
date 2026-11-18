@@ -12,6 +12,7 @@ using Xunit;
 
 namespace JJFlexWpf.Tests;
 
+[Collection("Transmit conditioning statics")]
 public sealed class RnnoiseBindingTests
 {
     public RnnoiseBindingTests() => NoiseReductionPerChannelTests.AssertWindowless();

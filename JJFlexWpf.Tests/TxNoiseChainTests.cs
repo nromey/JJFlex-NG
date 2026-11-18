@@ -15,6 +15,7 @@ namespace JJFlexWpf.Tests;
 /// choices made with no radio connected (#1077). Windowless: no control is
 /// built, and every test asserts an MTA thread.
 /// </summary>
+[Collection("Transmit conditioning statics")]
 public sealed class TxNoiseChainTests
 {
     public TxNoiseChainTests() => NoiseReductionPerChannelTests.AssertWindowless();
@@ -290,6 +291,46 @@ public sealed class TxNoiseChainTests
             TxAudioConditioning.UseChainForTest(null!);
             try { Directory.Delete(root, true); } catch { }
         }
+    }
+
+    [Fact]
+    public void Engines_are_built_on_workers_never_on_the_thread_that_runs_the_audio()
+    {
+        // Item E: native construction (and DeepFilterNet3's hash check, which
+        // lives in its constructor) stays off the audio thread, as on receive.
+        var threads = new System.Collections.Concurrent.ConcurrentQueue<int>();
+        DenoiseEngineEntry Row(string id, DenoiseFamily family) =>
+            new(id, DenoiseSide.Pc, family, "label", new[] { DenoiseDirection.Receive, DenoiseDirection.Transmit },
+                (initial, _) => { threads.Enqueue(Environment.CurrentManagedThreadId); return new Engine(id, 1f, initial); },
+                () => Unavailability.None, SettingDescriptors: Engine.Descriptors);
+        var chain = new TxNoiseChain(new DenoiseEngineCatalog(new[] { Row("nr4", DenoiseFamily.Spectral), Row("rnnoise", DenoiseFamily.Neural), Row("nnr", DenoiseFamily.Neural) }));
+        while (threads.TryDequeue(out _)) { } // the chain's first two engines are built where it is made, on the control side
+        int audioThread = Environment.CurrentManagedThreadId;
+        chain.SetEnabled(DenoiseFamily.Neural, true);
+        chain.ChooseEngine(DenoiseFamily.Neural, "nnr");
+        chain.SetSetting("nnr", "model", new(2));
+        var buf = new float[960];
+        Until(() => chain.NeuralSlot.RunningEngineId == "nnr" && chain.NeuralSlot.RunningIsCurrent("nnr"),
+            () => chain.Process(buf, buf.Length, 48000, false));
+        Assert.NotEmpty(threads);
+        Assert.DoesNotContain(audioThread, threads);
+    }
+
+    [Fact]
+    public void The_audio_stage_never_makes_the_chain()
+    {
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+        var owner = typeof(TxAudioConditioning);
+        var field = owner.GetField("_chain", flags)!;
+        var previous = field.GetValue(null);
+        try
+        {
+            TxAudioConditioning.UseChainForTest(null!);
+            var stage = owner.GetMethod("NrStage", flags)!.CreateDelegate<Action<float[], int, uint>>();
+            stage(new float[960], 960, 48000);
+            Assert.Null(field.GetValue(null));
+        }
+        finally { field.SetValue(null, previous); }
     }
 
     private sealed class ApproxPair : IEqualityComparer<(float, float)>

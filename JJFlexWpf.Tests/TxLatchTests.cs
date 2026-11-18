@@ -16,6 +16,7 @@ namespace JJFlexWpf.Tests;
 /// and the notice's earcon never reaches a transmit frame. Windowless: MTA
 /// thread asserted on construction, no control built.
 /// </summary>
+[Collection("Earcon player statics")]
 public sealed class TxLatchTests
 {
     public TxLatchTests() => NoiseReductionPerChannelTests.AssertWindowless();

@@ -16,6 +16,7 @@ namespace JJFlexWpf.Tests;
 /// <see cref="EarconPlayer"/>; nothing here builds a WPF element. Each test
 /// restores the switches it touched.
 /// </remarks>
+[Collection("Earcon player statics")]
 public sealed class WarningSoundsGateTests
 {
     private static void AssertWindowless() =>

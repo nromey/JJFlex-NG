@@ -999,6 +999,14 @@ namespace Radios
             // It taps the callback AFTER the tone injection, so it measures
             // whatever is actually being encoded and sent — tone or mic.
             opusInputChannel.PortAudioStream.InputLufsMeter = txLufsMeter;
+            // Sprint 49 Track H: the key state the chain reads once per buffer,
+            // our Mox OR the radio's interlock. The conditioner resets the gate
+            // open at a real key-down with it (#1075) and the noise reduction
+            // holds its changes for the unkey; the pipeline ends a faulted
+            // stage's skip when it changes (#1074).
+            txConditioner.KeySource = TransmitKeySource;
+            var txPipeline = opusInputChannel.PortAudioStream.TransmitPipeline;
+            if (txPipeline != null) txPipeline.KeySource = TransmitKeySource;
             Tracing.TraceLine("remoteAudioProc:Opus Input Channel setup", TraceLevel.Info);
 
 #if CWMonitor
