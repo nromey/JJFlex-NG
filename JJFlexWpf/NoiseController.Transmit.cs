@@ -1015,13 +1015,19 @@ namespace JJFlexWpf
             using var oneUtterance = OneUtterance();
             var g = TransmitGate;
             bool was = g.Enabled;
-            var timing = g.SetEnabled(on);
+            // The layer acts on what it reads (Escape ownership round 2): asking it
+            // for the state the gate already has changes nothing, so nothing is
+            // held and its Escape has nothing of this to withdraw or report.
+            var timing = LayerNoOp(source, was == on) ? TxChangeResult.Now : g.SetEnabled(on);
             if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "gate", "", Words(was), Words(on));
             Say(L(on ? "audio.noise_surface.tx.gate_on" : "audio.noise_surface.tx.gate_off"), SpeechSubject.TransmitNoiseGate);
             SayAtUnkey(timing);
         }
 
         public void ToggleGate(string source) => SetGateOn(!TransmitGate.Enabled, source);
+
+        /// <summary>A layer request for the value it already reads: no write, so Escape has no change of it to withdraw (Escape ownership round 2). Other roads keep their writes.</summary>
+        private static bool LayerNoOp(string source, bool same) => same && source == LayerSource;
 
         /// <summary>The automatic threshold on or off: on, the gate opens a margin above the measured room floor; off, at the threshold set by hand.</summary>
         public void SetGateAutoThreshold(bool on, string source)
@@ -1030,8 +1036,9 @@ namespace JJFlexWpf
             using var oneUtterance = OneUtterance();
             var g = TransmitGate;
             bool was = g.AutoThreshold;
-            // In order behind anything held (repair round 2, item 1), and said with its timing.
-            var timing = g.SetAutoThreshold(on);
+            // In order behind anything held (repair round 2, item 1), and said with
+            // its timing; nothing at all when the layer asks for what it reads (round 2).
+            var timing = LayerNoOp(source, was == on) ? TxChangeResult.Now : g.SetAutoThreshold(on);
             if (was != on || timing.Timing == TxChangeTiming.AtUnkey)
                 NoiseSettingsJournal.Record(NoiseJournalKind.Lever, TxSource(source), "gate", "auto_threshold", Words(was), Words(on));
             Say(L(on ? "audio.noise_surface.tx.gate_auto_on" : "audio.noise_surface.tx.gate_auto_off"), SpeechSubject.TransmitNoiseGate);

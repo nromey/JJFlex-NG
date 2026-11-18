@@ -173,7 +173,10 @@ namespace JJFlexWpf
         // Each held change with whoever asked for it (Sprint 49 Track H2, Escape
         // ownership round): the noise layer tags what it asks for, so its Escape
         // can withdraw its own held changes and leave everyone else's in order.
-        private readonly List<(Action Change, object? Owner)> _deferred = new();
+        // Escape ownership round 2: a RECORD is bookkeeping about the changes
+        // around it (the layer's readings of what it changed), never a change to
+        // the audio, and withdrawing its owner runs it instead of dropping it.
+        private readonly List<(Action Change, object? Owner, bool Record)> _deferred = new();
 
         /// <summary>The owner tagging changes held from this thread, if any (<see cref="OwnedBy"/>).</summary>
         [ThreadStatic] private static object? t_owner;
@@ -202,25 +205,41 @@ namespace JJFlexWpf
         /// <summary>
         /// Withdraw every held change tagged with <paramref name="owner"/>, leaving
         /// the rest held in their order (the noise layer's Escape: what it asked for
-        /// while keyed must not land after it was cancelled). Returns how many.
+        /// while keyed must not land after it was cancelled). The owner's held
+        /// RECORDS are run, in order, instead of dropped (Escape ownership round 2):
+        /// an over that starts between a change that already ran and the record
+        /// after it must not erase the only note that the change happened, and a
+        /// record run here sees exactly the changes that ran and none that were
+        /// withdrawn. Returns how many CHANGES were withdrawn, records not counted.
         /// </summary>
         internal int CancelHeld(object owner)
         {
             lock (_deferLock)
             {
-                int removed = _deferred.RemoveAll(h => ReferenceEquals(h.Owner, owner));
+                int withdrawn = 0;
+                var keep = new List<(Action Change, object? Owner, bool Record)>(_deferred.Count);
+                foreach (var held in _deferred)
+                {
+                    if (!ReferenceEquals(held.Owner, owner)) { keep.Add(held); continue; }
+                    if (!held.Record) { withdrawn++; continue; }
+                    try { held.Change(); }
+                    catch (Exception ex) { Trace.WriteLine("TxNoiseChain: a record finalized at withdrawal failed: " + ex.Message); }
+                }
+                _deferred.Clear();
+                _deferred.AddRange(keep);
                 _deferredCount = _deferred.Count;
-                return removed;
+                return withdrawn;
             }
         }
 
         /// <summary>
-        /// Run <paramref name="change"/> after whatever is held: now when nothing
-        /// is, keyed or not, or behind the held changes, in order. For bookkeeping
-        /// that must see a held change's result (the layer's record of what it
-        /// changed), never for a change to the audio.
+        /// Run the record <paramref name="change"/> after whatever is held: now
+        /// when nothing is, keyed or not, or behind the held changes, in order.
+        /// For bookkeeping that must see a held change's result (the layer's
+        /// record of what it changed), never for a change to the audio:
+        /// <see cref="CancelHeld"/> runs a held record rather than dropping it.
         /// </summary>
-        internal TxChangeResult AfterHeld(Action change) => Order(change, holdWhenKeyed: false, () => TxChangeResult.Now);
+        internal TxChangeResult AfterHeld(Action change) => Order(change, holdWhenKeyed: false, () => TxChangeResult.Now, record: true);
 
         /// <summary>True while changes are being held for the unkey (a whole setup, and whatever was asked for after it).</summary>
         public bool HasDeferredChanges => Volatile.Read(ref _deferredCount) > 0;
@@ -269,7 +288,7 @@ namespace JJFlexWpf
         /// and the radio is keyed. Runs under the lock, so two callers cannot
         /// interleave their changes.
         /// </summary>
-        private TxChangeResult Order(Action change, bool holdWhenKeyed, Func<TxChangeResult> nowResult)
+        private TxChangeResult Order(Action change, bool holdWhenKeyed, Func<TxChangeResult> nowResult, bool record = false)
         {
             if (change == null) throw new ArgumentNullException(nameof(change));
             lock (_deferLock)
@@ -277,7 +296,7 @@ namespace JJFlexWpf
                 DrainLocked();
                 if (_deferred.Count > 0 || (holdWhenKeyed && IsKeyed))
                 {
-                    _deferred.Add((change, t_owner));
+                    _deferred.Add((change, t_owner, record));
                     _deferredCount = _deferred.Count;
                     return TxChangeResult.AtUnkey;
                 }

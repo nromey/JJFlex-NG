@@ -1524,6 +1524,81 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         Assert.Equal(8, gate.MarginDb);
     }
 
+    // ── Escape ownership round 2 ──
+
+    [Fact]
+    public void An_over_starting_between_the_layers_change_and_its_record_still_lets_Escape_put_the_change_back()
+    {
+        // Codex's deterministic reproduction through the real owner: the drain
+        // reads unkeyed until the layer's held gate-on has run, and a new over
+        // starts before the record after it. Escape then withdrew the record,
+        // never knew of the change, and left the gate on.
+        var (f, _) = Make();
+        using var _f = f;
+        using var ctx = new TxGateOwnerTests.Context();
+        TxAudioConditioning.UseChainForTest(f.Transmit);
+        f.Noise.TransmitGate = new AppTransmitGate();
+        var snap = f.Noise.TakeSnapshot();
+        Assert.False(TxAudioConditioning.GateEnabled);
+        f.Transmit.KeySource = () => true;
+        f.Noise.SetGateOn(true, NoiseController.LayerSource);           // held for the unkey
+        Assert.True(f.Transmit.HasDeferredChanges);
+        f.Transmit.KeySource = () => TxAudioConditioning.GateEnabled;   // keyed again the moment the change has run
+        f.Transmit.ApplyDeferred();
+        Assert.True(TxAudioConditioning.GateEnabled);
+        Assert.True(f.Transmit.HasDeferredChanges);                     // the record, cut off by the new over
+        Assert.Null(snap.LeftGate);
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.NotNull(snap.LeftGate);                                  // finalized as it was withdrawn
+        Assert.Equal(TxChangeTiming.AtUnkey, f.Noise.LastRestoreTiming);
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.False(TxAudioConditioning.GateEnabled);
+        Assert.False(f.Transmit.HasDeferredChanges);
+    }
+
+    [Fact]
+    public void Escape_that_withdraws_only_the_layers_bookkeeping_says_nothing_changed()
+    {
+        // Codex's reproduction: Home's gate-on held while keyed, then the layer asks
+        // for off, which is what the gate reads. Escape reported "All changes
+        // reverted" for withdrawing nothing but the layer's own records.
+        var (f, gate) = Make();
+        using var _f = f;
+        var snap = f.Noise.TakeSnapshot();
+        f.Transmit.KeySource = () => true;
+        f.Noise.SetGateOn(true, "Home");
+        f.Noise.SetGateOn(false, NoiseController.LayerSource);
+        Assert.False(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.Equal(TxChangeTiming.Now, f.Noise.LastRestoreTiming);
+        Assert.Equal(Lexicon.Get("audio.noise_layer.restored_nothing"),
+            f.Noise.WithRestoreTiming(Lexicon.Get("audio.noise_layer.restored_nothing")));
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.True(gate.Enabled);                                      // Home's change landed
+        Assert.False(f.Transmit.HasDeferredChanges);
+    }
+
+    [Fact]
+    public void Withdrawal_runs_an_owners_records_in_order_and_counts_only_its_changes()
+    {
+        var chain = new TxNoiseChain(TxNoiseChainTests.Catalog()) { KeySource = () => true };
+        var owner = new object();
+        var order = new List<string>();
+        chain.RunOrDefer(() => order.Add("outside"));
+        using (chain.OwnedBy(owner))
+        {
+            chain.AfterHeld(() => order.Add("record 1"));
+            chain.RunOrDefer(() => order.Add("change"));
+            chain.AfterHeld(() => order.Add("record 2"));
+        }
+        Assert.Equal(1, chain.CancelHeld(owner));
+        Assert.Equal(new[] { "record 1", "record 2" }, order);
+        chain.KeySource = () => false;
+        chain.ApplyDeferred();
+        Assert.Equal(new[] { "record 1", "record 2", "outside" }, order);
+    }
+
     private static string Describe(TxNoiseChain chain)
     {
         var (s, n) = chain.CaptureSlots();

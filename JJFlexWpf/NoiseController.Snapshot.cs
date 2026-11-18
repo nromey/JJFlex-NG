@@ -343,7 +343,9 @@ namespace JJFlexWpf
             // layer itself changed. First its own changes still held for the
             // unkey are withdrawn, so a preset or setup asked for while keyed
             // never lands after Escape; everyone else's held changes stay, in
-            // order. Then each part the layer changed and that still reads as the
+            // order. Its held records run as they are withdrawn (round 2), so a
+            // change that ran before an over cut its record off is still known;
+            // only a withdrawn CHANGE counts as something reverted. Then each part the layer changed and that still reads as the
             // layer left it goes back to the picture: the two slots and the gate,
             // through one change held while keyed (repair round 1, item 4), which
             // asks again when it runs. A part someone else changed is kept.
