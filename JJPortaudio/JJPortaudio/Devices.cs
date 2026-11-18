@@ -558,6 +558,33 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// True when a capture device is not a microphone but a route that can
+        /// carry what this computer plays: a WASAPI loopback or a virtual audio
+        /// cable. For a follow-the-default alias (or no name), asked of the
+        /// Windows default input it follows, <paramref name="windowsDefaultInput"/>
+        /// (null: looked up in <see cref="InputDevices"/>). Sprint 49 Track H,
+        /// repair round 1, R1: the transmit fallback notice plays no tone when
+        /// the microphone can hear the computer's own output by wire. It cannot
+        /// know about a loudspeaker the microphone hears in the room, and does
+        /// not pretend to.
+        /// </summary>
+        public static bool CapturesComputerOutput(string name, string windowsDefaultInput = null)
+        {
+            if (IsLoopbackName(name) || IsVirtualCableName(name)) return true;
+            if (!string.IsNullOrWhiteSpace(name) && !IsFollowDefaultAlias(name)) return false;
+            string followed = windowsDefaultInput ?? WindowsDefaultInputName();
+            return IsLoopbackName(followed) || IsVirtualCableName(followed);
+        }
+
+        /// <summary>The Windows default capture device's name from the last enumeration, or "" when none is marked.</summary>
+        public static string WindowsDefaultInputName()
+        {
+            foreach (var d in InputDevices)
+                if (d.IsDefault && !IsFollowDefaultAlias(d.Name)) return d.Name;
+            return "";
+        }
+
+        /// <summary>
         /// True when a row stays off the basic picker. Filtering to one host
         /// API gets the list to one row per device, but on a real machine that
         /// still leaves a row for every loopback and virtual-cable endpoint —

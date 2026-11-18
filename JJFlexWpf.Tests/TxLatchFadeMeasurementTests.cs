@@ -39,7 +39,13 @@ public sealed class TxLatchFadeMeasurementTests
     /// </summary>
     internal const double AboveFloorDb = 0.1;
 
-    internal static readonly int[] Candidates = { 0, 6, 12, 24, 36, 48, 72, 96, 144, 240 };
+    /// <summary>
+    /// Every whole length from 0 to 24 samples, then longer ones up to 5 ms
+    /// (repair round 1, R5). The first search tried 0, 6, 12 and 24 only, and
+    /// so "the shortest" meant the shortest of four; Codex's dense search on
+    /// the same fixture found a shorter one.
+    /// </summary>
+    internal static readonly int[] Candidates = Enumerable.Range(0, 25).Concat(new[] { 36, 48, 72, 96, 144, 240 }).ToArray();
 
     private sealed class LateAt : IDenoiseEngine
     {

@@ -100,7 +100,7 @@ public sealed class TransmitSlotTests
     }
 
     [Fact]
-    public void The_real_catalog_opens_a_transmit_helper_channel_for_a_transmit_slot()
+    public void The_real_catalog_builds_a_transmit_direction_helper_engine_for_a_transmit_slot()
     {
         var catalog = new DenoiseEngineCatalog();
         foreach (var id in new[] { "nnr", "nr2" })

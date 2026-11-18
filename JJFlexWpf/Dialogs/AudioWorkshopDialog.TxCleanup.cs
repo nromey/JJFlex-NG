@@ -215,8 +215,9 @@ public partial class AudioWorkshopDialog
     /// With no radio connected the switch is KEPT, not refused (#1077,
     /// settings are intents): the transmit chain and the gate settings are
     /// held for the session and applied when a radio connects. Turning noise
-    /// reduction on or off while keyed takes effect at the unkey (Sprint 49
-    /// Track H, item B), and the operator is told so.
+    /// reduction or the gate on or off while keyed takes effect at the unkey
+    /// (Sprint 49 Track H, item B and repair round 1), and the operator is
+    /// told so.
     /// </remarks>
     private void SetTxCleanupToggle(string label, bool isOn)
     {
@@ -225,7 +226,7 @@ public partial class AudioWorkshopDialog
         if (label.StartsWith("Noise r", StringComparison.OrdinalIgnoreCase))
             timing = TxAudioConditioning.Chain.SetEnabled(DenoiseFamily.Neural, isOn).Timing;
         else
-            TxAudioConditioning.GateEnabled = isOn;
+            timing = TxAudioConditioning.SetGateEnabled(isOn).Timing;
         ToggleFeedback.Announce(label, isOn);
         if (timing == TxChangeTiming.AtUnkey)
             ScreenReaderOutput.Speak(Lexicon.Get("audio.denoise.tx.at_unkey"), Radios.Speech.SpeechIntent.Queue,

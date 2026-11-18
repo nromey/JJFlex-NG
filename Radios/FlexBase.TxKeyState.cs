@@ -28,6 +28,9 @@ namespace Radios
             }
         }
 
+        /// <summary>The capture device the transmit microphone stream uses, by name, or "" before one is resolved (Sprint 49 Track H, repair round 1, R1).</summary>
+        public string TransmitCaptureDeviceName => remoteInputDevice?.Name ?? "";
+
         /// <summary>One delegate for <see cref="TransmitKeyedOrInterlock"/>, made once, for the audio thread to ask every buffer.</summary>
         public Func<bool> TransmitKeySource => _transmitKeySource ??= () => TransmitKeyedOrInterlock;
     }

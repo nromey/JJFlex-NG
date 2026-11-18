@@ -145,25 +145,125 @@ namespace JJFlexWpf
 
         private TxChangeResult Timing() => IsKeyed ? TxChangeResult.AtUnkey : TxChangeResult.Now;
 
+        // ── What waits for the unkey (item B; repair round 1, R3) ──
+        //
+        // Two mechanisms, deliberately. On, off, an engine and a rebuild setting
+        // are accepted at once and made audible only by the audio thread on an
+        // unkeyed buffer (the slot's SwapPermitted, Process below), so they
+        // cannot land mid-over even if the key goes down between the request
+        // and the next buffer. A WHOLE SETUP, and anything asked for after a
+        // setup that is still waiting, is held here as an ordered list of
+        // changes and run on the control side at the unkey, so the later
+        // request still wins, as it would have unkeyed.
+
+        /// <summary>
+        /// THE ONE PLACE that decides whether the continuous levers stay live
+        /// while keyed: an engine's settings that need no new instance (NNR's
+        /// depth, DeepFilterNet3's limit, NR4's reduction) and the gate's
+        /// threshold, margin, attack, hold, release and depth. True today:
+        /// Noel ruled strength live and engine changes at unkey, and the others
+        /// were left live for now while S15 asks whether they are like strength
+        /// (repair round 1, R3). Setting this false sends every one of them
+        /// through <see cref="RunOrDefer"/>, so they wait for the unkey; nothing
+        /// else changes. Strength stays live either way (the ruling).
+        /// </summary>
+        public const bool ContinuousLeversLiveWhileKeyed = true;
+
+        private readonly object _deferLock = new();
+        private readonly List<Action> _deferred = new();
+
+        /// <summary>True while changes are being held for the unkey (a whole setup, and whatever was asked for after it).</summary>
+        public bool HasDeferredChanges => Volatile.Read(ref _deferredCount) > 0;
+        private int _deferredCount; // _deferred.Count, readable without the lock (the audio thread asks at the unkey)
+
+        /// <summary>
+        /// Run <paramref name="change"/> now when unkeyed (after anything already
+        /// held), or hold it, in order, for the unkey. Changes run on the control
+        /// side; the chain runs the held ones at the unkey (and the app's policy
+        /// tick does too, as a backstop for an over in CW, where the chain is
+        /// stood aside).
+        /// </summary>
+        public TxChangeResult RunOrDefer(Action change)
+        {
+            if (change == null) throw new ArgumentNullException(nameof(change));
+            lock (_deferLock)
+            {
+                if (IsKeyed) { _deferred.Add(change); _deferredCount = _deferred.Count; return TxChangeResult.AtUnkey; }
+                DrainLocked();
+            }
+            change();
+            return TxChangeResult.Now;
+        }
+
+        /// <summary>Run every held change if the radio is now unkeyed. Safe to call any time, from any thread but the audio one.</summary>
+        public void ApplyDeferred()
+        {
+            lock (_deferLock)
+            {
+                if (_deferred.Count == 0 || IsKeyed) return;
+                DrainLocked();
+            }
+        }
+
+        private void DrainLocked()
+        {
+            while (_deferred.Count > 0)
+            {
+                var next = _deferred[0];
+                _deferred.RemoveAt(0);
+                _deferredCount = _deferred.Count;
+                try { next(); }
+                catch (Exception ex) { Trace.WriteLine("TxNoiseChain: a change held for the unkey failed: " + ex.Message); }
+            }
+        }
+
+        /// <summary>
+        /// An audio-gated change: made now (the audio thread makes it audible
+        /// only unkeyed), unless a whole setup is waiting, in which case it waits
+        /// behind it so it still wins.
+        /// </summary>
+        private TxChangeResult Gated(Action change)
+        {
+            lock (_deferLock)
+            {
+                if (_deferred.Count > 0 && IsKeyed) { _deferred.Add(change); _deferredCount = _deferred.Count; return TxChangeResult.AtUnkey; }
+                DrainLocked();
+            }
+            change();
+            return Timing();
+        }
+
         /// <summary>Turn a slot on or off (item B: at the unkey when keyed).</summary>
-        public TxChangeResult SetEnabled(DenoiseFamily family, bool on)
+        public TxChangeResult SetEnabled(DenoiseFamily family, bool on) => Gated(() => SetEnabledNow(family, on));
+
+        private void SetEnabledNow(DenoiseFamily family, bool on)
         {
             Volatile.Write(ref _wantEnabled[(int)family], on ? 1 : 0);
             if (on) SlotOf(family).RememberUse();
-            return Timing();
         }
 
         /// <summary>Choose a slot's engine (item B: it starts at the unkey when keyed). Refused for an engine that is not this slot's family, is receive only, or is not in this build.</summary>
         public TxChangeResult ChooseEngine(DenoiseFamily family, string engineId)
         {
-            if (!SlotOf(family).Select(engineId, out var refusal)) return new(TxChangeTiming.Refused, refusal);
-            return Timing();
+            string? refusal = Refusal(family, engineId);
+            if (refusal != null) return new(TxChangeTiming.Refused, refusal);
+            return Gated(() => SlotOf(family).Select(engineId, out _));
+        }
+
+        /// <summary>The slot's own refusal, worked out before anything is held, in the slot's words.</summary>
+        private string? Refusal(DenoiseFamily family, string engineId)
+        {
+            var entry = _catalog.Find(engineId);
+            return entry == null ? "unknown-engine" : entry.Side != DenoiseSide.Pc ? "radio-engine"
+                : !entry.Serves(DenoiseDirection.Transmit) ? "wrong-direction" : entry.Family != family ? "wrong-family"
+                : entry.Factory == null ? "not-in-build" : null;
         }
 
         /// <summary>
         /// Change one engine setting. A setting that needs a new instance (a
-        /// model, a delay) waits for the unkey like an engine change; any other
-        /// setting is live, like strength.
+        /// model, a delay) waits for the unkey like an engine change. Any other
+        /// setting follows <see cref="ContinuousLeversLiveWhileKeyed"/>: live
+        /// today, like strength.
         /// </summary>
         public TxChangeResult SetSetting(string engineId, string name, EngineSettingValue value)
         {
@@ -171,12 +271,40 @@ namespace JJFlexWpf
             if (slot == null) return new(TxChangeTiming.Refused, "wrong-direction");
             var descriptor = slot.SettingsFor(engineId).FirstOrDefault(s => s.Name == name);
             if (descriptor == null) return new(TxChangeTiming.Refused, "unknown-setting");
-            if (!slot.TrySetSetting(engineId, name, value)) return new(TxChangeTiming.Refused, "refused-value");
-            return descriptor.NeedsRebuild && slot.ChosenEngineId == engineId ? Timing() : TxChangeResult.Now;
+            if (!descriptor.Accepts(value)) return new(TxChangeTiming.Refused, "refused-value");
+            if (descriptor.NeedsRebuild)
+            {
+                bool behindSetup = HasDeferredChanges && IsKeyed;
+                var timing = Gated(() => slot.TrySetSetting(engineId, name, value));
+                // A rebuild setting of an engine the slot is not running changes nothing anyone hears.
+                return behindSetup || slot.ChosenEngineId == engineId ? timing : TxChangeResult.Now;
+            }
+            return Continuous(() => slot.TrySetSetting(engineId, name, value));
         }
 
-        /// <summary>A transmit engine's strength (stored wet fraction; surfaces show it as a floor through <see cref="NoiseFloor"/>). Live while keyed.</summary>
-        public void SetStrength(string engineId, float strength) => SlotFor(engineId)?.SetStrength(engineId, strength);
+        /// <summary>A continuous lever (see <see cref="ContinuousLeversLiveWhileKeyed"/>): live, unless a whole setup is waiting or the policy says to wait.</summary>
+        internal TxChangeResult Continuous(Action change)
+        {
+            if (!ContinuousLeversLiveWhileKeyed) return RunOrDefer(change);
+            lock (_deferLock)
+            {
+                if (_deferred.Count > 0 && IsKeyed) { _deferred.Add(change); _deferredCount = _deferred.Count; return TxChangeResult.AtUnkey; }
+            }
+            change();
+            return TxChangeResult.Now;
+        }
+
+        /// <summary>A transmit engine's strength (stored wet fraction; surfaces show it as a floor through <see cref="NoiseFloor"/>). Live while keyed (the ruling), unless a whole setup is waiting, when it waits behind it.</summary>
+        public void SetStrength(string engineId, float strength)
+        {
+            var slot = SlotFor(engineId);
+            if (slot == null) return;
+            lock (_deferLock)
+            {
+                if (_deferred.Count > 0 && IsKeyed) { _deferred.Add(() => slot.SetStrength(engineId, strength)); _deferredCount = _deferred.Count; return; }
+            }
+            slot.SetStrength(engineId, strength);
+        }
 
         public float GetStrength(string engineId) =>
             SlotFor(engineId)?.GetStrength(engineId) ?? NoiseFloor.DefaultStrength(engineId, DenoiseDirection.Transmit);
@@ -204,27 +332,41 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Put a setup's two slots in place: every engine's stored values, the
-        /// chosen engines, on and off. Like any change, audible only from the
-        /// next unkeyed buffer. An engine this build cannot run stays chosen as
-        /// the operator's intent, the way a receive slot keeps one.
+        /// Put a setup's two slots in place, REPLACING what was there (repair
+        /// round 1, R2): every engine's stored values become exactly the setup's,
+        /// anything it does not name goes back to its default, an empty engine
+        /// choice means the slot's default engine, and on and off are the
+        /// setup's. A whole setup waits for the unkey when keyed (R3), as one
+        /// change. An engine this build cannot run is refused and the slot takes
+        /// its default instead (traced), so no earlier engine survives.
         /// </summary>
-        public TxChangeResult ApplySlots(TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural)
+        public TxChangeResult ApplySlots(TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural) =>
+            RunOrDefer(() => ApplySlotsNow(spectral, neural));
+
+        /// <summary>The slot half of a setup, now, on the control side. <see cref="TxAudioConditioning"/> runs it inside its own whole-setup change.</summary>
+        internal void ApplySlotsNow(TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural)
         {
             Apply(DenoiseFamily.Spectral, spectral);
             Apply(DenoiseFamily.Neural, neural);
-            return Timing();
         }
+
+        /// <summary>The engine a slot starts on when a setup names none.</summary>
+        public static string DefaultEngine(DenoiseFamily family) => family == DenoiseFamily.Spectral ? DefaultSpectralEngine : DefaultNeuralEngine;
 
         private void Apply(DenoiseFamily family, TxNoiseSlotSetup? want)
         {
-            if (want == null) return;
+            want ??= new TxNoiseSlotSetup();
             var slot = SlotOf(family);
             var records = (want.Engines ?? new()).Where(e => e != null)
                 .Select(e => new DenoiseEngineSettings { EngineId = e.EngineId, Direction = DenoiseDirection.Transmit, Strength = e.Strength, Values = e.Values })
                 .ToList();
-            slot.RestoreAndSelect(records, want.EngineId ?? "");
-            if (!string.IsNullOrEmpty(want.EngineId)) slot.RememberUse();
+            string id = string.IsNullOrWhiteSpace(want.EngineId) ? DefaultEngine(family) : want.EngineId;
+            if (!slot.ReplaceSettingsAndSelect(records, id))
+            {
+                Trace.WriteLine($"TxNoiseChain: the setup's {family} engine '{id}' cannot run here; the slot takes {DefaultEngine(family)}.");
+                slot.Select(DefaultEngine(family), out _);
+            }
+            if (!string.IsNullOrWhiteSpace(want.EngineId)) slot.RememberUse();
             Volatile.Write(ref _wantEnabled[(int)family], want.Enabled ? 1 : 0);
         }
 
@@ -263,7 +405,12 @@ namespace JJFlexWpf
             AppliedLatencySamples = 0;
             _bufferKeyed = keyed;
             if (keyed && !_wasKeyed) StartOver();
-            else if (!keyed && _wasKeyed) EndOver();
+            else if (!keyed && _wasKeyed)
+            {
+                EndOver();
+                // R3: a whole setup, and what was asked for after it, runs now.
+                if (HasDeferredChanges) ThreadPool.QueueUserWorkItem(_ => ApplyDeferred());
+            }
             _wasKeyed = keyed;
             if (keyed) NoteBufferTiming();
             if (!keyed)

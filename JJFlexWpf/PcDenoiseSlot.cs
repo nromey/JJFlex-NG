@@ -745,6 +745,28 @@ namespace JJFlexWpf
             return false;
         }
 
+        /// <summary>
+        /// Replace EVERY stored engine setting with exactly <paramref name="records"/>
+        /// (an engine or a value not in them goes back to its default) and choose
+        /// <paramref name="id"/>; returns false, choosing nothing, when the slot
+        /// refuses it. For a whole transmit setup (Sprint 49 Track H, repair round
+        /// 1, R2): a setup stores only what was touched, so overlaying it on the
+        /// slot, as <see cref="RestoreAndSelect"/> does for a receive preset, let
+        /// the previous setup's engine and values leak into the new one (Codex's
+        /// check, 2026-11-18). The chosen engine rebuilds when a rebuild setting
+        /// now differs from what it was built with, as there.
+        /// </summary>
+        internal bool ReplaceSettingsAndSelect(IEnumerable<DenoiseEngineSettings> records, string id)
+        {
+            string chosen = ChosenEngineId;
+            var before = RebuildValues(chosen);
+            _settings.Clear();
+            RestoreSettings(records);
+            if (id != chosen) return Select(id, out _);
+            if (!before.SequenceEqual(RebuildValues(chosen))) Select(chosen, out _, force: !RunningIsCurrent(chosen));
+            return true;
+        }
+
         private List<string> RebuildValues(string id) => SettingsFor(id).Where(d => d.NeedsRebuild)
             .Select(d => { var v = GetSetting(id, d.Name); return d.Name + "=" + (v.Choice ?? v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture)); })
             .ToList();

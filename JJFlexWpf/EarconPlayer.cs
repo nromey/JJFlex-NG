@@ -2391,9 +2391,35 @@ namespace JJFlexWpf
             // length, and the duration is stated here rather than guessed at,
             // because the request is a deadline and a wrong one is audible.
             RxDuck.RequestFor(270);
-            PlayVoicedSequence(EarconVoices.Plain,
-                new[] { (440, 90), (0, 50), (370, 130) }, VolumeNormal);
+            PlayVoicedSequence(EarconVoices.Plain, ProblemRecordedSteps, VolumeNormal);
         }
+
+        /// <summary>The problem tone's figure, shared by both ways of playing it so they cannot drift apart.</summary>
+        private static readonly (int freq, int ms)[] ProblemRecordedSteps = { (440, 90), (0, 50), (370, 130) };
+
+        /// <summary>
+        /// The same tone, on the ALERT CHANNEL OR NOT AT ALL: false, and nothing
+        /// played, when the alert channel has no mixer, where
+        /// <see cref="ProblemRecordedTone"/> would fall back to the system beep
+        /// (Sprint 49 Track H, repair round 1, R1). For the transmit fallback
+        /// notice, whose tone is ruled never to take any route but the alert
+        /// device ("Wouldn't transmit a beep on air", Noel 2026-11-18): the
+        /// system beep is a different output this app does not choose.
+        /// </summary>
+        internal static bool ProblemRecordedToneOnAlertChannelOnly()
+        {
+            if (AlertMixer == null || !IsOn(EarconCategory.Warnings)) return false;
+            // The tone itself is ProblemRecordedTone, unchanged (its gate, its
+            // admission and its duck stay where the warning rules look for
+            // them); this only forbids the system-beep fallback while it plays,
+            // should the alert channel vanish between the check and the play.
+            _alertChannelOnly = true;
+            try { ProblemRecordedTone(); }
+            finally { _alertChannelOnly = false; }
+            return true;
+        }
+
+        [ThreadStatic] private static bool _alertChannelOnly;
 
         /// <summary>
         /// The warning alarm: 800 Hz for 750 ms with its 2nd and 3rd harmonics
@@ -3937,6 +3963,7 @@ namespace JJFlexWpf
         {
             if (AlertMixer == null)
             {
+                if (_alertChannelOnly) return; // Sprint 49 Track H, R1: no system beep for this one
                 int first = 800, ms = 150;
                 foreach (var s in steps) { if (s.freq > 0) { first = s.freq; ms = s.ms; break; } }
                 FallbackBeep(first, ms);
@@ -4127,8 +4154,12 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>Times the system-beep fallback was asked for since the process began. A test counter (Sprint 49 Track H, R1).</summary>
+        internal static long FallbackBeepsRequested;
+
         private static void FallbackBeep(int frequencyHz, int durationMs)
         {
+            System.Threading.Interlocked.Increment(ref FallbackBeepsRequested);
             // Render-off means NO audio path at all - Console.Beep is still an
             // audio device as far as a blind operator's ears are concerned.
             if (!Radios.OutputChannelRecorder.RenderEnabled) return;
