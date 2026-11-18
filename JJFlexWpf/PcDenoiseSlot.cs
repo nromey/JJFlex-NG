@@ -123,6 +123,9 @@ namespace JJFlexWpf
 
         /// <summary>Transmit only: whether the running engine's bank took the last buffer (on, permitted, built). False means it passed through untouched.</summary>
         internal bool LastBufferProcessed { get; private set; }
+
+        /// <summary>Transmit only: the last buffer was processed and the engine itself produced every frame of it (none late, failed or latched). The chain's "it has recovered".</summary>
+        internal bool LastBufferClean { get; private set; }
         public string ChosenEngineId => Volatile.Read(ref _choice).Id;
         public string RunningEngineId => Volatile.Read(ref _runningBuild)?.Id ?? "";
 
@@ -563,6 +566,7 @@ namespace JJFlexWpf
         {
             LastAppliedLatencySamples = 0;
             LastBufferProcessed = false;
+            LastBufferClean = false;
             bool swap = SwapPermitted?.Invoke() ?? true;
             var choice = Volatile.Read(ref _choice);
             if (Volatile.Read(ref choice.Failure) != null)
@@ -604,10 +608,15 @@ namespace JJFlexWpf
             }
             _wasActive = true;
             running.ListenToRemoved = false;
+            // Keyed (no swap permitted): a late or failed frame latches the
+            // bank dry for the rest of the over, never frame by frame (item C).
+            running.LatchFallback = !swap;
             ApplyParameters(running, run!.Id, ref _runningApplied);
-            long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames;
+            long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames, latched = running.LatchedFrames;
             running.Process(audio, GetStrength(run.Id));
             LastBufferProcessed = true;
+            LastBufferClean = running.EngineFrames != took && late == running.LateFrames
+                && failed == running.FallbackFrames && latched == running.LatchedFrames && !running.Latched;
             LastAppliedLatencySamples = running.LatencySamples;
             if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
             if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&

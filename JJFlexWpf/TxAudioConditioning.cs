@@ -85,7 +85,50 @@ namespace JJFlexWpf
             {
                 var chain = _chain;
                 if (chain != null) return chain;
-                lock (_gate) return _chain ??= CreateChain();
+                lock (_gate)
+                {
+                    if (_chain != null) return _chain;
+                    var made = CreateChain();
+                    HookNotices(made);
+                    return _chain = made;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Wire a chain's two reports to the operator and the trace: a slot that
+        /// fell back mid-over (item C) and each over's frame counts (item D).
+        /// </summary>
+        internal static void HookNotices(TxNoiseChain chain)
+        {
+            chain.FellBack += (family, engineId) => TellFellBack(chain, engineId);
+            chain.OverReport += line => Trace.WriteLine(line);
+        }
+
+        /// <summary>
+        /// The mid-over failure notice (item C; Noel 2026-11-18 08:18 and 08:21:
+        /// "Wouldn't transmit a beep on air", then "the one line or few words
+        /// with a tone (short beep)"). A short earcon on the operator's ALERT
+        /// channel, the existing calm "something failed" tone, and a few words.
+        /// Nothing here touches the transmit audio: the earcon player owns its
+        /// own output device and mixer, and the transmit frames are built only
+        /// by <c>TxFramePipeline</c> from the microphone or an engaged source.
+        /// <c>TxFallbackNoticeTests</c> fails if the tone ever reaches a frame.
+        /// </summary>
+        private static void TellFellBack(TxNoiseChain chain, string engineId)
+        {
+            try
+            {
+                EarconPlayer.ProblemRecordedTone();
+                var row = chain.Catalog.Find(engineId);
+                string engine = row != null ? Lexicon.Get(row.LabelKey) : engineId;
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.denoise.tx.fell_back", ("engine", engine)),
+                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                    subject: Radios.Speech.SpeechSubject.TransmitNoiseFallback);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("TxAudioConditioning: the fallback notice could not be given: " + ex.Message);
             }
         }
 

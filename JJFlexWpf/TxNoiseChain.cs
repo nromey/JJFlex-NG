@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using Radios;
@@ -75,6 +76,22 @@ namespace JJFlexWpf
         private readonly int[] _wantEnabled = new int[2];
         private float[] _mono = Array.Empty<float>();
         private volatile bool _bufferKeyed;
+
+        // Item C, per slot (index = DenoiseFamily): the latch was seen this
+        // over; the operator has been told and the slot has not yet recovered.
+        private readonly bool[] _latchSeen = new bool[2];
+        private readonly int[] _noticeGiven = new int[2];
+
+        // Item D: this over's counts, per slot, and the buffer timing.
+        private bool _wasKeyed;
+        private readonly OverCounts[] _over = { new(), new() };
+        private long _overBuffers, _overStartTicks, _lastBufferTicks, _burst, _maxBurst, _bursts;
+        private sealed class OverCounts
+        {
+            public PerChannelDenoiserBank? Bank;
+            public string EngineId = "";
+            public long Late, Fallback, Latched, Engine, Latches;
+        }
 
         public PcDenoiseSlot SpectralSlot { get; }
         public PcDenoiseSlot NeuralSlot { get; }
@@ -211,6 +228,28 @@ namespace JJFlexWpf
             Volatile.Write(ref _wantEnabled[(int)family], want.Enabled ? 1 : 0);
         }
 
+        /// <summary>
+        /// A slot's engine failed or fell behind mid-over and the slot latched
+        /// dry for the rest of it (item C). Raised on a pool thread, once until
+        /// the slot recovers (S3's refinement, 08:23: "the notice comes once,
+        /// not every over, until it recovers"), with the slot and its engine
+        /// id. <see cref="TxAudioConditioning"/> answers it with a short earcon
+        /// on the alert channel and a few words, never anything on the air.
+        /// </summary>
+        public event Action<DenoiseFamily, string>? FellBack;
+
+        /// <summary>
+        /// One line per over (item D, measure first): for each slot that ran,
+        /// its engine and how many frames went late, failed, or out latched
+        /// dry; and how the buffers arrived (their count, how many came back
+        /// to back as bursts, and the longest burst). Raised on a pool thread
+        /// at the unkey; the app traces it. Null text is never sent.
+        /// </summary>
+        public event Action<string>? OverReport;
+
+        /// <summary>Two buffers this close together (in stopwatch ticks) arrived in the same burst: one capture callback handing over several frames back to back.</summary>
+        private static readonly long BurstGapTicks = Stopwatch.Frequency / 500; // 2 ms
+
         /// <summary>The delay the last buffer went out with, in samples per channel: the two slots' together, 0 when neither processed it.</summary>
         public int AppliedLatencySamples { get; private set; }
 
@@ -223,11 +262,20 @@ namespace JJFlexWpf
         {
             AppliedLatencySamples = 0;
             _bufferKeyed = keyed;
+            if (keyed && !_wasKeyed) StartOver();
+            else if (!keyed && _wasKeyed) EndOver();
+            _wasKeyed = keyed;
+            if (keyed) NoteBufferTiming();
             if (!keyed)
             {
                 // The only place on and off become audible (item B).
                 SpectralSlot.Enabled = WantsEnabled(DenoiseFamily.Spectral);
                 NeuralSlot.Enabled = WantsEnabled(DenoiseFamily.Neural);
+                // Item C: the retry starts at the unkey. A slot that latched
+                // during the over is released and rebuilt now, while
+                // receiving, so the next over starts processed or cleanly dry.
+                Unlatch(DenoiseFamily.Spectral);
+                Unlatch(DenoiseFamily.Neural);
             }
             if (sampleRate != SampleRate || count < 2) return;
             int frames = count / 2;
@@ -236,10 +284,103 @@ namespace JJFlexWpf
             for (int f = 0, i = 0; f < frames; f++, i += 2) mono[f] = (interleaved[i] + interleaved[i + 1]) * 0.5f;
             SpectralSlot.Process(mono, true, true, false, null);
             NeuralSlot.Process(mono, true, true, false, null);
+            AfterSlot(DenoiseFamily.Spectral, keyed);
+            AfterSlot(DenoiseFamily.Neural, keyed);
             bool processed = SpectralSlot.LastBufferProcessed || NeuralSlot.LastBufferProcessed;
             if (!processed) return;
             for (int f = 0, i = 0; f < frames; f++, i += 2) { interleaved[i] = mono[f]; interleaved[i + 1] = mono[f]; }
             AppliedLatencySamples = SpectralSlot.LastAppliedLatencySamples + NeuralSlot.LastAppliedLatencySamples;
+        }
+
+        /// <summary>Item C, on the audio thread: tell the operator once when a slot latches; forget the notice once it processes cleanly again.</summary>
+        private void AfterSlot(DenoiseFamily family, bool keyed)
+        {
+            int i = (int)family;
+            var slot = SlotOf(family);
+            if (slot.LastBufferClean) Volatile.Write(ref _noticeGiven[i], 0);
+            if (!keyed || _latchSeen[i] || slot.RunningBank is not { Latched: true }) return;
+            _latchSeen[i] = true;
+            string engine = slot.RunningEngineId;
+            bool tell = Interlocked.Exchange(ref _noticeGiven[i], 1) == 0;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Trace.WriteLine($"TxNoiseChain: transmit {family} slot ({engine}) missed a frame mid-over; latched to the unprocessed microphone at the same delay until the unkey"
+                    + (tell ? "; telling the operator." : "; already told, not again until it recovers."));
+                if (tell) FellBack?.Invoke(family, engine);
+            });
+        }
+
+        /// <summary>Item C, at an unkeyed buffer: release a latched bank and rebuild the slot's own transmit engine (never receive's) on a worker.</summary>
+        private void Unlatch(DenoiseFamily family)
+        {
+            int i = (int)family;
+            _latchSeen[i] = false;
+            var slot = SlotOf(family);
+            var bank = slot.RunningBank;
+            if (bank == null || !bank.Latched) return;
+            bank.ReleaseLatch();
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                string id = slot.ChosenEngineId;
+                Trace.WriteLine($"TxNoiseChain: unkeyed after a latched over; rebuilding the transmit {family} slot's {id} while receiving.");
+                slot.Select(id, out _, force: true);
+            });
+        }
+
+        private void StartOver()
+        {
+            _overBuffers = 0; _burst = 0; _maxBurst = 0; _bursts = 0;
+            _overStartTicks = _lastBufferTicks = 0;
+            Snapshot(DenoiseFamily.Spectral);
+            Snapshot(DenoiseFamily.Neural);
+        }
+
+        private void Snapshot(DenoiseFamily family)
+        {
+            var o = _over[(int)family];
+            var slot = SlotOf(family);
+            o.Bank = slot.Enabled ? slot.RunningBank : null;
+            o.EngineId = o.Bank != null ? slot.RunningEngineId : "";
+            if (o.Bank == null) return;
+            o.Late = o.Bank.LateFrames; o.Fallback = o.Bank.FallbackFrames; o.Latched = o.Bank.LatchedFrames;
+            o.Engine = o.Bank.EngineFrames; o.Latches = o.Bank.Latches;
+        }
+
+        private void NoteBufferTiming()
+        {
+            long now = Stopwatch.GetTimestamp();
+            if (_overBuffers == 0) _overStartTicks = now;
+            else if (now - _lastBufferTicks < BurstGapTicks) { if (++_burst == 1) _bursts++; if (_burst + 1 > _maxBurst) _maxBurst = _burst + 1; }
+            else _burst = 0;
+            _lastBufferTicks = now;
+            _overBuffers++;
+        }
+
+        /// <summary>At the unkey: the over's counts, read here and worded on a pool thread for <see cref="OverReport"/>.</summary>
+        private void EndOver()
+        {
+            if (OverReport == null) return;
+            var counts = new long[2][];
+            var ids = new string?[2];
+            for (int i = 0; i < 2; i++)
+            {
+                var o = _over[i];
+                var b = o.Bank;
+                if (b == null) continue;
+                ids[i] = o.EngineId;
+                counts[i] = new[] { b.EngineFrames - o.Engine, b.LateFrames - o.Late, b.FallbackFrames - o.Fallback,
+                    b.LatchedFrames - o.Latched, b.Latches - o.Latches };
+            }
+            long buffers = _overBuffers, bursts = _bursts, longest = _maxBurst;
+            double seconds = buffers < 2 ? 0 : (double)(_lastBufferTicks - _overStartTicks) / Stopwatch.Frequency;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                string Part(int i) => counts[i] == null ? (DenoiseFamily)i + " off"
+                    : $"{(DenoiseFamily)i} {ids[i]}: engine frames {counts[i][0]}, late {counts[i][1]}, failed {counts[i][2]}, latched dry {counts[i][3]}"
+                      + (counts[i][4] > 0 ? " (latched this over)" : "");
+                OverReport?.Invoke($"TxNoiseChain over: {Part(0)}; {Part(1)}; {buffers} buffers in {seconds:0.00} s, "
+                    + $"{bursts} bursts, longest burst {longest} buffers back to back");
+            });
         }
     }
 }
