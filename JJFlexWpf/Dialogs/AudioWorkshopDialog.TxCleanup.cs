@@ -107,8 +107,7 @@ public partial class AudioWorkshopDialog
         _txGateAttackControl.ValueChanged += (s, v) =>
         {
             if (_polling) return;
-            var gate = TxAudioConditioning.Conditioner?.Gate;
-            if (gate != null) gate.AttackMs = v;
+            TxAudioConditioning.GateAttackMs = v;
         };
         AddToSection(ThisComputerContent, _txGateAttackControl);
 
@@ -120,8 +119,7 @@ public partial class AudioWorkshopDialog
         _txGateHoldControl.ValueChanged += (s, v) =>
         {
             if (_polling) return;
-            var gate = TxAudioConditioning.Conditioner?.Gate;
-            if (gate != null) gate.HoldMs = v;
+            TxAudioConditioning.GateHoldMs = v;
         };
         AddToSection(ThisComputerContent, _txGateHoldControl);
 
@@ -133,8 +131,7 @@ public partial class AudioWorkshopDialog
         _txGateReleaseControl.ValueChanged += (s, v) =>
         {
             if (_polling) return;
-            var gate = TxAudioConditioning.Conditioner?.Gate;
-            if (gate != null) gate.ReleaseMs = v;
+            TxAudioConditioning.GateReleaseMs = v;
         };
         AddToSection(ThisComputerContent, _txGateReleaseControl);
 
@@ -146,8 +143,7 @@ public partial class AudioWorkshopDialog
         _txGateRangeControl.ValueChanged += (s, v) =>
         {
             if (_polling) return;
-            var gate = TxAudioConditioning.Conditioner?.Gate;
-            if (gate != null) gate.RangeDb = v;
+            TxAudioConditioning.GateRangeDb = v;
         };
         AddToSection(ThisComputerContent, _txGateRangeControl);
 
@@ -215,24 +211,25 @@ public partial class AudioWorkshopDialog
 
     /// <summary>Toggle handler for the two cleanup switches — same earcon and
     /// speech shape as the radio toggles, but these live on the PC.</summary>
+    /// <remarks>
+    /// With no radio connected the switch is KEPT, not refused (#1077,
+    /// settings are intents): the transmit chain and the gate settings are
+    /// held for the session and applied when a radio connects. Turning noise
+    /// reduction on or off while keyed takes effect at the unkey (Sprint 49
+    /// Track H, item B), and the operator is told so.
+    /// </remarks>
     private void SetTxCleanupToggle(string label, bool isOn)
     {
         if (_polling) return;
-        // The chain lives on the rig; with no radio connected the switch
-        // cannot take effect, and announcing "on" while the poll quietly
-        // unchecks it again would be a lie.
-        if (TxAudioConditioning.Conditioner == null)
-        {
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.cleanup.no_radio_yet"),
-                VerbosityLevel.Terse, interrupt: true);
-            PollTxCleanup();
-            return;
-        }
+        var timing = TxChangeTiming.Now;
         if (label.StartsWith("Noise r", StringComparison.OrdinalIgnoreCase))
-            TxAudioConditioning.NrEnabled = isOn;
+            timing = TxAudioConditioning.Chain.SetEnabled(DenoiseFamily.Neural, isOn).Timing;
         else
             TxAudioConditioning.GateEnabled = isOn;
         ToggleFeedback.Announce(label, isOn);
+        if (timing == TxChangeTiming.AtUnkey)
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.denoise.tx.at_unkey"), Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse, subject: Radios.Speech.SpeechSubject.TransmitNoiseChange);
         PollTxCleanup();
     }
 
@@ -260,6 +257,7 @@ public partial class AudioWorkshopDialog
             if (_txGateCheck != null) _txGateCheck.IsChecked = gateOn;
             var gate = TxAudioConditioning.Conditioner?.Gate;
             var gateVis = gateOn ? Visibility.Visible : Visibility.Collapsed;
+            // The held settings, radio or no radio (#1077).
             if (_txGateMarginControl != null)
             {
                 _txGateMarginControl.Visibility = gateVis;
@@ -269,22 +267,22 @@ public partial class AudioWorkshopDialog
             if (_txGateAttackControl != null)
             {
                 _txGateAttackControl.Visibility = gateVis;
-                if (gateOn && gate != null) _txGateAttackControl.Value = (int)Math.Round(gate.AttackMs);
+                if (gateOn) _txGateAttackControl.Value = (int)Math.Round(TxAudioConditioning.GateAttackMs);
             }
             if (_txGateHoldControl != null)
             {
                 _txGateHoldControl.Visibility = gateVis;
-                if (gateOn && gate != null) _txGateHoldControl.Value = (int)Math.Round(gate.HoldMs);
+                if (gateOn) _txGateHoldControl.Value = (int)Math.Round(TxAudioConditioning.GateHoldMs);
             }
             if (_txGateReleaseControl != null)
             {
                 _txGateReleaseControl.Visibility = gateVis;
-                if (gateOn && gate != null) _txGateReleaseControl.Value = (int)Math.Round(gate.ReleaseMs);
+                if (gateOn) _txGateReleaseControl.Value = (int)Math.Round(TxAudioConditioning.GateReleaseMs);
             }
             if (_txGateRangeControl != null)
             {
                 _txGateRangeControl.Visibility = gateVis;
-                if (gateOn && gate != null) _txGateRangeControl.Value = (int)Math.Round(gate.RangeDb);
+                if (gateOn) _txGateRangeControl.Value = (int)Math.Round(TxAudioConditioning.GateRangeDb);
             }
 
             // The chain is the truth for the monitor mode — a selection made

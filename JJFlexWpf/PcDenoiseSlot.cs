@@ -120,6 +120,9 @@ namespace JJFlexWpf
         /// two slots' figures for the conditioner's aligned residual monitor.
         /// </summary>
         internal int LastAppliedLatencySamples { get; private set; }
+
+        /// <summary>Transmit only: whether the running engine's bank took the last buffer (on, permitted, built). False means it passed through untouched.</summary>
+        internal bool LastBufferProcessed { get; private set; }
         public string ChosenEngineId => Volatile.Read(ref _choice).Id;
         public string RunningEngineId => Volatile.Read(ref _runningBuild)?.Id ?? "";
 
@@ -559,6 +562,7 @@ namespace JJFlexWpf
         private void ProcessTransmit(float[] audio, bool permitted)
         {
             LastAppliedLatencySamples = 0;
+            LastBufferProcessed = false;
             bool swap = SwapPermitted?.Invoke() ?? true;
             var choice = Volatile.Read(ref _choice);
             if (Volatile.Read(ref choice.Failure) != null)
@@ -603,6 +607,7 @@ namespace JJFlexWpf
             ApplyParameters(running, run!.Id, ref _runningApplied);
             long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames;
             running.Process(audio, GetStrength(run.Id));
+            LastBufferProcessed = true;
             LastAppliedLatencySamples = running.LatencySamples;
             if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
             if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&

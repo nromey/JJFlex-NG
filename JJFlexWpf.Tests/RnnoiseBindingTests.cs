@@ -132,11 +132,13 @@ public sealed class RnnoiseBindingTests
     {
         using var engine = new DenoiseEngineCatalog().Find("rnnoise")!.Factory!(new Dictionary<string, EngineSettingValue>(), Radios.DenoiseDirection.Receive);
         Assert.Equal(RnnoiseScaling.Corrected, Assert.IsType<RnnoiseEngine>(engine).Scaling);
-        using var provider = TxAudioConditioning.CreateNoiseReductionProvider();
-        for (int ch = 0; ch < 2; ch++)
-            Assert.Equal(RnnoiseScaling.Corrected, Assert.IsType<RnnoiseEngine>(provider.Bank!.EngineFor(ch)).Scaling);
-        Assert.False(provider.Enabled);
-        Assert.Equal(.8f, provider.Strength);
+        var chain = TxAudioConditioning.CreateChain();
+        // One mono engine per transmit slot (Sprint 49 Track H, item A).
+        var bank = chain.NeuralSlot.RunningBank!;
+        Assert.Equal(1, bank.Channels);
+        Assert.Equal(RnnoiseScaling.Corrected, Assert.IsType<RnnoiseEngine>(bank.EngineFor(0)).Scaling);
+        Assert.False(chain.WantsEnabled(DenoiseFamily.Neural));
+        Assert.Equal(.8f, chain.GetStrength("rnnoise"));
     }
 
     [Fact]
@@ -145,26 +147,26 @@ public sealed class RnnoiseBindingTests
         // Exercise the actual coordinator without Attach, player or a device.
         var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
         var owner = typeof(TxAudioConditioning);
-        var providerField = owner.GetField("_nr", flags)!;
+        var providerField = owner.GetField("_chain", flags)!;
         var appliedField = owner.GetField("_nrAppliedLatency", flags)!;
         object? previousProvider = providerField.GetValue(null);
         object? previousApplied = appliedField.GetValue(null);
         var stage = owner.GetMethod("NrStage", flags)!.CreateDelegate<Action<float[], int, uint>>();
         var readDelay = owner.GetMethod("AppliedNrLatency", flags)!.CreateDelegate<Func<int>>();
-        using var provider = TxAudioConditioning.CreateNoiseReductionProvider();
-        Assert.True(provider.Bank!.IsAvailable);
+        var chain = TxAudioConditioning.CreateChain();
+        Assert.True(chain.NeuralSlot.RunningBank!.IsAvailable);
         var buffer = new float[960];
         try {
-            providerField.SetValue(null, provider);
+            providerField.SetValue(null, chain);
             stage(buffer, buffer.Length, 48000);
             Assert.Equal(0, readDelay()); // disabled by default
-            provider.Enabled = true;
+            chain.SetEnabled(DenoiseFamily.Neural, true);
             stage(buffer, buffer.Length, 48000);
             Assert.Equal(960, readDelay()); // RNNoise 0.2 line: two frames
-            provider.Enabled = false;
+            chain.SetEnabled(DenoiseFamily.Neural, false);
             stage(buffer, buffer.Length, 48000);
             Assert.Equal(0, readDelay());
-            provider.Enabled = true;
+            chain.SetEnabled(DenoiseFamily.Neural, true);
             stage(buffer, buffer.Length, 48000);
             Assert.Equal(960, readDelay()); // RNNoise 0.2 line: two frames
             stage(buffer, buffer.Length, 44100);

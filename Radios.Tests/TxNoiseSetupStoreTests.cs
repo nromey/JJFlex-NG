@@ -307,4 +307,42 @@ public sealed class TxNoiseSetupStoreTests : IDisposable
         Assert.Equal("Loud room", back.NoiseSetupNameFor(Radio8600));
         Assert.Equal("Quiet", back.NoiseSetupNameFor(Radio6300));
     }
+
+    [Fact]
+    public void Replacing_a_radio_binding_keeps_the_noise_setup_it_named()
+    {
+        var profile = new MicrophoneProfile { Name = "Studio mic" };
+        profile.SetSetupFor(new RadioProfileReference { RadioId = Radio8600, ProfileName = "SSB", NoiseSetupName = "Quiet" });
+        // The Workshop's save replaces the binding with a fresh one naming no setup.
+        profile.SetSetupFor(new RadioTxValues { RadioId = Radio8600 });
+        Assert.Equal("Quiet", profile.NoiseSetupNameFor(Radio8600));
+        profile.SetSetupFor(new RadioProfileReference { RadioId = Radio8600, ProfileName = "AM", NoiseSetupName = "Loud" });
+        Assert.Equal("Loud", profile.NoiseSetupNameFor(Radio8600));
+    }
+
+    // ── The conditioner's key state (item B) ──
+
+    [Fact]
+    public void The_conditioner_reads_the_key_once_per_buffer_and_a_throwing_source_reads_keyed()
+    {
+        var cond = new JJPortaudio.TxAudioConditioner();
+        var buf = new float[960];
+        cond.Process(buf, buf.Length, 48000);
+        Assert.False(cond.Keyed); // no radio: never keyed
+        bool keyed = false;
+        cond.KeySource = () => keyed;
+        cond.Process(buf, buf.Length, 48000);
+        Assert.Equal((false, 0L), (cond.Keyed, cond.KeyDowns));
+        keyed = true;
+        cond.Process(buf, buf.Length, 48000);
+        cond.Process(buf, buf.Length, 48000);
+        Assert.Equal((true, 1L), (cond.Keyed, cond.KeyDowns));
+        // Even in CW, where the chain steps aside, an over is still an over.
+        keyed = false; cond.BypassAll = true;
+        cond.Process(buf, buf.Length, 48000);
+        Assert.False(cond.Keyed);
+        cond.KeySource = () => throw new InvalidOperationException("radio gone");
+        cond.Process(buf, buf.Length, 48000);
+        Assert.True(cond.Keyed);
+    }
 }

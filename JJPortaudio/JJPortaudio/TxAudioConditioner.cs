@@ -99,6 +99,41 @@ namespace JJPortaudio
         private volatile bool _bypassAll;
 
         /// <summary>
+        /// Asked once per buffer, on the audio thread: is the radio keyed?
+        /// The app answers "our Mox OR the radio's interlock says transmitting"
+        /// (Sprint 49 Track H, item B), because VOX keys only the interlock, so
+        /// a key state built on our own Mox would miss every VOX over. Null
+        /// means no radio: never keyed. A source that throws reads as keyed,
+        /// which only ever defers a change.
+        /// </summary>
+        public Func<bool> KeySource { get; set; }
+
+        private volatile bool _keyed;
+
+        /// <summary>The key state the current (or last) buffer was processed under, read from <see cref="KeySource"/> at its start.</summary>
+        public bool Keyed => _keyed;
+
+        /// <summary>Key-downs seen at a buffer boundary since this chain was made. A test and trace counter.</summary>
+        public long KeyDowns { get; private set; }
+
+        /// <summary>Read the key state for this buffer. Runs before the bypass, so a CW over still counts as an over.</summary>
+        private bool ReadKey()
+        {
+            var source = KeySource;
+            bool keyed;
+            if (source == null) keyed = false;
+            else
+            {
+                try { keyed = source(); }
+                catch { keyed = true; }
+            }
+            bool was = _keyed;
+            _keyed = keyed;
+            if (keyed && !was) KeyDowns++;
+            return keyed;
+        }
+
+        /// <summary>
         /// Policy bypass for non-voice modes (CW, digital): the whole chain
         /// steps aside, monitor included. Set by the app on mode changes —
         /// RNNoise is speech-trained and a gate has no business shaping data
@@ -124,6 +159,7 @@ namespace JJPortaudio
         /// </summary>
         public void Process(float[] buffer, int count, uint sampleRate)
         {
+            ReadKey();
             if (_bypassAll) return;
 
             var nr = NoiseReducer;

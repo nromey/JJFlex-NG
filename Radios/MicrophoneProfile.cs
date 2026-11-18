@@ -78,6 +78,11 @@ public class MicrophoneProfile
     public void SetSetupFor(RadioTxSetup setup)
     {
         if (setup == null || string.IsNullOrEmpty(setup.RadioId)) return;
+        // The transmit noise setup this microphone names here (Sprint 49
+        // Track H) is not part of the radio-side choice being replaced, so a
+        // new binding that names none keeps the one the old binding named.
+        if (string.IsNullOrWhiteSpace(setup.NoiseSetupName))
+            setup.NoiseSetupName = FindSetupFor(setup.RadioId)?.NoiseSetupName ?? "";
         RadioSetups.RemoveAll(s =>
             string.Equals(s.RadioId, setup.RadioId, StringComparison.OrdinalIgnoreCase));
         RadioSetups.Add(setup);

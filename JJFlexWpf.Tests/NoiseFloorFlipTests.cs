@@ -194,7 +194,7 @@ public sealed class NoiseFloorFlipTests
         float tx = NoiseFloor.DefaultStrength("rnnoise", DenoiseDirection.Transmit);
         Assert.Equal(Bits(tx), Bits(TxAudioConditioning.DefaultNrStrength));
         Assert.Equal(Bits(tx), Bits(new TxConditioningSettings().NrStrength));
-        using (var provider = TxAudioConditioning.CreateNoiseReductionProvider()) Assert.Equal(Bits(tx), Bits(provider.Strength));
+        Assert.Equal(Bits(tx), Bits(TxAudioConditioning.CreateChain().GetStrength("rnnoise")));
         Assert.Equal(NoiseFloor.DefaultFloor("rnnoise", DenoiseDirection.Transmit), AudioWorkshopDialog.TxFloorField().Initial);
         Assert.Equal(20, AudioWorkshopDialog.TxFloorField().Initial);
     }

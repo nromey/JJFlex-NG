@@ -304,8 +304,8 @@ public sealed class RnnoiseModelTests
     {
         using var p = new RxAudioPipeline();
         Assert.True(p.NeuralSlot.TrySetSetting("rnnoise", "model", new(0, RnnoiseModels.V011)));
-        using var tx = TxAudioConditioning.CreateNoiseReductionProvider();
-        var engine = (RnnoiseEngine)tx.Bank!.EngineFor(0);
+        var tx = TxAudioConditioning.CreateChain();
+        var engine = (RnnoiseEngine)tx.NeuralSlot.RunningBank!.EngineFor(0);
         Assert.Equal(RnnoiseModels.Newest, engine.Model);
         Assert.Equal(RnnoiseEngine.LibraryFileName, Path.GetFileName(engine.LibraryPath));
     }

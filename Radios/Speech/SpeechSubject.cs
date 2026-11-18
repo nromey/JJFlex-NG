@@ -755,5 +755,27 @@ namespace Radios.Speech
 
         /// <summary>An engine returned to its defaults, or told there is no default to return to. The newest covers an unheard older one.</summary>
         public const string NoiseDefaults = "noise-defaults";
+
+        /// <summary>
+        /// A transmit noise change made while keyed, said to wait for the unkey
+        /// (Sprint 49 Track H, item B). Its own subject, never a receive noise
+        /// subject's, so a transmit sentence and a receive one never expire each
+        /// other (design part seven). The newest covers an unheard older one.
+        /// </summary>
+        public const string TransmitNoiseChange = "transmit-noise-change";
+
+        /// <summary>
+        /// A transmit noise setup moved from a microphone's old settings, or
+        /// found missing on this radio (Sprint 49 Track H, item F). The newest
+        /// covers an unheard older one.
+        /// </summary>
+        public const string TransmitNoiseSetup = "transmit-noise-setup";
+
+        /// <summary>
+        /// A transmit noise engine failed mid-over and the microphone went out
+        /// unprocessed (Sprint 49 Track H, item C). Said once until it recovers;
+        /// nothing newer on another subject makes it untrue.
+        /// </summary>
+        public const string TransmitNoiseFallback = "transmit-noise-fallback";
     }
 }
