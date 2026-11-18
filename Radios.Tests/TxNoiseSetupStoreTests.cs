@@ -13,6 +13,7 @@ namespace Radios.Tests;
 /// microphone's pointer to one, and the migration of each microphone's old
 /// cleanup settings into a named setup, which must never lose a value.
 /// </summary>
+[Collection(RadioConfigStaticsCollection.Name)]
 public sealed class TxNoiseSetupStoreTests : IDisposable
 {
     private const string Radio8600 = "1234-5678-9012-3456";

@@ -12,6 +12,7 @@ namespace Radios.Tests
     /// of the microphone at that rate); the bench can force a rate for one
     /// launch; a faster run is judged from PortAudio's own dropout flags.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public class TxCallbackRateTests : IDisposable
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), "jjflex-txcb-" + Guid.NewGuid().ToString("N"));

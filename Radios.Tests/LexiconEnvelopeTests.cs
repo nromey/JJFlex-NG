@@ -2457,6 +2457,12 @@ namespace Radios.Tests
                 "audio.denoise.rnnoise.model.v011",
                 "audio.noise_help.rnnoise.model",
                 "audio.noise_availability.model_line",
+                // Sprint 49 Track H: transmit noise reduction. Placeholders for Codex,
+                // each carrying its marker; spoken with a transmit SpeechSubject.
+                "audio.denoise.tx.at_unkey",
+                "audio.denoise.tx.setup_moved",
+                "audio.denoise.tx.setup_missing",
+                "audio.denoise.tx.fell_back",
                 // The tune answer (#447). Draft prose, awaiting Noel.
                 "audio.tune.unconfirmed",
                 "audio.tune.transmitting_unconfirmed",

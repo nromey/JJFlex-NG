@@ -148,8 +148,18 @@ public sealed class TxLatchFadeMeasurementTests
     public void The_default_latch_fade_is_the_shortest_that_measures_click_free()
     {
         var rnn = new RnnoiseEngine();
-        Assert.True(rnn.IsAvailable, rnn.UnavailabilityDetail);
+        bool available = rnn.IsAvailable;
+        string detail = rnn.UnavailabilityDetail ?? "";
         rnn.Dispose();
+        if (!available && !Environment.Is64BitProcess)
+        {
+            // #739: the RNNoise package ships a 64-bit DLL as its 32-bit one, so
+            // no 32-bit run can render RNNoise. The fade is the same arithmetic on
+            // both architectures; the measurement is the x64 run's.
+            _output.WriteLine("Not measured on x86: RNNoise cannot load here (#739). " + detail);
+            return;
+        }
+        Assert.True(available, detail);
         var worst = Measure(_output.WriteLine);
         double floor = worst[Candidates[^1]];
         int shortest = Candidates.First(c => worst[c] <= floor + AboveFloorDb);
