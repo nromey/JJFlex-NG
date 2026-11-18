@@ -34,8 +34,9 @@ public sealed class NoiseLayerKeysTests
         Assert.Equal(NoiseLayerKeys.EngineKeys.Count, engineRows);
     }
 
+    // T is the layer's since Sprint 49 Track H2 (the direction key); its own
+    // tests are TransmitNoiseLayerTests.
     [Theory]
-    [InlineData(Keys.T)]
     [InlineData(Keys.B | Keys.Control)]
     [InlineData(Keys.W | Keys.Control)]
     [InlineData(Keys.N | Keys.Alt)]

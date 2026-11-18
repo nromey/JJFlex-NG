@@ -35,16 +35,16 @@ namespace JJFlexWpf
         internal static int FloorSign(int pressed) => UpRaisesFloor ? Math.Sign(pressed) : -Math.Sign(pressed);
 
         /// <summary>An engine's noise floor lever: Advanced on an engine that has its own reduction setting (S2).</summary>
-        private static NoiseLever FloorLever(DenoiseEngineEntry e) =>
-            new(e.Id, FloorKey, FloorLabelKey, NoiseLeverKind.Floor, Advanced: MainSettingOf(e) != null);
+        private static NoiseLever FloorLever(DenoiseEngineEntry e, DenoiseDirection direction = DenoiseDirection.Receive) =>
+            new(e.Id, FloorKey, FloorLabelKey, NoiseLeverKind.Floor, Advanced: MainSettingOf(e) != null, Direction: direction);
 
         /// <summary>The engine's own reduction setting when it shows one among its main controls (S2), else null.</summary>
         private static EngineSettingDescriptor? MainSettingOf(DenoiseEngineEntry e) =>
             e.ReductionSetting is string own ? e.Settings.FirstOrDefault(d => d.Name == own && !d.Advanced) : null;
 
         /// <summary>An engine's noise floor lever wherever it sits (main or Advanced), or null for a radio engine.</summary>
-        public NoiseLever? FloorLeverOf(string id) =>
-            _catalog.Find(id) is { Side: DenoiseSide.Pc } e ? FloorLever(e) : null;
+        public NoiseLever? FloorLeverOf(string id, DenoiseDirection direction = DenoiseDirection.Receive) =>
+            _catalog.Find(id) is { Side: DenoiseSide.Pc } e ? FloorLever(e, direction) : null;
 
         /// <summary>
         /// An engine's levers in order: the primary first (a radio engine's
@@ -61,34 +61,50 @@ namespace JJFlexWpf
         /// first among their Advanced levers, so the noise layer (which starts on
         /// lever 0) never lands on a model or on the floor by surprise.
         /// </remarks>
-        public IReadOnlyList<NoiseLever> Levers(string id, bool includeAdvanced)
+        public IReadOnlyList<NoiseLever> Levers(string id, bool includeAdvanced) => Levers(id, includeAdvanced, DenoiseDirection.Receive);
+
+        /// <summary>
+        /// An engine's levers in one direction (Sprint 49 Track H2). Receive is
+        /// <see cref="Levers(string, bool)"/>. Transmit lists the same levers of
+        /// an engine the transmit chain offers, each carrying the transmit
+        /// direction, and none for an engine it does not offer (a radio engine,
+        /// Captured noise, a blanker). Transmit has no per-engine Listen to what
+        /// was removed: its listening tool is the gate's "Listen to cleanup",
+        /// which hears the whole chain (design part seven).
+        /// </summary>
+        public IReadOnlyList<NoiseLever> Levers(string id, bool includeAdvanced, DenoiseDirection direction)
         {
             var e = _catalog.Find(id);
             var list = new List<NoiseLever>();
             if (e == null) return list;
+            if (direction == DenoiseDirection.Transmit && !OffersTransmit(e)) return list;
             if (e.Side == DenoiseSide.Radio)
             {
                 if (e.Level != null) list.Add(new NoiseLever(id, "level", "audio.noise_surface.lever.level", NoiseLeverKind.RadioLevel));
                 return list;
             }
-            var floor = FloorLever(e);
+            var floor = FloorLever(e, direction);
             var main = MainSettingOf(e);
             if (main == null) list.Add(floor);
-            else list.Add(new NoiseLever(id, main.Name, main.LabelKey, NoiseLeverKind.Setting, main));
-            foreach (var d in e.Settings.Where(d => !d.Advanced && d != main && Shown(e, d)))
-                list.Add(new NoiseLever(id, d.Name, d.LabelKey, NoiseLeverKind.Setting, d));
+            else list.Add(new NoiseLever(id, main.Name, main.LabelKey, NoiseLeverKind.Setting, main, Direction: direction));
+            foreach (var d in e.Settings.Where(d => !d.Advanced && d != main && Shown(e, d, direction)))
+                list.Add(new NoiseLever(id, d.Name, d.LabelKey, NoiseLeverKind.Setting, d, Direction: direction));
             if (includeAdvanced)
             {
                 if (floor.Advanced) list.Add(floor);
-                foreach (var d in e.Settings.Where(d => d.Advanced && Shown(e, d)))
-                    list.Add(new NoiseLever(id, d.Name, d.LabelKey, NoiseLeverKind.Setting, d, Advanced: true));
-                list.Add(new NoiseLever(id, "listen_removed", "audio.noise_surface.lever.listen_removed", NoiseLeverKind.ListenRemoved, Advanced: true));
+                foreach (var d in e.Settings.Where(d => d.Advanced && Shown(e, d, direction)))
+                    list.Add(new NoiseLever(id, d.Name, d.LabelKey, NoiseLeverKind.Setting, d, Advanced: true, Direction: direction));
+                if (direction == DenoiseDirection.Receive)
+                    list.Add(new NoiseLever(id, "listen_removed", "audio.noise_surface.lever.listen_removed", NoiseLeverKind.ListenRemoved, Advanced: true));
             }
             return list;
         }
 
         /// <summary>Whether an engine has any Advanced lever: the floor of an engine with its own reduction setting, its Advanced settings, or listening to the removed audio.</summary>
         public bool HasAdvancedLevers(string id) => Levers(id, includeAdvanced: true).Any(l => l.Advanced);
+
+        /// <summary>Whether an engine has any Advanced lever in a direction (the Transmit menu's "Advanced settings..." row).</summary>
+        public bool HasAdvancedLevers(string id, DenoiseDirection direction) => Levers(id, includeAdvanced: true, direction).Any(l => l.Advanced);
 
         /// <summary>
         /// Whether the Audio menu offers this engine an Advanced settings row: a
@@ -102,10 +118,10 @@ namespace JJFlexWpf
         public bool OffersAdvancedRow(string id) =>
             _catalog.Find(id) is { Side: DenoiseSide.Pc, Factory: not null } && HasAdvancedLevers(id);
 
-        private bool Shown(DenoiseEngineEntry e, EngineSettingDescriptor d)
+        private bool Shown(DenoiseEngineEntry e, EngineSettingDescriptor d, DenoiseDirection direction = DenoiseDirection.Receive)
         {
             if (d.ShownWhen is not (string setting, string choice)) return true;
-            var slot = SlotFor(e);
+            var slot = SlotFor(e, direction);
             if (slot == null) return false;
             try { return slot.GetSetting(e.Id, setting).Choice == choice; }
             catch (ArgumentException) { return false; }
@@ -115,7 +131,8 @@ namespace JJFlexWpf
         public IReadOnlyList<EngineSettingOption> OptionsFor(NoiseLever lever)
         {
             var options = lever.Descriptor?.Options ?? Array.Empty<EngineSettingOption>();
-            if (lever.EngineId == "nnr" && lever.Key == "model")
+            // The CW rule is receive's: transmit bypasses its chain in CW (part seven).
+            if (lever.EngineId == "nnr" && lever.Key == "model" && lever.Direction == DenoiseDirection.Receive)
             {
                 if (CurrentGroup == NoiseModeGroup.Cw) return options.Where(o => NoiseModeRules.IsCwModel(o.Name)).ToList();
             }
@@ -162,11 +179,11 @@ namespace JJFlexWpf
                 case NoiseLeverKind.RadioLevel:
                     return ReadRadioLevel(e);
                 case NoiseLeverKind.Floor:
-                    return SlotFor(e) is { } s ? NoiseFloor.FromStrength(s.GetStrength(e.Id)) : null;
+                    return SlotFor(e, lever.Direction) is { } s ? NoiseFloor.FromStrength(s.GetStrength(e.Id)) : null;
                 case NoiseLeverKind.ListenRemoved:
                     return SlotFor(e)?.ListenToRemoved == true ? 1 : 0;
                 default:
-                    if (SlotFor(e) is not { } slot || lever.Descriptor is not { } d || d.Kind == EngineSettingKind.Choice) return null;
+                    if (SlotFor(e, lever.Direction) is not { } slot || lever.Descriptor is not { } d || d.Kind == EngineSettingKind.Choice) return null;
                     double v = slot.GetSetting(e.Id, d.Name).Number;
                     return ToShown(lever, v);
             }
@@ -176,7 +193,7 @@ namespace JJFlexWpf
         public string? ChoiceOf(NoiseLever lever)
         {
             var e = _catalog.Find(lever.EngineId);
-            if (e == null || lever.Descriptor is not { Kind: EngineSettingKind.Choice } d || SlotFor(e) is not { } slot) return null;
+            if (e == null || lever.Descriptor is not { Kind: EngineSettingKind.Choice } d || SlotFor(e, lever.Direction) is not { } slot) return null;
             return slot.GetSetting(e.Id, d.Name).Choice;
         }
 
@@ -286,9 +303,12 @@ namespace JJFlexWpf
         /// the audio by, from its own latency; a helper engine's expected
         /// figure until it runs; empty for a radio engine.
         /// </summary>
-        public string DelayText(string id)
+        public string DelayText(string id) => DelayText(id, DenoiseDirection.Receive);
+
+        /// <summary>The Delay readout in a direction: a transmit engine's own slot, its own figure (Sprint 49 Track H2).</summary>
+        public string DelayText(string id, DenoiseDirection direction)
         {
-            if (!HasDelay(id, out int? ms)) return "";
+            if (!HasDelay(id, out int? ms, direction)) return "";
             return ms == null ? Lexicon.Get("audio.noise_surface.delay_unknown") : Lexicon.Get("audio.noise_surface.delay", ("ms", ms.Value));
         }
 
@@ -305,21 +325,22 @@ namespace JJFlexWpf
         }
 
         /// <summary>Whether an engine has a delay to show, and the figure in milliseconds when one is known.</summary>
-        private bool HasDelay(string id, out int? ms)
+        private bool HasDelay(string id, out int? ms, DenoiseDirection direction = DenoiseDirection.Receive)
         {
             ms = null;
             var e = _catalog.Find(id);
             if (e == null || e.Side == DenoiseSide.Radio) return false;
+            if (direction == DenoiseDirection.Transmit && !OffersTransmit(e)) return false;
             // Measured only when the running bank was built from today's choice: a
             // model chosen while no audio flows has not been carried in yet. One
             // read of one snapshot, so the engine, its build and the delay are the
             // same bank's even during a swap (repair round 5).
-            int samples = SlotFor(e)?.CurrentLatencySamples(id) ?? 0;
+            int samples = SlotFor(e, direction)?.CurrentLatencySamples(id) ?? 0;
             if (samples > 0)
                 ms = (int)Math.Round(samples / 48.0);
             else
             {
-                string? model = e.Settings.Any(d => d.Name == "model") ? SlotFor(e)?.GetSetting(id, "model").Choice : null;
+                string? model = e.Settings.Any(d => d.Name == "model") ? SlotFor(e, direction)?.GetSetting(id, "model").Choice : null;
                 ms = DenoiseEngineCatalog.ExpectedHelperDelayMs(id, model) ?? DenoiseEngineCatalog.ExpectedEngineDelayMs(id, model);
             }
             return true;
@@ -442,9 +463,9 @@ namespace JJFlexWpf
             return lever.Kind switch
             {
                 NoiseLeverKind.RadioLevel => new EngineSettingValue(ReadRadioLevel(e) ?? e.Level!.Min),
-                NoiseLeverKind.Floor => new EngineSettingValue(NumberOf(lever) ?? NoiseFloor.DefaultFloor(e.Id, DenoiseDirection.Receive)),
+                NoiseLeverKind.Floor => new EngineSettingValue(NumberOf(lever) ?? NoiseFloor.DefaultFloor(e.Id, lever.Direction)),
                 NoiseLeverKind.ListenRemoved => new EngineSettingValue(NumberOf(lever) ?? 0),
-                _ => SlotFor(e)!.GetSetting(e.Id, lever.Descriptor!.Name),
+                _ => SlotFor(e, lever.Direction)!.GetSetting(e.Id, lever.Descriptor!.Name),
             };
         }
 
@@ -454,6 +475,7 @@ namespace JJFlexWpf
             var e = _catalog.Find(lever.EngineId);
             if (e == null) return;
             Current = e.Id;
+            if (lever.Direction == DenoiseDirection.Transmit) { MoveTransmit(lever, e, source, to, direction); return; }
             if (e.Side == DenoiseSide.Radio)
             {
                 var r = _radio();
@@ -560,7 +582,8 @@ namespace JJFlexWpf
 
         /// <summary>Say a lever's name and value, changing nothing (the layer's Tab, a Home field gaining focus).</summary>
         public void SpeakLeverName(NoiseLever lever) =>
-            Say(L("audio.noise_surface.lever_named", ("lever", LeverName(lever)), ("value", ValueText(lever))), SpeechSubject.NoiseLevel);
+            Say(L("audio.noise_surface.lever_named", ("lever", LeverName(lever)), ("value", ValueText(lever))),
+                lever.Direction == DenoiseDirection.Transmit ? SpeechSubject.TransmitNoiseLevel : SpeechSubject.NoiseLevel);
 
         private int? ReadRadioLevel(DenoiseEngineEntry e)
         {
@@ -581,7 +604,7 @@ namespace JJFlexWpf
             get
             {
                 if (Current == null) return null;
-                var levers = Levers(Current, includeAdvanced: true);
+                var levers = Levers(Current, includeAdvanced: true, LayerDirection);
                 if (levers.Count == 0) return null;
                 return levers[Math.Clamp(CurrentLeverIndex, 0, levers.Count - 1)];
             }
@@ -590,9 +613,9 @@ namespace JJFlexWpf
         /// <summary>Tab and Shift+Tab: move to the current engine's next or previous lever (Advanced included) and say its name and value. Wraps.</summary>
         public void NextLever(int direction)
         {
-            if (Current == null) { Say(L("audio.noise_surface.no_engine_yet"), SpeechSubject.NoiseLevel); return; }
-            var levers = Levers(Current, includeAdvanced: true);
-            if (levers.Count == 0) { Say(L("audio.noise_surface.no_levers", ("engine", NameOf(Current))), SpeechSubject.NoiseLevel); return; }
+            if (Current == null) { Say(L("audio.noise_surface.no_engine_yet"), LayerSubject(SpeechSubject.NoiseLevel)); return; }
+            var levers = Levers(Current, includeAdvanced: true, LayerDirection);
+            if (levers.Count == 0) { Say(L("audio.noise_surface.no_levers", ("engine", NameOf(Current))), LayerSubject(SpeechSubject.NoiseLevel)); return; }
             CurrentLeverIndex = ((CurrentLeverIndex + direction) % levers.Count + levers.Count) % levers.Count;
             SpeakLeverName(levers[CurrentLeverIndex]);
         }
@@ -601,14 +624,14 @@ namespace JJFlexWpf
         public void AdjustCurrent(int direction, string source)
         {
             if (CurrentLever is { } lever) { Adjust(lever, direction, source); return; }
-            Say(Current == null ? L("audio.noise_surface.no_engine_yet") : L("audio.noise_surface.no_levers", ("engine", NameOf(Current))), SpeechSubject.NoiseLevel);
+            Say(Current == null ? L("audio.noise_surface.no_engine_yet") : L("audio.noise_surface.no_levers", ("engine", NameOf(Current))), LayerSubject(SpeechSubject.NoiseLevel));
         }
 
         /// <summary>Home and End on the current lever.</summary>
         public void PlaceCurrent(int edge, string source)
         {
             if (CurrentLever is { } lever) { Place(lever, edge, source); return; }
-            Say(Current == null ? L("audio.noise_surface.no_engine_yet") : L("audio.noise_surface.no_levers", ("engine", NameOf(Current))), SpeechSubject.NoiseLevel);
+            Say(Current == null ? L("audio.noise_surface.no_engine_yet") : L("audio.noise_surface.no_levers", ("engine", NameOf(Current))), LayerSubject(SpeechSubject.NoiseLevel));
         }
 
         /// <summary>Clear every slot's Listen to what was removed (the layer or expander was left; a connect). Never saved on.</summary>

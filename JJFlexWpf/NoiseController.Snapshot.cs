@@ -40,6 +40,13 @@ namespace JJFlexWpf
         internal Radios.DenoiseEngineSettings[] NeuralSettings { get; set; } = Array.Empty<Radios.DenoiseEngineSettings>();
         internal List<NoiseFavourite> Favourites { get; set; } = new();
         internal string MemoryXml { get; set; } = "";
+        /// <summary>
+        /// The transmit chain's two slots as the layer found them (Sprint 49
+        /// Track H2): T turns the layer's keys on the transmit chain, so Escape
+        /// puts the transmit slots back too. Null when no chain was reachable.
+        /// </summary>
+        internal TxNoiseSlotSetup? TransmitSpectral { get; set; }
+        internal TxNoiseSlotSetup? TransmitNeural { get; set; }
     }
 
     public sealed partial class NoiseController
@@ -63,6 +70,7 @@ namespace JJFlexWpf
                 snap.Favourites = c.NoiseFavourites.Select(f => new NoiseFavourite { EngineId = f.EngineId, Model = f.Model, Name = f.Name }).ToList();
                 snap.MemoryXml = SerializeMemory(c.NoiseModeMemory);
             }
+            if (_txChain() is { } chain) (snap.TransmitSpectral, snap.TransmitNeural) = chain.CaptureSlots();
             return snap;
         }
 
@@ -194,6 +202,19 @@ namespace JJFlexWpf
                 RetireHelperNotice("the noise settings were put back");
                 changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings, source);
                 changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings, source);
+            }
+            // The transmit slots, wherever they differ (Track H2). Through the
+            // chain's own call, so a slot change made while keyed still waits
+            // for the unkey; the layer's closing sentence says it was put back.
+            if (snap.TransmitSpectral != null && snap.TransmitNeural != null && _txChain() is { } chain)
+            {
+                var (spectralNow, neuralNow) = chain.CaptureSlots();
+                if (DescribeTx(spectralNow) != DescribeTx(snap.TransmitSpectral) || DescribeTx(neuralNow) != DescribeTx(snap.TransmitNeural))
+                {
+                    chain.ApplySlots(snap.TransmitSpectral, snap.TransmitNeural);
+                    NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes", "put back");
+                    changed = true;
+                }
             }
             ClearListening();
             ForgetZero();

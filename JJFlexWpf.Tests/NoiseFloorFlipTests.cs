@@ -419,6 +419,10 @@ public sealed class NoiseFloorFlipTests
     {
         "JJFlexWpf/PcDenoiseSlot.cs", "JJFlexWpf/NoiseController.Levers.cs", "JJFlexWpf/NoiseController.Presets.cs",
         "JJFlexWpf/RxAudioPipeline.cs",
+        // Sprint 49 Track H: the transmit chain (TxNoiseChain, the transmit
+        // twin of RxAudioPipeline) and TxAudioConditioning's legacy NrStrength.
+        // Sprint 49 Track H2: the controller's transmit half.
+        "JJFlexWpf/TxNoiseChain.cs", "JJFlexWpf/TxAudioConditioning.cs", "JJFlexWpf/NoiseController.Transmit.cs",
     };
 
     internal static IReadOnlyList<string> StrengthCallers(string root)

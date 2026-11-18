@@ -50,6 +50,19 @@ public class AudioChainPreset
     public ReceiveNoisePresetSection? ReceiveNoise { get; set; }
 
     /// <summary>
+    /// The transmit noise reduction section (Sprint 49 Track H2; design part
+    /// five, "Transmit noise reduction (the transmit slots the same way, plus
+    /// the gate's settings)"), or null when the preset holds none. The same
+    /// record a transmit noise setup is (<see cref="TxNoiseSetup"/>), so a
+    /// preset and a setup cannot disagree about what a transmit chain is. An
+    /// older build skips the element, as it skips <see cref="ReceiveNoise"/>;
+    /// a preset holding only this section is kept with the noise presets, out
+    /// of <see cref="AudioChainPresets.Presets"/>, so an older build can never
+    /// apply it as a transmit chain of class defaults.
+    /// </summary>
+    public TxNoiseSetup? TransmitNoise { get; set; }
+
+    /// <summary>
     /// Whether this preset holds the transmit chain (mic gain to TX EQ). True
     /// for every file before schema 3 and for every preset saved with the
     /// transmit chain ticked; false for a noise-only preset, which never

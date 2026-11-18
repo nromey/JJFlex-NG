@@ -1010,6 +1010,10 @@ public partial class ScreenFieldsPanel : UserControl
             _txEqButton, Lexicon.Get("audio.eq.name_transmit"));
         _txEqButton.Click += (s, e) => Dialogs.EqualizerLauncher.ShowTransmit(_rig);
         TxContent.Children.Add(_txEqButton);
+
+        // Transmit noise reduction and the gate (Sprint 49 Track H2, design
+        // part seven), after the TX EQ button: ScreenFieldsPanel.TransmitNoise.cs.
+        BuildTransmitNoiseFields();
     }
 
     private void BuildAntennaControls()
@@ -1533,6 +1537,9 @@ public partial class ScreenFieldsPanel : UserControl
         _monitorCheck.IsChecked = monitorOn;
         _monitorLevelControl.Visibility = monitorOn ? Visibility.Visible : Visibility.Collapsed;
         if (monitorOn) _monitorLevelControl.Value = _rig.SBMonitorLevel;
+
+        // The transmit noise fields follow the controller (Sprint 49 Track H2).
+        PollTransmitNoise();
     }
 
     private void PollAntenna()

@@ -80,18 +80,8 @@ public partial class AudioWorkshopDialog
     private ValueFieldControl? _monitorLevelControl;
     private ValueFieldControl? _monitorPanControl;
 
-    // ── PC Cleanup (Track I: TX noise reduction + gate + residual monitor) ──
-    private CheckBox? _txNrCheck;
-    private ValueFieldControl? _txNrStrengthControl;
-    private CheckBox? _txGateCheck;
-    private ValueFieldControl? _txGateMarginControl;
-    private ValueFieldControl? _txGateAttackControl;
-    private ValueFieldControl? _txGateHoldControl;
-    private ValueFieldControl? _txGateReleaseControl;
-    private ValueFieldControl? _txGateRangeControl;
-    private TextBox? _txCleanupStatusBox;
-    private CycleFieldControl? _txCleanupMonitorControl;
-    private ValueFieldControl? _txCleanupMonitorVolumeControl;
+    // PC Cleanup's controls moved to Home's Transmission expander (Sprint 49
+    // Track H2); the section is one door now (AudioWorkshopDialog.TxCleanup.cs).
 
     #endregion
 
@@ -584,9 +574,6 @@ public partial class AudioWorkshopDialog
                 _monitorPanControl.Visibility = monitorOn ? Visibility.Visible : Visibility.Collapsed;
                 if (monitorOn) _monitorPanControl.Value = _rig.SBMonitorPan;
             }
-
-            // Track I: PC Cleanup controls and status.
-            PollTxCleanup();
 
             // #99: the radio's mic-profile selection can go empty at any time
             // (a global profile loaded from any client does it), so this is

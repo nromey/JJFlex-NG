@@ -1,0 +1,514 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using Radios;
+
+namespace JJFlexWpf.Controls;
+
+/// <summary>
+/// Home's Transmission expander, its noise fields (Sprint 49 Track H2,
+/// design part seven), after the TX EQ button.
+/// </summary>
+/// <remarks>
+/// <para>
+/// In Tab order: the Active readout, Side (Spectral, Neural), Engine, On, the
+/// engine's normal levers (the noise floor among them where it is the main
+/// lever), Advanced (its Advanced levers and Delay), Return to defaults,
+/// Favourite; then the gate: On, Margin, the gate's Advanced (the automatic
+/// threshold and, while it is off, the threshold; attack, hold, release,
+/// depth; "Listen to cleanup" and its volume, moved here from the Audio
+/// Workshop; the setup field and Save as setup), and the gate's Return to
+/// defaults. One surface and one truth: the Workshop's PC Cleanup section is
+/// now a door to these.
+/// </para>
+/// <para>
+/// <b>Every field calls <see cref="NoiseController"/></b>'s transmit half, as
+/// the Transmit menu and the noise layer after T do. A lever field lists
+/// exactly what the layer's Up and Down step through.
+/// </para>
+/// </remarks>
+public partial class ScreenFieldsPanel
+{
+    private const string TxNoiseSource = "home, transmission";
+
+    private TextBlock _txNoiseActive = null!;
+    private CycleFieldControl _txNoiseSide = null!;
+    private CycleFieldControl _txNoiseEngine = null!;
+    private CheckBox _txNoiseOn = null!;
+    private StackPanel _txNoiseLevers = null!;
+    private CheckBox _txNoiseAdvanced = null!;
+    private StackPanel _txNoiseAdvancedLevers = null!;
+    private TextBlock _txNoiseDelay = null!;
+    private Button _txNoiseDefaults = null!;
+    private CheckBox _txNoiseFavourite = null!;
+    private CheckBox _txGateOn = null!;
+    private CycleFieldControl _txGateMargin = null!;
+    private CheckBox _txGateAdvanced = null!;
+    private StackPanel _txGateAdvancedFields = null!;
+    private CheckBox _txGateAuto = null!;
+    private CycleFieldControl _txListen = null!;
+    private CycleFieldControl _txSetup = null!;
+    private Button _txSaveSetup = null!;
+    private Button _txGateDefaults = null!;
+    private IReadOnlyList<DenoiseEngineEntry> _txNoiseEngines = Array.Empty<DenoiseEngineEntry>();
+    private string? _txNoiseFieldsFor;
+    private IReadOnlyList<string> _txSetupNames = Array.Empty<string>();
+    private bool _txNoiseRebuilding;
+    private readonly List<(CycleFieldControl Field, NoiseLever Lever, IReadOnlyList<(double? Shown, string? Choice, string Text)> Steps)> _txNoiseLeverFields = new();
+    private readonly List<(CycleFieldControl Field, TxGateLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> _txGateFields = new();
+
+    /// <summary>The config key the gate's own Advanced box is remembered under (beside the engines' own).</summary>
+    private const string TxGateAdvancedKey = "tx:gate";
+
+    /// <summary>The family behind each transmit Side position: transmit has the two computer slots only.</summary>
+    private static readonly DenoiseFamily[] TxSideFamilies = { DenoiseFamily.Spectral, DenoiseFamily.Neural };
+
+    private DenoiseFamily TxSideFamily => TxSideFamilies[Math.Clamp(_txNoiseSide.SelectedIndex, 0, TxSideFamilies.Length - 1)];
+
+    private string? TxNoiseEngine =>
+        _txNoiseEngines.Count == 0 ? null : _txNoiseEngines[Math.Clamp(_txNoiseEngine.SelectedIndex, 0, _txNoiseEngines.Count - 1)].Id;
+
+    private static Button MakeTxButton(string labelKey, string helpKey)
+    {
+        var b = new Button
+        {
+            Content = Lexicon.Get(labelKey),
+            Margin = new Thickness(0, 2, 0, 2), Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        AutomationProperties.SetName(b, Lexicon.Get(labelKey));
+        JJFlexHelp.SetText(b, Lexicon.Get(helpKey));
+        return b;
+    }
+
+    /// <summary>Build the fields, in Tab order, after the TX EQ button.</summary>
+    private void BuildTransmitNoiseFields()
+    {
+        _txNoiseActive = new TextBlock { Margin = new Thickness(4, 6, 4, 2), Focusable = true, IsHitTestVisible = true };
+        _txNoiseActive.GotFocus += (s, e) =>
+        {
+            // The same summary the Transmit menu's first row and the layer's Space after T speak.
+            string text = Lexicon.Get("audio.noise_home.tx.active", ("summary", NoiseCtl?.TransmitActiveSummary() ?? ""));
+            _txNoiseActive.Text = text;
+            AutomationProperties.SetName(_txNoiseActive, text);
+        };
+        _txNoiseActive.Text = Lexicon.Get("audio.noise_home.tx.active", ("summary", ""));
+        AutomationProperties.SetName(_txNoiseActive, _txNoiseActive.Text);
+        JJFlexHelp.SetText(_txNoiseActive, Lexicon.Get("audio.noise_help.tx_home.active"));
+        TxContent.Children.Add(_txNoiseActive);
+
+        _txNoiseSide = MakeCycle(Lexicon.Get("audio.noise_home.tx.side"), new[]
+        {
+            Lexicon.Get("audio.noise_home.tx.side_spectral"),
+            Lexicon.Get("audio.noise_home.tx.side_neural"),
+        });
+        // Neural first in view: RNNoise there is transmit's default (ruled S8).
+        _txNoiseSide.SelectedIndex = 1;
+        _txNoiseSide.SelectionChanged += (s, i) =>
+        {
+            // Changing the side changes nothing; it changes which engines the next field lists.
+            if (_txNoiseRebuilding) return;
+            ShowTransmitNoiseSide(selectEngine: null);
+        };
+        JJFlexHelp.SetText(_txNoiseSide, Lexicon.Get("audio.noise_help.tx_home.side"));
+        TxContent.Children.Add(_txNoiseSide);
+
+        _txNoiseEngine = MakeCycle(Lexicon.Get("audio.noise_home.tx.engine"), Array.Empty<string>());
+        _txNoiseEngine.SelectionChanged += (s, i) =>
+        {
+            if (_txNoiseRebuilding || NoiseCtl is not { } noise || TxNoiseEngine is not string id) return;
+            // Arrowing chooses the slot's engine, applied only once the choice settles (#769).
+            noise.TransmitNoteSlotChoicePending(TxSideFamily, id);
+            noise.TransmitChooseSlotEngine(TxSideFamily, id, TxNoiseSource);
+            ShowTransmitNoiseEngine(id);
+        };
+        JJFlexHelp.SetText(_txNoiseEngine, Lexicon.Get("audio.noise_help.tx_home.engine"));
+        TxContent.Children.Add(_txNoiseEngine);
+
+        _txNoiseOn = MakeToggle(Lexicon.Get("audio.noise_home.tx.on", ("engine", "")));
+        _txNoiseOn.Checked += (s, e) => TransmitNoiseOnChanged(true);
+        _txNoiseOn.Unchecked += (s, e) => TransmitNoiseOnChanged(false);
+        JJFlexHelp.SetText(_txNoiseOn, Lexicon.Get("audio.noise_help.tx_home.on"));
+        TxContent.Children.Add(_txNoiseOn);
+
+        _txNoiseLevers = new StackPanel();
+        TxContent.Children.Add(_txNoiseLevers);
+
+        _txNoiseAdvanced = MakeToggle(Lexicon.Get("audio.noise_home.tx.advanced"));
+        _txNoiseAdvanced.Checked += (s, e) => TransmitNoiseAdvancedChanged(true);
+        _txNoiseAdvanced.Unchecked += (s, e) => TransmitNoiseAdvancedChanged(false);
+        JJFlexHelp.SetText(_txNoiseAdvanced, Lexicon.Get("audio.noise_help.tx_home.advanced"));
+        TxContent.Children.Add(_txNoiseAdvanced);
+
+        _txNoiseAdvancedLevers = new StackPanel();
+        TxContent.Children.Add(_txNoiseAdvancedLevers);
+
+        _txNoiseDelay = new TextBlock { Margin = new Thickness(4, 2, 4, 2), Focusable = true, IsHitTestVisible = true };
+        _txNoiseDelay.GotFocus += (s, e) =>
+        {
+            if (TxNoiseEngine is string id && NoiseCtl is { } noise)
+            {
+                _txNoiseDelay.Text = noise.DelayText(id, DenoiseDirection.Transmit);
+                AutomationProperties.SetName(_txNoiseDelay, _txNoiseDelay.Text);
+            }
+        };
+        JJFlexHelp.SetText(_txNoiseDelay, Lexicon.Get("audio.noise_help.tx_home.delay"));
+        TxContent.Children.Add(_txNoiseDelay);
+
+        _txNoiseDefaults = MakeTxButton("audio.noise_menu.defaults", "audio.noise_help.tx_home.defaults");
+        _txNoiseDefaults.Click += (s, e) =>
+        {
+            if (TxNoiseEngine is string id) NoiseCtl?.TransmitReturnToDefaults(id, TxNoiseSource);
+            RefreshTransmitNoiseValues();
+        };
+        TxContent.Children.Add(_txNoiseDefaults);
+
+        _txNoiseFavourite = MakeToggle(Lexicon.Get("audio.noise_home.favourite", ("engine", "")));
+        _txNoiseFavourite.Checked += (s, e) => TransmitFavouriteChanged(true);
+        _txNoiseFavourite.Unchecked += (s, e) => TransmitFavouriteChanged(false);
+        JJFlexHelp.SetText(_txNoiseFavourite, Lexicon.Get("audio.noise_help.tx_home.favourite"));
+        TxContent.Children.Add(_txNoiseFavourite);
+
+        // ── The gate ──
+        _txGateOn = MakeToggle(Lexicon.Get("audio.noise_home.tx.gate_on"));
+        _txGateOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) NoiseCtl?.SetGateOn(true, TxNoiseSource); };
+        _txGateOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) NoiseCtl?.SetGateOn(false, TxNoiseSource); };
+        JJFlexHelp.SetText(_txGateOn, Lexicon.Get("audio.noise_help.tx_home.gate_on"));
+        TxContent.Children.Add(_txGateOn);
+
+        _txGateMargin = MakeCycle(Lexicon.Get("audio.noise_surface.tx.gate.margin"), Array.Empty<string>());
+        WireGateField(_txGateMargin);
+        TxContent.Children.Add(_txGateMargin);
+
+        _txGateAdvanced = MakeToggle(Lexicon.Get("audio.noise_home.tx.gate_advanced"));
+        _txGateAdvanced.Checked += (s, e) => TransmitGateAdvancedChanged(true);
+        _txGateAdvanced.Unchecked += (s, e) => TransmitGateAdvancedChanged(false);
+        JJFlexHelp.SetText(_txGateAdvanced, Lexicon.Get("audio.noise_help.tx_home.gate_advanced"));
+        TxContent.Children.Add(_txGateAdvanced);
+
+        _txGateAdvancedFields = new StackPanel();
+        TxContent.Children.Add(_txGateAdvancedFields);
+
+        _txGateAuto = MakeToggle(Lexicon.Get("audio.noise_home.tx.gate_auto"));
+        _txGateAuto.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetGateAutoThreshold(true, TxNoiseSource); BuildTransmitGateFields(); } };
+        _txGateAuto.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetGateAutoThreshold(false, TxNoiseSource); BuildTransmitGateFields(); } };
+        JJFlexHelp.SetText(_txGateAuto, Lexicon.Get("audio.noise_help.tx_home.gate_auto"));
+
+        _txListen = MakeCycle(Lexicon.Get("audio.noise_home.tx.listen"),
+            NoiseController.ListenToCleanupKeys.Select(k => Lexicon.Get(k)).ToArray());
+        _txListen.SelectionChanged += (s, i) =>
+        {
+            if (_polling || _txNoiseRebuilding) return;
+            NoiseCtl?.SetListenToCleanup(i, TxNoiseSource);
+            RefreshTransmitNoiseValues();
+        };
+        JJFlexHelp.SetText(_txListen, Lexicon.Get("audio.noise_help.tx_home.listen"));
+
+        _txSetup = MakeCycle(Lexicon.Get("audio.noise_home.tx.setup"), new[] { Lexicon.Get("audio.noise_home.tx.setup_none") });
+        _txSetup.SelectionChanged += (s, i) =>
+        {
+            if (_polling || _txNoiseRebuilding || i <= 0 || i > _txSetupNames.Count) return;
+            NoiseCtl?.ApplyTransmitSetup(_txSetupNames[i - 1], TxNoiseSource);
+            ShowTransmitNoiseSide(selectEngine: null);
+        };
+        JJFlexHelp.SetText(_txSetup, Lexicon.Get("audio.noise_help.tx_home.setup"));
+
+        _txSaveSetup = MakeTxButton("audio.noise_home.tx.save_setup", "audio.noise_help.tx_home.save_setup");
+        _txSaveSetup.Click += (s, e) => FindMainWindow()?.ShowTransmitSetupSave();
+
+        _txGateDefaults = MakeTxButton("audio.noise_home.tx.gate_defaults", "audio.noise_help.tx_home.gate_defaults");
+        _txGateDefaults.Click += (s, e) =>
+        {
+            NoiseCtl?.GateReturnToDefaults(TxNoiseSource);
+            BuildTransmitGateFields();
+        };
+        TxContent.Children.Add(_txGateDefaults);
+    }
+
+    /// <summary>Fill the Engine field for the current transmit side and show the engine's controls.</summary>
+    private void ShowTransmitNoiseSide(string? selectEngine)
+    {
+        if (NoiseCtl is not { } noise) return;
+        var family = TxSideFamily;
+        _txNoiseEngines = noise.TransmitEngines(family);
+        string id = selectEngine ?? noise.TransmitSlotEngine(family);
+        int index = Math.Max(0, _txNoiseEngines.ToList().FindIndex(e => e.Id == id));
+        _txNoiseRebuilding = true;
+        try
+        {
+            _txNoiseEngine.Setup(Lexicon.Get("audio.noise_home.tx.engine"),
+                _txNoiseEngines.Select(e => noise.TransmitMarkedName(e.Id)).ToArray(), index);
+        }
+        finally { _txNoiseRebuilding = false; }
+        ShowTransmitNoiseEngine(TxNoiseEngine);
+        BuildTransmitGateFields();
+    }
+
+    /// <summary>Rebuild the engine's own fields: On's name, its levers, Advanced, defaults, favourite.</summary>
+    private void ShowTransmitNoiseEngine(string? id)
+    {
+        if (NoiseCtl is not { } noise || id == null) return;
+        _txNoiseFieldsFor = id;
+        _txNoiseRebuilding = true;
+        try
+        {
+            string name = noise.NameOf(id);
+            string onName = Lexicon.Get("audio.noise_home.tx.on", ("engine", name));
+            _txNoiseOn.Content = onName;
+            AutomationProperties.SetName(_txNoiseOn, onName);
+            _txNoiseOn.IsChecked = noise.TransmitIsOn(id);
+
+            _txNoiseLeverFields.Clear();
+            _txNoiseLevers.Children.Clear();
+            _txNoiseAdvancedLevers.Children.Clear();
+            foreach (var lever in noise.Levers(id, includeAdvanced: false, DenoiseDirection.Transmit))
+                _txNoiseLevers.Children.Add(MakeTransmitLeverField(noise, lever));
+
+            bool advanced = noise.IsAdvanced(id, DenoiseDirection.Transmit);
+            _txNoiseAdvanced.IsChecked = advanced;
+            if (advanced)
+                foreach (var lever in noise.Levers(id, includeAdvanced: true, DenoiseDirection.Transmit).Where(l => l.Advanced))
+                    _txNoiseAdvancedLevers.Children.Add(MakeTransmitLeverField(noise, lever));
+            _txNoiseDelay.Visibility = advanced ? Visibility.Visible : Visibility.Collapsed;
+            _txNoiseDelay.Text = advanced ? noise.DelayText(id, DenoiseDirection.Transmit) : "";
+            AutomationProperties.SetName(_txNoiseDelay, _txNoiseDelay.Text);
+
+            string favName = Lexicon.Get("audio.noise_home.favourite", ("engine", name));
+            _txNoiseFavourite.Content = favName;
+            AutomationProperties.SetName(_txNoiseFavourite, favName);
+            _txNoiseFavourite.IsChecked = noise.IsFavourite(id, DenoiseDirection.Transmit);
+        }
+        finally { _txNoiseRebuilding = false; }
+    }
+
+    private CycleFieldControl MakeTransmitLeverField(NoiseController noise, NoiseLever lever)
+    {
+        var steps = noise.LeverSteps(lever);
+        var field = MakeCycle(noise.LeverName(lever), steps.Select(s => s.Text).ToArray());
+        field.Wraps = false;
+        field.HomeEndJump = true;
+        field.SelectedIndex = CurrentStep(noise, lever, steps);
+        JJFlexHelp.SetText(field, Lexicon.Get(NoiseController.HelpKey(lever)));
+        field.SelectionChanged += (s, i) =>
+        {
+            if (_polling || _txNoiseRebuilding || i < 0 || i >= steps.Count) return;
+            noise.Set(lever, steps[i].Shown, steps[i].Choice, TxNoiseSource);
+            if (lever.Descriptor?.Name == "gain_method") ShowTransmitNoiseEngine(lever.EngineId);
+        };
+        _txNoiseLeverFields.Add((field, lever, steps));
+        return field;
+    }
+
+    /// <summary>
+    /// The gate's fields: Margin always; with the gate's Advanced box, the
+    /// automatic threshold box, the threshold while it is off, attack, hold,
+    /// release and depth, "Listen to cleanup" and its volume, and the setup
+    /// field with Save as setup. Rebuilt when the automatic threshold flips, so
+    /// the threshold field is only ever there when it acts.
+    /// </summary>
+    private void BuildTransmitGateFields()
+    {
+        if (NoiseCtl is not { } noise) return;
+        _txNoiseRebuilding = true;
+        try
+        {
+            _txGateFields.Clear();
+            _txGateOn.IsChecked = noise.TransmitGate.Enabled;
+            if (noise.GateLever(TxGateLever.Margin) is { } margin) SetupGateField(_txGateMargin, noise, margin);
+
+            _txGateAdvancedFields.Children.Clear();
+            bool advanced = FindMainWindow()?.CurrentAudioConfig?.NoiseAdvancedEngines.Contains(TxGateAdvancedKey) == true;
+            _txGateAdvanced.IsChecked = advanced;
+            if (!advanced) return;
+            _txGateAuto.IsChecked = noise.TransmitGate.AutoThreshold;
+            _txGateAdvancedFields.Children.Add(_txGateAuto);
+            foreach (var lever in noise.GateLevers(includeAdvanced: true).Where(l => l.Advanced))
+            {
+                var field = MakeCycle(noise.GateLeverName(lever), Array.Empty<string>());
+                WireGateField(field);
+                SetupGateField(field, noise, lever);
+                _txGateAdvancedFields.Children.Add(field);
+            }
+            _txListen.SelectedIndex = noise.TransmitGate.MonitorMode;
+            _txGateAdvancedFields.Children.Add(_txListen);
+            if (noise.GateLever(TxGateLever.MonitorVolume) is { } volume)
+            {
+                var field = MakeCycle(noise.GateLeverName(volume), Array.Empty<string>());
+                WireGateField(field);
+                SetupGateField(field, noise, volume);
+                _txGateAdvancedFields.Children.Add(field);
+            }
+            _txSetupNames = noise.TransmitSetupNames();
+            _txSetup.Setup(Lexicon.Get("audio.noise_home.tx.setup"),
+                new[] { Lexicon.Get("audio.noise_home.tx.setup_none") }.Concat(_txSetupNames).ToArray(), 0);
+            _txGateAdvancedFields.Children.Add(_txSetup);
+            _txGateAdvancedFields.Children.Add(_txSaveSetup);
+        }
+        finally { _txNoiseRebuilding = false; }
+    }
+
+    private void SetupGateField(CycleFieldControl field, NoiseController noise, TxGateLever lever)
+    {
+        var steps = noise.GateSteps(lever);
+        field.Setup(noise.GateLeverName(lever), steps.Select(s => s.Text).ToArray(), NearestGateStep(noise, lever, steps));
+        field.Wraps = false;
+        field.HomeEndJump = true;
+        JJFlexHelp.SetText(field, Lexicon.Get(GateHelpKey(lever)));
+        _txGateFields.RemoveAll(f => ReferenceEquals(f.Field, field));
+        _txGateFields.Add((field, lever, steps));
+    }
+
+    /// <summary>A gate field's one handler, attached once when the field is made: it reads the lever and steps the field holds now.</summary>
+    private void WireGateField(CycleFieldControl field)
+    {
+        field.SelectionChanged += (s, i) =>
+        {
+            if (_polling || _txNoiseRebuilding || i < 0) return;
+            var entry = _txGateFields.FirstOrDefault(f => ReferenceEquals(f.Field, field));
+            if (entry.Field == null || i >= entry.Steps.Count) return;
+            NoiseCtl?.SetGate(entry.Lever, entry.Steps[i].Value, TxNoiseSource);
+        };
+    }
+
+    /// <summary>A gate lever's Ctrl+F1 line, as a whole key so the coverage scan sees each one.</summary>
+    private static string GateHelpKey(TxGateLever lever) => lever.Key switch
+    {
+        TxGateLever.Margin => "audio.noise_help.tx_home.gate.margin",
+        TxGateLever.Threshold => "audio.noise_help.tx_home.gate.threshold",
+        TxGateLever.Attack => "audio.noise_help.tx_home.gate.attack",
+        TxGateLever.Hold => "audio.noise_help.tx_home.gate.hold",
+        TxGateLever.Release => "audio.noise_help.tx_home.gate.release",
+        TxGateLever.Depth => "audio.noise_help.tx_home.gate.depth",
+        _ => "audio.noise_help.tx_home.gate.monitor_volume",
+    };
+
+    private static int NearestGateStep(NoiseController noise, TxGateLever lever, IReadOnlyList<(double Value, string Text)> steps)
+    {
+        double now = noise.GateNumber(lever);
+        int best = 0;
+        for (int i = 1; i < steps.Count; i++)
+            if (Math.Abs(steps[i].Value - now) < Math.Abs(steps[best].Value - now)) best = i;
+        return best;
+    }
+
+    private void TransmitNoiseOnChanged(bool on)
+    {
+        if (_polling || _txNoiseRebuilding || NoiseCtl is not { } noise || TxNoiseEngine is not string id) return;
+        var family = TxSideFamily;
+        // The slot's own switch when its engine is the one shown; otherwise the shown engine on.
+        if (!on || noise.TransmitSlotEngine(family) == id) noise.TransmitSetSlotOn(family, on, TxNoiseSource);
+        else noise.TransmitSetOn(id, on, TxNoiseSource);
+        ShowTransmitNoiseSide(selectEngine: noise.TransmitSlotEngine(family));
+    }
+
+    private void TransmitNoiseAdvancedChanged(bool on)
+    {
+        if (_polling || _txNoiseRebuilding || NoiseCtl is not { } noise || TxNoiseEngine is not string id) return;
+        noise.SetAdvanced(id, on, DenoiseDirection.Transmit);
+        ShowTransmitNoiseEngine(id);
+    }
+
+    private void TransmitFavouriteChanged(bool favourite)
+    {
+        if (_polling || _txNoiseRebuilding || NoiseCtl is not { } noise || TxNoiseEngine is not string id) return;
+        if (noise.IsFavourite(id, DenoiseDirection.Transmit) != favourite) noise.ToggleFavourite(id, TxNoiseSource, DenoiseDirection.Transmit);
+    }
+
+    private void TransmitGateAdvancedChanged(bool on)
+    {
+        if (_polling || _txNoiseRebuilding || FindMainWindow() is not { } mw || mw.CurrentAudioConfig is not { } cfg) return;
+        cfg.NoiseAdvancedEngines.Remove(TxGateAdvancedKey);
+        if (on) cfg.NoiseAdvancedEngines.Add(TxGateAdvancedKey);
+        mw.PersistDspSettings();
+        BuildTransmitGateFields();
+    }
+
+    /// <summary>Refresh every transmit noise field's value from the controller, silently (the poll, and after an action).</summary>
+    private void RefreshTransmitNoiseValues()
+    {
+        if (NoiseCtl is not { } noise || _txNoiseFieldsFor == null) return;
+        bool wasPolling = _polling;
+        _polling = true;
+        try
+        {
+            _txNoiseOn.IsChecked = noise.TransmitIsOn(_txNoiseFieldsFor);
+            _txNoiseFavourite.IsChecked = noise.IsFavourite(_txNoiseFieldsFor, DenoiseDirection.Transmit);
+            foreach (var (field, lever, steps) in _txNoiseLeverFields)
+            {
+                field.SuppressEvents = true;
+                try { field.SelectedIndex = CurrentStep(noise, lever, steps); }
+                finally { field.SuppressEvents = false; }
+            }
+            _txGateOn.IsChecked = noise.TransmitGate.Enabled;
+            _txGateAuto.IsChecked = noise.TransmitGate.AutoThreshold;
+            foreach (var (field, lever, steps) in _txGateFields)
+            {
+                field.SuppressEvents = true;
+                try { field.SelectedIndex = NearestGateStep(noise, lever, steps); }
+                finally { field.SuppressEvents = false; }
+            }
+            _txListen.SuppressEvents = true;
+            try { _txListen.SelectedIndex = noise.TransmitGate.MonitorMode; }
+            finally { _txListen.SuppressEvents = false; }
+        }
+        finally { _polling = wasPolling; }
+    }
+
+    /// <summary>The poll's part: values follow the controller; the engine list follows availability.</summary>
+    private void PollTransmitNoise()
+    {
+        if (NoiseCtl == null) return;
+        if (_txNoiseFieldsFor == null) { ShowTransmitNoiseSide(selectEngine: null); return; }
+        RefreshTransmitNoiseValues();
+    }
+
+    /// <summary>
+    /// The Transmit menu's "settings on Home" and "Advanced settings..." rows,
+    /// and the Audio Workshop's door: open the Transmission expander at its
+    /// noise fields, at an engine (or at Side), or at the gate, with Advanced
+    /// revealed when asked, and focus there once laid out.
+    /// </summary>
+    public void OpenTransmitNoise(string? engineId, bool advanced, bool gate)
+    {
+        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
+        TxExpander.IsExpanded = true;
+        var noise = NoiseCtl;
+        if (noise == null) return;
+        UIElement target;
+        if (gate)
+        {
+            if (advanced && FindMainWindow()?.CurrentAudioConfig is { } cfg && !cfg.NoiseAdvancedEngines.Contains(TxGateAdvancedKey))
+            {
+                cfg.NoiseAdvancedEngines.Add(TxGateAdvancedKey);
+                FindMainWindow()?.PersistDspSettings();
+            }
+            ShowTransmitNoiseSide(selectEngine: null);
+            target = advanced && _txGateAdvancedFields.Children.Count > 0 ? _txGateAdvancedFields.Children[0] : _txGateOn;
+        }
+        else if (engineId != null && noise.Find(engineId) is { Family: DenoiseFamily family })
+        {
+            _txNoiseRebuilding = true;
+            try { _txNoiseSide.SelectedIndex = Array.IndexOf(TxSideFamilies, family); }
+            finally { _txNoiseRebuilding = false; }
+            if (advanced && !noise.IsAdvanced(engineId, DenoiseDirection.Transmit)) noise.SetAdvanced(engineId, true, DenoiseDirection.Transmit);
+            ShowTransmitNoiseSide(engineId);
+            target = advanced && _txNoiseAdvancedLevers.Children.Count > 0 ? _txNoiseAdvancedLevers.Children[0] : _txNoiseEngine;
+        }
+        else
+        {
+            ShowTransmitNoiseSide(selectEngine: null);
+            target = _txNoiseSide;
+        }
+        // Focus waits for layout, as the receive expander's does (E3): a field
+        // built just now is not focusable until WPF has laid it out.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+        {
+            UpdateLayout();
+            if (!target.Focus())
+                JJTrace.Tracing.TraceLine("ScreenFieldsPanel: the transmit noise field did not take focus", System.Diagnostics.TraceLevel.Info);
+        });
+    }
+}

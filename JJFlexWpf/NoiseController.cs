@@ -110,8 +110,15 @@ namespace JJFlexWpf
     /// Listen to what was removed switch. The value lives in the radio or the
     /// slot; this only says where.
     /// </summary>
+    /// <remarks>
+    /// <see cref="Direction"/> (Sprint 49 Track H2): which chain the lever
+    /// belongs to. A transmit lever reads and writes the transmit chain's slot
+    /// for its engine (<see cref="TxNoiseChain"/>), through the chain's intent
+    /// calls, and is spoken on the transmit subjects. Receive is the default,
+    /// so every lever built before transmit existed means what it always did.
+    /// </remarks>
     public sealed record NoiseLever(string EngineId, string Key, string LabelKey, NoiseLeverKind Kind,
-        EngineSettingDescriptor? Descriptor = null, bool Advanced = false)
+        EngineSettingDescriptor? Descriptor = null, bool Advanced = false, DenoiseDirection Direction = DenoiseDirection.Receive)
     {
         /// <summary>NNR's Depth is the mask floor shown as a positive number, so up means more depth and a more negative floor (ruled S8 18:49).</summary>
         public bool Inverted => EngineId == "nnr" && Key == "mask_floor_db";
@@ -198,12 +205,16 @@ namespace JJFlexWpf
 
         public NoiseController(DenoiseEngineCatalog catalog, Func<INoiseRadio?> radio, Func<RxAudioPipeline?> pipeline,
             Func<AudioOutputConfig?> config, Action persist, INoiseSpeaker speaker, INoiseIntentStore intents,
-            INoiseScheduler scheduler, INnrCwCostSource? cwCost = null, Func<long>? clock = null)
+            INoiseScheduler scheduler, INnrCwCostSource? cwCost = null, Func<long>? clock = null, Func<TxNoiseChain?>? transmitChain = null)
         {
             _catalog = catalog; _radio = radio; _pipeline = pipeline; _config = config; _persist = persist;
             _speaker = speaker; _intents = intents; _scheduler = scheduler;
             _cwCost = cwCost ?? new UnmeasuredNnrCwCost();
             _clock = clock ?? (() => Environment.TickCount64);
+            // The transmit chain is the session's own (Track H), radio or no
+            // radio; asked for only when a transmit road is used, so a receive
+            // test never builds one.
+            _txChain = transmitChain ?? (() => TxAudioConditioning.Chain);
         }
 
         public DenoiseEngineCatalog Catalog => _catalog;
@@ -1008,9 +1019,11 @@ namespace JJFlexWpf
             replaced == null ? sentence : sentence + " " + L("audio.noise_surface.replaced_clause", ("other", NameOf(replaced)));
 
         /// <summary>The refusal ladder for a computer engine that cannot run: the engine's name, the reason, the engine it replaced if any, the action; the kept clause at Chatty only where the choice can come true.</summary>
-        private void SpeakUnavailable(DenoiseEngineEntry e, Unavailability reason, bool kept, string? replaced = null)
+        private void SpeakUnavailable(DenoiseEngineEntry e, Unavailability reason, bool kept, string? replaced = null,
+            DenoiseDirection direction = DenoiseDirection.Receive)
         {
-            string name = Lexicon.Get(e.LabelKey);
+            bool transmit = direction == DenoiseDirection.Transmit;
+            string name = transmit ? TxName(e.Id) : Lexicon.Get(e.LabelKey);
             string key = reason switch
             {
                 Unavailability.LibraryMissing => "audio.noise_surface.unavailable.librarymissing",
@@ -1026,13 +1039,15 @@ namespace JJFlexWpf
                 Unavailability.None => "audio.noise_surface.unavailable.none",
                 _ => "audio.noise_surface.unavailable.initfailed",
             };
-            string text = WithReplaced(L(key, ("engine", name)), replaced);
+            string text = WithReplaced(L(key, ("engine", name)), transmit && replaced != null ? null : replaced);
+            if (transmit && replaced != null) text += " " + L("audio.noise_surface.replaced_clause", ("other", TxName(replaced)));
             bool canComeTrue = reason is Unavailability.HelperNotRunning or Unavailability.HelperMissing or Unavailability.HelperVersionMismatch
                 or Unavailability.LibraryMissing or Unavailability.ModelMissing or Unavailability.NotDownloaded
                 or Unavailability.LicenceNotAccepted or Unavailability.NoSupportedGpu;
             if (kept && canComeTrue && Chatty) text += " " + L("audio.noise_surface.choice_kept");
-            NoteSaidCannotRun(e.Id, reason);
-            Say(text, SpeechSubject.NoiseUnavailable);
+            // A transmit refusal is not a receive mode sentence's business (#1117's facts are receive's).
+            if (!transmit) NoteSaidCannotRun(e.Id, reason);
+            Say(text, transmit ? SpeechSubject.TransmitNoiseUnavailable : SpeechSubject.NoiseUnavailable);
         }
 
         /// <summary>

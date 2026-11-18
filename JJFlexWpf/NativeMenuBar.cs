@@ -31,7 +31,7 @@ namespace JJFlexWpf;
 /// at all — one item with a mnemonic among bare siblings is the inconsistency
 /// to avoid, not the mnemonic itself.
 /// </summary>
-public class NativeMenuBar : IDisposable
+public partial class NativeMenuBar : IDisposable
 {
     #region Win32 P/Invoke
 
@@ -1879,6 +1879,11 @@ public class NativeMenuBar : IDisposable
         if (Rig == null)
         {
             AddWired(parent, "Connect a radio first", SpeakNoRadio);
+            // Transmit noise reduction and the gate are held with no radio
+            // (#1077, settings are intents), so their rows are here too
+            // (Sprint 49 Track H2).
+            AddSep(parent);
+            BuildTransmitNoiseItems(parent);
             return;
         }
 
@@ -1977,6 +1982,10 @@ public class NativeMenuBar : IDisposable
             SpeakAfterMenuClose(Radios.Lexicon.Get("audio.tx_filter.range",
                 ("low", Rig.TXFilterLow), ("high", Rig.TXFilterHigh)));
         });
+
+        // --- Transmit noise reduction and the gate (Sprint 49 Track H2) ---
+        // After the TX filter and before Dummy Load Mode, design part seven.
+        BuildTransmitNoiseItems(parent);
 
         AddSep(parent);
 

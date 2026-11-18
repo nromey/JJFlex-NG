@@ -830,12 +830,10 @@ public partial class AudioWorkshopDialog
             {
                 string? said = ApplyTransmitNoiseSetup(profile, radioId);
                 if (!string.IsNullOrEmpty(said)) notes.Add(said);
-                PollTxCleanup();
             }
             else if (TxAudioConditioning.Conditioner != null && capture.Conditioning != null)
             {
                 TxAudioConditioning.ApplySettings(capture.Conditioning);
-                PollTxCleanup();
             }
             else
             {

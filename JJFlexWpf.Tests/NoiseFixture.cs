@@ -146,7 +146,7 @@ internal sealed class NoiseFixture : IDisposable
         Catalog = new DenoiseEngineCatalog(rows);
         Pipeline = new RxAudioPipeline(catalog: Catalog);
         Noise = new NoiseController(Catalog, () => RadioPresent ? Radio : null, () => Pipeline, () => Config,
-            () => Persisted++, Spoken, Held, Clock, Cost);
+            () => Persisted++, Spoken, Held, Clock, Cost, transmitChain: () => Transmit);
     }
 
     /// <summary>
@@ -169,6 +169,15 @@ internal sealed class NoiseFixture : IDisposable
             Thread.Sleep(1);
         }
     }
+
+    private TxNoiseChain? _transmit;
+
+    /// <summary>
+    /// The transmit chain over the same fake engines (Sprint 49 Track H2),
+    /// made only when a transmit road asks for it, so a receive test builds
+    /// none it does not use.
+    /// </summary>
+    public TxNoiseChain Transmit => _transmit ??= new TxNoiseChain(Catalog);
 
     public void Dispose() => Pipeline.Dispose();
 }

@@ -146,6 +146,8 @@ public partial class MainWindow : UserControl
         // the first connect. Every lambda resolves at call time, because both
         // of the values they read are set later, during startup.
         Dialogs.AudioWorkshopDialog.OpenAudioDevices = () => AudioSetupCallback?.Invoke();
+        // The Workshop's PC Cleanup door (Sprint 49 Track H2): the controls live on Home now.
+        Dialogs.AudioWorkshopDialog.OpenTransmitNoiseOnHome = () => OpenTransmitNoiseOnHome(null, advanced: false);
         Dialogs.AudioWorkshopDialog.AudioDevicesPath = () => AudioDevicesFilePath;
         // #835: where Check your audio finds the radio when a door has none
         // to hand (the Workshop opened from Settings carries no radio).
@@ -944,6 +946,17 @@ public partial class MainWindow : UserControl
             new TimerNoiseScheduler(a => Dispatcher.BeginInvoke(a)));
         noise.PresetStore = new FilePresetStore(() => OpenParms == null ? null : (OpenParms.ConfigDirectory, OpenParms.GetOperatorName()));
         noise.TransmitChain = new RigTransmitChain(() => RigControl);
+        // A renamed transmit noise setup: every microphone that named it follows
+        // (Track H's contract, Sprint 49 Track H2's Manage setups).
+        noise.RepointMicrophones = (radioId, from, to) =>
+        {
+            if (OpenParms == null) return 0;
+            string dir = OpenParms.ConfigDirectory, op = OpenParms.GetOperatorName();
+            var store = Radios.MicrophoneProfileStore.Load(dir, op);
+            int changed = store.RepointNoiseSetup(radioId, from, to);
+            if (changed > 0) store.Save(dir, op);
+            return changed;
+        };
         WdspHost.Default.StateChanged += (s, e) =>
             Dispatcher.BeginInvoke(() => noise.OnHelperStateChanged(e.Change, e.Engines));
         return noise;
