@@ -201,7 +201,8 @@ namespace JJFlexWpf
                     }
                 RememberModeState();
             }
-            if (preset.TransmitNoise is { } transmit) transmitTiming = ApplyTransmitSection(transmit, changes, txPhrases);
+            if (preset.TransmitNoise is { } transmit)
+                using (OwnTx(source)) transmitTiming = ApplyTransmitSection(transmit, changes, txPhrases); // the layer's own, for its Escape
             return transmitTiming;
         }
 

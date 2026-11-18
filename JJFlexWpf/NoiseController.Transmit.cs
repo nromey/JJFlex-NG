@@ -335,6 +335,7 @@ namespace JJFlexWpf
         /// </summary>
         public void TransmitToggle(string id, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             var e = _catalog.Find(id);
             if (e == null) return;
@@ -351,6 +352,7 @@ namespace JJFlexWpf
         /// <summary>Turn a transmit engine on or off outright (a check item, Home's On box when its engine is chosen).</summary>
         public void TransmitSetOn(string id, bool on, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             if (TransmitIsOn(id) == on)
             {
@@ -370,6 +372,7 @@ namespace JJFlexWpf
         /// </summary>
         public void TransmitSetShownOn(DenoiseFamily family, string shownId, bool on, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             CancelTransmitSettle(family);
             if (!on) { TransmitSetSlotOn(family, false, source); return; }
@@ -380,6 +383,7 @@ namespace JJFlexWpf
         /// <summary>A transmit slot on or off without naming an engine: on starts the slot's chosen engine.</summary>
         public void TransmitSetSlotOn(DenoiseFamily family, bool on, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             if (_txChain() is not { } chain) return;
             CancelTransmitSettle(family);
@@ -535,6 +539,7 @@ namespace JJFlexWpf
 
         private void ApplyTransmitSlotChoice(DenoiseFamily family, string id, string source, long epoch)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             _txPendingChoice.Remove(family);
             var e = _catalog.Find(id);
@@ -559,6 +564,7 @@ namespace JJFlexWpf
         /// <summary>The 0 key in the transmit direction: both transmit slots off, and back (question 17's reasoning, on the microphone).</summary>
         public void TransmitComputerOffAndBack(string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             if (_txChain() is not { } chain) return;
             var on = new List<(DenoiseFamily, string)>();
@@ -601,6 +607,7 @@ namespace JJFlexWpf
 
         private void MoveTransmit(NoiseLever lever, DenoiseEngineEntry e, string source, Func<EngineSettingValue, EngineSettingValue?> to, int direction)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             if (!OffersTransmit(e) || _txChain() is null)
             {
                 Say(L("audio.noise_surface.tx.receive_only", ("engine", NameOf(e.Id))), SpeechSubject.TransmitNoiseUnavailable);
@@ -721,6 +728,7 @@ namespace JJFlexWpf
         /// </summary>
         public void TransmitReturnToDefaults(string id, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             var e = _catalog.Find(id);
             if (e == null) return;
@@ -849,6 +857,7 @@ namespace JJFlexWpf
         /// </summary>
         public void TransmitStep(int direction, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             var list = TransmitStepList();
             if (list.Count == 0 || _txChain() is not { } chain) return;
@@ -1002,6 +1011,7 @@ namespace JJFlexWpf
         /// <summary>The gate on or off, speaking the timing the gate answers with (at the unkey while keyed, after Track H's repair round 1).</summary>
         public void SetGateOn(bool on, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             var g = TransmitGate;
             bool was = g.Enabled;
@@ -1016,6 +1026,7 @@ namespace JJFlexWpf
         /// <summary>The automatic threshold on or off: on, the gate opens a margin above the measured room floor; off, at the threshold set by hand.</summary>
         public void SetGateAutoThreshold(bool on, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             var g = TransmitGate;
             bool was = g.AutoThreshold;
@@ -1030,6 +1041,7 @@ namespace JJFlexWpf
         /// <summary>A gate lever one step up or down; at an end it stays and says so.</summary>
         public void AdjustGate(TxGateLever lever, int direction, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             double now = GateNumber(lever);
             double next = Math.Clamp(now + lever.Step * Math.Sign(direction), lever.Min, lever.Max);
             if (next == now)
@@ -1045,6 +1057,7 @@ namespace JJFlexWpf
         /// <summary>Set a gate lever (a Home field's value) and say it.</summary>
         public void SetGate(TxGateLever lever, double value, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             double was = GateNumber(lever);
             double asked = Math.Clamp(value, lever.Min, lever.Max);
@@ -1070,6 +1083,7 @@ namespace JJFlexWpf
         /// </summary>
         public void GateReturnToDefaults(string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             var g = TransmitGate;
             var fresh = new TxNoiseGateSetup { Enabled = g.Enabled };
@@ -1145,6 +1159,7 @@ namespace JJFlexWpf
         /// <summary>Apply one of this radio's setups: both slots and the gate. A slot change made while keyed waits for the unkey, and is said to.</summary>
         public void ApplyTransmitSetup(string name, string source)
         {
+            using var owned = OwnTx(source); // the layer's own change, for its Escape (Escape ownership round)
             using var oneUtterance = OneUtterance();
             if (!SetupsReady(out string radio, out var store)) return;
             var setup = store.Find(radio, name);

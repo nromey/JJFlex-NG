@@ -170,7 +170,57 @@ namespace JJFlexWpf
         public const bool ContinuousLeversLiveWhileKeyed = true;
 
         private readonly object _deferLock = new();
-        private readonly List<Action> _deferred = new();
+        // Each held change with whoever asked for it (Sprint 49 Track H2, Escape
+        // ownership round): the noise layer tags what it asks for, so its Escape
+        // can withdraw its own held changes and leave everyone else's in order.
+        private readonly List<(Action Change, object? Owner)> _deferred = new();
+
+        /// <summary>The owner tagging changes held from this thread, if any (<see cref="OwnedBy"/>).</summary>
+        [ThreadStatic] private static object? t_owner;
+
+        /// <summary>
+        /// Tag every change this thread has held until the result is disposed with
+        /// <paramref name="owner"/>, so <see cref="CancelHeld"/> can withdraw them
+        /// (Sprint 49 Track H2, Escape ownership round). Control side only; the
+        /// audio thread never holds a change and takes no lock here.
+        /// </summary>
+        internal IDisposable OwnedBy(object owner)
+        {
+            var previous = t_owner;
+            t_owner = owner;
+            return new OwnerScope(previous);
+        }
+
+        private sealed class OwnerScope : IDisposable
+        {
+            private readonly object? _previous;
+            private bool _done;
+            public OwnerScope(object? previous) => _previous = previous;
+            public void Dispose() { if (_done) return; _done = true; t_owner = _previous; }
+        }
+
+        /// <summary>
+        /// Withdraw every held change tagged with <paramref name="owner"/>, leaving
+        /// the rest held in their order (the noise layer's Escape: what it asked for
+        /// while keyed must not land after it was cancelled). Returns how many.
+        /// </summary>
+        internal int CancelHeld(object owner)
+        {
+            lock (_deferLock)
+            {
+                int removed = _deferred.RemoveAll(h => ReferenceEquals(h.Owner, owner));
+                _deferredCount = _deferred.Count;
+                return removed;
+            }
+        }
+
+        /// <summary>
+        /// Run <paramref name="change"/> after whatever is held: now when nothing
+        /// is, keyed or not, or behind the held changes, in order. For bookkeeping
+        /// that must see a held change's result (the layer's record of what it
+        /// changed), never for a change to the audio.
+        /// </summary>
+        internal TxChangeResult AfterHeld(Action change) => Order(change, holdWhenKeyed: false, () => TxChangeResult.Now);
 
         /// <summary>True while changes are being held for the unkey (a whole setup, and whatever was asked for after it).</summary>
         public bool HasDeferredChanges => Volatile.Read(ref _deferredCount) > 0;
@@ -201,7 +251,7 @@ namespace JJFlexWpf
             while (_deferred.Count > 0)
             {
                 if (IsKeyed) return;
-                var next = _deferred[0];
+                var next = _deferred[0].Change;
                 _deferred.RemoveAt(0);
                 _deferredCount = _deferred.Count;
                 try { next(); }
@@ -227,7 +277,7 @@ namespace JJFlexWpf
                 DrainLocked();
                 if (_deferred.Count > 0 || (holdWhenKeyed && IsKeyed))
                 {
-                    _deferred.Add(change);
+                    _deferred.Add((change, t_owner));
                     _deferredCount = _deferred.Count;
                     return TxChangeResult.AtUnkey;
                 }
@@ -356,6 +406,9 @@ namespace JJFlexWpf
             Apply(DenoiseFamily.Spectral, spectral);
             Apply(DenoiseFamily.Neural, neural);
         }
+
+        /// <summary>One slot of a setup, now, on the control side: the layer's Escape puts back only the slot it changed (Sprint 49 Track H2, Escape ownership round).</summary>
+        internal void ApplySlotNow(DenoiseFamily family, TxNoiseSlotSetup? setup) => Apply(family, setup);
 
         /// <summary>The engine a slot starts on when a setup names none.</summary>
         public static string DefaultEngine(DenoiseFamily family) => family == DenoiseFamily.Spectral ? DefaultSpectralEngine : DefaultNeuralEngine;

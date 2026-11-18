@@ -85,7 +85,7 @@ namespace JJFlexWpf
             LegacyAutoNotchKey, FavouriteKey, DefaultsKey, NextPresetKey, PreviousPresetKey,
         };
 
-        private const string Source = "noise layer";
+        private const string Source = NoiseController.LayerSource; // what makes a change the layer's own, for its Escape
         private readonly NoiseController _noise;
         private readonly Action<bool>? _tone;
 

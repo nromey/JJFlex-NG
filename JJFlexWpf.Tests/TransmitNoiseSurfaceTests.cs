@@ -370,9 +370,13 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         keys.Handle(Keys.T);
         keys.Handle(Keys.N | Keys.Control);                  // NNR replaces RNNoise
         var model = f.Noise.Levers("nnr", false, DenoiseDirection.Transmit).Single(l => l.Key == "model");
-        f.Noise.Set(model, null, f.Noise.OptionsFor(model).First(o => o.Name != nnrModelBefore).Name, "test");
+        f.Noise.Set(model, null, f.Noise.OptionsFor(model).First(o => o.Name != nnrModelBefore).Name, NoiseController.LayerSource);
         keys.Handle(Keys.D2 | Keys.Control);
-        f.Transmit.SetStrength("rnnoise", 0.9f);
+        // The layer's own floor move (Escape ownership round: a write from
+        // outside the layer is kept, so the layer makes every change here).
+        var floor = f.Noise.Levers("rnnoise", true, DenoiseDirection.Transmit).Single(l => l.Key == "floor");
+        f.Noise.Set(floor, 10, null, NoiseController.LayerSource);
+        Assert.NotEqual(0.5f, f.Transmit.GetStrength("rnnoise"), 3);
         Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
         Assert.True(f.Transmit.WantsEnabled(DenoiseFamily.Neural));
         Assert.Equal("rnnoise", f.Transmit.ChosenEngineId(DenoiseFamily.Neural));
@@ -387,7 +391,7 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         var (f, _) = Make();
         using var _f = f;
         var snap = f.Noise.TakeSnapshot();
-        f.Noise.TransmitToggle("nnr", "test");
+        f.Noise.TransmitToggle("nnr", NoiseController.LayerSource);
         f.Transmit.KeySource = () => true;
         Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
         Assert.Equal(TxChangeTiming.AtUnkey, f.Noise.LastRestoreTiming);
@@ -1243,7 +1247,14 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
             c.SetSetting("rnnoise", "amount", new EngineSettingValue(3));
             Assert.All(Run(), v => Assert.Equal(6f, v));
             snap = noise.TakeSnapshot();
-            c.SetSetting("rnnoise", "amount", new EngineSettingValue(1));
+            // The layer's own move (Escape ownership round): Escape undoes only those.
+            var amount = noise.Levers("rnnoise", true, DenoiseDirection.Transmit).Single(l => l.Key == "amount");
+            noise.Set(amount, 1, null, NoiseController.LayerSource);
+            Assert.Equal(1, c.NeuralSlot.GetSetting("rnnoise", "amount").Number);
+            // And the spectral slot (off, so nothing heard): Escape now puts back
+            // only the slots the layer changed, and the pause sits in NR4's
+            // settings, so the probe needs the layer to have changed that slot too.
+            noise.Set(noise.Levers("nr4", true, DenoiseDirection.Transmit).Single(l => l.Key == "floor"), 30, null, NoiseController.LayerSource);
             Assert.All(Run(), v => Assert.Equal(2f, v));
         }
         else if (road == "setup") Assert.True(setups.Save(Radio8600, target).Succeeded);
@@ -1361,15 +1372,163 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         Assert.Equal(8, gate.MarginDb);
         Assert.Equal(3, gate.AttackMs);
         // Keyed, the gate waits for the unkey with the slots, and the closing sentence says so.
-        f.Noise.StepTransmitPreset(+1, "noise layer");
         snap = f.Noise.TakeSnapshot();
-        gate.MarginDb = 14;
+        f.Noise.StepTransmitPreset(+1, NoiseController.LayerSource);   // unkeyed: it lands now
+        Assert.Equal(12, gate.MarginDb);
         f.Transmit.KeySource = () => true;
         Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
-        Assert.Equal(14, gate.MarginDb);
+        Assert.Equal(12, gate.MarginDb);
         Assert.Equal(TxChangeTiming.AtUnkey, f.Noise.LastRestoreTiming);
         f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
-        Assert.Equal(12, gate.MarginDb);
+        Assert.Equal(8, gate.MarginDb);
+        Assert.False(gate.Enabled);
+    }
+
+    // ── Escape ownership round: Escape undoes only the layer's own changes ──
+
+    [Fact]
+    public void Escape_keeps_a_gate_change_made_outside_the_layer_when_the_layer_changed_nothing()
+    {
+        // Codex's first reproduction: restored=True and the gate back to off with no layer edit.
+        var (f, gate) = Make();
+        using var _f = f;
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.SetGateOn(true, "Home");
+        Assert.True(gate.Enabled);
+        Assert.False(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.True(gate.Enabled);
+    }
+
+    [Fact]
+    public void Escape_keeps_a_setup_applied_through_the_real_owner_after_the_picture()
+    {
+        // Codex's third reproduction, through TxAudioConditioning itself: a setup
+        // applied outside the layer after the picture was gate off, margin 8 again.
+        var (f, _) = Make();
+        using var _f = f;
+        using var ctx = new TxGateOwnerTests.Context();
+        TxAudioConditioning.UseChainForTest(f.Transmit);
+        f.Noise.TransmitGate = new AppTransmitGate();
+        var snap = f.Noise.TakeSnapshot();
+        var setup = f.Noise.CaptureTransmitSetup("Outside");
+        setup.Gate.Enabled = true;
+        setup.Gate.ThresholdMarginDb = 14;
+        TxAudioConditioning.ApplySetup(setup);
+        Assert.True(TxAudioConditioning.GateEnabled);
+        Assert.False(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.True(TxAudioConditioning.GateEnabled);
+        Assert.Equal(14, TxAudioConditioning.ThresholdMarginDb, 3);
+    }
+
+    [Fact]
+    public void Escape_keeps_an_outside_change_made_after_the_layers_own_change_to_the_same_part()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        gate.Enabled = true; gate.MarginDb = 12;
+        f.Noise.SavePreset("Gate", false, false, true, PresetCollision.Replace, "test");
+        gate.Enabled = false; gate.MarginDb = 8;
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.StepTransmitPreset(+1, NoiseController.LayerSource);    // the layer turns the gate on, margin 12
+        f.Noise.SetGateOn(false, "Home");                                // then Home turns it off
+        f.Noise.SetGate(f.Noise.GateLever(TxGateLever.Margin)!, 14, "Home");
+        Assert.False(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.False(gate.Enabled);
+        Assert.Equal(14, gate.MarginDb);
+    }
+
+    [Fact]
+    public void Escape_withdraws_a_preset_the_layer_asked_for_while_keyed_slots_and_gate_alike()
+    {
+        // Codex's second reproduction: before Escape off, waiting; then on at the unkey.
+        var (f, gate) = Make();
+        using var _f = f;
+        gate.Enabled = true;
+        f.Noise.TransmitToggle("nnr", "test");
+        f.Noise.SavePreset("Waiting", false, false, true, PresetCollision.Replace, "test");   // NNR on, gate on
+        f.Noise.TransmitToggle("nnr", "test");
+        gate.Enabled = false;
+        string slotsBefore = Describe(f.Transmit);
+        var snap = f.Noise.TakeSnapshot();
+        f.Transmit.KeySource = () => true;
+        f.Noise.StepTransmitPreset(+1, NoiseController.LayerSource);
+        Assert.True(f.Transmit.HasDeferredChanges);
+        Assert.False(gate.Enabled);
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));       // the layer's own waiting change was withdrawn
+        Assert.False(f.Transmit.HasDeferredChanges);
+        Assert.Equal(TxChangeTiming.Now, f.Noise.LastRestoreTiming);
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.False(gate.Enabled);
+        Assert.False(f.Transmit.WantsEnabled(DenoiseFamily.Neural));
+        Assert.Equal(slotsBefore, Describe(f.Transmit));
+    }
+
+    [Fact]
+    public void Escape_withdraws_only_the_layers_waiting_changes_and_an_earlier_outside_one_still_lands()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        gate.Enabled = true; gate.MarginDb = 12;
+        f.Noise.SavePreset("Gate", false, false, true, PresetCollision.Replace, "test");
+        gate.Enabled = false; gate.MarginDb = 8;
+        var snap = f.Noise.TakeSnapshot();
+        f.Transmit.KeySource = () => true;
+        f.Noise.SetGateOn(true, "Home");                                  // outside, held for the unkey
+        f.Noise.StepTransmitPreset(+1, NoiseController.LayerSource);     // the layer's, held behind it
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));                 // the layer's own waiting change withdrawn
+        Assert.True(f.Transmit.HasDeferredChanges);                       // Home's change still waits
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.True(gate.Enabled);                                        // Home's on landed
+        Assert.Equal(8, gate.MarginDb);                                   // the layer's margin 12 never did
+    }
+
+    [Fact]
+    public void A_put_back_held_behind_an_outside_change_asks_again_and_keeps_that_change()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.TransmitToggle("nnr", NoiseController.LayerSource);       // the layer's own: NNR on, now
+        Assert.True(f.Transmit.WantsEnabled(DenoiseFamily.Neural));
+        f.Transmit.KeySource = () => true;
+        var (spectral, neural) = f.Transmit.CaptureSlots();
+        neural.Enabled = true;
+        neural.EngineId = "rnnoise";
+        f.Transmit.ApplySlots(spectral, neural);                          // a setup from outside, held
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));               // still as the layer left it: queued
+        Assert.Equal(TxChangeTiming.AtUnkey, f.Noise.LastRestoreTiming);
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.True(f.Transmit.WantsEnabled(DenoiseFamily.Neural));       // the outside setup won
+        Assert.Equal("rnnoise", f.Transmit.ChosenEngineId(DenoiseFamily.Neural));
+    }
+
+    [Fact]
+    public void A_layer_change_held_for_the_unkey_that_lands_before_Escape_is_still_the_layers_to_put_back()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        gate.Enabled = true; gate.MarginDb = 12;
+        f.Noise.SavePreset("Gate", false, false, true, PresetCollision.Replace, "test");
+        gate.Enabled = false; gate.MarginDb = 8;
+        var snap = f.Noise.TakeSnapshot();
+        f.Transmit.KeySource = () => true;
+        f.Noise.StepTransmitPreset(+1, NoiseController.LayerSource);
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();                                       // the unkey, with the layer still open
+        Assert.True(gate.Enabled);
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.False(gate.Enabled);
+        Assert.Equal(8, gate.MarginDb);
+    }
+
+    private static string Describe(TxNoiseChain chain)
+    {
+        var (s, n) = chain.CaptureSlots();
+        string One(TxNoiseSlotSetup x) => (x.Enabled ? "on " : "off ") + x.EngineId + " " + string.Join(",", x.Engines.Select(e => e.EngineId + ":" + e.Strength));
+        return One(s) + " | " + One(n);
     }
 
     [Fact]
