@@ -42,7 +42,26 @@ namespace JJFlexWpf
             var live = new List<KeyValuePair<string, EngineSettingValue>>(values.Count);
             foreach (var pair in values)
                 if (!settings.Any(s => s.Name == pair.Key && s.NeedsRebuild)) live.Add(pair);
+            AddOmittedLiveDefaults(settings, values, live);
             return new Parameters(strength, values, live.ToArray());
+        }
+
+        /// <summary>
+        /// Transmit only (Sprint 49 Track H, repair round 2, R2): the live array
+        /// also carries every live setting the stored values OMIT, at its
+        /// descriptor default. The store stays sparse (an untouched value is
+        /// still not stored, #1019), but a running engine is told the default
+        /// for a value a new setup does not name, instead of keeping whatever
+        /// the previous setup had set while the getter reads the default.
+        /// Receive keeps its overlay behaviour; the same gap there is reported,
+        /// not changed, by this track.
+        /// </summary>
+        private void AddOmittedLiveDefaults(IReadOnlyList<EngineSettingDescriptor> settings,
+            IReadOnlyDictionary<string, EngineSettingValue> values, List<KeyValuePair<string, EngineSettingValue>> live)
+        {
+            if (_direction != DenoiseDirection.Transmit) return;
+            foreach (var d in settings)
+                if (!d.NeedsRebuild && !values.ContainsKey(d.Name)) live.Add(new(d.Name, d.Default));
         }
         private sealed record Choice(long Generation, string Id, DenoiseDirection Direction = DenoiseDirection.Receive)
         {
@@ -281,7 +300,9 @@ namespace JJFlexWpf
             // TryGetValue first: GetOrAdd with a lambda that captures this slot
             // would allocate a delegate on every call, on the audio thread too.
             if (_defaults.TryGetValue(id, out var cached)) return cached;
-            var made = new Parameters(NoiseFloor.DefaultStrength(id, Direction), NoValues, Array.Empty<KeyValuePair<string, EngineSettingValue>>());
+            var defaultsLive = new List<KeyValuePair<string, EngineSettingValue>>();
+            AddOmittedLiveDefaults(SettingsFor(id), NoValues, defaultsLive);
+            var made = new Parameters(NoiseFloor.DefaultStrength(id, Direction), NoValues, defaultsLive.ToArray());
             return _defaults.GetOrAdd(id, made);
         }
 

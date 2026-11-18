@@ -533,6 +533,102 @@ public sealed class TxNoiseChainTests
         Assert.Contains("longest burst 10 buffers", line);
     }
 
+    // ── Repair round 2: Codex's re-check probes, made permanent ──
+
+    private static float[] RunUnkeyed(TxNoiseChain c)
+    {
+        var b = Enumerable.Repeat(1f, 960).ToArray();
+        c.Process(b, b.Length, 48000, false);
+        return b;
+    }
+
+    [Fact]
+    public void Replacing_a_setup_resets_the_running_engines_omitted_live_values()
+    {
+        // R2: the store was cleared but the running engine kept the old value.
+        var c = new TxNoiseChain(Catalog());
+        c.SetStrength("rnnoise", 1f);
+        c.SetEnabled(DenoiseFamily.Neural, true);
+        var saved = c.CaptureSlots();
+        Assert.All(RunUnkeyed(c), v => Assert.Equal(2f, v));
+        c.SetSetting("rnnoise", "amount", new(3));
+        Assert.All(RunUnkeyed(c), v => Assert.Equal(6f, v));
+        c.ApplySlots(saved.Spectral, saved.Neural);
+        Assert.Equal(1, c.NeuralSlot.GetSetting("rnnoise", "amount").Number);
+        Assert.All(RunUnkeyed(c), v => Assert.Equal(2f, v));   // what is heard, not only the getter
+    }
+
+    [Fact]
+    public void A_later_strength_asked_after_unkey_but_before_the_drain_is_not_lost()
+    {
+        // R3: the gap between the unkey and the worker's drain.
+        var c = new TxNoiseChain(Catalog());
+        bool keyed = true;
+        c.KeySource = () => keyed;
+        var setup = new TxNoiseSlotSetup { EngineId = "rnnoise", Enabled = true,
+            Engines = { new DenoiseEngineSettings { EngineId = "rnnoise", Direction = DenoiseDirection.Transmit, Strength = 0.5f } } };
+        c.ApplySlots(null, setup);
+        keyed = false;
+        c.SetStrength("rnnoise", 0.75f);
+        c.ApplyDeferred();
+        Assert.Equal(0.75f, c.GetStrength("rnnoise"));
+        Assert.False(c.HasDeferredChanges);
+    }
+
+    [Fact]
+    public void A_continuous_lever_asked_in_the_same_gap_is_not_lost_either()
+    {
+        var c = new TxNoiseChain(Catalog());
+        bool keyed = true;
+        c.KeySource = () => keyed;
+        var setup = new TxNoiseSlotSetup { EngineId = "rnnoise", Enabled = true,
+            Engines = { new DenoiseEngineSettings { EngineId = "rnnoise", Direction = DenoiseDirection.Transmit, Strength = 1f,
+                Values = { new DenoiseNamedValue { Name = "amount", Number = 2 } } } } };
+        c.ApplySlots(null, setup);
+        keyed = false;
+        c.SetSetting("rnnoise", "amount", new(3));
+        c.ApplyDeferred();
+        Assert.Equal(3, c.NeuralSlot.GetSetting("rnnoise", "amount").Number);
+    }
+
+    [Fact]
+    public void The_drain_stops_when_another_over_starts_and_keeps_the_rest_in_order()
+    {
+        var c = new TxNoiseChain(Catalog());
+        bool keyed = true;
+        c.KeySource = () => keyed;
+        c.SetStrength("rnnoise", 1f);
+        int first = 0;
+        c.RunOrDefer(() => { first++; keyed = true; }); // a key-down arriving while the first held change runs
+        c.ApplySlots(null, new TxNoiseSlotSetup { EngineId = "rnnoise", Enabled = true,
+            Engines = { new DenoiseEngineSettings { EngineId = "rnnoise", Direction = DenoiseDirection.Transmit, Strength = 0.25f } } });
+        keyed = false;
+        c.ApplyDeferred();
+        Assert.Equal(1, first);
+        Assert.Equal(1f, c.GetStrength("rnnoise"));   // the whole setup did NOT land in the new over
+        Assert.True(c.HasDeferredChanges);
+        keyed = false;
+        c.ApplyDeferred();
+        Assert.Equal(1, first);
+        Assert.Equal(0.25f, c.GetStrength("rnnoise"));
+        Assert.False(c.HasDeferredChanges);
+    }
+
+    [Fact]
+    public void Repeated_unkey_notifications_do_not_run_a_held_change_twice()
+    {
+        var c = new TxNoiseChain(Catalog());
+        bool keyed = true;
+        c.KeySource = () => keyed;
+        int count = 0;
+        c.RunOrDefer(() => count++);
+        c.ApplyDeferred();
+        Assert.Equal(0, count);
+        keyed = false;
+        c.ApplyDeferred(); c.ApplyDeferred();
+        Assert.Equal(1, count);
+    }
+
     private sealed class ApproxPair : IEqualityComparer<(float, float)>
     {
         public bool Equals((float, float) a, (float, float) b) => Math.Abs(a.Item1 - b.Item1) < 1e-6 && Math.Abs(a.Item2 - b.Item2) < 1e-6;

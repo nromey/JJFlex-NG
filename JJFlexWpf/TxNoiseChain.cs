@@ -177,38 +177,30 @@ namespace JJFlexWpf
         private int _deferredCount; // _deferred.Count, readable without the lock (the audio thread asks at the unkey)
 
         /// <summary>
-        /// Run <paramref name="change"/> now when unkeyed (after anything already
-        /// held), or hold it, in order, for the unkey. Changes run on the control
-        /// side; the chain runs the held ones at the unkey (and the app's policy
-        /// tick does too, as a backstop for an over in CW, where the chain is
-        /// stood aside).
+        /// Run <paramref name="change"/> now when unkeyed and nothing is held, or
+        /// hold it, in order, for the unkey. Changes run on the control side; the
+        /// chain runs the held ones at the unkey (and the app's policy tick does
+        /// too, as a backstop for an over in CW, where the chain is stood aside).
         /// </summary>
-        public TxChangeResult RunOrDefer(Action change)
-        {
-            if (change == null) throw new ArgumentNullException(nameof(change));
-            lock (_deferLock)
-            {
-                if (IsKeyed) { _deferred.Add(change); _deferredCount = _deferred.Count; return TxChangeResult.AtUnkey; }
-                DrainLocked();
-            }
-            change();
-            return TxChangeResult.Now;
-        }
+        public TxChangeResult RunOrDefer(Action change) => Order(change, holdWhenKeyed: true, () => TxChangeResult.Now);
 
-        /// <summary>Run every held change if the radio is now unkeyed. Safe to call any time, from any thread but the audio one.</summary>
+        /// <summary>
+        /// Run the held changes, in order, while the radio stays unkeyed. The key
+        /// is asked again before EACH one (repair round 2, R3): an over that
+        /// starts part way through leaves the rest held, in order, for its unkey.
+        /// Safe to call any time, from any thread but the audio one.
+        /// </summary>
         public void ApplyDeferred()
         {
-            lock (_deferLock)
-            {
-                if (_deferred.Count == 0 || IsKeyed) return;
-                DrainLocked();
-            }
+            lock (_deferLock) DrainLocked();
         }
 
+        /// <summary>Run held changes until none remain or the radio is keyed. Under the lock.</summary>
         private void DrainLocked()
         {
             while (_deferred.Count > 0)
             {
+                if (IsKeyed) return;
                 var next = _deferred[0];
                 _deferred.RemoveAt(0);
                 _deferredCount = _deferred.Count;
@@ -218,20 +210,38 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// An audio-gated change: made now (the audio thread makes it audible
-        /// only unkeyed), unless a whole setup is waiting, in which case it waits
-        /// behind it so it still wins.
+        /// The one ordering rule every request goes through (repair round 2, R3).
+        /// Whatever is already held runs first, while unkeyed; if anything is
+        /// still held after that (the radio is keyed, or keyed again part way),
+        /// this request is held behind it, keyed or not, so a request made in the
+        /// gap between the unkey and the drain is never overtaken by an older
+        /// setup. Otherwise it runs now, unless <paramref name="holdWhenKeyed"/>
+        /// and the radio is keyed. Runs under the lock, so two callers cannot
+        /// interleave their changes.
         /// </summary>
-        private TxChangeResult Gated(Action change)
+        private TxChangeResult Order(Action change, bool holdWhenKeyed, Func<TxChangeResult> nowResult)
         {
+            if (change == null) throw new ArgumentNullException(nameof(change));
             lock (_deferLock)
             {
-                if (_deferred.Count > 0 && IsKeyed) { _deferred.Add(change); _deferredCount = _deferred.Count; return TxChangeResult.AtUnkey; }
                 DrainLocked();
+                if (_deferred.Count > 0 || (holdWhenKeyed && IsKeyed))
+                {
+                    _deferred.Add(change);
+                    _deferredCount = _deferred.Count;
+                    return TxChangeResult.AtUnkey;
+                }
+                change();
+                return nowResult();
             }
-            change();
-            return Timing();
         }
+
+        /// <summary>
+        /// An audio-gated change: made now (the audio thread makes it audible
+        /// only unkeyed), unless something is held, in which case it waits
+        /// behind it so it still wins.
+        /// </summary>
+        private TxChangeResult Gated(Action change) => Order(change, holdWhenKeyed: false, Timing);
 
         /// <summary>Turn a slot on or off (item B: at the unkey when keyed).</summary>
         public TxChangeResult SetEnabled(DenoiseFamily family, bool on) => Gated(() => SetEnabledNow(family, on));
@@ -274,10 +284,10 @@ namespace JJFlexWpf
             if (!descriptor.Accepts(value)) return new(TxChangeTiming.Refused, "refused-value");
             if (descriptor.NeedsRebuild)
             {
-                bool behindSetup = HasDeferredChanges && IsKeyed;
                 var timing = Gated(() => slot.TrySetSetting(engineId, name, value));
-                // A rebuild setting of an engine the slot is not running changes nothing anyone hears.
-                return behindSetup || slot.ChosenEngineId == engineId ? timing : TxChangeResult.Now;
+                // Held behind earlier work: it waits. Otherwise a rebuild setting
+                // of an engine the slot is not running changes nothing anyone hears.
+                return HasDeferredChanges || slot.ChosenEngineId == engineId ? timing : TxChangeResult.Now;
             }
             return Continuous(() => slot.TrySetSetting(engineId, name, value));
         }
@@ -286,24 +296,15 @@ namespace JJFlexWpf
         internal TxChangeResult Continuous(Action change)
         {
             if (!ContinuousLeversLiveWhileKeyed) return RunOrDefer(change);
-            lock (_deferLock)
-            {
-                if (_deferred.Count > 0 && IsKeyed) { _deferred.Add(change); _deferredCount = _deferred.Count; return TxChangeResult.AtUnkey; }
-            }
-            change();
-            return TxChangeResult.Now;
+            return Order(change, holdWhenKeyed: false, () => TxChangeResult.Now);
         }
 
-        /// <summary>A transmit engine's strength (stored wet fraction; surfaces show it as a floor through <see cref="NoiseFloor"/>). Live while keyed (the ruling), unless a whole setup is waiting, when it waits behind it.</summary>
+        /// <summary>A transmit engine's strength (stored wet fraction; surfaces show it as a floor through <see cref="NoiseFloor"/>). Live while keyed (the ruling), unless something is held, when it waits behind it.</summary>
         public void SetStrength(string engineId, float strength)
         {
             var slot = SlotFor(engineId);
             if (slot == null) return;
-            lock (_deferLock)
-            {
-                if (_deferred.Count > 0 && IsKeyed) { _deferred.Add(() => slot.SetStrength(engineId, strength)); _deferredCount = _deferred.Count; return; }
-            }
-            slot.SetStrength(engineId, strength);
+            Order(() => slot.SetStrength(engineId, strength), holdWhenKeyed: false, () => TxChangeResult.Now);
         }
 
         public float GetStrength(string engineId) =>
