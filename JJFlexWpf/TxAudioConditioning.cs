@@ -514,7 +514,19 @@ namespace JJFlexWpf
         private static void ApplySetupNow(TxNoiseSetup setup)
         {
             Chain.ApplySlotsNow(setup.Spectral, setup.Neural);
-            var g = (setup.Gate ?? new TxNoiseGateSetup()).Clone();
+            ApplyGateNow(setup.Gate);
+        }
+
+        /// <summary>
+        /// The gate half of a setup, now, on the control side (Sprint 49 Track
+        /// H2): for a caller that holds a whole setup or preset as ONE change
+        /// through <see cref="TxNoiseChain.RunOrDefer"/> and must not let the
+        /// gate's own on and off be deferred a second time inside it, or put
+        /// behind changes asked for after it.
+        /// </summary>
+        internal static void ApplyGateNow(TxNoiseGateSetup gate)
+        {
+            var g = (gate ?? new TxNoiseGateSetup()).Clone();
             _autoThreshold = g.AutoThreshold;
             _thresholdMarginDb = Math.Clamp(g.ThresholdMarginDb, 3f, 15f);
             lock (_gate) _gateIntent = g;

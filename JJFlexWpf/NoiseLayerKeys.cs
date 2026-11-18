@@ -142,7 +142,7 @@ namespace JJFlexWpf
 
         private void WithCurrent(Action<string> act)
         {
-            if (_noise.Current is string id) act(id);
+            if (_noise.CurrentInLayer is string id) act(id);
             else _noise.SpeakNoEngineYet();
         }
     }

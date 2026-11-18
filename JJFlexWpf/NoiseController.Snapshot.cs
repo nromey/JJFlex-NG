@@ -140,6 +140,13 @@ namespace JJFlexWpf
             if (_live is { } snap && !ReferenceEquals(now, snap.SliceIdentity)) ReadRadioPart(snap);
         }
 
+        /// <summary>When the transmit part of the last <see cref="RestoreSnapshot"/> takes effect (Now when it had none).</summary>
+        public TxChangeTiming LastRestoreTiming { get; private set; } = TxChangeTiming.Now;
+
+        /// <summary>The layer's closing sentence after Escape, with the at-unkey sentence when the transmit part waits (repair round 1, item 4).</summary>
+        public string WithRestoreTiming(string closing) =>
+            LastRestoreTiming == TxChangeTiming.AtUnkey ? closing + " " + Lexicon.Get("audio.denoise.tx.at_unkey") : closing;
+
         /// <summary>The layer closed: nothing is live to put back any more.</summary>
         public void EndSnapshot() => _live = null;
 
@@ -206,12 +213,15 @@ namespace JJFlexWpf
             // The transmit slots, wherever they differ (Track H2). Through the
             // chain's own call, so a slot change made while keyed still waits
             // for the unkey; the layer's closing sentence says it was put back.
+            LastRestoreTiming = TxChangeTiming.Now;
             if (snap.TransmitSpectral != null && snap.TransmitNeural != null && _txChain() is { } chain)
             {
                 var (spectralNow, neuralNow) = chain.CaptureSlots();
                 if (DescribeTx(spectralNow) != DescribeTx(snap.TransmitSpectral) || DescribeTx(neuralNow) != DescribeTx(snap.TransmitNeural))
                 {
-                    chain.ApplySlots(snap.TransmitSpectral, snap.TransmitNeural);
+                    // One change, held as a whole while keyed (repair round 1, item 4),
+                    // and its timing kept for the layer's closing sentence.
+                    LastRestoreTiming = ApplyWholeTransmit(snap.TransmitSpectral, snap.TransmitNeural, null).Timing;
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes", "put back");
                     changed = true;
                 }

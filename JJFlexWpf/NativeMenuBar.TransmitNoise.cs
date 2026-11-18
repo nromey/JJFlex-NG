@@ -128,7 +128,7 @@ public partial class NativeMenuBar
         foreach (var preset in presets)
         {
             string presetName = preset.Name;
-            AddWired(parent, presetName, () => AfterMenu(n => n.ApplyPreset(presetName, TransmitMenuSource)));
+            AddWired(parent, presetName, () => AfterMenu(n => n.ApplyPreset(presetName, TransmitMenuSource, DenoiseDirection.Transmit)));
         }
         AddWired(parent, Radios.Lexicon.Get("audio.noise_menu.preset_save"), () => _window.ShowNoisePresetSave(fromNoise: false, fromTransmit: true));
         AddWired(parent, Radios.Lexicon.Get("audio.noise_menu.preset_manage"), () => _window.ShowNoisePresetManager());

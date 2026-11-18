@@ -122,6 +122,8 @@ internal sealed class NoiseFixture : IDisposable
     public DenoiseEngineCatalog Catalog { get; }
     public int Persisted;
     public bool RadioPresent = true;
+    /// <summary>False makes the controller's receive pipeline provider answer null, as it does before a radio's audio starts (Track H2 repair round 1).</summary>
+    public bool PipelinePresent = true;
     public Dictionary<string, Unavailability> Unavailable { get; } = new();
     public ConcurrentBag<string> Built { get; } = new();
     /// <summary>Engines whose built instances stop being available mid-run (a helper that died): the bank passes their audio through unprocessed.</summary>
@@ -145,7 +147,7 @@ internal sealed class NoiseFixture : IDisposable
         rows.AddRange(new[] { Pc("nr2"), Pc("nr4"), Pc("spectral_capture"), Pc("rnnoise", rnnoiseLatency), Pc("deepfilternet3"), Pc("nnr"), Pc("nvidia_afx") });
         Catalog = new DenoiseEngineCatalog(rows);
         Pipeline = new RxAudioPipeline(catalog: Catalog);
-        Noise = new NoiseController(Catalog, () => RadioPresent ? Radio : null, () => Pipeline, () => Config,
+        Noise = new NoiseController(Catalog, () => RadioPresent ? Radio : null, () => PipelinePresent ? Pipeline : null, () => Config,
             () => Persisted++, Spoken, Held, Clock, Cost, transmitChain: () => Transmit);
     }
 

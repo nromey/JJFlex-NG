@@ -800,6 +800,9 @@ namespace Radios.Speech
         /// <summary>The transmit noise gate or the cleanup monitor: on or off, a lever's value, its defaults, what the monitor plays. No receive twin; the newest covers an unheard older one.</summary>
         public const string TransmitNoiseGate = "transmit-noise-gate";
 
+        /// <summary>A preset applied from a transmit road, a transmit-only preset saved, or no transmit presets (Track H2 repair round 1). The receive twin is <see cref="NoisePreset"/>; the newest covers an unheard older one.</summary>
+        public const string TransmitNoisePreset = "transmit-noise-preset";
+
         /// <summary>The noise layer's T: the keys now act on transmit, or on receive again. The newest covers an unheard older one.</summary>
         public const string NoiseLayerDirection = "noise-layer-direction";
     }

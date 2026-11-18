@@ -47,8 +47,14 @@ namespace JJFlexWpf
         /// <summary>The gate's settings as a setup carries them.</summary>
         TxNoiseGateSetup Capture();
 
-        /// <summary>Put a setup's gate settings in place. Returns when its on or off takes effect (at the unkey while keyed, after Track H's repair round 1).</summary>
-        TxChangeResult Apply(TxNoiseGateSetup gate);
+        /// <summary>
+        /// Put a setup's gate settings in place NOW, its on or off included.
+        /// The controller calls this only inside one change it holds through
+        /// <see cref="TxNoiseChain.RunOrDefer"/> (repair round 1, item 4): a
+        /// whole setup or preset, or the gate's defaults, waits for the unkey
+        /// as ONE change, so nothing in here may defer a second time.
+        /// </summary>
+        void ApplyNow(TxNoiseGateSetup gate);
     }
 
     /// <summary>The app's gate: <see cref="TxAudioConditioning"/>, the session's one transmit chain.</summary>
@@ -74,9 +80,10 @@ namespace JJFlexWpf
         }
         public float MonitorVolume { get => TxAudioConditioning.MonitorVolume; set => TxAudioConditioning.MonitorVolume = value; }
         public TxNoiseGateSetup Capture() => TxAudioConditioning.CaptureSetup("").Gate.Clone();
-        // A setup with no slots applies the gate alone (TxNoiseChain.ApplySlots skips a null slot).
-        public TxChangeResult Apply(TxNoiseGateSetup gate) =>
-            TxAudioConditioning.ApplySetup(new TxNoiseSetup { Spectral = null!, Neural = null!, Gate = gate.Clone() });
+        // Track H's repair made a setup with a null slot mean "that slot's
+        // default, off", so a gate-only setup through ApplySetup would reset the
+        // engines. The gate's own half, now, inside the controller's one change.
+        public void ApplyNow(TxNoiseGateSetup gate) => TxAudioConditioning.ApplyGateNow(gate);
     }
 
     /// <summary>One of the gate's levers: what it is, its range, its step and its unit.</summary>
@@ -132,10 +139,14 @@ namespace JJFlexWpf
         /// <summary>
         /// After a setup is renamed, point every microphone that named it at the
         /// new name (Track H's contract: <c>MicrophoneProfileStore.RepointNoiseSetup</c>,
-        /// then save the microphone store). Set by the app; returns how many
-        /// microphones were repointed.
+        /// then save the microphone store). Set by the app. Returns how many
+        /// microphones were repointed, or <see cref="RepointNotSaved"/> when the
+        /// microphone store could not be saved (repair round 1, item 10).
         /// </summary>
         public Func<string, string, string, int>? RepointMicrophones { get; set; }
+
+        /// <summary><see cref="RepointMicrophones"/>' answer when the microphone store's save did not land.</summary>
+        public const int RepointNotSaved = -1;
 
         /// <summary>The source every transmit road journals under, added to the road's own.</summary>
         private static string TxSource(string source) => source + ", transmit";
@@ -157,11 +168,50 @@ namespace JJFlexWpf
         {
             LayerDirection = LayerDirection == DenoiseDirection.Receive ? DenoiseDirection.Transmit : DenoiseDirection.Receive;
             Current = null; CurrentLeverIndex = 0;
+            _cursorEpoch++;
             _txStepIndex = -1;
             _stepIndex = -1;
             Say(L(LayerDirection == DenoiseDirection.Transmit ? "audio.noise_surface.tx.layer_transmit" : "audio.noise_surface.tx.layer_receive"),
                 SpeechSubject.NoiseLayerDirection);
         }
+
+        // ── The lever cursor's ownership (repair round 1, item 2) ──
+        //
+        // Current is one cursor shared by both directions, and work that runs
+        // later (an engine field's settle) used to assign it after T or a new
+        // session had cleared it, so the layer's Up then moved the other
+        // direction's lever (Codex: receive RNNoise .90 to .85 with no receive
+        // engine chosen). Now the cursor records the direction it points in, and
+        // a delayed assignment lands only if no session started and T was not
+        // pressed since the work was scheduled. The work itself still happens:
+        // a Home choice is the operator's intent whatever the layer does.
+
+        /// <summary>The direction <see cref="Current"/> points in; the layer's arrows act only when it is the layer's.</summary>
+        private DenoiseDirection _currentDirection = DenoiseDirection.Receive;
+
+        /// <summary>Moves on at every layer session and every T: a delayed cursor assignment from before is stale.</summary>
+        private long _cursorEpoch;
+
+        /// <summary>Point the cursor at an engine in a direction (an operator's action, now).</summary>
+        private void Point(string? id, DenoiseDirection direction)
+        {
+            Current = id;
+            _currentDirection = direction;
+        }
+
+        /// <summary>Point the cursor from work scheduled at <paramref name="epoch"/>, only if nothing has moved the cursor's ownership since.</summary>
+        private void PointLater(string id, DenoiseDirection direction, long epoch)
+        {
+            if (epoch != _cursorEpoch) return;
+            Point(id, direction);
+            CurrentLeverIndex = 0;
+        }
+
+        /// <summary>The cursor's engine when it points in the layer's direction, else null: the layer never adjusts the other direction's lever.</summary>
+        private string? CurrentInLayerDirection => _currentDirection == LayerDirection ? Current : null;
+
+        /// <summary>The engine the layer's favourite and defaults keys act on: the cursor, only when it points in the layer's direction.</summary>
+        public string? CurrentInLayer => CurrentInLayerDirection;
 
         /// <summary>A receive subject, or its transmit twin while the layer is in the transmit direction.</summary>
         private string LayerSubject(string receiveSubject) =>
@@ -265,9 +315,9 @@ namespace JJFlexWpf
                 Say(L("audio.noise_surface.tx.receive_only", ("engine", NameOf(id))), SpeechSubject.TransmitNoiseUnavailable);
                 return;
             }
-            Current = id; CurrentLeverIndex = 0;
+            Point(id, DenoiseDirection.Transmit); CurrentLeverIndex = 0;
             if (TransmitIsOn(id)) TxTurnOff(e, source, speak: true);
-            else TxTurnOn(e, source, speak: true, model: null);
+            else TxTurnOn(e, source, speak: true, model: null, out _);
         }
 
         /// <summary>Turn a transmit engine on or off outright (a check item, Home's On box when its engine is chosen).</summary>
@@ -276,18 +326,35 @@ namespace JJFlexWpf
             using var oneUtterance = OneUtterance();
             if (TransmitIsOn(id) == on)
             {
-                Current = id;
+                Point(id, DenoiseDirection.Transmit);
                 Say(L(on ? "audio.noise_surface.on" : "audio.noise_surface.off", ("engine", TxName(id))), SpeechSubject.TransmitNoiseEngineSwitch);
                 return;
             }
             TransmitToggle(id, source);
         }
 
-        /// <summary>A transmit slot on or off without naming an engine (Home's On box): on starts the slot's chosen engine.</summary>
+        /// <summary>
+        /// Home's On box (repair round 1, item 1): it acts on the engine the
+        /// fields SHOW. On turns that engine on (switching the slot to it now, so
+        /// a settle still pending for the field cannot later put another engine
+        /// back); off turns the slot off. The chain's previous choice and an
+        /// unsettled one never decide which engine starts.
+        /// </summary>
+        public void TransmitSetShownOn(DenoiseFamily family, string shownId, bool on, string source)
+        {
+            using var oneUtterance = OneUtterance();
+            CancelTransmitSettle(family);
+            if (!on) { TransmitSetSlotOn(family, false, source); return; }
+            if (_catalog.Find(shownId) is not { } e || e.Family != family) return;
+            TransmitSetOn(shownId, true, source);
+        }
+
+        /// <summary>A transmit slot on or off without naming an engine: on starts the slot's chosen engine.</summary>
         public void TransmitSetSlotOn(DenoiseFamily family, bool on, string source)
         {
             using var oneUtterance = OneUtterance();
             if (_txChain() is not { } chain) return;
+            CancelTransmitSettle(family);
             string id = chain.ChosenEngineId(family);
             var e = _catalog.Find(id);
             if (!on)
@@ -299,29 +366,43 @@ namespace JJFlexWpf
             }
             if (chain.WantsEnabled(family) && e != null) { Say(L("audio.noise_surface.on", ("engine", TxName(id))), SpeechSubject.TransmitNoiseEngineSwitch); return; }
             if (e == null) return;
-            Current = id;
-            TxTurnOn(e, source, speak: true, model: null);
+            Point(id, DenoiseDirection.Transmit);
+            TxTurnOn(e, source, speak: true, model: null, out _);
         }
 
-        private void TxTurnOff(DenoiseEngineEntry e, string source, bool speak)
+        /// <summary>A newer action on a slot wins over an engine field's unsettled choice for it: the settle is cancelled and the pending choice forgotten.</summary>
+        private void CancelTransmitSettle(DenoiseFamily family)
         {
-            if (_txChain() is not { } chain) return;
+            if (_txSettling.TryGetValue(family, out var pending)) { pending.Dispose(); _txSettling.Remove(family); }
+            _txPendingChoice.Remove(family);
+        }
+
+        private TxChangeResult TxTurnOff(DenoiseEngineEntry e, string source, bool speak)
+        {
+            if (_txChain() is not { } chain) return TxChangeResult.Now;
+            CancelTransmitSettle(e.Family!.Value);
             var result = chain.SetEnabled(e.Family!.Value, false);
             NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), e.Id, "", "on", "off");
-            if (!speak) return;
+            if (!speak) return result;
             Say(L("audio.noise_surface.off", ("engine", TxName(e.Id))), SpeechSubject.TransmitNoiseEngineSwitch);
             SayAtUnkey(result);
+            return result;
         }
 
         /// <summary>
         /// Turn a transmit engine on in its family's slot, replacing whatever
-        /// engine of that family was on there. Returns the id it replaced. An
-        /// engine that cannot run is still chosen, as an intent, and says why.
+        /// engine of that family was on there. Returns the id it replaced, and in
+        /// <paramref name="timing"/> what the chain answered (repair round 1,
+        /// item 4: a caller that speaks for itself aggregates this, never the
+        /// key state). An engine that cannot run is still chosen, as an intent,
+        /// and says why.
         /// </summary>
-        private string? TxTurnOn(DenoiseEngineEntry e, string source, bool speak, string? model)
+        private string? TxTurnOn(DenoiseEngineEntry e, string source, bool speak, string? model, out TxChangeResult timing)
         {
+            timing = TxChangeResult.Now;
             if (_txChain() is not { } chain) return null;
             var family = e.Family!.Value;
+            CancelTransmitSettle(family);
             if (e.Factory == null)
             {
                 if (speak) Say(L("audio.noise_surface.not_in_version", ("engine", TxName(e.Id))), SpeechSubject.TransmitNoiseUnavailable);
@@ -329,7 +410,7 @@ namespace JJFlexWpf
             }
             string chosen = chain.ChosenEngineId(family);
             string? replaced = chain.WantsEnabled(family) && chosen != e.Id && chosen.Length > 0 ? chosen : null;
-            if (model != null) chain.SetSetting(e.Id, "model", new EngineSettingValue(0, model));
+            if (model != null) timing = Later(timing, chain.SetSetting(e.Id, "model", new EngineSettingValue(0, model)));
             var choose = chain.ChooseEngine(family, e.Id);
             if (choose.Timing == TxChangeTiming.Refused)
             {
@@ -337,6 +418,7 @@ namespace JJFlexWpf
                 return null;
             }
             var enable = chain.SetEnabled(family, true);
+            timing = Later(timing, Later(choose, enable));
             if (replaced == null)
                 NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), e.Id, "", "off", "on");
             else
@@ -357,7 +439,7 @@ namespace JJFlexWpf
                     if (TransmitDelayClause(e) is string delay) sentence += " " + delay;
                     Say(sentence, SpeechSubject.TransmitNoiseEngineSwitch);
                 }
-                SayAtUnkey(Later(choose, enable));
+                SayAtUnkey(timing);
             }
             return replaced;
         }
@@ -386,9 +468,10 @@ namespace JJFlexWpf
         /// </summary>
         private string? TransmitDelayClause(DenoiseEngineEntry e)
         {
-            if (!Chatty || _config()?.NoiseSayDelays == false) return null;
+            // Repair round 1, item 7: Terse gets the short form; Critical says no delay.
+            if (_speaker.Verbosity < VerbosityLevel.Terse || _config()?.NoiseSayDelays == false) return null;
             if (!HasDelay(e.Id, out int? ms, DenoiseDirection.Transmit) || ms is not int value || value <= 0) return null;
-            return L("audio.noise_surface.tx.delay_clause", ("ms", value));
+            return L(Chatty ? "audio.noise_surface.tx.delay_clause" : "audio.noise_surface.tx.delay_clause_short", ("ms", value));
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -409,27 +492,34 @@ namespace JJFlexWpf
         public void TransmitChooseSlotEngine(DenoiseFamily family, string id, string source)
         {
             if (_txSettling.TryGetValue(family, out var pending)) { pending.Dispose(); _txSettling.Remove(family); }
-            _txSettling[family] = _scheduler.After(TimeSpan.FromMilliseconds(EngineSettleMs), () =>
+            long epoch = _cursorEpoch;
+            IDisposable? handle = null;
+            handle = _scheduler.After(TimeSpan.FromMilliseconds(EngineSettleMs), () =>
             {
+                // A newer action on this slot cancelled this settle; a timer that
+                // fires anyway must not undo that action (repair round 1, item 1).
+                if (!_txSettling.TryGetValue(family, out var mine) || !ReferenceEquals(mine, handle)) return;
                 _txSettling.Remove(family);
-                ApplyTransmitSlotChoice(family, id, source);
+                ApplyTransmitSlotChoice(family, id, source, epoch);
             });
+            _txSettling[family] = handle;
         }
 
-        private void ApplyTransmitSlotChoice(DenoiseFamily family, string id, string source)
+        private void ApplyTransmitSlotChoice(DenoiseFamily family, string id, string source, long epoch)
         {
             using var oneUtterance = OneUtterance();
             _txPendingChoice.Remove(family);
             var e = _catalog.Find(id);
             if (_txChain() is not { } chain || e == null || !OffersTransmit(e) || e.Family != family || chain.ChosenEngineId(family) == id) return;
-            Current = id; CurrentLeverIndex = 0;
-            if (chain.WantsEnabled(family)) { TxTurnOn(e, source, speak: true, model: null); return; }
+            PointLater(id, DenoiseDirection.Transmit, epoch);
+            if (chain.WantsEnabled(family)) { TxTurnOn(e, source, speak: true, model: null, out _); return; }
             if (e.Factory == null)
             {
                 Say(L("audio.noise_surface.not_in_version", ("engine", TxName(id))), SpeechSubject.TransmitNoiseUnavailable);
                 return;
             }
-            chain.ChooseEngine(family, id);
+            // Off: kept for when the slot turns on. Said only when it waits (item 4).
+            SayAtUnkey(chain.ChooseEngine(family, id));
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -451,6 +541,7 @@ namespace JJFlexWpf
             {
                 foreach (var (family, id) in on)
                 {
+                    CancelTransmitSettle(family);
                     timing = Later(timing, chain.SetEnabled(family, false));
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), id, "", "on", "off");
                 }
@@ -463,6 +554,7 @@ namespace JJFlexWpf
             {
                 foreach (var (family, id) in back)
                 {
+                    CancelTransmitSettle(family);
                     if (chain.ChosenEngineId(family) != id) timing = Later(timing, chain.ChooseEngine(family, id));
                     timing = Later(timing, chain.SetEnabled(family, true));
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), id, "", "off", "on");
@@ -513,9 +605,13 @@ namespace JJFlexWpf
                 case NoiseLeverKind.Floor:
                 {
                     float was = chain.GetStrength(e.Id);
+                    // SetStrength returns nothing (Track H's checkpoint): it is live
+                    // unless a whole setup is waiting, when it waits behind it. That
+                    // is the chain's own rule, read from the chain, never the key alone.
+                    var timing = chain.HasDeferredChanges && chain.IsKeyed ? TxChangeResult.AtUnkey : TxChangeResult.Now;
                     chain.SetStrength(e.Id, NoiseFloor.ToStrength(value.Number));
                     NoiseSettingsJournal.Record(NoiseJournalKind.Floor, TxSource(source), e.Id, FloorKey, FloorText(was), FloorText(chain.GetStrength(e.Id)));
-                    return TxChangeResult.Now;
+                    return timing;
                 }
                 case NoiseLeverKind.Setting:
                 {
@@ -590,7 +686,7 @@ namespace JJFlexWpf
                 Say(L("audio.noise_surface.tx.receive_only", ("engine", NameOf(id))), SpeechSubject.TransmitNoiseUnavailable);
                 return;
             }
-            Current = id;
+            Point(id, DenoiseDirection.Transmit);
             var slot = chain.SlotFor(id)!;
             var changes = new List<NoiseJournalChange>();
             float strength = NoiseFloor.DefaultStrength(id, DenoiseDirection.Transmit);
@@ -629,7 +725,8 @@ namespace JJFlexWpf
         public string TransmitActiveSummary()
         {
             var items = new List<string>();
-            if (_txChain() is { } chain)
+            var chain = _txChain();
+            if (chain != null)
                 foreach (var family in new[] { DenoiseFamily.Spectral, DenoiseFamily.Neural })
                 {
                     if (!chain.WantsEnabled(family)) continue;
@@ -638,7 +735,21 @@ namespace JJFlexWpf
                     string name = Lexicon.Get(e.LabelKey);
                     var normal = Levers(e.Id, includeAdvanced: false, DenoiseDirection.Transmit);
                     var details = normal.Select(l => l.Descriptor is { Kind: EngineSettingKind.Choice } ? ValueText(l) : LeverName(l).ToLowerInvariant() + " " + ValueText(l)).ToList();
-                    items.Add(details.Count == 0 || !Chatty ? name : name + ", " + string.Join(", ", details));
+                    string item = details.Count == 0 || !Chatty ? name : name + ", " + string.Join(", ", details);
+                    // Chosen is not running (repair round 1, item 9; receive's e3
+                    // distinction): never name an engine as working when it is
+                    // not. Which reason, in order: it cannot run here; the change
+                    // is waiting for the unkey; it has not processed audio yet
+                    // (still building, no microphone audio, no radio).
+                    var slot = chain.SlotOf(family);
+                    var reason = e.Factory == null ? Unavailability.InitFailed : TransmitAvailability(e);
+                    if (reason != Unavailability.None)
+                        item = L("audio.noise_surface.tx.active.cannot_run", ("engine", name));
+                    else if (chain.IsKeyed && (chain.HasDeferredChanges || !slot.Enabled || !slot.RunningIsCurrent(e.Id)))
+                        item = L("audio.noise_surface.tx.active.at_unkey", ("engine", name));
+                    else if (slot.ProcessingEngineId != e.Id)
+                        item = L("audio.noise_surface.active.waiting", ("engine", name));
+                    items.Add(item);
                 }
             var gate = TransmitGate;
             if (gate.Enabled)
@@ -647,6 +758,8 @@ namespace JJFlexWpf
                     : L("audio.noise_surface.tx.active.gate_fixed", ("threshold", GateValueText(GateLever(TxGateLever.Threshold)!))));
             if (items.Count == 0) return L("audio.noise_surface.tx.active.none");
             string summary = L("audio.noise_surface.tx.active", ("list", string.Join("; ", items)));
+            if (chain != null && chain.HasDeferredChanges)
+                summary += " " + L("audio.noise_surface.tx.active.held");
             if (_radio() is { } r && NoiseModeRules.GroupOf(r.Mode) != NoiseModeGroup.Voice)
                 summary += " " + L("audio.noise_surface.tx.active.bypassed");
             return summary;
@@ -695,37 +808,49 @@ namespace JJFlexWpf
                 Say(Lexicon.Get("audio.noise_surface.no_favourites", VerbosityLevel.Chatty), SpeechSubject.NoiseFavourite, VerbosityLevel.Chatty);
             }
             if (_txStepIndex < 0 || _txStepIndex >= list.Count)
-                _txStepIndex = Current == null ? -1 : list.ToList().FindIndex(f => f.EngineId == Current);
+                _txStepIndex = CurrentInLayerDirection is not string at ? -1 : list.ToList().FindIndex(f => f.EngineId == at);
             NoiseFavourite? from = _txStepIndex >= 0 && _txStepIndex < list.Count ? list[_txStepIndex] : null;
             int next = _txStepIndex < 0 ? (direction > 0 ? 0 : list.Count - 1) : ((_txStepIndex + Math.Sign(direction)) % list.Count + list.Count) % list.Count;
             _txStepIndex = next;
             var to = list[next];
             var e = _catalog.Find(to.EngineId);
             if (e == null) return;
-            Current = e.Id; CurrentLeverIndex = 0;
+            Point(e.Id, DenoiseDirection.Transmit); CurrentLeverIndex = 0;
             if (e.Factory == null)
             {
                 Say(L("audio.noise_surface.not_in_version", ("engine", TxName(e.Id))), SpeechSubject.TransmitNoiseUnavailable);
                 return;
             }
+            // Repair round 1, item 4: every part's returned timing, aggregated;
+            // the key state is never sampled again afterwards.
             var timing = TxChangeResult.Now;
+            string sentence;
             if (from != null && from.EngineId == to.EngineId)
             {
                 if (to.Model != null) timing = Later(timing, chain.SetSetting(e.Id, "model", new EngineSettingValue(0, to.Model)));
-                if (!TransmitIsOn(e.Id)) TxTurnOn(e, source, speak: false, model: null);
-                Say(L("audio.noise_surface.on", ("engine", TxName(e.Id))), SpeechSubject.TransmitNoiseEngineSwitch);
-                SayAtUnkey(Later(timing, chain.IsKeyed ? TxChangeResult.AtUnkey : TxChangeResult.Now));
-                return;
+                if (!TransmitIsOn(e.Id)) { TxTurnOn(e, source, speak: false, model: null, out var on); timing = Later(timing, on); }
+                sentence = L("audio.noise_surface.on", ("engine", TxName(e.Id)));
             }
-            var fromEntry = from == null ? null : _catalog.Find(from.EngineId);
-            bool turnOffFrom = fromEntry != null && TransmitIsOn(fromEntry.Id);
-            string? replaced = TransmitIsOn(e.Id) ? null : TxTurnOn(e, source, speak: false, model: to.Model);
-            if (turnOffFrom && fromEntry!.Id != replaced && fromEntry.Id != e.Id) TxTurnOff(fromEntry, source, speak: false);
-            string? offId = turnOffFrom ? fromEntry!.Id : replaced;
-            Say(offId == null ? L("audio.noise_surface.on", ("engine", TxName(e.Id)))
-                              : L("audio.noise_surface.on_replacing", ("engine", TxName(e.Id)), ("other", TxName(offId))),
-                SpeechSubject.TransmitNoiseEngineSwitch);
-            SayAtUnkey(chain.IsKeyed ? TxChangeResult.AtUnkey : TxChangeResult.Now);
+            else
+            {
+                var fromEntry = from == null ? null : _catalog.Find(from.EngineId);
+                bool turnOffFrom = fromEntry != null && TransmitIsOn(fromEntry.Id);
+                string? replaced = null;
+                if (!TransmitIsOn(e.Id)) { replaced = TxTurnOn(e, source, speak: false, model: to.Model, out var on); timing = Later(timing, on); }
+                if (turnOffFrom && fromEntry!.Id != replaced && fromEntry.Id != e.Id) timing = Later(timing, TxTurnOff(fromEntry, source, speak: false));
+                string? offId = turnOffFrom ? fromEntry!.Id : replaced;
+                sentence = offId == null ? L("audio.noise_surface.on", ("engine", TxName(e.Id)))
+                    : L("audio.noise_surface.on_replacing", ("engine", TxName(e.Id)), ("other", TxName(offId)));
+            }
+            // Item 7: a choosing road says the delay too.
+            var reason = TransmitAvailability(e);
+            if (reason != Unavailability.None) SpeakUnavailable(e, reason, kept: true, direction: DenoiseDirection.Transmit);
+            else
+            {
+                if (TransmitDelayClause(e) is string delay) sentence += " " + delay;
+                Say(sentence, SpeechSubject.TransmitNoiseEngineSwitch);
+            }
+            SayAtUnkey(timing);
         }
 
         /// <summary>The engine favourite key in the layer's direction: the favourite is the engine in the model its own direction's slot holds.</summary>
@@ -890,7 +1015,7 @@ namespace JJFlexWpf
             using var oneUtterance = OneUtterance();
             var g = TransmitGate;
             var fresh = new TxNoiseGateSetup { Enabled = g.Enabled };
-            var timing = g.Apply(fresh);
+            var timing = ApplyWholeTransmit(null, null, fresh);
             NoiseSettingsJournal.Record(NoiseJournalKind.ReturnToDefaults, TxSource(source), "gate", "", "", "defaults");
             var said = GateLevers(includeAdvanced: false).Select(l => GateLeverName(l).ToLowerInvariant() + " " + GateValueText(l));
             Say(L("audio.noise_surface.tx.gate_defaults", ("values", string.Join(", ", said))), SpeechSubject.TransmitNoiseGate);
@@ -957,11 +1082,44 @@ namespace JJFlexWpf
                 Say(Lexicon.Get("audio.denoise.tx.setup_missing", ("setup", name)), SpeechSubject.TransmitNoiseSetup);
                 return;
             }
-            var timing = _txChain()?.ApplySlots(setup.Spectral, setup.Neural) ?? TxChangeResult.Now;
-            timing = Later(timing, TransmitGate.Apply(setup.Gate ?? new TxNoiseGateSetup()));
+            var timing = ApplyWholeTransmit(setup.Spectral, setup.Neural, setup.Gate ?? new TxNoiseGateSetup());
             NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, TxSource(source), "transmit setup", "", "", setup.Name);
-            Say(L("audio.noise_surface.tx.setup_applied", ("setup", setup.Name), ("summary", TransmitActiveSummary())), SpeechSubject.TransmitNoiseSetup);
+            // Held for the unkey, the live state is not yet the setup's: name the
+            // setup and say it waits, never a summary of what it will replace.
+            if (timing.Timing == TxChangeTiming.AtUnkey)
+                Say(L("audio.noise_surface.tx.setup_waiting", ("setup", setup.Name)), SpeechSubject.TransmitNoiseSetup);
+            else
+                Say(L("audio.noise_surface.tx.setup_applied", ("setup", setup.Name), ("summary", TransmitActiveSummary())), SpeechSubject.TransmitNoiseSetup);
             SayAtUnkey(timing);
+        }
+
+        /// <summary>
+        /// A whole transmit setup, a preset's transmit section, the layer's
+        /// Escape, or the gate's defaults, as ONE change (repair round 1, item 4):
+        /// the slots (replaced, as Track H's repair defines a setup) and the gate,
+        /// parameters included, made now when unkeyed, or held together until the
+        /// unkey when keyed, behind anything already held. A null slot pair leaves
+        /// the slots alone (the gate's defaults); a null gate leaves the gate
+        /// alone (Escape). Every unsettled engine field choice is superseded.
+        /// </summary>
+        private TxChangeResult ApplyWholeTransmit(TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate)
+        {
+            bool slots = spectral != null || neural != null;
+            var chain = _txChain();
+            if (chain == null)
+            {
+                if (gate != null) TransmitGate.ApplyNow(gate);
+                return TxChangeResult.Now;
+            }
+            if (slots) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
+            var spectralCopy = spectral?.Clone();
+            var neuralCopy = neural?.Clone();
+            var gateCopy = gate?.Clone();
+            return chain.RunOrDefer(() =>
+            {
+                if (slots) chain.ApplySlotsNow(spectralCopy, neuralCopy);
+                if (gateCopy != null) TransmitGate.ApplyNow(gateCopy);
+            });
         }
 
         /// <summary>The live transmit chain and gate as a setup of this name.</summary>
@@ -1003,7 +1161,20 @@ namespace JJFlexWpf
             var result = store.Rename(radio, from, (to ?? "").Trim());
             if (result.Succeeded)
             {
-                RepointMicrophones?.Invoke(radio, from, result.Name);
+                // Two stores, one operation (repair round 1, item 10). If the
+                // microphones that named the setup cannot be repointed, the rename
+                // is put back, so no saved microphone is left pointing at a name
+                // that is gone; the operator hears that nothing changed.
+                int repointed = RepointMicrophones?.Invoke(radio, from, result.Name) ?? 0;
+                if (repointed == RepointNotSaved)
+                {
+                    var back = store.Rename(radio, result.Name, from);
+                    System.Diagnostics.Trace.WriteLine($"NoiseController: renaming transmit setup '{from}' to '{result.Name}' could not repoint the microphones; "
+                        + (back.Succeeded ? "the rename was put back." : "putting the rename back failed too (" + back.Outcome + ")."));
+                    Say(L(back.Succeeded ? "audio.noise_surface.tx.setup_rename_undone" : "audio.noise_surface.tx.setup_rename_half",
+                        ("old", from), ("new", result.Name)), SpeechSubject.TransmitNoiseSetup);
+                    return back.Succeeded ? new TxNoiseSetupResult(TxNoiseSetupOutcome.NotSaved, from) : new TxNoiseSetupResult(TxNoiseSetupOutcome.NotSaved, result.Name);
+                }
                 Say(L("audio.noise_surface.tx.setup_renamed", ("old", from), ("new", result.Name)), SpeechSubject.TransmitNoiseSetup);
             }
             else Say(L(result.Outcome == TxNoiseSetupOutcome.NameTaken ? "audio.noise_surface.tx.setup_name_taken" : "audio.noise_surface.tx.setup_failed",

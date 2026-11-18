@@ -108,8 +108,13 @@ namespace JJFlexWpf
             _toldNoFavourites = false;
             Current = null;
             CurrentLeverIndex = 0;
-            // Every layer session opens on receive; T turns it (Track H2).
+            // Every layer session opens on receive; T turns it (Track H2). A cursor
+            // assignment from work scheduled before now is stale, and neither
+            // direction's 0-key list outlives the session it was made in
+            // (repair round 1, items 2 and 3).
             LayerDirection = DenoiseDirection.Receive;
+            _cursorEpoch++;
+            ForgetZero();
         }
 
         /// <summary>The list the brackets walk: the favourites, or every engine when none is marked.</summary>

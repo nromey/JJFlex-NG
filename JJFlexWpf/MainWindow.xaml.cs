@@ -148,6 +148,8 @@ public partial class MainWindow : UserControl
         Dialogs.AudioWorkshopDialog.OpenAudioDevices = () => AudioSetupCallback?.Invoke();
         // The Workshop's PC Cleanup door (Sprint 49 Track H2): the controls live on Home now.
         Dialogs.AudioWorkshopDialog.OpenTransmitNoiseOnHome = () => OpenTransmitNoiseOnHome(null, advanced: false);
+        // The Workshop's preset buttons carry the noise sections (Track H2 repair round 1, item 6).
+        Dialogs.AudioWorkshopDialog.NoiseSource = () => Noise;
         Dialogs.AudioWorkshopDialog.AudioDevicesPath = () => AudioDevicesFilePath;
         // #835: where Check your audio finds the radio when a door has none
         // to hand (the Workshop opened from Settings carries no radio).
@@ -954,7 +956,10 @@ public partial class MainWindow : UserControl
             string dir = OpenParms.ConfigDirectory, op = OpenParms.GetOperatorName();
             var store = Radios.MicrophoneProfileStore.Load(dir, op);
             int changed = store.RepointNoiseSetup(radioId, from, to);
-            if (changed > 0) store.Save(dir, op);
+            // The save's answer matters (repair round 1, item 10): a microphone
+            // store that did not land leaves the old pointer on disk, so the
+            // controller puts the rename back.
+            if (changed > 0 && !store.Save(dir, op)) return NoiseController.RepointNotSaved;
             return changed;
         };
         WdspHost.Default.StateChanged += (s, e) =>

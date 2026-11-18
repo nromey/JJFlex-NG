@@ -56,11 +56,10 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
             Enabled = Enabled, AutoThreshold = AutoThreshold, ThresholdMarginDb = MarginDb, ThresholdDb = ThresholdDb,
             AttackMs = AttackMs, HoldMs = HoldMs, ReleaseMs = ReleaseMs, RangeDb = RangeDb,
         };
-        public TxChangeResult Apply(TxNoiseGateSetup g)
+        public void ApplyNow(TxNoiseGateSetup g)
         {
             Enabled = g.Enabled; AutoThreshold = g.AutoThreshold; MarginDb = g.ThresholdMarginDb; ThresholdDb = g.ThresholdDb;
             AttackMs = g.AttackMs; HoldMs = g.HoldMs; ReleaseMs = g.ReleaseMs; RangeDb = g.RangeDb;
-            return Keyed ? TxChangeResult.AtUnkey : TxChangeResult.Now;
         }
     }
 
@@ -324,18 +323,45 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
     }
 
     [Fact]
-    public void Escape_puts_back_the_transmit_slots_the_layer_changed()
+    public void Escape_puts_back_the_transmit_slots_the_layer_changed_engines_floors_and_settings_included()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        // Before the layer: RNNoise on, its floor moved; NNR chosen nowhere.
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Transmit.SetStrength("rnnoise", 0.5f);
+        string nnrModelBefore = f.Transmit.NeuralSlot.GetSetting("nnr", "model").Choice!;
+        var snap = f.Noise.TakeSnapshot();
+        var keys = LayerKeys(f);
+        keys.Handle(Keys.T);
+        keys.Handle(Keys.N | Keys.Control);                  // NNR replaces RNNoise
+        var model = f.Noise.Levers("nnr", false, DenoiseDirection.Transmit).Single(l => l.Key == "model");
+        f.Noise.Set(model, null, f.Noise.OptionsFor(model).First(o => o.Name != nnrModelBefore).Name, "test");
+        keys.Handle(Keys.D2 | Keys.Control);
+        f.Transmit.SetStrength("rnnoise", 0.9f);
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.True(f.Transmit.WantsEnabled(DenoiseFamily.Neural));
+        Assert.Equal("rnnoise", f.Transmit.ChosenEngineId(DenoiseFamily.Neural));
+        Assert.Equal(0.5f, f.Transmit.GetStrength("rnnoise"), 3);
+        Assert.Equal(nnrModelBefore, f.Transmit.NeuralSlot.GetSetting("nnr", "model").Choice);
+        Assert.False(f.Transmit.WantsEnabled(DenoiseFamily.Spectral));
+    }
+
+    [Fact]
+    public void Escape_while_keyed_holds_the_transmit_part_for_the_unkey_and_the_closing_sentence_says_so()
     {
         var (f, _) = Make();
         using var _f = f;
         var snap = f.Noise.TakeSnapshot();
-        var keys = LayerKeys(f);
-        keys.Handle(Keys.T);
-        keys.Handle(Keys.N | Keys.Control);
-        keys.Handle(Keys.D2 | Keys.Control);
+        f.Noise.TransmitToggle("nnr", "test");
+        f.Transmit.KeySource = () => true;
         Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.Equal(TxChangeTiming.AtUnkey, f.Noise.LastRestoreTiming);
+        Assert.True(f.Transmit.WantsEnabled(DenoiseFamily.Neural));      // held: nothing changed yet
+        Assert.EndsWith(AtUnkey, f.Noise.WithRestoreTiming("closed."));
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
         Assert.False(f.Transmit.WantsEnabled(DenoiseFamily.Neural));
-        Assert.False(f.Transmit.WantsEnabled(DenoiseFamily.Spectral));
     }
 
     // ── Items 1 and 6: what transmit offers ──
@@ -415,10 +441,20 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         f.Noise.TransmitToggle("deepfilternet3", "test");
         f.Noise.SavePreset("Desk", false, false, true, PresetCollision.Replace, "test");
         f.Noise.TransmitToggle("deepfilternet3", "test");
+        f.PipelinePresent = false;                          // repair round 1, item 11: really no pipeline
         var keys = LayerKeys(f);
         EnterTransmit(f, keys);
         keys.Handle(NoiseLayerKeys.NextPresetKey);
         Assert.True(f.Noise.TransmitIsOn("deepfilternet3"));
+        Assert.Equal(SpeechSubject.TransmitNoisePreset, f.Spoken.Said[^1].Subject);
+        // Positive control: a receive preset with no pipeline is still refused.
+        f.PipelinePresent = true;
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.SavePreset("Rx", true, false, false, PresetCollision.Replace, "test");
+        f.PipelinePresent = false;
+        f.Spoken.Clear();
+        f.Noise.ApplyPreset("Rx", "test");
+        Assert.Equal(Lexicon.Get("connect.command_needs_radio"), f.Spoken.Last);
     }
 
     // ── The gate ──
@@ -612,5 +648,274 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         // And the live radio reads the ACTIVE slice's mode, never the transmit one.
         string radio = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "NoiseRadio.cs"));
         Assert.Contains("public string ReceiveMode => _rig.RXMode", radio);
+    }
+
+    // ── Repair round 1 (Codex's check of H2) ──
+
+    [Fact]
+    public void Home_On_starts_the_engine_the_fields_show_even_while_its_choice_is_still_settling()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        // Codex's reproduction: the slot holds RNNoise; the operator arrows to NNR
+        // and ticks On inside the 700 ms settle.
+        Assert.Equal("rnnoise", f.Transmit.ChosenEngineId(DenoiseFamily.Neural));
+        f.Noise.TransmitNoteSlotChoicePending(DenoiseFamily.Neural, "nnr");
+        f.Noise.TransmitChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+        f.Noise.TransmitSetShownOn(DenoiseFamily.Neural, "nnr", true, "home");
+        Assert.True(f.Noise.TransmitIsOn("nnr"));
+        Assert.False(f.Noise.TransmitIsOn("rnnoise"));
+        Assert.Contains(Tx("NNR"), f.Spoken.Last);
+        f.Clock.RunAll();
+        Assert.True(f.Noise.TransmitIsOn("nnr"));
+        // Off acts on the slot, whatever is pending.
+        f.Noise.TransmitSetShownOn(DenoiseFamily.Neural, "nnr", false, "home");
+        Assert.False(f.Transmit.WantsEnabled(DenoiseFamily.Neural));
+    }
+
+    [Fact]
+    public void A_settle_never_overwrites_a_newer_action_on_its_slot()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Noise.TransmitNoteSlotChoicePending(DenoiseFamily.Neural, "nnr");
+        f.Noise.TransmitChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+        f.Noise.TransmitToggle("deepfilternet3", "menu");   // newer, from another road
+        f.Clock.RunAll();
+        Assert.True(f.Noise.TransmitIsOn("deepfilternet3"));
+        Assert.Equal("deepfilternet3", f.Noise.TransmitSlotEngine(DenoiseFamily.Neural));
+    }
+
+    [Fact]
+    public void A_transmit_choice_settling_after_the_layer_opens_never_moves_a_receive_lever()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.Toggle("rnnoise", "test");                   // receive RNNoise on
+        float receiveBefore = f.Pipeline.NeuralSlot.GetStrength("rnnoise");
+        // Codex's reproduction: a Home transmit choice still settling, then a fresh receive layer.
+        f.Noise.TransmitNoteSlotChoicePending(DenoiseFamily.Neural, "rnnoise");
+        f.Transmit.ChooseEngine(DenoiseFamily.Neural, "nnr");
+        f.Noise.TransmitChooseSlotEngine(DenoiseFamily.Neural, "rnnoise", "home");
+        var keys = LayerKeys(f);
+        f.Noise.BeginSession();
+        f.Clock.RunAll();                                    // the transmit choice lands
+        Assert.Equal("rnnoise", f.Transmit.ChosenEngineId(DenoiseFamily.Neural)); // the Home intent still happened
+        f.Spoken.Clear();
+        keys.Handle(Keys.Down);
+        Assert.Equal(receiveBefore, f.Pipeline.NeuralSlot.GetStrength("rnnoise"));
+        Assert.Equal(Lexicon.Get("audio.noise_surface.no_engine_yet", VerbosityLevel.Chatty), f.Spoken.Last);
+    }
+
+    [Fact]
+    public void A_receive_choice_settling_after_T_never_becomes_the_transmit_cursor()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.ChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+        var keys = LayerKeys(f);
+        EnterTransmit(f, keys);
+        f.Clock.RunAll();
+        Assert.Null(f.Noise.CurrentInLayer);
+        float before = f.Transmit.GetStrength("nnr");
+        keys.Handle(Keys.Up);
+        Assert.Equal(before, f.Transmit.GetStrength("nnr"));
+    }
+
+    [Fact]
+    public void A_receive_choice_settling_after_the_layer_opens_is_not_the_layers_cursor_either()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.Toggle("rnnoise", "test");
+        double before = f.Pipeline.NeuralSlot.GetSetting("nnr", "mask_floor_db").Number;
+        f.Noise.ChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+        f.Noise.BeginSession();                              // the same direction, a new session
+        f.Clock.RunAll();                                    // NNR replaces RNNoise: the Home intent stands
+        Assert.True(f.Noise.IsOn("nnr"));
+        Assert.Null(f.Noise.CurrentInLayer);
+        LayerKeys(f).Handle(Keys.Down);
+        Assert.Equal(before, f.Pipeline.NeuralSlot.GetSetting("nnr", "mask_floor_db").Number);
+    }
+
+    [Fact]
+    public void The_transmit_zero_list_ends_with_the_layer_session()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("nnr", "test");
+        var keys = LayerKeys(f);
+        EnterTransmit(f, keys);
+        keys.Handle(Keys.D0);
+        Assert.False(f.Noise.TransmitIsOn("nnr"));
+        // The host's own sequence at Enter: EndLayerSession, EndSnapshot; then a new session.
+        f.Noise.EndLayerSession();
+        f.Noise.EndSnapshot();
+        EnterTransmit(f, keys);
+        keys.Handle(Keys.D0);
+        Assert.False(f.Noise.TransmitIsOn("nnr"));
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.zero_already"), f.Spoken.Last);
+    }
+
+    [Fact]
+    public void Choosing_with_the_slot_off_while_keyed_says_it_waits()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Transmit.KeySource = () => true;
+        f.Noise.TransmitChooseSlotEngine(DenoiseFamily.Neural, "nnr", "home");
+        f.Clock.RunAll();
+        Assert.EndsWith(AtUnkey, f.Spoken.Last);
+    }
+
+    [Fact]
+    public void The_brackets_say_the_timing_their_parts_returned_and_the_delay()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Config.NoiseFavourites.Add(new NoiseFavourite { EngineId = "rnnoise" });
+        f.Config.NoiseFavourites.Add(new NoiseFavourite { EngineId = "nnr" });
+        var keys = LayerKeys(f);
+        EnterTransmit(f, keys);
+        keys.Handle(Keys.OemCloseBrackets);                   // RNNoise
+        keys.Handle(Keys.OemCloseBrackets);                   // NNR, with its delay
+        string clauseStart = Lexicon.Get("audio.noise_surface.tx.delay_clause", ("ms", 0)).Split('0')[0];
+        Assert.Contains(clauseStart, f.Spoken.Last);
+        Assert.DoesNotContain(AtUnkey, f.Spoken.Last);
+        f.Transmit.KeySource = () => true;
+        keys.Handle(Keys.OemCloseBrackets);                   // back to RNNoise while keyed
+        Assert.EndsWith(AtUnkey, f.Spoken.Last);
+    }
+
+    [Fact]
+    public void At_Terse_a_transmit_engine_says_the_short_delay()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Spoken.Verbosity = VerbosityLevel.Terse;
+        f.Noise.TransmitToggle("nnr", "test");
+        string shortStart = Lexicon.Get("audio.noise_surface.tx.delay_clause_short", ("ms", 0)).Split('0')[0];
+        Assert.Contains(shortStart, f.Spoken.Last);
+    }
+
+    [Fact]
+    public void A_whole_setup_and_its_gate_values_wait_for_the_unkey_together()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("nnr", "test");
+        gate.MarginDb = 12;
+        Assert.True(f.Noise.SaveTransmitSetup("Desk", false, "test").Succeeded);
+        f.Noise.TransmitToggle("nnr", "test");                // off
+        gate.MarginDb = 5;
+        f.Transmit.KeySource = () => true;
+        f.Spoken.Clear();
+        f.Noise.ApplyTransmitSetup("Desk", "test");
+        Assert.False(f.Noise.TransmitIsOn("nnr"));
+        Assert.Equal(5, gate.MarginDb);                       // the gate's values wait too
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.setup_waiting", ("setup", "Desk")), f.Spoken.Last);
+        Assert.EndsWith(AtUnkey, f.Spoken.Last);
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.True(f.Noise.TransmitIsOn("nnr"));
+        Assert.Equal(12, gate.MarginDb);
+    }
+
+    [Fact]
+    public void The_gates_defaults_leave_the_engines_alone()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("nnr", "test");
+        gate.AttackMs = 9;
+        f.Noise.GateReturnToDefaults("test");
+        Assert.True(f.Noise.TransmitIsOn("nnr"));
+        Assert.Equal(new TxNoiseGateSetup().AttackMs, gate.AttackMs);
+    }
+
+    [Fact]
+    public void A_preset_that_changes_only_a_floor_or_the_gate_says_what_it_changed()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Transmit.SetStrength("rnnoise", 0.3f);
+        f.Noise.SavePreset("Soft", false, false, true, PresetCollision.Replace, "test");
+        f.Transmit.SetStrength("rnnoise", 0.8f);
+        f.Spoken.Clear();
+        f.Noise.ApplyPreset("Soft", "test", DenoiseDirection.Transmit);
+        Assert.Equal(0.3f, f.Transmit.GetStrength("rnnoise"), 3);
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.phrase_settings", ("engine", Tx("RNNoise"))), f.Spoken.Last);
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.preset_nothing_changed"), f.Spoken.Last);
+
+        gate.AttackMs = 15;
+        f.Noise.ApplyPreset("Soft", "test", DenoiseDirection.Transmit);
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.phrase_gate"), f.Spoken.Last);
+        f.Noise.ApplyPreset("Soft", "test", DenoiseDirection.Transmit);
+        Assert.Contains(Lexicon.Get("audio.noise_surface.preset_nothing_changed"), f.Spoken.Last);
+    }
+
+    [Fact]
+    public void A_preset_holding_both_directions_applies_both_and_names_each()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.TransmitToggle("nnr", "test");
+        f.Noise.SavePreset("Both", true, false, true, PresetCollision.Replace, "test");
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.TransmitToggle("nnr", "test");
+        f.Spoken.Clear();
+        f.Noise.ApplyPreset("Both", "test");
+        Assert.True(f.Noise.IsOn("rnnoise"));
+        Assert.True(f.Noise.TransmitIsOn("nnr"));
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.preset_part", ("list", Lexicon.Get("audio.noise_surface.phrase_on", ("engine", Tx("NNR")))))
+            .Split(Lexicon.Get("audio.noise_surface.phrase_on", ("engine", Tx("NNR"))))[0], f.Spoken.Last);
+    }
+
+    [Fact]
+    public void The_layers_no_engine_reply_after_T_is_a_transmit_answer()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        var keys = LayerKeys(f);
+        EnterTransmit(f, keys);
+        keys.Handle(NoiseLayerKeys.FavouriteKey);
+        Assert.Equal(SpeechSubject.TransmitNoiseLevel, f.Spoken.Said[^1].Subject);
+        keys.Handle(Keys.T);
+        keys.Handle(NoiseLayerKeys.FavouriteKey);
+        Assert.Equal(SpeechSubject.NoiseLevel, f.Spoken.Said[^1].Subject);
+    }
+
+    [Fact]
+    public void The_transmit_summary_tells_chosen_from_running()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("nnr", "test");
+        // Chosen, never processed a buffer (no radio's microphone audio): not yet running.
+        Assert.Contains(Lexicon.Get("audio.noise_surface.active.waiting", VerbosityLevel.Chatty, ("engine", "NNR")), f.Noise.TransmitActiveSummary());
+        // Chosen while keyed: starts at the unkey.
+        f.Transmit.KeySource = () => true;
+        f.Noise.TransmitToggle("deepfilternet3", "test");
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.active.at_unkey", ("engine", "DeepFilterNet3")), f.Noise.TransmitActiveSummary());
+        // Cannot run here at all.
+        f.Transmit.KeySource = () => false;
+        f.Unavailable["deepfilternet3"] = Unavailability.ModelMissing;
+        Assert.Contains(Lexicon.Get("audio.noise_surface.tx.active.cannot_run", ("engine", "DeepFilterNet3")), f.Noise.TransmitActiveSummary());
+    }
+
+    [Fact]
+    public void A_rename_whose_microphones_could_not_be_repointed_is_put_back_and_said()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.RepointMicrophones = (r, a, b) => NoiseController.RepointNotSaved;
+        Assert.True(f.Noise.SaveTransmitSetup("Studio", false, "test").Succeeded);
+        var result = f.Noise.RenameTransmitSetup("Studio", "Desk");
+        Assert.False(result.Succeeded);
+        Assert.Equal(new[] { "Studio" }, f.Noise.TransmitSetupNames());
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.setup_rename_undone", ("old", "Studio"), ("new", "Desk")), f.Spoken.Last);
     }
 }

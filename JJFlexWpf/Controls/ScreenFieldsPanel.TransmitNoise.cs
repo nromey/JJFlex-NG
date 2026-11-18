@@ -134,18 +134,9 @@ public partial class ScreenFieldsPanel
         JJFlexHelp.SetText(_txNoiseOn, Lexicon.Get("audio.noise_help.tx_home.on"));
         TxContent.Children.Add(_txNoiseOn);
 
-        _txNoiseLevers = new StackPanel();
-        TxContent.Children.Add(_txNoiseLevers);
-
-        _txNoiseAdvanced = MakeToggle(Lexicon.Get("audio.noise_home.tx.advanced"));
-        _txNoiseAdvanced.Checked += (s, e) => TransmitNoiseAdvancedChanged(true);
-        _txNoiseAdvanced.Unchecked += (s, e) => TransmitNoiseAdvancedChanged(false);
-        JJFlexHelp.SetText(_txNoiseAdvanced, Lexicon.Get("audio.noise_help.tx_home.advanced"));
-        TxContent.Children.Add(_txNoiseAdvanced);
-
-        _txNoiseAdvancedLevers = new StackPanel();
-        TxContent.Children.Add(_txNoiseAdvancedLevers);
-
+        // The engine's delay, beside On, always (part seven: "each engine's
+        // Delay readout is shown beside its On"; repair round 1, item 7). It was
+        // under Advanced until then.
         _txNoiseDelay = new TextBlock { Margin = new Thickness(4, 2, 4, 2), Focusable = true, IsHitTestVisible = true };
         _txNoiseDelay.GotFocus += (s, e) =>
         {
@@ -157,6 +148,18 @@ public partial class ScreenFieldsPanel
         };
         JJFlexHelp.SetText(_txNoiseDelay, Lexicon.Get("audio.noise_help.tx_home.delay"));
         TxContent.Children.Add(_txNoiseDelay);
+
+        _txNoiseLevers = new StackPanel();
+        TxContent.Children.Add(_txNoiseLevers);
+
+        _txNoiseAdvanced = MakeToggle(Lexicon.Get("audio.noise_home.tx.advanced"));
+        _txNoiseAdvanced.Checked += (s, e) => TransmitNoiseAdvancedChanged(true);
+        _txNoiseAdvanced.Unchecked += (s, e) => TransmitNoiseAdvancedChanged(false);
+        JJFlexHelp.SetText(_txNoiseAdvanced, Lexicon.Get("audio.noise_help.tx_home.advanced"));
+        TxContent.Children.Add(_txNoiseAdvanced);
+
+        _txNoiseAdvancedLevers = new StackPanel();
+        TxContent.Children.Add(_txNoiseAdvancedLevers);
 
         _txNoiseDefaults = MakeTxButton("audio.noise_menu.defaults", "audio.noise_help.tx_home.defaults");
         _txNoiseDefaults.Click += (s, e) =>
@@ -272,8 +275,7 @@ public partial class ScreenFieldsPanel
             if (advanced)
                 foreach (var lever in noise.Levers(id, includeAdvanced: true, DenoiseDirection.Transmit).Where(l => l.Advanced))
                     _txNoiseAdvancedLevers.Children.Add(MakeTransmitLeverField(noise, lever));
-            _txNoiseDelay.Visibility = advanced ? Visibility.Visible : Visibility.Collapsed;
-            _txNoiseDelay.Text = advanced ? noise.DelayText(id, DenoiseDirection.Transmit) : "";
+            _txNoiseDelay.Text = noise.DelayText(id, DenoiseDirection.Transmit);
             AutomationProperties.SetName(_txNoiseDelay, _txNoiseDelay.Text);
 
             string favName = Lexicon.Get("audio.noise_home.favourite", ("engine", name));
@@ -322,6 +324,8 @@ public partial class ScreenFieldsPanel
             _txGateAdvancedFields.Children.Clear();
             bool advanced = FindMainWindow()?.CurrentAudioConfig?.NoiseAdvancedEngines.Contains(TxGateAdvancedKey) == true;
             _txGateAdvanced.IsChecked = advanced;
+            _txGateBuiltAuto = noise.TransmitGate.AutoThreshold;
+            _txSetupNames = noise.TransmitSetupNames();
             if (!advanced) return;
             _txGateAuto.IsChecked = noise.TransmitGate.AutoThreshold;
             _txGateAdvancedFields.Children.Add(_txGateAuto);
@@ -341,7 +345,6 @@ public partial class ScreenFieldsPanel
                 SetupGateField(field, noise, volume);
                 _txGateAdvancedFields.Children.Add(field);
             }
-            _txSetupNames = noise.TransmitSetupNames();
             _txSetup.Setup(Lexicon.Get("audio.noise_home.tx.setup"),
                 new[] { Lexicon.Get("audio.noise_home.tx.setup_none") }.Concat(_txSetupNames).ToArray(), 0);
             _txGateAdvancedFields.Children.Add(_txSetup);
@@ -394,13 +397,16 @@ public partial class ScreenFieldsPanel
         return best;
     }
 
+    /// <summary>
+    /// On acts on the engine the fields SHOW (repair round 1, item 1): the
+    /// controller turns that engine on, superseding an unsettled choice, or
+    /// turns the slot off. The fields then show the slot as it now stands.
+    /// </summary>
     private void TransmitNoiseOnChanged(bool on)
     {
         if (_polling || _txNoiseRebuilding || NoiseCtl is not { } noise || TxNoiseEngine is not string id) return;
         var family = TxSideFamily;
-        // The slot's own switch when its engine is the one shown; otherwise the shown engine on.
-        if (!on || noise.TransmitSlotEngine(family) == id) noise.TransmitSetSlotOn(family, on, TxNoiseSource);
-        else noise.TransmitSetOn(id, on, TxNoiseSource);
+        noise.TransmitSetShownOn(family, id, on, TxNoiseSource);
         ShowTransmitNoiseSide(selectEngine: noise.TransmitSlotEngine(family));
     }
 
@@ -457,11 +463,36 @@ public partial class ScreenFieldsPanel
         finally { _polling = wasPolling; }
     }
 
-    /// <summary>The poll's part: values follow the controller; the engine list follows availability.</summary>
+    /// <summary>The automatic threshold the gate fields were last built for; a change from elsewhere rebuilds them.</summary>
+    private bool _txGateBuiltAuto = true;
+    private int _txPollCount;
+
+    /// <summary>
+    /// The poll's part (repair round 1, item 1): the fields follow the
+    /// controller, whatever road changed it. The engine shown follows the slot
+    /// (a choice still settling is the slot's to the fields, so an arrow is never
+    /// undone); the engine's lever set follows its settings (NR2's trained
+    /// values come and go); the gate's conditional fields follow the automatic
+    /// threshold and this radio's setups. A rebuild that would take away the
+    /// field the operator is standing on waits for them to leave it.
+    /// </summary>
     private void PollTransmitNoise()
     {
-        if (NoiseCtl == null) return;
+        if (NoiseCtl is not { } noise) return;
         if (_txNoiseFieldsFor == null) { ShowTransmitNoiseSide(selectEngine: null); return; }
+        string want = noise.TransmitSlotEngine(TxSideFamily);
+        bool standingInLevers = _txNoiseLevers.IsKeyboardFocusWithin || _txNoiseAdvancedLevers.IsKeyboardFocusWithin;
+        bool leversChanged = !_txNoiseLeverFields.Select(f => f.Lever.Key)
+            .SequenceEqual(noise.Levers(_txNoiseFieldsFor, includeAdvanced: false, DenoiseDirection.Transmit).Select(l => l.Key)
+                .Concat(noise.IsAdvanced(_txNoiseFieldsFor, DenoiseDirection.Transmit)
+                    ? noise.Levers(_txNoiseFieldsFor, includeAdvanced: true, DenoiseDirection.Transmit).Where(l => l.Advanced).Select(l => l.Key)
+                    : Enumerable.Empty<string>()));
+        if (!standingInLevers && want.Length > 0 && want != _txNoiseFieldsFor) { ShowTransmitNoiseSide(selectEngine: want); return; }
+        if (!standingInLevers && leversChanged) ShowTransmitNoiseEngine(_txNoiseFieldsFor);
+        // The setups are read from disk, so their list is checked about every two seconds, not every poll.
+        bool setupsChanged = ++_txPollCount % 20 == 0 && !noise.TransmitSetupNames().SequenceEqual(_txSetupNames);
+        if (!_txGateAdvancedFields.IsKeyboardFocusWithin && (noise.TransmitGate.AutoThreshold != _txGateBuiltAuto || setupsChanged))
+            BuildTransmitGateFields();
         RefreshTransmitNoiseValues();
     }
 

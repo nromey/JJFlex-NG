@@ -5699,8 +5699,10 @@ public class KeyCommands
                 var snap = noise.TakeSnapshot();
                 return () => restoredSomething = noise.RestoreSnapshot(snap, "noise layer escape");
             },
-            DescribeLayerRestored = (layer, restored) => Radios.Lexicon.Get(
-                restoredSomething ? "audio.noise_layer.restored" : "audio.noise_layer.restored_nothing"),
+            // A transmit part put back while keyed waits for the unkey, and the
+            // closing sentence says so (Track H2 repair round 1, item 4).
+            DescribeLayerRestored = (layer, restored) => noise.WithRestoreTiming(Radios.Lexicon.Get(
+                restoredSomething ? "audio.noise_layer.restored" : "audio.noise_layer.restored_nothing")),
             PickTargetHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
             WrongAxisHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
             PassThroughKeys = ActsInPlaceInsideALayer,
@@ -5716,7 +5718,7 @@ public class KeyCommands
             // Listen to what was removed is never left on, the 0 key's
             // "back" belongs to this session only, and the Escape picture
             // stops collecting this layer's writes.
-            Exited = why => { _noiseSliceJumped = null; noise.ClearListening(); noise.ForgetZero(); noise.EndSnapshot(); },
+            Exited = why => { _noiseSliceJumped = null; noise.ClearListening(); noise.EndLayerSession(); noise.EndSnapshot(); },
             Cues = new Radios.ValueLayerCues
             {
                 Entered = EarconPlayer.LeaderEnterTone,

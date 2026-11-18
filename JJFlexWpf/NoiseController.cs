@@ -219,8 +219,18 @@ namespace JJFlexWpf
 
         public DenoiseEngineCatalog Catalog => _catalog;
 
-        /// <summary>The engine the noise layer last touched; its levers are what Up, Down and Tab work on.</summary>
-        public string? Current { get; private set; }
+        /// <summary>
+        /// The engine the noise layer last touched; its levers are what Up, Down
+        /// and Tab work on. An assignment here points the cursor at RECEIVE; the
+        /// transmit half points it with its direction (Track H2 repair round 1,
+        /// item 2), and the layer acts on it only in that direction.
+        /// </summary>
+        public string? Current
+        {
+            get => _current;
+            private set { _current = value; _currentDirection = DenoiseDirection.Receive; }
+        }
+        private string? _current;
 
         /// <summary>Which lever of <see cref="Current"/> the layer's arrows adjust; 0 is the primary lever.</summary>
         public int CurrentLeverIndex { get; private set; }
@@ -1098,10 +1108,13 @@ namespace JJFlexWpf
         public void ChooseSlotEngine(DenoiseFamily family, string id, string source)
         {
             if (_settling.TryGetValue(family, out var pending)) { pending.Dispose(); _settling.Remove(family); }
+            // The cursor is pointed later only if no layer session or T has moved
+            // its ownership since (Track H2 repair round 1, item 2).
+            long epoch = _cursorEpoch;
             _settling[family] = _scheduler.After(TimeSpan.FromMilliseconds(EngineSettleMs), () =>
             {
                 _settling.Remove(family);
-                ApplySlotChoice(family, id, source);
+                ApplySlotChoice(family, id, source, epoch);
             });
         }
 
@@ -1112,14 +1125,14 @@ namespace JJFlexWpf
 
         public void NoteSlotChoicePending(DenoiseFamily family, string id) => _pendingChoice[family] = id;
 
-        private void ApplySlotChoice(DenoiseFamily family, string id, string source)
+        private void ApplySlotChoice(DenoiseFamily family, string id, string source, long epoch)
         {
             using var oneUtterance = OneUtterance();
             _pendingChoice.Remove(family);
             var slot = SlotOf(family);
             var e = _catalog.Find(id);
             if (slot == null || e == null || e.Family != family || slot.ChosenEngineId == id) return;
-            Current = id; CurrentLeverIndex = 0;
+            PointLater(id, DenoiseDirection.Receive, epoch);
             if (slot.Enabled) { TurnComputerOn(e, source, speak: true, model: null); return; }
             if (e.Factory == null)
             {
@@ -1226,7 +1239,20 @@ namespace JJFlexWpf
                 SayAfter(L("audio.noise_surface.helper_back", ("engines", JoinNames(engines))), SpeechSubject.NoiseHelperState);
         }
 
-        /// <summary>Forget the 0 key's "back" list (the layer closed; the operator moved on).</summary>
-        public void ForgetZero() => _zeroRestore = null;
+        /// <summary>Forget the 0 key's "back" lists, both directions' (the layer closed; the operator moved on; Track H2 repair round 1, item 3).</summary>
+        public void ForgetZero() { _zeroRestore = null; _txZeroRestore = null; }
+
+        /// <summary>
+        /// The noise layer closed (Track H2 repair round 1, items 2 and 3): the
+        /// layer's direction goes back to receive, both 0-key lists are
+        /// forgotten, and any cursor assignment still to come from work scheduled
+        /// during the session is stale.
+        /// </summary>
+        public void EndLayerSession()
+        {
+            ForgetZero();
+            LayerDirection = DenoiseDirection.Receive;
+            _cursorEpoch++;
+        }
     }
 }

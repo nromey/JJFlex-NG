@@ -833,7 +833,8 @@ public partial class AudioWorkshopDialog
             }
             else if (TxAudioConditioning.Conditioner != null && capture.Conditioning != null)
             {
-                TxAudioConditioning.ApplySettings(capture.Conditioning);
+                string said = ApplyOldCleanup(capture.Conditioning);
+                if (said.Length > 0) notes.Add(said);
             }
             else
             {
@@ -879,13 +880,21 @@ public partial class AudioWorkshopDialog
     /// once (and save the microphone store), then apply the setup it names
     /// here. Returns what to say, or "" for nothing.
     /// </summary>
+    /// <summary>
+    /// A microphone's old cleanup settings, applied as the whole setup they are
+    /// (Sprint 49 Track H2 repair round 1, item 4: the fallback roads speak the
+    /// timing too). Returns the at-unkey sentence when it waits, else "".
+    /// </summary>
+    private static string ApplyOldCleanup(TxConditioningSettings conditioning) =>
+        TxAudioConditioning.ApplySetup(TxNoiseSetupMigration.FromConditioning("", conditioning)).Timing == TxChangeTiming.AtUnkey
+            ? Lexicon.Get("audio.denoise.tx.at_unkey") : "";
+
     private string ApplyTransmitNoiseSetup(MicrophoneProfile profile, string radioId)
     {
         var store = TxNoiseSetupStore.Default();
         if (store == null || store.PathFor(radioId) == null)
         {
-            if (profile.Capture?.Conditioning != null) TxAudioConditioning.ApplySettings(profile.Capture.Conditioning);
-            return "";
+            return profile.Capture?.Conditioning != null ? ApplyOldCleanup(profile.Capture.Conditioning) : "";
         }
         var said = new List<string>();
         var moved = TxNoiseSetupMigration.Migrate(profile, radioId, _rig?.RadioModel ?? "", store);
@@ -899,8 +908,7 @@ public partial class AudioWorkshopDialog
         else if (moved.Outcome == TxNoiseMigrationOutcome.NotSaved && profile.Capture?.Conditioning != null)
         {
             // The setup could not be written: the old settings still apply, as they did before.
-            TxAudioConditioning.ApplySettings(profile.Capture.Conditioning);
-            return "";
+            return ApplyOldCleanup(profile.Capture.Conditioning);
         }
         string name = profile.NoiseSetupNameFor(radioId);
         var applied = TxAudioConditioning.ApplyNamedSetup(radioId, name, store);

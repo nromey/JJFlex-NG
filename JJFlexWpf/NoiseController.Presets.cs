@@ -104,7 +104,17 @@ namespace JJFlexWpf
         /// Apply a preset: only the sections it holds. One journal entry and
         /// one spoken summary naming every engine it switched.
         /// </summary>
-        public void ApplyPreset(string name, string source)
+        public void ApplyPreset(string name, string source) => ApplyPreset(name, source, DenoiseDirection.Receive);
+
+        /// <summary>
+        /// Apply a preset from a road in <paramref name="road"/>'s direction
+        /// (Track H2 repair round 1, item 8): the Transmit menu's presets and the
+        /// layer's preset brackets after T answer on the transmit preset subject,
+        /// so a receive preset answer never replaces an unheard transmit one.
+        /// Every section the preset holds is applied, whichever road (part five),
+        /// and the summary names each direction it changed.
+        /// </summary>
+        public void ApplyPreset(string name, string source, DenoiseDirection road)
         {
             using var oneUtterance = OneUtterance();
             var preset = AllPresets(LoadPresets()).FirstOrDefault(p => p.Name == name);
@@ -115,6 +125,57 @@ namespace JJFlexWpf
             if (p == null && (preset.ReceiveNoise != null || preset.TransmitNoise == null)) { NoRadio(); return; }
             var changes = new List<NoiseJournalChange>();
             var phrases = new List<string>();
+            var txPhrases = new List<string>();
+            var transmitTiming = ApplyNoiseSections(preset, source, changes, phrases, txPhrases);
+            if (preset.HoldsTransmitChain) TransmitChain?.Apply(preset);
+            NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.PresetApplied, source, false,
+                changes.Count > 0 ? changes : new List<NoiseJournalChange> { new("preset", "", "", name) }, name));
+            _persist();
+            Say(L("audio.noise_surface.preset_applied", ("name", name), ("summary", SectionSummary(phrases, txPhrases))),
+                road == DenoiseDirection.Transmit ? SpeechSubject.TransmitNoisePreset : SpeechSubject.NoisePreset);
+            SayAtUnkey(transmitTiming);
+        }
+
+        /// <summary>
+        /// Each direction a preset changed, named (repair round 1, item 5): the
+        /// receive phrases as they always were, then the transmit part; "nothing
+        /// to change" when neither changed anything.
+        /// </summary>
+        private string SectionSummary(List<string> phrases, List<string> txPhrases)
+        {
+            var parts = new List<string>();
+            if (phrases.Count > 0) parts.Add(string.Join(", ", phrases));
+            if (txPhrases.Count > 0) parts.Add(L("audio.noise_surface.tx.preset_part", ("list", string.Join(", ", txPhrases))));
+            return parts.Count == 0 ? L("audio.noise_surface.preset_nothing_changed") : string.Join("; ", parts);
+        }
+
+        /// <summary>
+        /// The Audio Workshop's Load (repair round 1, item 6): the preset's noise
+        /// sections, after the Workshop has applied its transmit chain itself.
+        /// Nothing is spoken here; the Workshop says this with its own "loaded"
+        /// sentence. Returns "" for a preset that holds no noise section (every
+        /// preset made before the sections existed applies exactly as before),
+        /// otherwise the summary, with the at-unkey sentence when the transmit
+        /// part waits.
+        /// </summary>
+        public string ApplyNoiseSectionsForWorkshop(AudioChainPreset preset, string source)
+        {
+            if (preset == null || (preset.ReceiveNoise == null && preset.TransmitNoise == null)) return "";
+            var changes = new List<NoiseJournalChange>();
+            var phrases = new List<string>();
+            var txPhrases = new List<string>();
+            var timing = ApplyNoiseSections(preset, source, changes, phrases, txPhrases);
+            NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.PresetApplied, source, false,
+                changes.Count > 0 ? changes : new List<NoiseJournalChange> { new("preset", "", "", preset.Name) }, preset.Name));
+            _persist();
+            string summary = SectionSummary(phrases, txPhrases);
+            return timing.Timing == TxChangeTiming.AtUnkey ? summary + " " + Lexicon.Get("audio.denoise.tx.at_unkey") : summary;
+        }
+
+        /// <summary>The noise sections a preset holds, applied: receive (with a pipeline), then transmit. Returns the transmit part's timing.</summary>
+        private TxChangeResult ApplyNoiseSections(AudioChainPreset preset, string source, List<NoiseJournalChange> changes, List<string> phrases, List<string> txPhrases)
+        {
+            var p = _pipeline();
             var transmitTiming = TxChangeResult.Now;
             if (preset.ReceiveNoise is { } noise && p != null)
             {
@@ -140,14 +201,8 @@ namespace JJFlexWpf
                     }
                 RememberModeState();
             }
-            if (preset.TransmitNoise is { } transmit) transmitTiming = ApplyTransmitSection(transmit, changes, phrases);
-            if (preset.HoldsTransmitChain) TransmitChain?.Apply(preset);
-            NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.PresetApplied, source, false,
-                changes.Count > 0 ? changes : new List<NoiseJournalChange> { new("preset", "", "", name) }, name));
-            _persist();
-            Say(L("audio.noise_surface.preset_applied", ("name", name),
-                ("summary", phrases.Count == 0 ? L("audio.noise_surface.preset_nothing_changed") : string.Join(", ", phrases))), SpeechSubject.NoisePreset);
-            SayAtUnkey(transmitTiming);
+            if (preset.TransmitNoise is { } transmit) transmitTiming = ApplyTransmitSection(transmit, changes, txPhrases);
+            return transmitTiming;
         }
 
         /// <summary>
@@ -159,28 +214,64 @@ namespace JJFlexWpf
         private TxChangeResult ApplyTransmitSection(TxNoiseSetup section, List<NoiseJournalChange> changes, List<string> phrases)
         {
             if (_txChain() is not { } chain) return TxChangeResult.Now;
-            var before = new[] { DenoiseFamily.Spectral, DenoiseFamily.Neural }
-                .Select(f => (Family: f, On: chain.WantsEnabled(f), Engine: chain.ChosenEngineId(f))).ToList();
-            var timing = chain.ApplySlots(section.Spectral, section.Neural);
-            if (section.Gate != null) timing = Later(timing, TransmitGate.Apply(section.Gate));
-            foreach (var (family, wasOn, wasEngine) in before)
+            // What it WILL change, judged against what the section holds before it
+            // is applied (repair round 1, item 5): a section held for the unkey has
+            // not changed anything yet, and it still says what it will do. Switches
+            // and engines, then each engine's floor and settings, then the gate.
+            var (spectralNow, neuralNow) = chain.CaptureSlots();
+            foreach (var (family, now, want) in new[] { (DenoiseFamily.Spectral, spectralNow, section.Spectral), (DenoiseFamily.Neural, neuralNow, section.Neural) })
             {
-                bool on = chain.WantsEnabled(family);
-                string engine = chain.ChosenEngineId(family);
-                if (wasOn == on && (!on || wasEngine == engine)) continue;
-                if (wasOn && wasEngine.Length > 0 && (!on || wasEngine != engine))
+                var target = want ?? new TxNoiseSlotSetup();
+                bool wasOn = chain.WantsEnabled(family), on = target.Enabled;
+                string wasEngine = chain.ChosenEngineId(family);
+                string engine = string.IsNullOrWhiteSpace(target.EngineId) ? TxNoiseChain.DefaultEngine(family) : target.EngineId;
+                bool switched = !(wasOn == on && (!on || wasEngine == engine));
+                if (switched && wasOn && wasEngine.Length > 0 && (!on || wasEngine != engine))
                 {
                     changes.Add(new("tx:" + wasEngine, "", "on", "off"));
                     phrases.Add(L("audio.noise_surface.phrase_off", ("engine", TxName(wasEngine))));
                 }
-                if (on && engine.Length > 0)
+                if (switched && on && engine.Length > 0)
                 {
                     changes.Add(new("tx:" + engine, "", "off", "on"));
                     phrases.Add(L("audio.noise_surface.phrase_on", ("engine", TxName(engine))));
                 }
+                // The setup replaces every engine's stored values, so any engine
+                // whose values differ changes. Named once, by the slot's engine.
+                if (!switched && TxEngineValues(now) != TxEngineValues(target))
+                {
+                    changes.Add(new("tx:" + engine, "settings", "", "preset"));
+                    phrases.Add(L("audio.noise_surface.tx.phrase_settings", ("engine", TxName(engine))));
+                }
             }
-            return timing;
+            if (section.Gate is { } gate && !SameGate(TransmitGate.Capture(), gate))
+            {
+                changes.Add(new("tx:gate", "", "", "preset"));
+                phrases.Add(L("audio.noise_surface.tx.phrase_gate"));
+            }
+            return ApplyWholeTransmit(section.Spectral ?? new TxNoiseSlotSetup(), section.Neural ?? new TxNoiseSlotSetup(), section.Gate);
         }
+
+        /// <summary>
+        /// A transmit slot's stored engine values as comparable text. An entry
+        /// with no values and its engine's TRANSMIT default floor is the same as
+        /// no entry: reading a floor creates one, and reading is not a change.
+        /// </summary>
+        private static string TxEngineValues(TxNoiseSlotSetup slot) =>
+            string.Join("|", (slot.Engines ?? new()).Where(s => s != null
+                    && (s.Values.Count > 0 || Math.Abs(s.Strength - NoiseFloor.DefaultStrength(s.EngineId, DenoiseDirection.Transmit)) > 1e-6))
+                .OrderBy(s => s.EngineId, StringComparer.Ordinal)
+                .Select(s => s.EngineId + ":" + s.Strength.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ":"
+                    + string.Join(",", s.Values.OrderBy(v => v.Name, StringComparer.Ordinal)
+                        .Select(v => v.Name + "=" + (v.Choice ?? v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture))))));
+
+        /// <summary>Whether two gate settings act the same: the hand threshold counts only while the automatic threshold is off.</summary>
+        private static bool SameGate(TxNoiseGateSetup a, TxNoiseGateSetup b) =>
+            a.Enabled == b.Enabled && a.AutoThreshold == b.AutoThreshold
+            && Math.Abs(a.ThresholdMarginDb - b.ThresholdMarginDb) < 0.01f
+            && (a.AutoThreshold || Math.Abs(a.ThresholdDb - b.ThresholdDb) < 0.01f)
+            && Math.Abs(a.AttackMs - b.AttackMs) < 0.01f && Math.Abs(a.HoldMs - b.HoldMs) < 0.01f
+            && Math.Abs(a.ReleaseMs - b.ReleaseMs) < 0.01f && Math.Abs(a.RangeDb - b.RangeDb) < 0.01f;
 
         /// <summary>Every preset that holds transmit noise reduction (the Transmit menu's Presets, the layer's preset brackets after T).</summary>
         public IReadOnlyList<AudioChainPreset> TransmitNoisePresets() => AllPresets(LoadPresets()).Where(p => p.TransmitNoise != null).ToList();
@@ -191,10 +282,10 @@ namespace JJFlexWpf
         public void StepTransmitPreset(int direction, string source)
         {
             var list = TransmitNoisePresets();
-            if (list.Count == 0) { Say(L("audio.noise_surface.tx.no_presets"), SpeechSubject.NoisePreset); return; }
+            if (list.Count == 0) { Say(L("audio.noise_surface.tx.no_presets"), SpeechSubject.TransmitNoisePreset); return; }
             _txPresetIndex = _txPresetIndex < 0 ? (direction > 0 ? 0 : list.Count - 1)
                 : ((_txPresetIndex + Math.Sign(direction)) % list.Count + list.Count) % list.Count;
-            ApplyPreset(list[_txPresetIndex].Name, source);
+            ApplyPreset(list[_txPresetIndex].Name, source, DenoiseDirection.Transmit);
         }
 
         private void ApplySlot(PcDenoiseSlot slot, NoisePresetSlot want, List<NoiseJournalChange> changes, List<string> phrases, string source)
@@ -336,7 +427,10 @@ namespace JJFlexWpf
             (preset.HoldsTransmitChain ? store.Presets : store.NoisePresets).Add(preset);
             if (PresetStore?.Save(store) != true) return null;
             NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, source, "preset", "saved", "", name);
-            Say(L("audio.noise_surface.preset_saved", ("name", name), ("what", L(PresetWhatKey(preset)))), SpeechSubject.NoisePreset);
+            // A preset that holds only transmit noise reduction is a transmit answer (item 8).
+            bool transmitOnly = preset.TransmitNoise != null && preset.ReceiveNoise == null && !preset.HoldsTransmitChain;
+            Say(L("audio.noise_surface.preset_saved", ("name", name), ("what", L(PresetWhatKey(preset)))),
+                transmitOnly ? SpeechSubject.TransmitNoisePreset : SpeechSubject.NoisePreset);
             return name;
         }
 
@@ -395,6 +489,7 @@ namespace JJFlexWpf
             ApplyPreset(list[_presetIndex].Name, source);
         }
 
-        public void SpeakNoEngineYet() => Say(L("audio.noise_surface.no_engine_yet"), SpeechSubject.NoiseLevel);
+        /// <summary>The layer's favourite or defaults key with no engine chosen, on the layer's direction's subject (Track H2 repair round 1, item 8).</summary>
+        public void SpeakNoEngineYet() => Say(L("audio.noise_surface.no_engine_yet"), LayerSubject(SpeechSubject.NoiseLevel));
     }
 }
