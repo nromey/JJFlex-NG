@@ -194,9 +194,7 @@ namespace JJFlexWpf
             cond.NoiseReducer = NrStage;
             cond.NoiseReducerAppliedLatencySamples = AppliedNrLatency;
             cond.MonitorSink = MonitorStage;
-            PushGate(cond.Gate);
-            cond.AutoThresholdInForce = _autoThreshold;
-            cond.ThresholdMarginInForceDb = _thresholdMarginDb;
+            PushGate(cond);
 
             rig.ModeChanged += OnModeChanged;
             ApplyModePolicy(rig.Mode ?? "");
@@ -376,7 +374,7 @@ namespace JJFlexWpf
             Conditioner?.RequestGateEnabled(on);
         }
 
-        /// <summary>A continuous gate lever: live or held for the unkey by the one policy, <see cref="TxNoiseChain.ContinuousLeversLiveWhileKeyed"/>.</summary>
+        /// <summary>A continuous gate lever: live or held for the unkey by the one policy, <see cref="TxNoiseChain.ContinuousLeversLiveWhileKeyed"/>, with its timing.</summary>
         private static TxChangeResult GateLever(Action<TxNoiseGateSetup> intent, Action<JJPortaudio.TxNoiseGate> live,
             Action<JJPortaudio.TxAudioConditioner.StagedGate> staged) =>
             Chain.Continuous(() =>
@@ -384,9 +382,12 @@ namespace JJFlexWpf
                 lock (_gate) intent(_gateIntent);
                 var c = Conditioner;
                 if (c == null) return;
+                // The one owner first (repair round 4): in force and in anything
+                // waiting, so the later lone change wins even if the audio side
+                // is adopting a whole setup at this moment; then on the gate at
+                // once, which the audio side's next copy agrees with.
+                c.ChangeGate(staged);
                 live(c.Gate);
-                // A whole setup's gate still waiting: the later lone change wins there too.
-                c.ChangeStagedGate(staged);
             });
 
         /// <summary>
@@ -399,17 +400,14 @@ namespace JJFlexWpf
             set { SetThresholdMargin(value); }
         }
 
-        /// <summary>The margin, with its timing (Sprint 49 Track H2 repair round 2: the controller speaks what it gets).</summary>
+        /// <summary>The margin, with its timing. The same shape as Track H2's (5bf60c11), on the one gate owner (repair round 4).</summary>
         public static TxChangeResult SetThresholdMargin(float db)
         {
             float v = Math.Clamp(db, 3f, 15f);
             return Chain.Continuous(() =>
             {
                 _thresholdMarginDb = v;
-                var c = Conditioner;
-                if (c == null) return;
-                c.ThresholdMarginInForceDb = v;
-                c.ChangeStagedGate(g => g.ThresholdMarginDb = v);
+                Conditioner?.ChangeGate(g => g.ThresholdMarginDb = v);
             });
         }
 
@@ -422,24 +420,20 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// The automatic threshold on or off, IN ORDER (Sprint 49 Track H2 repair
-        /// round 2, item 1; changed with the orchestrator's authority): through
-        /// <see cref="TxNoiseChain.Continuous"/>, like every other gate lever, so a
-        /// choice made while an older whole setup is held waits behind it and
-        /// wins. It was a direct write, so the older setup overwrote the newer
-        /// choice at the unkey. Whether it is live while keyed is still S15's
-        /// question; with nothing held it is live, as before.
+        /// The automatic threshold on or off, IN ORDER behind a held setup (Track
+        /// H2's change in 5bf60c11, with the orchestrator's authority, taken here
+        /// so the two branches agree): through <see cref="TxNoiseChain.Continuous"/>
+        /// like every other gate lever. Whether it is live while keyed is still
+        /// S15's question; with nothing held it is live, as before. On the one gate
+        /// owner (repair round 4).
         /// </summary>
         public static TxChangeResult SetAutoThreshold(bool on) => Chain.Continuous(() =>
         {
             _autoThreshold = on;
-            var c = Conditioner;
-            if (c == null) return;
-            c.AutoThresholdInForce = on;
-            c.ChangeStagedGate(g => { g.AutoThreshold = on; g.HasThreshold = !on; });
+            Conditioner?.ChangeGate(g => { g.AutoThreshold = on; g.HasThreshold = !on; });
         });
 
-        /// <summary>One gate level by key (the controller's gate levers), with its timing: threshold, attack, hold, release or depth.</summary>
+        /// <summary>One gate level by key (Track H2's controller levers), with its timing: threshold, attack, hold, release, depth or margin.</summary>
         public static TxChangeResult SetGateLevel(string key, float value) => key switch
         {
             "threshold" => GateLever(g => g.ThresholdDb = value, g => g.ThresholdDb = value, g => g.ThresholdDb = value),
@@ -487,17 +481,27 @@ namespace JJFlexWpf
         }
 
         /// <summary>Copy the held gate settings onto a rig's gate (attach, and after applying a setup).</summary>
-        private static void PushGate(JJPortaudio.TxNoiseGate gate)
+        /// <summary>Put the held gate settings in force on a rig's conditioner (attach: there is no over yet to protect).</summary>
+        private static void PushGate(JJPortaudio.TxAudioConditioner cond)
         {
             TxNoiseGateSetup g;
             lock (_gate) g = _gateIntent.Clone();
-            gate.Enabled = g.Enabled;
-            if (!_autoThreshold) gate.ThresholdDb = g.ThresholdDb;
-            gate.AttackMs = g.AttackMs;
-            gate.HoldMs = g.HoldMs;
-            gate.ReleaseMs = g.ReleaseMs;
-            gate.RangeDb = g.RangeDb;
+            cond.SetGateInForce(ToConditioner(g, _autoThreshold, _thresholdMarginDb));
         }
+
+        /// <summary>A setup's gate as the conditioner's one record.</summary>
+        private static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, bool auto, float margin) => new()
+        {
+            Enabled = g.Enabled,
+            HasThreshold = !auto,
+            ThresholdDb = g.ThresholdDb,
+            AttackMs = g.AttackMs,
+            HoldMs = g.HoldMs,
+            ReleaseMs = g.ReleaseMs,
+            RangeDb = g.RangeDb,
+            AutoThreshold = auto,
+            ThresholdMarginDb = Math.Clamp(margin, 3f, 15f),
+        };
 
         /// <summary>What the monitor plays: Off, Output, Residual, or Split
         /// (output left, residual right). Live-switchable while transmitting.</summary>
@@ -587,18 +591,7 @@ namespace JJFlexWpf
             // The gate as a whole, on or off, levels and threshold policy, staged
             // for the next unkeyed buffer (repair round 3): never partway through
             // an over, even if this call is running when a key-down arrives.
-            Conditioner?.StageGate(new JJPortaudio.TxAudioConditioner.StagedGate
-            {
-                Enabled = g.Enabled,
-                HasThreshold = !g.AutoThreshold,
-                ThresholdDb = g.ThresholdDb,
-                AttackMs = g.AttackMs,
-                HoldMs = g.HoldMs,
-                ReleaseMs = g.ReleaseMs,
-                RangeDb = g.RangeDb,
-                AutoThreshold = g.AutoThreshold,
-                ThresholdMarginDb = Math.Clamp(g.ThresholdMarginDb, 3f, 15f),
-            });
+            Conditioner?.StageGate(ToConditioner(g, g.AutoThreshold, g.ThresholdMarginDb));
         }
 
         private static readonly HashSet<string> _missingSaid = new(StringComparer.OrdinalIgnoreCase);
