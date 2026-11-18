@@ -918,4 +918,57 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         Assert.Equal(new[] { "Studio" }, f.Noise.TransmitSetupNames());
         Assert.Equal(Lexicon.Get("audio.noise_surface.tx.setup_rename_undone", ("old", "Studio"), ("new", "Desk")), f.Spoken.Last);
     }
+
+    // ── Repair round 1, part 2: the floor's own answer ──
+
+    [Fact]
+    public void SetStrength_answers_its_timing_live_while_keyed_held_behind_a_waiting_setup_and_refused_off_transmit()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Transmit.KeySource = () => true;
+        Assert.Equal(TxChangeTiming.Now, f.Transmit.SetStrength("rnnoise", 0.6f).Timing);   // live, the ruling
+        Assert.Equal(0.6f, f.Transmit.GetStrength("rnnoise"), 3);
+        f.Transmit.ApplySlots(new TxNoiseSlotSetup(), new TxNoiseSlotSetup());              // a whole setup, held
+        Assert.Equal(TxChangeTiming.AtUnkey, f.Transmit.SetStrength("rnnoise", 0.4f).Timing);
+        Assert.Equal(TxChangeTiming.Refused, f.Transmit.SetStrength("spectral_capture", 0.4f).Timing);
+        // Unkeyed but not yet drained: still behind the held setup (Track H repair round 2's order).
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.Equal(0.4f, f.Transmit.GetStrength("rnnoise"), 3);
+    }
+
+    [Fact]
+    public void A_floor_held_behind_a_waiting_setup_says_the_value_asked_for_and_that_it_waits()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        var keys = LayerKeys(f);
+        EnterTransmit(f, keys);
+        keys.Handle(Keys.R | Keys.Control);                  // RNNoise: the floor is its first lever
+        f.Transmit.KeySource = () => true;
+        f.Transmit.ApplySlots(f.Transmit.CaptureSlots().Spectral, f.Transmit.CaptureSlots().Neural);
+        var floor = f.Noise.FloorLeverOf("rnnoise", DenoiseDirection.Transmit)!;
+        double before = f.Noise.NumberOf(floor)!.Value;
+        keys.Handle(Keys.Up);
+        Assert.Equal(before, f.Noise.NumberOf(floor));       // held: nothing changed yet
+        Assert.EndsWith(AtUnkey, f.Spoken.Last);
+        double asked = before + NoiseFloor.Step * NoiseController.FloorSign(+1);
+        Assert.Contains(asked.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture), f.Spoken.Last);
+        f.Transmit.KeySource = () => false;
+        f.Transmit.ApplyDeferred();
+        Assert.Equal(asked, f.Noise.NumberOf(floor));
+
+        // Unkeyed with a setup still held (Track H repair round 2's order): the
+        // held setup runs first, then the floor, so the floor asked for last wins
+        // and the answer is Now.
+        f.Transmit.KeySource = () => true;
+        f.Transmit.ApplySlots(f.Transmit.CaptureSlots().Spectral, f.Transmit.CaptureSlots().Neural);
+        f.Transmit.KeySource = () => false;
+        f.Spoken.Clear();
+        keys.Handle(Keys.Up);
+        Assert.DoesNotContain(AtUnkey, f.Spoken.Last);
+        Assert.False(f.Transmit.HasDeferredChanges);
+        Assert.Equal(asked + NoiseFloor.Step * NoiseController.FloorSign(+1), f.Noise.NumberOf(floor));
+    }
 }

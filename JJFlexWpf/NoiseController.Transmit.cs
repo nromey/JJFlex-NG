@@ -592,8 +592,20 @@ namespace JJFlexWpf
                 Say(L("audio.noise_surface.lever_refused", ("lever", LeverName(lever))), SpeechSubject.TransmitNoiseLevel);
                 return;
             }
-            SpeakTransmitLever(lever, e);
+            // A value held for the unkey is not yet what the getters read: say the
+            // value asked for, then that it waits (repair round 1, part 2).
+            SpeakTransmitLever(lever, e, result.Timing == TxChangeTiming.AtUnkey ? HeldValueText(lever, after.Value) : null);
             SayAtUnkey(result);
+        }
+
+        /// <summary>A lever's value as spoken, from the value written rather than read back (a held write).</summary>
+        private string HeldValueText(NoiseLever lever, EngineSettingValue value)
+        {
+            if (lever.Descriptor is { Kind: EngineSettingKind.Choice } d)
+                return d.Options?.FirstOrDefault(o => o.Name == value.Choice) is { } option ? OptionText(option) : value.Choice ?? "";
+            double shown = lever.Kind == NoiseLeverKind.Floor ? value.Number : ToShown(lever, value.Number);
+            string number = shown.ToString(lever.Descriptor is { Step: < 0.1 } x && !IsPercent(x) ? "0.###" : "0.#", CultureInfo.InvariantCulture);
+            return WithUnit(number, UnitOf(lever));
         }
 
         /// <summary>One transmit lever's write, through the chain's intent calls: the floor and every in-place setting live, a rebuild setting at the unkey when keyed.</summary>
@@ -605,12 +617,12 @@ namespace JJFlexWpf
                 case NoiseLeverKind.Floor:
                 {
                     float was = chain.GetStrength(e.Id);
-                    // SetStrength returns nothing (Track H's checkpoint): it is live
-                    // unless a whole setup is waiting, when it waits behind it. That
-                    // is the chain's own rule, read from the chain, never the key alone.
-                    var timing = chain.HasDeferredChanges && chain.IsKeyed ? TxChangeResult.AtUnkey : TxChangeResult.Now;
-                    chain.SetStrength(e.Id, NoiseFloor.ToStrength(value.Number));
-                    NoiseSettingsJournal.Record(NoiseJournalKind.Floor, TxSource(source), e.Id, FloorKey, FloorText(was), FloorText(chain.GetStrength(e.Id)));
+                    float want = NoiseFloor.ToStrength(value.Number);
+                    // The chain answers when it takes effect (repair round 1, part 2):
+                    // live, or held behind something already waiting. Spoken as given.
+                    var timing = chain.SetStrength(e.Id, want);
+                    if (timing.Timing != TxChangeTiming.Refused)
+                        NoiseSettingsJournal.Record(NoiseJournalKind.Floor, TxSource(source), e.Id, FloorKey, FloorText(was), FloorText(want));
                     return timing;
                 }
                 case NoiseLeverKind.Setting:
@@ -629,9 +641,9 @@ namespace JJFlexWpf
             }
         }
 
-        private void SpeakTransmitLever(NoiseLever lever, DenoiseEngineEntry e)
+        private void SpeakTransmitLever(NoiseLever lever, DenoiseEngineEntry e, string? heldValue = null)
         {
-            string name = TxName(e.Id), leverName = LeverName(lever), value = ValueText(lever);
+            string name = TxName(e.Id), leverName = LeverName(lever), value = heldValue ?? ValueText(lever);
             bool on = TransmitIsOn(e.Id);
             if (lever.Key == "model" && ChosenOption(lever)?.Probe is { } probe && SafeProbe(probe, e.Id) is var reason && reason != Unavailability.None)
             {
@@ -692,8 +704,7 @@ namespace JJFlexWpf
             float strength = NoiseFloor.DefaultStrength(id, DenoiseDirection.Transmit);
             if (Math.Abs(chain.GetStrength(id) - strength) > 0.0001)
                 changes.Add(new NoiseJournalChange(id, FloorKey, FloorText(chain.GetStrength(id)), FloorText(strength)));
-            chain.SetStrength(id, strength);
-            var timing = TxChangeResult.Now;
+            var timing = chain.SetStrength(id, strength);
             foreach (var d in e.Settings)
             {
                 var was = slot.GetSetting(id, d.Name);

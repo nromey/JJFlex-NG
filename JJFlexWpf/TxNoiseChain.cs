@@ -300,11 +300,17 @@ namespace JJFlexWpf
         }
 
         /// <summary>A transmit engine's strength (stored wet fraction; surfaces show it as a floor through <see cref="NoiseFloor"/>). Live while keyed (the ruling), unless something is held, when it waits behind it.</summary>
-        public void SetStrength(string engineId, float strength)
+        /// <returns>
+        /// When it takes effect: Now, or AtUnkey while something is held ahead of
+        /// it (Sprint 49 Track H2 repair round 1, part 2: a void until then, which
+        /// left the controller to work the timing out from this class's rule).
+        /// Refused for an engine transmit does not offer.
+        /// </returns>
+        public TxChangeResult SetStrength(string engineId, float strength)
         {
             var slot = SlotFor(engineId);
-            if (slot == null) return;
-            Order(() => slot.SetStrength(engineId, strength), holdWhenKeyed: false, () => TxChangeResult.Now);
+            if (slot == null) return new(TxChangeTiming.Refused, "wrong-direction");
+            return Order(() => slot.SetStrength(engineId, strength), holdWhenKeyed: false, () => TxChangeResult.Now);
         }
 
         public float GetStrength(string engineId) =>
