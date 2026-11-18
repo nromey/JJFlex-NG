@@ -373,9 +373,73 @@ public sealed class TxLatchTests
         spectral()!.Dead = true;
         run(true);                                                  // NR4 latches
         Assert.True(chain.SpectralSlot.RunningBank!.Latched);
-        run(false);                                                 // the unkey releases it, inside the window
+        var started = DateTime.UtcNow;
+        run(false);                                                 // the unkey releases it and starts its rebuild...
+        Assert.True(RunUntilClean(chain, run), "the rebuilt NR4 never processed a clean buffer");   // ...which runs cleanly
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromMilliseconds(TxNoiseChain.NoticeGatherMs), "recovered outside the window: this proves nothing");
         Thread.Sleep(TxNoiseChain.NoticeGatherMs * 3);
         Assert.Empty(together);
+    }
+
+    /// <summary>Unkeyed buffers until the spectral slot processes cleanly (its rebuilt engine installed), within the gather window.</summary>
+    private static bool RunUntilClean(TxNoiseChain chain, Action<bool> run)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(TxNoiseChain.NoticeGatherMs / 2);
+        while (DateTime.UtcNow < until)
+        {
+            run(false);
+            if (chain.SpectralSlot.LastBufferClean) return true;
+            Thread.Sleep(1);
+        }
+        return false;
+    }
+
+    /// <summary>Holds the slot's rebuild worker at its trace line (any thread), so the engine is still the dead one when the next over starts.</summary>
+    private sealed class RebuildBarrier : System.Diagnostics.TraceListener
+    {
+        public readonly ManualResetEventSlim Entered = new(), Release = new();
+        public override void Write(string? message) { }
+        public override void WriteLine(string? message)
+        {
+            if (message == null || !message.Contains("unkeyed after a latched over; rebuilding the transmit Spectral slot's nr4")) return;
+            Entered.Set();
+            Release.Wait(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Fact]
+    public void A_slot_that_fails_again_before_its_rebuild_ever_ran_cleanly_is_still_told()
+    {
+        // Codex's schedule (bench round 3): the rebuild is held across the unkey,
+        // so the released engine is still the dead one when the next over starts
+        // inside the gather window. Round 2 counted the release as a recovery,
+        // dropped the pending notice, and the re-latch raised none: no warning.
+        var (chain, spectral, _, run) = TwoSlots();
+        var together = new ConcurrentQueue<IReadOnlyList<(DenoiseFamily Family, string EngineId)>>();
+        chain.FellBackTogether += together.Enqueue;
+        var barrier = new RebuildBarrier();
+        System.Diagnostics.Trace.Listeners.Add(barrier);
+        try
+        {
+            run(true);
+            spectral()!.Dead = true;
+            run(true);                                              // NR4 latches: a notice is pending
+            run(false);                                             // the unkey releases it; its rebuild is held
+            Assert.True(barrier.Entered.Wait(TimeSpan.FromSeconds(10)), "the rebuild never started");
+            run(true);                                              // the next over, the same dead engine
+            Assert.True(chain.SpectralSlot.RunningBank!.Latched);
+            Assert.False(chain.SpectralSlot.LastBufferClean);
+            var wait = DateTime.UtcNow.AddSeconds(10);
+            while (together.IsEmpty && DateTime.UtcNow < wait) Thread.Sleep(5);
+            Thread.Sleep(TxNoiseChain.NoticeGatherMs * 2);
+            Assert.Single(together);
+            Assert.Equal(new[] { "nr4" }, together.Single().Select(t => t.EngineId));
+        }
+        finally
+        {
+            barrier.Release.Set();
+            System.Diagnostics.Trace.Listeners.Remove(barrier);
+        }
     }
 
     [Fact]
@@ -387,7 +451,8 @@ public sealed class TxLatchTests
         run(true);
         spectral()!.Dead = true;
         run(true);                                                  // NR4 latches...
-        run(false);                                                 // ...and is released at the unkey
+        run(false);                                                 // ...is released at the unkey...
+        Assert.True(RunUntilClean(chain, run), "the rebuilt NR4 never processed a clean buffer");   // ...and recovers cleanly
         run(true);                                                  // the next over
         neural()!.Dead = true;
         run(true);                                                  // RNNoise latches, inside the same window

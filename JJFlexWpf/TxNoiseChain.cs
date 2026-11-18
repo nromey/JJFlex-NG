@@ -504,10 +504,12 @@ namespace JJFlexWpf
 
         private int _noticeFamilies;
         private readonly string[] _noticeEngine = { "", "" };
-        // Bench round 2, P3: a slot that recovers (released at the unkey, or a
-        // clean buffer after it latched) inside the gather window is no longer
-        // bypassed, so its notice is dropped. Counted per slot by the audio
-        // thread; the notice remembers the count it was raised at.
+        // Bench round 2, P3: a slot that recovers inside the gather window is no
+        // longer bypassed, so its notice is dropped. Recovery means a CLEAN buffer
+        // after it latched (bench round 3: a latch released at the unkey is not a
+        // recovery, the engine can fail again before processing anything). Counted
+        // per slot by the audio thread; the notice remembers the count it was
+        // raised at.
         private readonly int[] _recoveries = new int[2];
         private readonly int[] _noticeRecoveriesAt = new int[2];
 
@@ -554,15 +556,13 @@ namespace JJFlexWpf
                 }
             }
             _bufferKeyed = keyed && !boundary;
-            if (keyed && Volatile.Read(ref _overOpen) == 0) { Volatile.Write(ref _overOpen, 1); StartOver(); }
-            else if (!keyed && Volatile.Read(ref _overOpen) == 1)
+            if (!keyed && Volatile.Read(ref _overOpen) == 1)
             {
                 Volatile.Write(ref _overOpen, 0);
                 EndOver();
                 // R3: a whole setup, and what was asked for after it, runs now.
                 if (HasDeferredChanges) ThreadPool.QueueUserWorkItem(_ => ApplyDeferred());
             }
-            if (keyed) NoteBufferTiming();
             if (!keyed || boundary)
             {
                 // The only place on and off become audible (item B).
@@ -574,6 +574,12 @@ namespace JJFlexWpf
                 Unlatch(DenoiseFamily.Spectral);
                 Unlatch(DenoiseFamily.Neural);
             }
+            // A new over is counted from the slots as the boundary left them (bench
+            // round 3): on and off adopted first, and a bank installed on this very
+            // buffer re-based below, so the over's line names the engine that ran.
+            bool overStarted = false;
+            if (keyed && Volatile.Read(ref _overOpen) == 0) { Volatile.Write(ref _overOpen, 1); StartOver(); overStarted = true; }
+            if (keyed) NoteBufferTiming();
             if (sampleRate != SampleRate || count < 2) return;
             int frames = count / 2;
             if (_mono.Length != frames) _mono = new float[frames];
@@ -581,6 +587,13 @@ namespace JJFlexWpf
             for (int f = 0, i = 0; f < frames; f++, i += 2) mono[f] = (interleaved[i] + interleaved[i + 1]) * 0.5f;
             SpectralSlot.Process(mono, true, true, false, null);
             NeuralSlot.Process(mono, true, true, false, null);
+            if (overStarted)
+            {
+                // A ready bank the slot installed on this first buffer (a swap the
+                // boundary permitted): this over is that bank's, from zero.
+                RebaseIfInstalled(DenoiseFamily.Spectral);
+                RebaseIfInstalled(DenoiseFamily.Neural);
+            }
             AfterSlot(DenoiseFamily.Spectral, keyed);
             AfterSlot(DenoiseFamily.Neural, keyed);
             bool processed = SpectralSlot.LastBufferProcessed || NeuralSlot.LastBufferProcessed;
@@ -666,8 +679,11 @@ namespace JJFlexWpf
             var slot = SlotOf(family);
             var bank = slot.RunningBank;
             if (bank == null || !bank.Latched) return;
+            // Released, not yet recovered (bench round 3, Codex): the engine can fail
+            // again before its rebuild ever delivers a clean buffer, and then the
+            // pending notice is the only warning. Only clean processing retires it
+            // (AfterSlot).
             bank.ReleaseLatch();
-            Interlocked.Increment(ref _recoveries[i]);          // released: no longer bypassed (round 2)
             // The policy tick already started this rebuild (round 2): not twice.
             if (Interlocked.Exchange(ref _rebuildAhead[i], 0) == 1) return;
             ThreadPool.QueueUserWorkItem(state =>
@@ -676,6 +692,24 @@ namespace JJFlexWpf
                 Trace.WriteLine($"TxNoiseChain: unkeyed after a latched over; rebuilding the transmit {family} slot's {id} while receiving.");
                 slot.Select(id, out _, force: true);
             });
+        }
+
+        /// <summary>
+        /// After the new over's first buffer: if the slot installed a ready bank
+        /// during it, the over's counts are that bank's, from zero (a bank built on
+        /// a worker has processed nothing before it is installed), not the
+        /// replaced bank's, which processed none of this over (bench round 3,
+        /// Codex: the line named RNNoise with no frames while NNR ran throughout).
+        /// </summary>
+        private void RebaseIfInstalled(DenoiseFamily family)
+        {
+            var o = _over[(int)family];
+            var slot = SlotOf(family);
+            var bank = slot.Enabled ? slot.RunningBank : null;
+            if (bank == null || ReferenceEquals(bank, o.Bank)) return;
+            o.Bank = bank;
+            o.EngineId = slot.RunningEngineId;
+            o.Late = o.Fallback = o.Latched = o.Engine = o.Latches = 0;
         }
 
         private void StartOver()

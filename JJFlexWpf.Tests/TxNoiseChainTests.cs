@@ -872,6 +872,8 @@ public sealed class TxNoiseChainTests
         // new over's audio, and never mid-over.
         var rig = new Rig();
         rig.Chain.SetEnabled(DenoiseFamily.Neural, true);
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        rig.Chain.OverReport += reports.Enqueue;
         Until(() => rig.Chain.NeuralSlot.RunningIsCurrent("rnnoise") && rig.Chain.NeuralSlot.Enabled, () => rig.Run());
         Volatile.Write(ref rig.Keyed, true);
         Assert.All(rig.Run(), v => Assert.Equal(2f, v));            // RNNoise, gain 2
@@ -883,5 +885,14 @@ public sealed class TxNoiseChainTests
         rig.Run();                                                  // the boundary buffer
         Assert.True(rig.Chain.NeuralSlot.RunningIsCurrent("nnr"), "the engine chosen during the last over was not installed at its unkey's boundary");
         Assert.All(rig.Run(), v => Assert.Equal(3f, v));
+        // The new over's line names the engine that ran it, from its first buffer
+        // (bench round 3, Codex: it named RNNoise with no frames).
+        Volatile.Write(ref rig.Keyed, false);
+        rig.Run();
+        Until(() => reports.Count == 2);
+        string line = reports.ToArray()[1];
+        Assert.Contains("Neural nnr: engine frames 2, late 0, failed 0, latched dry 0", line);
+        Assert.Contains("2 buffers", line);
+        Assert.DoesNotContain("rnnoise", line);
     }
 }
