@@ -1189,7 +1189,7 @@ public static class KeyInventory
             new[] { "nvidia", "nr", "gpu", "graphics", "neural", "computer", "pc", "noise", "reduction", "toggle", "switch" }, "Radio", "DSP"),
         // Sprint 49 Track H2 (ruled 2026-11-07, question 6). The description
         // is a draft for Codex, like the rest of the noise layer's wording.
-        new(NoiseLayerContext, "Noise layer", "T", "Switch the layer's keys between receive and transmit",
+        new(NoiseLayerContext, "Noise layer", "T", "Switches the noise layer between receive and transmit.",
             new[] { "transmit", "receive", "direction", "tx", "rx", "microphone", "mic", "cleanup", "gate", "switch" }, "Radio", "DSP"),
         new(NoiseLayerContext, "Noise layer", "Up / Down", "Adjust the lever you are on",
             new[] { "up", "down", "level", "strength", "lever", "adjust", "more", "less" }, "Radio", "DSP"),

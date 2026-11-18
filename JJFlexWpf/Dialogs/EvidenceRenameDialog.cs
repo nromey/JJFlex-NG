@@ -28,7 +28,7 @@ internal sealed class EvidenceRenameDialog : JJFlexDialog
     private readonly TextBox _name = new();
     private bool _accepted;
 
-    private EvidenceRenameDialog(string noun, string id, string currentLabel)
+    private EvidenceRenameDialog(string noun, string id, string currentLabel, string? help = null)
     {
         Title = "Rename " + noun + " " + id + " — JJ Flexible";
         Width = 420;
@@ -47,7 +47,7 @@ internal sealed class EvidenceRenameDialog : JJFlexDialog
         _name.Text = currentLabel;
         _name.Margin = new Thickness(0, 2, 0, 8);
         AutomationProperties.SetName(_name, "Name for this " + noun);
-        JJFlexHelp.SetText(_name,
+        JJFlexHelp.SetText(_name, help ??
             "A name you will recognize later. Leave it empty to go back to the "
             + noun + "'s id.");
         panel.Children.Add(_name);
@@ -90,9 +90,14 @@ internal sealed class EvidenceRenameDialog : JJFlexDialog
     /// never changes it, and the id is what a support thread quotes.</param>
     /// <param name="currentLabel">The name it has now, empty for none.</param>
     /// <returns>The new name, or null when cancelled.</returns>
-    internal static string? Ask(Window owner, string noun, string id, string currentLabel)
+    /// <param name="help">
+    /// The name field's Ctrl+F1 line, for a caller whose empty name means
+    /// something else (a transmit noise setup has no separate id to go back to;
+    /// Sprint 49 Track H2, words round). Null keeps the evidence families' line.
+    /// </param>
+    internal static string? Ask(Window owner, string noun, string id, string currentLabel, string? help = null)
     {
-        var dialog = new EvidenceRenameDialog(noun, id, currentLabel ?? "") { Owner = owner };
+        var dialog = new EvidenceRenameDialog(noun, id, currentLabel ?? "", help) { Owner = owner };
         dialog.ShowModalDialog();
         return dialog._accepted ? dialog._name.Text : null;
     }

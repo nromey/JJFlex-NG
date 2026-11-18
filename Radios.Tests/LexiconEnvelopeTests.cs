@@ -117,7 +117,9 @@ namespace Radios.Tests
             // near miss that names two chords, ruled 2026-10-28 21:25.
             // Sprint 49 Track E: the noise surface's ladders, 57 of them, every one
             // with Critical, Terse and Chatty tiers (design part six).
-            Assert.Equal(77, ladders);
+            // Sprint 49 Track H2 words round: Codex's seven transmit ladders, plus the
+            // transmit model twin and the transmit no-engine hint (86).
+            Assert.Equal(86, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -2521,6 +2523,11 @@ namespace Radios.Tests
                 "audio.noise_surface.tx.phrase_gate",
                 // Track H2 repair round 2.
                 "audio.noise_surface.tx.phrase_engine_choice",
+                // Track H2 words round: the four source changes Codex found.
+                "audio.noise_surface.tx.lever_model",
+                "audio.noise_surface.tx.no_engine_yet",
+                "audio.noise_layer.tx.switches_only",
+                "audio.noise_help.setups.rename",
                 "audio.noise_surface.preset_what.tx_noise",
                 "audio.noise_surface.preset_what.rx_tx_noise",
                 "audio.noise_surface.preset_what.tx_noise_chain",

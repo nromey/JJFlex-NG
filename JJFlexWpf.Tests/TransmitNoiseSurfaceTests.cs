@@ -296,7 +296,7 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         Assert.False(f.Transmit.WantsEnabled(DenoiseFamily.Spectral));
         Assert.False(f.Transmit.WantsEnabled(DenoiseFamily.Neural));
         Assert.True(f.Noise.IsOn("rnnoise"));
-        Assert.StartsWith(Lexicon.Get("audio.noise_surface.tx.zero_off", VerbosityLevel.Chatty, ("engines", "")).TrimEnd(), f.Spoken.Last);
+        Assert.StartsWith(Lexicon.Get("audio.noise_surface.tx.zero_off", VerbosityLevel.Chatty, ("engines", "")).Split('')[0], f.Spoken.Last);
         Assert.Contains("NNR", f.Spoken.Last);
         keys.Handle(Keys.D0);
         Assert.True(f.Noise.TransmitIsOn("nr2"));
@@ -1306,5 +1306,88 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
             "ApplyGateNow must stage the gate for an unkeyed buffer (Track H repair round 3)");
         string bridge = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "NoiseController.Transmit.cs"));
         Assert.Contains("public void ApplyNow(TxNoiseGateSetup gate) => TxAudioConditioning.ApplyGateNow(gate);", bridge);
+    }
+
+    // ── Words round: the four source changes Codex found ──
+
+    [Fact]
+    public void A_transmit_model_change_never_promises_a_cross_fade()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("nnr", "test");
+        var model = f.Noise.Levers("nnr", false, DenoiseDirection.Transmit).Single(l => l.Key == "model");
+        var other = f.Noise.OptionsFor(model).First(o => o.Name != f.Noise.ChoiceOf(model));
+        f.Spoken.Clear();
+        f.Noise.Set(model, null, other.Name, "test");
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.lever_model", VerbosityLevel.Chatty,
+            ("engine", Tx("NNR")), ("value", f.Noise.OptionText(other))), f.Spoken.Last);
+        Assert.NotEqual(Lexicon.Get("audio.noise_surface.tx.lever_model", VerbosityLevel.Chatty, ("engine", "x"), ("value", "y")),
+            Lexicon.Get("audio.noise_surface.lever_model", VerbosityLevel.Chatty, ("engine", "x"), ("value", "y")));
+    }
+
+    [Fact]
+    public void After_T_the_no_engine_hints_name_the_transmit_keys_and_receive_keeps_its_own()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        var keys = LayerKeys(f);
+        f.Noise.BeginSession();
+        keys.Handle(Keys.Up);
+        Assert.Equal(Lexicon.Get("audio.noise_surface.no_engine_yet", VerbosityLevel.Chatty), f.Spoken.Last);
+        Assert.Equal("audio.noise_layer.switches_only", f.Noise.SwitchesOnlyKey);
+        keys.Handle(Keys.T);
+        keys.Handle(Keys.Up);
+        Assert.Equal(Lexicon.Get("audio.noise_surface.tx.no_engine_yet", VerbosityLevel.Chatty), f.Spoken.Last);
+        Assert.Equal("audio.noise_layer.tx.switches_only", f.Noise.SwitchesOnlyKey);
+        string commands = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "KeyCommands.cs"));
+        Assert.Contains("PickTargetHint = () => Radios.Lexicon.Get(noise.SwitchesOnlyKey)", commands);
+        Assert.Contains("WrongAxisHint = () => Radios.Lexicon.Get(noise.SwitchesOnlyKey)", commands);
+    }
+
+    [Fact]
+    public void Escape_puts_back_the_transmit_gate_a_preset_changed_inside_the_layer()
+    {
+        var (f, gate) = Make();
+        using var _f = f;
+        gate.Enabled = true; gate.MarginDb = 12; gate.AttackMs = 5;
+        f.Noise.SavePreset("Gate", false, false, true, PresetCollision.Replace, "test");
+        gate.Enabled = false; gate.MarginDb = 8; gate.AttackMs = 3;
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.StepTransmitPreset(+1, "noise layer");        // the preset changes the gate inside the layer
+        Assert.True(gate.Enabled);
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.False(gate.Enabled);
+        Assert.Equal(8, gate.MarginDb);
+        Assert.Equal(3, gate.AttackMs);
+        // Keyed, the gate waits for the unkey with the slots, and the closing sentence says so.
+        f.Noise.StepTransmitPreset(+1, "noise layer");
+        snap = f.Noise.TakeSnapshot();
+        gate.MarginDb = 14;
+        f.Transmit.KeySource = () => true;
+        Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
+        Assert.Equal(14, gate.MarginDb);
+        Assert.Equal(TxChangeTiming.AtUnkey, f.Noise.LastRestoreTiming);
+        f.Transmit.KeySource = () => false; f.Transmit.ApplyDeferred();
+        Assert.Equal(12, gate.MarginDb);
+    }
+
+    [Fact]
+    public void The_setup_rename_prompt_carries_its_own_empty_name_help()
+    {
+        string dialogs = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "Dialogs", "TransmitSetupDialogs.cs"));
+        const string key = "audio.noise_help.setups.rename";
+        Assert.Contains(key, dialogs);
+        Assert.DoesNotContain("PLACEHOLDER", Lexicon.Get(key));
+    }
+
+    [Fact]
+    public void No_H_or_H2_transmit_key_still_carries_a_placeholder_marker()
+    {
+        foreach (string key in new[] { "audio.denoise.tx.at_unkey", "audio.noise_surface.tx.engine", "audio.noise_surface.tx.layer_transmit",
+            "audio.noise_surface.tx.gate_defaults", "audio.noise_home.tx.on", "audio.noise_help.tx_home.gate.margin", "audio.noise_setups.copy",
+            "audio.cleanup.door", "audio.noise_surface.lever.floor", "audio.noise_surface.defaults_floor" })
+            foreach (var level in new[] { VerbosityLevel.Critical, VerbosityLevel.Terse, VerbosityLevel.Chatty })
+                Assert.DoesNotContain("PLACEHOLDER", Lexicon.Get(key, level));
     }
 }

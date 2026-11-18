@@ -613,7 +613,7 @@ namespace JJFlexWpf
         /// <summary>Tab and Shift+Tab: move to the current engine's next or previous lever (Advanced included) and say its name and value. Wraps.</summary>
         public void NextLever(int direction)
         {
-            if (CurrentInLayerDirection is not string at) { Say(L("audio.noise_surface.no_engine_yet"), LayerSubject(SpeechSubject.NoiseLevel)); return; }
+            if (CurrentInLayerDirection is not string at) { Say(L(NoEngineYetKey), LayerSubject(SpeechSubject.NoiseLevel)); return; }
             var levers = Levers(at, includeAdvanced: true, LayerDirection);
             if (levers.Count == 0) { Say(L("audio.noise_surface.no_levers", ("engine", NameOf(at))), LayerSubject(SpeechSubject.NoiseLevel)); return; }
             CurrentLeverIndex = ((CurrentLeverIndex + direction) % levers.Count + levers.Count) % levers.Count;
@@ -624,14 +624,14 @@ namespace JJFlexWpf
         public void AdjustCurrent(int direction, string source)
         {
             if (CurrentLever is { } lever) { Adjust(lever, direction, source); return; }
-            Say(CurrentInLayerDirection is not string at ? L("audio.noise_surface.no_engine_yet") : L("audio.noise_surface.no_levers", ("engine", NameOf(at))), LayerSubject(SpeechSubject.NoiseLevel));
+            Say(CurrentInLayerDirection is not string at ? L(NoEngineYetKey) : L("audio.noise_surface.no_levers", ("engine", NameOf(at))), LayerSubject(SpeechSubject.NoiseLevel));
         }
 
         /// <summary>Home and End on the current lever.</summary>
         public void PlaceCurrent(int edge, string source)
         {
             if (CurrentLever is { } lever) { Place(lever, edge, source); return; }
-            Say(CurrentInLayerDirection is not string at ? L("audio.noise_surface.no_engine_yet") : L("audio.noise_surface.no_levers", ("engine", NameOf(at))), LayerSubject(SpeechSubject.NoiseLevel));
+            Say(CurrentInLayerDirection is not string at ? L(NoEngineYetKey) : L("audio.noise_surface.no_levers", ("engine", NameOf(at))), LayerSubject(SpeechSubject.NoiseLevel));
         }
 
         /// <summary>Clear every slot's Listen to what was removed (the layer or expander was left; a connect). Never saved on.</summary>

@@ -47,6 +47,13 @@ namespace JJFlexWpf
         /// </summary>
         internal TxNoiseSlotSetup? TransmitSpectral { get; set; }
         internal TxNoiseSlotSetup? TransmitNeural { get; set; }
+        /// <summary>
+        /// The transmit gate as the layer found it (words round, the
+        /// orchestrator's decision): a preset applied inside the layer can change
+        /// the gate, so Escape puts the gate back too and "All changes reverted"
+        /// stays true. Null when no chain was reachable.
+        /// </summary>
+        internal TxNoiseGateSetup? TransmitGate { get; set; }
     }
 
     public sealed partial class NoiseController
@@ -70,7 +77,11 @@ namespace JJFlexWpf
                 snap.Favourites = c.NoiseFavourites.Select(f => new NoiseFavourite { EngineId = f.EngineId, Model = f.Model, Name = f.Name }).ToList();
                 snap.MemoryXml = SerializeMemory(c.NoiseModeMemory);
             }
-            if (_txChain() is { } chain) (snap.TransmitSpectral, snap.TransmitNeural) = chain.CaptureSlots();
+            if (_txChain() is { } chain)
+            {
+                (snap.TransmitSpectral, snap.TransmitNeural) = chain.CaptureSlots();
+                snap.TransmitGate = TransmitGate.Capture();
+            }
             return snap;
         }
 
@@ -217,11 +228,16 @@ namespace JJFlexWpf
             if (snap.TransmitSpectral != null && snap.TransmitNeural != null && _txChain() is { } chain)
             {
                 var (spectralNow, neuralNow) = chain.CaptureSlots();
-                if (DescribeTx(spectralNow) != DescribeTx(snap.TransmitSpectral) || DescribeTx(neuralNow) != DescribeTx(snap.TransmitNeural))
+                bool slots = DescribeTx(spectralNow) != DescribeTx(snap.TransmitSpectral) || DescribeTx(neuralNow) != DescribeTx(snap.TransmitNeural);
+                // The gate too (words round): through the same held change, so a
+                // gate put back while keyed waits for the unkey with the slots.
+                bool gate = snap.TransmitGate != null && !SameGate(TransmitGate.Capture(), snap.TransmitGate);
+                if (slots || gate)
                 {
                     // One change, held as a whole while keyed (repair round 1, item 4),
                     // and its timing kept for the layer's closing sentence.
-                    LastRestoreTiming = ApplyWholeTransmit(snap.TransmitSpectral, snap.TransmitNeural, null).Timing;
+                    LastRestoreTiming = ApplyWholeTransmit(slots ? snap.TransmitSpectral : null, slots ? snap.TransmitNeural : null,
+                        gate ? snap.TransmitGate : null).Timing;
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes", "put back");
                     changed = true;
                 }

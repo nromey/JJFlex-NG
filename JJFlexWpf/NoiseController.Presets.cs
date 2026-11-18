@@ -498,6 +498,6 @@ namespace JJFlexWpf
         }
 
         /// <summary>The layer's favourite or defaults key with no engine chosen, on the layer's direction's subject (Track H2 repair round 1, item 8).</summary>
-        public void SpeakNoEngineYet() => Say(L("audio.noise_surface.no_engine_yet"), LayerSubject(SpeechSubject.NoiseLevel));
+        public void SpeakNoEngineYet() => Say(L(NoEngineYetKey), LayerSubject(SpeechSubject.NoiseLevel));
     }
 }

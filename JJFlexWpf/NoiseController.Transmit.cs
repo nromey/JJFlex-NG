@@ -226,6 +226,18 @@ namespace JJFlexWpf
         /// <summary>The cursor's engine when it points in the layer's direction, else null: the layer never adjusts the other direction's lever.</summary>
         private string? CurrentInLayerDirection => _currentDirection == LayerDirection ? Current : null;
 
+        /// <summary>
+        /// The layer's "choose an engine first" hint in its direction (words
+        /// round): after T the radio letters are refused, so receive's hint, which
+        /// names them, would send the operator to keys that do nothing.
+        /// </summary>
+        private string NoEngineYetKey => LayerDirection == DenoiseDirection.Transmit
+            ? "audio.noise_surface.tx.no_engine_yet" : "audio.noise_surface.no_engine_yet";
+
+        /// <summary>The layer's switches-only hint (no engine to pick) in its direction, for the layer engine's own hints.</summary>
+        public string SwitchesOnlyKey => LayerDirection == DenoiseDirection.Transmit
+            ? "audio.noise_layer.tx.switches_only" : "audio.noise_layer.switches_only";
+
         /// <summary>The engine the layer's favourite and defaults keys act on: the cursor, only when it points in the layer's direction.</summary>
         public string? CurrentInLayer => CurrentInLayerDirection;
 
@@ -667,7 +679,10 @@ namespace JJFlexWpf
                 return;
             }
             string key;
-            if (lever.Key == "model") key = on ? "audio.noise_surface.lever_model" : "audio.noise_surface.lever_choice_off";
+            // The transmit twin (words round, Codex's finding): transmit never
+            // cross-fades between engines, so receive's model sentence would promise
+            // something that does not happen.
+            if (lever.Key == "model") key = on ? "audio.noise_surface.tx.lever_model" : "audio.noise_surface.lever_choice_off";
             else if (lever.Descriptor is { Kind: EngineSettingKind.Choice }) key = on ? "audio.noise_surface.lever_choice" : "audio.noise_surface.lever_choice_off";
             else key = on ? "audio.noise_surface.lever" : "audio.noise_surface.lever_off";
             Say(L(key, ("engine", name), ("lever", leverName), ("lever_lower", leverName.ToLowerInvariant()), ("value", value)), SpeechSubject.TransmitNoiseLevel);

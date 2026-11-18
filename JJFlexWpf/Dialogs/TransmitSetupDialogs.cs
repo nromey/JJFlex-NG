@@ -137,7 +137,8 @@ internal sealed class TransmitSetupManagerDialog : JJFlexDialog
     private void Rename()
     {
         if (Selected is not string old || _controller == null) return;
-        string? name = EvidenceRenameDialog.Ask(this, Lexicon.Get("audio.noise_setups.noun"), old, old);
+        string? name = EvidenceRenameDialog.Ask(this, Lexicon.Get("audio.noise_setups.noun"), old, old,
+            Lexicon.Get("audio.noise_help.setups.rename"));
         if (string.IsNullOrWhiteSpace(name) || name == old) return;
         _controller.RenameTransmitSetup(old, name);
         Fill();

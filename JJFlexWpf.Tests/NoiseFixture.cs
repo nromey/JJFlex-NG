@@ -149,6 +149,10 @@ internal sealed class NoiseFixture : IDisposable
         Pipeline = new RxAudioPipeline(catalog: Catalog);
         Noise = new NoiseController(Catalog, () => RadioPresent ? Radio : null, () => PipelinePresent ? Pipeline : null, () => Config,
             () => Persisted++, Spoken, Held, Clock, Cost, transmitChain: () => Transmit);
+        // A gate in memory, never the app's static one (words round: Escape's
+        // picture now holds the transmit gate, and another test class changing
+        // TxAudioConditioning's statics must not make a receive Escape see a change).
+        Noise.TransmitGate = new TransmitNoiseSurfaceTests.FakeGate();
     }
 
     /// <summary>

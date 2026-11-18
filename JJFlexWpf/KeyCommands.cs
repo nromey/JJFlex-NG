@@ -5703,8 +5703,9 @@ public class KeyCommands
             // closing sentence says so (Track H2 repair round 1, item 4).
             DescribeLayerRestored = (layer, restored) => noise.WithRestoreTiming(Radios.Lexicon.Get(
                 restoredSomething ? "audio.noise_layer.restored" : "audio.noise_layer.restored_nothing")),
-            PickTargetHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
-            WrongAxisHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
+            // In the layer's direction (words round): after T the radio letters do nothing.
+            PickTargetHint = () => Radios.Lexicon.Get(noise.SwitchesOnlyKey),
+            WrongAxisHint = () => Radios.Lexicon.Get(noise.SwitchesOnlyKey),
             PassThroughKeys = ActsInPlaceInsideALayer,
             DescribeUnavailableHere = LayerKeyUnavailableHere,
             HostKeys = k => LayerSliceJump(k) || keys.Handle(k),
