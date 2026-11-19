@@ -1,12 +1,7 @@
-using System;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using Radios;
-using Radios.Speech;
 
 namespace JJFlexWpf.Dialogs;
 
@@ -30,15 +25,17 @@ namespace JJFlexWpf.Dialogs;
 /// It opens no audio device, plays nothing, and never keys a radio.
 /// </para>
 /// <para>
+/// <b>How a run is said and shown</b> lives in <see cref="EngineSpeedSession"/>
+/// (Track L2): every line heard, in the order it was made, "finished" last.
+/// </para>
+/// <para>
 /// Every word here is a lexicon placeholder until the words round.
 /// </para>
 /// </remarks>
 public partial class AudioWorkshopDialog
 {
-    private Button? _speedStart;
     private TextBox? _speedBox;
-    private CancellationTokenSource? _speedCancel;
-    private bool _speedRunning;
+    private EngineSpeedSession? _speedSession;
 
     private void BuildEngineSpeedSection()
     {
@@ -51,101 +48,36 @@ public partial class AudioWorkshopDialog
         });
 
         string label = Lexicon.Get("audio.diagnostics.speed.start");
-        _speedStart = new Button
+        var start = new Button
         {
             Content = label,
             Padding = new Thickness(8, 4, 8, 4),
             Margin = new Thickness(2, 0, 2, 6),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        AutomationProperties.SetName(_speedStart, label);
+        AutomationProperties.SetName(start, label);
         // JJFlexHelp.Text, never HelpText, which NVDA reads on every focus.
-        JJFlexHelp.SetText(_speedStart, Lexicon.Get("audio.diagnostics.speed.help.start"));
-        _speedStart.Click += (_, _) => _ = RunEngineSpeedTestAsync();
-        AddToSection(DiagnosticsContent, _speedStart);
+        JJFlexHelp.SetText(start, Lexicon.Get("audio.diagnostics.speed.help.start"));
+        AddToSection(DiagnosticsContent, start);
 
         _speedBox = MakeReportBox(Lexicon.Get("audio.diagnostics.speed.result_name"), 4, 16);
         JJFlexHelp.SetText(_speedBox, Lexicon.Get("audio.diagnostics.speed.help.result"));
         _speedBox.Text = Lexicon.Get("audio.diagnostics.speed.idle");
         AddToSection(DiagnosticsContent, _speedBox);
 
-        Closed += (_, _) => _speedCancel?.Cancel();
-    }
-
-    private static void SpeakSpeed(string text, SpeechIntent intent) =>
-        ScreenReaderOutput.Speak(text, intent, VerbosityLevel.Terse, subject: SpeechSubject.EngineSpeedTest);
-
-    private async Task RunEngineSpeedTestAsync()
-    {
-        if (_speedBox == null) return;
-        if (_speedRunning)
-        {
-            SpeakSpeed(Lexicon.Get("audio.diagnostics.speed.busy"), SpeechIntent.Interrupt);
-            return;
-        }
-        _speedRunning = true;
-        var cancel = new CancellationTokenSource();
-        _speedCancel = cancel;
-        var text = new StringBuilder();
-        void Line(string line)
-        {
-            text.AppendLine(line);
-            if (_speedBox != null) _speedBox.Text = text.ToString();
-        }
-        string started = Lexicon.Get("audio.diagnostics.speed.started");
-        Line(started);
-        SpeakSpeed(started, SpeechIntent.Interrupt);
-        // Read on the UI thread, before the test starts: whether the radio's
-        // receive audio shares the processor with the test.
-        bool competing = _rig?.ReceiveAudioRunning == true;
+        // The catalog names the engines; the test reads the helper's figures on
+        // its own thread (the store may wait on another process's lock, and the
+        // running helper's handshake is read under the host's lock). Neither
+        // starts a helper.
         var catalog = new DenoiseEngineCatalog();
         string Name(string id) => catalog.Find(id) is { } row ? Lexicon.Get(row.LabelKey) : id;
-        try
-        {
-            // The helper's figures are read on the test's own thread: the store
-            // may wait on another process's lock, and the running helper's
-            // handshake is read under the host's lock. Neither starts a helper.
-            await Task.Factory.StartNew(() => EngineSpeedTest.Run(catalog, HelperSpeedFigures.Current(), r =>
-            {
-                string words = EngineSpeedTest.Words(r, Name);
-                System.Diagnostics.Trace.WriteLine("AudioWorkshop speed test: " + string.Join(" then ", r.EngineIds)
-                    + (r.Model != null ? " model " + r.Model : "") + ": " + r.Verdict
-                    + (r.Figures is { } f ? FormattableString.Invariant($", mean {f.MeanMs:F3} ms, 99th percentile {f.P99Ms:F3} ms, worst {f.WorstMs:F3} ms over {f.Frames} packets") : "")
-                    + (r.Detail != null ? ", " + r.Detail : ""));
-                Dispatcher.BeginInvoke(() =>
-                {
-                    if (cancel.IsCancellationRequested) return;
-                    Line(words);
-                    SpeakSpeed(words, SpeechIntent.Queue);
-                });
-            }, cancel: cancel.Token), cancel.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            if (cancel.IsCancellationRequested) return;
-            Line(Lexicon.Get("audio.diagnostics.speed.defaults_note"));
-            Line(Lexicon.Get("audio.diagnostics.speed.helper_pairs_note"));
-            if (competing) Line(Lexicon.Get("audio.diagnostics.speed.competes"));
-            string finished = Lexicon.Get("audio.diagnostics.speed.finished");
-            Line(finished);
-            SpeakSpeed(finished, SpeechIntent.Queue);
-        }
-        catch (OperationCanceledException)
-        {
-            System.Diagnostics.Trace.WriteLine("AudioWorkshop speed test: stopped, the window closed");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.WriteLine("AudioWorkshop speed test: failed: " + ex.Message);
-            if (!cancel.IsCancellationRequested)
-            {
-                string failed = Lexicon.Get("audio.diagnostics.speed.test_failed");
-                Line(failed);
-                SpeakSpeed(failed, SpeechIntent.Queue);
-            }
-        }
-        finally
-        {
-            _speedRunning = false;
-            if (ReferenceEquals(_speedCancel, cancel)) _speedCancel = null;
-            cancel.Dispose();
-        }
+        var session = new EngineSpeedSession(Dispatcher,
+            show: text => { if (_speedBox != null) _speedBox.Text = text; },
+            competing: () => _rig?.ReceiveAudioRunning == true,
+            test: (onResult, cancel) => EngineSpeedTest.Run(catalog, HelperSpeedFigures.Current(), onResult, cancel: cancel),
+            words: r => EngineSpeedTest.Words(r, Name));
+        _speedSession = session;
+        start.Click += (_, _) => _ = session.Start();
+        Closed += (_, _) => session.Stop();
     }
 }
