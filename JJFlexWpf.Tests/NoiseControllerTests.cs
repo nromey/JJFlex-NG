@@ -964,12 +964,14 @@ public sealed class NoiseControllerTests
         Assert.False(f.Noise.RestoreSnapshot(snap, "test"));
 
         snap = f.Noise.TakeSnapshot();
-        f.Noise.Toggle("radio_nb", "test");
-        f.Noise.Adjust(f.Noise.Levers("radio_nb", false)[0], +1, "test");
-        f.Noise.Toggle("nr4", "test");
-        f.Noise.Adjust(f.Noise.Levers("rnnoise", false)[0], +1, "test");
-        f.Noise.Toggle("deepfilternet3", "test");
-        f.Noise.ToggleFavourite("nr4", "test");
+        // The layer's own changes (#1150: Escape puts back only those on the computer slots).
+        string layer = NoiseController.LayerSource;
+        f.Noise.Toggle("radio_nb", layer);
+        f.Noise.Adjust(f.Noise.Levers("radio_nb", false)[0], +1, layer);
+        f.Noise.Toggle("nr4", layer);
+        f.Noise.Adjust(f.Noise.Levers("rnnoise", false)[0], +1, layer);
+        f.Noise.Toggle("deepfilternet3", layer);
+        f.Noise.ToggleFavourite("nr4", layer);
         f.Radio.Writes.Clear();
         Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
         Assert.Contains("radio_nb=off", f.Radio.Writes);
@@ -993,7 +995,7 @@ public sealed class NoiseControllerTests
 
         snap = f.Noise.TakeSnapshot();
         var limit = f.Noise.Levers("deepfilternet3", false).Single(l => l.Key == "attenuation_limit_db");
-        f.Noise.Adjust(limit, +1, "test");
+        f.Noise.Adjust(limit, +1, NoiseController.LayerSource);   // the layer's own (#1150)
         Assert.Equal(12, f.Noise.NumberOf(limit));
         Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
         Assert.Equal(9, f.Noise.NumberOf(limit));
@@ -2057,12 +2059,22 @@ public sealed class NoiseControllerTests
         // open, so it is journalled at once, under Escape's road.
         using (var f = new NoiseFixture())
         {
+            // #1150: Escape puts back only the layer's own change, and only while
+            // the slot still reads as the layer left it. So CW remembers RNNoise
+            // first, and entering CW after the layer's change leaves the slot as
+            // the layer left it.
             f.Noise.Attach("USB");
             f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
-            f.Noise.Toggle("nnr", "test");
-            var snap = f.Noise.TakeSnapshot();
+            f.Noise.Toggle("rnnoise", "test");
             Mode(f, "CW");
             f.Noise.Toggle("rnnoise", "test");
+            Mode(f, "USB");
+            f.Noise.Toggle("nnr", "test");
+            Assert.Equal("premium", f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice);
+            var snap = f.Noise.TakeSnapshot();
+            f.Noise.Toggle("rnnoise", NoiseController.LayerSource);
+            Mode(f, "CW");
+            Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.ChosenEngineId);
             var entries = JournalOf("j1118-escape", () => f.Noise.RestoreSnapshot(snap, "j1118-escape"));
             Assert.Contains(entries, IsCwModelEntry);
         }

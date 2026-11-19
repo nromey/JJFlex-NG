@@ -61,7 +61,9 @@ internal sealed class NoiseFixture : IDisposable
     {
         private readonly List<(Action Action, Handle Handle)> _queue = new();
         private sealed class Handle : IDisposable { public bool Cancelled; public void Dispose() => Cancelled = true; }
-        public IDisposable After(TimeSpan delay, Action action) { var h = new Handle(); _queue.Add((action, h)); return h; }
+        public IDisposable After(TimeSpan delay, Action action) { var h = new Handle(); _queue.Add((action, h)); Delays.Add(delay); return h; }
+        /// <summary>Every delay asked for, in order: the hand-cranked queue runs at <see cref="RunAll"/> whatever the delay, so a test that cares about one reads it here.</summary>
+        public List<TimeSpan> Delays { get; } = new();
         public int Pending => _queue.Count(q => !q.Handle.Cancelled);
         public void RunAll()
         {
@@ -133,7 +135,8 @@ internal sealed class NoiseFixture : IDisposable
     public ConcurrentDictionary<string, bool> Dead { get; } = new();
 
     /// <param name="rnnoiseLatency">The fake RNNoise's delay in samples; 0 (the default) makes every delay readout fall back to the expected figure.</param>
-    public NoiseFixture(int rnnoiseLatency = 0)
+    /// <param name="clock">The controller's clock in milliseconds; null is the real one (Track N: #1124's window is timed by it).</param>
+    public NoiseFixture(int rnnoiseLatency = 0, Func<long>? clock = null)
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         var real = new DenoiseEngineCatalog();
@@ -151,7 +154,7 @@ internal sealed class NoiseFixture : IDisposable
         Catalog = new DenoiseEngineCatalog(rows);
         Pipeline = new RxAudioPipeline(catalog: Catalog);
         Noise = new NoiseController(Catalog, () => RadioPresent ? Radio : null, () => PipelinePresent ? Pipeline : null, () => Config,
-            () => Persisted++, Spoken, Held, Clock, Cost, transmitChain: () => Transmit);
+            () => Persisted++, Spoken, Held, Clock, Cost, clock: clock, transmitChain: () => Transmit);
         // A gate in memory, never the app's static one (words round: Escape's
         // picture now holds the transmit gate, and another test class changing
         // TxAudioConditioning's statics must not make a receive Escape see a change).

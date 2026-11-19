@@ -73,7 +73,7 @@ public sealed class RnnoiseModelSettingTests
         f.Noise.Toggle("rnnoise", "test");
         f.Settle();
         var snap = f.Noise.TakeSnapshot();
-        f.Noise.Set(ModelLever(f), null, RnnoiseModels.Tag, "test");
+        f.Noise.Set(ModelLever(f), null, RnnoiseModels.Tag, NoiseController.LayerSource);   // the layer's own (#1150)
         Assert.Equal(RnnoiseModels.Tag, f.Noise.ChoiceOf(ModelLever(f)));
         Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
         Assert.Equal(RnnoiseModels.Newest, f.Noise.ChoiceOf(ModelLever(f)));
@@ -167,7 +167,8 @@ public sealed class RnnoiseModelSettingTests
         // DeepFilterNet3's delay is fixed by the model, so it is known before it runs too
         // (Sprint 49 Track H2 bench round, item 4: 1,440 samples, measured at the bench).
         Assert.Equal(30, DenoiseEngineCatalog.ExpectedEngineDelayMs("deepfilternet3", null));
-        Assert.Null(DenoiseEngineCatalog.ExpectedEngineDelayMs("nr4", null));          // NR4's comes from the library at run time
+        // NR4's live shape is fixed too (#1152): one 512-sample frame, about 11 ms.
+        Assert.Equal(11, DenoiseEngineCatalog.ExpectedEngineDelayMs("nr4", null));
         Assert.Equal(Radios.Lexicon.Get("audio.noise_surface.delay_figure", ("ms", 20)), f.Noise.DelayFigure("rnnoise"));
         f.Noise.Set(ModelLever(f), null, RnnoiseModels.V011, "test");
         Assert.Equal(Radios.Lexicon.Get("audio.noise_surface.delay_figure", ("ms", 10)), f.Noise.DelayFigure("rnnoise"));

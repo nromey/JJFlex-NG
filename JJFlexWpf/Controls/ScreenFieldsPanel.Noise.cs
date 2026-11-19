@@ -369,11 +369,29 @@ public partial class ScreenFieldsPanel
         finally { _polling = wasPolling; }
     }
 
-    /// <summary>The poll's part: values follow the controller; the engine list follows availability.</summary>
+    /// <summary>
+    /// The poll's part (#1148): the fields follow the controller, whatever road
+    /// changed it. On a computer side the engine shown follows the slot (a
+    /// choice still settling is the slot's), and the shown engine's lever set
+    /// follows its settings; a rebuild that would take away the lever the
+    /// operator is standing on waits for them to leave it
+    /// (<see cref="HomeNoiseFieldsSync"/>, the receive twin of Track H2's
+    /// <c>PollTransmitNoise</c>). Then the values.
+    /// </summary>
     private void PollNoise()
     {
-        if (NoiseCtl == null) return;
+        if (NoiseCtl is not { } noise) return;
         if (_noiseFieldsFor == null) { ShowNoiseSide(selectEngine: null); return; }
+        var side = CurrentSideFamily;
+        string slotEngine = side is DenoiseFamily family ? noise.SlotEngine(family) : "";
+        bool standingInLevers = _noiseLevers.IsKeyboardFocusWithin || _noiseAdvancedLevers.IsKeyboardFocusWithin;
+        switch (HomeNoiseFieldsSync.Decide(side, _noiseFieldsFor, slotEngine, _noiseEngines.Select(e => e.Id),
+            _noiseLeverFields.Where(f => f.Lever.Kind != NoiseLeverKind.ListenRemoved).Select(f => f.Lever.Key),
+            HomeNoiseFieldsSync.WantedLevers(noise, _noiseFieldsFor), standingInLevers))
+        {
+            case HomeNoiseFieldsSync.Action.ShowSlotEngine: ShowNoiseSide(selectEngine: slotEngine); return;
+            case HomeNoiseFieldsSync.Action.RebuildEngine: ShowNoiseEngine(_noiseFieldsFor); break;
+        }
         RefreshNoiseValues();
     }
 

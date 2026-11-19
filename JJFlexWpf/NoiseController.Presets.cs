@@ -179,6 +179,7 @@ namespace JJFlexWpf
             var transmitTiming = TxChangeResult.Now;
             if (preset.ReceiveNoise is { } noise && p != null)
             {
+                using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
                 RetireHelperNotice("a noise preset was applied");
                 ApplySlot(p.SpectralSlot, noise.Spectral, changes, phrases, source);
                 ApplySlot(p.NeuralSlot, noise.Neural, changes, phrases, source);

@@ -136,6 +136,7 @@ namespace JJFlexWpf
             // The once-per-session "no favourites" sentence and the step's own
             // answer are one utterance, so the answer cannot cut it (#1110).
             using var oneUtterance = OneUtterance();
+            using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
             var list = StepList();
             if (list.Count == 0) return;
             if (Favourites.Count == 0 && !_toldNoFavourites)

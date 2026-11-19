@@ -78,12 +78,25 @@ namespace Radios
         /// <summary>
         /// Build a concise spoken status message.
         /// </summary>
-        public static string BuildSpokenStatus(FlexBase radio)
+        public static string BuildSpokenStatus(FlexBase radio) => BuildSpokenStatus(radio, null, null);
+
+        /// <summary>
+        /// The concise spoken status, with the frequency and mode the app has
+        /// just ASKED the radio for in place of what it reports (#1131). A
+        /// memory recall sends one request and the radio answers in its own
+        /// time: the landing after the Memories window closed was built 17 ms
+        /// before the radio's mode status, so it said "Listening on 14.100
+        /// megahertz, USB" for a memory that put the slice in CW, and no CW word
+        /// ever followed. Null leaves that part as the radio reports it. Never
+        /// applied while transmitting (a recall changes the receive slice).
+        /// </summary>
+        public static string BuildSpokenStatus(FlexBase radio, ulong? askedFrequencyHz, string? askedMode)
         {
             if (radio == null)
                 return "No radio connected";
 
             var snap = BuildDetailedStatus(radio);
+            ApplyAskedFor(snap, askedFrequencyHz, askedMode);
             if (!snap.IsConnected)
                 return "No radio connected";
 
@@ -169,6 +182,26 @@ namespace Radios
             }
 
             return snap;
+        }
+
+        /// <summary>
+        /// Put what the app asked for (a memory's frequency and mode, #1131) in
+        /// place of what the radio reported before it answered: the frequency,
+        /// its band, and the mode. Nothing without an active slice, or while
+        /// transmitting.
+        /// </summary>
+        internal static void ApplyAskedFor(RadioStatusSnapshot snap, ulong? frequencyHz, string? mode)
+        {
+            if (!snap.HasActiveSlice || snap.IsTransmitting) return;
+            if (frequencyHz is ulong freq && freq > 0)
+            {
+                snap.FrequencyDisplay = FormatFreqDisplay(freq);
+                snap.FrequencySpoken = FrequencyToSpoken(freq);
+                var band = Bands.Query(freq);
+                snap.BandName = band?.Name ?? "";
+                snap.BandSpoken = band == null ? "" : BandToSpoken(band.Name);
+            }
+            if (!string.IsNullOrEmpty(mode)) snap.Mode = mode;
         }
 
         /// <summary>

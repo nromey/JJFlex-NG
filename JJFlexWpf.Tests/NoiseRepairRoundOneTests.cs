@@ -169,7 +169,7 @@ public sealed class NoiseRepairRoundOneTests
         PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "standard");
         var snap = f.Noise.TakeSnapshot();
         var model = f.Noise.Levers("nnr", false).Single(l => l.Key == "model");
-        f.Noise.Set(model, null, "premium_cw", "test");
+        f.Noise.Set(model, null, "premium_cw", NoiseController.LayerSource);   // the layer's own (#1150)
         PumpUntil(f, () => Running(f.Pipeline.NeuralSlot, "model") == "premium_cw");
         Assert.Equal("premium_cw", Running(f.Pipeline.NeuralSlot, "model"));
 
@@ -189,7 +189,7 @@ public sealed class NoiseRepairRoundOneTests
         var snap = f.Noise.TakeSnapshot();
         var estimator = f.Noise.Levers("nr4", true).Single(l => l.Key == "noise_estimator");
         string other = f.Noise.OptionsFor(estimator).Select(o => o.Name).First(n => n != start);
-        f.Noise.Set(estimator, null, other, "test");
+        f.Noise.Set(estimator, null, other, NoiseController.LayerSource);   // the layer's own (#1150)
         PumpUntil(f, () => Running(f.Pipeline.SpectralSlot, "noise_estimator") == other);
         Assert.Equal(other, Running(f.Pipeline.SpectralSlot, "noise_estimator"));
 
@@ -449,9 +449,9 @@ public sealed class NoiseRepairRoundOneTests
         Assert.Equal(computer.Select(e => f.Noise.NameOf(e.Id) + ":"), rows.Select(r => r[..(r.IndexOf(':') + 1)]));
         Assert.Contains("NR2: about 105 milliseconds", rows);
         // DeepFilterNet3's delay is fixed by its model (Sprint 49 Track H2 bench round, item 4);
-        // NR4's is the library's, so it still waits for a run.
+        // NR4's live shape is fixed too (#1152): one 512-sample frame.
         Assert.Contains("DeepFilterNet3: about 30 milliseconds", rows);
-        Assert.Contains("NR4: measured once it is running", rows);
+        Assert.Contains("NR4: about 11 milliseconds", rows);
         Assert.All(rows, r => Assert.DoesNotContain("Delay", r));
         Assert.All(rows, r => Assert.DoesNotContain("radio", r));
         // Home's own readout still says what it is.

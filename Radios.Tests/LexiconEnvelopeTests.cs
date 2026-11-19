@@ -2626,6 +2626,10 @@ namespace Radios.Tests
                 "audio.tune.refused_rx_only",
                 "audio.tune.refused_no_tx_slice",
                 "audio.tune.refused_amplifier",
+                // Sprint 49 Track N repair 1: the noise layer's closing sentence when
+                // Escape keeps a change made elsewhere. Placeholders for Codex.
+                "audio.noise_layer.restored_kept_elsewhere",
+                "audio.noise_layer.restored_nothing_kept_elsewhere",
                 // Reworded by the JJ Flex naming sweep (#851), so classified.
                 "audio.micprofile.create_reason",
                 "audio.micprofile.load_reason",

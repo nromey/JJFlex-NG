@@ -67,7 +67,39 @@ namespace JJFlexWpf
         internal TxNoiseSlotSetup? LeftSpectral { get; set; }
         internal TxNoiseSlotSetup? LeftNeural { get; set; }
         internal TxNoiseGateSetup? LeftGate { get; set; }
+
+        /// <summary>
+        /// The receive twins of <see cref="LeftSpectral"/> and <see cref="LeftNeural"/>
+        /// (#1150): what the layer itself last left each receive computer slot as,
+        /// null for a slot the layer has not changed. Escape puts a receive slot
+        /// back only while it still reads as the layer left it, by the same rule
+        /// as transmit, so a change made from Home, the menu, a preset or a mode
+        /// group while the layer was open is kept. Receive writes are never held,
+        /// so each is recorded as it runs.
+        /// </summary>
+        internal ReceiveSlotPicture? LeftReceiveSpectral { get; set; }
+        internal ReceiveSlotPicture? LeftReceiveNeural { get; set; }
+
+        /// <summary>
+        /// The computer slots and the transmit gate exactly as the layer found
+        /// them, never rebased (repair 2, R1). <see cref="Spectral"/>,
+        /// <see cref="Neural"/>, <see cref="TransmitSpectral"/>,
+        /// <see cref="TransmitNeural"/> and <see cref="TransmitGate"/> are the
+        /// restore TARGET, and a target is rebased onto a change made elsewhere
+        /// before the layer's next edit, so that change is kept. These answer a
+        /// different question: whether what Escape leaves standing still differs
+        /// from the layer's entry, which the rebased target can no longer tell.
+        /// Null when the part could not be read at the entry.
+        /// </summary>
+        internal ReceiveSlotPicture? EntrySpectral { get; set; }
+        internal ReceiveSlotPicture? EntryNeural { get; set; }
+        internal TxNoiseSlotSetup? EntryTransmitSpectral { get; set; }
+        internal TxNoiseSlotSetup? EntryTransmitNeural { get; set; }
+        internal TxNoiseGateSetup? EntryTransmitGate { get; set; }
     }
+
+    /// <summary>A receive computer slot as read: on or off, its chosen engine, and every engine's stored settings (#1150).</summary>
+    internal sealed record ReceiveSlotPicture(bool On, string Engine, Radios.DenoiseEngineSettings[] Settings);
 
     public sealed partial class NoiseController
     {
@@ -84,6 +116,9 @@ namespace JJFlexWpf
                 snap.Neural = (p.NeuralSlot.Enabled, p.NeuralSlot.ChosenEngineId);
                 snap.SpectralSettings = p.SpectralSlot.ExportSettings();
                 snap.NeuralSettings = p.NeuralSlot.ExportSettings();
+                // A second export, so nothing the restore target shares can reach the entry picture.
+                snap.EntrySpectral = ReadRx(p.SpectralSlot);
+                snap.EntryNeural = ReadRx(p.NeuralSlot);
             }
             if (_config() is { } c)
             {
@@ -94,6 +129,9 @@ namespace JJFlexWpf
             {
                 (snap.TransmitSpectral, snap.TransmitNeural) = chain.CaptureSlots();
                 snap.TransmitGate = TransmitGate.Capture();
+                snap.EntryTransmitSpectral = snap.TransmitSpectral?.Clone();
+                snap.EntryTransmitNeural = snap.TransmitNeural?.Clone();
+                snap.EntryTransmitGate = snap.TransmitGate?.Clone();
             }
             return snap;
         }
@@ -253,6 +291,26 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// Whether Escape leaves a transmit part standing that differs from the
+        /// layer's entry because of a change made elsewhere (F4; repair 2, R1).
+        /// A part the layer owns goes back to its restore target, which differs
+        /// from the entry only when it was rebased onto such a change; a part it
+        /// does not own stays as it reads now. Compared with the never-rebased
+        /// entry picture, because the rebased target already contains the change
+        /// it would be compared for.
+        /// </summary>
+        private static bool KeptOutsideTx(NoiseSnapshot snap, TxPicture now, (bool Spectral, bool Neural, bool Gate) owned)
+        {
+            static bool Slot(bool isOwned, TxNoiseSlotSetup? target, TxNoiseSlotSetup? entry, TxNoiseSlotSetup current) =>
+                target != null && DescribeTx(isOwned ? target : current) != DescribeTx(entry ?? target);
+            bool gate = snap.TransmitGate is { } gateTarget
+                && !SameGate(owned.Gate ? gateTarget : now.Gate, snap.EntryTransmitGate ?? gateTarget);
+            return Slot(owned.Spectral, snap.TransmitSpectral, snap.EntryTransmitSpectral, now.Spectral)
+                || Slot(owned.Neural, snap.TransmitNeural, snap.EntryTransmitNeural, now.Neural)
+                || gate;
+        }
+
+        /// <summary>
         /// The transmit parts Escape puts back: those the layer changed, that
         /// still read as the layer left them, and that differ from the picture.
         /// Asked at Escape and again when the put-back runs, so a change someone
@@ -269,12 +327,153 @@ namespace JJFlexWpf
             return (spectral, neural, gate);
         }
 
+        // ── Which receive changes are the layer's (#1150) ──
+
+        private int _ownRxDepth;
+
+        /// <summary>
+        /// The receive twin of <see cref="OwnTx"/> (#1150), opened around every
+        /// receive road the layer can take: null (nothing to do) unless the
+        /// source is the layer's and its picture is live; nested writes share
+        /// the outermost. Receive writes are never held for an unkey, so the two
+        /// slots are read before the write and after it, here, in order.
+        /// </summary>
+        private IDisposable? OwnRx(string source)
+        {
+            if (_ownRxDepth > 0 || source != LayerSource || _live is not { } snap || _pipeline() is not { } p) return null;
+            return new LayerRxWrite(this, snap, p);
+        }
+
+        private sealed class LayerRxWrite : IDisposable
+        {
+            private readonly NoiseController _owner;
+            private readonly NoiseSnapshot _snap;
+            private readonly RxAudioPipeline _pipeline;
+            private readonly ReceiveSlotPicture _spectral, _neural;
+            private bool _done;
+
+            public LayerRxWrite(NoiseController owner, NoiseSnapshot snap, RxAudioPipeline pipeline)
+            {
+                _owner = owner; _snap = snap; _pipeline = pipeline;
+                _spectral = ReadRx(pipeline.SpectralSlot);
+                _neural = ReadRx(pipeline.NeuralSlot);
+                owner._ownRxDepth++;
+            }
+
+            public void Dispose()
+            {
+                if (_done) return;
+                _done = true;
+                _owner._ownRxDepth--;
+                // The layer closed, or the pipeline changed, during the write: nothing of this picture to record.
+                if (!ReferenceEquals(_owner._live, _snap) || !ReferenceEquals(_owner._pipeline(), _pipeline)) return;
+                NoteLayerLeftReceive(_snap, DenoiseFamily.Spectral, _spectral, ReadRx(_pipeline.SpectralSlot));
+                NoteLayerLeftReceive(_snap, DenoiseFamily.Neural, _neural, ReadRx(_pipeline.NeuralSlot));
+            }
+        }
+
+        private static ReceiveSlotPicture ReadRx(PcDenoiseSlot slot) => new(slot.Enabled, slot.ChosenEngineId, slot.ExportSettings());
+
+        /// <summary>A slot picture as comparable text: on, engine, and the settings as <see cref="Describe"/> reads them (a default-only entry is no entry).</summary>
+        private static string DescribeRx(ReceiveSlotPicture s) => (s.On ? "on" : "off") + "|" + s.Engine + "|" + Describe(s.Settings);
+
+        private static ReceiveSlotPicture PictureOf(NoiseSnapshot snap, DenoiseFamily family) => family == DenoiseFamily.Spectral
+            ? new(snap.Spectral.On, snap.Spectral.Engine, snap.SpectralSettings)
+            : new(snap.Neural.On, snap.Neural.Engine, snap.NeuralSettings);
+
+        /// <summary>
+        /// After one of the layer's receive writes: a slot it changed is the
+        /// layer's now, as it left it. A slot that had already moved since the
+        /// layer last left it (or since the picture) was moved by someone else in
+        /// between: that change is kept, so it becomes what Escape puts the slot
+        /// back to (transmit's <see cref="NoteLayerLeft"/>, the same rule).
+        /// </summary>
+        private static void NoteLayerLeftReceive(NoiseSnapshot snap, DenoiseFamily family, ReceiveSlotPicture before, ReceiveSlotPicture now)
+        {
+            if (DescribeRx(now) == DescribeRx(before)) return;
+            bool spectral = family == DenoiseFamily.Spectral;
+            var mark = (spectral ? snap.LeftReceiveSpectral : snap.LeftReceiveNeural) ?? PictureOf(snap, family);
+            if (DescribeRx(before) != DescribeRx(mark))
+            {
+                if (spectral) { snap.Spectral = (before.On, before.Engine); snap.SpectralSettings = before.Settings; }
+                else { snap.Neural = (before.On, before.Engine); snap.NeuralSettings = before.Settings; }
+            }
+            if (spectral) snap.LeftReceiveSpectral = now; else snap.LeftReceiveNeural = now;
+        }
+
+        /// <summary>
+        /// Whether a receive slot stands, after Escape, different from the layer's
+        /// entry because of a change made elsewhere (F4; repair 2, R1): an owned
+        /// slot as its restore target, which differs from the entry only when it
+        /// was rebased onto such a change, and an unowned one as it reads now.
+        /// Compared with the never-rebased entry picture.
+        /// </summary>
+        private static bool KeptOutsideReceive(NoiseSnapshot snap, DenoiseFamily family, bool owned, PcDenoiseSlot slot)
+        {
+            var target = PictureOf(snap, family);
+            var entry = (family == DenoiseFamily.Spectral ? snap.EntrySpectral : snap.EntryNeural) ?? target;
+            return DescribeRx(owned ? target : ReadRx(slot)) != DescribeRx(entry);
+        }
+
+        /// <summary>Whether Escape puts a receive slot back: the layer changed it, it still reads as the layer left it, and it differs from the picture.</summary>
+        private static bool LayerOwnsReceive(NoiseSnapshot snap, DenoiseFamily family, PcDenoiseSlot slot)
+        {
+            var left = family == DenoiseFamily.Spectral ? snap.LeftReceiveSpectral : snap.LeftReceiveNeural;
+            if (left == null) return false;
+            string now = DescribeRx(ReadRx(slot));
+            return now == DescribeRx(left) && now != DescribeRx(PictureOf(snap, family));
+        }
+
         /// <summary>When the transmit part of the last <see cref="RestoreSnapshot"/> takes effect (Now when it had none).</summary>
         public TxChangeTiming LastRestoreTiming { get; private set; } = TxChangeTiming.Now;
 
         /// <summary>The layer's closing sentence after Escape, with the at-unkey sentence when the transmit part waits (repair round 1, item 4).</summary>
         public string WithRestoreTiming(string closing) =>
             LastRestoreTiming == TxChangeTiming.AtUnkey ? closing + " " + Lexicon.Get("audio.denoise.tx.at_unkey") : closing;
+
+        /// <summary>
+        /// Whether the last <see cref="RestoreSnapshot"/> left standing a change
+        /// made outside the layer (repair 1, F4): a receive or transmit computer
+        /// slot, or the transmit gate, that after Escape differs from the layer's
+        /// entry because of a change the layer did not make. Either the layer
+        /// does not own the part, or it does and its restore target was rebased
+        /// onto such a change (repair 2, R1). The radio's own switches and levels
+        /// are not counted here; see <see cref="LastRestoreLeftRadioDifferences"/>.
+        /// </summary>
+        public bool LastRestoreKeptOutsideChanges { get; private set; }
+
+        /// <summary>
+        /// Whether, after the last <see cref="RestoreSnapshot"/>, a radio switch
+        /// or level on the picture's slice still differs from the layer's picture
+        /// (repair 2, R2). Its cause is not established: another client, the
+        /// operator elsewhere, or the radio itself moving a sibling when the layer
+        /// changed something are all possible, so it is a separate fact from
+        /// <see cref="LastRestoreKeptOutsideChanges"/> and never called a change
+        /// made elsewhere. What it does establish is that something differs from
+        /// the layer's entry, so the closing sentence may claim neither that
+        /// nothing changed nor that everything was reverted.
+        /// </summary>
+        public bool LastRestoreLeftRadioDifferences { get; private set; }
+
+        /// <summary>
+        /// The lexicon key of the layer's closing sentence after Escape, from the
+        /// ownership facts: whether the layer put anything of its own back
+        /// (<paramref name="restoredSomething"/>, <see cref="RestoreSnapshot"/>'s
+        /// answer) and whether anything that differs from the layer's entry was
+        /// left standing: a change made elsewhere
+        /// (<see cref="LastRestoreKeptOutsideChanges"/>), or a radio value for a
+        /// reason the snapshot cannot establish
+        /// (<see cref="LastRestoreLeftRadioDifferences"/>). Either way the two
+        /// "kept" keys are chosen, so their words must not say who or what made
+        /// the change (repair 2, R2).
+        /// </summary>
+        public string RestoreClosingKey(bool restoredSomething) => (restoredSomething, LastRestoreKeptOutsideChanges || LastRestoreLeftRadioDifferences) switch
+        {
+            (true, false) => "audio.noise_layer.restored",
+            (true, true) => "audio.noise_layer.restored_kept_elsewhere",
+            (false, true) => "audio.noise_layer.restored_nothing_kept_elsewhere",
+            _ => "audio.noise_layer.restored_nothing",
+        };
 
         /// <summary>The layer closed: nothing is live to put back any more.</summary>
         public void EndSnapshot() => _live = null;
@@ -284,13 +483,17 @@ namespace JJFlexWpf
         /// where the layer itself wrote them on the slice the picture was read
         /// on, and only where they now differ from it: nothing is written to
         /// a slice the operator jumped to without touching, and an unreported
-        /// level is never written back unasked. Computer slots, favourites and
-        /// per-mode memory are app-wide and put back wherever they differ.
+        /// level is never written back unasked. The computer slots, receive and
+        /// transmit, only where the layer itself changed them and they still
+        /// read as it left them (#1150 for receive). Favourites and per-mode
+        /// memory are app-wide and put back wherever they differ.
         /// Returns whether anything was put back.
         /// </summary>
         public bool RestoreSnapshot(NoiseSnapshot snap, string source)
         {
             bool changed = false;
+            LastRestoreKeptOutsideChanges = false;
+            LastRestoreLeftRadioDifferences = false;
             if (ReferenceEquals(_live, snap)) _live = null;
             // Escape puts the radio's switches back too, so a queued sibling
             // observation is obsolete whatever else is put back.
@@ -314,6 +517,13 @@ namespace JJFlexWpf
                     Write(lever, e, new EngineSettingValue(level), source);
                     changed = true;
                 }
+                // Repair 2, R2: anything on this slice that still differs from the
+                // picture after the put-back, touched or not (a refused put-back
+                // leaves its value too). A level that reads as unreported now is
+                // not evidence either way.
+                LastRestoreLeftRadioDifferences =
+                    snap.RadioSwitches.Any(kv => IsOn(kv.Key) != kv.Value)
+                    || snap.RadioLevels.Any(kv => ReadRadioLevel(_catalog.Find(kv.Key)!) is int now && now != kv.Value);
             }
             // Memory first, so a model the mode's rule swaps while the slots
             // are put back is owed back on leaving CW (B4) and not undone.
@@ -336,8 +546,23 @@ namespace JJFlexWpf
             if (_pipeline() is { } p)
             {
                 RetireHelperNotice("the noise settings were put back");
-                changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings, source);
-                changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings, source);
+                // Only what the layer itself changed (#1150), as transmit does
+                // below: a slot changed from Home, the menu, a preset or a mode
+                // group while the layer was open is kept.
+                bool spectralOwned = LayerOwnsReceive(snap, DenoiseFamily.Spectral, p.SpectralSlot);
+                bool neuralOwned = LayerOwnsReceive(snap, DenoiseFamily.Neural, p.NeuralSlot);
+                if (spectralOwned) changed |= RestoreSlot(p.SpectralSlot, snap.Spectral, snap.SpectralSettings, source);
+                if (neuralOwned) changed |= RestoreSlot(p.NeuralSlot, snap.Neural, snap.NeuralSettings, source);
+                // A kept change is the current mode group's again: the per-mode
+                // memory was just put back to the picture above, and the road
+                // that made the kept change had remembered it there.
+                // Repair 2, R1: an owned slot whose target was rebased is put back
+                // onto a change made elsewhere, so it counts as kept, and is
+                // remembered for the same reason.
+                bool kept = KeptOutsideReceive(snap, DenoiseFamily.Spectral, spectralOwned, p.SpectralSlot)
+                    || KeptOutsideReceive(snap, DenoiseFamily.Neural, neuralOwned, p.NeuralSlot);
+                if (kept) RememberModeState();
+                LastRestoreKeptOutsideChanges |= kept;
             }
             // The transmit part (Track H2; Escape ownership round): only what the
             // layer itself changed. First its own changes still held for the
@@ -357,7 +582,9 @@ namespace JJFlexWpf
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes waiting for the unkey", "withdrawn");
                     changed = true;
                 }
-                var owned = LayerOwnedTx(snap, ReadTx(chain));
+                var txNow = ReadTx(chain);
+                var owned = LayerOwnedTx(snap, txNow);
+                LastRestoreKeptOutsideChanges |= KeptOutsideTx(snap, txNow, owned);
                 if (owned.Spectral || owned.Neural || owned.Gate)
                 {
                     if (owned.Spectral || owned.Neural) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
