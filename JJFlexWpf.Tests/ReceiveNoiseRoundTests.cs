@@ -181,6 +181,73 @@ public sealed class ReceiveNoiseRoundTests
         Assert.Contains("NoteModeChoice();", main.Substring(main.IndexOf("public void AskRadioForMode(Action ask)", StringComparison.Ordinal), 200));
     }
 
+    // ── #1148: Home's receive noise fields follow an engine change made elsewhere ──
+
+    private static readonly string[] Levers = { "strength" };
+
+    [Fact]
+    public void Home_follows_a_slot_engine_changed_by_another_road_on_its_own_side()
+    {
+        // The menu or the layer put DeepFilterNet3 in the neural slot while Home showed RNNoise.
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "test");
+        string shown = "rnnoise";
+        var listed = new[] { "rnnoise", "deepfilternet3", "nnr" };
+        Assert.Equal(Controls.HomeNoiseFieldsSync.Action.RefreshValues, Controls.HomeNoiseFieldsSync.Decide(
+            DenoiseFamily.Neural, shown, f.Noise.SlotEngine(DenoiseFamily.Neural), listed, Levers, Levers, standingInLevers: false));
+        f.Noise.Toggle("deepfilternet3", "Audio menu");
+        Assert.Equal("deepfilternet3", f.Noise.SlotEngine(DenoiseFamily.Neural));
+        Assert.Equal(Controls.HomeNoiseFieldsSync.Action.ShowSlotEngine, Controls.HomeNoiseFieldsSync.Decide(
+            DenoiseFamily.Neural, shown, f.Noise.SlotEngine(DenoiseFamily.Neural), listed, Levers, Levers, standingInLevers: false));
+    }
+
+    [Fact]
+    public void Home_waits_while_the_operator_stands_in_the_levers_and_never_follows_on_the_radio_side_or_to_an_unlisted_engine()
+    {
+        var listed = new[] { "rnnoise", "deepfilternet3" };
+        Assert.Equal(Controls.HomeNoiseFieldsSync.Action.RefreshValues, Controls.HomeNoiseFieldsSync.Decide(
+            DenoiseFamily.Neural, "rnnoise", "deepfilternet3", listed, Levers, new[] { "other" }, standingInLevers: true));
+        Assert.Equal(Controls.HomeNoiseFieldsSync.Action.RefreshValues, Controls.HomeNoiseFieldsSync.Decide(
+            null, "radio_nr", "", listed, Levers, Levers, standingInLevers: false));
+        Assert.Equal(Controls.HomeNoiseFieldsSync.Action.RefreshValues, Controls.HomeNoiseFieldsSync.Decide(
+            DenoiseFamily.Neural, "rnnoise", "not_listed_here", listed, Levers, Levers, standingInLevers: false));
+    }
+
+    [Fact]
+    public void Home_rebuilds_the_shown_engines_levers_when_its_lever_set_changes_elsewhere()
+    {
+        // NR2's trained values come and go with its gain method; Advanced opened from the menu adds levers.
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.SetAdvanced("nr2", true);
+        var before = Controls.HomeNoiseFieldsSync.WantedLevers(f.Noise, "nr2").ToList();
+        Assert.DoesNotContain("trained_t1", before);
+        var method = f.Noise.Levers("nr2", includeAdvanced: true).Single(l => l.Key == "gain_method");
+        f.Noise.Set(method, null, "trained", "Audio menu");
+        var after = Controls.HomeNoiseFieldsSync.WantedLevers(f.Noise, "nr2").ToList();
+        Assert.Contains("trained_t1", after);
+        Assert.Equal(Controls.HomeNoiseFieldsSync.Action.RebuildEngine, Controls.HomeNoiseFieldsSync.Decide(
+            DenoiseFamily.Spectral, "nr2", "nr2", new[] { "nr2" }, before, after, standingInLevers: false));
+        Assert.Equal(Controls.HomeNoiseFieldsSync.Action.RefreshValues, Controls.HomeNoiseFieldsSync.Decide(
+            DenoiseFamily.Spectral, "nr2", "nr2", new[] { "nr2" }, after, after, standingInLevers: false));
+    }
+
+    [Fact]
+    public void Homes_receive_poll_asks_which_engine_to_show_before_it_refreshes_values()
+    {
+        // The panel is a WPF control; its poll is read from source.
+        string panel = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.Noise.cs");
+        int poll = panel.IndexOf("private void PollNoise()", StringComparison.Ordinal);
+        Assert.True(poll >= 0);
+        string body = panel.Substring(poll, panel.IndexOf("public void OpenNoise(", poll, StringComparison.Ordinal) - poll);
+        int decide = body.IndexOf("HomeNoiseFieldsSync.Decide(", StringComparison.Ordinal);
+        Assert.True(decide >= 0 && decide < body.IndexOf("RefreshNoiseValues();", StringComparison.Ordinal));
+        Assert.Contains("ShowNoiseSide(selectEngine: slotEngine)", body);
+        Assert.Contains("ShowNoiseEngine(_noiseFieldsFor)", body);
+        Assert.Contains("_noiseLevers.IsKeyboardFocusWithin || _noiseAdvancedLevers.IsKeyboardFocusWithin", body);
+    }
+
     private static string Source(params string[] path)
     {
         var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
