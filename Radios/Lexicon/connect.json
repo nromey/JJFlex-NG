@@ -771,6 +771,8 @@
   "connect.update.cancelled_status": "Cancelled.",
   "connect.update.check_title": "Check for updates",
   "connect.update.checking": "Checking for updates",
+  "_note_update_exit_cancelled": "Junk box 2026-11-19 (batch 16): connect.update.exit_cancelled is DRAFT wording, awaiting Noel. Said when an update was handed off and the app was closing so it could install, but the operator answered an exit question by staying, so the update did not install and the app stays open.",
+  "connect.update.exit_cancelled": {"text": "The update was not installed, because JJ Flexible Radio Access did not close. It stays open on the version you have now.", "delivery": null},
   "connect.update.failed_body": "The update could not be applied.\n\n{message}",
   "connect.update.failed_speech": "Update failed. {message}",
   "connect.update.failed_status": "Update failed: {message}",

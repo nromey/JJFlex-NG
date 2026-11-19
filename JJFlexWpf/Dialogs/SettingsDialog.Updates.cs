@@ -18,6 +18,14 @@ public partial class SettingsDialog
     private UpdaterSettings _updaterSettings = new();
     private bool _updaterLoading;
 
+    /// <summary>
+    /// True once Check now's update dialog reported a successful hand-off.
+    /// Settings has then closed itself, and its opener must close the app
+    /// (<see cref="MainWindow.CloseForInstalledUpdate"/>) so the update can
+    /// install.
+    /// </summary>
+    public bool UpdateHandedOff { get; private set; }
+
     private void LoadUpdaterSettingsIntoUi()
     {
         _updaterLoading = true;
@@ -167,7 +175,16 @@ public partial class SettingsDialog
             {
                 Owner = this,
             };
-            dialog.ShowDialog();
+            if (dialog.ShowDialog() == true)
+            {
+                // The update is handed off and waits for the app to exit.
+                // Settings closes as Cancel would, and the code that opened
+                // it closes the app once Settings' own modal loop is gone
+                // (NativeMenuBar.ShowSettingsDialog reads UpdateHandedOff).
+                UpdateHandedOff = true;
+                DialogResult = false;
+                Close();
+            }
         }
         catch (Exception ex)
         {

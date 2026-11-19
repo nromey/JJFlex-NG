@@ -4113,6 +4113,11 @@ public class NativeMenuBar : IDisposable
         // Always apply typing sound after Settings (config may have been saved even on Cancel)
         if (_window.FreqHandlers != null)
             _window.FreqHandlers.TypingSound = audioConfig.TypingSound;
+
+        // An update handed off from Settings' Check now: Settings has closed
+        // itself, and the app now closes so the update can install.
+        if (dialog.UpdateHandedOff)
+            _window.CloseForInstalledUpdate();
     }
 
     /// <summary>
@@ -4186,7 +4191,8 @@ public class NativeMenuBar : IDisposable
             }
 
             var dialog = new Dialogs.UpdateAvailableDialog(available);
-            dialog.ShowDialog();
+            if (dialog.ShowDialog() == true)
+                _window.CloseForInstalledUpdate();
         }
         catch (Exception ex)
         {

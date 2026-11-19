@@ -14,7 +14,8 @@ namespace JJFlexWpf.Dialogs;
 /// Skip this version / Cancel.
 ///
 /// On Download &amp; install: planning + delta-download run inline; on
-/// completion the helper exe is launched and the host app exits. On any
+/// completion the helper exe is launched, the dialog closes with a true
+/// result, and the caller closes the app (MainWindow.CloseForInstalledUpdate). On any
 /// failure path the orchestrator transparently falls back to the full-bundle
 /// installer per the Track D scope. Progress text updates a polite live
 /// region so screen-reader users hear milestones without being interrupted
@@ -112,12 +113,17 @@ public partial class UpdateAvailableDialog : JJFlexDialog
                     VerbosityLevel.Critical, interrupt: true);
             }
 
+            // Success is reported, never acted on here. The helper or the
+            // installer is now waiting for this process to exit, and the
+            // CALLER closes the app: it closes its own window, then posts the
+            // shell's close (MainWindow.CloseForInstalledUpdate), so the close
+            // runs after every modal loop has unwound and still goes through
+            // the exit questions, RequestShutdown and the farewell. This used
+            // to ask the WPF Application to shut down, which does nothing in
+            // this app: there is no WPF Application, so the app never closed
+            // and the helper gave up after its 30 seconds.
             DialogResult = true;
             Close();
-            // Caller (App.OnExit / NativeMenuBar) decides on Application
-            // shutdown so the host can wind down its own state. We just
-            // close the dialog and let the enclosing flow shut down.
-            Application.Current?.Shutdown();
         }
         catch (OperationCanceledException)
         {

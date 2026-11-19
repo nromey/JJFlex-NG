@@ -108,8 +108,72 @@ public partial class MainWindow
             {
                 Owner = Window.GetWindow(this),
             };
-            dialog.ShowDialog();
+            if (dialog.ShowDialog() == true)
+                CloseForInstalledUpdate();
         }));
+    }
+
+    /// <summary>
+    /// After a successful update hand-off, close the app so the waiting
+    /// helper or installer can replace its files. Called by each route that
+    /// shows <see cref="Dialogs.UpdateAvailableDialog"/>, only when it
+    /// reported success, and only after that route's own window has closed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Posted, not called.</b> The update dialog can sit over Settings,
+    /// itself modal over the shell, so a close made where the result arrives
+    /// would run inside two nested modal loops. Posting puts it on the
+    /// dispatcher's queue, so it runs once the caller's stack has unwound.
+    /// </para>
+    /// <para>
+    /// <b>Through the ordinary close.</b> It invokes
+    /// <see cref="CloseShellCallback"/>, the same path the Exit menu item
+    /// takes, so the shell's close still runs <see cref="RequestShutdown"/>,
+    /// the exit questions (an unsaved contact, the still-running question)
+    /// and the shutdown that follows (the farewell, the trace archive).
+    /// Nothing here creates a WPF Application or ends the process directly.
+    /// </para>
+    /// <para>
+    /// <b>A cancelled exit is said.</b> The operator may answer an exit
+    /// question by staying. The helper then gives up on its own and changes
+    /// nothing, so the app says plainly that the update was not installed
+    /// and that it stays open, since the dialog has just said it was closing.
+    /// </para>
+    /// </remarks>
+    public void CloseForInstalledUpdate()
+    {
+        Tracing.TraceLine("CloseForInstalledUpdate: update handed off; posting the shell close",
+            System.Diagnostics.TraceLevel.Info);
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+            new Action(CloseShellForInstalledUpdate));
+    }
+
+    /// <summary>
+    /// The posted half of <see cref="CloseForInstalledUpdate"/>: close the
+    /// shell, and if the exit was cancelled, say the update did not install.
+    /// </summary>
+    internal void CloseShellForInstalledUpdate()
+    {
+        try
+        {
+            CloseShellCallback?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("CloseForInstalledUpdate: the shell close threw: " + ex.Message,
+                System.Diagnostics.TraceLevel.Error);
+        }
+
+        // RequestShutdown sets _isClosing only when the exit went ahead.
+        if (_isClosing) return;
+
+        Tracing.TraceLine("CloseForInstalledUpdate: the exit was cancelled; the update was not installed",
+            System.Diagnostics.TraceLevel.Info);
+        // DRAFT wording, connect.update.exit_cancelled.
+        Radios.ScreenReaderOutput.Speak(
+            Radios.Lexicon.Get("connect.update.exit_cancelled"),
+            Radios.VerbosityLevel.Critical, interrupt: true);
     }
 
     /// <summary>

@@ -1,0 +1,1 @@
+- Installing an update from inside JJ Flexible now closes the app so the new version can go in. If you choose to stay when it asks about closing, you hear that the update was not installed and the app stays open.

@@ -3027,6 +3027,9 @@ namespace Radios.Tests
                 // Codex's words with Noel's edit, approved 2026-11-19.
                 "audio.ptt.blocked_by_license",
                 "settings.band.tx_lockout_message",
+                // Junk box batch 16 (2026-11-19), DRAFT wording awaiting Noel:
+                // #1204, an update whose exit the operator cancelled.
+                "connect.update.exit_cancelled",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
