@@ -569,12 +569,31 @@ namespace JJFlexWpf
         /// Since Sprint 49 Track K2 the figure is the median of the last few
         /// measurements, and the line says of how many.
         /// </summary>
-        private (string Model, bool Measured, bool Fast, string Why) ChooseCwModel(string road)
+        private (string Model, bool Measured, bool Fast, string Why) ChooseCwModel(string road) =>
+            ChooseCwModel(road, _cwCost.ReadPremiumCw());
+
+        /// <summary>
+        /// As <see cref="ChooseCwModel(string)"/>, from a figure already read.
+        /// Every road that asks puts the answer in force as CW's model, so this is
+        /// also where a choice is marked provisional (Sprint 49 Track K2, X1):
+        /// chosen with no figure, it is looked at once more when the first figure
+        /// arrives (<see cref="OnModelCostsRemembered"/>); chosen with one, any
+        /// earlier provisional mark is cleared, and it is never looked at again.
+        /// </summary>
+        private (string Model, bool Measured, bool Fast, string Why) ChooseCwModel(string road, NnrCwCost cost)
         {
-            var cost = _cwCost.ReadPremiumCw();
             var (model, measured, fast) = NoiseModeRules.ChooseCwModel(cost.Ms);
             string why = NoiseModeRules.CwModelReason(cost.Ms, cost.Measurements);
             System.Diagnostics.Trace.WriteLine($"NoiseController: the CW model rule chose {model} ({road}): {why}");
+            if (Memory is { } mem)
+            {
+                string mark = measured ? "" : model;
+                if (mem.NnrCwModelProvisional != mark)
+                    System.Diagnostics.Trace.WriteLine(measured
+                        ? "NoiseController: CW's model rests on a measurement now; it is no longer provisional"
+                        : $"NoiseController: CW's model {model} is provisional until this machine's first measurement");
+                mem.NnrCwModelProvisional = mark;
+            }
             return (model, measured, fast, why);
         }
 

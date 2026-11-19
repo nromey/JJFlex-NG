@@ -305,7 +305,13 @@ namespace JJFlexWpf
                 gm.Known = true;
                 Capture(gm, p);
             }
-            if (g == NoiseModeGroup.Cw) EnsureCwModel(speak: true);
+            if (g == NoiseModeGroup.Cw)
+            {
+                EnsureCwModel(speak: true);
+                // A provisional CW model whose first figure arrived while CW's
+                // model was not in force is looked at now (Sprint 49 Track K2).
+                ReviewProvisionalCwModel("CW was entered");
+            }
             else if (from == NoiseModeGroup.Cw) GiveBackVoiceModel(speak: true);
             mem.LastGroup = GroupWord(g);
             _persist();
@@ -516,6 +522,8 @@ namespace JJFlexWpf
             if (e.Id == "nr2" && d.Name == "noise_estimator") RememberNr2Tracking();
             if (e.Id == "nnr" && d.Name == "model" && Memory is { } mem && CurrentGroup != NoiseModeGroup.Cw)
                 mem.NnrVoiceModelOwed = ""; // an operator's own choice outside CW is not owed back
+            if (e.Id == "nnr" && d.Name == "model" && CurrentGroup == NoiseModeGroup.Cw)
+                OperatorChoseCwModel("the operator set NNR's model");
         }
 
         /// <summary>
@@ -525,6 +533,11 @@ namespace JJFlexWpf
         private void SetModelQuietly(DenoiseEngineEntry e, PcDenoiseSlot slot, string model, string source)
         {
             if (!e.Settings.Any(d => d.Name == "model")) return;
+            // A CW model brought in CW by the operator's own road (a favourite,
+            // the brackets, a preset, Escape) is the operator's choice of CW's
+            // model: never looked at again (Sprint 49 Track K2, X1).
+            if (e.Id == "nnr" && CurrentGroup == NoiseModeGroup.Cw && NoiseModeRules.IsCwModel(model))
+                OperatorChoseCwModel(source);
             string admitted = AdmitModel(e, model, source);
             // The model is a rebuild setting: setting the one already held
             // would rebuild the engine for nothing.
@@ -572,6 +585,7 @@ namespace JJFlexWpf
                 return records;
             }
             string stored = record.Values.LastOrDefault(v => v.Name == "model")?.Choice ?? modelSetting.Default.Choice ?? "";
+            if (NoiseModeRules.IsCwModel(stored)) OperatorChoseCwModel(source);   // a CW model the record itself carries (Track K2)
             string model = AdmitModel(e, stored, source);
             if (model == stored) return records;
             var copy = new Radios.DenoiseEngineSettings

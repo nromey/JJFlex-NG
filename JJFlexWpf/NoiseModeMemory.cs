@@ -72,6 +72,18 @@ namespace JJFlexWpf
         public string NnrVoiceModelOwed { get; set; } = "";
 
         /// <summary>
+        /// The CW model the measured rule chose while this machine had no
+        /// Premium CW figure, still waiting to be looked at once more; empty
+        /// when nothing is provisional (Sprint 49 Track K2, ruled 2026-11-19,
+        /// X1). When the first figure arrives, if CW's model is still this one
+        /// and the operator has not changed it, the rule is run once more, and
+        /// the model switched if it now says otherwise. A choice made with a
+        /// figure clears it, an operator's own choice of CW's model clears it,
+        /// and the one look clears it, so nothing is ever looked at twice.
+        /// </summary>
+        public string NnrCwModelProvisional { get; set; } = "";
+
+        /// <summary>
         /// The mode group the stored settings were last in ("voice", "cw" or
         /// "digital"; empty in a config written before this existed). At
         /// connect it tells "back in the group the settings were saved in"

@@ -981,6 +981,10 @@ public partial class MainWindow : UserControl
         };
         WdspHost.Default.StateChanged += (s, e) =>
             Dispatcher.BeginInvoke(() => noise.OnHelperStateChanged(e.Change, e.Engines));
+        // This machine's model costs remembered: a CW model chosen before the
+        // first measurement is looked at once more (Sprint 49 Track K2, X1).
+        WdspHost.Default.ModelCostsRemembered += (s, e) =>
+            Dispatcher.BeginInvoke(() => noise.OnModelCostsRemembered());
         return noise;
     }
 

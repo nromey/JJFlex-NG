@@ -522,6 +522,73 @@ public sealed class HelperModelCostTests : IDisposable
         Assert.Equal(0, rig.Host.Failures);
     }
 
+    // Sprint 49 Track K2 (X1): the host says when this machine's model costs
+    // have been remembered, so a CW model chosen before them is looked at once
+    // more. Raised after the save, so the store already holds them.
+    [Fact]
+    public void The_host_says_when_the_model_costs_are_remembered_and_the_store_already_holds_them()
+    {
+        var store = NewStore();
+        using var rig = StubRig(store, "--model-costs", FourCosts, "--model-costs-delay", "300");
+        int raised = 0, handled = 0;
+        double? seen = null;
+        rig.Host.ModelCostsRemembered += (s, e) =>
+        {
+            Assert.Same(rig.Host, s);
+            seen = new MeasuredNnrCwCost(() => NewStore()).PremiumCw99thPercentileMs;
+            Interlocked.Increment(ref raised);
+        };
+        rig.Host.ModelCostsHandledForTest = _ => Interlocked.Increment(ref handled);
+        rig.Engine("nnr");
+        HelperTestRig.Until(() => Volatile.Read(ref handled) == 1, "the model costs to be handled");
+        Assert.Equal(1, Volatile.Read(ref raised));
+        Assert.Equal(4.2, seen!.Value, 9);
+    }
+
+    [Fact]
+    public void The_host_does_not_say_so_when_nothing_was_remembered()
+    {
+        // No store: nothing remembered.
+        using (var rig = StubRig(null, "--model-costs", FourCosts))
+        {
+            int raised = 0, handled = 0;
+            rig.Host.ModelCostsRemembered += (_, _) => Interlocked.Increment(ref raised);
+            rig.Host.ModelCostsHandledForTest = _ => Interlocked.Increment(ref handled);
+            rig.Engine("nnr");
+            HelperTestRig.Until(() => Volatile.Read(ref handled) == 1, "the model costs");
+            Assert.Equal(0, Volatile.Read(ref raised));
+        }
+        // A later measurement already held: the store refuses this one as older.
+        var store = NewStore();
+        var later = At(HelperModelCostStore.ThisArchitecture, 0, 5_800_000);
+        later.MeasuredUtc = DateTime.UtcNow.AddSeconds(50);
+        Assert.True(store.Record(later));
+        using (var rig = StubRig(store, "--model-costs", FourCosts))
+        {
+            int raised = 0, handled = 0;
+            rig.Host.ModelCostsRemembered += (_, _) => Interlocked.Increment(ref raised);
+            rig.Host.ModelCostsHandledForTest = _ => Interlocked.Increment(ref handled);
+            rig.Engine("nnr");
+            HelperTestRig.Until(() => Volatile.Read(ref handled) == 1, "the model costs");
+            Assert.Equal(0, Volatile.Read(ref raised));
+            Assert.Equal(5_800_000, PremiumCwP99(HelperModelCostStore.ThisArchitecture));
+        }
+    }
+
+    [Fact]
+    public void The_app_tells_its_noise_controller_when_the_model_costs_are_remembered()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string source = File.ReadAllText(Path.Combine(dir!.FullName, "JJFlexWpf", "MainWindow.xaml.cs"));
+        int at = source.IndexOf("private NoiseController CreateNoiseController()", StringComparison.Ordinal);
+        Assert.True(at >= 0, "CreateNoiseController not found");
+        int end = source.IndexOf("return noise;", at, StringComparison.Ordinal);
+        string body = source[at..end].Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("WdspHost.Default.ModelCostsRemembered+=(s,e)=>Dispatcher.BeginInvoke(()=>noise.OnModelCostsRemembered());", body);
+    }
+
     [Fact]
     public void A_helper_that_never_reports_model_costs_leaves_the_unmeasured_default()
     {
