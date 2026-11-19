@@ -3466,13 +3466,23 @@ namespace Radios
                 }
                 return;
             }
+            // Both deaths are dated when they are noticed, before either is
+            // handled: a headset that drops both streams at once would
+            // otherwise have the microphone's downtime start only after the
+            // speaker's recovery, and a long outage would read as a short one
+            // (Codex's check of the three-second rule, 2026-11-19).
+            long noticedAt = _streamRecoveryClock();
             if (speakerDied) RecoverSpeakerStream(wake);
-            if (micDied) RecoverMicStream();
+            if (micDied) RecoverMicStreamNoticedAt(noticedAt);
         }
 
-        private void RecoverMicStream()
+        /// <summary>A microphone death noticed now. Kept by this name, with no
+        /// arguments, for the tests that drive it by reflection.</summary>
+        private void RecoverMicStream() => RecoverMicStreamNoticedAt(_streamRecoveryClock());
+
+        /// <param name="now">When the death was noticed, before any other recovery ran.</param>
+        private void RecoverMicStreamNoticedAt(long now)
         {
-            long now = _streamRecoveryClock();
             var decision = _micRecovery.OnDeath(now);
             string detail = opusInputChannel.PortAudioStream.StreamEndDetail;
             // Every death, whatever comes next (Sprint 49 Track H2, the join): an
@@ -3521,16 +3531,22 @@ namespace Radios
             _micRestartPending = false;
             bool afterReopen = _micRestartAfterReopen;
             _micRestartAfterReopen = false;
-            long took = _streamRecoveryClock() - _micDiedAtMs;
+            long resolvedAt = _streamRecoveryClock();
+            long took = resolvedAt - _micDiedAtMs;
             string tier = afterReopen ? "tier 2, a new stream" : "tier 1";
             if (started)
             {
                 bool keyed = _micDiedKeyed || Transmit;
+                // One rule for both tiers (Noel, 2026-11-19): said while keyed only
+                // when the stream was down 3 s or more, at most once per window.
+                bool say = _micRecovery.TakeRestartSentence(new StreamRecoveryPolicy.Decision(
+                        StreamRecoveryPolicy.Verdict.Recover, 1, _micRestartSpeakable), keyed, took, resolvedAt);
                 Tracing.TraceLine("remoteAudioProc: the microphone stream restarted (" + tier + ") " + took
-                    + " ms after it died" + (keyed ? "; the radio was keyed, so part of that transmission was silent" : ""),
+                    + " ms after it died" + (keyed ? "; the radio was keyed, so part of that transmission was silent" : "")
+                    + (keyed && !say && took < StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds
+                        ? "; under " + (StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds / 1000) + " s, so not said" : ""),
                     TraceLevel.Error);
-                if (StreamRecoveryPolicy.SpeakRestart(new StreamRecoveryPolicy.Decision(
-                        StreamRecoveryPolicy.Verdict.Recover, 1, _micRestartSpeakable), keyed))
+                if (say)
                     SayStreamRecovery("audio.pc_audio.mic_stream_restarted", Speech.SpeechSubject.PcMicStream);
                 return;
             }
@@ -3626,9 +3642,13 @@ namespace Radios
             // FlexLib queued while the loop was here; the gap state is
             // re-seeded from the packet it skips to.
             lock (opusOutputChannel) opusOutputChannel.JustStarted = true;
+            bool say = _speakerRecovery.TakeRestartSentence(decision, keyed, took, t0 + took);
             Tracing.TraceLine("remoteAudioProc: the receive playback stream restarted at tier " + tier + " in " + took
-                + " ms; the transmit gate did not run meanwhile", TraceLevel.Error);
-            if (StreamRecoveryPolicy.SpeakRestart(decision, keyed))
+                + " ms; the transmit gate did not run meanwhile"
+                + (keyed && !say && took < StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds
+                    ? "; keyed, but under " + (StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds / 1000) + " s, so not said" : ""),
+                TraceLevel.Error);
+            if (say)
                 SayStreamRecovery("audio.pc_audio.speaker_stream_restarted", Speech.SpeechSubject.PcSpeakerStream);
         }
 

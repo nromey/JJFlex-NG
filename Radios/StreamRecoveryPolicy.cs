@@ -29,6 +29,14 @@ namespace Radios
         public const int MaxRecoveries = 3;
         public const long WindowMilliseconds = 30_000;
 
+        /// <summary>
+        /// A restart while keyed is said only when the stream was down at
+        /// least this long. Ruled by Noel 2026-11-19 10:38: "for transmitting
+        /// I'd say 3 seconds." A shorter restart lost almost nothing and is
+        /// traced only, as a restart while receiving always is.
+        /// </summary>
+        public const long SpokenRestartMinimumMilliseconds = 3_000;
+
         public enum Verdict
         {
             /// <summary>Restart the stream.</summary>
@@ -52,6 +60,7 @@ namespace Radios
 
         private readonly Queue<long> _recent = new Queue<long>();
         private bool _giveUpSaid;
+        private long _restartSaidAtMs = long.MinValue;
 
         public bool GivenUp { get; private set; }
         public int TotalRecoveries { get; private set; }
@@ -84,13 +93,23 @@ namespace Radios
         }
 
         /// <summary>
-        /// Whether a successful restart is spoken. The orchestrator's default,
-        /// recorded as a question for Noel: a restart while the radio is not
-        /// keyed is traced only (the operator heard at most a moment's gap and
-        /// nothing is left for them to do); a restart while keyed is said,
-        /// because part of that transmission went out silent.
+        /// Whether a successful restart is spoken, and if so, takes the
+        /// sentence. A restart while the radio is not keyed is traced only
+        /// (Noel, J6, 2026-11-19: "I don't need to hear every restart"). A
+        /// restart while keyed is said when the stream was down at least
+        /// <see cref="SpokenRestartMinimumMilliseconds"/> (Noel, 2026-11-19),
+        /// and at most once in any <see cref="WindowMilliseconds"/>, so a
+        /// retry loop never repeats it. Counting the sentence rather than the
+        /// first death means a short, unspoken restart does not use up the
+        /// one sentence a long one after it is owed.
         /// </summary>
-        public static bool SpeakRestart(Decision decision, bool keyed) =>
-            decision.Verdict == Verdict.Recover && decision.Speakable && keyed;
+        public bool TakeRestartSentence(Decision decision, bool keyed, long downMilliseconds, long nowMs)
+        {
+            if (decision.Verdict != Verdict.Recover || !keyed) return false;
+            if (downMilliseconds < SpokenRestartMinimumMilliseconds) return false;
+            if (_restartSaidAtMs != long.MinValue && nowMs - _restartSaidAtMs < WindowMilliseconds) return false;
+            _restartSaidAtMs = nowMs;
+            return true;
+        }
     }
 }
