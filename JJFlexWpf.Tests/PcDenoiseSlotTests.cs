@@ -292,6 +292,24 @@ public sealed class PcDenoiseSlotTests
     }
 
     [Fact]
+    public void A_receive_restore_that_omits_a_live_value_resets_it_in_the_running_engine_too()
+    {
+        // #1147: a receive preset (or Escape) restores an engine's record. The
+        // store took the record whole, so the getter read the default for a
+        // value it omits, but the running engine kept the value set before.
+        using var rig = new Rig(); var p = rig.Pipeline; p.RnnEnabled = true;
+        p.SelectPcEngine("a"); RunUntil(p, "a");
+        p.NeuralSlot.SetStrength("a", 1);
+        Assert.True(p.NeuralSlot.TrySetSetting("a", "amount", new(0.5)));
+        var audio = Audio(); p.Process(audio); Assert.All(audio, x => Assert.Equal(0.2f, x, 5));
+        p.NeuralSlot.RestoreAndSelect(new[] { new DenoiseEngineSettings { EngineId = "a", Direction = DenoiseDirection.Receive, Strength = 1f } }, "a");
+        Assert.Equal(1, p.NeuralSlot.GetSetting("a", "amount").Number);
+        audio = Audio(); p.Process(audio);
+        Assert.All(audio, x => Assert.Equal(0.4f, x, 5));   // what is heard, not only the getter
+        Assert.All(rig.Made.Where(e => e.Id == "a" && !e.Disposed), e => Assert.Equal(1, e.GetSetting("amount").Number));
+    }
+
+    [Fact]
     public void Switching_one_family_preserves_the_other_and_latency_changes_build_a_replacement()
     {
         using var rig = new Rig(); var p = rig.Pipeline;

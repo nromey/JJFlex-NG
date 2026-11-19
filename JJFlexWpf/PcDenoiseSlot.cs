@@ -47,19 +47,23 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Transmit only (Sprint 49 Track H, repair round 2, R2): the live array
-        /// also carries every live setting the stored values OMIT, at its
-        /// descriptor default. The store stays sparse (an untouched value is
-        /// still not stored, #1019), but a running engine is told the default
-        /// for a value a new setup does not name, instead of keeping whatever
-        /// the previous setup had set while the getter reads the default.
-        /// Receive keeps its overlay behaviour; the same gap there is reported,
-        /// not changed, by this track.
+        /// Both directions (Sprint 49 Track H, repair round 2, R2, for transmit;
+        /// Track N, #1147, for receive): the live array also carries every live
+        /// setting the stored values OMIT, at its descriptor default. The store
+        /// stays sparse (an untouched value is still not stored, #1019), but a
+        /// running engine is told the default for a value a new record does not
+        /// name, instead of keeping whatever was set before while the getter
+        /// reads the default. On receive the record is a preset's engine entry,
+        /// or Escape's: <see cref="RestoreSettings"/> already REPLACES that
+        /// engine's stored values with the record's (an omitted value reads its
+        /// default), so a receive preset replaces the live values of each engine
+        /// it names, the store and the running engine alike; an engine it does
+        /// not name keeps its own (part five: a preset slot holds its engine's
+        /// whole settings).
         /// </summary>
         private void AddOmittedLiveDefaults(IReadOnlyList<EngineSettingDescriptor> settings,
             IReadOnlyDictionary<string, EngineSettingValue> values, List<KeyValuePair<string, EngineSettingValue>> live)
         {
-            if (_direction != DenoiseDirection.Transmit) return;
             foreach (var d in settings)
                 if (!d.NeedsRebuild && !values.ContainsKey(d.Name)) live.Add(new(d.Name, d.Default));
         }
