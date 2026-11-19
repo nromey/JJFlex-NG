@@ -814,6 +814,13 @@ public sealed class TuneKeyCarrierTests : IDisposable
         RadioFor();
         Automatic();
         var main = Window();
+        // The sequence the radio really produces (the 8600 bench at b4016bba):
+        // after our ATUTuneStart the radio reports a tune carrier first, which
+        // FlexBase raises as InProgress while the ATU's own status has not yet
+        // moved; then the ATU's own InProgress; then the end.
+        Handle(main, (Flex.Smoothlake.FlexLib.ATUTuneStatus.Bypass, FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress));
+        Assert.Null(AtuTimer(main));
+        Assert.False(AtuNoted(), "the carrier's rise is not yet the ATU's cycle");
         Handle(main, (Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress, FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress));
         var timer = AtuTimer(main);
         Assert.NotNull(timer);

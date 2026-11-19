@@ -53,6 +53,36 @@ public sealed class AntTuneEventSequenceTests : IDisposable
     }
 
     /// <summary>
+    /// The sequence the radio really produces for an automatic cycle (the 8600
+    /// bench at b4016bba): after our ATUTuneStart the radio reports a tune
+    /// carrier, raised as InProgress while the ATU's own status has not moved;
+    /// then the ATU's own InProgress; then the end. So the carrier flag cannot
+    /// tell a plain carrier from an ATU cycle; the ATU's own status can, and
+    /// that is what the window's rule reads.
+    /// </summary>
+    [Fact]
+    public void A_real_automatic_cycle_raises_the_carriers_InProgress_before_the_ATUs_own()
+    {
+        using var c = new RadioCase();
+        var seen = Wire(c, FlexBase.FlexTunerTypes.auto);
+        // The ATU idle, as the menu's "on" leaves it: automatic type, the
+        // radio's ATU status untouched (a reported Bypass would itself turn
+        // the type manual).
+        c.F.Rig.FlexTunerOn = true;   // our ATUTuneStart, queued
+        c.F.Vendor.Status("transmit tune=1");
+        c.F.Vendor.Status("atu status=TUNE_IN_PROGRESS");
+        c.F.Vendor.Status("atu status=TUNE_BYPASS");
+
+        Assert.Equal(new[] { ("InProgress", false), ("InProgress", true), ("Bypass", false) },
+            seen.GetRange(0, 3).ConvertAll(x => (x.Status, x.AtuTuning)).ToArray());
+        Assert.Equal("auto", seen[2].Type);
+        // Recorded, not ruled on here: after the Bypass, FlexBase's manual
+        // latch branch also reports "OK" with the settled SWR.
+        Assert.All(seen.GetRange(3, seen.Count - 3), x => Assert.False(x.AtuTuning));
+
+    }
+
+    /// <summary>
     /// Step 2c: in automatic type a plain carrier rises while the radio's ATU
     /// reads TUNE_MANUAL_BYPASS. FlexBase raises "InProgress" for it, and the
     /// radio's ATU is NOT tuning when it does: the second input the window's
