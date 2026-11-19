@@ -553,6 +553,87 @@ namespace Radios
         // it as a parameter, so no field can move under it.
         private long _remoteAudioRun;
 
+        // ── A run abandoned by its stop is waited for, whole (Sprint 49 Track H2
+        // split, repair 1, Codex's P2 against 828e1a0e) ──
+        //
+        // When stopRemoteAudioThread's ten-second join fails, the abandoned run
+        // is still alive and still has its teardown to do: stream stops and
+        // closes, the six-second courtesy wait for its microphone workers, and
+        // its audio server's end. A run started after it used to reset the
+        // shared audio fields (the channels, the stop flag, the recovery state)
+        // and reach Audio.Initialize while that teardown was still running, and
+        // the old run's late Audio.Terminate then ended the NEW server.
+        //
+        // Now the abandoned thread is remembered here. The next run waits for it
+        // to end, at the very top of remoteAudioProc, before it touches anything
+        // shared, for at most RemoteRunAdmissionMs; if it is still alive then,
+        // the new run refuses, says the same sentence as a refused audio server
+        // (it is the same condition one level up), and ends without touching
+        // anything. An abandoned run also sees itself stopped the moment a newer
+        // run is started (RemoteRunStopping), even though starting the newer run
+        // clears the shared stop flag, so it leaves its loop and its waits and
+        // reaches its teardown rather than carrying on as if it were current.
+        // Its server ends only through its own generation (Audio.Terminate).
+        private System.Threading.Thread _abandonedRemoteAudioThread;
+
+        /// <summary>
+        /// How long a run waits for an abandoned earlier run to end before it
+        /// refuses. Below stopRemoteAudioThread's ten-second join, so a PC audio
+        /// switch-off during the wait never abandons the waiting run too; long
+        /// enough for the old run's six-second worker courtesy wait and its
+        /// server's one-second end. A field so the windowless tests can shorten it.
+        /// </summary>
+        internal static int RemoteRunAdmissionMs = 8000;
+
+        /// <summary>Whether run <paramref name="run"/> must stop: told to, or no longer the current run.</summary>
+        private bool RemoteRunStopping(long run) =>
+            stopRemoteAudio || run != Interlocked.Read(ref _remoteAudioRun);
+
+        /// <summary>
+        /// The first thing a run does: wait for an abandoned earlier run to end.
+        /// True when there is none, or it ended within
+        /// <see cref="RemoteRunAdmissionMs"/>. False when this run was stopped
+        /// while it waited (nothing said: the operator turned it off), or the
+        /// earlier run is still alive at the bound (said once). Touches nothing
+        /// shared but the remembered thread.
+        /// </summary>
+        internal bool AdmitRemoteAudioRun(long run)
+        {
+            var earlier = Volatile.Read(ref _abandonedRemoteAudioThread);
+            if (earlier == null) return true;
+            long until = Environment.TickCount64 + Math.Max(0, RemoteRunAdmissionMs);
+            while (earlier.IsAlive)
+            {
+                if (RemoteRunStopping(run))
+                {
+                    Tracing.TraceLine("remoteAudioProc: run " + run + " was stopped while it waited for an abandoned"
+                        + " earlier run to end; it began nothing", TraceLevel.Info);
+                    return false;
+                }
+                long left = until - Environment.TickCount64;
+                if (left <= 0)
+                {
+                    Tracing.TraceLine("remoteAudioProc: run " + run + " REFUSED. An abandoned earlier PC audio run is"
+                        + " still running " + RemoteRunAdmissionMs + " ms later, so this one does not reset its audio"
+                        + " state or start an audio server beside it; nothing was touched", TraceLevel.Error);
+                    SayPreviousPcAudioStillEnding();
+                    return false;
+                }
+                earlier.Join((int)Math.Min(left, 50));
+            }
+            Interlocked.CompareExchange(ref _abandonedRemoteAudioThread, null, earlier);
+            Tracing.TraceLine("remoteAudioProc: the abandoned earlier PC audio run has ended; run " + run + " begins",
+                TraceLevel.Warning);
+            return true;
+        }
+
+        /// <summary>The refused start's one sentence (placeholder), for both refusals: an abandoned run, and an audio server, still ending.</summary>
+        private void SayPreviousPcAudioStillEnding()
+        {
+            if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("audio.pc_audio.previous_still_ending"),
+                Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical, subject: Speech.SpeechSubject.PcAudio);
+        }
+
         // ── What the remote-audio loop waits on (#1156) ──
         //
         // Each run makes its own wake in a LOCAL and publishes it here so the
@@ -674,7 +755,10 @@ namespace Radios
                         // Thread.Abort() throws PlatformNotSupportedException on .NET 8.
                         // Log and abandon — the (background) thread dies with the
                         // process if its blocking native call never returns.
-                        Tracing.TraceLine("stopRemoteAudioThread: thread didn't stop within 10s, abandoning (background thread, cannot pin the process)", TraceLevel.Error);
+                        Tracing.TraceLine("stopRemoteAudioThread: thread didn't stop within 10s, abandoning (background thread, cannot pin the process);"
+                            + " the next run waits for it to end before it begins", TraceLevel.Error);
+                        // Repair 1: remembered, so the next run waits for it whole.
+                        Volatile.Write(ref _abandonedRemoteAudioThread, remoteAudioThread);
                     }
                 }
                 catch(Exception ex)
@@ -815,6 +899,15 @@ namespace Radios
             // has been unhooked. The packet subscription is held in locals so
             // the teardown unhooks THIS run's stream even if a newer run has
             // already replaced rxStream and opusOutputChannel.
+            //
+            // Repair 1 (Codex's P2): before ANY of that, an abandoned earlier
+            // run is waited for, whole. Refused, this run ends here: no wake
+            // published, no field reset, no teardown (which would close the
+            // earlier run's streams and channels under it).
+            if (!AdmitRemoteAudioRun(run)) return;
+            // The audio server this run starts, which is the only one its
+            // teardown may end (0: none was started).
+            long serverGeneration = 0;
             var wake = new RemoteAudioWake();
             Volatile.Write(ref _remoteAudioWake, wake);
             RXAudioStream rxForWake = null;
@@ -888,17 +981,18 @@ namespace Radios
             // Start the audio subsystem.
             // Note: We're not using DAX any more.
             //
-            // Refused when the previous run's audio server is still running
-            // after its Terminate stopped waiting for it (Sprint 49 Track H2
-            // split): a second server beside it would make PortAudio calls from
-            // two threads at once. Nothing was replaced, so this run ends here,
-            // said once; turning PC audio on again asks again.
-            if (!JJPortaudio.Audio.Initialize(remoteInputDevice, remoteOutputDevice))
+            // Refused when an earlier audio server is still running (Sprint 49
+            // Track H2 split, and its repair 1): its run has not ended it yet,
+            // or its Terminate stopped waiting for it. A second server beside it
+            // would make PortAudio calls from two threads at once. Nothing was
+            // replaced, so this run ends here, said once; turning PC audio on
+            // again asks again. The generation it gives is the only server this
+            // run's teardown ends.
+            if (!JJPortaudio.Audio.Initialize(remoteInputDevice, remoteOutputDevice, out serverGeneration))
             {
                 Tracing.TraceLine("remoteAudioProc: the audio server could not start, because the previous one has"
                     + " not finished; PC audio is not running", TraceLevel.Error);
-                if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("audio.pc_audio.previous_still_ending"),
-                    Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical, subject: Speech.SpeechSubject.PcAudio);
+                SayPreviousPcAudioStillEnding();
                 goto remoteDone;
             }
 
@@ -933,9 +1027,9 @@ namespace Radios
             // success and the null rxStream crashed the process one line later.
             await(() =>
                 {
-                    return (rxStream != null) || Disconnecting || stopRemoteAudio;
+                    return (rxStream != null) || Disconnecting || RemoteRunStopping(run);
                 }, 10000);
-            var rxWait = ClassifyPendingStreamWait(rxStream != null, stopRemoteAudio, Disconnecting);
+            var rxWait = ClassifyPendingStreamWait(rxStream != null, RemoteRunStopping(run), Disconnecting);
             if (rxWait != PendingStreamWaitOutcome.Arrived)
             {
                 TracePendingStreamWaitOutcome("receive", rxWait);
@@ -1009,9 +1103,9 @@ namespace Radios
             theRadio.RequestRemoteAudioTXStream(true); // see opusInputStreamAddedHandler
             if (!await(() =>
                 {
-                    return (txStream != null) || Disconnecting || stopRemoteAudio;
+                    return (txStream != null) || Disconnecting || RemoteRunStopping(run);
                 }, 10000)
-                && !Disconnecting && !stopRemoteAudio)
+                && !Disconnecting && !RemoteRunStopping(run))
             {
                 // Sprint 33 Track G: fall back to the vendor-stock bare create.
                 //
@@ -1034,7 +1128,7 @@ namespace Radios
 #pragma warning restore CS0618
                 if (!await(() =>
                     {
-                        return (txStream != null) || Disconnecting || stopRemoteAudio;
+                        return (txStream != null) || Disconnecting || RemoteRunStopping(run);
                     }, 10000))
                 {
                     Tracing.TraceLine("remoteAudioProc: didn't get RemoteAudioTXStream from radio"
@@ -1050,7 +1144,7 @@ namespace Radios
             // waits above actually produced, and say which of the three
             // endings it was. This check is what kept the TX path from
             // crashing the way the RX path did; it now names the reason too.
-            var txWait = ClassifyPendingStreamWait(txStream != null, stopRemoteAudio, Disconnecting);
+            var txWait = ClassifyPendingStreamWait(txStream != null, RemoteRunStopping(run), Disconnecting);
             if (txWait != PendingStreamWaitOutcome.Arrived)
             {
                 TracePendingStreamWaitOutcome("transmit", txWait);
@@ -1118,7 +1212,7 @@ namespace Radios
             // source engaging or releasing, and a stream that died all signal
             // it, and anything else is noticed within
             // RemoteAudioWake.IdleWakeMilliseconds.
-            while (!stopRemoteAudio)
+            while (!RemoteRunStopping(run))
             {
                 // #1145: a PC-audio stream that ended on its own is restarted
                 // here, on this thread, before the gate looks at the
@@ -1544,7 +1638,8 @@ namespace Radios
             // into Audio.Terminate or a later run's Audio.Initialize (Sprint 49
             // Track H2, the join). Bounded.
             WaitForTxCaptureWorkers("the PC audio run is ending");
-            Audio.Terminate();
+            // Repair 1: only this run's own server, never whichever is live.
+            Audio.Terminate(serverGeneration);
             opusOutputChannel = null;
             opusInputChannel = null;
             opusInputAvailable = false;
@@ -3172,7 +3267,9 @@ namespace Radios
             // ahead of a pending tier-1 restart (#1145): that restart is resolved
             // against the stream that died, by the start below, first.
             if (!_micRestartPending) MaybeTryFasterTxCapture();
-            // The try's swap can lose the stream (its rescue is then pending).
+            // Kept as a guard: the try's swap no longer stops the stream first
+            // (the H2 split, repair 1), so it can no longer lose it, but nothing
+            // is started while a re-open is pending or the microphone given up.
             if (_micGivenUp || _micReopenPending) return false;
             lock (opusInputChannel)
             {

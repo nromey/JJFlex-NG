@@ -25,24 +25,35 @@ namespace Radios
         // never stopped. It keeps a "cannot open alongside" verdict (rulings
         // repair 1), so a device that refuses a second open is not asked again at
         // every connection; that verdict says nothing about the rate itself.
-        // Only an open stream is swapped in, on this loop thread, exactly as the gate's own producer
-        // swaps are: stop the old (StopAudio waits for its callback to quiesce,
-        // so the two never run together and the conditioner, the source mux and
-        // the meter are only ever fed by one), start the new. If the new one
-        // will not START, the old one, which is open and only stopped, is
-        // started again; if even that fails, a stream is opened afresh at the
-        // shipped rate, and only if THAT fails is the microphone given up, said
-        // once. A fallback after a failed try is the same make-before-break
-        // swap in the other direction, and a fallback whose open fails leaves
-        // the faster stream running (dropping audio, but never silent) and is
+        // THE SWAP IS MAKE BEFORE BREAK ON THE AUDIO PATH TOO (the H2 split,
+        // repair 1, Codex's finding that a key-down during the old stop-then-
+        // start could open an over on a silent microphone for seconds). The new
+        // stream is opened AND STARTED on its worker, beside the running one,
+        // standing by: its callbacks run but feed nothing (JJPortaudio's
+        // TxCaptureHandover). It is handed back only once the device is
+        // delivering to it. On this loop thread the swap then asks the running
+        // stream to hand over, and the running stream's own callback does it at
+        // the END of the buffer it is processing, so the new stream's next
+        // buffer is the first it feeds: the conditioner, the source mux and the
+        // meter are only ever fed by one, and the microphone is never stopped to
+        // make the swap. A new stream that will not start, or delivers nothing,
+        // changes nothing: the running one was never touched, so there is no
+        // restart and no rescue. If the running stream has itself stopped
+        // producing, the new one takes over by force (a guard keeps two
+        // callbacks out of the chain even then). The old stream is closed off
+        // the loop. A fallback after a failed try is the same swap in the other
+        // direction, and a fallback that will not open or start leaves the
+        // faster stream running (dropping audio, but never silent) and is
         // asked again five seconds later.
         //
         // THE COST: the open, and the close of a stream no longer wanted, run on
         // a worker thread of their own since rulings repair 1 (Codex's P2: a
-        // failed open waited five seconds on the loop that consumes receive), so
-        // receive waits only for the swap's stop and start, the same order as the
-        // gate's own producer swaps (25 to 110 ms, per the receive-audio findings
-        // of 2026-11-18). Opening from a second thread is safe because the stream
+        // failed open waited five seconds on the loop that consumes receive), and
+        // since the split's repair 1 the new stream's start and its first buffer
+        // are waited for there too, so receive waits only for the hand-over: at
+        // most one period of the running stream normally (100 ms at 10 a second,
+        // 20 ms at 50), and TxHandoverWaitMs (350 ms and 110 ms) when the running
+        // stream has stopped producing. Opening from a second thread is safe because the stream
         // table's key generator (Audio's queues.Add) now takes a lock. The try's
         // trace line carries the open's duration so the bench can see it.
         //
@@ -135,13 +146,25 @@ namespace Radios
         // and Noel's H1 ruling keeps keying exactly as it is until the key work
         // is rebuilt on main. So the Transmit setter only records the key-down
         // (a counter and a time, no lock, no wait): a key-down admitted while the
-        // open ran, or in the last TxKeyAdmissionFreshMs, still refuses the swap,
-        // but one that lands inside the stop-start window itself starts its over
-        // while the new stream is starting, exactly as hardware PTT and VOX
-        // always could. That window is the residual, reported.
+        // open ran, or in the last TxKeyAdmissionFreshMs, still refuses the swap.
+        // One that lands inside the swap itself (the hand-over wait) no longer
+        // meets a stopped microphone (repair 1): until the hand-over the running
+        // stream feeds the over, and from it the new one does.
 
         /// <summary>A key-down we admitted counts as keyed for this long, until the radio's own report says so (or not).</summary>
         internal const int TxKeyAdmissionFreshMs = 2000;
+
+        /// <summary>How long a swap's new stream, started beside the running one, may take to deliver its first buffer (on its worker) before it counts as not starting (repair 1).</summary>
+        internal const int TxStandbyProducingMs = 1000;
+
+        /// <summary>
+        /// How long the swap waits, on the loop, for the running stream to hand
+        /// over at the end of a buffer: three of its periods and a little more.
+        /// Longer means it has stopped producing, and the new stream takes over
+        /// by force (repair 1).
+        /// </summary>
+        internal static int TxHandoverWaitMs(int runningCallbacksPerSecond) =>
+            3000 / Math.Max(1, runningCallbacksPerSecond > 0 ? runningCallbacksPerSecond : TxCallbackRate.Shipped) + 50;
 
         private object _txCaptureAdmissionObject;
         private object TxCaptureAdmission =>
@@ -197,6 +220,9 @@ namespace Radios
             public long KeyDownsAtStart;
             public long OpenMs;
             public JJAudioStream Stream;
+            public JJAudioStream Beside;         // Try and Fallback: the running stream it is to replace, make before break (repair 1)
+            public bool StartFailed;             // Try and Fallback: it opened but would not start, or started and produced nothing
+            public string StartFailedWhy = "";
             public int State;   // 0 opening, 1 opened and waiting for the loop, 2 taken by the loop, 3 abandoned
             public bool Fallback => Kind == TxOpenKind.Fallback;
         }
@@ -296,6 +322,9 @@ namespace Radios
                 // and the close of anything it opened, run only on it.
                 Server = JJPortaudio.Audio.ServerGeneration,
                 KeyDownsAtStart = System.Threading.Interlocked.Read(ref _txKeyDownAdmissions),
+                // Repair 1: a swap's new stream starts beside the running one,
+                // read here on the loop, which owns it.
+                Beside = kind == TxOpenKind.Replace ? null : (channel as audioChannelData)?.PortAudioStream,
             };
             _txOpenJob = job;
             RunTxCaptureWork("TxCaptureOpen", () => RunTxOpenJob(job));
@@ -325,6 +354,25 @@ namespace Radios
                     catch (Exception ex) { Tracing.TraceLine("TxCallbackRate: the open threw: " + ex.Message, TraceLevel.Error); opened = null; }
                     if (opened == null) return;
                     job.OpenMs = Environment.TickCount64 - t0;
+                    if (job.Kind != TxOpenKind.Replace)
+                    {
+                        // Repair 1, make before break: a swap's new stream is
+                        // STARTED here, standing by beside the running one (it
+                        // feeds nothing), so the swap never stops the microphone
+                        // to start it. A start that fails leaves the running
+                        // stream exactly as it was.
+                        bool started;
+                        try { started = opened.StartAudioBeside(job.Beside); }
+                        catch (Exception ex) { Tracing.TraceLine("TxCallbackRate: the start beside the running stream threw: " + ex.Message, TraceLevel.Error); started = false; }
+                        if (!started)
+                        {
+                            job.StartFailed = true;
+                            job.StartFailedWhy = "it opened but would not start";
+                            try { opened.Close(); } catch { }
+                            opened = null;
+                        }
+                        return; // handed back below, once it is seen producing, outside the gate
+                    }
                     job.Stream = opened;
                     // Handed back only if nobody abandoned it while it opened (the
                     // remote audio stopped, the stream died, the run ended); if
@@ -339,6 +387,37 @@ namespace Radios
                     Tracing.TraceLine("TxCallbackRate: the " + TxOpenName(job) + " open at " + r + " a second did not begin:"
                         + " its job was abandoned, its run or audio server ended, or the session is closing", TraceLevel.Info);
                     return;
+                }
+            }
+            if (job.Kind != TxOpenKind.Replace && opened != null)
+            {
+                // Started and standing by: handed back only once the device is
+                // delivering to it, so the swap's take-over is never asked of a
+                // stream that has produced nothing. Waited here, off the loop and
+                // outside the server gate.
+                bool producing;
+                try { producing = opened.WaitUntilProducing(TxStandbyProducingMs); } catch { producing = false; }
+                job.OpenMs = Environment.TickCount64 - t0;
+                var standing = opened;
+                if (!producing)
+                {
+                    job.StartFailed = true;
+                    job.StartFailedWhy = "it started but delivered no audio within " + TxStandbyProducingMs + " ms";
+                    opened = null;
+                    if (!JJPortaudio.Audio.RunOnServer(job.Server, null, () => { try { standing.Close(); } catch { } }))
+                        Tracing.TraceLine("TxCallbackRate: a standing-by stream's close found its audio server already ended; nothing posted", TraceLevel.Info);
+                }
+                else
+                {
+                    job.Stream = standing;
+                    if (System.Threading.Interlocked.CompareExchange(ref job.State, 1, 0) == 0) handedBack = true;
+                    else
+                    {
+                        // Abandoned while it started: closed on its own server.
+                        if (!JJPortaudio.Audio.RunOnServer(job.Server, null, () => { try { standing.Close(); } catch { } }))
+                            Tracing.TraceLine("TxCallbackRate: an abandoned standing-by stream's close found its audio server already ended; nothing posted", TraceLevel.Info);
+                        return;
+                    }
                 }
             }
             if (!handedBack)
@@ -488,6 +567,35 @@ namespace Radios
                 PublishTxCaptureReplacement(job, channel);
                 return;
             }
+            if (fresh == null && job.StartFailed)
+            {
+                // Repair 1: it opened but would not start (or delivered nothing)
+                // beside the running stream, which was never touched. A fall back
+                // is asked again later, as a fall back whose open failed is. A
+                // try keeps it as "cannot open alongside", NOT as the rate
+                // failing: the start now runs while the other stream is running,
+                // so a refusal says the device will not run two at once, which
+                // is the same thing a refused open alongside says (a judgement,
+                // reported; before repair 1 the start came after the stop, so a
+                // refusal there was about the rate).
+                if (job.Fallback)
+                {
+                    Tracing.TraceLine("TxCallbackRate: the fall back at " + TxCallbackRate.Shipped + " a second " + job.StartFailedWhy
+                        + " (" + job.OpenMs + " ms); the microphone carries on at " + TxCallbackRate.Fast
+                        + " untouched, asked again in " + TxTryFallbackRetryMs / 1000 + " seconds", TraceLevel.Error);
+                    _txTryNextCheckTick = Environment.TickCount64 + TxTryFallbackRetryMs;
+                    return;
+                }
+                var failedCapture = ExpectedTxCapture(OpusTxSampleRateSetting);
+                RecordTxTryVerdict(new TxCallbackVerdict
+                {
+                    Device = failedCapture.Device, HostApi = failedCapture.HostApi, SampleRate = failedCapture.SampleRate, Channels = failedCapture.Channels,
+                    CallbacksPerSecond = TxCallbackRate.Fast, Passed = false, CannotOpenAlongside = true, MeasuredUtc = DateTime.UtcNow,
+                }, "(" + _txTryReason + "): the faster stream " + job.StartFailedWhy + " beside the running one (" + job.OpenMs
+                    + " ms, off the receive loop); the microphone carried on at " + _txCallbackRateThisStream + " untouched; not tried again on this device for "
+                    + TxCallbackRate.MaxVerdictAge.TotalDays.ToString("0") + " days");
+                return;
+            }
             if (fresh == null)
             {
                 if (job.Fallback)
@@ -517,7 +625,7 @@ namespace Radios
             }
             _txTryOpenMs = job.OpenMs;
             string why = job.Fallback ? "fall back after the automatic try: " + _txTryFallbackWhy : "the automatic try";
-            var result = SwapTxCaptureStreamAdmitted(fresh, job.Rate, why, job.KeyDownsAtStart, out string refusal);
+            var result = SwapTxCaptureStreamAdmitted(fresh, job.Beside, job.Rate, why, job.KeyDownsAtStart, out string refusal);
             if (result == TxSwapResult.Refused)
             {
                 CloseTxStreamOffLoop(fresh, job.Server);
@@ -529,19 +637,7 @@ namespace Radios
             }
             if (job.Fallback)
             {
-                if (result == TxSwapResult.Swapped) _txTryFallbackDue = false;
-                return;
-            }
-            if (result != TxSwapResult.Swapped)
-            {
-                // The faster stream opened but would not start: that is the rate
-                // failing on this device, and it is kept as a failure.
-                var capture = ExpectedTxCapture(OpusTxSampleRateSetting);
-                RecordTxTryVerdict(new TxCallbackVerdict
-                {
-                    Device = capture.Device, HostApi = capture.HostApi, SampleRate = capture.SampleRate, Channels = capture.Channels,
-                    CallbacksPerSecond = TxCallbackRate.Fast, Passed = false, MeasuredUtc = DateTime.UtcNow,
-                }, "failed: the faster stream opened but would not start; the microphone is back at " + _txCallbackRateThisStream);
+                _txTryFallbackDue = false;
                 return;
             }
             _txTryRunning = true;
@@ -671,24 +767,29 @@ namespace Radios
             return stream;
         }
 
-        private enum TxSwapResult { Refused, Swapped, NotStarted }
+        private enum TxSwapResult { Refused, Swapped }
 
         /// <summary>
         /// Put an open, wired stream in place of the running one, on the loop's
         /// thread, as ONE admitted step (rulings repair 1): under the capture
-        /// admission lock, ask again whether it is allowed (see the header above),
-        /// then stop the old and start the new; if the new will not start, start
-        /// the old again. Only if that fails too is a stream opened afresh at the
-        /// shipped rate, outside the lock. The old stream is closed off the loop
-        /// once it is out of use.
+        /// admission lock, ask again whether it is allowed (see the header above).
+        /// MAKE BEFORE BREAK (the H2 split, repair 1): the new stream is already
+        /// started and producing beside the running one, feeding nothing; the
+        /// swap asks the running stream to hand over at the end of a buffer and
+        /// waits for it (<see cref="TxHandoverWaitMs"/>), so the microphone is
+        /// never stopped to make the swap. If the running stream has stopped
+        /// producing, the new one takes over by force. The old stream is closed
+        /// off the loop once it is out of use; nothing is ever stopped first, so
+        /// there is nothing to start again and no rescue.
         /// </summary>
-        private TxSwapResult SwapTxCaptureStreamAdmitted(JJAudioStream fresh, int rate, string why, long keyDownsAtStart, out string refusal)
+        private TxSwapResult SwapTxCaptureStreamAdmitted(JJAudioStream fresh, JJAudioStream beside, int rate, string why, long keyDownsAtStart, out string refusal)
         {
             refusal = null;
             var channel = opusInputChannel;
             if (channel == null || fresh == null) { refusal = "the connection ended"; return TxSwapResult.Refused; }
             JJAudioStream old;
-            bool rescue = false;
+            bool forced;
+            long handoverMs;
             lock (TxCaptureAdmission)
             {
                 bool keyed;
@@ -705,41 +806,21 @@ namespace Radios
                 {
                     if (!channel.Started) { refusal = "the capture is not running"; return TxSwapResult.Refused; }
                     old = channel.PortAudioStream;
-                    if (old != null) old.StopAudio();
-                    channel.Started = false;
+                    if (!ReferenceEquals(old, beside)) { refusal = "the running stream changed while it opened"; return TxSwapResult.Refused; }
+                    var clock = Stopwatch.StartNew();
+                    fresh.RequestTakeOver();
+                    int bound = TxHandoverWaitMs(_txCallbackRateThisStream);
+                    while (!fresh.HasTakenOver && clock.ElapsedMilliseconds < bound) System.Threading.Thread.Sleep(1);
+                    forced = !fresh.HasTakenOver;
+                    if (forced) fresh.ForceTakeOver(); // the running stream had stopped producing
+                    handoverMs = clock.ElapsedMilliseconds;
                     channel.PortAudioStream = fresh;
-                    if (fresh.StartAudio()) channel.Started = true;
-                    else
-                    {
-                        // StartAudio closed the new stream on its failure. The old one
-                        // is open and only stopped: start it again.
-                        channel.PortAudioStream = old;
-                        channel.Started = old != null && old.StartAudio();
-                        rescue = !channel.Started;
-                        if (rescue) { channel.PortAudioStream = null; old = null; } // its own failed start closed it
-                    }
+                    channel.Started = true;
                 }
             }
-            if (!channel.Started || !ReferenceEquals(channel.PortAudioStream, fresh))
-            {
-                if (rescue)
-                {
-                    // Both refused: the capture is lost. A fresh stream at the
-                    // shipped rate is opened on a worker (rulings repair 2, Codex's
-                    // P2: an open on this loop stalls receive for up to five
-                    // seconds), and until it publishes the microphone is pending:
-                    // the gate starts nothing. If it will not open, or will not
-                    // start, the microphone is given up, said once. Its start is
-                    // resolved as a restart, timed from now; never spoken (the
-                    // swap only runs unkeyed).
-                    _micDiedAtMs = _streamRecoveryClock();
-                    _micDiedKeyed = false;
-                    _micRestartSpeakable = false;
-                    BeginTxCaptureReplacement(channel, TxCallbackRate.Shipped, 0,
-                        "neither the old nor a new microphone stream would start");
-                }
-                return TxSwapResult.NotStarted;
-            }
+            why += forced
+                ? "; the running stream delivered nothing for " + handoverMs + " ms, so the new one took over without its hand-over"
+                : "; handed over at the end of a buffer after " + handoverMs + " ms, the microphone never stopped";
             if (old != null && !ReferenceEquals(old, fresh))
             {
                 // Judged as it closes, like any stream, unless the try already

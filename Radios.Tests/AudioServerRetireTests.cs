@@ -44,6 +44,9 @@ namespace Radios.Tests
             using var release = new ManualResetEventSlim();
             var stand = StandIn(release);
             var queue = new BlockingCollection<AudioAnchor.workItem>();
+            // The stand-in's run holds a generation of its own, as Initialize
+            // gives one (never 0, which means no server was started): repair 1.
+            Audio.MoveServerGenerationForTest();
             var was = AudioAnchor.SwapServerForTest(stand, queue, null);
             int retireWas = AudioAnchor.PreviousServerRetireMs;
             var threadWas = AudioAnchor.ServerThreadForTest;
@@ -53,7 +56,7 @@ namespace Radios.Tests
             {
                 AudioAnchor.PreviousServerRetireMs = 50;
                 var sw = Stopwatch.StartNew();
-                Audio.Terminate();                                  // the stand-in never takes its terminate
+                Audio.Terminate(Audio.ServerGeneration);            // its own run's end; the stand-in never takes its terminate
                 sw.Stop();
                 Assert.True(sw.ElapsedMilliseconds < 5000, "Terminate must stay bounded, so the app can always close");
                 Assert.Equal(1, queue.Count);                       // the terminate went on ITS queue
@@ -61,18 +64,20 @@ namespace Radios.Tests
                 Assert.Same(stand, AudioAnchor.UnretiredServerForTest); // remembered, not forgotten
 
                 long generation = Audio.ServerGeneration;
-                Assert.False(Audio.Initialize(null!, null!));       // refused while the old server is alive
+                Assert.False(Audio.Initialize(null!, null!, out long refusedGeneration)); // refused while the old server is alive
+                Assert.Equal(0, refusedGeneration);                  // and it owns nothing
                 Assert.Null(started);                                // no second server was made
                 Assert.Same(queue, AudioAnchor.work);                // nothing was replaced
                 Assert.Equal(generation, Audio.ServerGeneration);    // and the generation did not move
-                Audio.Terminate();                                   // the refused run's own end posts nothing
+                Audio.Terminate(refusedGeneration);                  // the refused run's own end posts nothing
                 Assert.Equal(1, queue.Count);
-                generation = Audio.ServerGeneration;                 // (a Terminate always moves it: nothing old may run)
+                Assert.Equal(generation, Audio.ServerGeneration);    // and moves nothing (repair 1: it ends only its own generation)
 
                 // Positive control: once the old server has gone, a start goes ahead.
                 release.Set();
                 Assert.True(stand.Join(5000));
-                Assert.True(Audio.Initialize(null!, null!));
+                Assert.True(Audio.Initialize(null!, null!, out long startedGeneration));
+                Assert.Equal(generation + 1, startedGeneration);
                 Assert.NotNull(started);
                 Assert.Null(AudioAnchor.UnretiredServerForTest);
                 Assert.NotSame(queue, AudioAnchor.work);             // its own new queue

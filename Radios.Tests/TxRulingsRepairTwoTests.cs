@@ -48,6 +48,15 @@ namespace Radios.Tests
             public override bool StopAudio() { Stops++; return true; }
             public override bool StartAudio() { Starts++; return Result; }
             public override void Close() { Closes++; }
+            // Repair 1, make before break: a stand-in that delivers at once and
+            // is handed over to as soon as it asks, unless told otherwise.
+            public bool Produces = true, HandsOver = true;
+            public int Requests, Forced;
+            private bool _taken;
+            public override bool WaitUntilProducing(int timeoutMs) => Produces;
+            public override void RequestTakeOver() { Requests++; if (HandsOver) _taken = true; }
+            public override bool HasTakenOver => _taken;
+            public override void ForceTakeOver() { Forced++; _taken = true; }
         }
 
         private sealed class Rig : IDisposable
@@ -79,7 +88,15 @@ namespace Radios.Tests
             }
         }
 
-        // ── P2: the double-failure rescue opens on the worker (adapted: the worker is queued) ──
+        // ── P2: the double-failure rescue opened on the receive loop ──
+        //
+        // Codex's finding against 661dc63f, fixed then by opening the rescue on a
+        // worker. Since the split's repair 1 the swap is make before break: the
+        // new stream is started beside the running one, which is never stopped,
+        // so a new stream that will not start leaves nothing to rescue. These two
+        // replace the rescue's two tests (on h2-join, and on this branch until
+        // repair 1) with what must now hold instead: the running stream is
+        // untouched, and nothing is opened again, on the loop or anywhere.
 
         private static FlexBase.audioChannelData Channel(Rig x, Fake old)
         {
@@ -92,48 +109,84 @@ namespace Radios.Tests
 
         private static void Step(Rig x) => Call(x.B, "TxTryStep");
         private static bool Start(Rig x) => (bool)Call(x.B, "startOpusInputChannel")!;
+        private static object Kind(string name) => Enum.Parse(typeof(FlexBase).GetNestedType("TxOpenKind", BindingFlags.NonPublic)!, name);
 
         [Fact]
-        public void A_double_start_failure_must_not_open_the_rescue_on_the_receive_loop()
+        public void A_new_stream_that_will_not_start_never_touches_the_running_one_and_nothing_is_rescued()
         {
             using var x = new Rig(); var old = new Fake { Result = false }; var fresh = new Fake { Result = false };
             var channel = Channel(x, old); Set(x.B, "_txTryFallbackDue", true);
             var jobs = new List<Action>(); x.B.TxCaptureWorkerForTest = a => jobs.Add(a);
-            int opens = 0; x.B.TxCaptureOpenForTest = _ => ++opens == 1 ? fresh : null!;
+            int opens = 0; x.B.TxCaptureOpenForTest = _ => { opens++; return fresh; };
             Step(x);                        // the fall back's open goes to its worker
-            Assert.Single(jobs); jobs[0]();  // and comes back with the new stream
-            Step(x);                        // the loop swaps: both refuse to start
-            Assert.Equal(1, opens);         // the rescue did NOT open on the loop
-            Assert.Equal(2, jobs.Count);    // it is on its worker
-            Assert.True((bool)Get(x.B, "_micReopenPending")!);
-            Assert.Null(channel.PortAudioStream);
-            Assert.False(Start(x));         // pending: the gate starts nothing
+            Assert.Single(jobs); jobs[0]();  // it opens, and will not start beside the running stream
+            Assert.Equal(1, fresh.Starts);
+            Assert.Equal(1, fresh.Closes);
+            Step(x);                        // the loop takes the result
+            Assert.Equal(1, opens);         // nothing opened again
+            Assert.Single(jobs);            // on the loop or on a worker
+            Assert.Equal(0, old.Stops);     // the running stream was never stopped
+            Assert.Equal(0, old.Starts);    // so never needed starting again (it would have refused)
+            Assert.Same(old, channel.PortAudioStream);
+            Assert.True(channel.Started);
+            Assert.False((bool)Get(x.B, "_micReopenPending")!);
+            Assert.True(Start(x));          // the gate finds the microphone running
+            Assert.False((bool)Get(x.B, "_micGivenUp")!);
             Assert.Null(Report(x.B));
-            jobs[1]();                      // the rescue's open, refused
-            Assert.Equal(2, opens);
-            Assert.False(Start(x));         // published as a failure: given up, said once
-            Assert.True((bool)Get(x.B, "_micGivenUp")!);
-            Assert.Equal(Lexicon.Get("audio.pc_audio.mic_stream_gave_up"), Report(x.B));
-            typeof(FlexBase).GetProperty("LastStreamRecoveryReport", Any)!.SetValue(x.B, null);
-            Assert.False(Start(x));
-            Assert.Null(Report(x.B));
+            Assert.True((bool)Get(x.B, "_txTryFallbackDue")!); // asked again later
         }
 
         [Fact]
-        public void A_rescued_stream_is_published_and_started_by_the_gate()
+        public void A_tried_stream_that_starts_but_delivers_nothing_is_closed_kept_as_cannot_run_alongside_and_the_running_one_carries_on()
         {
-            using var x = new Rig(); var old = new Fake { Result = false }; var fresh = new Fake { Result = false }; var rescued = new Fake();
+            string root = Path.Combine(Path.GetTempPath(), "jjf-h2s-r1-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            var storeWas = TxCallbackRate.StoreForTest;
+            try
+            {
+                TxCallbackRate.StoreForTest = new TxCallbackVerdictStore(root);
+                using var x = new Rig(); var old = new Fake(); var fresh = new Fake { Produces = false };
+                var channel = Channel(x, old);
+                x.B.TxCaptureWorkerForTest = a => a();
+                x.B.TxCaptureOpenForTest = _ => fresh;
+                Call(x.B, "StartTxOpenJob", TxCallbackRate.Fast, Kind("Try"), channel, 0, "");
+                Call(x.B, "TakeReturnedTxOpen", channel, false);
+                Assert.Equal(1, fresh.Starts);
+                Assert.Equal(1, fresh.Closes);   // closed on its worker, on its own server
+                Assert.Equal(0, fresh.Requests); // never asked to take over
+                Assert.Equal(0, old.Stops);
+                Assert.Same(old, channel.PortAudioStream);
+                Assert.True(channel.Started);
+                var capture = new TxCaptureIdentity("", -1, (int)FlexBase.OpusTxSampleRateSetting, 2);
+                var verdict = TxCallbackRate.StoreForTest.Find(capture, TxCallbackRate.Fast);
+                Assert.NotNull(verdict);
+                Assert.False(verdict!.Passed);
+                Assert.True(verdict.CannotOpenAlongside); // about running two at once, not a verdict on the rate
+            }
+            finally
+            {
+                TxCallbackRate.StoreForTest = storeWas;
+                try { Directory.Delete(root, true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void A_running_stream_that_stopped_delivering_is_taken_over_by_force_without_being_stopped()
+        {
+            using var x = new Rig(); var old = new Fake(); var fresh = new Fake { HandsOver = false };
             var channel = Channel(x, old); Set(x.B, "_txTryFallbackDue", true);
-            using var wake = new RemoteAudioWake(); Set(x.B, "_remoteAudioWake", wake);
-            var jobs = new List<Action>(); x.B.TxCaptureWorkerForTest = a => jobs.Add(a);
-            int opens = 0; x.B.TxCaptureOpenForTest = _ => ++opens == 1 ? fresh : rescued;
-            Step(x); jobs[0](); Step(x); jobs[1]();
-            Assert.True(Start(x));
-            Assert.Same(rescued, channel.PortAudioStream);
-            Assert.Equal(1, rescued.Starts);
-            Assert.Same(wake, rescued.StreamDiedHook!.Target); // this run's death hook, wired by the one open path
-            Assert.False((bool)Get(x.B, "_micGivenUp")!);
-            Assert.Null(Report(x.B));                           // unkeyed: traced only
+            x.B.TxCaptureWorkerForTest = a => a();
+            x.B.TxCaptureOpenForTest = _ => fresh;
+            var sw = Stopwatch.StartNew();
+            Step(x);
+            sw.Stop();
+            Assert.Equal(1, fresh.Requests);
+            Assert.Equal(1, fresh.Forced);   // no hand-over came, so it took over
+            Assert.Equal(0, old.Stops);      // and the running stream was not stopped first
+            Assert.Equal(1, old.Closes);     // it was closed off the loop afterwards
+            Assert.Same(fresh, channel.PortAudioStream);
+            Assert.True(channel.Started);
+            Assert.True(sw.ElapsedMilliseconds < 2000, "the loop waited " + sw.ElapsedMilliseconds + " ms for the hand-over");
         }
 
         // ── The joins ──
@@ -293,7 +346,7 @@ namespace Radios.Tests
         {
             string remote = FlexBasePartials.JoinedText();
             int done = remote.IndexOf("            remoteDone:", StringComparison.Ordinal);
-            int terminate = remote.IndexOf("Audio.Terminate();", done, StringComparison.Ordinal);
+            int terminate = remote.IndexOf("Audio.Terminate(serverGeneration);", done, StringComparison.Ordinal); // repair 1: its own server only
             Assert.True(done > 0 && terminate > done);
             string teardown = remote.Substring(done, terminate - done);
             Assert.Contains("if (run == Interlocked.Read(ref _remoteAudioRun))", teardown);

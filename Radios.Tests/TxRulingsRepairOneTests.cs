@@ -39,6 +39,15 @@ namespace Radios.Tests
             public override bool StopAudio() { Stops++; OnStop?.Invoke(); return true; }
             public override bool StartAudio() { Starts++; OnStart?.Invoke(); return StartResult; }
             public override void Close() { Closes++; }
+            // Repair 1, make before break: delivers at once, and is handed over
+            // to as soon as it asks (OnRequest runs inside the swap, first).
+            public Action? OnRequest;
+            public int Requests;
+            private bool _taken;
+            public override bool WaitUntilProducing(int timeoutMs) => true;
+            public override void RequestTakeOver() { Requests++; OnRequest?.Invoke(); _taken = true; }
+            public override bool HasTakenOver => _taken;
+            public override void ForceTakeOver() { _taken = true; }
         }
 
         private sealed class Rig : IDisposable
@@ -96,7 +105,8 @@ namespace Radios.Tests
             Step(x);
             Assert.True(x.Base.TransmitKeyedOrInterlock);
             Assert.Equal(0, old.Stops); // capture never stopped after the key-down
-            Assert.Equal(0, fresh.Starts);
+            Assert.Equal(1, fresh.Starts);   // repair 1: started beside it, standing by, feeding nothing
+            Assert.Equal(0, fresh.Requests); // and never asked to take over
             Assert.Equal(1, fresh.Closes);
             Assert.True((bool)Get(x.Base, "_txTryFallbackDue")); // asked again at the next unkeyed moment
         }
@@ -112,8 +122,10 @@ namespace Radios.Tests
                 Set(x.Base, "_txTryFallbackDue", true);
                 x.Base.TxCaptureOpenForTest = rate => fresh;
                 Step(x);
-                Assert.Equal(1, old.Stops);
+                Assert.Equal(0, old.Stops);      // repair 1: never stopped to make the swap
+                Assert.Equal(1, old.Closes);     // closed off the loop once handed over
                 Assert.Equal(1, fresh.Starts);
+                Assert.Equal(1, fresh.Requests);
                 Assert.Same(fresh, channel.PortAudioStream);
                 Assert.False((bool)Get(x.Base, "_txTryFallbackDue"));
             }
@@ -128,7 +140,7 @@ namespace Radios.Tests
                 Step(x);
                 Assert.False(x.Base.Transmit);           // the radio has not reported it
                 Assert.Equal(0, old.Stops);
-                Assert.Equal(0, fresh.Starts);
+                Assert.Equal(0, fresh.Requests);         // started beside, never asked to take over
             }
         }
 
@@ -137,29 +149,36 @@ namespace Radios.Tests
         /// key-down is recorded against a swap, never held by it. On
         /// sprint49/h2-join this test asserted the opposite (the key-down waited
         /// for the swap's stop and start); that wait put a key press behind the
-        /// audio server, so it is not carried. A key-down inside the stop-start
-        /// window is the residual, as hardware PTT and VOX always were.
+        /// audio server, so it is not carried. Since the split's repair 1 the swap
+        /// no longer stops the microphone at all: the key-down here lands inside
+        /// the swap itself (under its admission lock, as it asks the running
+        /// stream to hand over), returns at once, and meets a running stream that
+        /// was never stopped.
         /// </summary>
         [Fact]
-        public void Our_key_down_during_the_swaps_stop_and_start_is_never_held_by_it()
+        public void Our_key_down_during_the_swaps_hand_over_is_never_held_by_it_and_meets_a_live_microphone()
         {
             using var x = new Rig();
             var old = new FakeStream(); var fresh = new FakeStream();
             Channel(x, old);
             Set(x.Base, "_txTryFallbackDue", true);
             x.Base.TxCaptureOpenForTest = rate => fresh;
-            bool returnedDuringStop = false;
-            old.OnStop = () =>
+            bool returnedDuringSwap = false;
+            int oldStopsAtKeyDown = -1;
+            fresh.OnRequest = () =>
             {
                 bool keyDownReturned = false;
+                oldStopsAtKeyDown = old.Stops;
                 var keyer = new Thread(() => { x.Base.Transmit = true; Volatile.Write(ref keyDownReturned, true); }) { IsBackground = true };
                 keyer.Start();
-                // The key-down returns while the swap is still inside its stop.
-                returnedDuringStop = keyer.Join(5000) && Volatile.Read(ref keyDownReturned);
+                // The key-down returns while the swap is still inside its hand-over.
+                returnedDuringSwap = keyer.Join(5000) && Volatile.Read(ref keyDownReturned);
             };
             Step(x);
-            Assert.True(returnedDuringStop, "our key-down waited on the swap");
-            Assert.Equal(1, fresh.Starts);                // positive control: the swap really ran its stop and start
+            Assert.True(returnedDuringSwap, "our key-down waited on the swap");
+            Assert.Equal(0, oldStopsAtKeyDown);           // the microphone was running when the over began
+            Assert.Equal(1, fresh.Requests);              // positive control: the swap really ran its hand-over
+            Assert.Equal(0, old.Stops);
             Assert.Equal("Mox", x.Base.q.Dequeue().Name); // the key-down's write, queued as it always is
         }
 

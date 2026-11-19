@@ -45,6 +45,15 @@ namespace Radios.Tests
             public override bool StopAudio() { Stops++; return true; }
             public override bool StartAudio() { Starts++; return Result; }
             public override void Close() { Closes++; }
+            // Repair 1, make before break: a stand-in that delivers at once and
+            // is handed over to as soon as it asks, unless told otherwise.
+            public bool Produces = true, HandsOver = true;
+            public int Requests, Forced;
+            private bool _taken;
+            public override bool WaitUntilProducing(int timeoutMs) => Produces;
+            public override void RequestTakeOver() { Requests++; if (HandsOver) _taken = true; }
+            public override bool HasTakenOver => _taken;
+            public override void ForceTakeOver() { Forced++; _taken = true; }
         }
 
         internal sealed class Rig : IDisposable
@@ -183,7 +192,7 @@ namespace Radios.Tests
         public void Initialize_and_Terminate_hold_the_server_s_gate_and_move_its_generation()
         {
             string audio = File.ReadAllText(Path.Combine(RepoRoot(), "JJPortaudio", "JJPortaudio", "Audio.cs"));
-            foreach (var (method, call) in new[] { ("public static bool Initialize(", "if (!AudioAnchor.Init(inDev, outDev)) return false;"), ("public static void Terminate()", "AudioAnchor.Term();") })
+            foreach (var (method, call) in new[] { ("public static bool Initialize(", "if (!AudioAnchor.Init(inDev, outDev)) return false;"), ("public static void Terminate(long generation)", "AudioAnchor.Term();") })
             {
                 int at = audio.IndexOf(method, StringComparison.Ordinal);
                 string body = audio.Substring(at, audio.IndexOf("\n        }", at, StringComparison.Ordinal) - at);
@@ -272,7 +281,7 @@ namespace Radios.Tests
         public void Every_loop_pass_publishes_a_returned_reopen_before_the_gate_chooses_a_producer()
         {
             string remote = FlexBasePartials.JoinedText();
-            int loop = remote.IndexOf("while (!stopRemoteAudio)", StringComparison.Ordinal);
+            int loop = remote.IndexOf("while (!RemoteRunStopping(run))", StringComparison.Ordinal); // repair 1: the run's own stop
             int take = remote.IndexOf("TakeReturnedTxReplacement();", loop, StringComparison.Ordinal);
             int disconnecting = remote.IndexOf("if (Disconnecting)", loop, StringComparison.Ordinal);
             int gate = remote.IndexOf("if (!TxInputSources.Idle)", loop, StringComparison.Ordinal);
