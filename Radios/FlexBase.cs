@@ -4900,6 +4900,12 @@ namespace Radios
                             s.Panadapter.GetRFGainInfo();
                             FilterObj.RXFreqChange(s);
                             EscStateChanged?.Invoke();
+                            // The slice's own Active notice comes BEFORE the radio
+                            // records the new active slice (FlexLib's
+                            // Slice._UpdateActive, then Radio.UpdateActiveSlice), so
+                            // the transmit policy's active-slice fallback is told
+                            // again here, once it is true (slice-mode round 2).
+                            TransmitModeMayHaveChanged?.Invoke();
 #if CWMonitor
                             if (useCWMon && (s == VFOToSlice(TXVFO)) && (s.DemodMode == "CW"))
                             {
@@ -6446,6 +6452,10 @@ namespace Radios
                     _RXVFO = SliceToVFO(slc);
                     NoteActiveSliceAsFound(slc);
                 }
+                // A slice arrives ready, its status already parsed, so no property
+                // change will tell the transmit policy what it brought (slice-mode
+                // round 2, Codex): told here, once the caches above are in place.
+                TransmitModeMayHaveChanged?.Invoke();
             }
             else Tracing.TraceLine("sliceAdded:not mine " + slc.ToString(), TraceLevel.Info);
         }
@@ -9342,6 +9352,56 @@ namespace Radios
         /// the setter never touches it — but it can sit stale after slice
         /// churn, and stale is exactly what a confirmation must not read.
         /// </remarks>
+        /// <summary>
+        /// The mode of the slice the radio has DESIGNATED to transmit, read live
+        /// from that slice; empty when no slice of ours is designated (Sprint 49
+        /// Track H2, slice-mode round 2). Unlike <see cref="TXModeAsReported"/>,
+        /// which follows the position <see cref="TXVFO"/> even after the radio
+        /// has taken the designation away, this checks the designation itself.
+        /// </summary>
+        public string DesignatedTransmitMode
+        {
+            get
+            {
+                try { return DesignatedTransmitSlice()?.DemodMode ?? ""; }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("DesignatedTransmitMode: " + ex.Message, TraceLevel.Warning);
+                    return "";
+                }
+            }
+        }
+
+        /// <summary>
+        /// The ACTIVE slice's mode, read live (slice-mode round 2): the radio's
+        /// active slice when it is ours, else the slice of ours marked active,
+        /// else the last active mode reported. Never the transmit mode, which
+        /// <see cref="Mode"/> reads while transmitting.
+        /// </summary>
+        public string ActiveSliceModeAsReported
+        {
+            get
+            {
+                try
+                {
+                    Slice s = theRadio?.ActiveSlice;
+                    if (s == null || !myClient(s.ClientHandle))
+                    {
+                        s = null;
+                        lock (mySlices)
+                            foreach (Slice candidate in mySlices)
+                                if (candidate.Active) { s = candidate; break; }
+                    }
+                    return s?.DemodMode ?? _RXMode ?? "";
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("ActiveSliceModeAsReported: " + ex.Message, TraceLevel.Warning);
+                    return _RXMode ?? "";
+                }
+            }
+        }
+
         public string TXModeAsReported
         {
             get

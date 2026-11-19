@@ -320,11 +320,17 @@ namespace JJFlexWpf
             if (_rig is { } rig) ApplyModePolicy(TransmitModeOf(rig));
         }
 
-        /// <summary>The transmit slice's mode, read from the slice itself; the active slice's when no slice transmits.</summary>
+        /// <summary>
+        /// The transmit slice's mode: the slice the radio has DESIGNATED, read
+        /// live; when none of ours is designated, the active slice's receive mode,
+        /// read live (slice-mode round 2, Codex: the positional read kept a
+        /// designation's old CW after the radio removed it, and the fallback read
+        /// the transmit mode while transmitting).
+        /// </summary>
         internal static string TransmitModeOf(FlexBase rig)
         {
-            string mode = rig.TXModeAsReported;
-            return string.IsNullOrEmpty(mode) ? rig.Mode ?? "" : mode;
+            string designated = rig.DesignatedTransmitMode;
+            return designated.Length > 0 ? designated : rig.ActiveSliceModeAsReported;
         }
 
         private static void ApplyModePolicy(string mode)
@@ -343,9 +349,13 @@ namespace JJFlexWpf
         private static bool IsNonVoiceMode(string mode)
         {
             if (string.IsNullOrEmpty(mode)) return false;
+            // DFM and FDV are the radio's own digital modes, as FlexLib's Slice
+            // filter branches spell them (slice-mode round 2); FM and NFM are voice.
             return mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase) ||
                    mode.StartsWith("DIG", StringComparison.OrdinalIgnoreCase) ||
                    mode.StartsWith("FDM", StringComparison.OrdinalIgnoreCase) ||
+                   mode.StartsWith("FDV", StringComparison.OrdinalIgnoreCase) ||
+                   mode.Equals("DFM", StringComparison.OrdinalIgnoreCase) ||
                    mode.Equals("RTTY", StringComparison.OrdinalIgnoreCase);
         }
 

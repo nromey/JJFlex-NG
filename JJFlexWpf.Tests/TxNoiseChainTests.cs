@@ -890,9 +890,10 @@ public sealed class TxNoiseChainTests
         Volatile.Write(ref rig.Keyed, false);
         rig.Run();
         Until(() => reports.Count == 2);
-        string line = reports.ToArray()[1];
+        // The two lines are worded on pool threads, so they can arrive in either
+        // order: pick the new over's by its size, never by its position.
+        string line = Assert.Single(reports, l => l.Contains("; 2 buffers in "));
         Assert.Contains("Neural nnr: engine frames 2, late 0, failed 0, latched dry 0", line);
-        Assert.Contains("2 buffers", line);
         Assert.DoesNotContain("rnnoise", line);
     }
 }
