@@ -5701,8 +5701,10 @@ public class KeyCommands
             },
             // A transmit part put back while keyed waits for the unkey, and the
             // closing sentence says so (Track H2 repair round 1, item 4).
+            // And it says what was put back and what was kept (repair 1, F4):
+            // a change made elsewhere while the layer was open stays (#1150).
             DescribeLayerRestored = (layer, restored) => noise.WithRestoreTiming(Radios.Lexicon.Get(
-                restoredSomething ? "audio.noise_layer.restored" : "audio.noise_layer.restored_nothing")),
+                noise.RestoreClosingKey(restoredSomething))),
             // In the layer's direction (words round): after T the radio letters do nothing.
             PickTargetHint = () => Radios.Lexicon.Get(noise.SwitchesOnlyKey),
             WrongAxisHint = () => Radios.Lexicon.Get(noise.SwitchesOnlyKey),

@@ -273,6 +273,12 @@ namespace JJFlexWpf
         /// Asked at Escape and again when the put-back runs, so a change someone
         /// else makes in between (held ahead of it, say) is kept.
         /// </summary>
+        /// <summary>A transmit part the layer does not own that no longer reads as the picture: a change made elsewhere, which Escape keeps (F4).</summary>
+        private static bool KeptOutsideTx(NoiseSnapshot snap, TxPicture now, (bool Spectral, bool Neural, bool Gate) owned) =>
+            (!owned.Spectral && snap.TransmitSpectral != null && DescribeTx(now.Spectral) != DescribeTx(snap.TransmitSpectral))
+            || (!owned.Neural && snap.TransmitNeural != null && DescribeTx(now.Neural) != DescribeTx(snap.TransmitNeural))
+            || (!owned.Gate && snap.TransmitGate != null && !SameGate(now.Gate, snap.TransmitGate));
+
         private (bool Spectral, bool Neural, bool Gate) LayerOwnedTx(NoiseSnapshot snap, TxPicture now)
         {
             bool spectral = snap.LeftSpectral != null && snap.TransmitSpectral != null
@@ -374,6 +380,32 @@ namespace JJFlexWpf
         public string WithRestoreTiming(string closing) =>
             LastRestoreTiming == TxChangeTiming.AtUnkey ? closing + " " + Lexicon.Get("audio.denoise.tx.at_unkey") : closing;
 
+        /// <summary>
+        /// Whether the last <see cref="RestoreSnapshot"/> left standing a change
+        /// made outside the layer (repair 1, F4): a receive or transmit computer
+        /// slot, or the transmit gate, the layer does not own and that no longer
+        /// reads as the picture. The radio's own switches and levels are not
+        /// counted: one the layer did not touch can have moved because of a
+        /// layer change (the radio turning a sibling off), which is not a change
+        /// made elsewhere.
+        /// </summary>
+        public bool LastRestoreKeptOutsideChanges { get; private set; }
+
+        /// <summary>
+        /// The lexicon key of the layer's closing sentence after Escape, from the
+        /// ownership facts: whether the layer put anything of its own back
+        /// (<paramref name="restoredSomething"/>, <see cref="RestoreSnapshot"/>'s
+        /// answer) and whether changes made elsewhere were kept
+        /// (<see cref="LastRestoreKeptOutsideChanges"/>).
+        /// </summary>
+        public string RestoreClosingKey(bool restoredSomething) => (restoredSomething, LastRestoreKeptOutsideChanges) switch
+        {
+            (true, false) => "audio.noise_layer.restored",
+            (true, true) => "audio.noise_layer.restored_kept_elsewhere",
+            (false, true) => "audio.noise_layer.restored_nothing_kept_elsewhere",
+            _ => "audio.noise_layer.restored_nothing",
+        };
+
         /// <summary>The layer closed: nothing is live to put back any more.</summary>
         public void EndSnapshot() => _live = null;
 
@@ -391,6 +423,7 @@ namespace JJFlexWpf
         public bool RestoreSnapshot(NoiseSnapshot snap, string source)
         {
             bool changed = false;
+            LastRestoreKeptOutsideChanges = false;
             if (ReferenceEquals(_live, snap)) _live = null;
             // Escape puts the radio's switches back too, so a queued sibling
             // observation is obsolete whatever else is put back.
@@ -449,6 +482,7 @@ namespace JJFlexWpf
                 bool kept = (!spectralOwned && DescribeRx(ReadRx(p.SpectralSlot)) != DescribeRx(PictureOf(snap, DenoiseFamily.Spectral)))
                     || (!neuralOwned && DescribeRx(ReadRx(p.NeuralSlot)) != DescribeRx(PictureOf(snap, DenoiseFamily.Neural)));
                 if (kept) RememberModeState();
+                LastRestoreKeptOutsideChanges |= kept;
             }
             // The transmit part (Track H2; Escape ownership round): only what the
             // layer itself changed. First its own changes still held for the
@@ -468,7 +502,9 @@ namespace JJFlexWpf
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes waiting for the unkey", "withdrawn");
                     changed = true;
                 }
-                var owned = LayerOwnedTx(snap, ReadTx(chain));
+                var txNow = ReadTx(chain);
+                var owned = LayerOwnedTx(snap, txNow);
+                LastRestoreKeptOutsideChanges |= KeptOutsideTx(snap, txNow, owned);
                 if (owned.Spectral || owned.Neural || owned.Gate)
                 {
                     if (owned.Spectral || owned.Neural) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
