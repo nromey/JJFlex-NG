@@ -33,12 +33,14 @@ public sealed class AntTuneEventSequenceTests : IDisposable
 
     /// <summary>
     /// Step 2d: an automatic cycle ends Bypass. The event says "auto",
-    /// "Bypass", raised before the type is switched to manual, so a handler
-    /// that reads the type later sees manual: the reason it must use the
-    /// event's own type.
+    /// "Bypass". Until #1188 the type was then switched to manual, so a
+    /// handler that read the type later saw manual; under Noel's J8 ruling a
+    /// bypass result no longer moves the type, and this test pinned the old
+    /// switch, so its last line changed with the fix. The handler still uses
+    /// the event's own type.
     /// </summary>
     [Fact]
-    public void An_automatic_cycle_ending_Bypass_is_raised_as_automatic_before_the_type_turns_manual()
+    public void An_automatic_cycle_ending_Bypass_is_raised_as_automatic_and_the_type_stays_automatic()
     {
         using var c = new RadioCase();
         var seen = Wire(c, FlexBase.FlexTunerTypes.auto);
@@ -49,7 +51,7 @@ public sealed class AntTuneEventSequenceTests : IDisposable
         var end = seen.FindLast(x => x.Status == "Bypass");
         Assert.Equal("auto", end.Type);
         Assert.False(end.AtuTuning);
-        Assert.Equal(FlexBase.FlexTunerTypes.manual, c.F.Rig.FlexTunerType);   // switched after the raise
+        Assert.Equal(FlexBase.FlexTunerTypes.auto, c.F.Rig.FlexTunerType);   // #1188: a bypass result keeps the operator's choice
     }
 
     /// <summary>
@@ -66,8 +68,8 @@ public sealed class AntTuneEventSequenceTests : IDisposable
         using var c = new RadioCase();
         var seen = Wire(c, FlexBase.FlexTunerTypes.auto);
         // The ATU idle, as the menu's "on" leaves it: automatic type, the
-        // radio's ATU status untouched (a reported Bypass would itself turn
-        // the type manual).
+        // radio's ATU status untouched (until #1188 a reported Bypass would
+        // itself have turned the type manual).
         c.F.Rig.FlexTunerOn = true;   // our ATUTuneStart, queued
         c.F.Vendor.Status("transmit tune=1");
         c.F.Vendor.Status("atu status=TUNE_IN_PROGRESS");
@@ -76,8 +78,9 @@ public sealed class AntTuneEventSequenceTests : IDisposable
         Assert.Equal(new[] { ("InProgress", false), ("InProgress", true), ("Bypass", false) },
             seen.GetRange(0, 3).ConvertAll(x => (x.Status, x.AtuTuning)).ToArray());
         Assert.Equal("auto", seen[2].Type);
-        // Recorded, not ruled on here: after the Bypass, FlexBase's manual
-        // latch branch also reports "OK" with the settled SWR.
+        // Recorded, not ruled on here: before #1188, the Bypass turned the
+        // type manual, and FlexBase's manual latch branch then also reported
+        // "OK" with the settled SWR.
         Assert.All(seen.GetRange(3, seen.Count - 3), x => Assert.False(x.AtuTuning));
 
     }

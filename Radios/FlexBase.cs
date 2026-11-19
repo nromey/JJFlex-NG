@@ -5132,10 +5132,14 @@ namespace Radios
                             MyCaps.getCaps = MyCaps.SetCap(MyCaps.getCaps, RigCaps.Caps.ATGet);
                             MyCaps.setCaps = MyCaps.SetCap(MyCaps.setCaps, RigCaps.Caps.ATSet);
                             MyCaps.getCaps = MyCaps.SetCap(MyCaps.getCaps, RigCaps.Caps.ATMems);
-                            // Turn off the tuner if was bypassed.
+                            // Turn off the tuner if it was bypassed by hand.
                             // Note the bypass status might happen later.
-                            if ((originalATUStatus == ATUTuneStatus.Bypass) |
-                                (originalATUStatus == ATUTuneStatus.ManualBypass))
+                            // #1188 (ruled by Noel 2026-11-19, J8): only a
+                            // remembered ManualBypass sets manual. A remembered
+                            // Bypass is a tune RESULT (the load needed no
+                            // matching), not the operator choosing bypass, so
+                            // the switch keeps reading On.
+                            if (originalATUStatus == ATUTuneStatus.ManualBypass)
                             {
                                 setFlexTunerTypeNotAuto();
                             }
@@ -5173,8 +5177,13 @@ namespace Radios
                         switch (theRadio.ATUTuneStatus)
                         {
                             case ATUTuneStatus.Bypass:
-                                // Turn off autoTune.
-                                setFlexTunerTypeNotAuto();
+                                // #1188 (ruled by Noel 2026-11-19, J8): a tune
+                                // that ends in bypass is a result, said as one
+                                // (the FlexAntTuneStartStop event above), and no
+                                // longer turns automatic off. Off means only
+                                // that the operator bypassed the tuner. Fail,
+                                // below, is left as Jim wrote it, pending a
+                                // separate question.
                                 break;
                             case ATUTuneStatus.Fail:
                                 // bypass the tuner

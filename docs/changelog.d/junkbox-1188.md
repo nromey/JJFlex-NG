@@ -1,0 +1,1 @@
+- The ATU On/Off switch now keeps your choice. A tune that ends with the tuner bypassed because the antenna needed no matching still tells you so, but no longer turns the ATU off, and connecting no longer turns it off either unless you bypassed it yourself.
