@@ -61,7 +61,9 @@ internal sealed class NoiseFixture : IDisposable
     {
         private readonly List<(Action Action, Handle Handle)> _queue = new();
         private sealed class Handle : IDisposable { public bool Cancelled; public void Dispose() => Cancelled = true; }
-        public IDisposable After(TimeSpan delay, Action action) { var h = new Handle(); _queue.Add((action, h)); return h; }
+        public IDisposable After(TimeSpan delay, Action action) { var h = new Handle(); _queue.Add((action, h)); Delays.Add(delay); return h; }
+        /// <summary>Every delay asked for, in order: the hand-cranked queue runs at <see cref="RunAll"/> whatever the delay, so a test that cares about one reads it here.</summary>
+        public List<TimeSpan> Delays { get; } = new();
         public int Pending => _queue.Count(q => !q.Handle.Cancelled);
         public void RunAll()
         {

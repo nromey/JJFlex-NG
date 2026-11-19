@@ -109,7 +109,15 @@ namespace JJFlexWpf
         {
             if (_group is not { } now || _radio() is not { } r) return;
             string mode = r.ReceiveMode;
-            if (mode.Length == 0 || NoiseModeRules.GroupOf(mode) == now) return;
+            if (mode.Length == 0) return;
+            if (NoiseModeRules.GroupOf(mode) == now)
+            {
+                // The group already entered: nothing to enter, but a report held
+                // against it is superseded by this newer observation, exactly as
+                // on the event road (repair 1, F2).
+                if (_bounceHold != null) ArriveAtMode(mode, why);
+                return;
+            }
             System.Diagnostics.Trace.WriteLine($"NoiseController: the active slice's mode {mode} is another mode group; entering it ({why})");
             ArriveAtMode(mode, why);   // through the bounce rule too (#1124): the poll reads the same stale status
         }
@@ -145,20 +153,30 @@ namespace JJFlexWpf
         // ── A stale mode status after the app's own request (#1124) ──
 
         /// <summary>
-        /// How long after the app asks the radio for a mode a report that moves
-        /// the group again is held rather than acted on (#1124). A judgement, not
-        /// a measurement: the 8600 followed a menu mode about 0.5 s after the
-        /// click, and the stale status (USB between our CW and the radio's own CW)
-        /// came and went within 325 ms. Long enough to cover both; short enough
-        /// that a report the radio means (a refused mode) is acted on at once
-        /// after it.
+        /// The bound on the stale-status hold (#1124), counted from the app's
+        /// REQUEST: a report that moves the group again is held only if it
+        /// arrives less than this long after the request, and the hold ends this
+        /// long after the request whenever the report arrived, so a mode the
+        /// radio really keeps is followed at most this long after the operator
+        /// asked. Measured on disk, the 8600 under the e4 harness's polling
+        /// (trace JJFlexRadioTrace-20261112-020102, four bounces): the answer
+        /// came 506 to 523 ms after the menu request, the stale report 606 to
+        /// 632 ms, and the return to the requested mode 781 to 866 ms. The bound
+        /// covers the latest return with about 630 ms to spare. The margin is a
+        /// judgement: four bounces on one radio under one kind of load.
         /// </summary>
-        internal const int ModeBounceWindowMs = 1000;
+        internal const int ModeBounceWindowMs = 1500;
 
         private long _modeRequestedAt = long.MinValue / 2;
         private bool _enteredSinceRequest;
         private IDisposable? _bounceHold;
         private string? _heldMode;
+        // Which hold is current (repair 1, F3): the app's scheduler posts its
+        // action after its timer has gone, so cancelling a hold cannot retract
+        // an action already posted. Each hold takes a new number and every
+        // release moves it on; a posted action whose number is no longer current
+        // does nothing. Never reset, so it holds across a detach and attach.
+        private int _bounceGeneration;
 
         /// <summary>
         /// The app has just asked the radio for a mode (#1124): every road does,
@@ -177,6 +195,13 @@ namespace JJFlexWpf
         /// </summary>
         public void NoteModeRequested()
         {
+            // A newer request supersedes a report held against an older one
+            // (repair 1, F1): this request's own answer is taken at once.
+            if (_bounceHold != null)
+            {
+                System.Diagnostics.Trace.WriteLine($"NoiseController: dropped a held mode report ({_heldMode}); a newer mode request supersedes it");
+                ReleaseBounceHold();
+            }
             _modeRequestedAt = _clock();
             _enteredSinceRequest = false;
         }
@@ -193,17 +218,13 @@ namespace JJFlexWpf
                 System.Diagnostics.Trace.WriteLine($"NoiseController: dropped a held mode report; the radio came back to {mode} within the window ({why})");
                 return;
             }
-            if (_group is { } now && now != g && _enteredSinceRequest && _clock() - _modeRequestedAt < ModeBounceWindowMs)
+            long sinceRequest = _clock() - _modeRequestedAt;
+            if (_group is { } now && now != g && _enteredSinceRequest && sinceRequest < ModeBounceWindowMs)
             {
                 _heldMode = mode;
-                _bounceHold = _scheduler.After(TimeSpan.FromMilliseconds(ModeBounceWindowMs), () =>
-                {
-                    string? held = _heldMode;
-                    ReleaseBounceHold();
-                    if (held == null) return;
-                    System.Diagnostics.Trace.WriteLine($"NoiseController: a held mode report ({held}) stood for the window; entering it");
-                    EnterGroupCounted(held);
-                });
+                int generation = ++_bounceGeneration;
+                // Ends at the bound counted from the request, not a full window from this report.
+                _bounceHold = _scheduler.After(TimeSpan.FromMilliseconds(ModeBounceWindowMs - sinceRequest), () => EndBounceHold(generation));
                 System.Diagnostics.Trace.WriteLine($"NoiseController: held a mode report ({mode}) that moves the group again right after the radio answered the app's request ({why})");
                 return;
             }
@@ -217,8 +238,24 @@ namespace JJFlexWpf
             if (_group != before) _enteredSinceRequest = true;
         }
 
+        /// <summary>A hold's timer: enters the held report if this hold is still the current one, and does nothing otherwise (F3).</summary>
+        private void EndBounceHold(int generation)
+        {
+            if (generation != _bounceGeneration || _bounceHold == null)
+            {
+                System.Diagnostics.Trace.WriteLine("NoiseController: a superseded mode hold's timer arrived; ignored");
+                return;
+            }
+            string? held = _heldMode;
+            ReleaseBounceHold();
+            if (held == null) return;
+            System.Diagnostics.Trace.WriteLine($"NoiseController: a held mode report ({held}) stood until the bound after the request; entering it");
+            EnterGroupCounted(held);
+        }
+
         private void ReleaseBounceHold()
         {
+            _bounceGeneration++;
             _bounceHold?.Dispose();
             _bounceHold = null;
             _heldMode = null;
