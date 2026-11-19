@@ -104,10 +104,24 @@ namespace Radios.Tests
         {
             var p = new StreamRecoveryPolicy();
             var d = p.OnDeath(0);
-            Assert.False(StreamRecoveryPolicy.SpeakRestart(d, keyed: false));
-            Assert.True(StreamRecoveryPolicy.SpeakRestart(d, keyed: true));
-            Assert.False(StreamRecoveryPolicy.SpeakRestart(p.OnDeath(1), keyed: true));
+            Assert.False(p.TakeRestartSentence(d, keyed: false, downMilliseconds: 5_000, nowMs: 5_000));
+            Assert.True(p.TakeRestartSentence(d, keyed: true, downMilliseconds: 5_000, nowMs: 5_000));
+            Assert.False(p.TakeRestartSentence(p.OnDeath(6_000), keyed: true, downMilliseconds: 5_000, nowMs: 11_000));
             Assert.False(p.TakeGiveUpSentence()); // nothing given up, nothing to say
+        }
+
+        [Fact]
+        public void A_keyed_restart_is_said_only_when_the_stream_was_down_three_seconds()
+        {
+            // Noel, 2026-11-19 10:38: "for transmitting I'd say 3 seconds."
+            Assert.Equal(3_000, StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds);
+            var p = new StreamRecoveryPolicy();
+            Assert.False(p.TakeRestartSentence(p.OnDeath(0), keyed: true, downMilliseconds: 2_999, nowMs: 2_999));
+            // A short restart said nothing, so it does not use up the sentence
+            // a long one in the same window is owed.
+            Assert.True(p.TakeRestartSentence(p.OnDeath(10_000), keyed: true, downMilliseconds: 3_000, nowMs: 13_000));
+            // A long restart after a quiet window is said again.
+            Assert.True(p.TakeRestartSentence(p.OnDeath(60_000), keyed: true, downMilliseconds: 4_000, nowMs: 64_000));
         }
 
         // ── The test-only abort switch ──
@@ -215,6 +229,8 @@ namespace Radios.Tests
             public int Stops, Starts, Reopens;
             public bool StartWorks = true, ReopenWorks = true;
             public long Now = 1_000_000;
+            /// <summary>How long a start takes on the rig's clock.</summary>
+            public long StartTakesMs;
             public FlexBase R => Fixture.Rig;
 
             public Rig(string serial)
@@ -222,7 +238,7 @@ namespace Radios.Tests
                 Fixture = new RigOnVendorRadio(serial);
                 Set("_streamRecoveryClock", (Func<long>)(() => Now));
                 Set("_stopOutputAudio", (Action<FlexBase.audioChannelData>)(_ => Stops++));
-                Set("_startOutputAudio", (Func<FlexBase.audioChannelData, bool>)(_ => { Starts++; return StartWorks; }));
+                Set("_startOutputAudio", (Func<FlexBase.audioChannelData, bool>)(_ => { Starts++; Now += StartTakesMs; return StartWorks; }));
                 Set("_reopenOutputAudio", (Func<FlexBase.audioChannelData, RemoteAudioWake, bool>)((_, _) => { Reopens++; return ReopenWorks; }));
             }
 
@@ -281,10 +297,24 @@ namespace Radios.Tests
             using var rig = new Rig("1145-SPK-0002");
             rig.PlantSpeaker();
             rig.Set("_Transmit", true);
+            rig.StartTakesMs = 3_500; // down long enough to be said (Noel, 3 s)
             using var wake = new RemoteAudioWake();
             rig.Call("RecoverSpeakerStream", wake);
             Assert.Equal(Lexicon.Get("audio.pc_audio.speaker_stream_restarted"), rig.Report);
             rig.ClearReport();
+        }
+
+        [Fact]
+        public void A_dead_speaker_restarted_quickly_while_keyed_says_nothing()
+        {
+            using var rig = new Rig("1145-SPK-0005");
+            rig.PlantSpeaker();
+            rig.Set("_Transmit", true);
+            rig.StartTakesMs = 200;
+            using var wake = new RemoteAudioWake();
+            rig.Call("RecoverSpeakerStream", wake);
+            Assert.Equal((1, 1, 0), (rig.Stops, rig.Starts, rig.Reopens));
+            Assert.Null(rig.Report);
         }
 
         [Fact]
@@ -411,8 +441,12 @@ namespace Radios.Tests
                 Assert.NotEqual(key, text);
                 Assert.DoesNotContain("DRAFT", text);
             }
-            Assert.Contains("still muted", Lexicon.Get("audio.pc_audio.speaker_stream_gave_up"));
-            Assert.Contains("Receive audio is unaffected", Lexicon.Get("audio.pc_audio.mic_stream_gave_up"));
+            // Noel's approved words (2026-11-19): the give-ups name the one
+            // thing that works, toggling PC audio, and claim nothing the code
+            // cannot know (the radio's own speaker, other devices).
+            Assert.Contains("Toggle the PC Audio setting", Lexicon.Get("audio.pc_audio.speaker_stream_gave_up"));
+            Assert.Contains("Toggle the PC Audio setting", Lexicon.Get("audio.pc_audio.mic_stream_gave_up"));
+            Assert.DoesNotContain("muted", Lexicon.Get("audio.pc_audio.speaker_stream_gave_up"));
         }
     }
 }

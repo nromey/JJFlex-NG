@@ -3357,15 +3357,19 @@ namespace Radios
         private void ResolveMicRestart(bool started)
         {
             _micRestartPending = false;
-            long took = _streamRecoveryClock() - _micDiedAtMs;
+            long resolvedAt = _streamRecoveryClock();
+            long took = resolvedAt - _micDiedAtMs;
             if (started)
             {
                 bool keyed = _micDiedKeyed || Transmit;
+                bool say = _micRecovery.TakeRestartSentence(new StreamRecoveryPolicy.Decision(
+                        StreamRecoveryPolicy.Verdict.Recover, 1, _micRestartSpeakable), keyed, took, resolvedAt);
                 Tracing.TraceLine("remoteAudioProc: the microphone stream restarted (tier 1) " + took
-                    + " ms after it died" + (keyed ? "; the radio was keyed, so part of that transmission was silent" : ""),
+                    + " ms after it died" + (keyed ? "; the radio was keyed, so part of that transmission was silent" : "")
+                    + (keyed && !say && took < StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds
+                        ? "; under " + (StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds / 1000) + " s, so not said" : ""),
                     TraceLevel.Error);
-                if (StreamRecoveryPolicy.SpeakRestart(new StreamRecoveryPolicy.Decision(
-                        StreamRecoveryPolicy.Verdict.Recover, 1, _micRestartSpeakable), keyed))
+                if (say)
                     SayStreamRecovery("audio.pc_audio.mic_stream_restarted", Speech.SpeechSubject.PcMicStream);
                 return;
             }
@@ -3444,9 +3448,13 @@ namespace Radios
             // FlexLib queued while the loop was here; the gap state is
             // re-seeded from the packet it skips to.
             lock (opusOutputChannel) opusOutputChannel.JustStarted = true;
+            bool say = _speakerRecovery.TakeRestartSentence(decision, keyed, took, t0 + took);
             Tracing.TraceLine("remoteAudioProc: the receive playback stream restarted at tier " + tier + " in " + took
-                + " ms; the transmit gate did not run meanwhile", TraceLevel.Error);
-            if (StreamRecoveryPolicy.SpeakRestart(decision, keyed))
+                + " ms; the transmit gate did not run meanwhile"
+                + (keyed && !say && took < StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds
+                    ? "; keyed, but under " + (StreamRecoveryPolicy.SpokenRestartMinimumMilliseconds / 1000) + " s, so not said" : ""),
+                TraceLevel.Error);
+            if (say)
                 SayStreamRecovery("audio.pc_audio.speaker_stream_restarted", Speech.SpeechSubject.PcSpeakerStream);
         }
 
