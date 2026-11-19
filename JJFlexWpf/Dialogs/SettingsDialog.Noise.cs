@@ -146,7 +146,7 @@ namespace JJFlexWpf.Dialogs
 
             var tab = new TabItem { Header = Lexicon.Get("audio.noise_advanced.tab"), Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } };
             AutomationProperties.SetName(tab, Lexicon.Get("audio.noise_advanced.tab_name"));
-            tab.GotFocus += (s, e) => FillMeasuredDelays();
+            RefillWhenTheTabTakesFocus(tab, FillMeasuredDelays);
             SettingsTabs.Items.Add(tab);
             FillMeasuredDelays();
         }
@@ -155,8 +155,33 @@ namespace JJFlexWpf.Dialogs
         private void FillMeasuredDelays()
         {
             if (_advancedDelays == null) return;
-            _advancedDelays.Items.Clear();
-            foreach (string row in MeasuredDelayRows(Noise)) _advancedDelays.Items.Add(row);
+            FillRowsKeepingPlace(_advancedDelays, MeasuredDelayRows(Noise));
+        }
+
+        /// <summary>
+        /// Refresh the list when the Advanced tab ITSELF takes focus, never when
+        /// focus moves inside it (Sprint 49 Track N2). GotFocus bubbles: a row of
+        /// the Measured delays list taking focus reached the tab's handler, the
+        /// refill cleared the list under that row, and focus was left on the list
+        /// with no row, so Down, Home and End reached no figure (the integration
+        /// walk at f3beb60b).
+        /// </summary>
+        internal static void RefillWhenTheTabTakesFocus(TabItem tab, Action refill) =>
+            tab.GotFocus += (s, e) => { if (ReferenceEquals(e.OriginalSource, tab)) refill(); };
+
+        /// <summary>
+        /// Put these rows in the list. Rows that already read the same are left
+        /// alone, so the row under the keyboard is never destroyed by a refill
+        /// that changed nothing; a refill that did change something keeps the
+        /// selected position (Sprint 49 Track N2).
+        /// </summary>
+        internal static void FillRowsKeepingPlace(ListBox list, IReadOnlyList<string> rows)
+        {
+            if (list.Items.Count == rows.Count && list.Items.Cast<object>().Select(o => o as string).SequenceEqual(rows)) return;
+            int selected = list.SelectedIndex;
+            list.Items.Clear();
+            foreach (string row in rows) list.Items.Add(row);
+            if (selected >= 0 && rows.Count > 0) list.SelectedIndex = Math.Min(selected, rows.Count - 1);
         }
 
         /// <summary>
