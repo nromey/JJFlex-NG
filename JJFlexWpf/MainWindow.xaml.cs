@@ -7243,9 +7243,10 @@ public partial class MainWindow : UserControl
     /// behaviour J4 and #327 ended for Ctrl+T.
     /// </summary>
     /// <remarks>
-    /// <para><b>Automatic type keeps the doors' toggle.</b> These two doors are
-    /// the only screen controls that can stop an ATU cycle: a press during one
-    /// clears the latch, which queues the unkey. The tune key answers a latched
+    /// <para><b>Automatic type keeps the doors' start and stop, behind the
+    /// tune key's press gate.</b> These two doors are the only screen controls
+    /// that can stop an ATU cycle: a press during one clears the latch, which
+    /// queues the unkey. The tune key answers a latched
     /// press in automatic type with "already tuning" and sends nothing, so
     /// routing these through it would leave a door that can start a cycle and
     /// not stop it.</para>
@@ -7261,9 +7262,30 @@ public partial class MainWindow : UserControl
         var outcome = Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType);
         if (outcome == Radios.TunePressOutcome.AtuTune && !ours)
         {
+            // Batch 14 repair round 2 (Codex's B2 on #1141 and #1144): the
+            // doors' automatic toggle goes through the tune key's press gate
+            // too. WPF's Button raises Click on EVERY Enter key-down, repeats
+            // included, so a held Enter on the Tune button stopped the cycle
+            // and then started it again, keying the radio. A press during a
+            // cycle still stops it at once (the gate never refuses a stop);
+            // a start needs a fresh press, outside the gate's window, so a
+            // held key's repeats, or another activation just after a stop,
+            // start nothing, and say nothing, as Ctrl+T's do.
+            bool cycleUp = RigControl.FlexTunerOn;
+            switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, cycleUp, () => true))
+            {
+                case Radios.PressAct.Stop:
+                    Tracing.TraceLine("TuneDoor: the ATU cycle is up; the door stops it", TraceLevel.Info);
+                    _oldSwr = "";
+                    RigControl.FlexTunerOn = false;
+                    return;
+                case Radios.PressAct.Nothing:
+                    Tracing.TraceLine("TuneDoor: more of a press already answered; nothing sent", TraceLevel.Info);
+                    return;
+            }
             if (TunerStartRefused()) return;
             _oldSwr = "";
-            RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
+            RigControl.FlexTunerOn = true;
             return;
         }
         TunePressFor(ours);

@@ -555,7 +555,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         {
             string body = Body(main, signature);
             Assert.True(body.IndexOf("TunerStartRefused()", StringComparison.Ordinal) >= 0
-                && body.IndexOf("TunerStartRefused()", StringComparison.Ordinal) < body.IndexOf("RigControl.FlexTunerOn", StringComparison.Ordinal), signature);
+                && body.IndexOf("TunerStartRefused()", StringComparison.Ordinal) < body.IndexOf("RigControl.FlexTunerOn = true;", StringComparison.Ordinal), signature);
         }
         // Every other road from the two doors goes through StartATUTuneCycle,
         // checked above; neither door touches the latch itself any more.
@@ -566,7 +566,12 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         Assert.Contains("TuneDoorPress();", toolbar);
         Assert.DoesNotContain("FlexTunerOn", toolbar);
         string door = Body(main, "private void TuneDoorPress()");
-        Assert.True(door.IndexOf("TunePressFor(ours);", StringComparison.Ordinal) > door.IndexOf("RigControl.FlexTunerOn = !RigControl.FlexTunerOn;", StringComparison.Ordinal));
+        // Batch 14 repair round 2: the doors' automatic start and stop pass the
+        // tune key's press gate; there is no bare toggle any more.
+        Assert.DoesNotContain("RigControl.FlexTunerOn = !RigControl.FlexTunerOn;", door);
+        int gate = door.IndexOf(".Decide(TuneKeyClock(), isRepeat: false, cycleUp, () => true)", StringComparison.Ordinal);
+        Assert.True(gate > 0 && gate < door.IndexOf("RigControl.FlexTunerOn = true;", StringComparison.Ordinal));
+        Assert.True(door.IndexOf("TunePressFor(ours);", StringComparison.Ordinal) > door.IndexOf("RigControl.FlexTunerOn = true;", StringComparison.Ordinal));
     }
 
     [Fact]

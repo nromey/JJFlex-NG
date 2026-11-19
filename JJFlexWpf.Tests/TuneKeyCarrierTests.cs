@@ -412,8 +412,21 @@ public sealed class TuneKeyCarrierTests : IDisposable
 
     // ---- batch 14 repair round 1 (Codex's B1 and B2 on #1141) ----
 
-    private static void PressDecided(MainWindow main, bool ours) =>
-        Record.Exception(() => typeof(MainWindow).GetMethod("TunePressFor", Any)!.Invoke(main, new object[] { ours }));
+    private static void PressDecided(MainWindow main, bool ours)
+    {
+        // The method must exist: a negative-only test that swallowed a missing
+        // method would pass on a full revert (Codex, round 1 re-check).
+        var method = typeof(MainWindow).GetMethod("TunePressFor", Any);
+        Assert.NotNull(method);
+        Record.Exception(() => method!.Invoke(main, new object[] { ours }));
+    }
+
+    private static void ButtonClick(MainWindow main)
+    {
+        var method = typeof(MainWindow).GetMethod("AntennaTuneButton_Click", Any);
+        Assert.NotNull(method);
+        Record.Exception(() => method!.Invoke(main, new object?[] { null, null }));
+    }
 
     /// <summary>
     /// B1: the press saw our carrier up, and the radio's "transmit tune=0"
@@ -534,5 +547,96 @@ public sealed class TuneKeyCarrierTests : IDisposable
         thread.Start();
         Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "the STA thread did not finish");
         if (failure != null) throw failure;
+    }
+
+    // ---- batch 14 repair round 2 (Codex's B2 on #1141 and #1144: the doors' automatic toggle) ----
+
+    /// <summary>
+    /// A held Enter on the Tune button in automatic type: WPF's Button raises
+    /// Click on every Enter key-down, repeats included (about 33 ms apart), or
+    /// a reader's down/up pairs (512 ms, then about 250 ms). The first press
+    /// stops the running ATU cycle at once; every repeat after it starts
+    /// nothing. Until the repair the door's bare toggle started the cycle
+    /// again on the first repeat. A rested press still starts it.
+    /// </summary>
+    [Theory]
+    [InlineData(new[] { 33, 33, 33, 33, 33, 33, 33, 33, 33, 33 })]
+    [InlineData(new[] { 512, 250, 250, 250, 250, 250 })]
+    public void A_held_Enter_on_the_Tune_button_that_stopped_the_ATU_cycle_starts_nothing_after(int[] gapsMs)
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        ButtonClick(main);
+        Assert.True(_rig.FlexTunerOn, "positive control: a fresh press starts the ATU cycle");
+
+        _now += FreshPressGate.SameChordWindowMs + 1;   // later, the operator presses and holds to stop it
+        ButtonClick(main);
+        Assert.False(_rig.FlexTunerOn, "a press during the cycle stops it at once");
+
+        foreach (int gap in gapsMs)
+        {
+            _now += gap;
+            ButtonClick(main);
+            Assert.False(_rig.FlexTunerOn, "a held Enter's repeat after the stop started the ATU cycle again");
+            Assert.False(_rig.TuneAskedOrUp);
+        }
+
+        _now += FreshPressGate.SameChordWindowMs + 1;   // rested
+        ButtonClick(main);
+        Assert.True(_rig.FlexTunerOn, "positive control: a rested press starts the cycle again");
+    }
+
+    /// <summary>
+    /// Both doors, in automatic type, after a stop of our plain carrier (B2 on
+    /// #1141): a second activation through the same door inside the gate's
+    /// window starts no ATU cycle. Through the action list as well as the button.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Another_door_activation_just_after_a_stop_starts_no_ATU_cycle(bool button)
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        Press(main);
+        Assert.True(_rig.TuneAskedOrUp, "positive control: our plain carrier is asked for");
+        Automatic();
+
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        if (button) ButtonClick(main); else Toolbar(main);
+        Assert.False(_rig.TuneAskedOrUp, "the door stops our carrier");
+
+        foreach (int gap in new[] { 33, 600, 900 })
+        {
+            _now += gap;
+            if (button) ButtonClick(main); else Toolbar(main);
+            Assert.False(_rig.FlexTunerOn, "an activation just after the stop started an ATU cycle");
+        }
+
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        if (button) ButtonClick(main); else Toolbar(main);
+        Assert.True(_rig.FlexTunerOn, "positive control: a rested activation starts the ATU cycle");
+    }
+
+    /// <summary>
+    /// What a suppressed door press says: nothing. It is traced only, as a
+    /// suppressed Ctrl+T is (round 1's silent second press, still under
+    /// judgment).
+    /// </summary>
+    [Fact]
+    public void A_suppressed_door_press_says_nothing()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        ButtonClick(main);
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        ButtonClick(main);   // stop
+        _now += 33;
+        var said = Said(() => ButtonClick(main));
+        Assert.False(_rig.FlexTunerOn);
+        Assert.Empty(said);
     }
 }
