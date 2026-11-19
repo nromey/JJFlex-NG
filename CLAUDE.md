@@ -891,6 +891,21 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    `C:\dev\jjf-private\planning\junkbox-harness\JUNKBOX-HANDOFF.md`, with the brief
    template beside it.
 
+3c-quater. **Move old for-claude files to the NAS. Ruled by Noel 2026-11-19:** *"no need
+   to have thousands of files just hanging out."* Entries older than a week go to
+   `historical\for-claude\` as one LZMA2 `.tar.xz` per ISO week, each with a plain file
+   list; never a local archive. Dry run first, then `--go`:
+
+   ```
+   python -I C:\Users\nrome\JJFlex-private\tools\archive-for-claude.py --go
+   ```
+
+   It keeps anything an open task cites, removes nothing until the archive lists the same
+   files and the NAS copy's hash matches, stages the deletions in JJFlex-private for the
+   seal's commit, and tags each citation of a moved file with its archive. Run it before
+   the private-docs backup in step 3, so the snapshot does not carry what just left. Detail:
+   `memory/feedback_for_claude_old_files_go_to_the_nas.md`.
+
 3d. **AppData config backup:** run `& "C:\dev\JJFlex-NG\backup-appdata-to-nas.ps1"`.
    Snapshots the operator's CONFIGURATION out of `%AppData%\JJFlexRadio\` to
    `historical\appdata\` as a dated zip. **Measured 2026-10-17: 32 files and
