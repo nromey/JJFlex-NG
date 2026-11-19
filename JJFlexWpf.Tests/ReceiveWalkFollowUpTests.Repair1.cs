@@ -134,7 +134,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         var entry = Assert.Single(journal, e => e.Changes.Any(c => c.EngineId == "nnr" && c.Setting == "model"));
         Assert.Equal(NoiseJournalKind.ReturnToDefaults, entry.Kind);
         Assert.Contains("Premium CW measured 8.00 ms", entry.Label);
-        Assert.StartsWith(Lexicon.Get(f.Noise.Catalog.Find("nnr")!.LabelKey), entry.Label);
+        Assert.StartsWith(NnrName(f), entry.Label);
         // One entry, no second model operation.
         Assert.Single(journal);
         Assert.Single(trace, l => l.StartsWith("NoiseController: the CW model rule chose standard_cw (n2-probe): ", StringComparison.Ordinal));
@@ -150,7 +150,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         f.Pipeline.NeuralSlot.TrySetSetting("nnr", "model", new(0, "premium"));
         var (journal, _) = Capture(() => f.Noise.ReturnToDefaults("nnr", "n2-probe"));
         var entry = Assert.Single(journal);
-        Assert.Equal(Lexicon.Get(f.Noise.Catalog.Find("nnr")!.LabelKey), entry.Label);
+        Assert.Equal(NnrName(f), entry.Label);
     }
 
     // ── F4: the model-cost test runs only against a helper named for it ──
@@ -206,6 +206,13 @@ public sealed partial class ReceiveWalkFollowUpTests
         int ask = select.IndexOf("AskRadioForMode(() => mem.Select());", StringComparison.Ordinal);
         int identity = select.IndexOf("_recallAskedFor = (recorded.FrequencyHz, recorded.Mode, recorded.At, ModeChoices);", StringComparison.Ordinal);
         Assert.True(ask >= 0 && identity > ask, "the recall's identity is the choice its own request counted, read after it");
+    }
+
+    /// <summary>NNR's own name, as the defaults entry labels itself (its key read off the catalog).</summary>
+    private static string NnrName(NoiseFixture f)
+    {
+        string key = f.Noise.Catalog.Find("nnr")!.LabelKey;
+        return Lexicon.Get(key);
     }
 
     private static IDisposable NewStatusBench(out FlexBase rig)
