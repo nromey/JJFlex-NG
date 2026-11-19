@@ -639,4 +639,99 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Assert.False(_rig.FlexTunerOn);
         Assert.Empty(said);
     }
+
+    // ---- batch 14 repair round 3 (the 8600 bench at 5f7fc030, steps 2c and 2d: the Ant Tune button's text) ----
+
+    private const string Neutral = "Ant Tune mem";
+
+    /// <summary>
+    /// Step 2c: in automatic type a plain carrier (Ctrl+Shift+T) raised
+    /// "InProgress" while the radio's ATU stayed TUNE_MANUAL_BYPASS, and the
+    /// button said "InProgress". A start is shown only while the radio's ATU
+    /// is really tuning; a plain carrier writes nothing, in either type.
+    /// </summary>
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("manual")]
+    public void A_plain_carriers_start_never_puts_InProgress_on_the_button(string type)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Null(MainWindow.AntTuneButtonTextFor(type, "InProgress", "1.0", atuCycleRunning: false, Neutral));
+    }
+
+    /// <summary>
+    /// Step 2d, the bench's own sequence: an automatic cycle starts
+    /// (InProgress, the ATU tuning), then ends Bypass after 0.7 s, raised with
+    /// the type still automatic and switched to manual straight after. The
+    /// button shows "InProgress", then the result, never "InProgress" left
+    /// standing. Until the repair the handler read the type when it ran,
+    /// found manual, and wrote nothing.
+    /// </summary>
+    [Fact]
+    public void An_automatic_cycle_that_ends_Bypass_shows_the_result_not_InProgress()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.Equal("InProgress", MainWindow.AntTuneButtonTextFor("auto", "InProgress", "1.0", atuCycleRunning: true, Neutral));
+        Assert.Equal("Bypass", MainWindow.AntTuneButtonTextFor("auto", "Bypass", "1.0", atuCycleRunning: false, Neutral));
+    }
+
+    /// <summary>
+    /// Every status FlexLib's ATUTuneStatus can report, other than the two
+    /// in-progress ones, ends a tune and writes: the result in automatic
+    /// type, the SWR on a manual "OK", the neutral label otherwise. None of
+    /// them leaves or writes "InProgress".
+    /// </summary>
+    [Fact]
+    public void Every_status_that_ends_a_tune_writes_the_result_or_the_neutral_label()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        foreach (Flex.Smoothlake.FlexLib.ATUTuneStatus status in Enum.GetValues(typeof(Flex.Smoothlake.FlexLib.ATUTuneStatus)))
+        {
+            string name = status.ToString();
+            bool start = status is Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress or Flex.Smoothlake.FlexLib.ATUTuneStatus.TGXL_InProgress;
+            foreach (string type in new[] { "auto", "manual" })
+            {
+                foreach (bool running in new[] { false, true })
+                {
+                    string? text = MainWindow.AntTuneButtonTextFor(type, name, "1.3", running, Neutral);
+                    if (start)
+                    {
+                        Assert.Equal(running ? name : null, text);
+                        continue;
+                    }
+                    Assert.False(text == null, type + " " + name + " wrote nothing");
+                    Assert.NotEqual("InProgress", text);
+                    if (status == Flex.Smoothlake.FlexLib.ATUTuneStatus.None) Assert.Equal(Neutral, text);
+                    else if (type == "auto") Assert.Equal(name, text);
+                    else Assert.Equal(status == Flex.Smoothlake.FlexLib.ATUTuneStatus.OK ? "1.3" : Neutral, text);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The handler writes through the one rule, from the event's own type and
+    /// the radio's ATU status, and never chooses by the live tuner type.
+    /// </summary>
+    [Fact]
+    public void The_handler_writes_the_button_through_the_one_rule()
+    {
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs"));
+        int at = src.IndexOf("private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)", StringComparison.Ordinal);
+        Assert.True(at > 0);
+        int end = src.IndexOf("// Audio narrative for ATU tune cycle.", at, StringComparison.Ordinal);
+        string head = src.Substring(at, end - at);
+        Assert.Contains("AntTuneButtonTextFor(e.Type, e.Status, e.SWR,", head);
+        Assert.Contains("RigControl.ATUTuneInProgress, AntennaTuneButtonText);", head);
+        Assert.DoesNotContain("RigControl.FlexTunerType", head);
+        Assert.Equal(1, head.Split("SetButtonText(").Length - 1);
+    }
+
+    private static string RepoRoot()
+    {
+        var d = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+        while (d != null && !System.IO.File.Exists(System.IO.Path.Combine(d.FullName, "JJFlexRadio.sln"))) d = d.Parent;
+        Assert.NotNull(d);
+        return d!.FullName;
+    }
 }

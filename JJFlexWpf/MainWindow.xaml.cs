@@ -5750,6 +5750,45 @@ public partial class MainWindow : UserControl
         EndTransmitOutsideTheEdges("the radio stopped transmitting on its own", () => _pttController.EscapeUnlock());
     }
 
+    /// <summary>
+    /// What the Ant Tune button shows for one antenna-tuner event, or null to
+    /// leave it as it is (batch 14 repair round 3, the 8600 bench at
+    /// <c>5f7fc030</c>, steps 2c and 2d). Pure, so it is tested without a
+    /// window. Its text and its accessible name are always written together
+    /// (<see cref="SetButtonText"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>"InProgress" only while an ATU cycle is really running.</b>
+    /// FlexBase also raises InProgress when ANY tune carrier rises, so in
+    /// automatic type a plain carrier (Ctrl+Shift+T) put "InProgress" on the
+    /// button while the radio's ATU sat in TUNE_MANUAL_BYPASS. A start is
+    /// therefore shown only when the radio's own ATU status reads in progress
+    /// (<paramref name="atuCycleRunning"/>); a plain carrier writes nothing
+    /// here, in either type, and its own start and stop put the neutral label
+    /// up (<see cref="ShowTuneButtonNeutral"/>).</para>
+    /// <para><b>Every other status ends a tune, and writes.</b> The type is the
+    /// EVENT's, taken when the radio reported the status. The handler used to
+    /// read the live type: an automatic cycle that ended "Bypass" switches the
+    /// type to manual straight after raising the event, so by the time the
+    /// window ran the handler it took the manual branch, which writes only on
+    /// "OK", and "InProgress" stood for good. Now automatic shows the result
+    /// itself (Successful, Bypass, Fail, FailBypass, Aborted, OK and the
+    /// rest); manual shows the SWR on its own "OK" (Jim's manual tune) and
+    /// otherwise the neutral label.</para>
+    /// </remarks>
+    internal static string? AntTuneButtonTextFor(string? eventType, string? status, string? swr,
+                                                 bool atuCycleRunning, string neutral)
+    {
+        if (string.IsNullOrEmpty(status)) return null;
+        if (status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress)
+            || status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.TGXL_InProgress))
+            return atuCycleRunning ? status : null;
+        if (status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.None)) return neutral;
+        if (eventType == nameof(FlexBase.FlexTunerTypes.manual))
+            return status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.OK) && !string.IsNullOrEmpty(swr) ? swr : neutral;
+        return status;
+    }
+
     private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)
     {
         if (!Dispatcher.CheckAccess())
@@ -5766,17 +5805,12 @@ public partial class MainWindow : UserControl
 
         if (RigControl == null) return;
 
-        if (RigControl.FlexTunerType == FlexBase.FlexTunerTypes.manual)
-        {
-            if (e.Status == "OK")
-            {
-                SetButtonText(AntennaTuneButton, e.SWR);
-            }
-        }
-        else
-        {
-            SetButtonText(AntennaTuneButton, e.Status);
-        }
+        // The Ant Tune button's text and name (batch 14 repair round 3): one
+        // rule, from the event itself and whether the radio's ATU is really
+        // tuning, never from the tuner type read later.
+        string? buttonText = AntTuneButtonTextFor(e.Type, e.Status, e.SWR,
+            RigControl.ATUTuneInProgress, AntennaTuneButtonText);
+        if (buttonText != null && AntennaTuneButton != null) SetButtonText(AntennaTuneButton, buttonText);
 
         // Audio narrative for ATU tune cycle.
         // Progress earcons only for automatic ATU operations (the radio is doing its
