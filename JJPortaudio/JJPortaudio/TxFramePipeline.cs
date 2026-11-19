@@ -53,11 +53,25 @@ namespace JJPortaudio
         /// </summary>
         public ITxInputSource Source { get; set; }
 
+        private TxAudioProcessorCallback _conditioner;
+        private TxAudioConditioner _releaseOwner;
+
         /// <summary>
         /// The transmit conditioning chain (noise reduction, gate). Skipped
         /// while an engaged source asks to bypass it.
         /// </summary>
-        public TxAudioProcessorCallback Conditioner { get; set; }
+        /// <remarks>
+        /// When this is a <see cref="TxAudioConditioner"/>'s own Process (the
+        /// app's wiring), that conditioner's held-unkey release boundary is also
+        /// enforced HERE, before the stage and outside its fault handling
+        /// (rulings repair 2, Codex's P1). Taken from the delegate itself, so
+        /// the two can never be wired apart.
+        /// </remarks>
+        public TxAudioProcessorCallback Conditioner
+        {
+            get { return _conditioner; }
+            set { _conditioner = value; _releaseOwner = value?.Target as TxAudioConditioner; }
+        }
 
         /// <summary>The loudness meter, fed last so it measures what ships.</summary>
         public LufsMeter Meter { get; set; }
@@ -194,12 +208,19 @@ namespace JJPortaudio
         /// </para>
         /// Null means always send.
         /// </param>
+        /// <param name="captureTimestamp">
+        /// When the first sample of <paramref name="buffer"/> was captured, as a
+        /// <see cref="Stopwatch"/> timestamp (<see cref="TxCaptureClock"/>);
+        /// zero when the producer does not know (the self-clocked source), which
+        /// counts as captured now. A held unkey keeps what was captured before
+        /// its release and silences the rest.
+        /// </param>
         /// <returns>
         /// True when a frame was handed to the handler. False means the frame
         /// was abandoned at teardown or the encode failed — in both cases the
         /// caller should stop, not retry.
         /// </returns>
-        public bool Emit(float[] buffer, int floatCount, uint sampleRate, Func<bool> stillRunning = null)
+        public bool Emit(float[] buffer, int floatCount, uint sampleRate, Func<bool> stillRunning = null, long captureTimestamp = 0)
         {
             bool keyed;
             var keySource = KeySource;
@@ -233,6 +254,23 @@ namespace JJPortaudio
                     skipped = true;
                     StageFault("injection", ex);
                 }
+            }
+
+            // THE RELEASE BOUNDARY (rulings repair 2, Codex's P1), before the
+            // conditioning stage and outside its fault handling. While a held
+            // unkey drains, what the microphone (or an engaged source) gave
+            // after the release is silenced HERE, so a stage that throws, the
+            // snapshot it is put back to, and its skip for the rest of the over
+            // all carry silence, never new audio. Only while keyed: the first
+            // unkeyed buffer ends the drain (TxAudioConditioner.ReadKey), as
+            // before. The conditioner is told the same capture time and applies
+            // the same boundary to the same samples, so its drain counts only
+            // the silence that went in.
+            var releaseOwner = _releaseOwner;
+            if (releaseOwner != null)
+            {
+                releaseOwner.SetNextBufferCaptureTimestamp(captureTimestamp);
+                if (keyed) releaseOwner.ApplyReleaseBoundary(buffer, floatCount, sampleRate, captureTimestamp);
             }
 
             // Conditioning, unless the engaged source is a calibrated

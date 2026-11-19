@@ -48,14 +48,15 @@ namespace Radios
         // themselves and are out of reach.
         //
         // WHAT GOES ON AIR DURING THE HOLD: the chain's drained tail and nothing
-        // newer. The capture keeps running (#565), so the conditioner silences
-        // every buffer that reaches it from the release on, BEFORE the noise
-        // reduction (TxAudioConditioner.BeginDrain); what comes out is the audio
-        // captured before the release, delayed by the engines, then silence. The
-        // release point is a capture buffer, not a sample: the part of the
-        // buffer in flight at the release is silenced with the rest, which loses
-        // at most one capture period of the last word, as an unheld unkey always
-        // did.
+        // newer. The capture keeps running (#565), so everything CAPTURED from
+        // the release on is silenced, BEFORE the noise reduction
+        // (TxAudioConditioner.BeginDrain); what comes out is the audio captured
+        // before the release, delayed by the engines, then silence. The release
+        // is a point in the capture stream (rulings repair 2, Codex's P1): a
+        // block delivered after the release keeps the part captured before it,
+        // so the last word is not lost to the capture period. The pipeline
+        // enforces that boundary outside the conditioning stage, so a stage
+        // fault can never let new microphone audio through either.
         //
         // WHO ENDS THE DRAIN (rulings repair 1, Codex's P1): every admitted
         // key-down, whether or not a hold is still waiting; the radio reporting
@@ -204,7 +205,7 @@ namespace Radios
                 LastHeldUnkeyBackstopMs = e.BackstopMs;
                 // Armed under the lock (Codex's P1): a key-down that arrives now
                 // clears it under the same lock, after this, never before.
-                e.Ticket = txConditioner.BeginDrain(delaySamples);
+                e.Ticket = txConditioner.BeginDrain(delaySamples, e.ArmedTimestamp);
                 Volatile.Write(ref _heldUnkeyTailWatch, e);
                 if (scheduler == null)
                     e.BackstopTimer = new Timer(_ => e.BackstopEnd(), null, e.BackstopMs, Timeout.Infinite);
@@ -292,15 +293,19 @@ namespace Radios
             !disposed && ReferenceEquals(theRadio, e.Radio);
 
         /// <summary>
-        /// Queue the hold's Mox off, bound to the connection the hold began on:
-        /// at its run it writes only if that radio is still this rig's, still
-        /// connected, and the rig is not disposed. It never dereferences a radio
-        /// that has gone (Codex's P2).
+        /// Queue the hold's Mox off, bound to the connection the hold began on
+        /// AND to its over: at its run it writes only if that radio is still this
+        /// rig's, still connected, the rig is not disposed, and the radio has not
+        /// meanwhile reported its own unkey followed by a key-down that was not
+        /// ours (rulings repair 2, Codex's P2: a new over that began outside JJ
+        /// Flexible is not ended by an old over's unkey). It never dereferences
+        /// a radio that has gone.
         /// </summary>
         private void EnqueueHeldUnkey(HeldUnkeyEpisode e)
         {
             var radio = e.Radio;
             string who = e.Who;
+            var over = CaptureTxOverToken();
             try
             {
                 q.Enqueue((FunctionDel)(() =>
@@ -311,7 +316,15 @@ namespace Radios
                         Tracing.TraceLine("FlexBase: the held unkey by " + who + " found its connection gone at its run; nothing sent", TraceLevel.Info);
                         return;
                     }
-                    radio.Mox = false;
+                    if (TxOverEndedSince(over))
+                    {
+                        Tracing.TraceLine("FlexBase: the held unkey by " + who + " found its over already ended by the radio and a new"
+                            + " one begun that JJ Flexible did not key; nothing sent", TraceLevel.Info);
+                        return;
+                    }
+                    int was = BeginOwnMoxWrite();
+                    try { radio.Mox = false; }
+                    finally { EndOwnMoxWrite(was); }
                 }), "Mox");
             }
             catch (Exception ex)
@@ -388,5 +401,67 @@ namespace Radios
 
         /// <summary>The radio reported its Mox off. When we did not unkey it ourselves, a hold that was waiting is moot: nothing is written.</summary>
         private void NoteRadioUnkeyedForHold(string what) => CancelHeldUnkey("the radio reported " + what, unkeyNow: false);
+
+        // ── Rulings repair 2 (Codex's P2): a queued held unkey belongs to its over ──
+        //
+        // The command queue orders OUR writes, so a key-down of ours queued after
+        // the unkey always runs after it. It does not order what the RADIO
+        // reports: another client's MOX, or the radio itself, can end the over
+        // and begin a new one while the unkey still waits in the queue. So the
+        // queued unkey carries a token of the over it ends, and at its run it
+        // writes nothing if, since it was queued, the radio reported an unkey
+        // and THEN a key-down, neither of them caused by our own write.
+        //
+        // WHICH EDGES ARE OURS. FlexLib's Mox setter raises its change on the
+        // writing thread, synchronously, before it returns (Radio.Mox), so an
+        // edge raised while one of our own writes is on the stack is ours; every
+        // other edge came from the radio's status. That attribution has no
+        // timing in it. A late echo of our own key-down would otherwise read as
+        // a new external over and leave OUR over keyed, which is the failure
+        // that must never happen; with this, the only unkey ever withheld is
+        // one whose over the radio itself has ended, and whose new over nobody
+        // here keyed.
+
+        private int _ownMoxWriteThread;
+        private long _externalUnkeyEdges;
+        private long _externalKeyDownEdges;
+        private long _unkeyEdgesAtLastExternalKeyDown;
+
+        /// <summary>The over a queued unkey belongs to: the radio's own edge counts when it was queued.</summary>
+        private readonly struct TxOverToken
+        {
+            public TxOverToken(long unkeys, long keyDowns) { Unkeys = unkeys; KeyDowns = keyDowns; }
+            public long Unkeys { get; }
+            public long KeyDowns { get; }
+        }
+
+        private TxOverToken CaptureTxOverToken() =>
+            new TxOverToken(Interlocked.Read(ref _externalUnkeyEdges), Interlocked.Read(ref _externalKeyDownEdges));
+
+        /// <summary>True when, since <paramref name="token"/>, the radio reported an unkey and then a key-down, neither ours.</summary>
+        private bool TxOverEndedSince(TxOverToken token)
+        {
+            if (Interlocked.Read(ref _externalKeyDownEdges) == token.KeyDowns) return false;
+            return Interlocked.Read(ref _unkeyEdgesAtLastExternalKeyDown) > token.Unkeys;
+        }
+
+        /// <summary>Mark our own Mox write as on the stack of this thread; returns what to restore.</summary>
+        private int BeginOwnMoxWrite()
+        {
+            int was = Volatile.Read(ref _ownMoxWriteThread);
+            Volatile.Write(ref _ownMoxWriteThread, Environment.CurrentManagedThreadId);
+            return was;
+        }
+
+        private void EndOwnMoxWrite(int was) => Volatile.Write(ref _ownMoxWriteThread, was);
+
+        /// <summary>From noteRadioMox, on a real edge: count it unless our own write raised it.</summary>
+        private void NoteTxMoxEdge(bool mox)
+        {
+            if (Volatile.Read(ref _ownMoxWriteThread) == Environment.CurrentManagedThreadId) return; // our own write's synchronous change
+            if (!mox) { Interlocked.Increment(ref _externalUnkeyEdges); return; }
+            Interlocked.Exchange(ref _unkeyEdgesAtLastExternalKeyDown, Interlocked.Read(ref _externalUnkeyEdges));
+            Interlocked.Increment(ref _externalKeyDownEdges);
+        }
     }
 }

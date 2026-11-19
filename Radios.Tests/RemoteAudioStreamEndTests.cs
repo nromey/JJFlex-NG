@@ -364,7 +364,7 @@ namespace Radios.Tests
         // ── The microphone ──
 
         [Fact]
-        public void A_dead_microphone_is_stopped_for_the_gate_then_given_up_when_its_restart_fails()
+        public void A_dead_microphone_is_stopped_for_the_gate_then_given_up_when_its_restart_and_reopen_fail()
         {
             using var rig = new Rig("1145-MIC-0001");
             var stream = new JJAudioStream();
@@ -374,6 +374,11 @@ namespace Radios.Tests
             { Started = true, PortAudioStream = stream };
             rig.Set("opusInputChannel", mic);
             rig.Set("opusInputAvailable", true);
+            // Sprint 49 Track H2's join: a failed tier 1 now re-opens through the
+            // transmit open path (tier 2), on a worker. Here that open is refused,
+            // and never the real device: the seam stands in for it, run inline.
+            rig.R.TxCaptureOpenForTest = _ => null!;
+            rig.R.TxCaptureWorkerForTest = work => work();
 
             rig.Call("RecoverMicStream");
             Assert.False(mic.Started);                      // stopped, so the gate's start restarts it
@@ -381,7 +386,10 @@ namespace Radios.Tests
             Assert.Null(rig.Report);                        // pending is not failure: CW mode never restarts it
 
             var start = typeof(FlexBase).GetMethod("startOpusInputChannel", Private)!;
-            Assert.False((bool)start.Invoke(rig.R, null)!); // the stream is closed, so the start is refused
+            Assert.False((bool)start.Invoke(rig.R, null)!); // the stream is closed, so the start is refused: tier 2 begins
+            Assert.False((bool)rig.Get("_micGivenUp")!);
+            Assert.Null(rig.Report);                        // a re-open in progress is not a give-up
+            Assert.False((bool)start.Invoke(rig.R, null)!); // the re-open came back with nothing
             Assert.True((bool)rig.Get("_micGivenUp")!);
             Assert.Equal(Lexicon.Get("audio.pc_audio.mic_stream_gave_up"), rig.Report);
             rig.ClearReport();

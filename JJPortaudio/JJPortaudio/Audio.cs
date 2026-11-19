@@ -1792,6 +1792,13 @@ namespace JJPortaudio
             float* endPtr = inPtr + (mono ? data.BufferSize / 2 : data.BufferSize);
             if (data.UseOpus)
             {
+                // When this block was captured, on the Stopwatch clock (Sprint 49
+                // Track H2, rulings repair 2): a held unkey keeps what was said
+                // before its release and silences the rest, frame by frame. See
+                // TxCaptureClock for the choice and the fallback. No allocation.
+                long blockCaptured = TxCaptureClock.BlockStartTimestamp(Stopwatch.GetTimestamp(),
+                    timeInfo.currentTime - timeInfo.inputBufferAdcTime, frameCount, data.SampleRate);
+                long framesBefore = 0;
                 try
                 {
                     do
@@ -1838,7 +1845,9 @@ namespace JJPortaudio
                         // is exactly what the old `if (!data.Active) break;`
                         // between encode and send did — it moved into the
                         // pipeline as StillRunning so both producers honour it.
-                        if (!data.TxPipeline.Emit(buf, (int)data.OpusFrameSZ, data.SampleRate, data.IsActive))
+                        long frameCaptured = blockCaptured + TxCaptureClock.FrameOffsetTicks(framesBefore, data.SampleRate);
+                        framesBefore += data.OpusFrameSZ / 2;
+                        if (!data.TxPipeline.Emit(buf, (int)data.OpusFrameSZ, data.SampleRate, data.IsActive, frameCaptured))
                         {
                             // False has two causes and they need different
                             // answers. Teardown: Active is already false and

@@ -7737,6 +7737,10 @@ namespace Radios
         private void noteRadioMox(bool mox)
         {
             bool oldTransmit = _Transmit;
+            // Rulings repair 2 (Codex's P2): an edge the radio reported, not
+            // one our own write raised, is what a queued held unkey checks its
+            // over against (FlexBase.HeldUnkey.cs, NoteTxMoxEdge).
+            if (mox != oldTransmit) NoteTxMoxEdge(mox);
             // S16, rulings repair 1 (Codex's P2): the radio says it is off the
             // air, so a held unkey still waiting is moot (nothing is written),
             // and a drain left on after our own held unkey ends here.
@@ -8224,7 +8228,11 @@ namespace Radios
                 q.Enqueue((FunctionDel)(() =>
                 {
                     if (value && TeardownHeldSilently("transmit")) return;
-                    theRadio.Mox = value;
+                    // Our own write: the edge it raises is ours, not the radio's
+                    // (rulings repair 2; see FlexBase.HeldUnkey.cs).
+                    int ownWrite = BeginOwnMoxWrite();
+                    try { theRadio.Mox = value; }
+                    finally { EndOwnMoxWrite(ownWrite); }
                 }), "Mox");
             }
         }

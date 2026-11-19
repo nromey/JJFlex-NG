@@ -165,33 +165,72 @@ namespace Radios
             }
         }
 
-        /// <summary>One open, run off the loop.</summary>
+        /// <summary>
+        /// What an open on the worker is for. A <see cref="Replace"/> open puts a
+        /// stream where there is none (rulings repair 2): the double-failure
+        /// rescue of a swap, and the re-open after a microphone stream died
+        /// (#1145, tier 2). Until it publishes, the microphone is pending and the
+        /// gate starts nothing.
+        /// </summary>
+        private enum TxOpenKind { Try, Fallback, Replace }
+
+        /// <summary>One open, run off the loop, bound to the connection (its input channel) and the run (its wake) that asked.</summary>
         private sealed class TxOpenJob
         {
+            public TxOpenKind Kind;
             public int Rate;
-            public bool Fallback;
+            public int SecondRate;               // Replace only: opened if Rate will not; 0 for none
+            public int OpenedRate;
+            public string Why = "";
             public object Channel;
+            public RemoteAudioWake Wake;         // the run that asked; the only one it may signal or publish into
             public long KeyDownsAtStart;
             public long OpenMs;
             public JJAudioStream Stream;
             public int State;   // 0 opening, 1 opened and waiting for the loop, 2 taken by the loop, 3 abandoned
+            public bool Fallback => Kind == TxOpenKind.Fallback;
         }
         private TxOpenJob _txOpenJob;
 
         /// <summary>Tests only: runs a worker's job (inline, in the windowless tests). Null in the app: a background thread per job.</summary>
         internal Action<Action> TxCaptureWorkerForTest { get; set; }
 
+        /// <summary>Opens and closes running on their workers now. The teardown waits for them before the audio server is ended.</summary>
+        private int _txCaptureWorkers;
+
+        /// <summary>How long the teardown waits for an open or close still on its worker: an open is bounded at five seconds by the audio server, a close at a few 200 ms polls.</summary>
+        internal const int TxCaptureWorkerDrainMs = 6000;
+
         private void RunTxCaptureWork(string name, Action work)
         {
-            var forTest = TxCaptureWorkerForTest;
-            if (forTest != null) { forTest(work); return; }
-            var thread = new System.Threading.Thread(() =>
+            System.Threading.Interlocked.Increment(ref _txCaptureWorkers);
+            void Run()
             {
                 try { work(); }
                 catch (Exception ex) { Tracing.TraceLine("TxCallbackRate: " + name + " threw: " + ex.Message, TraceLevel.Error); }
-            })
-            { IsBackground = true, Name = name };
+                finally { System.Threading.Interlocked.Decrement(ref _txCaptureWorkers); }
+            }
+            var forTest = TxCaptureWorkerForTest;
+            if (forTest != null) { forTest(Run); return; }
+            var thread = new System.Threading.Thread(Run) { IsBackground = true, Name = name };
             thread.Start();
+        }
+
+        /// <summary>
+        /// The teardown's wait (rulings repair 2, Codex's join list): no open or
+        /// close on a worker may outlive the run into Audio.Terminate or a later
+        /// run's Audio.Initialize. Bounded; a worker still out at the bound is
+        /// traced and left (its thread is background).
+        /// </summary>
+        private void WaitForTxCaptureWorkers(string why)
+        {
+            long until = Environment.TickCount64 + TxCaptureWorkerDrainMs;
+            while (System.Threading.Volatile.Read(ref _txCaptureWorkers) > 0 && Environment.TickCount64 < until)
+                System.Threading.Thread.Sleep(10);
+            int left = System.Threading.Volatile.Read(ref _txCaptureWorkers);
+            if (left > 0)
+                Tracing.TraceLine("TxCallbackRate: " + left + " microphone open or close still on its worker after "
+                    + TxCaptureWorkerDrainMs + " ms (" + why + "); not waited for any longer", TraceLevel.Error);
         }
 
         /// <summary>Close a stream nothing uses any more, off the loop (a close polls in 200 ms steps).</summary>
@@ -201,11 +240,15 @@ namespace Radios
             RunTxCaptureWork("TxCaptureClose", () => { try { stream.Close(); } catch { } });
         }
 
-        private void StartTxOpenJob(int rate, bool fallback, object channel)
+        private void StartTxOpenJob(int rate, TxOpenKind kind, object channel, int secondRate = 0, string why = "")
         {
             var job = new TxOpenJob
             {
-                Rate = rate, Fallback = fallback, Channel = channel,
+                Rate = rate, Kind = kind, Channel = channel, SecondRate = secondRate, Why = why ?? "",
+                // Read on the loop, so it is this run's wake (rulings repair 2):
+                // the worker signals only the run that asked, and a newer run's
+                // wake is never captured.
+                Wake = System.Threading.Volatile.Read(ref _remoteAudioWake),
                 KeyDownsAtStart = System.Threading.Interlocked.Read(ref _txKeyDownAdmissions),
             };
             _txOpenJob = job;
@@ -213,9 +256,17 @@ namespace Radios
             {
                 long t0 = Environment.TickCount64;
                 JJAudioStream opened = null;
-                try { opened = OpenTxCaptureAt(rate); }
+                int openedRate = rate;
+                try { opened = OpenTxCaptureAt(rate, job.Wake); }
                 catch (Exception ex) { Tracing.TraceLine("TxCallbackRate: the open threw: " + ex.Message, TraceLevel.Error); }
+                if (opened == null && job.SecondRate > 0 && job.SecondRate != rate)
+                {
+                    openedRate = job.SecondRate;
+                    try { opened = OpenTxCaptureAt(openedRate, job.Wake); }
+                    catch (Exception ex) { Tracing.TraceLine("TxCallbackRate: the open threw: " + ex.Message, TraceLevel.Error); }
+                }
                 job.OpenMs = Environment.TickCount64 - t0;
+                job.OpenedRate = openedRate;
                 job.Stream = opened;
                 // Handed back only if nobody abandoned it meanwhile (the remote
                 // audio stopped, the stream died): then it is closed here.
@@ -225,7 +276,21 @@ namespace Radios
                     return;
                 }
                 System.Threading.Volatile.Write(ref _txTryNextCheckTick, 0); // the loop's next look picks it up
+                job.Wake?.Signal();                                           // and that look comes now, not at the idle timeout
             });
+        }
+
+        /// <summary>
+        /// On the loop: take an open that is back from its worker and act on it.
+        /// Every look of the gate's start does this first (rulings repair 2), so
+        /// a re-open publishes as soon as it is back, whatever the try is doing.
+        /// </summary>
+        private void TakeReturnedTxOpen(audioChannelData channel)
+        {
+            var job = _txOpenJob;
+            if (job == null || System.Threading.Interlocked.CompareExchange(ref job.State, 2, 1) != 1) return;
+            _txOpenJob = null;
+            TxOpenReturned(job, channel);
         }
 
         /// <summary>
@@ -240,9 +305,16 @@ namespace Radios
             int was = System.Threading.Interlocked.Exchange(ref job.State, 3);
             if (was == 1) CloseTxStreamOffLoop(job.Stream);
             if (was == 0 || was == 1)
-                Tracing.TraceLine("TxCallbackRate: the " + (job.Fallback ? "fall back's" : "automatic try's") + " open at " + job.Rate
+                Tracing.TraceLine("TxCallbackRate: the " + TxOpenName(job) + " open at " + job.Rate
                     + " a second was abandoned: " + why, TraceLevel.Info);
         }
+
+        private static string TxOpenName(TxOpenJob job) => job.Kind switch
+        {
+            TxOpenKind.Fallback => "fall back's",
+            TxOpenKind.Replace => "microphone re-open's",
+            _ => "automatic try's",
+        };
 
         private void TxTryStep()
         {
@@ -257,12 +329,9 @@ namespace Radios
             }
 
             // An open on its worker: nothing to do until it is back; receive carries on.
-            var job = _txOpenJob;
-            if (job != null)
+            if (_txOpenJob != null)
             {
-                if (System.Threading.Interlocked.CompareExchange(ref job.State, 2, 1) != 1) return;
-                _txOpenJob = null;
-                TxOpenReturned(job, channel);
+                TakeReturnedTxOpen(channel);
                 return;
             }
 
@@ -288,8 +357,8 @@ namespace Radios
             if (_txTryFallbackDue)
             {
                 if (keyed || TxKeyRecentlyAdmitted || busy || sourceEngaged || !channel.Started) return; // at once, as soon as it is allowed
-                StartTxOpenJob(TxCallbackRate.Shipped, true, channel);
-                TakeInlineTxOpen(channel);
+                StartTxOpenJob(TxCallbackRate.Shipped, TxOpenKind.Fallback, channel);
+                TakeReturnedTxOpen(channel);
                 return;
             }
 
@@ -302,28 +371,26 @@ namespace Radios
 
             _txTryDone = true;
             _txTryReason = decision.Reason;
-            StartTxOpenJob(TxCallbackRate.Fast, false, channel);
-            TakeInlineTxOpen(channel);
+            StartTxOpenJob(TxCallbackRate.Fast, TxOpenKind.Try, channel);
+            TakeReturnedTxOpen(channel); // a worker that ran inline (the windowless tests) is already back
         }
 
         private string _txTryReason = "";
-
-        /// <summary>A worker that ran inline (the windowless tests) is already back: take it on this same look.</summary>
-        private void TakeInlineTxOpen(audioChannelData channel)
-        {
-            var job = _txOpenJob;
-            if (job == null || System.Threading.Interlocked.CompareExchange(ref job.State, 2, 1) != 1) return;
-            _txOpenJob = null;
-            TxOpenReturned(job, channel);
-        }
 
         /// <summary>On the loop: an open came back from its worker. Swap it in if admitted; otherwise close it off the loop and wait.</summary>
         private void TxOpenReturned(TxOpenJob job, audioChannelData channel)
         {
             var fresh = job.Stream;
-            if (!ReferenceEquals(job.Channel, channel))
+            // Bound to the connection AND the run that asked (rulings repair 2):
+            // an open from an ended run never publishes into a later one.
+            if (!ReferenceEquals(job.Channel, channel) || !ReferenceEquals(job.Wake, System.Threading.Volatile.Read(ref _remoteAudioWake)))
             {
                 CloseTxStreamOffLoop(fresh); // a different connection now; its own try state was reset
+                return;
+            }
+            if (job.Kind == TxOpenKind.Replace)
+            {
+                PublishTxCaptureReplacement(job, channel);
                 return;
             }
             if (fresh == null)
@@ -431,46 +498,81 @@ namespace Radios
         }
 
         /// <summary>
-        /// Open the transmit capture at <paramref name="rate"/> callbacks a
-        /// second, wired exactly as the first open in remoteAudioProc wires it
-        /// (the input source mux, the conditioner, the loudness meter, and the
-        /// key state on the conditioner and the stream's pipeline), and NOT
-        /// started. Null when it would not open, with nothing left behind.
+        /// THE transmit capture open (rulings repair 2: the first open in
+        /// remoteAudioProc, the automatic try, its fall back, the swap's rescue
+        /// and the re-open after a death all come here). Opens at
+        /// <paramref name="rate"/> callbacks a second with the transmit Opus
+        /// profile, traces the rate the device actually gave, and wires it: the
+        /// input source mux, the conditioner, the loudness meter, the key state
+        /// on the conditioner and the stream's pipeline, and the death hook to
+        /// <paramref name="wake"/>, the run that asked. NOT started. Null when it
+        /// would not open, with nothing left behind.
         /// </summary>
-        /// <remarks>
-        /// The first open in remoteAudioProc is not routed through this yet: the
-        /// receive-audio track is changing that method, and this round was told
-        /// not to. <c>TxCaptureTryTests</c> holds the two wiring lists equal, so
-        /// neither can gain a line the other lacks. When that track lands, the
-        /// first open should call this.
-        /// </remarks>
-        private JJAudioStream OpenTxCaptureAt(int rate)
+        /// <param name="rate">Callbacks a second.</param>
+        /// <param name="wake">The asking run's wake: a stream that dies wakes that run's loop (#1145). Null wires no hook; the loop still notices the died flag within its idle wait.</param>
+        private JJAudioStream OpenTxCaptureAt(int rate, RemoteAudioWake wake)
         {
+            JJAudioStream stream;
             var forTest = TxCaptureOpenForTest;
-            if (forTest != null) return forTest(rate);
-            var stream = new JJAudioStream();
-            bool opened;
-            try
+            if (forTest != null) stream = forTest(rate);
+            else
             {
-                opened = stream.OpenOpus(Devices.DeviceTypes.input, OpusTxSampleRateSetting, sendOpusInput,
-                    null, rate, OpusTxEncodeProfile);
+                stream = new JJAudioStream();
+                uint asked = OpusTxSampleRateSetting;
+                bool opened;
+                try
+                {
+                    opened = stream.OpenOpus(Devices.DeviceTypes.input, asked, sendOpusInput,
+                        null, rate, OpusTxEncodeProfile);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("TxCallbackRate: opening the microphone at " + rate + " a second threw: " + ex.Message, TraceLevel.Error);
+                    opened = false;
+                }
+                if (!opened)
+                {
+                    try { stream.Close(); } catch { }
+                    return null;
+                }
+                // Always log what the transmit stream actually opened as,
+                // whether or not it matches what was asked for. The device has
+                // the last word on both the rate and the channel count, and a
+                // line that only appears on divergence is a line nobody can
+                // use as a baseline.
+                Tracing.TraceLine("remoteAudioProc:opus input channel open at "
+                    + stream.SampleRate + " Hz, " + stream.Channels + " channel(s), " + rate + " callbacks a second"
+                    + (stream.SampleRate != asked ? " — the device refused the requested " + asked + " Hz" : ""),
+                    TraceLevel.Info);
             }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("TxCallbackRate: opening the microphone at " + rate + " a second threw: " + ex.Message, TraceLevel.Error);
-                opened = false;
-            }
-            if (!opened)
-            {
-                try { stream.Close(); } catch { }
-                return null;
-            }
+            if (stream == null) return null;
+            // Audio Track C: hand the persistent TX injection sources to the
+            // input stream so an engaged one replaces the mic at the encoder.
+            // Sprint 33 Track I: this used to be the tone generator alone; it
+            // is now the mux carrying the tone and the reference-voice player.
             stream.InputSource = TxInputSources;
+            // Track I: hand the persistent TX conditioning chain (NR + gate +
+            // residual tap) to the same stream. It runs AFTER the tone
+            // injection point (and is skipped entirely while a tone is
+            // engaged — the tone is a calibrated reference) and BEFORE the
+            // LUFS meter, so the meter keeps measuring what genuinely ships.
             stream.InputProcessor = txConditioner.Process;
+            // Engine Track: hand the persistent LUFS meter to the same stream.
+            // It taps the callback AFTER the tone injection, so it measures
+            // whatever is actually being encoded and sent — tone or mic.
             stream.InputLufsMeter = txLufsMeter;
+            // Sprint 49 Track H: the key state the chain reads once per buffer,
+            // our Mox OR the radio's interlock. The conditioner resets the gate
+            // open at a real key-down with it (#1075) and the noise reduction
+            // holds its changes for the unkey; the pipeline ends a faulted
+            // stage's skip when it changes (#1074).
             txConditioner.KeySource = TransmitKeySource;
             var pipeline = stream.TransmitPipeline;
             if (pipeline != null) pipeline.KeySource = TransmitKeySource;
+            // #1145: a microphone stream that ends on its own wakes the loop of
+            // the run that opened it; the loop also checks the flag on every
+            // pass without it.
+            if (wake != null) stream.StreamDiedHook = wake.Signal;
             return stream;
         }
 
@@ -527,18 +629,19 @@ namespace Radios
             {
                 if (rescue)
                 {
-                    // Both refused. Open afresh at the shipped rate, on this loop: the
-                    // microphone is already lost, and this is the double-failure path
-                    // only (reported). Outside the admission lock, so a key-down never
-                    // waits for an open.
-                    var again = OpenTxCaptureAt(TxCallbackRate.Shipped);
-                    lock (channel)
-                    {
-                        channel.PortAudioStream = again;
-                        channel.Started = again != null && again.StartAudio();
-                    }
-                    if (!channel.Started) GiveUpTxCapture(channel, "neither the old nor a new microphone stream would start");
-                    else { _txCallbackRateThisStream = TxCallbackRate.Shipped; TxAudioCallbacksPerSecond = TxCallbackRate.Shipped; }
+                    // Both refused: the capture is lost. A fresh stream at the
+                    // shipped rate is opened on a worker (rulings repair 2, Codex's
+                    // P2: an open on this loop stalls receive for up to five
+                    // seconds), and until it publishes the microphone is pending:
+                    // the gate starts nothing. If it will not open, or will not
+                    // start, the microphone is given up, said once. Its start is
+                    // resolved as a restart, timed from now; never spoken (the
+                    // swap only runs unkeyed).
+                    _micDiedAtMs = _streamRecoveryClock();
+                    _micDiedKeyed = false;
+                    _micRestartSpeakable = false;
+                    BeginTxCaptureReplacement(channel, TxCallbackRate.Shipped, 0,
+                        "neither the old nor a new microphone stream would start");
                 }
                 return TxSwapResult.NotStarted;
             }
@@ -559,45 +662,112 @@ namespace Radios
             Tracing.TraceLine("remoteAudioProc: transmit capture now at " + rate + " callbacks a second (" + why + ")", TraceLevel.Info);
             return TxSwapResult.Swapped;
         }
-        private bool _txCaptureGivenUpSaid;
+        /// <summary>
+        /// A microphone re-open (a swap's rescue, or tier 2 after a death) is on
+        /// its worker: the channel holds no stream, and the gate starts nothing
+        /// until it publishes (rulings repair 2).
+        /// </summary>
+        private bool _micReopenPending;
 
-        /// <summary>The microphone could not be brought back: computer transmit audio is off for this connection, said once.</summary>
-        private void GiveUpTxCapture(audioChannelData channel, string why)
+        /// <summary>
+        /// The microphone could not be brought back: computer transmit audio is
+        /// off for the rest of the run, through the receive-audio track's one
+        /// give-up (#1145), so the give-up is said once whichever road reached it.
+        /// </summary>
+        private void GiveUpTxCapture(string why)
         {
-            opusInputAvailable = false;
-            channel.PortAudioStream = null;
-            channel.Started = false;
             Tracing.TraceLine("remoteAudioProc: the microphone stream could not be brought back (" + why
                 + "); computer transmit audio is unavailable for this connection", TraceLevel.Error);
-            if (_txCaptureGivenUpSaid || SuppressSpeech) return;
-            _txCaptureGivenUpSaid = true;
-            try
-            {
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.mic.stopped_not_restarted"), Speech.SpeechIntent.Queue,
-                    VerbosityLevel.Critical, subject: Speech.SpeechSubject.TransmitMicrophoneLost);
-            }
-            catch { }
+            GiveUpMicStream();
         }
 
         /// <summary>
-        /// #1145, tier 2, the part handed to Sprint 49: the transmit capture
-        /// stream DIED (the receive-audio track's detection, from PortAudio's
-        /// finished callback, or a start that failed after its tier-1 restart),
-        /// so open it again through the transmit open path. On the remote-audio
-        /// loop's thread only. The dead stream is judged as a PARTIAL run (no
-        /// verdict either way) and closed; any automatic try on it ends with no
-        /// verdict; the rate is chosen again (a held pass keeps the faster rate;
-        /// otherwise the shipped one), falling back to the shipped rate if the
-        /// faster will not open; the new stream is wired and left for the gate's
-        /// next start. If nothing opens, computer transmit audio is given up for
-        /// the connection and said once. True when a stream is in place.
+        /// Put a stream where there is none, opened on a worker (rulings repair
+        /// 2): marks the microphone pending until <see cref="PublishTxCaptureReplacement"/>.
+        /// </summary>
+        private void BeginTxCaptureReplacement(audioChannelData channel, int rate, int secondRate, string why)
+        {
+            _micReopenPending = true;
+            StartTxOpenJob(rate, TxOpenKind.Replace, channel, secondRate, why);
+        }
+
+        /// <summary>
+        /// On the loop: a re-open is back. With a stream, it goes into the
+        /// channel, NOT started: the gate's start starts it and resolves it as a
+        /// restart (said or not by the receive-audio track's rules). Without one,
+        /// the microphone is given up, said once.
+        /// </summary>
+        private void PublishTxCaptureReplacement(TxOpenJob job, audioChannelData channel)
+        {
+            _micReopenPending = false;
+            var fresh = job.Stream;
+            if (fresh == null)
+            {
+                GiveUpTxCapture(job.Why + ", and a new stream would not open (" + job.OpenMs + " ms, off the receive loop)");
+                return;
+            }
+            lock (channel)
+            {
+                channel.PortAudioStream = fresh;
+                channel.Started = false;
+            }
+            _txStreamAlreadyJudged = false;
+            _txStreamPartialRun = false;
+            _txStreamPartialReason = "";
+            _txCallbackRateThisStream = job.OpenedRate;
+            TxAudioCallbacksPerSecond = job.OpenedRate;
+            TxCallbackRate.CurrentRate = job.OpenedRate;
+            Tracing.TraceLine("remoteAudioProc: the microphone (" + job.Why + ") was opened again at "
+                + job.OpenedRate + " callbacks a second (" + job.OpenMs + " ms, off the receive loop); the gate starts it on its next pass",
+                TraceLevel.Warning);
+            NoteMicReplacementPublished();
+        }
+
+        /// <summary>
+        /// Every death of the transmit capture stream (rulings repair 2, Codex's
+        /// join list), whatever recovers it: an open in flight against it is
+        /// abandoned, the stream is marked PARTIAL so it earns no verdict at its
+        /// close, and an automatic try running on it ends with no verdict (its
+        /// callback counts span the death) and falls back to the shipped rate as
+        /// soon as that is allowed, as a disturbed try does.
+        /// </summary>
+        private void NoteTxCaptureDied(string why)
+        {
+            AbandonTxOpenJob("the stream died (" + why + ")");
+            _txStreamPartialRun = true;
+            _txStreamPartialReason = "the stream died part way: " + why;
+            if (!_txTryRunning) return;
+            _txTryRunning = false;
+            _txStreamAlreadyJudged = true;
+            _txTryFallbackDue = true;
+            _txTryFallbackWhy = "the stream died during the automatic try";
+            Tracing.TraceLine("TxCallbackRate: automatic try at " + TxCallbackRate.Fast
+                + " a second: no verdict, the stream died part way (" + why + "); back to " + TxCallbackRate.Shipped
+                + " as soon as it is allowed", TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// #1145, tier 2: the transmit capture stream DIED and its tier-1
+        /// restart failed (the receive-audio track's give-up point, rulings
+        /// repair 2), so open a new one through the transmit open path, ON A
+        /// WORKER. On the remote-audio loop's thread only. The dead stream is
+        /// judged as a PARTIAL run (no verdict either way) and, if still open,
+        /// closed off the loop; any automatic try on it ends with no verdict; the
+        /// rate is chosen again (a held pass keeps the faster rate, otherwise the
+        /// shipped one), and the shipped rate is opened if the faster will not.
+        /// Until the new stream publishes the microphone is pending and the gate
+        /// starts nothing; the gate's start after it resolves it as a restart.
+        /// If nothing opens, or it will not start, the microphone is given up and
+        /// said once. Bounded by the receive-audio track's recovery cap: this is
+        /// the escalation of one recovery the cap already counted, never a new
+        /// one. False when there is no connection to re-open on.
         /// </summary>
         /// <param name="why">What ended the stream, for the trace (for WASAPI, the HRESULT if known).</param>
         internal bool ReopenTxCaptureAfterDeath(string why)
         {
             var channel = opusInputChannel;
             if (channel == null) return false;
-            AbandonTxOpenJob("the stream died (" + why + ")");
+            NoteTxCaptureDied(why);
             JJAudioStream dead;
             lock (channel)
             {
@@ -606,40 +776,19 @@ namespace Radios
                 channel.Started = false;
                 channel.PortAudioStream = null;
             }
-            _txStreamPartialRun = true;
-            _txStreamPartialReason = "the stream died part way: " + why;
-            if (_txTryRunning)
-            {
-                _txTryRunning = false;
-                Tracing.TraceLine("TxCallbackRate: automatic try at " + TxCallbackRate.Fast
-                    + " a second: no verdict, the stream died part way (" + why + ")", TraceLevel.Info);
-            }
+            // The rate is chosen again below, so no fall back is owed.
             _txTryFallbackDue = false;
             if (dead != null)
             {
                 JudgeTxCallbackRate(dead);
-                try { dead.Close(); } catch { }
+                // A failed start already closed an open stream (JJAudioStream.StartAudio);
+                // only one still open is closed here, and off the loop.
+                if (dead.IsOpen) CloseTxStreamOffLoop(dead);
             }
             ChooseTxCallbackRate(); // resets the partial flag for the stream about to open
             int rate = TxAudioCallbacksPerSecond;
-            var fresh = OpenTxCaptureAt(rate);
-            if (fresh == null && rate != TxCallbackRate.Shipped)
-            {
-                rate = TxCallbackRate.Shipped;
-                fresh = OpenTxCaptureAt(rate);
-            }
-            if (fresh == null)
-            {
-                GiveUpTxCapture(channel, "the stream died (" + why + ") and would not open again");
-                return false;
-            }
-            lock (channel) channel.PortAudioStream = fresh;
-            _txCallbackRateThisStream = rate;
-            TxAudioCallbacksPerSecond = rate;
-            TxCallbackRate.CurrentRate = rate;
-            opusInputAvailable = true;
-            Tracing.TraceLine("remoteAudioProc: the microphone stream died (" + why + ") and was opened again at "
-                + rate + " callbacks a second; the gate starts it on its next pass", TraceLevel.Warning);
+            BeginTxCaptureReplacement(channel, rate, rate != TxCallbackRate.Shipped ? TxCallbackRate.Shipped : 0,
+                "the stream died (" + why + ")");
             return true;
         }
     }

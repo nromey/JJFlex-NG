@@ -126,7 +126,20 @@ namespace JJPortaudio
             private volatile bool _tailOut;
 
             /// <param name="neededSamples">The reducer's delay at the release, in samples per channel.</param>
-            public DrainTicket(int neededSamples) { _neededSamples = Math.Max(0, neededSamples); }
+            /// <param name="releaseTimestamp">
+            /// When the release happened, as a <see cref="System.Diagnostics.Stopwatch"/>
+            /// timestamp: the boundary in the CAPTURE stream (rulings repair 2,
+            /// Codex's P1). A sample captured before it is the over's own and goes
+            /// through; one captured at or after it is silenced. Zero means now.
+            /// </param>
+            public DrainTicket(int neededSamples, long releaseTimestamp = 0)
+            {
+                _neededSamples = Math.Max(0, neededSamples);
+                ReleaseTimestamp = releaseTimestamp != 0 ? releaseTimestamp : System.Diagnostics.Stopwatch.GetTimestamp();
+            }
+
+            /// <summary>The release, as a <see cref="System.Diagnostics.Stopwatch"/> timestamp: where the over ends in the capture stream.</summary>
+            public long ReleaseTimestamp { get; }
 
             /// <summary>The delay to drain, in samples per channel: the delay at the release, or a larger one a drained buffer reported.</summary>
             public int NeededSamples => System.Threading.Volatile.Read(ref _neededSamples);
@@ -182,12 +195,73 @@ namespace JJPortaudio
         /// (the reducer's delay, per channel) have gone through, which is when
         /// the tail is out. Replaces any drain in force.
         /// </summary>
-        public DrainTicket BeginDrain(int neededSamples)
+        public DrainTicket BeginDrain(int neededSamples, long releaseTimestamp = 0)
         {
-            var ticket = new DrainTicket(neededSamples);
+            var ticket = new DrainTicket(neededSamples, releaseTimestamp);
             System.Threading.Volatile.Write(ref _drain, ticket);
             return ticket;
         }
+
+        // ── Rulings repair 2 (Codex's P1): the release is a point in the
+        // CAPTURE stream, not in processing time ──
+        //
+        // A capture callback is delivered after its block was captured: at 10
+        // callbacks a second, the block that arrives just after a release can
+        // hold up to 100 ms of speech said BEFORE the release, plus the device's
+        // own latency. Silencing whole buffers from the first one processed
+        // after the release threw that speech away. So each buffer carries the
+        // capture time of its first sample (the producer says; see
+        // TxCaptureClock), and only the samples captured at or after the release
+        // are silenced. A buffer whose capture time is not known (zero: the
+        // self-clocked source, a direct call) counts as captured now, which is
+        // after the release, so it is silenced whole, exactly as before. The
+        // drain's progress counts only the silence that went in, so the tail is
+        // judged from the boundary, not from the buffer.
+
+        private long _bufferCaptureTimestamp;
+
+        /// <summary>
+        /// The capture time of the first sample of the buffer the next
+        /// <see cref="Process"/> call is given, as a Stopwatch timestamp; zero
+        /// when not known. Set by the producer (<see cref="TxFramePipeline"/>)
+        /// on the audio thread, consumed by that one call.
+        /// </summary>
+        internal void SetNextBufferCaptureTimestamp(long captureTimestamp) => _bufferCaptureTimestamp = captureTimestamp;
+
+        /// <summary>
+        /// Silence the part of <paramref name="buffer"/> captured at or after the
+        /// release of <paramref name="drain"/>. Returns how many sample frames
+        /// (per channel) were silenced. Idempotent: the same buffer and capture
+        /// time always silence the same samples.
+        /// </summary>
+        internal static int SilenceAfterRelease(DrainTicket drain, float[] buffer, int count, uint sampleRate, long captureTimestamp)
+        {
+            if (drain == null || buffer == null || count <= 0) return 0;
+            int floats = Math.Min(count, buffer.Length);
+            int frames = floats / 2;
+            long keep = 0;
+            if (captureTimestamp != 0 && sampleRate > 0)
+            {
+                long before = drain.ReleaseTimestamp - captureTimestamp;
+                // Whole samples captured before the release only: a sample that
+                // straddles it is silenced (the boundary rounds toward silence).
+                if (before > 0) keep = before * sampleRate / System.Diagnostics.Stopwatch.Frequency;
+            }
+            if (keep >= frames) return 0;
+            int from = (int)keep * 2;
+            Array.Clear(buffer, from, floats - from);
+            return frames - (int)keep;
+        }
+
+        /// <summary>
+        /// The release boundary, enforced by the producer OUTSIDE the fallible
+        /// conditioning stage (rulings repair 2, Codex's P1): a fault in that
+        /// stage, its snapshot restoration, or its skip for the rest of the over
+        /// can never let microphone audio captured after the release through.
+        /// Uses the drain in force; does nothing when none is.
+        /// </summary>
+        public int ApplyReleaseBoundary(float[] buffer, int count, uint sampleRate, long captureTimestamp) =>
+            SilenceAfterRelease(System.Threading.Volatile.Read(ref _drain), buffer, count, sampleRate, captureTimestamp);
 
         private int _lastDelaySamples;
         private int _lastDelayRate;
@@ -385,8 +459,12 @@ namespace JJPortaudio
             _appliedLive = initial;
         }
 
-        /// <summary>Read the key state for this buffer. Runs before the bypass, so a CW over still counts as an over.</summary>
-        private bool ReadKey()
+        /// <summary>
+        /// Read the key state for this buffer. Runs before the bypass, so a CW
+        /// over still counts as an over. <paramref name="observedDrain"/> is the
+        /// drain this buffer read BEFORE it read the key.
+        /// </summary>
+        private bool ReadKey(DrainTicket observedDrain)
         {
             var source = KeySource;
             bool keyed;
@@ -400,7 +478,13 @@ namespace JJPortaudio
             _keyed = keyed;
             // The held unkey's drain ends with the over (S16): the first buffer
             // the key reads up is receive, and the microphone runs as normal.
-            if (!keyed) System.Threading.Volatile.Write(ref _drain, null);
+            // ONLY the drain this buffer observed before its key read (rulings
+            // repair 2, Codex's P1): a buffer that read "unkeyed", then waited
+            // while a new over keyed and released, must not end that new over's
+            // drain. The ticket is the episode token; the swap succeeds only if
+            // it is still the one in force.
+            if (!keyed && observedDrain != null)
+                System.Threading.Interlocked.CompareExchange(ref _drain, null, observedDrain);
             // With a real key state, the key-down is what resets the gate open
             // (#1075), and a gap in the stream no longer does.
             Gate.ResetsOnStreamGap = source == null;
@@ -438,18 +522,24 @@ namespace JJPortaudio
         /// </summary>
         public void Process(float[] buffer, int count, uint sampleRate)
         {
-            UpdateGate(ReadKey());
+            // The drain read ONCE per buffer, and BEFORE the key (rulings repair
+            // 2): an unkeyed buffer ends only the drain it saw, and a buffer
+            // read unkeyed is not drained.
+            var observed = System.Threading.Volatile.Read(ref _drain);
+            bool keyed = ReadKey(observed);
+            long captureTimestamp = _bufferCaptureTimestamp;
+            _bufferCaptureTimestamp = 0;
+            UpdateGate(keyed);
             // S16: while an unkey is held for the noise reduction's delay, the
             // radio stays keyed and the capture keeps running, but nothing the
-            // microphone hears from now on may go on air. Silence goes in, so
-            // what comes out is the chain's drained tail of the audio captured
-            // before the release, then silence. Before the bypass, so it holds
-            // whatever the mode.
-            // The drain read ONCE per buffer: a buffer is drained whole or not
-            // at all, and only a drained buffer counts toward the tail.
-            var drain = System.Threading.Volatile.Read(ref _drain);
-            if (drain != null && count > 0) Array.Clear(buffer, 0, Math.Min(count, buffer.Length));
-            if (_bypassAll) { NoteDelay(0, sampleRate); drain?.Advance(count / 2, 0); return; }
+            // microphone heard from the release on may go on air. Silence goes
+            // in from the release's point in the capture stream, so what comes
+            // out is the chain's drained tail of the audio captured before the
+            // release, then silence. Before the bypass, so it holds whatever the
+            // mode. Only the silence that went in counts toward the tail.
+            var drain = keyed ? observed : null;
+            int silenced = SilenceAfterRelease(drain, buffer, count, sampleRate, captureTimestamp);
+            if (_bypassAll) { NoteDelay(0, sampleRate); drain?.Advance(silenced, 0); return; }
 
             var nr = NoiseReducer;
             var appliedLatency = NoiseReducerAppliedLatencySamples;
@@ -466,7 +556,7 @@ namespace JJPortaudio
             {
                 NoteDelay(0, sampleRate);
                 Gate.Process(buffer, 0, sampleRate);
-                drain?.Advance(count / 2, 0);
+                drain?.Advance(silenced, 0);
                 return;
             }
 
@@ -483,9 +573,9 @@ namespace JJPortaudio
             NoteDelay(delay, sampleRate);
             DelayInputCopy(count, delay);
             Gate.Process(buffer, count, sampleRate);
-            // S16: this drained buffer pushed count/2 samples of silence into the
-            // reducer, so that much more of the pre-release audio has come out.
-            drain?.Advance(count / 2, delay);
+            // S16: this drained buffer pushed that much silence into the reducer,
+            // so that much more of the pre-release audio has come out.
+            drain?.Advance(silenced, delay);
 
             if (!wantMonitor) return;
 

@@ -95,10 +95,12 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// The re-open's wiring and the first open's in remoteAudioProc must be
-        /// the same list: the first open was left alone this round (the
-        /// receive-audio track is changing that method), so this test is what
-        /// keeps the two from drifting.
+        /// There is ONE transmit capture open path (Sprint 49 Track H2, the join
+        /// with the receive-audio track): the first open in remoteAudioProc, the
+        /// automatic try, its fall back, the swap's rescue and the re-open after
+        /// a death all call OpenTxCaptureAt, which wires every stream the same
+        /// way. Until the join this test held two copies of the wiring equal; now
+        /// it holds that no second copy can appear.
         /// </summary>
         [Fact]
         public void The_reopen_wires_the_stream_exactly_as_the_first_open_does()
@@ -106,27 +108,34 @@ namespace Radios.Tests
             string root = RepoRoot();
             string remote = File.ReadAllText(Path.Combine(root, "Radios", "FlexBase.RemoteAudio.cs"));
             string tryFile = File.ReadAllText(Path.Combine(root, "Radios", "FlexBase.TxCaptureTry.cs"));
-            int start = remote.IndexOf("opusInputChannel.PortAudioStream = new JJAudioStream();", StringComparison.Ordinal);
-            int end = remote.IndexOf("Tracing.TraceLine(\"remoteAudioProc:Opus Input Channel setup\"", start, StringComparison.Ordinal);
-            Assert.True(start > 0 && end > start, "the first open's block was not found in remoteAudioProc");
-            string first = remote.Substring(start, end - start);
-            int open = tryFile.IndexOf("private JJAudioStream OpenTxCaptureAt(int rate)", StringComparison.Ordinal);
-            int close = tryFile.IndexOf("private enum TxSwapResult", open, StringComparison.Ordinal); // the swap that follows it (rulings repair 1)
-            string reopen = tryFile.Substring(open, close - open);
+            int open = tryFile.IndexOf("private JJAudioStream OpenTxCaptureAt(int rate, RemoteAudioWake wake)", StringComparison.Ordinal);
+            int close = tryFile.IndexOf("private enum TxSwapResult", open, StringComparison.Ordinal);
+            Assert.True(open > 0 && close > open, "the one open path was not found");
+            string path = tryFile.Substring(open, close - open);
 
-            static string[] Wiring(string block, string streamPrefix) => Regex.Matches(block,
-                    @"(?:" + Regex.Escape(streamPrefix) + @"\.(InputSource|InputProcessor|InputLufsMeter)\s*=\s*([^;]+);)|(txConditioner\.KeySource\s*=\s*[^;]+;)|((?:txPipeline|pipeline)\.KeySource\s*=\s*[^;]+;)")
-                .Select(m => Regex.Replace(m.Value.Replace(streamPrefix + ".", "STREAM.").Replace("txPipeline.", "PIPELINE.").Replace("pipeline.", "PIPELINE."), @"\s+", " "))
-                .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+            static string[] Wiring(string block) => Regex.Matches(block,
+                    @"(?:\b\w+(?:\.PortAudioStream)?\.(InputSource|InputProcessor|InputLufsMeter|StreamDiedHook)\s*=\s*[^;]+;)|(txConditioner\.KeySource\s*=\s*[^;]+;)|((?:txPipeline|pipeline)\.KeySource\s*=\s*[^;]+;)")
+                .Select(m => Regex.Replace(m.Value, @"\s+", " ")).ToArray();
 
-            var a = Wiring(first, "opusInputChannel.PortAudioStream");
-            var b = Wiring(reopen, "stream");
-            Assert.Equal(5, a.Length);   // positive control: the scan sees the first open's five lines
-            Assert.Equal(a, b);
-            // And the open itself: the same callback, rate setting and encoder profile.
-            Assert.Contains("OpenOpus(Devices.DeviceTypes.input, OpusTxSampleRateSetting, sendOpusInput,", Regex.Replace(reopen, @"\s+", " "));
-            Assert.Contains("OpusTxEncodeProfile", reopen);
-            Assert.Contains("sendOpusInput", first);
+            // Positive control: the open path wires all six (five, and this run's death hook).
+            Assert.Equal(6, Wiring(path).Length);
+            Assert.Contains("OpenOpus(Devices.DeviceTypes.input, asked, sendOpusInput,", Regex.Replace(path, @"\s+", " "));
+            Assert.Contains("OpusTxEncodeProfile", path);
+
+            // The first open goes through it, with this run's wake.
+            int first = remote.IndexOf("opusInputChannel = new audioChannelData(txStream, \"JJFlexRadio.OpusInputChan\");", StringComparison.Ordinal);
+            int setup = remote.IndexOf("Tracing.TraceLine(\"remoteAudioProc:Opus Input Channel setup\"", first, StringComparison.Ordinal);
+            Assert.True(first > 0 && setup > first, "the first open's block was not found in remoteAudioProc");
+            string firstOpen = remote.Substring(first, setup - first);
+            Assert.Contains("OpenTxCaptureAt(TxAudioCallbacksPerSecond, wake)", firstOpen);
+
+            // And nowhere else opens a transmit capture or wires one: not the first open, not anything new.
+            string outside = remote + tryFile.Substring(0, open) + tryFile.Substring(close);
+            Assert.DoesNotContain("OpenOpus(Devices.DeviceTypes.input", Regex.Replace(outside, @"\s+", " "));
+            // The one wiring line outside it is the receive speaker's own death
+            // hook, in buildSpeakerStream (the receive-audio track's).
+            Assert.Equal(new[] { "stream.StreamDiedHook = wake.Signal;" }, Wiring(outside));
+            Assert.Contains("private bool buildSpeakerStream(", remote);
         }
 
         // ── S16: the held unkey, the rig's half ──
