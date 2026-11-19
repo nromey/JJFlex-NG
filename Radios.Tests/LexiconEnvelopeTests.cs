@@ -2407,6 +2407,10 @@ namespace Radios.Tests
                 "audio.noise_advanced.delays",
                 "audio.noise_advanced.delays_none",
                 "audio.noise_advanced.delay_line",
+                // Sprint 49 Track P: the Measured delays rows with the shared receive delay (#873). Placeholders, for the words round.
+                "audio.noise_advanced.delay_line_shared",
+                "audio.noise_advanced.delay_line_outside",
+                "audio.noise_advanced.difference_unknown",
                 "audio.noise_advanced.defaults_button",
                 "audio.noise_advanced.defaults",
                 "audio.noise_help.advanced.understood",

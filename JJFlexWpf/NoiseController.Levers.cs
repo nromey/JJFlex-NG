@@ -341,6 +341,80 @@ namespace JJFlexWpf
             return ms == null ? Lexicon.Get("audio.noise_surface.delay_figure_unknown") : Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ms.Value));
         }
 
+        // ── The shared receive delay (#873, Sprint 49 Track P) ──
+
+        /// <summary>
+        /// The figures running banks reported, by engine and model, so a helper
+        /// model that opened once keeps its exact figure after it stops. Written
+        /// on the control side only, whenever a readout or a plan reads a
+        /// running bank; never by the audio thread.
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Id, string Model), int> _measuredDelays = new();
+
+        /// <summary>
+        /// A computer engine's receive delay in samples, in a model (null: the
+        /// model it is set to now): the running bank's own figure when that bank
+        /// is this engine in this model, built from today's choice (remembered for
+        /// later, so a helper model keeps its exact figure after it stops); else
+        /// the last figure a running bank reported this session; else the
+        /// catalog's expected one; null when none is known yet.
+        /// </summary>
+        internal int? ReceiveFigureSamples(string id, string? model)
+        {
+            var e = _catalog.Find(id);
+            if (e == null || e.Side != DenoiseSide.Pc) return null;
+            string? now = CurrentModel(id);
+            model ??= now;
+            if (SlotFor(e) is { } slot && string.Equals(model, now, StringComparison.Ordinal))
+            {
+                int live = slot.CurrentLatencySamples(id);
+                if (live > 0) { _measuredDelays[(id, model ?? "")] = live; return live; }
+            }
+            return _measuredDelays.TryGetValue((id, model ?? ""), out int seen) ? seen : ReceiveSharedDelay.ExpectedSamples(id, model);
+        }
+
+        /// <summary>The engines that set a family's shared delay: <see cref="ReceiveSharedDelay.SetFor"/>'s assumption, from the favourites.</summary>
+        public IReadOnlyList<ReceiveSharedDelay.Member> SharedDelaySet(DenoiseFamily family) =>
+            ReceiveSharedDelay.SetFor(_catalog, Favourites, family);
+
+        /// <summary>A family's shared receive delay in samples: the largest figure in its set; 0 for an empty set.</summary>
+        public int SharedDelaySamples(DenoiseFamily family) =>
+            ReceiveSharedDelay.SharedSamples(SharedDelaySet(family), m => ReceiveFigureSamples(m.EngineId, m.Model));
+
+        /// <summary>Whether this engine, in the model it is set to now, is in its family's shared set.</summary>
+        public bool InSharedDelaySet(string id) =>
+            _catalog.Find(id) is { Side: DenoiseSide.Pc, Family: { } family }
+            && new SharedDelayPlan(0, SharedDelaySet(family)).Contains(id, CurrentModel(id));
+
+        /// <summary>
+        /// Settings, Advanced, Measured delays: one row for a computer engine
+        /// (Noel 2026-11-04 19:57: "the adjusted delay vs. individual delays"):
+        /// its own delay, and its family's shared delay with how much padding it
+        /// costs this engine; or, outside the set, the shared figure it is not
+        /// held to; or, with no set, its own delay alone, worded exactly as
+        /// before the shared delay existed (nothing is padded then). Empty for a
+        /// radio engine.
+        /// </summary>
+        public string SharedDelayRow(string id)
+        {
+            var e = _catalog.Find(id);
+            if (e == null || e.Side != DenoiseSide.Pc || e.Family is not { } family) return "";
+            int? own = ReceiveFigureSamples(id, null);
+            string ownText = own is int o ? Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(o)))
+                : Lexicon.Get("audio.noise_surface.delay_figure_unknown");
+            var set = SharedDelaySet(family);
+            if (set.Count == 0)
+                return Lexicon.Get("audio.noise_advanced.delay_line", ("engine", NameOf(id)), ("delay", ownText));
+            int shared = SharedDelaySamples(family);
+            string sharedText = Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(shared)));
+            if (!InSharedDelaySet(id))
+                return Lexicon.Get("audio.noise_advanced.delay_line_outside", ("engine", NameOf(id)), ("delay", ownText), ("shared", sharedText));
+            string more = own is int mine
+                ? Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(Math.Max(0, shared - mine))))
+                : Lexicon.Get("audio.noise_advanced.difference_unknown");
+            return Lexicon.Get("audio.noise_advanced.delay_line_shared", ("engine", NameOf(id)), ("delay", ownText), ("shared", sharedText), ("more", more));
+        }
+
         /// <summary>Whether an engine has a delay to show, and the figure in milliseconds when one is known.</summary>
         private bool HasDelay(string id, out int? ms, DenoiseDirection direction = DenoiseDirection.Receive)
         {

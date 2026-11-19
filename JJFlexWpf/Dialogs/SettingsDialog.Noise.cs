@@ -185,16 +185,17 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// The Measured delays rows, one per computer engine, each one phrase:
-        /// "NR2: about 105 milliseconds". No radio is needed: the figures are
-        /// the computer's. Only with no controller at all is there one line
-        /// saying there is nothing to show.
+        /// The Measured delays rows, one per computer engine: its own delay and
+        /// its family's shared delay (#873, Sprint 49 Track P; Noel 2026-11-04
+        /// 19:57), each row whole, from <see cref="NoiseController.SharedDelayRow"/>.
+        /// No radio is needed: the figures are the computer's. Only with no
+        /// controller at all is there one line saying there is nothing to show.
         /// </summary>
         internal static IReadOnlyList<string> MeasuredDelayRows(NoiseController? noise)
         {
             if (noise == null) return new[] { Lexicon.Get("audio.noise_advanced.delays_none") };
             return noise.Engines().Where(e => e.Side == DenoiseSide.Pc)
-                .Select(e => Lexicon.Get("audio.noise_advanced.delay_line", ("engine", noise.NameOf(e.Id)), ("delay", noise.DelayFigure(e.Id))))
+                .Select(e => noise.SharedDelayRow(e.Id))
                 .ToList();
         }
 
