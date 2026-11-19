@@ -78,8 +78,12 @@ public sealed class NoiseSliceJumpSeamTests
     /// </summary>
     private sealed class Bench : IDisposable
     {
-        public readonly NoiseFixture F = new();
-        public readonly FlexBase Rig = new(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+        // Track H2 slice-mode round 3: FlexBase's constructor writes three process
+        // globals (API.ProgramName, API.IsGUI, VitaSocket.TraceSink); captured
+        // before it runs, put back in Dispose or if construction fails.
+        private readonly FlexBaseGlobals _globals;
+        public readonly NoiseFixture F;
+        public readonly FlexBase Rig;
         public readonly Radio Radio;
         public readonly Slice A, B;
         public readonly WireCapture Wire = new();
@@ -90,6 +94,17 @@ public sealed class NoiseSliceJumpSeamTests
 
         public Bench()
         {
+            _globals = FlexBaseGlobals.Capture();
+            try
+            {
+                F = new NoiseFixture();
+                Rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            }
+            catch
+            {
+                try { F?.Dispose(); } finally { _globals.Dispose(); }
+                throw;
+            }
             Radio = (Radio)Activator.CreateInstance(typeof(Radio), Hidden, null, new object[] { false }, null)!;
             Set(Radio, "_commandCommunication", Wire);
             Slice NewSlice(int index, int level, bool active)
@@ -160,9 +175,13 @@ public sealed class NoiseSliceJumpSeamTests
 
         public void Dispose()
         {
-            Set(Rig, "theRadio", null);
-            Rig.Dispose();
-            F.Dispose();
+            try
+            {
+                Set(Rig, "theRadio", null);
+                Rig.Dispose();
+                F.Dispose();
+            }
+            finally { _globals.Dispose(); }
         }
     }
 

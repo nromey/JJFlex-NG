@@ -1968,10 +1968,13 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
 
     private sealed class SliceRig : IDisposable
     {
-        private readonly TxGateOwnerTests.Context _saved = new();
-        public readonly FlexBase Rig = new(new FlexBase.OpenParms { ProgramName = "SliceModeTests" });
-        public readonly Flex.Smoothlake.FlexLib.Radio Radio =
-            (Flex.Smoothlake.FlexLib.Radio)Activator.CreateInstance(typeof(Flex.Smoothlake.FlexLib.Radio), Inst, null, new object[] { false }, null)!;
+        // Slice-mode round 3 (Codex): FlexBase's constructor writes three process
+        // globals, so they are captured BEFORE it runs and put back in Dispose, or
+        // here if construction fails part way, with Context's statics.
+        private readonly FlexBaseGlobals _globals;
+        private readonly TxGateOwnerTests.Context _saved;
+        public readonly FlexBase Rig;
+        public readonly Flex.Smoothlake.FlexLib.Radio Radio;
         public readonly Radios.StationConnect.ObservationBinding Binding;
         public int Events;
 
@@ -1979,6 +1982,18 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         {
             Assert.True(QuietRun.Silenced);
             Assert.True(TestSettingsRoot.Isolated);
+            _globals = FlexBaseGlobals.Capture();
+            _saved = new TxGateOwnerTests.Context();
+            try
+            {
+                Rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "SliceModeTests" });
+                Radio = (Flex.Smoothlake.FlexLib.Radio)Activator.CreateInstance(typeof(Flex.Smoothlake.FlexLib.Radio), Inst, null, new object[] { false }, null)!;
+            }
+            catch
+            {
+                try { _saved.Dispose(); } finally { _globals.Dispose(); }
+                throw;
+            }
             SetField(Radio, "_commandCommunication", new NoSocket());
             SetField(Rig, "theRadio", Radio);
             SetField(Rig, "clientHandle", 0u);
@@ -2010,11 +2025,48 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
 
         public void Dispose()
         {
-            Rig.TransmitModeMayHaveChanged -= RunPolicy;
-            Rig.TransmitModeMayHaveChanged -= Count;
-            SetField(Rig, "theRadio", null);
-            Rig.Dispose();
-            _saved.Dispose();
+            try
+            {
+                Rig.TransmitModeMayHaveChanged -= RunPolicy;
+                Rig.TransmitModeMayHaveChanged -= Count;
+                SetField(Rig, "theRadio", null);
+                Rig.Dispose();
+            }
+            finally
+            {
+                try { _saved.Dispose(); } finally { _globals.Dispose(); }
+            }
+        }
+    }
+
+    [Fact]
+    public void The_windowless_rig_puts_back_the_globals_a_FlexBase_constructor_writes()
+    {
+        // Codex's sentinel (slice-mode round 3): after the rig, API.ProgramName,
+        // API.IsGUI and VitaSocket.TraceSink are what they were before it.
+        var name = Flex.Smoothlake.FlexLib.API.ProgramName;
+        var gui = Flex.Smoothlake.FlexLib.API.IsGUI;
+        var sink = Vita.VitaSocket.TraceSink;
+        try
+        {
+            Flex.Smoothlake.FlexLib.API.ProgramName = "isolation-sentinel";
+            Flex.Smoothlake.FlexLib.API.IsGUI = false;
+            Action<string> sentinel = _ => { };
+            Vita.VitaSocket.TraceSink = sentinel;
+            using (var r = new SliceRig())
+            {
+                Assert.True(Flex.Smoothlake.FlexLib.API.IsGUI);          // positive control: the constructor did change them
+                Assert.NotSame(sentinel, Vita.VitaSocket.TraceSink);
+            }
+            Assert.Equal("isolation-sentinel", Flex.Smoothlake.FlexLib.API.ProgramName);
+            Assert.False(Flex.Smoothlake.FlexLib.API.IsGUI);
+            Assert.Same(sentinel, Vita.VitaSocket.TraceSink);
+        }
+        finally
+        {
+            Flex.Smoothlake.FlexLib.API.ProgramName = name;
+            Flex.Smoothlake.FlexLib.API.IsGUI = gui;
+            Vita.VitaSocket.TraceSink = sink;
         }
     }
 

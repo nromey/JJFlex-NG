@@ -6362,8 +6362,11 @@ namespace Radios
         /// slice going. <see cref="ModeChanged"/> covers only the active slice's
         /// mode, so transmit noise reduction, which must follow the slice that
         /// transmits, read the wrong slice: a second slice set to CW bypassed it
-        /// on a USB transmit slice. Read <see cref="TXModeAsReported"/> when it
-        /// fires; it may fire when nothing changed.
+        /// on a USB transmit slice. Read <see cref="DesignatedTransmitMode"/> when
+        /// it fires, and <see cref="ActiveSliceModeAsReported"/> when no slice of
+        /// ours is designated; never <see cref="TXModeAsReported"/>, which follows
+        /// the TXVFO position even after the designation has gone. It may fire
+        /// when nothing changed.
         /// </summary>
         public event Action TransmitModeMayHaveChanged;
 
@@ -9338,21 +9341,6 @@ namespace Radios
         }
 
         /// <summary>
-        /// The transmit mode the radio ITSELF reports right now — the TX
-        /// slice's live demod mode, not our cache and never our request.
-        /// Empty when there is no TX slice to ask.
-        /// </summary>
-        /// <remarks>
-        /// The mode sibling of <see cref="TXFrequencyAsReported"/>, for the
-        /// same caller and the same reason (#164, #411): a mode write is
-        /// enqueued and the radio has been observed acknowledging transmit
-        /// writes it never applied, so anything that confirms a change to the
-        /// operator must read THIS, poll briefly, and say plainly when the
-        /// radio has not agreed. <see cref="TXMode"/>'s cache is echo-only —
-        /// the setter never touches it — but it can sit stale after slice
-        /// churn, and stale is exactly what a confirmation must not read.
-        /// </remarks>
-        /// <summary>
         /// The mode of the slice the radio has DESIGNATED to transmit, read live
         /// from that slice; empty when no slice of ours is designated (Sprint 49
         /// Track H2, slice-mode round 2). Unlike <see cref="TXModeAsReported"/>,
@@ -9402,6 +9390,21 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The transmit mode the radio ITSELF reports right now — the TX
+        /// slice's live demod mode, not our cache and never our request.
+        /// Empty when there is no TX slice to ask.
+        /// </summary>
+        /// <remarks>
+        /// The mode sibling of <see cref="TXFrequencyAsReported"/>, for the
+        /// same caller and the same reason (#164, #411): a mode write is
+        /// enqueued and the radio has been observed acknowledging transmit
+        /// writes it never applied, so anything that confirms a change to the
+        /// operator must read THIS, poll briefly, and say plainly when the
+        /// radio has not agreed. <see cref="TXMode"/>'s cache is echo-only —
+        /// the setter never touches it — but it can sit stale after slice
+        /// churn, and stale is exactly what a confirmation must not read.
+        /// </remarks>
         public string TXModeAsReported
         {
             get
