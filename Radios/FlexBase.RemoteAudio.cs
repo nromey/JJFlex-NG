@@ -791,8 +791,15 @@ namespace Radios
             Volatile.Write(ref _remoteAudioWake, wake);
             RXAudioStream rxForWake = null;
             RXAudioStream.OpusPacketReceivedEventHandler packetWake = wake.Signal;
+            // #1155: this run's receive gap state, its one-time Opus census,
+            // and the test-only switches, read once per run.
+            ReceiveGapTracker rxGaps = null;
+            var rxCensus = new ReceiveOpusCensus();
             try
             {
+            var rxSwitches = ReceiveTestSwitches.ReadForRun();
+            rxGaps = new ReceiveGapTracker(rxSwitches.ConcealEnabled);
+            var rxDrop = new ReceiveDropTest(rxSwitches.DropEvery);
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
             BeginRemoteAudioRunMicState(run);
             opusOutputChannel = null;
@@ -1327,6 +1334,8 @@ namespace Radios
                 byte[] opusBuf = null;
                 double consumedTs = -1;
                 int consumedSequence = -1;
+                int seedSequence = -1;
+                double seedTs = -1;
                 lock (opusOutputChannel)
                 {
                     RXAudioStream stream = opusOutputChannel.OpusChannel;
@@ -1346,6 +1355,10 @@ namespace Radios
                                 opusOutputChannel.JustStarted = false;
                                 stream.LastOpusTimestampConsumed = stream._opusRXList.Keys[lastID];
                                 _opusRxContinuity.Rearm(); // the second we land in is partial
+                                // #1155: the next packet follows this one, so it
+                                // is not read as a gap.
+                                seedSequence = stream._opusRXList.Values[lastID].Header.packet_count;
+                                seedTs = stream._opusRXList.Keys[lastID];
                             }
                         }
                         else
@@ -1365,6 +1378,16 @@ namespace Radios
                         }
                     }
                 }
+                if (seedSequence >= 0) rxGaps.Seed(seedSequence, seedTs);
+                // JJFLEX_RX_DROP_TEST (#1155, test only): discard the packet
+                // before the continuity meter, the recorder and the gap
+                // tracker see it, so the drop looks like a real loss to all
+                // three. Then look again at once rather than waiting.
+                if (opusBuf != null && rxDrop.ShouldDrop())
+                {
+                    rxGaps.NoteDroppedForTest();
+                    continue;
+                }
                 if (opusBuf != null)
                 {
                     // Receive-continuity meter (#29, rewritten for #473): how
@@ -1372,12 +1395,30 @@ namespace Radios
                     // than differenced between timestamps. See
                     // ReceiveContinuityMeter for why the difference matters.
                     _opusRxContinuity.Consume(consumedTs);
-                    (ComputerRecorder.Current as ComputerFlacRecorder)?.Receive(this, opusBuf,
-                        consumedSequence, consumedTs, LocalReceiveMutedForTakePlayback);
+                    string census = rxCensus.Observe(opusBuf);
+                    if (census != null) Tracing.TraceLine("remoteAudioProc: " + census, TraceLevel.Info);
                     // Local take playback owns this computer-side gate. Keep
                     // consuming timestamps while muted; never send a radio
                     // mute command or make the receive stream fall behind.
-                    if (!LocalReceiveMutedForTakePlayback)
+                    bool rxMuted = LocalReceiveMutedForTakePlayback;
+                    var recorder = ComputerRecorder.Current as ComputerFlacRecorder;
+                    // #1155: a lost packet used to be SPLICED - the next one
+                    // was decoded straight after the last, and the step at the
+                    // join is a click. Every consumed packet, muted or not,
+                    // updates the gap state; a short gap is made up first,
+                    // one frame-length buffer at a time through the same tail
+                    // as a real packet, each stamped for the recorder's heard
+                    // tap with the sequence the lost packet carried.
+                    var gap = rxGaps.Observe(consumedSequence, consumedTs, rxMuted, out int missing);
+                    if (gap == ReceiveGapAction.Conceal)
+                    {
+                        int prev = (consumedSequence - missing - 1) & 15;
+                        var filled = opusOutputChannel.PortAudioStream.FillGap(opusBuf, missing,
+                            i => recorder?.ReceiveConcealed(this, prev + i, consumedTs));
+                        rxGaps.NoteFilled(filled.Concealed, filled.Recovered);
+                    }
+                    recorder?.Receive(this, opusBuf, consumedSequence, consumedTs, rxMuted);
+                    if (!rxMuted)
                         opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
                 }
                 else
@@ -1436,6 +1477,11 @@ namespace Radios
             // Both exits pass through here, so the continuity totals are
             // reported for aborted runs too.
             TraceOpusRxContinuitySummary();
+            // #1155: once per run, what the gap path did, and the Opus census
+            // if the run ended before its 500th packet.
+            if (rxGaps != null && rxCensus.Packets > 0) Tracing.TraceLine("remoteAudioProc: " + rxGaps.Summary(), TraceLevel.Info);
+            string lateCensus = rxCensus.Report();
+            if (lateCensus != null) Tracing.TraceLine("remoteAudioProc: " + lateCensus, TraceLevel.Info);
             // Note that theRadio may be null here.
 #if CWMonitor
             if (useCWMon) CWMonDone();

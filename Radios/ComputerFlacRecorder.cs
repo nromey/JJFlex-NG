@@ -184,6 +184,27 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
         else Enqueue(session, new Frame((byte[])packet.Clone(), null, sequence, second, arrived, muted));
     }
 
+    /// <summary>
+    /// Called on the receive thread just before the loop emits one CONCEALED
+    /// or FEC-recovered frame (#1155): in heard mode, stamp that frame with
+    /// the synthesized <paramref name="sequence"/> that a real packet would
+    /// have carried. Without it every concealed buffer would carry the NEXT
+    /// real packet's sequence, so the writer would put a gap's worth of
+    /// silence in front of the first and 150 ms in front of each later one.
+    /// Does nothing in raw mode, and must not: raw mode records packets, and
+    /// a concealed frame has none.
+    /// </summary>
+    internal void ReceiveConcealed(FlexBase rig, int sequence, double timestamp)
+    {
+        Session session;
+        lock (_gate) session = _session;
+        if (session == null || session.Rig != rig || session.Stopping || !session.Heard) return;
+        session.PendingSecond = (long)Math.Floor(timestamp);
+        session.PendingSequence = sequence & 15;
+        session.PendingMuted = false;
+        session.PendingArrivalMilliseconds = session.Clock.ElapsedMilliseconds;
+    }
+
     /// <summary>Called after gain and NR on the same receive thread as Receive.</summary>
     internal void ReceiveHeard(FlexBase rig, float[] audio)
     {
@@ -251,18 +272,8 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
                 Frame item = first;
                 do
                 {
-                    int missing = previousSequence.HasValue ? (item.Sequence - previousSequence.Value + 15) & 15 : 0;
-                    if (previousSecond > 0 && item.Second > previousSecond + 1)
-                        missing += (int)Math.Min(1000, (item.Second - previousSecond - 1) * 100);
-                    // The wire counter wraps every 16 packets. Elapsed arrival time also
-                    // detects a longer dropout when the counter happens to wrap exactly.
-                    if (previousSequence.HasValue)
-                    {
-                        long elapsed = item.ArrivalMilliseconds - previousArrivalMilliseconds;
-                        if (elapsed > 120)
-                            missing = Math.Max(missing, (int)Math.Min(1000, elapsed / 10 - 1));
-                    }
-                    missing = Math.Max(0, missing - silentSincePacket);
+                    int missing = SilentFramesBefore(previousSequence, previousSecond, previousArrivalMilliseconds,
+                        item.Sequence, item.Second, item.ArrivalMilliseconds, silentSincePacket);
                     for (int i = 0; i < missing; ++i)
                     {
                         WriteSilence(file, session.Rate / 100, session.Channels);
@@ -317,6 +328,29 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// How many 10 ms frames of silence the writer puts on disk before a
+    /// frame: the packets the wire counter and the whole UTC second say are
+    /// missing (<see cref="ReceiveGap.MissingFrames"/>, shared with the
+    /// receive loop), raised by the arrival-time rule, less the silence the
+    /// writer already wrote while it waited. Pure, and exactly the arithmetic
+    /// <see cref="WriteSession"/> carried inline until #1155.
+    /// </summary>
+    internal static int SilentFramesBefore(int? previousSequence, long previousSecond, long previousArrivalMilliseconds,
+        int sequence, long second, long arrivalMilliseconds, int silentSincePacket)
+    {
+        int missing = ReceiveGap.MissingFrames(previousSequence, sequence, previousSecond, second);
+        // The wire counter wraps every 16 packets. Elapsed arrival time also
+        // detects a longer dropout when the counter happens to wrap exactly.
+        if (previousSequence.HasValue)
+        {
+            long elapsed = arrivalMilliseconds - previousArrivalMilliseconds;
+            if (elapsed > 120)
+                missing = Math.Max(missing, (int)Math.Min(1000, elapsed / 10 - 1));
+        }
+        return Math.Max(0, missing - silentSincePacket);
     }
 
     private static void WriteSilence(RecordedQsoFlac file, int frames, int channels) =>

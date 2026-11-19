@@ -15,6 +15,10 @@ namespace Radios
     /// decoder simply splices two non-adjacent 10 ms packets together, and the
     /// waveform step at the splice IS a click. This is the only instrument that
     /// sees that, and Track B built the first version of it on 2026-08-18 (#29).
+    /// (Since #1155 a gap of up to <see cref="ReceiveGap.ConcealCapFrames"/>
+    /// frames is concealed rather than spliced; longer ones are still spliced.
+    /// This meter counts the loss either way, because concealment makes up
+    /// audio, it does not recover what was sent.)
     /// </para>
     /// <para>
     /// <b>Rewritten 2026-09-02 (#473) because the timestamps will not carry the
