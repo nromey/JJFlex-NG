@@ -2318,6 +2318,11 @@ namespace Radios.Tests
                 "audio.diagnostics.speed.helper.tight",
                 "audio.diagnostics.speed.helper.falls_behind",
                 "audio.diagnostics.speed.helper.not_measured",
+                // Track L repair 1: the pairings with a helper half.
+                "audio.diagnostics.speed.composed.keeps_up",
+                "audio.diagnostics.speed.composed.tight",
+                "audio.diagnostics.speed.composed.falls_behind",
+                "audio.diagnostics.speed.pair_not_measured",
                 "audio.diagnostics.speed.unavailable",
                 "audio.diagnostics.speed.failed",
                 "audio.diagnostics.speed.defaults_note",

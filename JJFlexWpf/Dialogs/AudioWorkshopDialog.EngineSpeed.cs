@@ -102,8 +102,10 @@ public partial class AudioWorkshopDialog
         string Name(string id) => catalog.Find(id) is { } row ? Lexicon.Get(row.LabelKey) : id;
         try
         {
-            // The store is read on the test's own thread: it may wait on another process's lock.
-            await Task.Factory.StartNew(() => EngineSpeedTest.Run(catalog, HelperModelCostStore.Default()?.Find(), r =>
+            // The helper's figures are read on the test's own thread: the store
+            // may wait on another process's lock, and the running helper's
+            // handshake is read under the host's lock. Neither starts a helper.
+            await Task.Factory.StartNew(() => EngineSpeedTest.Run(catalog, HelperSpeedFigures.Current(), r =>
             {
                 string words = EngineSpeedTest.Words(r, Name);
                 System.Diagnostics.Trace.WriteLine("AudioWorkshop speed test: " + string.Join(" then ", r.EngineIds)
