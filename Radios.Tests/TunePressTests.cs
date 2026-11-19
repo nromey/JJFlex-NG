@@ -199,7 +199,8 @@ public sealed class TunePressTests : IDisposable
         // of the tuner type, deciding from the one read its caller passed in;
         // TuneKeyCarrierPress is the start alone.
         string gate = Body(main, "private void TunePressFor(bool ours)");
-        Assert.Contains(".Decide(TuneKeyClock(), isRepeat: false, ours, () => true)", gate);
+        // Repair round 5: live is our carrier OR the tuner latch, both read once.
+        Assert.Contains(".Decide(TuneKeyClock(), isRepeat: false, ours || latched, () => true)", gate);
         Assert.DoesNotContain("TuneAskedOrUp", gate);
         int stop = gate.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
         int nothing = gate.IndexOf("case Radios.PressAct.Nothing:", StringComparison.Ordinal);

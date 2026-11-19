@@ -883,4 +883,113 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Assert.False(MainWindow.IsAtuCycleStart("InProgress", false));
         Assert.False(MainWindow.IsAtuCycleStart("Bypass", true));
     }
+
+    // ---- batch 14 repair round 5 (the integration pass: one rule for the doors and Ctrl+T) ----
+
+    private void RadioCarrierFlag(bool up)
+    {
+        var radio = typeof(FlexBase).GetField("theRadio", Any)!.GetValue(_rig)!;
+        radio.GetType().GetField("_txTune", Any)!.SetValue(radio, up);
+    }
+
+    /// <summary>One press through the chosen door: the Tune button's click, or Ctrl+T's entry.</summary>
+    private void PressBy(MainWindow main, bool button)
+    {
+        if (button) ButtonClick(main);
+        else Record.Exception(main.StartATUTuneCycle);
+    }
+
+    /// <summary>
+    /// The sequence the 8600 really produces for an automatic tune (the
+    /// benches of 2026-11-19): our ATUTuneStart, the radio's own tune carrier
+    /// rising (TXTune), the ATU's own InProgress, then the end. Run from the
+    /// Tune button and from Ctrl+T, with the same expectations at every step,
+    /// so the two cannot disagree: a fresh press starts the ATU tune and says
+    /// "ATU tuning"; a later press during the tune stops it, dropping the
+    /// carrier AND clearing the latch; the held key's repeats start nothing;
+    /// a rested press starts again.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_Tune_button_and_Ctrl_T_do_and_say_the_same_through_a_real_automatic_tune(bool button)
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+
+        // A fresh press: our ATUTuneStart.
+        var said = Said(() => PressBy(main, button));
+        Assert.True(_rig.FlexTunerOn, "the press asks for the ATU tune");
+        Assert.Contains(Lexicon.Get("audio.tune.atu_tuning"), said);
+        Assert.True(AtuNoted(), "the tune is noted for push to talk at the press");
+
+        // The radio raises its own tune carrier, then the ATU's own InProgress.
+        RadioCarrierFlag(true);
+        Assert.True(_rig.TuneAskedOrUp, "the radio's own carrier during its ATU tune counts as up");
+
+        // A deliberate press during the tune: the stop, never refused.
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        said = Said(() => PressBy(main, button));
+        Assert.False(_rig.FlexTunerOn, "the stop clears the tuner latch");
+        Assert.False(LastWriteWasOn(), "the stop drops the carrier");
+        Assert.False(AtuNoted());
+        Assert.DoesNotContain(Lexicon.Get("audio.tune.atu_already_tuning"), said);
+        RadioCarrierFlag(false);   // the radio's end
+
+        // The held key's repeats after the stop start nothing.
+        foreach (int gap in new[] { 33, 33, 33, 512, 250 })
+        {
+            _now += gap;
+            PressBy(main, button);
+            Assert.False(_rig.FlexTunerOn);
+            Assert.False(_rig.TuneAskedOrUp);
+        }
+
+        // Rested: a fresh press starts it again.
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        PressBy(main, button);
+        Assert.True(_rig.FlexTunerOn, "positive control: a rested press starts the ATU tune again");
+    }
+
+    /// <summary>
+    /// The state where the two rules used to disagree: the tuner latch set and
+    /// no carrier up (a latch left by a tune whose end never came, or the first
+    /// moments of a tune). Both the Tune button and Ctrl+T now stop it and
+    /// clear the latch; Ctrl+T used to say "No new tune request was sent." and
+    /// leave the latch set, while the button cleared it.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void With_the_latch_set_and_no_carrier_both_doors_stop_and_clear_it(bool button)
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        typeof(FlexBase).GetField("_FlexTunerOn", Any)!.SetValue(_rig, true);
+        Assert.False(_rig.TuneAskedOrUp);
+
+        var said = Said(() => PressBy(main, button));
+        Assert.False(_rig.FlexTunerOn, "the press clears the latch");
+        Assert.DoesNotContain(Lexicon.Get("audio.tune.atu_already_tuning"), said);
+        Assert.DoesNotContain(Lexicon.Get("audio.tune.atu_tuning"), said);
+    }
+
+    [Fact]
+    public void The_doors_are_the_tune_keys_own_press()
+    {
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs"));
+        Assert.Contains("private void TuneDoorPress() => TunePressFor(RigControl.TuneAskedOrUp);", src);
+        int at = src.IndexOf("private void TunePressFor(bool ours)", StringComparison.Ordinal);
+        string body = src.Substring(at, src.IndexOf("Radios.TunePress.For(", at, StringComparison.Ordinal) - at);
+        Assert.Contains("bool latched = RigControl.FlexTunerOn;", body);
+        Assert.Contains(".Decide(TuneKeyClock(), isRepeat: false, ours || latched, () => true)", body);
+        int stop = body.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
+        string stopArm = body.Substring(stop, body.IndexOf("case Radios.PressAct.Nothing:", stop, StringComparison.Ordinal) - stop);
+        Assert.Contains("RigControl.FlexTunerOn = false;", stopArm);
+        Assert.Contains("TurnTuneCarrierOff();", stopArm);
+        Assert.DoesNotContain("FlexTunerOn = true", stopArm);
+        Assert.DoesNotContain("ToggleTuneCarrier", stopArm);
+    }
 }

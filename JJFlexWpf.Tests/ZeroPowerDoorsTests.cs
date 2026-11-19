@@ -545,33 +545,19 @@ public sealed class ZeroPowerDoorsTests : IDisposable
     public void Every_way_to_start_the_tuner_asks()
     {
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
-        foreach (string signature in new[]
-        {
-            // #1144: the Tune button and the toolbar's ATU Tune share
-            // TuneDoorPress, whose automatic toggle asks before the latch.
-            "private void TuneDoorPress()",
-            "private void TunePressFor(bool ours)",
-        })
-        {
-            string body = Body(main, signature);
-            Assert.True(body.IndexOf("TunerStartRefused()", StringComparison.Ordinal) >= 0
-                && body.IndexOf("TunerStartRefused()", StringComparison.Ordinal) < body.IndexOf("RigControl.FlexTunerOn = true;", StringComparison.Ordinal), signature);
-        }
-        // Every other road from the two doors goes through StartATUTuneCycle,
-        // checked above; neither door touches the latch itself any more.
+        // Batch 14 repair round 5: one rule. The Tune button and the toolbar's
+        // ATU Tune are the tune key's own press, TunePressFor, which asks
+        // before the latch's start; neither door has a branch of its own.
+        string press = Body(main, "private void TunePressFor(bool ours)");
+        Assert.True(press.IndexOf("TunerStartRefused()", StringComparison.Ordinal) >= 0
+            && press.IndexOf("TunerStartRefused()", StringComparison.Ordinal) < press.IndexOf("RigControl.FlexTunerOn = true;", StringComparison.Ordinal));
+        Assert.Contains("private void TuneDoorPress() => TunePressFor(RigControl.TuneAskedOrUp);", main);
         string button = Body(main, "private void AntennaTuneButton_Click(object sender, RoutedEventArgs e)");
         Assert.Contains("TuneDoorPress();", button);
         Assert.DoesNotContain("FlexTunerOn", button);
         string toolbar = Body(main, "private void ExecuteActionToolbarItem(string item)");
         Assert.Contains("TuneDoorPress();", toolbar);
         Assert.DoesNotContain("FlexTunerOn", toolbar);
-        string door = Body(main, "private void TuneDoorPress()");
-        // Batch 14 repair round 2: the doors' automatic start and stop pass the
-        // tune key's press gate; there is no bare toggle any more.
-        Assert.DoesNotContain("RigControl.FlexTunerOn = !RigControl.FlexTunerOn;", door);
-        int gate = door.IndexOf(".Decide(TuneKeyClock(), isRepeat: false, cycleUp, () => true)", StringComparison.Ordinal);
-        Assert.True(gate > 0 && gate < door.IndexOf("RigControl.FlexTunerOn = true;", StringComparison.Ordinal));
-        Assert.True(door.IndexOf("TunePressFor(ours);", StringComparison.Ordinal) > door.IndexOf("RigControl.FlexTunerOn = true;", StringComparison.Ordinal));
     }
 
     [Fact]

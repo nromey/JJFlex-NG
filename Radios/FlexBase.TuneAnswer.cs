@@ -249,7 +249,11 @@ namespace Radios
         /// for that, because a queued ON can key the radio for as long as it sits
         /// there. FlexLib sets its flag as the ON is sent, so there is no gap
         /// between the two. A denied tune leaves the flag true, so it counts until
-        /// an off is written: the safe direction. An ATU cycle is not counted.
+        /// an off is written: the safe direction. An ATU cycle IS counted on a
+        /// radio that raises its tune flag during its own cycle: measured on the
+        /// 8600, 2026-11-19 (the batch 14 benches), FlexLib's TXTune rose 49 ms
+        /// after our ATUTuneStart. This said "An ATU cycle is not counted" until
+        /// then. The queued-ON half still counts only our plain carrier.
         /// Read-only; safe with no radio.
         /// </summary>
         public bool TuneAskedOrUp

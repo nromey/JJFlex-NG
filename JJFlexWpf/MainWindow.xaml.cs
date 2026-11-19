@@ -7295,61 +7295,23 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// The Tune button and the action toolbar's ATU Tune (#1144). Out of
-    /// automatic type, or with our tune carrier asked for or up, a press is the
-    /// tune key's own press (<see cref="StartATUTuneCycle"/>): a plain tune
-    /// carrier, which the next press turns off, as J4 ruled for Ctrl+T. Until
-    /// then these two doors still set the tuner latch in manual type, the
-    /// behaviour J4 and #327 ended for Ctrl+T.
+    /// The Tune button and the action toolbar's ATU Tune (#1144): the tune
+    /// key's own press, <see cref="TunePressFor"/>, in every tuner type, so the
+    /// button and Ctrl+T always do and say the same thing.
     /// </summary>
     /// <remarks>
-    /// <para><b>Automatic type keeps the doors' start and stop, behind the
-    /// tune key's press gate.</b> These two doors are the only screen controls
-    /// that can stop an ATU cycle: a press during one clears the latch, which
-    /// queues the unkey. The tune key answers a latched
-    /// press in automatic type with "already tuning" and sends nothing, so
-    /// routing these through it would leave a door that can start a cycle and
-    /// not stop it.</para>
-    /// <para>In manual type "ATU Tune" and "Start Tune Carrier" on the toolbar
-    /// are now one action. The <c>FlexBase.FlexTunerOn</c> manual branch is no
-    /// longer reached from the UI.</para>
+    /// <para>Batch 14 repair round 5, from the integration pass: the doors kept
+    /// a second rule for automatic type (the tuner latch toggled directly).
+    /// On the 8600 its stop never ran, because the radio raises its own tune
+    /// flag during an ATU cycle and every press took the tune key's path; it
+    /// started a tune without the key's "ATU tuning" sentence; and with the
+    /// latch set and no carrier up it stopped where Ctrl+T said no request was
+    /// sent. One rule now: the press gate, a stop that is never refused and
+    /// clears the latch as well as the carrier, and the key's own starts.</para>
+    /// <para>The action toolbar has no caller since Sprint 28, so its half of
+    /// this lives in code only.</para>
     /// </remarks>
-    private void TuneDoorPress()
-    {
-        // Read once and carried through (repair round 1, B1): a stop decided
-        // here is never re-decided from a later read.
-        bool ours = RigControl.TuneAskedOrUp;
-        var outcome = Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType);
-        if (outcome == Radios.TunePressOutcome.AtuTune && !ours)
-        {
-            // Batch 14 repair round 2 (Codex's B2 on #1141 and #1144): the
-            // doors' automatic toggle goes through the tune key's press gate
-            // too. WPF's Button raises Click on EVERY Enter key-down, repeats
-            // included, so a held Enter on the Tune button stopped the cycle
-            // and then started it again, keying the radio. A press during a
-            // cycle still stops it at once (the gate never refuses a stop);
-            // a start needs a fresh press, outside the gate's window, so a
-            // held key's repeats, or another activation just after a stop,
-            // start nothing, and say nothing, as Ctrl+T's do.
-            bool cycleUp = RigControl.FlexTunerOn;
-            switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, cycleUp, () => true))
-            {
-                case Radios.PressAct.Stop:
-                    Tracing.TraceLine("TuneDoor: the ATU cycle is up; the door stops it", TraceLevel.Info);
-                    _oldSwr = "";
-                    RigControl.FlexTunerOn = false;
-                    return;
-                case Radios.PressAct.Nothing:
-                    Tracing.TraceLine("TuneDoor: more of a press already answered; nothing sent", TraceLevel.Info);
-                    return;
-            }
-            if (TunerStartRefused()) return;
-            _oldSwr = "";
-            RigControl.FlexTunerOn = true;
-            return;
-        }
-        TunePressFor(ours);
-    }
+    private void TuneDoorPress() => TunePressFor(RigControl.TuneAskedOrUp);
 
     /// <summary>
     /// A press that would start the tuner on a rig whose tune power reads 0
@@ -7734,10 +7696,26 @@ public partial class MainWindow : UserControl
     /// </remarks>
     private void TunePressFor(bool ours)
     {
-        switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, ours, () => true))
+        // Batch 14 repair round 5: something of ours is live when our carrier
+        // is asked for or up (the radio raises its tune flag during its own
+        // ATU cycle too, so that covers a running cycle on the 8600) OR the
+        // tuner latch is set. Read once, with the carrier flag the caller
+        // passed in; the stop is decided from these alone.
+        bool latched = RigControl.FlexTunerOn;
+        switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, ours || latched, () => true))
         {
             case Radios.PressAct.Stop:
-                Tracing.TraceLine("TuneKey: our tune carrier is up or asked; the tune key turns it off", TraceLevel.Info);
+                Tracing.TraceLine("TuneKey: our tune carrier or ATU tune is up or asked; the tune key turns it off"
+                    + (latched ? " and clears the tuner latch" : ""), TraceLevel.Info);
+                // The stop clears the latch as well as dropping the carrier, so
+                // no stopped ATU tune leaves a latch waiting for an end status
+                // that may never come. Neither half can start anything.
+                if (latched)
+                {
+                    _oldSwr = "";
+                    RigControl.FlexTunerOn = false;
+                    _pttController?.NoteAtuTuning(false);
+                }
                 TurnTuneCarrierOff();
                 return;
             case Radios.PressAct.Nothing:
@@ -7767,6 +7745,8 @@ public partial class MainWindow : UserControl
             // The latch is already set, which keeps another tune request from
             // being sent (FlexTunerOn = true would send nothing). It need not mean
             // the tuner is tuning, so say only that no request was sent.
+            // Since repair round 5 a latch set at the press is a stop, above;
+            // this stays only for a latch set in the instant since that read.
             Tracing.TraceLine("StartATUTuneCycle: the tuner latch is already set; nothing sent", TraceLevel.Info);
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_already_tuning"),
                 VerbosityLevel.Terse, true, subject: Radios.Speech.SpeechSubject.TuneAlreadyTuning);

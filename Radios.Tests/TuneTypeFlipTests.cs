@@ -86,14 +86,15 @@ public sealed class TuneTypeFlipTests : IDisposable
 
         int at = main.IndexOf("private void TunePressFor(bool ours)", StringComparison.Ordinal);
         string body = main.Substring(at, main.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
-        int gate = body.IndexOf(".Decide(TuneKeyClock(), isRepeat: false, ours, () => true)", StringComparison.Ordinal);
+        int gate = body.IndexOf(".Decide(TuneKeyClock(), isRepeat: false, ours || latched, () => true)", StringComparison.Ordinal);   // repair round 5
         int stop = body.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
         int type = body.IndexOf("Radios.TunePress.For(", StringComparison.Ordinal);
         int noTuner = body.IndexOf("if (outcome == Radios.TunePressOutcome.NoTuner)", StringComparison.Ordinal);
         Assert.True(gate > 0 && gate < stop && stop < type && type < noTuner, "our carrier's stop comes before the type and every refusal");
         string branch = body.Substring(stop, type - stop);
         Assert.Contains("TurnTuneCarrierOff();", branch);
-        Assert.DoesNotContain("FlexTunerOn", branch);
+        // Repair round 5: the stop also clears the latch; it never sets it.
+        Assert.DoesNotContain("FlexTunerOn = true", branch);
         Assert.DoesNotContain("TuneAskedOrUp", body);
     }
 }
