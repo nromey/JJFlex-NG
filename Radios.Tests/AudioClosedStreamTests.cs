@@ -17,7 +17,12 @@ namespace Radios.Tests
     /// initialises the AudioServer, so its work queue is null and any post
     /// would throw. Each test asserts that first. No device is opened, no
     /// PortAudio call is made, nothing is heard.</para>
+    /// <para>In the collection that owns the audio server's statics (Sprint 49
+    /// Track H2 split): <see cref="AudioServerRetireTests"/> puts a stand-in
+    /// queue there for the length of a test, which would read here as a server
+    /// having been initialised.</para>
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class AudioClosedStreamTests
     {
         private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
@@ -90,7 +95,7 @@ namespace Radios.Tests
         public void The_audio_server_skips_a_work_item_with_no_stream()
         {
             string audio = File.ReadAllText(Path.Combine(RepoRoot(), "JJPortaudio", "JJPortaudio", "Audio.cs"));
-            int take = audio.IndexOf("item = work.Take();", StringComparison.Ordinal);
+            int take = audio.IndexOf("item = queue.Take();", StringComparison.Ordinal); // the server's own queue (Sprint 49 Track H2 split)
             int sw = audio.IndexOf("switch (item.Type)", take, StringComparison.Ordinal);
             Assert.True(take > 0 && sw > take, "serverProc's take and switch were not found");
             string between = audio.Substring(take, sw - take);

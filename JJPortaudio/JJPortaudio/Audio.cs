@@ -45,15 +45,89 @@ namespace JJPortaudio
         }
         static internal BlockingCollection<workItem> work;
 
-        public static void Init(Devices.Device inDev, Devices.Device outDev)
+        // ── A server that has not retired (Sprint 49 Track H2 split; Codex's
+        // P2 against a4018dfb) ──
+        //
+        // Term waits one second for the server to finish and then returns,
+        // because the app must be able to close with a wedged driver. Until
+        // this, that timed-out server was simply forgotten: the next Init
+        // replaced the process-global work queue and device fields while it
+        // was still alive, and since serverProc read the static `work` on every
+        // pass, the old server went on to take items from the NEW queue
+        // alongside the new server, and its own terminate (and Pa_Terminate)
+        // was never processed. Two threads making PortAudio calls at once is
+        // exactly what the single server exists to prevent.
+        //
+        // So each server now owns its own queue (serverProc is handed it), a
+        // server that did not retire at its Term is remembered, and Init waits
+        // for it to retire before making another. If it still has not retired
+        // after PreviousServerRetireMs, Init REFUSES: no queue or device field
+        // is replaced, no second server is started, and the caller says so.
+        // The bounded wait in Term stays, so closing the app is never held.
+        private static Thread s_unretired;
+
+        /// <summary>
+        /// How long <see cref="Init"/> waits for a server that did not retire at
+        /// its <see cref="Term"/> before refusing to start another. Long enough
+        /// for one operation the old server is inside to finish (the audio
+        /// server's own waits are five seconds). A field so the windowless tests
+        /// can shorten it.
+        /// </summary>
+        internal static int PreviousServerRetireMs = 5000;
+
+        /// <summary>
+        /// True when no earlier server is still alive: none was left running by
+        /// its Term, or the one that was has finished within
+        /// <paramref name="waitMs"/> (it is then forgotten). False when it is
+        /// still alive, and it stays remembered.
+        /// </summary>
+        internal static bool PreviousServerRetired(int waitMs)
+        {
+            var old = s_unretired;
+            if (old == null) return true;
+            if (old.IsAlive && !old.Join(Math.Max(0, waitMs))) return false;
+            s_unretired = null;
+            Tracing.TraceLine("AudioAnchor: the previous audio server has finished, after its Terminate had stopped waiting for it", TraceLevel.Warning);
+            return true;
+        }
+
+        /// <summary>Tests only: makes the server thread Init starts, unstarted, for its queue, so no test ever reaches PortAudio. Null in the app.</summary>
+        internal static Func<BlockingCollection<workItem>, Thread> ServerThreadForTest;
+
+        /// <summary>Tests only: the server Term last stopped waiting for, or null.</summary>
+        internal static Thread UnretiredServerForTest => s_unretired;
+
+        /// <summary>Tests only: put a stand-in where the live server and its queue go, without starting PortAudio. Returns what was there.</summary>
+        internal static (Thread Server, BlockingCollection<workItem> Work, Thread Unretired) SwapServerForTest(Thread stand, BlockingCollection<workItem> queue, Thread unretired)
+        {
+            var was = (server, work, s_unretired);
+            server = stand; work = queue; s_unretired = unretired;
+            return was;
+        }
+
+        /// <summary>
+        /// Start the audio server. False, with nothing replaced, when an earlier
+        /// server that its Term stopped waiting for is still alive after
+        /// <see cref="PreviousServerRetireMs"/>.
+        /// </summary>
+        public static bool Init(Devices.Device inDev, Devices.Device outDev)
         {
             Tracing.TraceLine("AudioAnchor.init:" +
                 (string)((inDev != null) ? inDev.Name : "") + ' ' +
                 (string)((outDev != null) ? outDev.Name : ""), TraceLevel.Info);
+            if (!PreviousServerRetired(PreviousServerRetireMs))
+            {
+                Tracing.TraceLine("AudioAnchor.init: REFUSED. The previous audio server is still running "
+                    + PreviousServerRetireMs + " ms after it was asked to end (its Terminate stopped waiting for it), so a"
+                    + " second one is not started alongside it; nothing was replaced", TraceLevel.Error);
+                return false;
+            }
             inDevice = inDev;
             outDevice = outDev;
-            work = new BlockingCollection<workItem>();
-            server = new Thread(serverProc);
+            var queue = new BlockingCollection<workItem>();
+            work = queue;
+            var forTest = ServerThreadForTest;
+            server = forTest != null ? forTest(queue) : new Thread(() => serverProc(queue));
             server.Name = "AudioServer";
             server.Priority = ThreadPriority.Normal;
             // Engine Track (2026-08-11): background, so a wedged PortAudio
@@ -68,18 +142,36 @@ namespace JJPortaudio
             server.Start();
             // Note the server does the Pa_Initialize().
             Thread.Yield();
+            return true;
         }
 
+        /// <summary>
+        /// End the audio server: its terminate goes on ITS queue, and this waits
+        /// one second for it. A server still running after that is remembered,
+        /// not forgotten, so the next <see cref="Init"/> waits for it rather than
+        /// starting a second server beside it. Nothing to end (never started, or
+        /// already ended, or its Init was refused) does nothing.
+        /// </summary>
         public static void Term()
         {
             Tracing.TraceLine("AudioAnchor.Terminate", TraceLevel.Info);
+            var ending = server;
+            var queue = work;
+            if (ending == null)
+            {
+                Tracing.TraceLine("AudioAnchor.Terminate: no audio server is running; nothing to end", TraceLevel.Info);
+                return;
+            }
+            server = null;
             try
             {
                 workItem item = new workItem(workItems.terminate);
-                work.Add(item);
-                if (!server.Join(1000))
+                queue.Add(item);
+                if (!ending.Join(1000))
                 {
-                    Tracing.TraceLine("AudioAnchor.Terminate:server didn't terminate", TraceLevel.Error);
+                    s_unretired = ending;
+                    Tracing.TraceLine("AudioAnchor.Terminate:server didn't terminate within 1000 ms; it is"
+                        + " remembered, and the next start waits for it before making another", TraceLevel.Error);
                 }
             }
             catch (Exception ex)
@@ -290,7 +382,12 @@ namespace JJPortaudio
                 || rate == 24000 || rate == 48000;
         }
 
-        private static void serverProc()
+        /// <summary>
+        /// The server thread's body: PortAudio's initialisation, then this
+        /// server's OWN queue (<paramref name="queue"/>), never the static
+        /// <see cref="work"/>, which a later Init replaces (the H2 split).
+        /// </summary>
+        private static void serverProc(BlockingCollection<workItem> queue)
         {
             PortAudio.PaError erv;
             erv = PortAudio.Pa_Initialize();
@@ -299,11 +396,21 @@ namespace JJPortaudio
                 Tracing.TraceLine("Init error:" + PortAudio.Pa_GetErrorText(erv), TraceLevel.Error);
                 return;
             }
+            ServeQueue(queue);
+        }
 
-            while (!work.IsAddingCompleted)
+        /// <summary>
+        /// Take and run the items of one server's own queue until its terminate
+        /// completes it. Bound to that queue: a server left running by a timed
+        /// out Term can never take a later server's items.
+        /// </summary>
+        internal static void ServeQueue(BlockingCollection<workItem> queue)
+        {
+            PortAudio.PaError erv;
+            while (!queue.IsAddingCompleted)
             {
                 workItem item;
-                try { item = work.Take(); }
+                try { item = queue.Take(); }
                 catch (InvalidOperationException)
                 {
                     break;
@@ -636,7 +743,7 @@ namespace JJPortaudio
                             erv = PortAudio.Pa_Terminate();
                             if (erv == 0) Tracing.TraceLine("AudioServer:portAudio terminated", TraceLevel.Info);
                             else Tracing.TraceLine("Pa_Terminate returned: " + PortAudio.Pa_GetErrorText(erv), TraceLevel.Error);
-                            work.CompleteAdding(); // exit the loop
+                            queue.CompleteAdding(); // exit the loop
                         }
                         break;
                 }
@@ -1067,16 +1174,22 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// Initialize
+        /// Initialize: start the audio server.
         /// </summary>
         /// <param name="inDev">the input Devices.Device to use</param>
         /// <param name="outDev">the output Devices.Device to use</param>
-        public static void Initialize(Devices.Device inDev, Devices.Device outDev)
+        /// <returns>
+        /// False when it was refused, with nothing replaced: an earlier server
+        /// that its Terminate stopped waiting for is still running (the H2
+        /// split). The generation moves only when a server was started.
+        /// </returns>
+        public static bool Initialize(Devices.Device inDev, Devices.Device outDev)
         {
             lock (s_serverGate)
             {
-                AudioAnchor.Init(inDev, outDev);
+                if (!AudioAnchor.Init(inDev, outDev)) return false;
                 Interlocked.Increment(ref s_serverGeneration);
+                return true;
             }
         }
 

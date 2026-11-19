@@ -887,7 +887,20 @@ namespace Radios
 
             // Start the audio subsystem.
             // Note: We're not using DAX any more.
-            JJPortaudio.Audio.Initialize(remoteInputDevice, remoteOutputDevice);
+            //
+            // Refused when the previous run's audio server is still running
+            // after its Terminate stopped waiting for it (Sprint 49 Track H2
+            // split): a second server beside it would make PortAudio calls from
+            // two threads at once. Nothing was replaced, so this run ends here,
+            // said once; turning PC audio on again asks again.
+            if (!JJPortaudio.Audio.Initialize(remoteInputDevice, remoteOutputDevice))
+            {
+                Tracing.TraceLine("remoteAudioProc: the audio server could not start, because the previous one has"
+                    + " not finished; PC audio is not running", TraceLevel.Error);
+                if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("audio.pc_audio.previous_still_ending"),
+                    Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical, subject: Speech.SpeechSubject.PcAudio);
+                goto remoteDone;
+            }
 
             // Setup audio channels, output first.
             //

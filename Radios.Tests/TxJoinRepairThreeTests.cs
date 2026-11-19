@@ -183,7 +183,7 @@ namespace Radios.Tests
         public void Initialize_and_Terminate_hold_the_server_s_gate_and_move_its_generation()
         {
             string audio = File.ReadAllText(Path.Combine(RepoRoot(), "JJPortaudio", "JJPortaudio", "Audio.cs"));
-            foreach (var (method, call) in new[] { ("public static void Initialize(", "AudioAnchor.Init(inDev, outDev);"), ("public static void Terminate()", "AudioAnchor.Term();") })
+            foreach (var (method, call) in new[] { ("public static bool Initialize(", "if (!AudioAnchor.Init(inDev, outDev)) return false;"), ("public static void Terminate()", "AudioAnchor.Term();") })
             {
                 int at = audio.IndexOf(method, StringComparison.Ordinal);
                 string body = audio.Substring(at, audio.IndexOf("\n        }", at, StringComparison.Ordinal) - at);
