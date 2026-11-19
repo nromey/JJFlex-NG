@@ -199,8 +199,13 @@ namespace JJFlexWpf
             cond.MonitorSink = MonitorStage;
             PushGate(cond);
 
+            // The TRANSMIT slice's mode (Sprint 49 Track H2, slice-mode round):
+            // ModeChanged follows only the active slice, so a second slice in CW
+            // bypassed cleanup on a USB transmit slice, and a CW transmit slice
+            // with a USB active slice ran it.
             rig.ModeChanged += OnModeChanged;
-            ApplyModePolicy(rig.Mode ?? "");
+            rig.TransmitModeMayHaveChanged += OnTransmitModeMayHaveChanged;
+            ApplyModePolicy(TransmitModeOf(rig));
 
             // Twice a second: refresh the derived threshold from the live
             // noise-floor estimate. Cheap — the profile is cached against
@@ -232,6 +237,7 @@ namespace JJFlexWpf
             if (rig != null)
             {
                 rig.ModeChanged -= OnModeChanged;
+                rig.TransmitModeMayHaveChanged -= OnTransmitModeMayHaveChanged;
                 var cond = rig.TxConditioner;
                 cond.NoiseReducer = null;
                 cond.NoiseReducerAppliedLatencySamples = null;
@@ -304,17 +310,38 @@ namespace JJFlexWpf
             }
         }
 
-        private static void OnModeChanged(string newMode)
+        // The active slice's mode changing is one of the ways the transmit
+        // slice's can (they are often the same slice): the policy reads the
+        // transmit slice either way, never the mode this event carries.
+        private static void OnModeChanged(string newMode) => OnTransmitModeMayHaveChanged();
+
+        private static void OnTransmitModeMayHaveChanged()
         {
-            ApplyModePolicy(newMode ?? "");
+            if (_rig is { } rig) ApplyModePolicy(TransmitModeOf(rig));
+        }
+
+        /// <summary>
+        /// The transmit slice's mode: the slice the radio has DESIGNATED, read
+        /// live; when none of ours is designated, the active slice's receive mode,
+        /// read live (slice-mode round 2, Codex: the positional read kept a
+        /// designation's old CW after the radio removed it, and the fallback read
+        /// the transmit mode while transmitting).
+        /// </summary>
+        internal static string TransmitModeOf(FlexBase rig)
+        {
+            string designated = rig.DesignatedTransmitMode;
+            return designated.Length > 0 ? designated : rig.ActiveSliceModeAsReported;
         }
 
         private static void ApplyModePolicy(string mode)
         {
             var rig = _rig;
             if (rig == null) return;
-            rig.TxConditioner.BypassAll = IsNonVoiceMode(mode);
+            rig.TxConditioner.BypassAll = BypassedIn(mode);
         }
+
+        /// <summary>Whether the transmit chain stands aside in a transmit mode: CW and the digital modes (the one rule the summary reads too).</summary>
+        public static bool BypassedIn(string mode) => IsNonVoiceMode(mode);
 
         /// <summary>
         /// The transmit chain's mode policy applies before its noise reducer.
@@ -322,9 +349,13 @@ namespace JJFlexWpf
         private static bool IsNonVoiceMode(string mode)
         {
             if (string.IsNullOrEmpty(mode)) return false;
+            // DFM and FDV are the radio's own digital modes, as FlexLib's Slice
+            // filter branches spell them (slice-mode round 2); FM and NFM are voice.
             return mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase) ||
                    mode.StartsWith("DIG", StringComparison.OrdinalIgnoreCase) ||
                    mode.StartsWith("FDM", StringComparison.OrdinalIgnoreCase) ||
+                   mode.StartsWith("FDV", StringComparison.OrdinalIgnoreCase) ||
+                   mode.Equals("DFM", StringComparison.OrdinalIgnoreCase) ||
                    mode.Equals("RTTY", StringComparison.OrdinalIgnoreCase);
         }
 

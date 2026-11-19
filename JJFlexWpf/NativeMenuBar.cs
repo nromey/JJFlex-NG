@@ -1440,12 +1440,14 @@ public partial class NativeMenuBar : IDisposable
                 return;
             }
             int toRemove = numSlices - 1;
-            string letter = Rig.VFOToLetter(toRemove);
-            if (Rig.RemoveSlice(toRemove))
-                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.released",
-                    ("letter", letter), ("count", numSlices - 1)));
-            else
-                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.release_failed"));
+            var rig = Rig;
+            string letter = rig.VFOToLetter(toRemove);
+            // The last slice may be the active one: the same hold as Release
+            // Active Slice (#1123, slice-mode round).
+            var noiseAnswer = _window.Noise.HoldModeAnswer();
+            SaySliceAfterMenuClose(rig.RemoveSlice(toRemove)
+                ? Radios.Lexicon.Get("settings.slice.released", ("letter", letter), ("count", numSlices - 1))
+                : Radios.Lexicon.Get("settings.slice.release_failed"), rig, noiseAnswer);
         });
     }
 
@@ -2336,16 +2338,20 @@ public partial class NativeMenuBar : IDisposable
                     }
                     if (switchTo >= 0)
                     {
-                        string removedLetter = Rig.VFOToLetter(toRemove);
-                        int countBefore = Rig.MyNumSlices;
-                        if (Rig.CanTransmit && toRemove == Rig.TXVFO)
-                            Rig.TXVFO = switchTo;
-                        Rig.RXVFO = switchTo;
-                        if (Rig.RemoveSlice(toRemove))
-                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.released",
-                                ("letter", removedLetter), ("count", countBefore - 1)));
-                        else
-                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.cannot_release_this"));
+                        var rig = Rig;
+                        string removedLetter = rig.VFOToLetter(toRemove);
+                        int countBefore = rig.MyNumSlices;
+                        // #1123 (Sprint 49 Track H2, slice-mode round): the active
+                        // slice changes here, so the noise answer is held from the
+                        // click and joined to "Slice B released", as the Selection
+                        // rows do; it was said before that sentence and again after.
+                        var noiseAnswer = _window.Noise.HoldModeAnswer();
+                        if (rig.CanTransmit && toRemove == rig.TXVFO)
+                            rig.TXVFO = switchTo;
+                        rig.RXVFO = switchTo;
+                        SaySliceAfterMenuClose(rig.RemoveSlice(toRemove)
+                            ? Radios.Lexicon.Get("settings.slice.released", ("letter", removedLetter), ("count", countBefore - 1))
+                            : Radios.Lexicon.Get("settings.slice.cannot_release_this"), rig, noiseAnswer);
                     }
                 });
             }
@@ -3476,6 +3482,21 @@ public partial class NativeMenuBar : IDisposable
             sayNow: (text, level) => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Interrupt, level,
                 subject: Radios.Speech.SpeechSubject.ModeChoice)));
     }
+
+    /// <summary>
+    /// A slice row's sentence once the menu has closed, with the noise
+    /// controller's answer to a change of mode group held from the click and
+    /// joined to it (#1123; Sprint 49 Track H2): the path the mode rows use, so
+    /// the slice is said first and the noise sentence once.
+    /// </summary>
+    private void SaySliceAfterMenuClose(string sentence, FlexBase rig, JJFlexWpf.IModeAnswerHold noiseAnswer) =>
+        _window.Dispatcher.BeginInvoke(() => MenuModeSentence.SayWhenTheMenuHasClosed(
+            sentence,
+            stillCurrent: () => ReferenceEquals(Rig, rig),
+            noiseAnswer,
+            delay: ms => System.Threading.Tasks.Task.Delay(ms),
+            sayNow: (text, level) => Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Interrupt, level,
+                subject: Radios.Speech.SpeechSubject.ModeChoice)));
 
     private void SpeakAfterMenuClose(string message,
         Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse)

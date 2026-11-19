@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows.Forms;
 using Radios;
 using Radios.Speech;
@@ -1850,6 +1851,316 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
             Lexicon.Get("audio.denoise.tx.fell_back_both", ("first", "NR2"), ("second", "NNR")));
         Assert.Equal("Continue?", Lexicon.Get("audio.noise_setups.confirm_question"));
         Assert.Contains("WindowSettledSpeech.After(Dispatcher, () =>", Source("JJFlexWpf", "Dialogs", "RecordedQsosDialog.cs"));
+    }
+
+    // ── Slice-mode round: transmit noise reduction follows the TRANSMIT slice's mode ──
+
+    [Fact]
+    public void A_CW_active_slice_never_bypasses_cleanup_on_a_USB_transmit_slice()
+    {
+        // Harness walk 2: a second slice in CW bypassed cleanup on the USB
+        // transmit slice, and the summary said "not running yet".
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Radio.Mode = "CW";                                            // the active slice
+        f.Radio.TransmitModeOverride = "USB";                           // the slice that transmits
+        string summary = f.Noise.TransmitActiveSummary();
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), summary);
+    }
+
+    [Fact]
+    public void A_CW_transmit_slice_bypasses_cleanup_whatever_the_active_slice_and_the_summary_says_so()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Radio.Mode = "USB";                                           // the active slice
+        f.Radio.TransmitModeOverride = "CW";                            // the slice that transmits
+        string summary = f.Noise.TransmitActiveSummary();
+        Assert.EndsWith(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), summary);
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.active.waiting", ("engine", "RNNoise")), summary);   // named as chosen, not "not running yet"
+        Assert.Contains("RNNoise", summary);
+    }
+
+    [Fact]
+    public void Moving_the_transmit_slice_to_a_CW_slice_and_back_follows_it()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Radio.Mode = "USB";
+        f.Radio.TransmitModeOverride = "USB";
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), f.Noise.TransmitActiveSummary());
+        f.Radio.TransmitModeOverride = "CW";                            // the transmit designation moves to a CW slice
+        Assert.EndsWith(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), f.Noise.TransmitActiveSummary());
+        f.Radio.TransmitModeOverride = "USB";                           // and back
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), f.Noise.TransmitActiveSummary());
+    }
+
+    [Fact]
+    public void The_chains_mode_policy_reads_the_transmit_slice_on_every_event_that_can_change_it()
+    {
+        Assert.True(TxAudioConditioning.BypassedIn("CW"));
+        Assert.True(TxAudioConditioning.BypassedIn("DIGU"));
+        Assert.False(TxAudioConditioning.BypassedIn("USB"));
+        string owner = Source("JJFlexWpf", "TxAudioConditioning.cs");
+        Assert.Contains("rig.TransmitModeMayHaveChanged += OnTransmitModeMayHaveChanged;", owner);
+        Assert.Contains("rig.TransmitModeMayHaveChanged -= OnTransmitModeMayHaveChanged;", owner);
+        Assert.Contains("private static void OnModeChanged(string newMode) => OnTransmitModeMayHaveChanged();", owner);   // never the active slice's mode
+        Assert.Contains("ApplyModePolicy(TransmitModeOf(rig));", owner);
+        Assert.Contains("string designated = rig.DesignatedTransmitMode;", owner);
+        // FlexBase raises it on any slice's mode, a transmit designation, the
+        // active slice changing, and a slice going.
+        string flex = Source("Radios", "FlexBase.cs").Replace("\r\n", "\n");
+        foreach (string marker in new[] { "case \"Active\":", "case \"DemodMode\":", "case \"IsTransmitSlice\":", "private void sliceRemoved(" })
+        {
+            int at = flex.IndexOf(marker, StringComparison.Ordinal);
+            Assert.True(at > 0, marker);
+            int end = flex.IndexOf(marker.StartsWith("case") ? "break;" : "\n        }\n", at, StringComparison.Ordinal);
+            Assert.Contains("TransmitModeMayHaveChanged?.Invoke();", flex.Substring(at, end - at));
+        }
+        // Any slice's mode, not only the active one's: outside the active-only branch.
+        int demod = flex.IndexOf("case \"DemodMode\":", StringComparison.Ordinal);
+        string demodBody = flex.Substring(demod, flex.IndexOf("if (s.Active)\n                            {\n                                FilterObj.RXFreqChange(s);", demod, StringComparison.Ordinal) - demod);
+        Assert.Contains("TransmitModeMayHaveChanged?.Invoke();", demodBody);
+    }
+
+    [Fact]
+    public void Both_release_rows_join_the_noise_answer_to_the_release_sentence()
+    {
+        string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
+        foreach (string row in new[] { "AddWired(selSub, \"Release Active Slice\"", "AddWired(parent, \"Release Slice\"" })
+        {
+            int at = menu.IndexOf(row, StringComparison.Ordinal);
+            Assert.True(at > 0, row);
+            string body = menu.Substring(at, 2200);
+            int hold = body.IndexOf("_window.Noise.HoldModeAnswer();", StringComparison.Ordinal);
+            Assert.True(hold > 0, row + ": no hold");
+            Assert.True(hold < body.IndexOf("RemoveSlice(", StringComparison.Ordinal), row + ": the hold must be taken before the slice goes");
+            Assert.Contains("SaySliceAfterMenuClose(", body);
+        }
+    }
+
+    // ── Slice-mode round 2: the real FlexBase and the real policy, windowless ──
+    //
+    // Codex's seam (its slice-mode check): a normally constructed FlexBase, a
+    // Radio(false), vendor slices set by field, and a command channel whose
+    // Connect throws, so no socket is ever opened. The real private slice
+    // handlers run, and the real TxAudioConditioning policy writes the real
+    // conditioner's BypassAll.
+
+    private const BindingFlags Inst = BindingFlags.Instance | BindingFlags.NonPublic;
+    private const BindingFlags Stat = BindingFlags.Static | BindingFlags.NonPublic;
+    private static void SetField(object x, string n, object? v) => x.GetType().GetField(n, Inst)!.SetValue(x, v);
+    private static object GetField(object x, string n) => x.GetType().GetField(n, Inst)!.GetValue(x)!;
+    private static void RunPolicy() => typeof(TxAudioConditioning).GetMethod("OnTransmitModeMayHaveChanged", Stat)!.Invoke(null, null);
+
+    private sealed class NoSocket : Flex.Smoothlake.FlexLib.CommandCommunicationBase
+    {
+        public NoSocket() => PublishConnected(BeginConnection());
+        public override System.Net.IPAddress? LocalIp { get; set; }
+        public override bool Connect(System.Net.IPAddress ip, int port, int source, out Flex.Smoothlake.FlexLib.CommandConnection? c) =>
+            throw new InvalidOperationException("No socket in this test");
+        public override void Disconnect() { }
+        public override void Write(string value) { }
+    }
+
+    private sealed class SliceRig : IDisposable
+    {
+        // Slice-mode round 3 (Codex): FlexBase's constructor writes three process
+        // globals, so they are captured BEFORE it runs and put back in Dispose, or
+        // here if construction fails part way, with Context's statics.
+        private readonly FlexBaseGlobals _globals;
+        private readonly TxGateOwnerTests.Context _saved;
+        public readonly FlexBase Rig;
+        public readonly Flex.Smoothlake.FlexLib.Radio Radio;
+        public readonly Radios.StationConnect.ObservationBinding Binding;
+        public int Events;
+
+        public SliceRig()
+        {
+            Assert.True(QuietRun.Silenced);
+            Assert.True(TestSettingsRoot.Isolated);
+            _globals = FlexBaseGlobals.Capture();
+            _saved = new TxGateOwnerTests.Context();
+            try
+            {
+                Rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "SliceModeTests" });
+                Radio = (Flex.Smoothlake.FlexLib.Radio)Activator.CreateInstance(typeof(Flex.Smoothlake.FlexLib.Radio), Inst, null, new object[] { false }, null)!;
+            }
+            catch
+            {
+                try { _saved.Dispose(); } finally { _globals.Dispose(); }
+                throw;
+            }
+            SetField(Radio, "_commandCommunication", new NoSocket());
+            SetField(Rig, "theRadio", Radio);
+            SetField(Rig, "clientHandle", 0u);
+            Rig.SuppressSpeech = true;
+            typeof(FlexBase).GetProperty("CanTransmit")!.SetValue(Rig, true);
+            Binding = new Radios.StationConnect.ObservationBinding(Radio, new Radios.StationConnect.ConnectionAttempt("slice-mode tests"));
+            typeof(TxAudioConditioning).GetField("_rig", Stat)!.SetValue(null, Rig);
+            Rig.TransmitModeMayHaveChanged += RunPolicy;
+            Rig.TransmitModeMayHaveChanged += Count;
+        }
+
+        private void Count() => Events++;
+
+        public Flex.Smoothlake.FlexLib.Slice Slice(int index, string mode, bool tx, bool active, bool ours = true)
+        {
+            var s = (Flex.Smoothlake.FlexLib.Slice)Activator.CreateInstance(typeof(Flex.Smoothlake.FlexLib.Slice), Inst, null, new object[] { Radio }, null)!;
+            SetField(s, "_index", index); SetField(s, "_demodMode", mode); SetField(s, "_isTransmitSlice", tx); SetField(s, "_active", active);
+            SetField(s, "_clientHandle", 0u);
+            Radio.SliceList.Add(s);
+            if (ours) ((List<Flex.Smoothlake.FlexLib.Slice>)GetField(Rig, "mySlices")).Add(s);
+            return s;
+        }
+
+        public void Positions(int tx, int rx, string rxMode) { SetField(Rig, "_TXVFO", tx); SetField(Rig, "_RXVFO", rx); SetField(Rig, "_RXMode", rxMode); }
+        public void Notify(Flex.Smoothlake.FlexLib.Slice s, string property) =>
+            typeof(FlexBase).GetMethod("slicePropertyChangedHandler", Inst)!.Invoke(Rig, new object[] { s, new System.ComponentModel.PropertyChangedEventArgs(property) });
+        public void Arrive(Flex.Smoothlake.FlexLib.Slice s) => typeof(FlexBase).GetMethod("sliceAdded", Inst)!.Invoke(Rig, new object[] { s, Binding });
+        public bool Bypassed => Rig.TxConditioner.BypassAll;
+
+        public void Dispose()
+        {
+            try
+            {
+                Rig.TransmitModeMayHaveChanged -= RunPolicy;
+                Rig.TransmitModeMayHaveChanged -= Count;
+                SetField(Rig, "theRadio", null);
+                Rig.Dispose();
+            }
+            finally
+            {
+                try { _saved.Dispose(); } finally { _globals.Dispose(); }
+            }
+        }
+    }
+
+    [Fact]
+    public void The_windowless_rig_puts_back_the_globals_a_FlexBase_constructor_writes()
+    {
+        // Codex's sentinel (slice-mode round 3): after the rig, API.ProgramName,
+        // API.IsGUI and VitaSocket.TraceSink are what they were before it.
+        var name = Flex.Smoothlake.FlexLib.API.ProgramName;
+        var gui = Flex.Smoothlake.FlexLib.API.IsGUI;
+        var sink = Vita.VitaSocket.TraceSink;
+        try
+        {
+            Flex.Smoothlake.FlexLib.API.ProgramName = "isolation-sentinel";
+            Flex.Smoothlake.FlexLib.API.IsGUI = false;
+            Action<string> sentinel = _ => { };
+            Vita.VitaSocket.TraceSink = sentinel;
+            using (var r = new SliceRig())
+            {
+                Assert.True(Flex.Smoothlake.FlexLib.API.IsGUI);          // positive control: the constructor did change them
+                Assert.NotSame(sentinel, Vita.VitaSocket.TraceSink);
+            }
+            Assert.Equal("isolation-sentinel", Flex.Smoothlake.FlexLib.API.ProgramName);
+            Assert.False(Flex.Smoothlake.FlexLib.API.IsGUI);
+            Assert.Same(sentinel, Vita.VitaSocket.TraceSink);
+        }
+        finally
+        {
+            Flex.Smoothlake.FlexLib.API.ProgramName = name;
+            Flex.Smoothlake.FlexLib.API.IsGUI = gui;
+            Vita.VitaSocket.TraceSink = sink;
+        }
+    }
+
+    [Fact]
+    public void The_real_policy_follows_the_designated_slice_through_mode_changes_and_a_designation_move()
+    {
+        // Codex's positive control, kept as a behaviour test.
+        using var r = new SliceRig();
+        var a = r.Slice(0, "USB", tx: true, active: false);
+        var b = r.Slice(1, "CW", tx: false, active: true);
+        r.Positions(0, 1, "CW");
+        RunPolicy();
+        Assert.False(r.Bypassed);                                       // a CW active slice never bypasses a USB transmit slice
+        SetField(a, "_demodMode", "CW"); r.Notify(a, "DemodMode");
+        Assert.True(r.Bypassed);
+        SetField(a, "_demodMode", "USB"); r.Notify(a, "DemodMode");
+        Assert.False(r.Bypassed);
+        SetField(a, "_isTransmitSlice", false); SetField(b, "_isTransmitSlice", true); r.Notify(b, "IsTransmitSlice");
+        Assert.True(r.Bypassed);                                        // the designation moved to the CW slice
+        Assert.Equal("CW", TxAudioConditioning.TransmitModeOf(r.Rig));
+    }
+
+    [Fact]
+    public void When_the_radio_removes_the_designation_the_active_slices_receive_mode_decides()
+    {
+        // Codex: TXModeAsReported followed the old position, so the old CW stayed.
+        using var r = new SliceRig();
+        var a = r.Slice(0, "CW", tx: true, active: false);
+        r.Slice(1, "USB", tx: false, active: true);
+        r.Positions(0, 1, "USB");
+        RunPolicy();
+        Assert.True(r.Bypassed);
+        SetField(a, "_isTransmitSlice", false); r.Notify(a, "IsTransmitSlice");
+        Assert.Equal("", r.Rig.DesignatedTransmitMode);
+        Assert.Equal("USB", TxAudioConditioning.TransmitModeOf(r.Rig));
+        Assert.False(r.Bypassed);
+    }
+
+    [Fact]
+    public void With_no_designation_switching_the_active_slice_switches_the_fallback()
+    {
+        using var r = new SliceRig();
+        var a = r.Slice(0, "USB", tx: false, active: true);
+        var b = r.Slice(1, "CW", tx: false, active: false);
+        r.Positions(-1, 0, "USB");
+        RunPolicy();
+        Assert.False(r.Bypassed);
+        SetField(a, "_active", false); SetField(b, "_active", true);    // the radio moves the active slice
+        r.Notify(b, "Active");
+        Assert.Equal("CW", r.Rig.ActiveSliceModeAsReported);            // read live, not the cached receive mode
+        Assert.True(r.Bypassed);
+        // And the radio's own ActiveSlice notice raises it again once that is
+        // true (FlexLib reports the slice's Active before the radio's ActiveSlice).
+        string flex = Source("Radios", "FlexBase.cs").Replace("\r\n", "\n");
+        int at = flex.IndexOf("case \"ActiveSlice\":", StringComparison.Ordinal);
+        Assert.Contains("TransmitModeMayHaveChanged?.Invoke();", flex.Substring(at, flex.IndexOf("break;", at, StringComparison.Ordinal) - at));
+    }
+
+    [Fact]
+    public void A_slice_that_arrives_already_designated_refreshes_the_policy()
+    {
+        // Codex: a ready slice's arrival raised nothing, so the chain stayed un-bypassed on a CW transmit slice.
+        using var r = new SliceRig();
+        r.Slice(0, "USB", tx: false, active: true);
+        r.Positions(-1, 0, "USB");
+        RunPolicy();
+        Assert.False(r.Bypassed);
+        var arriving = r.Slice(1, "CW", tx: true, active: false, ours: false);
+        r.Events = 0;
+        r.Arrive(arriving);
+        Assert.True(r.Events >= 1);
+        Assert.Equal("CW", TxAudioConditioning.TransmitModeOf(r.Rig));
+        Assert.True(r.Bypassed);
+    }
+
+    [Theory]
+    [InlineData("DFM", true)]
+    [InlineData("FDV", true)]
+    [InlineData("FDM", true)]
+    [InlineData("DIGU", true)]
+    [InlineData("CWL", true)]
+    [InlineData("RTTY", true)]
+    [InlineData("FM", false)]
+    [InlineData("NFM", false)]
+    [InlineData("USB", false)]
+    [InlineData("AM", false)]
+    public void The_radios_own_digital_modes_bypass_the_chain_and_voice_modes_do_not(string mode, bool bypassed)
+    {
+        using var r = new SliceRig();
+        r.Slice(0, mode, tx: true, active: true);
+        r.Positions(0, 0, mode);
+        RunPolicy();
+        Assert.Equal(bypassed, r.Bypassed);
+        Assert.Equal(bypassed, TxAudioConditioning.BypassedIn(mode));
     }
 
     private static string Describe(TxNoiseChain chain)

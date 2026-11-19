@@ -23,6 +23,13 @@ namespace JJFlexWpf
         /// </summary>
         string ReceiveMode => Mode;
         /// <summary>
+        /// The TRANSMIT slice's mode (Sprint 49 Track H2, slice-mode round): what
+        /// transmit noise reduction's mode policy and its summary follow, never
+        /// the active slice's. Defaults to <see cref="Mode"/> for a radio that
+        /// knows no difference.
+        /// </summary>
+        string TransmitMode => Mode;
+        /// <summary>
         /// The slice every read and write here acts on right now: an opaque
         /// identity, compared by reference, never a number (repair round 2,
         /// B1). Null when no slice is active.
@@ -65,6 +72,7 @@ namespace JJFlexWpf
         public string Serial => _rig.SelectedRadioSerial ?? "";
         public string Mode => _rig.Mode ?? "";
         public string ReceiveMode => _rig.RXMode ?? "";
+        public string TransmitMode => TxAudioConditioning.TransmitModeOf(_rig);
         public object? SliceIdentity => _rig.ActiveSliceIdentity;
         public bool PcAudioOn => _rig.PCAudio;
         public bool ReadSwitch(DenoiseEngineEntry engine) => engine.ReadRadio?.Invoke(_rig) == FlexBase.OffOnValues.on;

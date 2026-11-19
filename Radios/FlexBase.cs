@@ -4900,6 +4900,12 @@ namespace Radios
                             s.Panadapter.GetRFGainInfo();
                             FilterObj.RXFreqChange(s);
                             EscStateChanged?.Invoke();
+                            // The slice's own Active notice comes BEFORE the radio
+                            // records the new active slice (FlexLib's
+                            // Slice._UpdateActive, then Radio.UpdateActiveSlice), so
+                            // the transmit policy's active-slice fallback is told
+                            // again here, once it is true (slice-mode round 2).
+                            TransmitModeMayHaveChanged?.Invoke();
 #if CWMonitor
                             if (useCWMon && (s == VFOToSlice(TXVFO)) && (s.DemodMode == "CW"))
                             {
@@ -5322,6 +5328,7 @@ namespace Radios
                     case "Active":
                         {
                             Tracing.TraceLine("Active:slice " + s.Index.ToString() + " " + s.Active.ToString(), TraceLevel.Info);
+                            TransmitModeMayHaveChanged?.Invoke();
                             // "or on moving to another slice" — the second half
                             // of Noel's spec. The radio confirming a slice as
                             // Active is the honest moment the operator arrived
@@ -5348,6 +5355,7 @@ namespace Radios
                                 FollowTransmitSlice(s);
                                 _TXMode = s.DemodMode;
                             }
+                            TransmitModeMayHaveChanged?.Invoke();
                             if (s.Active)
                             {
                                 FilterObj.RXFreqChange(s);
@@ -5467,6 +5475,7 @@ namespace Radios
                             {
                                 ForgetTransmitCaches(s);
                             }
+                            TransmitModeMayHaveChanged?.Invoke();
                         }
                         break;
                     case "Mute":
@@ -6347,6 +6356,21 @@ namespace Radios
         public event Action<string> ModeChanged;
 
         /// <summary>
+        /// Fired when the TRANSMIT slice's mode may have changed (Sprint 49 Track
+        /// H2, slice-mode round): any slice's mode changing, a slice becoming or
+        /// ceasing to be the transmit slice, the active slice changing, or a
+        /// slice going. <see cref="ModeChanged"/> covers only the active slice's
+        /// mode, so transmit noise reduction, which must follow the slice that
+        /// transmits, read the wrong slice: a second slice set to CW bypassed it
+        /// on a USB transmit slice. Read <see cref="DesignatedTransmitMode"/> when
+        /// it fires, and <see cref="ActiveSliceModeAsReported"/> when no slice of
+        /// ours is designated; never <see cref="TXModeAsReported"/>, which follows
+        /// the TXVFO position even after the designation has gone. It may fire
+        /// when nothing changed.
+        /// </summary>
+        public event Action TransmitModeMayHaveChanged;
+
+        /// <summary>
         /// Fired when what the Enhanced Signal Clarity dialog shows may have
         /// changed under it: the active slice moved, or the radio reported
         /// ESC on or off, phase or gain for one of our slices.
@@ -6431,6 +6455,10 @@ namespace Radios
                     _RXVFO = SliceToVFO(slc);
                     NoteActiveSliceAsFound(slc);
                 }
+                // A slice arrives ready, its status already parsed, so no property
+                // change will tell the transmit policy what it brought (slice-mode
+                // round 2, Codex): told here, once the caches above are in place.
+                TransmitModeMayHaveChanged?.Invoke();
             }
             else Tracing.TraceLine("sliceAdded:not mine " + slc.ToString(), TraceLevel.Info);
         }
@@ -6588,6 +6616,7 @@ namespace Radios
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                     ObserveOwnSliceRemoved(binding, slc);
                     SliceCountChanged?.Invoke();
+                    TransmitModeMayHaveChanged?.Invoke();
                     // #58 and #117: one census after the set settles, and — when
                     // the operator asked for it — the receipt saying the change
                     // is provisional. Releasing three slices in a burst still
@@ -9309,6 +9338,56 @@ namespace Radios
             }
             q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode");
             return ModeRequestOutcome.Sent;
+        }
+
+        /// <summary>
+        /// The mode of the slice the radio has DESIGNATED to transmit, read live
+        /// from that slice; empty when no slice of ours is designated (Sprint 49
+        /// Track H2, slice-mode round 2). Unlike <see cref="TXModeAsReported"/>,
+        /// which follows the position <see cref="TXVFO"/> even after the radio
+        /// has taken the designation away, this checks the designation itself.
+        /// </summary>
+        public string DesignatedTransmitMode
+        {
+            get
+            {
+                try { return DesignatedTransmitSlice()?.DemodMode ?? ""; }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("DesignatedTransmitMode: " + ex.Message, TraceLevel.Warning);
+                    return "";
+                }
+            }
+        }
+
+        /// <summary>
+        /// The ACTIVE slice's mode, read live (slice-mode round 2): the radio's
+        /// active slice when it is ours, else the slice of ours marked active,
+        /// else the last active mode reported. Never the transmit mode, which
+        /// <see cref="Mode"/> reads while transmitting.
+        /// </summary>
+        public string ActiveSliceModeAsReported
+        {
+            get
+            {
+                try
+                {
+                    Slice s = theRadio?.ActiveSlice;
+                    if (s == null || !myClient(s.ClientHandle))
+                    {
+                        s = null;
+                        lock (mySlices)
+                            foreach (Slice candidate in mySlices)
+                                if (candidate.Active) { s = candidate; break; }
+                    }
+                    return s?.DemodMode ?? _RXMode ?? "";
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("ActiveSliceModeAsReported: " + ex.Message, TraceLevel.Warning);
+                    return _RXMode ?? "";
+                }
+            }
         }
 
         /// <summary>
