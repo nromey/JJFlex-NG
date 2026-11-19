@@ -500,7 +500,7 @@ namespace Radios
                 try { sourceEngaged = !TxInputSources.Idle; } catch { sourceEngaged = true; }
                 if (System.Threading.Interlocked.Read(ref _txKeyDownAdmissions) != keyDownsAtStart) refusal = "a key-down arrived while it opened";
                 else if (keyed || TxKeyRecentlyAdmitted) refusal = "the radio is keyed";
-                else if (TxCheckOrRecordingRunning) refusal = "a microphone check or a recording is running";
+                else if (TxCheckOrRecordingRunning) refusal = "a microphone check or recording holds the device";
                 else if (sourceEngaged) refusal = "a generated source is engaged";
                 else if (!opusInputAvailable || !ReferenceEquals(opusInputChannel, channel)) refusal = "the connection changed";
                 if (refusal != null) return TxSwapResult.Refused;
