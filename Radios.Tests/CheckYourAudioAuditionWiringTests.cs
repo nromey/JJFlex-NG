@@ -86,12 +86,72 @@ namespace Radios.Tests
         public void The_audition_records_only_through_the_narrator_into_its_own_folder()
         {
             string code = Code(Dialog("CheckYourAudioDialog.Audition"));
-            Assert.Contains("RecordingNarrator.Start(", code);
+            // The narrator's check form (Track Q2): still the narrator, still the one way in.
+            Assert.Contains("RecordingNarrator.StartForCheck(path)", code);
+            Assert.DoesNotContain("RecordingNarrator.Start(", code);
+            Assert.DoesNotContain("RecordingNarrator.Toggle(", code);
             Assert.DoesNotContain("new MicRecorder", code);
             Assert.DoesNotContain("new MicProbe", code);
             Assert.Contains("new ChainAuditionTake(ChainAuditionFolder.DefaultPath", code);
             // The take is never written where the kept recordings live.
             Assert.DoesNotContain("RecordingStore.FolderPath", code);
+        }
+
+        // ── Track Q2: it starts the way the other checks start ─────────────
+        // Noel 2026-11-19 12:22: "start recording after speech is done, start it
+        // with a beep or count it down like we've done in all the other stuff."
+        // The behaviour is ChainAuditionStartTests'; these pin the window to it.
+
+        [Fact]
+        public void The_audition_opens_the_microphone_only_through_the_countdowns_gate()
+        {
+            string start = Body(Code(Dialog("CheckYourAudioDialog.Audition")), "private async Task StartAuditionAsync()");
+            int count = start.IndexOf("BeginStartCountdown(AudioCheckListenMethods.Audition);", StringComparison.Ordinal);
+            int open = start.IndexOf("Audition.StartAfterAsync(CountdownLetsKeyAsync,", StringComparison.Ordinal);
+            Assert.True(count >= 0 && open > count, "the take must open through the countdown's gate, after the count begins");
+            // Never around the gate: no direct start, and no other wait standing in for it.
+            Assert.DoesNotContain("Audition.Start(", start);
+            Assert.DoesNotContain("await CountdownLetsKeyAsync()", start);
+            // Nothing is spoken as the take starts.
+            Assert.DoesNotContain("Speak(", start);
+        }
+
+        [Fact]
+        public void The_take_is_marked_by_the_computer_microphone_checks_own_start_tone_and_settle()
+        {
+            string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
+            Assert.Contains("startMarker: EarconPlayer.RecorderStartBeep, markerSettle: StartToneSettle", audition);
+            // Positive control: those are the computer microphone check's, the pattern being reused.
+            string mic = Body(Code(Dialog("CheckYourAudioDialog.ComputerMic")), "private void StartComputerMicProbeNow()");
+            Assert.Contains("EarconPlayer.RecorderStartBeep();", mic);
+            Assert.Contains("new DispatcherTimer(StartToneSettle,", mic);
+        }
+
+        [Fact]
+        public void The_narrators_check_form_opens_saying_nothing_and_says_nothing_while_it_records()
+        {
+            string narrator = Code(Source("JJFlexWpf/RecordingNarrator.cs"));
+            string check = Body(narrator, "public static bool StartForCheck(string path)");
+            Assert.Contains("Open(path, quiet: true)", check);
+            string open = Body(narrator, "private static bool Open(string? path, bool quiet)");
+            foreach (string body in new[] { check, open })
+            {
+                Assert.DoesNotContain("Speak(", body);
+                Assert.DoesNotContain("Tone(", body);
+            }
+            // Its refusals are said aloud, before anything is captured.
+            Assert.Contains("Refuse(", open);
+            // While it runs: the quiet check comes before anything the tick says.
+            string tick = Body(narrator, "private static void OnTick(object? sender, EventArgs e)");
+            int quiet = tick.IndexOf("if (_quiet) return;", StringComparison.Ordinal);
+            int firstSpeak = tick.IndexOf("Speak(", StringComparison.Ordinal);
+            Assert.True(quiet > 0 && firstSpeak > quiet, "the elapsed time or the cap warning can be spoken into a check's take");
+            // Positive control, and the record key's recording unchanged: it still
+            // opens with the confirm tone and its sentence.
+            string start = Body(narrator, "public static void Start(string purpose, string? path = null)");
+            Assert.Contains("Open(path, quiet: false)", start);
+            Assert.Contains("EarconPlayer.ConfirmTone();", start);
+            Assert.Contains("\"audio.recording.started\"", start);
         }
 
         [Fact]

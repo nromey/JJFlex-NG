@@ -387,6 +387,14 @@ public partial class CheckYourAudioDialog
             SetMethodSilently(AudioCheckListenMethods.ComputerMic);
             return;
         }
+        // An audition take that is recording keeps its method the same way: it
+        // is offered with or without a radio (Noel 2026-11-19 12:23), so a
+        // radio coming or going never takes it out from under the take.
+        if (AuditionRecording)
+        {
+            SetMethodSilently(AudioCheckListenMethods.Audition);
+            return;
+        }
         // Every choice the operator makes is saved at once, so the saved
         // choice IS the operator's choice: resolving it again is what brings a
         // saved Off the air back once a late antenna list makes it offerable,
@@ -483,8 +491,9 @@ public partial class CheckYourAudioDialog
         if (_methodStatus == null) return;
         var rig = _rig;
         string text;
-        // This computer's microphone needs no radio, so its sentence comes first.
-        if (SelectedMethod == AudioCheckListenMethods.ComputerMic) text = AudioCheckMethods.About(SelectedMethod);
+        // This computer's microphone and the audition need no radio, so their
+        // sentence comes first (the audition with no radio: Noel 2026-11-19 12:23).
+        if (!AudioCheckMethods.NeedsARadio(SelectedMethod)) text = AudioCheckMethods.About(SelectedMethod);
         else if (rig == null) text = Lexicon.Get("audio.no_radio_connected") + ".";
         // An off-air take's own sentence (preparing, recording, its result)
         // takes the line while Off the air is chosen.
@@ -542,7 +551,9 @@ public partial class CheckYourAudioDialog
             rig.OffAirListenbackRefusalReason, rig.LoopbackSupported));
         // A computer microphone check already listening keeps its method: a
         // radio arriving does not stop it out from under the operator.
-        SetMethodSilently(ComputerMicCheckRunning ? AudioCheckListenMethods.ComputerMic : ResolvedSavedMethod());
+        // An audition take recording keeps its method too (Track Q2).
+        SetMethodSilently(ComputerMicCheckRunning ? AudioCheckListenMethods.ComputerMic
+            : AuditionRecording ? AudioCheckListenMethods.Audition : ResolvedSavedMethod());
 
         if (_checkPowerControl != null)
         {

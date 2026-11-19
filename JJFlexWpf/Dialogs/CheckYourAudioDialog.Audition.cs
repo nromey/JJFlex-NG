@@ -65,8 +65,14 @@ public partial class CheckYourAudioDialog
     /// <summary>True while the audition is recording the microphone.</summary>
     internal bool AuditionRecording => _audition?.IsRecording == true;
 
+    /// <summary>
+    /// The take, marked at its start by the computer microphone check's own
+    /// start tone and settle (Track Q2): the same sound, and the same moment
+    /// after it that the check is listened to from.
+    /// </summary>
     private ChainAuditionTake Audition => _audition ??= new ChainAuditionTake(ChainAuditionFolder.DefaultPath,
-        new NarratorRecorder(), AuditionProcessorSource(), LoadAuditionTake);
+        new NarratorRecorder(), AuditionProcessorSource(), LoadAuditionTake,
+        startMarker: EarconPlayer.RecorderStartBeep, markerSettle: StartToneSettle);
 
     /// <summary>
     /// The audition's buttons, in the Results section, in the ruled order:
@@ -168,6 +174,13 @@ public partial class CheckYourAudioDialog
     /// get to the microphone. It takes the same start admission as every
     /// method, so Start, Ctrl+Enter and Escape during the count cancel it.
     /// </summary>
+    /// <remarks>
+    /// <b>Started the way the computer microphone check starts</b> (Track Q2,
+    /// Noel 2026-11-19 12:22): the microphone opens only once the countdown has
+    /// been said in full, it opens saying nothing, and the take is marked by
+    /// the check's start tone. Nothing is spoken while it records; the reading
+    /// box says it is recording, and it is not a live region.
+    /// </remarks>
     private async Task StartAuditionAsync()
     {
         using var start = _checkStarts.TryBegin();
@@ -176,10 +189,13 @@ public partial class CheckYourAudioDialog
         BeginStartCountdown(AudioCheckListenMethods.Audition);
         try
         {
-            if (!await CountdownLetsKeyAsync() || !start.IsCurrent || _closing) return;
-            // A render still playing is a file in the folder the new take empties.
-            StopAuditionPlayback();
-            if (Audition.Start(DateTime.Now)) ShowAuditionReading(Lexicon.Get("audio.audition.recording"));
+            bool opened = await Audition.StartAfterAsync(CountdownLetsKeyAsync,
+                stillWanted: () => start.IsCurrent && !_closing,
+                localNow: () => DateTime.Now,
+                // A render still playing is a file in the folder the new take empties.
+                beforeOpening: StopAuditionPlayback);
+            if (_closing) return;
+            if (opened) ShowAuditionReading(Lexicon.Get("audio.audition.recording"));
             SyncAuditionButtons();
         }
         finally
@@ -383,7 +399,12 @@ public partial class CheckYourAudioDialog
 
     // ── The recorder and the loader the take is handed ───────────────────
 
-    /// <summary>The take's recorder: <see cref="RecordingNarrator"/>, which announces every start and stop itself.</summary>
+    /// <summary>
+    /// The take's recorder: <see cref="RecordingNarrator"/>, still the one place
+    /// a recording starts or stops, in its check form: it opens saying nothing
+    /// (the countdown before it and the start tone after it are the
+    /// announcement), refuses aloud as ever, and says the stop as ever.
+    /// </summary>
     private sealed class NarratorRecorder : IAuditionRecorder
     {
         public bool IsRunning => RecordingNarrator.IsRunning;
@@ -391,11 +412,7 @@ public partial class CheckYourAudioDialog
         public bool IsRecordingTo(string path) =>
             RecordingNarrator.IsRunning && SamePath(RecordingNarrator.CurrentPath, path);
 
-        public bool Start(string path)
-        {
-            RecordingNarrator.Start(Lexicon.Get("audio.audition.recording_purpose"), path);
-            return IsRecordingTo(path);
-        }
+        public bool Start(string path) => RecordingNarrator.StartForCheck(path) && IsRecordingTo(path);
 
         public void Stop() => RecordingNarrator.Stop();
     }

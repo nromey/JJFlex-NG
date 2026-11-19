@@ -124,11 +124,13 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void With_no_radio_only_this_computers_microphone_is_offered()
+        public void With_no_radio_only_this_computers_microphone_and_the_audition_are_offered()
         {
             // Ruled 2026-10-28 20:34: with no connection the window opens
-            // offering only the computer-mic method, and saves nothing.
-            Assert.Equal(new[] { AudioCheckListenMethods.ComputerMic },
+            // offering the computer-mic method, and saves nothing. Amended for
+            // the audition only by Noel 2026-11-19 12:23: "this auditions on PC
+            // noise reduction and transmit, no radio required."
+            Assert.Equal(new[] { AudioCheckListenMethods.ComputerMic, AudioCheckListenMethods.Audition },
                 AudioCheckMethods.Offered(false, false, "no-radio", false));
             Assert.Equal(AudioCheckListenMethods.ComputerMic,
                 AudioCheckMethods.Resolve(AudioCheckListenMethods.Monitor, chosen: true,
@@ -136,8 +138,12 @@ namespace Radios.Tests
             Assert.False(AudioCheckMethods.KeysTheRadio(AudioCheckListenMethods.ComputerMic));
             Assert.False(AudioCheckMethods.UsesCheckPower(AudioCheckListenMethods.ComputerMic));
             // The audition records this computer's microphone and keys nothing
-            // either (#262), but waits for a radio by the same ruling.
+            // either (#262), and needs no radio (12:23).
             Assert.False(AudioCheckMethods.KeysTheRadio(AudioCheckListenMethods.Audition));
+            // Exactly those two need no radio; every other method does.
+            foreach (var m in AudioCheckMethods.DisplayOrder)
+                Assert.Equal(m is not (AudioCheckListenMethods.ComputerMic or AudioCheckListenMethods.Audition),
+                    AudioCheckMethods.NeedsARadio(m));
             Assert.All(AudioCheckMethods.DisplayOrder.Where(m => m is not (AudioCheckListenMethods.ComputerMic
                     or AudioCheckListenMethods.Audition)),
                 m => Assert.True(AudioCheckMethods.KeysTheRadio(m)));
@@ -234,21 +240,24 @@ namespace Radios.Tests
         [InlineData(false, "", true)]
         [InlineData(true, "", true)]
         [InlineData(false, "one-scu-not-confirmed", false)]
-        public void The_audition_is_offered_whenever_a_radio_is_connected_and_never_without_one(bool remote,
+        public void The_audition_is_offered_with_a_radio_and_without_one(bool remote,
             string refusal, bool loopback)
         {
-            // #262, 2026-11-19: offered only with a radio, by the 2026-10-28
-            // 20:34 ruling; over SmartLink too; straight after this computer's
-            // microphone, before anything that keys.
+            // #262: offered over SmartLink too, straight after this computer's
+            // microphone, before anything that keys; and with no radio at all
+            // (Noel 2026-11-19 12:23: "this auditions on PC noise reduction and
+            // transmit, no radio required").
             var offered = AudioCheckMethods.Offered(true, remote, refusal, loopback);
             Assert.Equal(AudioCheckListenMethods.Audition, offered[1]);
-            Assert.DoesNotContain(AudioCheckListenMethods.Audition, AudioCheckMethods.Offered(false, false, "no-radio", false));
-            // A saved audition comes back on a connection, and falls back with none.
+            var none = AudioCheckMethods.Offered(false, false, "no-radio", false);
+            Assert.Equal(AudioCheckListenMethods.Audition, none[1]);
+            // A saved audition comes back on a connection.
             Assert.Equal(AudioCheckListenMethods.Audition,
                 AudioCheckMethods.Resolve(AudioCheckListenMethods.Audition, chosen: true, offered, remote));
+            // With no radio nothing is saved, so the window opens on the
+            // computer microphone, the first offered; the audition is one arrow away.
             Assert.Equal(AudioCheckListenMethods.ComputerMic,
-                AudioCheckMethods.Resolve(AudioCheckListenMethods.Audition, chosen: true,
-                    AudioCheckMethods.Offered(false, false, "no-radio", false), remote: false));
+                AudioCheckMethods.Resolve(AudioCheckListenMethods.Monitor, chosen: false, none, remote: false));
         }
 
         [Fact]

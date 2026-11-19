@@ -20,8 +20,10 @@ namespace Radios
     /// radio cannot make.
     /// </para>
     /// <para>
-    /// <b>With no radio only this computer's microphone is offered</b> (ruled 2026-10-28
-    /// 20:34), and nothing is saved. <b>Over SmartLink only the first four are offered.</b> Off the air needs
+    /// <b>With no radio only this computer's microphone and the audition are offered</b>
+    /// (ruled 2026-10-28 20:34 for the microphone; the audition added by Noel
+    /// 2026-11-19 12:23: <i>"this auditions on PC noise reduction and transmit, no
+    /// radio required"</i>), and nothing is saved. <b>Over SmartLink only the first five are offered.</b> Off the air needs
     /// IQ, which SmartLink does not carry (13:39, and the 2026-10-22 08:08 "no IQ
     /// over SmartLink"). Loopback needs no IQ but is LOCAL ONLY until it has
     /// been benched remotely (ruled 15:32: "local only until we are able to
@@ -77,15 +79,18 @@ namespace Radios
         public static IReadOnlyList<AudioCheckListenMethods> Offered(bool connected, bool remote,
             string offAirRefusal, bool loopbackSupported)
         {
-            // With no radio, only the computer's own microphone can be checked,
-            // and that is the window's whole offer (ruled 20:34).
-            var offered = new List<AudioCheckListenMethods> { AudioCheckListenMethods.ComputerMic };
+            // With no radio, the computer's own microphone can be checked (ruled
+            // 20:34), and the audition can be heard: it needs nothing from the
+            // radio and nothing in it crosses the network, so it is offered with
+            // no radio and over SmartLink alike (Noel 2026-11-19 12:23: "this
+            // auditions on PC noise reduction and transmit, no radio required").
+            // That amends the 20:34 ruling for the audition only.
+            var offered = new List<AudioCheckListenMethods>
+            {
+                AudioCheckListenMethods.ComputerMic,
+                AudioCheckListenMethods.Audition,
+            };
             if (!connected) return offered;
-            // The audition needs nothing from the radio and nothing in it
-            // crosses the network, so SmartLink offers it too. It waits for a
-            // radio only because of the 20:34 ruling; whether it should be
-            // offered without one is Noel's question (#262, 2026-11-19).
-            offered.Add(AudioCheckListenMethods.Audition);
             offered.Add(AudioCheckListenMethods.MicTest);
             offered.Add(AudioCheckListenMethods.Monitor);
             offered.Add(AudioCheckListenMethods.RecordPlayback);
@@ -129,6 +134,15 @@ namespace Radios
         /// </remarks>
         public static bool UsesCheckPower(AudioCheckListenMethods method) =>
             method is AudioCheckListenMethods.Monitor or AudioCheckListenMethods.RecordPlayback;
+
+        /// <summary>
+        /// True for every method that needs a radio connected to run; false for
+        /// checking this computer's microphone and for the audition, which
+        /// records it. The two are offered with no radio, and the window's
+        /// "no radio connected" line is never theirs.
+        /// </summary>
+        public static bool NeedsARadio(AudioCheckListenMethods method) =>
+            method is not (AudioCheckListenMethods.ComputerMic or AudioCheckListenMethods.Audition);
 
         /// <summary>True for every method that keys the radio; false for checking this computer's microphone and for the audition, which records it.</summary>
         public static bool KeysTheRadio(AudioCheckListenMethods method) =>

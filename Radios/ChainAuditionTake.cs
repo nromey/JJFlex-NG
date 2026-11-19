@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using JJPortaudio;
 using JJTrace;
 
@@ -76,7 +77,12 @@ namespace Radios
         /// <summary>True while any recording runs, this one or another surface's.</summary>
         bool IsRunning { get; }
 
-        /// <summary>Start recording to <paramref name="path"/>; false when it refused (it says why itself).</summary>
+        /// <summary>
+        /// Start recording to <paramref name="path"/>, SAYING NOTHING: the take
+        /// sounds its own start marker once this returns, and nothing may be
+        /// spoken into the take. False when it refused (it says why itself,
+        /// before anything was captured).
+        /// </summary>
         bool Start(string path);
 
         /// <summary>Stop the recording in flight.</summary>
@@ -111,6 +117,19 @@ namespace Radios
     /// unless it was kept, so the folder never holds more than the take being
     /// heard.
     /// </para>
+    /// <para>
+    /// <b>It starts the way the computer microphone check starts</b> (Sprint 49
+    /// Track Q2, Noel 2026-11-19 12:22: <i>"start recording after speech is
+    /// done, start it with a beep or count it down like we've done in all the
+    /// other stuff"</i>). <see cref="StartAfterAsync"/> opens nothing until the
+    /// countdown has been said in full; the recorder then opens saying nothing,
+    /// and the start marker (the recorder's start tone, the one the computer
+    /// microphone check sounds) plays as soon as it is open. The microphone may
+    /// hear that tone through the speakers, so the take's first
+    /// <c>markerSettle</c> is left out of everything it is measured and played
+    /// as, the way that check starts its levels again once the tone has
+    /// finished.
+    /// </para>
     /// </remarks>
     public sealed class ChainAuditionTake
     {
@@ -118,18 +137,35 @@ namespace Radios
         private readonly IAuditionRecorder _recorder;
         private readonly IChainAuditionProcessor _processor;
         private readonly Func<string, (float[] Mono, int Rate)?> _load;
+        private readonly Action? _startMarker;
+        private readonly TimeSpan _markerSettle;
+
+        /// <summary>True when this take's start marker sounded, so its settle is left out of the take.</summary>
+        private bool _marked;
 
         /// <param name="folder">The working folder; <see cref="ChainAuditionFolder.DefaultPath"/> in the app.</param>
-        /// <param name="recorder">Records the microphone.</param>
+        /// <param name="recorder">Records the microphone, saying nothing.</param>
         /// <param name="processor">The offline chain; <see cref="ChainNotConnectedYet"/> in phase A.</param>
         /// <param name="load">Reads a recorded file to mono samples and their rate, or null when it cannot.</param>
+        /// <param name="startMarker">
+        /// Sounded once the recorder is open: in the window, the recorder's
+        /// start tone, the computer microphone check's own. Null only in tests
+        /// that are not about the start.
+        /// </param>
+        /// <param name="markerSettle">
+        /// How long after the marker the take is listened to from: the window
+        /// passes the computer microphone check's own settle. Ignored without a
+        /// marker.
+        /// </param>
         public ChainAuditionTake(string folder, IAuditionRecorder recorder, IChainAuditionProcessor processor,
-            Func<string, (float[] Mono, int Rate)?> load)
+            Func<string, (float[] Mono, int Rate)?> load, Action? startMarker = null, TimeSpan markerSettle = default)
         {
             _folder = folder ?? throw new ArgumentNullException(nameof(folder));
             _recorder = recorder ?? throw new ArgumentNullException(nameof(recorder));
             _processor = processor ?? throw new ArgumentNullException(nameof(processor));
             _load = load ?? throw new ArgumentNullException(nameof(load));
+            _startMarker = startMarker;
+            _markerSettle = markerSettle < TimeSpan.Zero ? TimeSpan.Zero : markerSettle;
         }
 
         public AuditionTakeState State { get; private set; } = AuditionTakeState.Idle;
@@ -170,14 +206,74 @@ namespace Radios
                 "audition-" + localNow.ToString("yyyy-MM-dd-HHmmss-fff", System.Globalization.CultureInfo.InvariantCulture) + ".wav");
             TakePath = path;
             Kept = false;
+            _marked = false;
             if (!_recorder.Start(path))
             {
                 TakePath = "";
                 return false;
             }
             State = AuditionTakeState.Recording;
-            Tracing.TraceLine("Check your audio audition: take started, nothing keyed", System.Diagnostics.TraceLevel.Info);
+            // The capture is open: mark it, at once, with the check's start tone.
+            _marked = SoundStartMarker();
+            Tracing.TraceLine("Check your audio audition: take started, nothing keyed"
+                + (_marked ? ", start tone sounded" : ""), System.Diagnostics.TraceLevel.Info);
             return true;
+        }
+
+        /// <summary>
+        /// Start a take once the countdown before it has been said in full, the
+        /// way every Check your audio method starts (Noel 2026-11-19 12:22).
+        /// Nothing is opened until <paramref name="countSaid"/> completes true:
+        /// in the window that is the countdown's own gate, which waits for its
+        /// last spoken word to be finished, and is true at once with the
+        /// countdown off. False, with nothing opened, when the count was called
+        /// off, its words could not be delivered, or the start is no longer
+        /// wanted.
+        /// </summary>
+        /// <param name="countSaid">The countdown's gate: true once it has been said and has ended.</param>
+        /// <param name="stillWanted">Asked after the count: false when the start was cancelled or the window is closing.</param>
+        /// <param name="localNow">The clock the take's file is named by, read as capture opens.</param>
+        /// <param name="beforeOpening">Run just before the recorder opens; the window stops a render still playing from the folder the new take empties.</param>
+        public async Task<bool> StartAfterAsync(Func<Task<bool>> countSaid, Func<bool> stillWanted,
+            Func<DateTime> localNow, Action? beforeOpening = null)
+        {
+            if (countSaid == null) throw new ArgumentNullException(nameof(countSaid));
+            if (stillWanted == null) throw new ArgumentNullException(nameof(stillWanted));
+            if (localNow == null) throw new ArgumentNullException(nameof(localNow));
+            if (!await countSaid() || !stillWanted()) return false;
+            beforeOpening?.Invoke();
+            return Start(localNow());
+        }
+
+        /// <summary>Sound the start marker, guarded: a tone that throws must never cost the take. True when it was asked to sound.</summary>
+        private bool SoundStartMarker()
+        {
+            if (_startMarker == null) return false;
+            try { _startMarker(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Check your audio audition: the start tone threw and was ignored: " + ex.GetType().Name,
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The take as it is measured and played: what was recorded, less the
+        /// marker's settle at its start when the marker sounded. Never empty
+        /// when the recording was not (a take no longer than the settle keeps
+        /// its last sample), so a press-and-release take reads as too short,
+        /// not as unreadable.
+        /// </summary>
+        internal static float[] AfterMarker(float[] recorded, int rate, TimeSpan settle, bool marked)
+        {
+            if (!marked || settle <= TimeSpan.Zero || recorded.Length == 0) return recorded;
+            long skip = (long)Math.Round(settle.TotalSeconds * Math.Max(1, rate));
+            if (skip <= 0) return recorded;
+            int from = (int)Math.Min(skip, recorded.Length - 1L);
+            var kept = new float[recorded.Length - from];
+            Array.Copy(recorded, from, kept, 0, kept.Length);
+            return kept;
         }
 
         /// <summary>Stop this take's recording. The recorder then reports the file through <see cref="Saved"/>.</summary>
@@ -205,7 +301,11 @@ namespace Radios
                 return null;
             }
 
-            var result = ChainAudition.Analyse(take.Mono, take.Rate, _processor);
+            // The start tone and the moment after it are not the operator: they
+            // are left out, as the computer microphone check starts its levels
+            // again once its tone has finished.
+            var heard = AfterMarker(take.Mono, take.Rate, _markerSettle, _marked);
+            var result = ChainAudition.Analyse(heard, take.Rate, _processor);
             foreach (var render in ChainAudition.PlayOrder)
             {
                 var samples = result.Render(render);
