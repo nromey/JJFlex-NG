@@ -219,6 +219,7 @@ public sealed class SpecbleachEngineTests
     {
         using var e = Engine();
         Assert.Equal(512, e.LatencySamples);
+        Assert.Equal(SpecbleachEngine.LiveLatencySamples, e.LatencySamples);   // the catalog's figure before it runs (#1152)
         float[] speech = ReferenceSpeech(startSeconds: 12, seconds: 4);
         var output = Run(e, speech);
         int measured = PeakLag(speech, output, maxLag: 4800);

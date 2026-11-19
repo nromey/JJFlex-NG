@@ -78,6 +78,17 @@ namespace JJFlexWpf
         /// <summary>The frame the live engine uses: 512 samples, about 10.7 ms at 48 kHz.</summary>
         public const int DefaultFrameSamples = 512;
 
+        /// <summary>
+        /// The live engine's delay before any instance exists (#1152), for the
+        /// catalog's expected figure: in the low-latency mode the library is
+        /// causal and delays by exactly one frame, and the live shape is fixed
+        /// (a <see cref="DefaultFrameSamples"/>-sample frame and FFT; an instance
+        /// built in any other shape refuses to start). So this is what
+        /// <c>specbleach_denoiser_get_latency</c> reports once an instance runs,
+        /// and SpecbleachEngineTests holds the two equal against the real library.
+        /// </summary>
+        public const int LiveLatencySamples = DefaultFrameSamples;
+
         /// <summary><c>SPECBLEACH_INIT_LOW_LATENCY</c> in the header at the tag.</summary>
         private const uint LowLatencyFlag = 1u << 0;
 

@@ -161,8 +161,9 @@ namespace JJFlexWpf
         /// <summary>
         /// About how long a computer engine that runs in this process delays the
         /// audio, in milliseconds, before it runs and reports its own figure: RNNoise
-        /// by its chosen model (#1019: v0.1.1 about 10 ms, the 0.2 models about 20).
-        /// Null for any other engine.
+        /// by its chosen model (#1019: v0.1.1 about 10 ms, the 0.2 models about 20),
+        /// DeepFilterNet3 (30) and NR4 (11), each fixed by its build. Null for any
+        /// other engine.
         /// </summary>
         public static int? ExpectedEngineDelayMs(string engineId, string? model) => engineId switch
         {
@@ -170,6 +171,10 @@ namespace JJFlexWpf
             // Fixed by the model (Sprint 49 Track H2 bench round, item 4: it said no
             // delay on transmit, and the bench measured exactly this, 1,440 samples).
             "deepfilternet3" => (int)Math.Round(DeepFilterNet3Engine.LatencyAtFrame(480) / 48.0),
+            // NR4's live shape is fixed, so its delay is known before it runs as
+            // well (#1152: it said nothing until it had processed audio; the
+            // bench of 2026-11-18 measured 512 samples).
+            "nr4" => (int)Math.Round(SpecbleachEngine.LiveLatencySamples / 48.0),
             _ => null,
         };
 
