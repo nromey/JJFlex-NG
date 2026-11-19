@@ -1138,32 +1138,32 @@
                                         KeyboardNavigation.TabNavigation="Once">
                             <RadioButton x:Name="RadioProfileAutoRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Automatic (recommended)"
-                                         local:JJFlexHelp.Text="JJ Flexible Radio Access follows what the radio reports about itself on every connection: if it advertises forwarded ports, they are used; if it says it needs a hole-punch, one is punched. No configuration needed."
+                                         local:JJFlexHelp.Text="For remote connections, JJ Flexible Radio Access follows the radio's report to choose between public ports and SmartLink hole punching. You do not need to choose the connection method yourself."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Automatic (recommended)" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="JJ Flexible Radio Access follows what the radio reports about itself on every connection: if it advertises forwarded ports, they are used; if it says it needs a hole-punch, one is punched. No configuration needed."/>
+                                               Text="For remote connections, JJ Flexible Radio Access follows the radio's report to choose between public ports and SmartLink hole punching. You do not need to choose the connection method yourself."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="RadioProfileForwardRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Forwarded ports only, never hole punch"
-                                         local:JJFlexHelp.Text="Always connect through the radio's forwarded public ports, even if the radio claims it needs a hole-punch. Use when you know a port forward exists and the radio's own report is wrong. If the radio truly has no reachable public ports, the connection will fail."
+                                         local:JJFlexHelp.Text="For remote connections, JJ Flexible Radio Access uses the radio's public ports and never uses hole punching. Choose this when port forwarding is set up but the radio still reports that it needs hole punching. The public ports must be reachable for the connection to work."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Forwarded ports only" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="Always connect through the radio's forwarded public ports, even if the radio claims it needs a hole-punch. Use when you know a port forward exists and the radio's own report is wrong. If the radio truly has no reachable public ports, the connection will fail."/>
+                                               Text="For remote connections, JJ Flexible Radio Access uses the radio's public ports and never uses hole punching. Choose this when port forwarding is set up but the radio still reports that it needs hole punching. The public ports must be reachable for the connection to work."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="RadioProfilePunchRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Hole punch always, never use forwarded ports"
-                                         local:JJFlexHelp.Text="Always coordinate a UDP hole-punch through SmartLink, even if the radio advertises forwarded ports. Mostly useful for testing the hole-punch path on a radio that would normally connect the easy way."
+                                         local:JJFlexHelp.Text="For remote connections, JJ Flexible Radio Access requests SmartLink hole punching even when the radio advertises public ports. You can use this to try the hole-punch connection method, but the network may still prevent the connection."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Hole-punch always" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="Always coordinate a UDP hole-punch through SmartLink, even if the radio advertises forwarded ports. Mostly useful for testing the hole-punch path on a radio that would normally connect the easy way."/>
+                                               Text="For remote connections, JJ Flexible Radio Access requests SmartLink hole punching even when the radio advertises public ports. You can use this to try the hole-punch connection method, but the network may still prevent the connection."/>
                                 </StackPanel>
                             </RadioButton>
                             </StackPanel>

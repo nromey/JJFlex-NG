@@ -141,7 +141,11 @@ namespace Radios.Tests
             // Forty-three from junk box batch 14's words (#773): a typed notch
             // frequency the box could not read, Noel's own Chatty and Terse
             // sentences (2026-11-19).
-            Assert.Equal(43, ladders);
+            // Forty-four with junk box batch 13's words (#567) underneath: a
+            // power limit above the radio's power, Noel's own Chatty and Terse
+            // sentences (2026-11-19). Both sides moved 42 to 43, so the merge
+            // took one line and the count was one short.
+            Assert.Equal(44, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -1754,7 +1758,8 @@ namespace Radios.Tests
                 "audio.check.power.dummy_load",
                 "audio.check.power.low_power",
                 "audio.check.power.refused_zero",
-                // The low power level reads as a ceiling, and says when it changes nothing (DRAFT, #567).
+                // The low power level reads as a ceiling, and says when it changes nothing (#567):
+                // the label is Codex's, the notice Noel's own ladder, approved 2026-11-19.
                 "audio.check.power.low_power_level",
                 "audio.check.power.cap_above_current",
                 "audio.power.refused_zero",
