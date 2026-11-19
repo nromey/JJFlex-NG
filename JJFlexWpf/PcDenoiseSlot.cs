@@ -1018,6 +1018,17 @@ namespace JJFlexWpf
         /// decided on, nothing changes. If not, the new target is pending, and
         /// <see cref="PadRunning"/> moves to it at the next safe point. An empty
         /// plan, or one this engine has left, means no padding.
+        /// <para>
+        /// A pending retime keeps what its line has gathered when another plan
+        /// arrives (repair 3, R2-B1). The line holds this engine's own output,
+        /// whatever delay it is being gathered for, so a plan asking for the same
+        /// target again, or for a different one, carries on from it. The line is
+        /// cleared only when it STARTS being fed (no hold and nothing pending
+        /// before), so its history is this engine's alone. Clearing it on every
+        /// new plan object, as repairs 1 and 2 did while the engine held nothing,
+        /// let a controller that republishes on every favourite change, engine
+        /// choice and selection result restart the retime indefinitely.
+        /// </para>
         /// </summary>
         private void CheckPlan(RunningBuild run, PerChannelDenoiserBank running)
         {
@@ -1029,17 +1040,20 @@ namespace JJFlexWpf
             if (basis == _heldBasis) { _retimePending = false; return; }
             int own = running.LatencySamples;
             int target = HoldFor(plan, run.Id, model, own);
+            // Whether PadRunning has been feeding the line: it does while a hold
+            // is in force or a retime is pending, and only then.
+            bool fed = _held >= 0 || _retimePending;
             if (Effective(target, own) == Effective(_held, own))
             {
                 // Nothing moves in time: adopt it. A pad line that starts being
                 // fed starts empty, so its history is this engine's alone.
-                if (_held < 0 && target >= 0) _runPad!.Clear();
+                if (!fed && target >= 0) _runPad!.Clear();
                 Volatile.Write(ref _held, target);
                 _heldBasis = basis;
                 _retimePending = false;
                 return;
             }
-            if (_held < 0) _runPad!.Clear();
+            if (!fed) _runPad!.Clear();
             _retimeTarget = target;
             _retimeBasis = basis;
             _retimePending = true;

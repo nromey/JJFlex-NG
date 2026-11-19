@@ -471,4 +471,342 @@ public sealed class SharedDelayPlanChangeTests
         Assert.Equal(1440, rig.Slot.HeldSamples);
         Assert.Equal(0, allocated);
     }
+
+    // ── Repair 3, R2-B1: an equivalent republished plan keeps a pending retime's progress ──
+
+    /// <summary>
+    /// A pure delay of <paramref name="delay"/> samples that can be told, from
+    /// the test, to be late (the interface's late-frame result), to fail (throw,
+    /// which the bank counts as a fallback frame), or to run a callback inside
+    /// its own processing (a plan published while the outgoing engine is in its
+    /// bank). Codex's engine from its second re-check of <c>05d914cc</c>, adopted.
+    /// </summary>
+    private sealed class ControlledEngine : IDenoiseEngine
+    {
+        private readonly AlignedSwitchTests.DelayGainEngine _inner;
+        public Action? OnFrame;
+        public bool Late, Fail;
+        public ControlledEngine(string id, int delay) { _inner = new AlignedSwitchTests.DelayGainEngine(id, delay, 1); }
+        public string Id => _inner.Id;
+        public int SampleRate => 48000;
+        public int FrameLength => F;
+        public int LatencySamples => _inner.LatencySamples;
+        public bool IsAvailable => true;
+        public IReadOnlyList<EngineSettingDescriptor> Settings => Array.Empty<EngineSettingDescriptor>();
+        public EngineSettingValue GetSetting(string name) => throw new ArgumentException(name);
+        public bool TrySetSetting(string name, EngineSettingValue value) => false;
+        public bool ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
+        {
+            OnFrame?.Invoke();
+            if (Fail) throw new InvalidOperationException("review-failed-start");
+            _inner.ProcessFrame(input, output);
+            return !Late;
+        }
+        public void Reset() => _inner.Reset();
+        public void Dispose() => _inner.Dispose();
+    }
+
+    /// <summary>A receive pipeline with "rnnoise" (480 samples) and "b" (960), each engine the catalogue makes kept so the test can steer it.</summary>
+    private sealed class ControlledRig : IDisposable
+    {
+        public RxAudioPipeline P { get; }
+        public PcDenoiseSlot Slot => P.NeuralSlot;
+        public readonly List<ControlledEngine> A = new(), B = new();
+        public long At;
+        public readonly float[] Audio = new float[2 * F];
+
+        public ControlledRig(bool bLate = false)
+        {
+            DenoiseEngineEntry Row(string id, int delay, List<ControlledEngine> made) =>
+                new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
+                    (_, _) =>
+                    {
+                        var e = new ControlledEngine(id, delay) { Late = id == "b" && bLate };
+                        lock (made) made.Add(e);
+                        return e;
+                    },
+                    () => Unavailability.None);
+            P = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("rnnoise", 480, A), Row("b", 960, B) }));
+            Slot.MuteOverrideForTest = false;
+            Slot.SetStrength("rnnoise", 1);
+            Slot.SetStrength("b", 1);
+            P.RnnEnabled = true;
+        }
+
+        public void Feed(int buffers, List<float>? output = null)
+        {
+            for (int b = 0; b < buffers; b++)
+            {
+                for (int i = 0; i < F; i++) Audio[2 * i] = Audio[2 * i + 1] = Ramp(At + i);
+                P.Process(Audio);
+                if (output != null) for (int i = 0; i < F; i++) output.Add(Audio[2 * i]);
+                At += F;
+            }
+        }
+
+        public void Choose(string id)
+        {
+            Assert.True(Slot.Select(id, out _));
+            var t = System.Diagnostics.Stopwatch.StartNew();
+            while (!Slot.BuildDelivered(id) && t.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(1);
+            Assert.True(Slot.BuildDelivered(id), id + "'s bank was never delivered");
+        }
+
+        /// <summary>The delay the last sample fed was heard at, read off the ramp.</summary>
+        public long Lag => (At - 1) - (long)Math.Round(Audio[^1] * Scale);
+        public void Dispose() => P.Dispose();
+    }
+
+    /// <summary>
+    /// Codex's R2-B1 reproduction from its second re-check of <c>05d914cc</c>,
+    /// adopted: a running engine with no hold, and a fresh plan asking for the
+    /// same 1,440 published before every one of 100 buffers. The controller
+    /// makes a new plan object on every favourite change, engine choice and
+    /// selection result, so a plan saying the same thing again is ordinary. On
+    /// <c>05d914cc</c> each one cleared the line the pending retime was filling,
+    /// so the history it needs was never gathered and the hold never landed:
+    /// held none, heard at 480, with and without a late engine warming.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Codex_R2_an_equivalent_republished_plan_does_not_restart_a_pending_growth(bool warming)
+    {
+        using var rig = new ControlledRig(bLate: true);
+        rig.Feed(40);
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+        if (warming) { rig.Choose("b"); rig.Feed(1); }
+
+        for (int i = 0; i < 100; i++)
+        {
+            rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
+            rig.Feed(1);
+        }
+        _out.WriteLine($"warming {warming}: running {rig.Slot.RunningEngineId}, held {rig.Slot.HeldSamples}, heard at {rig.Lag}, retime {rig.Slot.LastRetime}");
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+        Assert.Equal(1440, rig.Slot.HeldSamples);
+        Assert.Equal(1440, rig.Lag);
+        Assert.True(rig.Slot.LastRetime is { From: 480, To: 1440, Faded: true }, $"the retime was {rig.Slot.LastRetime}");
+    }
+
+    /// <summary>
+    /// The same fault through the real controller (Codex's case, adopted): with
+    /// RNNoise and DeepFilterNet3 as favourites the controller publishes a
+    /// 1,440-sample plan, and the hold must reach it whether or not the
+    /// controller publishes again before every buffer. <c>republish: false</c>
+    /// is Codex's positive control, which already passed: one publication lands.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Codex_R2_controller_republications_preserve_a_pending_growth(bool republish)
+    {
+        using var fx = new NoiseFixture(rnnoiseLatency: 480);
+        fx.Pipeline.RnnEnabled = true;
+        fx.Settle();
+        Assert.Equal(-1, fx.Pipeline.NeuralSlot.HeldSamples);
+        fx.Config.NoiseFavourites.Add(new NoiseFavourite { EngineId = "rnnoise" });
+        fx.Config.NoiseFavourites.Add(new NoiseFavourite { EngineId = "deepfilternet3" });
+        fx.Noise.PublishSharedDelays();
+        Assert.Equal(1440, fx.Pipeline.NeuralSlot.SharedPlan.Samples);
+
+        var audio = new float[2 * F];
+        for (int i = 0; i < 100; i++)
+        {
+            if (republish) fx.Noise.PublishSharedDelays();
+            Array.Fill(audio, .1f);
+            fx.Pipeline.Process(audio);
+        }
+        _out.WriteLine($"republish {republish}: held {fx.Pipeline.NeuralSlot.HeldSamples}, retime {fx.Pipeline.NeuralSlot.LastRetime}");
+        Assert.Equal(1440, fx.Pipeline.NeuralSlot.HeldSamples);
+        Assert.True(fx.Pipeline.NeuralSlot.LastRetime is { From: 480, To: 1440 }, $"the retime was {fx.Pipeline.NeuralSlot.LastRetime}");
+    }
+
+    /// <summary>
+    /// A genuinely different target still replaces a pending one (Codex's
+    /// probe, adopted; it passed on <c>05d914cc</c> and must keep passing): a
+    /// 12,000-sample request is pending, waiting for its history, when a plan
+    /// asking for 1,440 replaces it while "b" stays late.
+    /// </summary>
+    [Fact]
+    public void Codex_R2_a_new_plan_supersedes_a_pending_growth_while_an_engine_is_late()
+    {
+        using var rig = new ControlledRig(bLate: true);
+        rig.Feed(40);
+        rig.Choose("b");
+        rig.Feed(1);
+        rig.Slot.SharedPlan = Plan(12000, "rnnoise", "b");
+        rig.Feed(1);
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+
+        rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
+        rig.Feed(4);
+        Assert.Equal(1440, rig.Slot.HeldSamples);
+        Assert.Equal(1440, rig.Lag);
+        Assert.True(rig.Slot.LastRetime is { From: 480, To: 1440 }, $"the retime was {rig.Slot.LastRetime}");
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+    }
+
+    /// <summary>
+    /// What the line has gathered is this engine's own output whatever target
+    /// it is gathered for, so a changed pending target keeps it (repair 3's
+    /// design, wider than Codex's diagnostic control): one buffer gathered
+    /// toward 12,000, then 1,440 asked for, needs one more buffer, not two.
+    /// Restarting on every changed target would let a run of genuinely
+    /// different plans starve the retime the way equivalent ones did.
+    /// </summary>
+    [Fact]
+    public void A_changed_pending_target_keeps_the_history_already_gathered()
+    {
+        using var rig = new ControlledRig();
+        rig.Feed(40);
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+        rig.Slot.SharedPlan = Plan(12000, "rnnoise", "b");
+        rig.Feed(1); // 480 of the 11,520 it needs
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+
+        rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b"); // needs 960, and 480 are there
+        rig.Feed(1); // now 960
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+        rig.Feed(1); // the retime
+        _out.WriteLine($"held {rig.Slot.HeldSamples}, retime {rig.Slot.LastRetime}");
+        Assert.Equal(1440, rig.Slot.HeldSamples);
+        Assert.True(rig.Slot.LastRetime is { From: 480, To: 1440, Faded: true }, $"the retime was {rig.Slot.LastRetime}");
+        rig.Feed(1);
+        Assert.Equal(1440, rig.Lag);
+    }
+
+    /// <summary>
+    /// The other half of repair 3's rule: a line that STARTS being fed is still
+    /// cleared, because it may hold another engine's history. rnnoise runs held
+    /// at 1,440 and hands over to "b" (aligned), so rnnoise's line becomes the
+    /// spare one with rnnoise's old output in it. "b" is then retimed out of an
+    /// empty plan, and rnnoise is chosen back outside any plan, so that line
+    /// comes back as the running one, unfed and uncleared. When a plan then asks
+    /// for 1,440, the retime must wait for history this engine has made since,
+    /// and from the buffer after it every sample is exactly 1,440 behind. Kept
+    /// history would read the old engine's output, minutes of samples stale.
+    /// </summary>
+    [Fact]
+    public void A_line_that_starts_being_fed_never_reads_another_engines_history()
+    {
+        using var rig = new ControlledRig();
+        rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
+        rig.Feed(40);
+        Assert.Equal(1440, rig.Slot.HeldSamples);
+        rig.Choose("b");
+        rig.Feed(30);
+        Assert.Equal("b", rig.Slot.RunningEngineId);
+        Assert.True(rig.Slot.LastSwitch is { Aligned: true }, $"the switch was {rig.Slot.LastSwitch}");
+
+        rig.Slot.SharedPlan = SharedDelayPlan.None;
+        rig.Feed(10);
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+        rig.Choose("rnnoise");
+        rig.Feed(30);
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+        Assert.Equal(480, rig.Lag);
+
+        rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
+        var o = new List<float>();
+        long start = rig.At;
+        int retimedAt = -1;
+        for (int b = 0; b < 8; b++)
+        {
+            var before = rig.Slot.LastRetime;
+            rig.Feed(1, o);
+            if (retimedAt < 0 && !Equals(before, rig.Slot.LastRetime)) retimedAt = b;
+        }
+        _out.WriteLine($"retimed on buffer {retimedAt}: {rig.Slot.LastRetime}, held {rig.Slot.HeldSamples}");
+        Assert.True(rig.Slot.LastRetime is { From: 480, To: 1440, Faded: true }, $"the retime was {rig.Slot.LastRetime}");
+        // The line needs 960 samples of this engine's own output: two buffers, then the retime.
+        Assert.Equal(2, retimedAt);
+        for (int i = (retimedAt + 1) * F; i < o.Count; i++)
+            Assert.Equal(start + i - 1440, (long)Math.Round(o[i] * Scale));
+    }
+
+    /// <summary>
+    /// A plan published while the outgoing engine is inside its own bank, mid
+    /// warm-up (Codex's probe, adopted; it passed on <c>05d914cc</c>): the
+    /// running engine retimes on that buffer, the switch waits, and the switch
+    /// that follows is aligned at the new figure.
+    /// </summary>
+    [Fact]
+    public void Codex_R2_a_plan_published_during_outgoing_processing_defers_the_switch()
+    {
+        using var rig = new ControlledRig();
+        rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
+        rig.Feed(40);
+        rig.Choose("b");
+        rig.Feed(9);
+        foreach (var e in rig.A) e.OnFrame = () => rig.Slot.SharedPlan = Plan(960, "rnnoise", "b");
+        rig.Feed(1);
+        foreach (var e in rig.A) e.OnFrame = null;
+        Assert.True(rig.Slot.LastRetime is { From: 1440, To: 960 }, $"the retime was {rig.Slot.LastRetime}");
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+
+        rig.Feed(25);
+        Assert.Equal("b", rig.Slot.RunningEngineId);
+        Assert.True(rig.Slot.LastSwitch is { Aligned: true, Held: 960 }, $"the switch was {rig.Slot.LastSwitch}");
+        Assert.Equal(960, rig.Lag);
+    }
+
+    /// <summary>
+    /// A failed warm start stops the slot, and the engine chosen after it
+    /// starts from the plan in force then (Codex's probe, adopted; it passed
+    /// on <c>05d914cc</c>): an empty plan, so rnnoise is heard at its own 480.
+    /// </summary>
+    [Fact]
+    public void Codex_R2_a_failed_warm_start_stops_the_slot_then_recovery_uses_the_current_plan()
+    {
+        using var rig = new ControlledRig();
+        rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
+        rig.Feed(40);
+        rig.Choose("b");
+        foreach (var e in rig.B) e.Fail = true;
+        rig.Slot.SharedPlan = SharedDelayPlan.None;
+        rig.Feed(1);
+        Assert.Equal("", rig.Slot.ProcessingEngineId);
+        Assert.Null(rig.Slot.RunningBank);
+        Assert.Equal(0, rig.Lag);
+
+        rig.Choose("rnnoise");
+        rig.Feed(40);
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+        Assert.Equal(480, rig.Lag);
+    }
+
+    /// <summary>
+    /// Codex's M4 regression from its second re-check, adopted: the switch
+    /// never completes on a buffer on which the running engine retimed, even
+    /// when the incoming engine is outside the shared set. Outgoing rnnoise is
+    /// held at 1,440; "b" (960, outside the plan) has warmed nine buffers; the
+    /// plan shrinks to 960 on the tenth. The incoming decision does not change
+    /// (its target stays none, unaligned), so the warm-up count is NOT reset by
+    /// the retime, and only the handover's own guard stops the switch landing
+    /// on the retime buffer. Repair 2's report called that guard redundant;
+    /// this is the path it missed.
+    /// </summary>
+    [Fact]
+    public void Codex_R2_an_outside_set_switch_waits_past_the_retime_buffer()
+    {
+        using var rig = new AlignedSwitchTests.Rig(480, 960, 1, shared: true);
+        rig.Slot.SharedPlan = Plan(1440, "rnnoise");
+        var o = new List<float>();
+        rig.Feed(Ramp, 40, o);
+        rig.ChooseB();
+        rig.Feed(Ramp, 9, o);
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+
+        rig.Slot.SharedPlan = Plan(960, "rnnoise");
+        rig.Feed(Ramp, 1, o);
+        _out.WriteLine($"retime {rig.Slot.LastRetime}, running {rig.Slot.RunningEngineId}, switch {rig.Slot.LastSwitch}");
+        Assert.True(rig.Slot.LastRetime is { From: 1440, To: 960 }, $"the retime was {rig.Slot.LastRetime}");
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+
+        rig.Feed(Ramp, 4, o);
+        Assert.Equal("b", rig.Slot.RunningEngineId);
+    }
 }
