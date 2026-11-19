@@ -55,7 +55,7 @@ public sealed class TuneTypeFlipTests : IDisposable
 
         // The flip that makes a type-based press start an ATU cycle on top of the carrier.
         Assert.Equal(TunePressOutcome.AtuTune,
-            TunePress.For(c.F.Rig.MyCaps.HasCap(RigCaps.Caps.ATGet), c.F.Rig.FlexTunerType));
+            TunePress.For(c.F.Rig.HasATU, c.F.Rig.FlexTunerType));
         Assert.True(c.F.Rig.TuneAskedOrUp, "the carrier is still ours, so the press must stop it");
         Assert.False(c.F.Rig.FlexTunerOn);
     }
@@ -69,7 +69,7 @@ public sealed class TuneTypeFlipTests : IDisposable
 
         Assert.Equal(FlexBase.FlexTunerTypes.manual, c.F.Rig.FlexTunerType);
         Assert.Equal(TunePressOutcome.TuneCarrier,
-            TunePress.For(c.F.Rig.MyCaps.HasCap(RigCaps.Caps.ATGet), c.F.Rig.FlexTunerType));
+            TunePress.For(c.F.Rig.HasATU, c.F.Rig.FlexTunerType));
         Assert.True(c.F.Rig.TuneAskedOrUp);
         Assert.False(c.F.Rig.FlexTunerOn);
     }

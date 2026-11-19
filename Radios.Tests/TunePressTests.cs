@@ -130,9 +130,9 @@ public sealed class TunePressTests : IDisposable
     public void A_radio_with_no_ATU_sends_a_plain_tune_carrier()
     {
         using var c = new RadioCase();
-        Assert.False(c.F.Rig.MyCaps.HasCap(RigCaps.Caps.ATGet), "positive control: no ATU capability");
+        Assert.False(c.F.Rig.HasATU, "positive control: no ATU");
         Assert.Equal(FlexBase.FlexTunerTypes.manual, c.F.Rig.FlexTunerType);
-        Assert.Equal(TunePressOutcome.TuneCarrier, TunePress.For(c.F.Rig.MyCaps.HasCap(RigCaps.Caps.ATGet), c.F.Rig.FlexTunerType));
+        Assert.Equal(TunePressOutcome.TuneCarrier, TunePress.For(c.F.Rig.HasATU, c.F.Rig.FlexTunerType));
 
         c.F.Rig.FlexTunerOn = true;
         RunQueue(c);
@@ -151,7 +151,11 @@ public sealed class TunePressTests : IDisposable
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
         int at = main.IndexOf("private void TunePressFor(bool ours)", StringComparison.Ordinal);   // the press's body since batch 14 repair 1
         string body = main.Substring(at, main.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
-        Assert.Contains("Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType)", body);
+        // #1164: one "has an ATU" source, the radio's ATUEnabled, as the tune
+        // key's handler reads it. Changed from the ATGet capability, which
+        // lags the radio's report until the ATUEnabled handler runs.
+        Assert.Contains("Radios.TunePress.For(RigControl.HasATU, RigControl.FlexTunerType)", body);
+        Assert.DoesNotContain("Caps.ATGet", body);
         Assert.Contains("if (outcome == Radios.TunePressOutcome.NoTuner)", body);
         Assert.DoesNotContain("if (!RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet))", body);
         // Repair round 1: the carrier outcome leaves for the carrier's own key

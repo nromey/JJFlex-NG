@@ -107,7 +107,7 @@ public sealed class TuneKeyCarrierTests : IDisposable
         // The rig's type from its constructor, and no ATU: the carrier outcome.
         Assert.Equal(FlexBase.FlexTunerTypes.manual, _rig.FlexTunerType);
         Assert.Equal(TunePressOutcome.TuneCarrier,
-            TunePress.For(_rig.MyCaps.HasCap(RigCaps.Caps.ATGet), _rig.FlexTunerType));
+            TunePress.For(_rig.HasATU, _rig.FlexTunerType));
     }
 
     /// <summary>
@@ -322,8 +322,9 @@ public sealed class TuneKeyCarrierTests : IDisposable
         // What the radio's ATUEnabled report does under the carrier.
         typeof(FlexBase).GetField("_FlexTunerType", Any)!.SetValue(_rig, FlexBase.FlexTunerTypes.auto);
         _rig.MyCaps.getCaps = _rig.MyCaps.SetCap(_rig.MyCaps.getCaps, RigCaps.Caps.ATGet);
+        RadioAtuEnabled(true);
         Assert.Equal(TunePressOutcome.AtuTune,
-            TunePress.For(_rig.MyCaps.HasCap(RigCaps.Caps.ATGet), _rig.FlexTunerType));
+            TunePress.For(_rig.HasATU, _rig.FlexTunerType));
 
         _now += 400;
         var said = Said(() => main.StartATUTuneCycle());
@@ -343,6 +344,38 @@ public sealed class TuneKeyCarrierTests : IDisposable
     {
         typeof(FlexBase).GetField("_FlexTunerType", Any)!.SetValue(_rig, FlexBase.FlexTunerTypes.auto);
         _rig.MyCaps.getCaps = _rig.MyCaps.SetCap(_rig.MyCaps.getCaps, RigCaps.Caps.ATGet);
+        RadioAtuEnabled(true);   // #1164: the press reads the radio's ATUEnabled (HasATU)
+    }
+
+    /// <summary>The radio's own ATUEnabled, which <see cref="FlexBase.HasATU"/> reads (#1164).</summary>
+    private void RadioAtuEnabled(bool enabled)
+    {
+        var radio = typeof(FlexBase).GetField("theRadio", Any)!.GetValue(_rig)!;
+        radio.GetType().GetField("_atuEnabled", Any)!.SetValue(radio, enabled);
+    }
+
+    /// <summary>
+    /// #1164: the press asks the radio whether its ATU is enabled, the same
+    /// source the tune key's handler reads. The ATGet capability lags that
+    /// report until the ATUEnabled handler runs: with the ATU just switched
+    /// off the capability still says yes, and the press used to set the
+    /// tuner latch and queue an ATU start. Now it refuses as having no tuner.
+    /// </summary>
+    [Fact]
+    public void A_press_just_after_the_radio_disabled_its_ATU_starts_no_ATU_cycle()
+    {
+        RadioFor();
+        Automatic();
+        RadioAtuEnabled(false);   // the radio's report, before the handler clears the capability
+        Assert.True(_rig.MyCaps.HasCap(RigCaps.Caps.ATGet), "positive control: the capability still says there is an ATU");
+        Assert.Equal(FlexBase.FlexTunerTypes.auto, _rig.FlexTunerType);
+        var main = Window();
+
+        var said = Said(() => main.StartATUTuneCycle());
+
+        Assert.False(_rig.FlexTunerOn, "no tuner latch, so no ATU cycle was asked for");
+        Assert.Contains(Lexicon.Get("audio.tune.no_tuner"), said);
+        Assert.DoesNotContain(Lexicon.Get("audio.tune.atu_tuning"), said);
     }
 
     /// <summary>

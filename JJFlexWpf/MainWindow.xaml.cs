@@ -7759,7 +7759,10 @@ public partial class MainWindow : UserControl
         // #1127 (J4): what this press does, by tuner state (Radios.TunePress).
         // Out of automatic type, with or without an ATU, it is the tune
         // carrier's own key; automatic type is the ATU's tune, as before.
-        var outcome = Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType);
+        // #1164: "has an ATU" is the radio's own ATUEnabled (HasATU), the
+        // source the tune key's handler reads, never the ATGet capability,
+        // which lags it until the ATUEnabled handler has run.
+        var outcome = Radios.TunePress.For(RigControl.HasATU, RigControl.FlexTunerType);
         if (outcome == Radios.TunePressOutcome.NoTuner)
         {
             EarconPlayer.LeaderInvalidTone();
