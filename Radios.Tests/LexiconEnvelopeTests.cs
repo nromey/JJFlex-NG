@@ -2528,6 +2528,8 @@ namespace Radios.Tests
                 "audio.noise_surface.tx.no_engine_yet",
                 "audio.noise_layer.tx.switches_only",
                 "audio.noise_help.setups.rename",
+                // Track H2 rulings round: the microphone that could not be opened again (placeholder for Codex).
+                "audio.mic.stopped_not_restarted",
                 // Track H2 bench round: one notice for both slots, and the setups' confirmation question (placeholders for Codex).
                 "audio.denoise.tx.fell_back_both",
                 "audio.noise_setups.confirm_question",

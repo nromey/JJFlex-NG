@@ -778,6 +778,14 @@ namespace Radios.Speech
         /// </summary>
         public const string TransmitNoiseFallback = "transmit-noise-fallback";
 
+        /// <summary>
+        /// The computer microphone stream stopped and could not be opened again
+        /// (Sprint 49 Track H2, rulings round; #1145's re-open, and a failed
+        /// faster-capture swap). Said once per connection; computer transmit
+        /// audio stays off until PC audio is restarted.
+        /// </summary>
+        public const string TransmitMicrophoneLost = "transmit-microphone-lost";
+
         // ── The noise surface, transmit (Sprint 49 Track H2). The twins of the
         //    receive subjects above, so a transmit sentence and a receive one
         //    never expire each other (design part seven). ──

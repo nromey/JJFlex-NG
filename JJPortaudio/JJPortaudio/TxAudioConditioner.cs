@@ -113,6 +113,54 @@ namespace JJPortaudio
         /// <summary>The key state the current (or last) buffer was processed under, read from <see cref="KeySource"/> at its start.</summary>
         public bool Keyed => _keyed;
 
+        private volatile bool _drainInput;
+
+        /// <summary>
+        /// S16 (ruled 2026-11-18 21:34): set while an unkey is held for the
+        /// noise reduction's delay. Every buffer that reaches this chain is
+        /// silenced BEFORE the noise reduction, so the radio carries the chain's
+        /// drained tail and never new microphone audio from after the release.
+        /// Cleared by the first unkeyed buffer, or by the app when a key-down
+        /// ends the hold and the over carries on.
+        /// </summary>
+        public bool DrainInput
+        {
+            get { return _drainInput; }
+            set { _drainInput = value; }
+        }
+
+        private int _lastDelaySamples;
+        private int _lastDelayRate;
+        private long _lastDelayTick;
+
+        /// <summary>A delay older than this (milliseconds) is not trusted: no buffer has reached the chain since, so nothing is in it to drain.</summary>
+        public const int DelayFreshnessMs = 250;
+
+        private void NoteDelay(int samples, uint sampleRate)
+        {
+            System.Threading.Volatile.Write(ref _lastDelaySamples, samples);
+            System.Threading.Volatile.Write(ref _lastDelayRate, (int)sampleRate);
+            System.Threading.Volatile.Write(ref _lastDelayTick, Environment.TickCount64);
+        }
+
+        /// <summary>
+        /// The delay the noise reduction added to the last buffer through this
+        /// chain, in milliseconds: the figure the reducer itself reports for that
+        /// buffer (<see cref="NoiseReducerAppliedLatencySamples"/>, the engines
+        /// actually running), not a second calculation. Zero when the chain is
+        /// stood aside, nothing reduced it, or no buffer has come through for
+        /// <see cref="DelayFreshnessMs"/> (a generated source that bypasses the
+        /// chain, or a stopped capture).
+        /// </summary>
+        public double RecentNoiseDelayMs(long nowTick)
+        {
+            int samples = System.Threading.Volatile.Read(ref _lastDelaySamples);
+            int rate = System.Threading.Volatile.Read(ref _lastDelayRate);
+            long at = System.Threading.Volatile.Read(ref _lastDelayTick);
+            if (samples <= 0 || rate <= 0 || nowTick - at > DelayFreshnessMs) return 0;
+            return samples * 1000.0 / rate;
+        }
+
         /// <summary>Key-downs seen at a buffer boundary since this chain was made. A test and trace counter.</summary>
         public long KeyDowns { get; private set; }
 
@@ -280,6 +328,9 @@ namespace JJPortaudio
             }
             bool was = _keyed;
             _keyed = keyed;
+            // The held unkey's drain ends with the over (S16): the first buffer
+            // the key reads up is receive, and the microphone runs as normal.
+            if (!keyed) _drainInput = false;
             // With a real key state, the key-down is what resets the gate open
             // (#1075), and a gap in the stream no longer does.
             Gate.ResetsOnStreamGap = source == null;
@@ -318,7 +369,14 @@ namespace JJPortaudio
         public void Process(float[] buffer, int count, uint sampleRate)
         {
             UpdateGate(ReadKey());
-            if (_bypassAll) return;
+            // S16: while an unkey is held for the noise reduction's delay, the
+            // radio stays keyed and the capture keeps running, but nothing the
+            // microphone hears from now on may go on air. Silence goes in, so
+            // what comes out is the chain's drained tail of the audio captured
+            // before the release, then silence. Before the bypass, so it holds
+            // whatever the mode.
+            if (_drainInput && count > 0) Array.Clear(buffer, 0, Math.Min(count, buffer.Length));
+            if (_bypassAll) { NoteDelay(0, sampleRate); return; }
 
             var nr = NoiseReducer;
             var appliedLatency = NoiseReducerAppliedLatencySamples;
@@ -333,6 +391,7 @@ namespace JJPortaudio
             // gate disabled does exactly that and nothing else.)
             if (!anyStage && !wantMonitor)
             {
+                NoteDelay(0, sampleRate);
                 Gate.Process(buffer, 0, sampleRate);
                 return;
             }
@@ -347,6 +406,7 @@ namespace JJPortaudio
             // Keep this history even while the monitor is off. Zero bypass
             // leaves it frozen, just as the bypassed engine freezes its state.
             int delay = nr == null ? 0 : Math.Max(0, appliedLatency?.Invoke() ?? 0);
+            NoteDelay(delay, sampleRate);
             DelayInputCopy(count, delay);
             Gate.Process(buffer, count, sampleRate);
 

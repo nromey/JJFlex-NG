@@ -8192,6 +8192,9 @@ namespace Radios
                 // admission, here and again when the queued write runs; an
                 // unkey never is. See FlexBase.CheckRestore.cs for the boundary.
                 if (value && RefusedForCheckTeardown("transmit")) return;
+                // S16: any direct write ends a held unkey. A key-down carries the
+                // over on; an immediate unkey (every safety path) goes now.
+                EndHeldUnkeyBy(value);
                 if (!value) CancelSlicePlayback();
                 if (value && TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
                 q.Enqueue((FunctionDel)(() =>

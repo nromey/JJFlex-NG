@@ -68,13 +68,15 @@ namespace Radios
     /// extra.</b> A capture stream that ran at a faster rate is judged when it
     /// closes, from PortAudio's own status flags on that stream (any input
     /// overflow or underflow is a dropout) over a long enough run. The verdict
-    /// is kept per machine and per device, under the settings root. So the
-    /// first faster run on a machine is a deliberate one, through
-    /// <see cref="JJPortaudio.AudioBuffering.TxCallbackRateEnvironmentVariable"/>
-    /// on the bench; from then on the machine decides by itself. No probation
-    /// that reopens the microphone mid-session was built: it could not be
-    /// verified without a radio and a bench, and a failed reopen is a silent
-    /// microphone.</para>
+    /// is kept per machine and per device, under the settings root.</para>
+    /// <para><b>The try is automatic (S13, ruled 2026-11-18 21:21).</b> Once
+    /// the helper's benchmark qualifies and no verdict is held (or it has
+    /// expired), the app tries the faster rate on its own while receiving
+    /// (<see cref="ShouldTry"/>, <see cref="TryProgress"/>; the stream swap is
+    /// FlexBase's, in <c>FlexBase.TxCaptureTry.cs</c>). The faster stream is
+    /// opened while the running one carries on, and swapped in only once it is
+    /// open, so a failed open leaves the microphone exactly as it was. The
+    /// environment variable still overrides, and then nothing is tried.</para>
     /// <para><b>Never a pipeline depth of about eleven</b> (S4): that would add
     /// a hundred milliseconds to every helper engine. A paced exchange thread
     /// is the fallback if smaller callbacks do not hold.</para>
@@ -183,9 +185,61 @@ namespace Radios
             return new(Fast, $"the helper's cost and this microphone both measured fit at {Fast} a second");
         }
 
-        /// <summary>The verdict a closing stream earns, or null when it ran too briefly (or at the shipped rate) to say anything.</summary>
-        public static TxCallbackVerdict? Judge(TxCaptureIdentity capture, int rate, long callbacks, long overflows, long underflows, DateTime nowUtc)
+        /// <summary>
+        /// S13 (ruled 2026-11-18 21:21): should the app try the faster rate now?
+        /// Only once the slow engines qualify (the helper's benchmark is in and
+        /// inside the budget) and no verdict is held, or the one held has
+        /// expired; only while receiving, never keyed; never during a microphone
+        /// check or a recording; only on a running capture; once per connection.
+        /// The environment override wins: nothing is tried under it.
+        /// </summary>
+        public static TxTryDecision ShouldTry(int? overrideRate, long? helperCostP99Nanos, TxCallbackVerdict? verdictAtFast,
+            DateTime nowUtc, int currentRate, bool alreadyTriedThisConnection, bool keyed, bool checkOrRecordingRunning,
+            bool captureRunning)
         {
+            if (overrideRate is int forced) return new(TxTryAnswer.NotThisConnection, "the rate is set for this launch by "
+                + JJPortaudio.AudioBuffering.TxCallbackRateEnvironmentVariable + " (" + forced + ")");
+            if (alreadyTriedThisConnection) return new(TxTryAnswer.NotThisConnection, "already tried on this connection");
+            if (currentRate == Fast) return new(TxTryAnswer.NotThisConnection, $"the capture already runs at {Fast} a second");
+            if (verdictAtFast != null && nowUtc - verdictAtFast.MeasuredUtc <= MaxVerdictAge)
+                return new(TxTryAnswer.NotThisConnection, (verdictAtFast.Passed ? "a pass" : "a failure")
+                    + $" at {Fast} a second is held from {verdictAtFast.MeasuredUtc:yyyy-MM-dd}");
+            if (helperCostP99Nanos is not long cost) return new(TxTryAnswer.NotNow, "no helper benchmark yet this session");
+            if (cost >= CostBudgetNanos) return new(TxTryAnswer.NotNow, $"the helper's frame cost ({cost / 1000} microseconds at the 99th percentile) is over the {CostBudgetNanos / 1000} budget");
+            if (keyed) return new(TxTryAnswer.NotNow, "the radio is keyed");
+            if (checkOrRecordingRunning) return new(TxTryAnswer.NotNow, "a microphone check or a recording is running");
+            if (!captureRunning) return new(TxTryAnswer.NotNow, "the microphone capture is not running");
+            return new(TxTryAnswer.Try, verdictAtFast == null
+                ? $"the engines qualify and this microphone has not been measured at {Fast} a second"
+                : $"the engines qualify and this microphone's verdict at {Fast} a second has expired");
+        }
+
+        /// <summary>
+        /// A running try, from the stream's own counts since it opened: any
+        /// input overflow or underflow fails it at once; a clean run of
+        /// <see cref="MinimumSecondsForVerdict"/> seconds passes it.
+        /// </summary>
+        public static TxTryProgress TryProgress(long callbacks, long overflows, long underflows, int rate)
+        {
+            if (overflows > 0 || underflows > 0) return TxTryProgress.Failed;
+            if (rate > 0 && callbacks >= (long)rate * MinimumSecondsForVerdict) return TxTryProgress.Passed;
+            return TxTryProgress.Running;
+        }
+
+        /// <summary>The verdict a closing stream earns, or null when it ran too briefly (or at the shipped rate) to say anything.</summary>
+        /// <param name="partialRun">
+        /// The run did not measure the rate (Sprint 49 Track H2, rulings round):
+        /// the stream died part way (#1145: a device invalidated, unplugged, or
+        /// an aborted callback), or a microphone check or recording shared the
+        /// device during an automatic try. Such a run earns no verdict either
+        /// way: it neither earns the faster rate nor loses it. A death is a
+        /// device event and its dropout counts stop where the stream stopped; a
+        /// shared device's dropouts may be the other stream's. A verdict already
+        /// held stays as it was.
+        /// </param>
+        public static TxCallbackVerdict? Judge(TxCaptureIdentity capture, int rate, long callbacks, long overflows, long underflows, DateTime nowUtc, bool partialRun = false)
+        {
+            if (partialRun) return null;
             if (capture == null || rate == Shipped || rate <= 0 || callbacks < (long)rate * MinimumSecondsForVerdict) return null;
             return new TxCallbackVerdict
             {
@@ -202,6 +256,23 @@ namespace Radios
             };
         }
     }
+
+    /// <summary>What the automatic try (S13) should do now.</summary>
+    public enum TxTryAnswer
+    {
+        /// <summary>Open the faster stream now.</summary>
+        Try,
+        /// <summary>Not yet: ask again later this connection (keyed, a check or recording running, the engines not yet qualified).</summary>
+        NotNow,
+        /// <summary>Nothing to try on this connection (overridden, already tried, already fast, or a verdict held).</summary>
+        NotThisConnection,
+    }
+
+    /// <summary>The try's answer and why, for the trace.</summary>
+    public sealed record TxTryDecision(TxTryAnswer Answer, string Reason);
+
+    /// <summary>Where a running try stands.</summary>
+    public enum TxTryProgress { Running, Passed, Failed }
 
     /// <summary>
     /// The per-machine verdicts, in <c>{settings root}\txCallbackChecks.xml</c>

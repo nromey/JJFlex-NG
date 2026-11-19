@@ -290,21 +290,42 @@ namespace JJFlexWpf
         /// </summary>
         public void ApplyDeferred()
         {
-            lock (_deferLock) DrainLocked();
+            bool ran;
+            lock (_deferLock) ran = DrainLocked();
+            if (ran) RaiseIntentChanged();
         }
 
-        /// <summary>Run held changes until none remain or the radio is keyed. Under the lock.</summary>
-        private void DrainLocked()
+        /// <summary>Run held changes until none remain or the radio is keyed. Under the lock. True when any ran.</summary>
+        private bool DrainLocked()
         {
+            bool ran = false;
             while (_deferred.Count > 0)
             {
-                if (IsKeyed) return;
+                if (IsKeyed) return ran;
                 var next = _deferred[0].Change;
                 _deferred.RemoveAt(0);
                 _deferredCount = _deferred.Count;
+                ran = true;
                 try { next(); }
                 catch (Exception ex) { Trace.WriteLine("TxNoiseChain: a change held for the unkey failed: " + ex.Message); }
             }
+            return ran;
+        }
+
+        /// <summary>
+        /// Raised on the control side after any change through this chain's one
+        /// ordering rule has RUN (now, or held and then run at the unkey): the
+        /// slots, their engines and settings, and the gate's settings that the
+        /// app routes through <see cref="RunOrDefer"/> and <see cref="Continuous"/>.
+        /// Never raised for a change merely held. The app persists the live
+        /// choices on it (S17, ruled 2026-11-18 21:35). Never on the audio thread.
+        /// </summary>
+        public event Action? IntentChanged;
+
+        private void RaiseIntentChanged()
+        {
+            try { IntentChanged?.Invoke(); }
+            catch (Exception ex) { Trace.WriteLine("TxNoiseChain: an intent-changed listener failed: " + ex.Message); }
         }
 
         /// <summary>
@@ -320,18 +341,26 @@ namespace JJFlexWpf
         private TxChangeResult Order(Action change, bool holdWhenKeyed, Func<TxChangeResult> nowResult, bool record = false)
         {
             if (change == null) throw new ArgumentNullException(nameof(change));
+            TxChangeResult result;
+            bool ran;
             lock (_deferLock)
             {
-                DrainLocked();
+                ran = DrainLocked();
                 if (_deferred.Count > 0 || (holdWhenKeyed && IsKeyed))
                 {
                     _deferred.Add((change, t_owner, record));
                     _deferredCount = _deferred.Count;
-                    return TxChangeResult.AtUnkey;
+                    result = TxChangeResult.AtUnkey;
                 }
-                change();
-                return nowResult();
+                else
+                {
+                    change();
+                    ran = true;
+                    result = nowResult();
+                }
             }
+            if (ran) RaiseIntentChanged();
+            return result;
         }
 
         /// <summary>

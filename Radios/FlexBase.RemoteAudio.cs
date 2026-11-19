@@ -220,6 +220,10 @@ namespace Radios
         /// </summary>
         private void ChooseTxCallbackRate()
         {
+            // A new stream is about to open: nothing about it is partial yet.
+            _txStreamPartialRun = false;
+            _txStreamPartialReason = "";
+            _txStreamAlreadyJudged = false;
             try
             {
                 var capture = ExpectedTxCapture(OpusTxSampleRateSetting);
@@ -258,13 +262,34 @@ namespace Radios
 
         private void JudgeTxCallbackRate(JJPortaudio.JJAudioStream stream)
         {
+            // The automatic try (S13) already judged this stream and said so in
+            // its one line; it is not judged twice.
+            if (_txStreamAlreadyJudged) return;
             try
             {
                 var (callbacks, overflows, underflows) = stream.InputDropouts;
+                if (_txTryRunning)
+                {
+                    // The connection ended while an automatic try was running:
+                    // this close is the try's end, and its judgement below is the
+                    // try's verdict (or none, under twenty seconds).
+                    _txTryRunning = false;
+                    Tracing.TraceLine("TxCallbackRate: automatic try at " + TxCallbackRate.Fast
+                        + " a second ended with the stream after " + callbacks + " callbacks; judged as it closes",
+                        TraceLevel.Info);
+                }
                 var capture = new TxCaptureIdentity(remoteInputDevice?.Name ?? "", remoteInputDevice?.hostApiTypeId ?? -1,
                     (int)stream.SampleRate, stream.Channels == 1 ? 1 : 2);
+                // A run that died part way, or shared the device during an
+                // automatic try, earns no verdict either way (rulings round; see
+                // TxCallbackRate.Judge). Traced, so its absence is explained.
+                bool partial = _txStreamPartialRun;
                 var verdict = TxCallbackRate.Judge(capture, _txCallbackRateThisStream,
-                    callbacks, overflows, underflows, DateTime.UtcNow);
+                    callbacks, overflows, underflows, DateTime.UtcNow, partial);
+                if (partial && _txCallbackRateThisStream != TxCallbackRate.Shipped)
+                    Tracing.TraceLine("remoteAudioProc: transmit capture at " + _txCallbackRateThisStream
+                        + " callbacks a second closed after a partial run (" + _txStreamPartialReason
+                        + "); no verdict either way, whatever was held stays", TraceLevel.Info);
                 if (verdict == null) return;
                 var store = TxCallbackRate.Store;
                 bool kept = store != null && store.Record(verdict);
@@ -2964,6 +2989,10 @@ namespace Radios
         /// </summary>
         private bool startOpusInputChannel()
         {
+            if (!opusInputAvailable) return false;
+            // S13: the automatic faster-capture try, and its fallback, on this
+            // (the loop's) thread. Cheap: it looks at most once a second.
+            MaybeTryFasterTxCapture();
             if (!opusInputAvailable) return false;
             lock (opusInputChannel)
             {
