@@ -2347,7 +2347,13 @@ public partial class MainWindow : UserControl
             // once they exist, this is real information about where the
             // operator returned to.
             string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig, asked?.FrequencyHz, asked?.Mode);
-            Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
+            // Queued as before, and carrying its own answer to "is this still
+            // where the radio is": a copy cut before it was heard is dropped
+            // rather than salvaged once the radio has moved (Sprint 49 Track N2;
+            // the integration walk heard "Listening on 10.125 megahertz, 30
+            // meter band" 2.5 s after a band change to 20 meters).
+            Radios.ScreenReaderOutput.Speak(status, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Chatty,
+                stillValid: Radios.RadioStatusBuilder.StillDescribes(rig, asked?.FrequencyHz, asked?.Mode));
         }
         else if (rig == null)
         {

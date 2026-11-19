@@ -185,6 +185,43 @@ namespace Radios
         }
 
         /// <summary>
+        /// The producer's answer for a spoken status, for the speech arbiter to
+        /// ask before replaying an unheard copy (Sprint 49 Track N2): true while
+        /// the radio still reports what the sentence says, or still reports what
+        /// it reported when the sentence was built (a memory recall the radio has
+        /// not answered yet, whose sentence names the asked-for frequency).
+        /// False once the radio has moved anywhere else, so "Listening on 10.125
+        /// megahertz, 30 meter band" is not replayed after a band change to 20
+        /// meters. The signal reading is not part of the claim.
+        /// </summary>
+        public static System.Func<bool> StillDescribes(FlexBase radio, ulong? askedFrequencyHz, string? askedMode)
+        {
+            var built = BuildDetailedStatus(radio);
+            string reported = StatedPart(built);
+            ApplyAskedFor(built, askedFrequencyHz, askedMode);
+            string said = StatedPart(built);
+            return () => StillDescribes(said, reported, StatedPart(BuildDetailedStatus(radio)));
+        }
+
+        /// <summary>The rule <see cref="StillDescribes(FlexBase, ulong?, string?)"/> applies, on the stated parts.</summary>
+        internal static bool StillDescribes(string said, string reportedWhenSaid, string now) =>
+            now == said || now == reportedWhenSaid;
+
+        /// <summary>
+        /// What a spoken status states, as one comparable value: receiving or
+        /// transmitting, the spoken frequency, the mode, the band and the slice;
+        /// with no active slice, only that and the model. Never the signal
+        /// reading, which moves while the claim stays true.
+        /// </summary>
+        internal static string StatedPart(RadioStatusSnapshot snap)
+        {
+            if (!snap.IsConnected) return "not connected";
+            if (!snap.HasActiveSlice) return "no active slice|" + snap.RadioModel;
+            return string.Join("|", snap.IsTransmitting ? "transmitting" : "listening",
+                snap.FrequencySpoken, snap.Mode, snap.BandSpoken, snap.SliceLetter);
+        }
+
+        /// <summary>
         /// Put what the app asked for (a memory's frequency and mode, #1131) in
         /// place of what the radio reported before it answered: the frequency,
         /// its band, and the mode. Nothing without an active slice, or while

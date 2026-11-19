@@ -735,6 +735,12 @@ namespace Radios.Speech
             /// Only the producer can answer it, because only the producer
             /// knows what "the same transmission" means; the arbiter asks and
             /// does not guess.
+            /// <para>An ORDINARY queued sentence may carry one too (Sprint 49
+            /// Track N2): a status sentence such as "Listening on 10.125
+            /// megahertz, USB, 30 meter band" is asked before every salvage
+            /// replay and dropped, with the drop traced, once the radio no
+            /// longer matches it. Asked at a replay only, never before the
+            /// first hand-over, exactly as for a protected one.</para>
             /// </summary>
             public Func<bool>? StillValid;
 
@@ -1034,13 +1040,21 @@ namespace Radios.Speech
         /// over a field that reads 15. Almost everything is a restatement,
         /// so this defaults to false.
         /// </param>
+        /// <param name="stillValid">
+        /// For a QUEUED utterance that claims a present state (Sprint 49 Track
+        /// N2): the producer's answer to whether that state still holds, asked
+        /// before every salvage replay; a salvage it says no to is dropped and
+        /// traced rather than replayed. Null (the default) leaves the
+        /// utterance under the existing rules. An interrupting utterance is not
+        /// retained, so it has nothing to ask.
+        /// </param>
         public void Emit(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin,
-            string? subject = null, bool additive = false)
+            string? subject = null, bool additive = false, Func<bool>? stillValid = null)
         {
             lock (_lock)
             {
-                EmitLocked(message, interrupt, intent, level, origin, subject, additive);
+                EmitLocked(message, interrupt, intent, level, origin, subject, additive, stillValid);
             }
         }
 
@@ -2309,14 +2323,14 @@ namespace Radios.Speech
 
         private void EmitLocked(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject,
-            bool additive = false)
+            bool additive = false, Func<bool>? stillValid = null)
         {
             var now = _clock.UtcNow;
             PruneLedgerLocked(now);
 
             if (!interrupt)
             {
-                EmitQueuedLocked(message, intent, level, origin, subject, additive, now);
+                EmitQueuedLocked(message, intent, level, origin, subject, additive, now, stillValid);
                 return;
             }
 
@@ -2327,7 +2341,7 @@ namespace Radios.Speech
         /// now also hands back the ledger entry it made, or null when the
         /// reader was not reached, for <see cref="EmitQueued"/>.</summary>
         private BelievedQueued? EmitQueuedLocked(string message, SpeechIntent? intent, VerbosityLevel? level,
-            string? origin, string? subject, bool additive, DateTime now)
+            string? origin, string? subject, bool additive, DateTime now, Func<bool>? stillValid = null)
         {
                 BelievedQueued? made = null;
                 var handoff = _sink(message, false, intent, level, origin, salvaged: false);
@@ -2342,7 +2356,7 @@ namespace Radios.Speech
                     // marks nothing — it extends its subject, it does not
                     // restate it.
                     if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
-                    made = LedgerAddLocked(message, intent, level, origin, subject, now, handoff.Ticket);
+                    made = LedgerAddLocked(message, intent, level, origin, subject, now, handoff.Ticket, stillValid);
 
                     // Given to the reader while a train is held: this is one
                     // of the follow-ups the hold exists to let through first,
@@ -2606,8 +2620,9 @@ namespace Radios.Speech
             catch (Exception ex)
             {
                 Tracing.TraceLine(
-                    $"SpeechArbiter: a SAFETY obligation's producer could not say whether it is still true ({ex.Message}); "
-                    + $"it is not replayed: '{Clip(e.Message)}'", TraceLevel.Error);
+                    $"SpeechArbiter: {(e.Protected ? "a SAFETY obligation's" : "a status sentence's")} producer could not say "
+                    + $"whether it is still true ({ex.Message}); it is not replayed: '{Clip(e.Message)}'",
+                    e.Protected ? TraceLevel.Error : TraceLevel.Warning);
                 return false;
             }
         }
@@ -3204,6 +3219,14 @@ namespace Radios.Speech
                 return "no longer true: its producer says the state it claimed has changed since, and a replay would "
                     + "tell the operator something false";
 
+            // An ordinary sentence that described a present state is asked the
+            // same question (Sprint 49 Track N2): "Listening on 10.125
+            // megahertz, 30 meter band" replayed after the operator has moved to
+            // 20 meters is false, however recent.
+            if (!entry.Protected && entry.StillValid != null && !StillTrue(entry))
+                return "no longer true: its producer says the state it described has changed since, and a replay "
+                    + "would tell the operator something false";
+
             // A safety obligation is exempt from every bound below. Ordinary
             // verbosity, navigation, a timer expiring, queue overflow and a
             // rescue count running out may not retire it; only its owner's own
@@ -3319,7 +3342,7 @@ namespace Radios.Speech
         /// </summary>
         private BelievedQueued LedgerAddLocked(string message,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject, DateTime now,
-            long ticket)
+            long ticket, Func<bool>? stillValid = null)
         {
             var entry = new BelievedQueued
             {
@@ -3333,6 +3356,7 @@ namespace Radios.Speech
                 Ticket = ticket,
                 Protected = false,
                 QuietGeneration = _safety.QuietGeneration,
+                StillValid = stillValid,
             };
             LedgerEnterLocked(entry, now);
             return entry;
