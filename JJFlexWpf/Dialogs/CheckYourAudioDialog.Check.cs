@@ -1062,29 +1062,98 @@ public partial class CheckYourAudioDialog
     /// Play the radio's take through the one recorder surface (#787), which
     /// checks the radio's reply and pauses VOX for local playback.
     /// </summary>
+    /// <remarks>
+    /// <b>The request is the window's from the press, not from the radio's
+    /// reply</b> (Track Q2 repair 4, Codex's second re-check of <c>b9afa71f</c>).
+    /// It joins <see cref="RadioPlayRequests"/> before it waits for the radio,
+    /// so the audition's gate can see it and keep the microphone shut until it
+    /// has been answered; it used to become visible only once the radio had
+    /// said yes, so a take started inside that wait opened capture first and
+    /// the playback, and its sentence, then started inside the take. A start
+    /// admitted while it waits makes it void (the same count the renders'
+    /// requests use): a void request says nothing, whether the radio played or
+    /// refused it, and a playback the radio did start is stopped again, saying
+    /// only a stop the radio refuses, before the gate lets the take open.
+    /// </remarks>
     private async Task PlayRadioTakeAsync()
     {
         if (_rig == null) return;
         var rig = _rig;
         var target = FixedRecorderTarget(rig, RadioTakeTarget);
         if (_closing || !ReferenceEquals(rig, _rig)) return;
-        RecorderControls.Observe(rig);
-        RecorderControls.PlayStartClick();
-        bool underTune = TuneDoors.Up(rig);
-        var outcome = await rig.StartSlicePlayAsync(target);
-        if (outcome.Success)
+        int asked = Volatile.Read(ref _auditionPlaybackGeneration);
+        var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (RadioPlayRequests) RadioPlayRequests.Add(answered.Task);
+        try
         {
-            if (_closing || !ReferenceEquals(rig, _rig))
+            RecorderControls.Observe(rig);
+            RecorderControls.PlayStartClick();
+            bool underTune = TuneDoors.Up(rig);
+            var outcome = await rig.StartSlicePlayAsync(target);
+            if (outcome.Success && (_closing || !ReferenceEquals(rig, _rig)))
             {
                 await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
                 return;
             }
-            _checkPlayTargets.Add(target);
-            ScreenReaderOutput.Speak(TuneDoors.ForPlay(Lexicon.Get("audio.check.playing_take"), underTune),
-                Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: outcome.Subject);
+            if (asked != Volatile.Read(ref _auditionPlaybackGeneration))
+            {
+                // Void: a take start was admitted while the radio answered.
+                if (outcome.Success)
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
+                // One the radio would not stop stays on the list, so the gate
+                // asks again and the take stays shut while it plays.
+                if (rig.IsSlicePlaying(target)) _checkPlayTargets.Add(target);
+                else _checkPlayTargets.Remove(target);
+                SyncPlayTakeLabel();
+                return;
+            }
+            if (outcome.Success)
+            {
+                _checkPlayTargets.Add(target);
+                ScreenReaderOutput.Speak(TuneDoors.ForPlay(Lexicon.Get("audio.check.playing_take"), underTune),
+                    Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse, subject: outcome.Subject);
+            }
+            else RecorderControls.Speak(outcome);
+            SyncPlayTakeLabel();
         }
-        else RecorderControls.Speak(outcome);
-        SyncPlayTakeLabel();
+        finally
+        {
+            lock (RadioPlayRequests) RadioPlayRequests.Remove(answered.Task);
+            answered.TrySetResult();
+        }
+    }
+
+    /// <summary>
+    /// Radio playback requests this window has sent and the radio has not yet
+    /// answered, each until <see cref="PlayRadioTakeAsync"/> has finished with
+    /// it. Created on first use, so a dialog built without its constructor (the
+    /// windowless tests) has one too.
+    /// </summary>
+    private HashSet<Task> RadioPlayRequests => _radioPlayRequests ??= new();
+    private HashSet<Task>? _radioPlayRequests;
+
+    /// <summary>True while a radio playback request of this window's is still waiting for the radio's answer.</summary>
+    private bool RadioPlayRequested
+    {
+        get { lock (RadioPlayRequests) return RadioPlayRequests.Count > 0; }
+    }
+
+    /// <summary>
+    /// Every radio playback request still waiting is made void and waited for,
+    /// until none is left: each then either said no, saying nothing, or was
+    /// stopped again, or is on <see cref="_checkPlayTargets"/> as one that
+    /// would not stop. The audition's gate, before the microphone opens.
+    /// </summary>
+    private async Task RadioPlayRequestsAnsweredAsync()
+    {
+        while (true)
+        {
+            Task[] waiting;
+            lock (RadioPlayRequests) waiting = RadioPlayRequests.ToArray();
+            if (waiting.Length == 0) return;
+            VoidAuditionPlaybackRequests();
+            await Task.WhenAll(waiting);
+        }
     }
 
     private async Task StopRadioTakeAsync()

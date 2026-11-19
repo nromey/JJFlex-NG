@@ -232,6 +232,9 @@ public partial class CheckYourAudioDialog
     private async Task<bool> CountedThenRadioPlaysStoppedAsync()
     {
         if (!await CountdownLetsKeyAsync()) return false;
+        // A playback still waiting for the radio's answer is not on the list
+        // below yet (repair 4): wait for it, void, first.
+        await RadioPlayRequestsAnsweredAsync();
         if (_rig is { } rig && _checkPlayTargets is { Count: > 0 })
         {
             foreach (var target in new List<SliceRecorderTarget>(_checkPlayTargets))
@@ -253,7 +256,8 @@ public partial class CheckYourAudioDialog
     /// computer stops (a render of the last take, an Off the air take, any
     /// other), and the transmit tone's monitor, all saying nothing. A radio
     /// playback that would not stop keeps the take shut, and says so: nothing
-    /// is recording yet, so that sentence cannot be in a take.
+    /// is recording yet, so that sentence cannot be in a take. So does a radio
+    /// playback request still waiting for the radio's answer (repair 4).
     /// </summary>
     private bool QuietBeforeTake()
     {
@@ -268,7 +272,9 @@ public partial class CheckYourAudioDialog
             _toneMonitorSounding = false;
             _toneMonitorProvider = null;
         }
-        if (!CheckPlaybackRunning) return true;
+        // A radio playback asked for after the gate waited, and still waiting
+        // for its answer, keeps the take shut as one playing does (repair 4).
+        if (!CheckPlaybackRunning && !RadioPlayRequested) return true;
         ScreenReaderOutput.Speak(Lexicon.Get("audio.audition.not_quiet"), Radios.Speech.SpeechIntent.Queue,
             VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.ComputerRecorder);
         return false;
@@ -366,11 +372,13 @@ public partial class CheckYourAudioDialog
     /// Codex's re-check of <c>f9b67186</c>). A request waits 240 ms for its
     /// confirmation click before it plays, and stopping what is playing cannot
     /// see one still waiting: Play then Start inside the click let it start,
-    /// or refuse with a sound and a sentence, after capture had opened.
+    /// or refuse with a sound and a sentence, after capture had opened. A radio
+    /// playback request (<see cref="PlayRadioTakeAsync"/>) reads the same count
+    /// from repair 4, and the gate also advances it while it waits for one.
     /// </summary>
     private int _auditionPlaybackGeneration;
 
-    /// <summary>Make every render request made before now void.</summary>
+    /// <summary>Make every render request, and every radio playback request, made before now void.</summary>
     private void VoidAuditionPlaybackRequests() => Interlocked.Increment(ref _auditionPlaybackGeneration);
 
     /// <summary>

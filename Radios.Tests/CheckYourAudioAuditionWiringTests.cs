@@ -136,7 +136,8 @@ namespace Radios.Tests
             Assert.DoesNotContain("StopWithoutSpeaking", quiet);
             Assert.DoesNotContain("InAuditionFolder", quiet);   // every playback, not only a render of ours
             Assert.Contains("EarconPlayer.StopTxToneMonitor();", quiet);
-            Assert.Contains("if (!CheckPlaybackRunning) return true;", quiet);
+            // Repair 4: a radio playback still waiting for its answer keeps it shut too.
+            Assert.Contains("if (!CheckPlaybackRunning && !RadioPlayRequested) return true;", quiet);
             Assert.DoesNotContain("await", quiet);   // one synchronous step with the open
 
             // The player's capture stop says nothing at all, the limiter notice included.
@@ -150,6 +151,17 @@ namespace Radios.Tests
             int counted = gate.IndexOf("await CountdownLetsKeyAsync()", StringComparison.Ordinal);
             int stop = gate.IndexOf("await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));", StringComparison.Ordinal);
             Assert.True(counted >= 0 && stop > counted, "the radio's playback must be stopped after the count and waited for");
+            // Repair 4 (Codex's second re-check of b9afa71f): a playback still
+            // waiting for the radio's answer is waited for, void, before that
+            // stop. The behaviour is AuditionPendingRadioPlayTests' (JJFlexWpf.Tests,
+            // the real request, the real FlexBase recorder and the real take).
+            int answered = gate.IndexOf("await RadioPlayRequestsAnsweredAsync();", StringComparison.Ordinal);
+            Assert.True(answered > counted && stop > answered,
+                "a radio playback still waiting for its answer must be waited for after the count and before the stop");
+            string request = Body(Code(Dialog("CheckYourAudioDialog.Check")), "private async Task PlayRadioTakeAsync()");
+            int joins = request.IndexOf("RadioPlayRequests.Add(answered.Task);", StringComparison.Ordinal);
+            int sent = request.IndexOf("await rig.StartSlicePlayAsync(target);", StringComparison.Ordinal);
+            Assert.True(joins >= 0 && sent > joins, "the request must be the window's before it waits for the radio");
             Assert.Contains("if (!rig.IsSlicePlaying(target)) _checkPlayTargets.Remove(target);", gate);
             Assert.DoesNotContain("_checkPlayTargets.Clear()", gate);
 
