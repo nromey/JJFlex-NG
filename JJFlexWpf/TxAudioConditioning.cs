@@ -122,7 +122,17 @@ namespace JJFlexWpf
             // One notice for one failure (Sprint 49 Track H2 bench round, item 6).
             chain.FellBackTogether += engines => TellFellBack(chain, engines);
             chain.OverReport += line => Trace.WriteLine(line);
+            // S17: the live choices persist across a restart; the app saves on this.
+            chain.IntentChanged += () => IntentChanged?.Invoke();
         }
+
+        /// <summary>
+        /// Raised after any transmit noise choice has changed: either slot, an
+        /// engine or its settings, or the gate (S17, ruled 2026-11-18 21:35: they
+        /// persist across a restart the way receive's do). On the thread that
+        /// made the change, or a pool thread for one held to the unkey.
+        /// </summary>
+        public static event Action? IntentChanged;
 
         /// <summary>
         /// The mid-over failure notice (item C; Noel 2026-11-18 08:18 and 08:21:
@@ -293,21 +303,38 @@ namespace JJFlexWpf
             var rig = _rig;
             // The policy IN FORCE on the chain, not the intent: a whole setup
             // that is still waiting for the unkey has not changed it (repair
-            // round 3). The tick itself stays live while keyed (S15, pending).
+            // round 3).
             var cond = rig?.TxConditioner;
-            if (cond == null || !cond.AutoThresholdInForce) return;
+            if (cond == null) return;
             try
             {
+                // S15 detail, ruled 2026-11-18 21:27: the derived threshold holds
+                // still while keyed (our Mox or the radio's interlock), because
+                // re-measuring during speech can count the voice as noise. It
+                // resumes on the first unkeyed tick. The continuous levers stay
+                // live while keyed (S15 itself; ContinuousLeversLiveWhileKeyed).
                 var profile = rig.TxLoudnessProfile;
-                if (!profile.IsValid) return;
-                if (profile.NoiseFloorLufs <= JJPortaudio.LufsMeter.Floor) return;
-                cond.Gate.ThresholdDb =
-                    profile.NoiseFloorLufs + cond.ThresholdMarginInForceDb;
+                var threshold = DerivedThreshold(cond.AutoThresholdInForce, rig.TransmitKeyedOrInterlock,
+                    profile.IsValid, profile.NoiseFloorLufs, cond.ThresholdMarginInForceDb);
+                if (threshold is float db) cond.Gate.ThresholdDb = db;
             }
             catch (Exception ex)
             {
                 Trace.WriteLine("TxAudioConditioning: threshold refresh failed: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// The derived threshold the policy tick would set, or null when it must
+        /// leave the gate alone: the threshold is by hand, the radio is keyed
+        /// (S15 detail: it holds still while keyed), or the meter cannot yet say
+        /// where the floor is.
+        /// </summary>
+        internal static float? DerivedThreshold(bool autoInForce, bool keyed, bool profileValid, float noiseFloorLufs, float marginDb)
+        {
+            if (!autoInForce || keyed || !profileValid) return null;
+            if (noiseFloorLufs <= JJPortaudio.LufsMeter.Floor) return null;
+            return noiseFloorLufs + marginDb;
         }
 
         // The active slice's mode changing is one of the ways the transmit

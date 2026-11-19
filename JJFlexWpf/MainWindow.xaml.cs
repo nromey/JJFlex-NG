@@ -409,12 +409,20 @@ public partial class MainWindow : UserControl
                 // connect, so a session that never connects would otherwise
                 // play every sound at the default whatever was chosen.
                 EarconPlayer.SetAlertBuffer(userConfig.AlertBufferMs, userConfig.AlertBufferCount);
+                // S17 (Sprint 49 Track H2, rulings round): the transmit noise
+                // choices are back from the last session, here at launch and
+                // not at connect, because the transmit chain lives for the whole
+                // session with or without a radio (#1077).
+                TransmitNoiseConfig.Restore(userConfig);
             }
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"MainWindow ctor: user-scope CW config load failed: {ex.Message}");
         }
+        // S17: every transmit noise choice is saved as it is made, as receive's
+        // are (PersistDspSettings). Subscribed after the restore above.
+        TxAudioConditioning.IntentChanged += OnTransmitNoiseIntentChanged;
 
         // Sprint 26 Phase 3: announce SmartLink session status transitions via screen
         // reader. The coordinator lives behind SmartLinkServices; we subscribe to its
@@ -993,6 +1001,25 @@ public partial class MainWindow : UserControl
         if (CurrentAudioConfig == null || OpenParms == null) return;
         CurrentAudioConfig.PcOutputVolumeDb = Radios.FlexBase.PcOutputVolumeDbSetting;
         CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
+    }
+
+    /// <summary>
+    /// S17 (ruled 2026-11-18 21:35): a transmit noise choice changed; save the
+    /// live choices the way <see cref="PersistDspSettings"/> saves receive's,
+    /// immediately, into the same app-wide file. Works with no radio: before
+    /// the first connect the root file itself is updated.
+    /// </summary>
+    private void OnTransmitNoiseIntentChanged()
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(OnTransmitNoiseIntentChanged)); return; }
+        PersistTransmitNoiseSettings();
+    }
+
+    /// <summary>Save the live transmit noise choices (S17). Nothing is written when they are unchanged.</summary>
+    public void PersistTransmitNoiseSettings()
+    {
+        try { TransmitNoiseConfig.Persist(CurrentAudioConfig, Radios.RadioConfig.AppDataRoot); }
+        catch (Exception ex) { Trace.WriteLine("PersistTransmitNoiseSettings failed: " + ex.Message); }
     }
 
     /// <summary>
