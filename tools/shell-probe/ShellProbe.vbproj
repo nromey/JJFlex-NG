@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The shell replacement's gate probe (#550, Step 0). A THROWAWAY tool:
+    it is in no solution, no product project references it, and nothing
+    ships it. It exists to prove, on the real desktop under NVDA and JAWS,
+    that a WPF Window run from the VB My.Application loop with no main form
+    speaks and takes keys. See README.md.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinitionItems>false</EnableDefaultApplicationDefinitionItems>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>jjshellprobe</AssemblyName>
+    <RootNamespace>ShellProbe</RootNamespace>
+    <!-- The same application model as JJFlexRadio.vbproj: My.Application. -->
+    <MyType>WindowsForms</MyType>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionStrict>On</OptionStrict>
+    <OptionInfer>On</OptionInfer>
+    <Nullable>disable</Nullable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The app's own speech path, so "it speaks" is measured through the
+         same code the product uses. Radios is a library; referencing it
+         from a tool changes nothing in the product. -->
+    <ProjectReference Include="..\..\Radios\Radios.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Prism, the native speech library, resolved from the exe's own folder
+         (the product resolves it through NativeLoader instead). -->
+    <None Include="..\..\runtimes\win-x64\native\prism.dll" Link="prism.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>
