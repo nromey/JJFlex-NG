@@ -7352,6 +7352,7 @@ public partial class MainWindow : UserControl
         // exactly as before (Noel, 2026-10-22 05:42).
         _pttController?.NoteTuneCarrier(newState);
         TuneToggleButton.IsChecked = newState;
+        ShowTuneButtonNeutral();   // batch 14 repair 2 (#1144)
         if (newState)
         {
             EarconPlayer.TuneOnTone();
@@ -7408,8 +7409,33 @@ public partial class MainWindow : UserControl
         // the toggle's window is swallowed, which is the safe direction.
         _lastTuneToggleTicks = Environment.TickCount64;
         if (TuneToggleButton != null) TuneToggleButton.IsChecked = false;
+        ShowTuneButtonNeutral();   // batch 14 repair 2 (#1144)
         TuneOffFeedback(capturedSwr);
         return true;
+    }
+
+    /// <summary>
+    /// A plain tune carrier is no ATU result, so its start and its stop put the
+    /// Ant Tune button back to its own label and name (batch 14 repair 2,
+    /// #1144, Codex's B1). The button carries an automatic tune's last status
+    /// ("Successful") in its text and its accessible name; once the tuner is
+    /// bypassed nothing else replaced it, so a manual carrier started from the
+    /// Tune button or the action list, or by any other road, read the old
+    /// result through its start and its stop.
+    /// </summary>
+    private void ShowTuneButtonNeutral()
+    {
+        Button? button = AntennaTuneButton;
+        if (button == null) return;
+        if (!button.Dispatcher.CheckAccess())
+        {
+            button.Dispatcher.BeginInvoke(new Action(ShowTuneButtonNeutral));
+            return;
+        }
+        _oldSwr = "";
+        string label = AntennaTuneButtonText;
+        button.Content = label;
+        System.Windows.Automation.AutomationProperties.SetName(button, label);
     }
 
     /// <summary>

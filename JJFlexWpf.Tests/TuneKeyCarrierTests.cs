@@ -475,4 +475,64 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Press(main);
         Assert.True(_rig.FlexTunerOn, "positive control: a rested press starts the ATU cycle");
     }
+
+    // ---- batch 14 repair round 2 (Codex's B1 on #1144) ----
+
+    /// <summary>
+    /// The Ant Tune button shows an automatic tune's result ("Successful") in
+    /// its text and its accessible name. A plain carrier started and stopped
+    /// from the tune doors must put both back to the button's own label, at
+    /// the start and again at the stop, never carrying a result forward.
+    /// </summary>
+    /// <remarks>
+    /// The two buttons are real WPF controls made on a private STA thread and
+    /// never placed in a window, so nothing is shown or sourced; the rest of
+    /// the window is the uninitialized object the other tests use.
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_plain_carrier_from_a_tune_door_never_carries_an_old_result_on_the_Ant_Tune_button(bool button)
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        Exception? failure = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                var ant = new System.Windows.Controls.Button();
+                var toggle = new System.Windows.Controls.Primitives.ToggleButton();
+                typeof(MainWindow).GetField("AntennaTuneButton", Any)!.SetValue(main, ant);
+                typeof(MainWindow).GetField("TuneToggleButton", Any)!.SetValue(main, toggle);
+                void Result(string text)
+                {
+                    ant.Content = text;
+                    System.Windows.Automation.AutomationProperties.SetName(ant, text);
+                }
+                void Neutral(string when)
+                {
+                    Assert.True(Equals("Ant Tune", ant.Content), when + ": text " + ant.Content);
+                    Assert.True("Ant Tune" == System.Windows.Automation.AutomationProperties.GetName(ant), when + ": name " + System.Windows.Automation.AutomationProperties.GetName(ant));
+                }
+
+                Result("Successful");   // what the last automatic tune left
+                if (button) Door(main); else Toolbar(main);
+                Assert.True(_rig.TuneAskedOrUp, "positive control: the door asked for a carrier");
+                Neutral("at the start");
+
+                Result("Successful");
+                _now += 400;
+                if (button) Door(main); else Toolbar(main);
+                Assert.False(_rig.TuneAskedOrUp, "positive control: the door turned it off");
+                Neutral("at the stop");
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "the STA thread did not finish");
+        if (failure != null) throw failure;
+    }
 }
