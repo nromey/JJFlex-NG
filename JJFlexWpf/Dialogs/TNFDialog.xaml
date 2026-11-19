@@ -14,7 +14,7 @@
         <TextBlock Text="Notches" Margin="0,0,0,4"/>
         <ListBox x:Name="TNFList" Height="100" Margin="0,0,0,8"
                  AutomationProperties.Name="Tracking notch filters, by frequency"
-                 local:JJFlexHelp.Text="The notches your radio is holding right now, named by the frequency each one sits on. Width, depth and Keep below all act on whichever one you are arrowed onto."
+                 local:JJFlexHelp.Text="Select a notch by frequency. The Frequency, Width, Depth and Keep this notch settings will all apply to the selected notch."
                  SelectionChanged="TNFList_SelectionChanged"/>
 
         <!-- Width, depth and permanence of the selected notch. All three go
@@ -38,15 +38,16 @@
                  down arrows move it 100 hertz, Shift with them 10 hertz;
                  typed digits go in with Enter. It writes on Enter and on an
                  arrow only, and on leaving only when the typed text was
-                 changed, so tabbing through moves nothing. The name and the
-                 Ctrl+F1 text are draft sentences, listed for Codex in the
-                 batch report, with no marker in the text: a marker is
+                 changed, so tabbing through moves nothing. The Ctrl+F1 text
+                 is Noel's own, approved 2026-11-19 with batch 14's words;
+                 closing the window with Escape applies a typed change too
+                 (checked on the 8600). No marker in the text: a marker is
                  spoken. -->
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Frequency:" VerticalAlignment="Center" Margin="0,0,8,4"/>
             <TextBox x:Name="FrequencyBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
                      AutomationProperties.Name="Notch frequency, up and down arrows to move it"
-                     local:JJFlexHelp.Text="Where the notch sits. Up and down arrows move it 100 hertz and say the new frequency; hold Shift with them for 10 hertz. You can also change the frequency shown, or type one in megahertz with a point or in kilohertz, and press Enter."
+                     local:JJFlexHelp.Text="Press the Up and Down arrow to move the selected notch by 100 hertz. Use shift with arrows to move the notch up or down by 10 hertz. To set a specific notch frequency, edit the frequency shown (enter megahertz with a decimal point, or enter kilohertz without one). Press Enter to apply the typed changes or press escape to apply your changes."
                      PreviewKeyDown="FrequencyBox_PreviewKeyDown" LostFocus="FrequencyBox_LostFocus"/>
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Width:" VerticalAlignment="Center" Margin="0,0,8,4"/>

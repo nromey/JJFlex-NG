@@ -377,7 +377,9 @@ public partial class TNFDialog : JJFlexDialog
         if (hz == null)
         {
             EarconPlayer.LeaderInvalidTone();
-            Speak(Radios.Lexicon.Get("audio.tnf.frequency_invalid"));
+            // A ladder: Noel's chatty and terse sentences (batch 14 words),
+            // picked by the operator's verbosity.
+            Speak(Radios.Lexicon.Get("audio.tnf.frequency_invalid", Radios.ScreenReaderOutput.CurrentVerbosity));
             ShowFrequency(CurrentFrequencyHz(idx));
             return;
         }

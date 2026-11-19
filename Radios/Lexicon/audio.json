@@ -346,7 +346,7 @@
   "audio.filter.at_end": "End",
   "audio.filter.at_maximum": "Filter at maximum",
   "audio.filter.at_minimum": "Filter at minimum",
-  "audio.filter.preset_list_changed": { "text": "The filter presets changed with the mode, so nothing was applied. Open the menu again to choose one.", "delivery": null },
+  "audio.filter.preset_list_changed": { "text": "The preset list changed, so that filter was not applied. Reopen the Filter menu and choose a valid preset.", "delivery": null },
   "audio.filter.calculator.all_three": {"text": "Filter {low} to {high}, width {width}", "delivery": null},
   "audio.filter.calculator.applied": "Filter set to {low} to {high}",
   "audio.filter.calculator.computed_high": "Computed high: {high} Hz (filter {low} to {high})",
@@ -832,7 +832,15 @@
   "audio.tnf.title": "Tracking Notch Filters",
   "audio.tnf.unnamed": "Notch {n}",
   "audio.tnf.frequency_label": { "text": "Notch frequency", "delivery": null },
-  "audio.tnf.frequency_invalid": { "text": "That is not a frequency, so the notch did not move. Type megahertz with a point, or kilohertz.", "delivery": null },
+  "audio.tnf.frequency_invalid": {
+    "text": {
+      "critical": "Notch not moved. Edit frequency and apply to move the notch.",
+      "terse": "Notch not moved. Edit frequency and apply to move the notch.",
+      "chatty": "The frequency entry could not be read and therefore, the notch did not move. Edit the value of the desired notch frequency and press Enter to apply the change.",
+      "diagnostic": "The frequency entry could not be read and therefore, the notch did not move. Edit the value of the desired notch frequency and press Enter to apply the change."
+    },
+    "delivery": null
+  },
   "audio.tune.atu_bypassed": "ATU bypassed",
   "audio.tune.atu_timed_out": "ATU tune timed out",
   "audio.tune.atu_tuning": "ATU tuning",

@@ -1,1 +1,1 @@
-- The Filter menu's four edge items are now called Move Low Edge Up, Move Low Edge Down, Move High Edge Up and Move High Edge Down, so every screen reader can read their names. The filter preset you are on is now marked as checked, instead of carrying a check mark character your screen reader read out.
+- The Filter menu's edge commands now have readable names for screen readers. The preset matching your current filter is marked as checked, and the preset list follows mode and slice changes.

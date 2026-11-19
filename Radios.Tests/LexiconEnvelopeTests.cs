@@ -138,7 +138,10 @@ namespace Radios.Tests
             // transmitting after the app let go, an audio check's form and the
             // general one, Noel's ruled Chatty and Terse (2026-11-06 17:40, C5).
             // Forty-two at the merge of Unified takes onto main: main's 38 plus takes' four.
-            Assert.Equal(42, ladders);
+            // Forty-three from junk box batch 14's words (#773): a typed notch
+            // frequency the box could not read, Noel's own Chatty and Terse
+            // sentences (2026-11-19).
+            Assert.Equal(43, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -3000,18 +3003,19 @@ namespace Radios.Tests
                 "settings.silenced.register",
                 // Junk box #1136 (2026-11-18, batch 14): the ATU switch is
                 // automatic or bypassed, and a change the tuner refused says
-                // so. Draft prose, awaiting Noel.
+                // so. Worded by Codex, approved by Noel 2026-11-19.
                 "settings.atu.mode_automatic",
                 "settings.atu.mode_bypassed",
                 "settings.atu.refused_while_tuning",
                 "settings.atu.did_not_change",
                 // Junk box #773 (2026-11-18, batch 14): moving a tracking
                 // notch, the frequency box's spoken label and its typed-entry
-                // refusal. Draft prose, awaiting Noel.
+                // refusal. The label is Codex's; the refusal is Noel's own, a
+                // chatty and terse ladder, approved 2026-11-19.
                 "audio.tnf.frequency_label",
                 "audio.tnf.frequency_invalid",
                 // Junk box #960 (batch 14 repair round 3): a Filter preset row
-                // built for another mode's list refuses. Draft prose, awaiting Noel.
+                // built for another mode's list refuses. Noel's own words, 2026-11-19.
                 "audio.filter.preset_list_changed",
             };
 

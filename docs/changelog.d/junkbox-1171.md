@@ -1,1 +1,1 @@
-- With transmit band lockout turned on, 60 metres is no longer refused outright. A General, Advanced or Extra licensee can transmit on the band again, and a Technician is still kept off it.
+- With transmit band lockout on, 60 metres is no longer blocked outright when your selected license class is General, Advanced or Extra. The lockout still blocks the band for Technician and Novice.
