@@ -316,7 +316,7 @@ namespace Radios.Tests
             using var wake = new RemoteAudioWake();
             rig.Call("RecoverSpeakerStream", wake);
             Assert.Equal(noticed + 3_500, rig.Now);
-            var recover = typeof(FlexBase).GetMethod("RecoverMicStream",
+            var recover = typeof(FlexBase).GetMethod("RecoverMicStreamNoticedAt",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
                 null, new[] { typeof(long) }, null);
             Assert.NotNull(recover);
@@ -324,12 +324,12 @@ namespace Radios.Tests
             string source = System.IO.File.ReadAllText(System.IO.Path.Combine(
                 AudioClosedStreamTests.RepoRoot(), "Radios", "FlexBase.RemoteAudio.cs"));
             int check = source.IndexOf("private void CheckPcAudioStreamDeaths", StringComparison.Ordinal);
-            int end = source.IndexOf("private void RecoverMicStream", check, StringComparison.Ordinal);
+            int end = source.IndexOf("private void RecoverMicStream()", check, StringComparison.Ordinal);
             string body = source.Substring(check, end - check);
             int dated = body.IndexOf("long noticedAt = _streamRecoveryClock();", StringComparison.Ordinal);
             Assert.True(dated > 0, "the deaths must be dated before either is handled");
             Assert.True(dated < body.IndexOf("RecoverSpeakerStream(wake)", StringComparison.Ordinal));
-            Assert.Contains("RecoverMicStream(noticedAt)", body);
+            Assert.Contains("RecoverMicStreamNoticedAt(noticedAt)", body);
         }
 
         [Fact]
@@ -433,7 +433,7 @@ namespace Radios.Tests
             rig.Set("opusInputChannel", mic);
             rig.Set("opusInputAvailable", true);
 
-            rig.Call("RecoverMicStream", rig.Now);
+            rig.Call("RecoverMicStream");
             Assert.False(mic.Started);                      // stopped, so the gate's start restarts it
             Assert.True((bool)rig.Get("_micRestartPending")!);
             Assert.Null(rig.Report);                        // pending is not failure: CW mode never restarts it

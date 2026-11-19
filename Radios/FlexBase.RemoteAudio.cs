@@ -3327,11 +3327,15 @@ namespace Radios
             // (Codex's check of the three-second rule, 2026-11-19).
             long noticedAt = _streamRecoveryClock();
             if (speakerDied) RecoverSpeakerStream(wake);
-            if (micDied) RecoverMicStream(noticedAt);
+            if (micDied) RecoverMicStreamNoticedAt(noticedAt);
         }
 
+        /// <summary>A microphone death noticed now. Kept by this name, with no
+        /// arguments, for the tests that drive it by reflection.</summary>
+        private void RecoverMicStream() => RecoverMicStreamNoticedAt(_streamRecoveryClock());
+
         /// <param name="now">When the death was noticed, before any other recovery ran.</param>
-        private void RecoverMicStream(long now)
+        private void RecoverMicStreamNoticedAt(long now)
         {
             var decision = _micRecovery.OnDeath(now);
             string detail = opusInputChannel.PortAudioStream.StreamEndDetail;
