@@ -78,15 +78,22 @@ public sealed class TuneTypeFlipTests : IDisposable
     public void The_press_stops_our_carrier_before_it_reads_the_tuner_type()
     {
         string main = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs")).Replace("\r\n", "\n");
-        int at = main.IndexOf("public void StartATUTuneCycle()", StringComparison.Ordinal);
+        // The flag is read once, in the public entry, and carried in
+        // (batch 14 repair 1, B1).
+        int entry = main.IndexOf("public void StartATUTuneCycle()", StringComparison.Ordinal);
+        string start = main.Substring(entry, main.IndexOf("\n    }\n", entry, StringComparison.Ordinal) - entry);
+        Assert.Contains("TunePressFor(RigControl.TuneAskedOrUp);", start);
+
+        int at = main.IndexOf("private void TunePressFor(bool ours)", StringComparison.Ordinal);
         string body = main.Substring(at, main.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
-        int ours = body.IndexOf("if (RigControl.TuneAskedOrUp)", StringComparison.Ordinal);
+        int gate = body.IndexOf(".Decide(TuneKeyClock(), isRepeat: false, ours, () => true)", StringComparison.Ordinal);
+        int stop = body.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
         int type = body.IndexOf("Radios.TunePress.For(", StringComparison.Ordinal);
         int noTuner = body.IndexOf("if (outcome == Radios.TunePressOutcome.NoTuner)", StringComparison.Ordinal);
-        Assert.True(ours > 0 && ours < type && type < noTuner, "our carrier's stop comes before the type and every refusal");
-        string branch = body.Substring(ours, type - ours);
-        Assert.Contains("TuneKeyCarrierPress();", branch);
-        Assert.Contains("return;", branch);
+        Assert.True(gate > 0 && gate < stop && stop < type && type < noTuner, "our carrier's stop comes before the type and every refusal");
+        string branch = body.Substring(stop, type - stop);
+        Assert.Contains("TurnTuneCarrierOff();", branch);
         Assert.DoesNotContain("FlexTunerOn", branch);
+        Assert.DoesNotContain("TuneAskedOrUp", body);
     }
 }

@@ -7255,15 +7255,18 @@ public partial class MainWindow : UserControl
     /// </remarks>
     private void TuneDoorPress()
     {
+        // Read once and carried through (repair round 1, B1): a stop decided
+        // here is never re-decided from a later read.
+        bool ours = RigControl.TuneAskedOrUp;
         var outcome = Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType);
-        if (outcome == Radios.TunePressOutcome.AtuTune && !RigControl.TuneAskedOrUp)
+        if (outcome == Radios.TunePressOutcome.AtuTune && !ours)
         {
             if (TunerStartRefused()) return;
             _oldSwr = "";
             RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
             return;
         }
-        StartATUTuneCycle();
+        TunePressFor(ours);
     }
 
     /// <summary>
@@ -7589,15 +7592,46 @@ public partial class MainWindow : UserControl
     public void StartATUTuneCycle()
     {
         if (RigControl == null) return;
-        // #1141: a press with our tune carrier asked for or up stops it, whatever
-        // the tuner type, ahead of every refusal (a stop is never refused). The
-        // radio's ATUEnabled status can flip the type to automatic under a
-        // carrier keyed in manual type, and the next press then started an ATU
-        // cycle on top of that carrier instead of turning it off.
-        if (RigControl.TuneAskedOrUp)
+        TunePressFor(RigControl.TuneAskedOrUp);
+    }
+
+    /// <summary>
+    /// One press of the tune key, or of a tune door routed to it, with
+    /// <paramref name="ours"/> (our tune carrier asked for or up) read ONCE by
+    /// the caller.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>#1141.</b> A press with our carrier asked for or up stops it,
+    /// whatever the tuner type, ahead of every refusal: the radio's ATUEnabled
+    /// report can flip the type to automatic under a carrier keyed in manual
+    /// type, and the next press started an ATU cycle on top of it.</para>
+    /// <para><b>Repair round 1, B1.</b> The stop is decided from the one read
+    /// passed in. A second read could find the flag fallen (the radio's
+    /// <c>transmit tune=0</c> lands on its own thread) and turn the stop into
+    /// a start. <see cref="TurnTuneCarrierOff"/> at worst finds nothing to
+    /// stop; it never starts anything.</para>
+    /// <para><b>Repair round 1, B2.</b> Every press goes through the one
+    /// press gate before the tuner type is read, so a held key's repeats after
+    /// a stop start nothing in ANY type. Until then the gate sat only on the
+    /// carrier's route, and a held Ctrl+T that stopped our carrier in
+    /// automatic type started an ATU cycle on its next repeat. NVDA's held
+    /// key (repeat key-downs) and JAWS's down/up pairs about 250 ms apart both
+    /// land inside <see cref="Radios.FreshPressGate.SameChordWindowMs"/>, and
+    /// every key-down renews it, so nothing starts until the key has rested.
+    /// The cost: a deliberate second press inside that window starts nothing,
+    /// without a word.</para>
+    /// </remarks>
+    private void TunePressFor(bool ours)
+    {
+        switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, ours, () => true))
         {
-            TuneKeyCarrierPress();
-            return;
+            case Radios.PressAct.Stop:
+                Tracing.TraceLine("TuneKey: our tune carrier is up or asked; the tune key turns it off", TraceLevel.Info);
+                TurnTuneCarrierOff();
+                return;
+            case Radios.PressAct.Nothing:
+                Tracing.TraceLine("TuneKey: more of a press already answered; nothing sent", TraceLevel.Info);
+                return;
         }
         // #1127 (J4): what this press does, by tuner state (Radios.TunePress).
         // Out of automatic type, with or without an ATU, it is the tune
@@ -7611,8 +7645,8 @@ public partial class MainWindow : UserControl
         }
         if (outcome == Radios.TunePressOutcome.TuneCarrier)
         {
-            // Ahead of the tuner's door and its latch: a stop is never refused,
-            // and the carrier's own doors are the toggle's.
+            // Ahead of the tuner's door and its latch: the carrier's own doors
+            // are the toggle's.
             TuneKeyCarrierPress();
             return;
         }
@@ -7636,7 +7670,7 @@ public partial class MainWindow : UserControl
             subject: Radios.Speech.SpeechSubject.TunePressSent);
     }
 
-    /// <summary>The tune key's presses out of automatic type; see <see cref="TuneKeyCarrierPress"/>.</summary>
+    /// <summary>The tune key's press gate, for every type; see <see cref="TunePressFor"/>.</summary>
     private Radios.FreshPressGate? _tuneKeyPress;
 
     /// <summary>The clock the tune key's press gate reads; a test stands in for it.</summary>
@@ -7650,55 +7684,28 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// The tune key out of automatic type is the tune carrier's own key (#1127,
-    /// repair round 1): a press with our carrier up or asked turns it off; a
-    /// new press starts one, through the toggle Ctrl+Shift+T uses, so the
-    /// radio's answer, the tune tone, the meter tones and the Tune button are
-    /// the toggle's. Until then a second press found the tuner latch set, said
-    /// no new request was sent, and left the carrier on the air.
+    /// repair round 1): a new press starts one, through the toggle Ctrl+Shift+T
+    /// uses, so the radio's answer, the tune tone, the meter tones and the Tune
+    /// button are the toggle's. Its stop, and the held-key gate, are
+    /// <see cref="TunePressFor"/>'s, which decides before this is reached.
     /// </summary>
     /// <remarks>
-    /// <para><b>Held keys.</b> This path cannot see a key's repeat flag (the
-    /// command arrives as a chord), so every key-down reaches it, and the
-    /// toggle's 500 ms debounce alone would flutter under JAWS's down/up pairs
-    /// about 250 ms apart: on, off, on, off, every half second.
-    /// <see cref="Radios.FreshPressGate"/>, the gate Check your audio's tune key
-    /// uses, decides instead: a key-down with our carrier up always stops it; a
-    /// start needs a key-down more than
-    /// <see cref="Radios.FreshPressGate.SameChordWindowMs"/> after the last one,
-    /// and every key-down renews that window. So a held key keys once, the
-    /// first repeat or pair turns the carrier off (the safe direction), and
-    /// nothing after that starts it again until the key has rested.</para>
-    /// <para>The modifier's release is not fed to the gate here, on purpose:
-    /// nobody has measured whether a reader's pairs carry Control too, and if
-    /// they did, a release between pairs would let a pair start a carrier. The
-    /// cost is that a new start inside the window after the last press is
-    /// ignored without a word.</para>
+    /// The modifier's release is not fed to the gate, on purpose: nobody has
+    /// measured whether a reader's pairs carry Control too, and if they did, a
+    /// release between pairs would let a pair start a carrier.
     /// </remarks>
     private void TuneKeyCarrierPress()
     {
         FlexBase rig = RigControl;
-        bool ours = rig.TuneAskedOrUp;
-        switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, ours, () => true))
-        {
-            case Radios.PressAct.Stop:
-                Tracing.TraceLine("TuneKey: our tune carrier is up or asked; the tune key turns it off", TraceLevel.Info);
-                TurnTuneCarrierOff();
-                break;
-            case Radios.PressAct.Start:
-                Tracing.TraceLine("TuneKey: a tune carrier, through the tune carrier toggle", TraceLevel.Info);
-                _tuneAnswerFollowsLead = true;
-                try { ToggleTuneCarrier(); }
-                finally { _tuneAnswerFollowsLead = false; }
-                // Only when the toggle asked: a refusal (tune power at zero, no
-                // callsign, the toggle's own debounce) has said its own piece.
-                if (rig.TuneAskedOrUp)
-                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_carrier_sent"), VerbosityLevel.Terse, true,
-                        subject: Radios.Speech.SpeechSubject.TunePressSent);
-                break;
-            default:
-                Tracing.TraceLine("TuneKey: more of a press already answered; nothing sent", TraceLevel.Info);
-                break;
-        }
+        Tracing.TraceLine("TuneKey: a tune carrier, through the tune carrier toggle", TraceLevel.Info);
+        _tuneAnswerFollowsLead = true;
+        try { ToggleTuneCarrier(); }
+        finally { _tuneAnswerFollowsLead = false; }
+        // Only when the toggle asked: a refusal (tune power at zero, no
+        // callsign, the toggle's own debounce) has said its own piece.
+        if (rig.TuneAskedOrUp)
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_carrier_sent"), VerbosityLevel.Terse, true,
+                subject: Radios.Speech.SpeechSubject.TunePressSent);
     }
 
     private void StartATUTimeout()

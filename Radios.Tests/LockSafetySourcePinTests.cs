@@ -185,7 +185,7 @@ namespace Radios.Tests
             Assert.Contains("RigControl.TxTune = newState;", tune);
             Assert.Contains("_pttController?.NoteTuneCarrier(newState);", tune);
             Assert.DoesNotContain("RefuseIfHeldAfterCut", tune);
-            Assert.Contains("_pttController?.NoteAtuTuning(true);", Body(main, "public void StartATUTuneCycle()"));
+            Assert.Contains("_pttController?.NoteAtuTuning(true);", Body(main, "private void TunePressFor(bool ours)"));
             Assert.Contains("_pttController?.NoteAtuTuning(e.Status == \"InProgress\");", Body(main, "private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)"));
             string tx = Body(main, "private void TransmitChangeHandler(object sender, bool transmit)");
             Assert.Contains("_pttController?.NoteRadioTransmit(transmit);", tx);

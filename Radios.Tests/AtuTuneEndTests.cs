@@ -252,7 +252,7 @@ public sealed class AtuTuneEndTests : IDisposable
     public void A_press_while_the_tuner_latch_is_set_in_automatic_type_says_so_and_sends_nothing()
     {
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
-        int at = main.IndexOf("public void StartATUTuneCycle()", StringComparison.Ordinal);
+        int at = main.IndexOf("private void TunePressFor(bool ours)", StringComparison.Ordinal);   // the press's body since batch 14 repair 1
         string body = main.Substring(at, main.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
         int carrier = body.IndexOf("if (outcome == Radios.TunePressOutcome.TuneCarrier)", StringComparison.Ordinal);
         int refused = body.IndexOf("if (TunerStartRefused()) return;", StringComparison.Ordinal);

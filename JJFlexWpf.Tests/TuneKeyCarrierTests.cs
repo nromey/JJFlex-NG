@@ -409,4 +409,70 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Assert.False(_rig.TuneAskedOrUp);
         Assert.False(_rig.FlexTunerOn);
     }
+
+    // ---- batch 14 repair round 1 (Codex's B1 and B2 on #1141) ----
+
+    private static void PressDecided(MainWindow main, bool ours) =>
+        Record.Exception(() => typeof(MainWindow).GetMethod("TunePressFor", Any)!.Invoke(main, new object[] { ours }));
+
+    /// <summary>
+    /// B1: the press saw our carrier up, and the radio's "transmit tune=0"
+    /// landed before anything else read the flag. The stop decided from the
+    /// first read must stay a stop: nothing is asked for, no carrier and no
+    /// ATU cycle. Until the repair the carrier route read the flag again, found
+    /// it fallen, and a fresh gate started a new carrier.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_stop_decided_from_a_carrier_that_fell_before_the_next_read_starts_nothing(bool automatic)
+    {
+        RadioFor();
+        if (automatic) Automatic(); else ManualTypeWithNoAtu();
+        var main = Window();
+        Assert.False(_rig.TuneAskedOrUp, "the flag has fallen by the time anything reads it again");
+
+        PressDecided(main, ours: true);
+
+        Assert.False(_rig.TuneAskedOrUp, "no new carrier was asked for");
+        Assert.False(_rig.FlexTunerOn, "no ATU cycle was asked for");
+    }
+
+    /// <summary>
+    /// B2: hold the tune key to stop our carrier in automatic type. Once the
+    /// off has run, the held key keeps arriving: NVDA's repeats about 33 ms
+    /// apart, or JAWS's down/up pairs about 250 ms apart (the first at the
+    /// keyboard's repeat delay, about 512 ms). None of them may start an ATU
+    /// cycle or a carrier. A press after the key has rested still starts the
+    /// cycle: the positive control.
+    /// </summary>
+    [Theory]
+    [InlineData(new[] { 33, 33, 33, 33, 33, 33, 33, 33, 33, 33 })]   // NVDA: a genuine hold, repeat key-downs
+    [InlineData(new[] { 512, 250, 250, 250, 250, 250 })]              // JAWS: down/up pairs
+    public void A_held_tune_key_that_stopped_our_carrier_in_automatic_type_starts_nothing_after(int[] gapsMs)
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        Press(main);
+        Assert.True(_rig.TuneAskedOrUp, "positive control: our carrier is asked for");
+        Automatic();
+
+        _now += FreshPressGate.SameChordWindowMs + 1;   // the hold begins with the carrier already up
+        Press(main);
+        Assert.False(_rig.TuneAskedOrUp, "the first delivery stops our carrier");
+
+        foreach (int gap in gapsMs)
+        {
+            _now += gap;
+            Press(main);
+            Assert.False(_rig.FlexTunerOn, "a held key's delivery after the stop started an ATU cycle");
+            Assert.False(_rig.TuneAskedOrUp, "a held key's delivery after the stop asked for a carrier");
+        }
+
+        // Rested: a new press starts the ATU cycle, as a fresh press always did.
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        Press(main);
+        Assert.True(_rig.FlexTunerOn, "positive control: a rested press starts the ATU cycle");
+    }
 }

@@ -550,7 +550,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
             // #1144: the Tune button and the toolbar's ATU Tune share
             // TuneDoorPress, whose automatic toggle asks before the latch.
             "private void TuneDoorPress()",
-            "public void StartATUTuneCycle()",
+            "private void TunePressFor(bool ours)",
         })
         {
             string body = Body(main, signature);
@@ -566,7 +566,7 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         Assert.Contains("TuneDoorPress();", toolbar);
         Assert.DoesNotContain("FlexTunerOn", toolbar);
         string door = Body(main, "private void TuneDoorPress()");
-        Assert.True(door.IndexOf("StartATUTuneCycle();", StringComparison.Ordinal) > door.IndexOf("RigControl.FlexTunerOn = !RigControl.FlexTunerOn;", StringComparison.Ordinal));
+        Assert.True(door.IndexOf("TunePressFor(ours);", StringComparison.Ordinal) > door.IndexOf("RigControl.FlexTunerOn = !RigControl.FlexTunerOn;", StringComparison.Ordinal));
     }
 
     [Fact]
