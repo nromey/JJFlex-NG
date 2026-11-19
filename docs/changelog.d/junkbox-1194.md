@@ -1,0 +1,1 @@
+- The TX band lockout now judges where you actually transmit when XIT is on, so an XIT offset that would put your signal outside your license privileges is refused, and one that brings it back inside is allowed.
