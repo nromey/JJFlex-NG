@@ -1464,6 +1464,7 @@
   "audio.audition.recording": {"text": "WORDING PLACEHOLDER: reading box while recording: recording, press Start or Escape to stop", "delivery": null},
   "audio.audition.recording_purpose": {"text": "WORDING PLACEHOLDER: an audition take (read inside the recorder's own started sentence)", "delivery": null},
   "audio.audition.another_recording": {"text": "WORDING PLACEHOLDER: refusal: another recording is already running, stop it first", "delivery": null},
+  "audio.audition.not_quiet": {"text": "WORDING PLACEHOLDER: refusal after the countdown: a playback on the radio would not stop, so the take did not start", "delivery": null},
   "audio.audition.unreadable": {"text": "WORDING PLACEHOLDER: the take could not be read back, so there is nothing to play; try again", "delivery": null},
   "audio.audition.verdict.too_short": {"text": "WORDING PLACEHOLDER: the take is {length} seconds, too short to tell speech from the room's noise; record a few sentences", "delivery": null},
   "audio.audition.verdict.no_speech": {"text": "WORDING PLACEHOLDER: no speech was heard above the room's noise, so there is no figure to report", "delivery": null},

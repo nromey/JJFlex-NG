@@ -68,6 +68,31 @@ public sealed class CheckYourAudioAuditionButtonsTests : IDisposable
     }
 
     [Fact]
+    public void ThePlayButtonsAndKeepGoFromThePressThatStartsATakeAndComeBackIfItIsCalledOff()
+    {
+        // Track Q2 repair 2: they used to go only when capture opened, so focus
+        // on one of them moved to Start inside the take and the screen reader
+        // said so into it. Now they go at the press, before the countdown, and
+        // nothing has to move once the microphone is open.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Run(() =>
+        {
+            var dialog = Dialog(AudioCheckListenMethods.Audition);
+            Put(dialog, "_audition", ReadyTake(new HalvingChain()));
+            Invoke(dialog, "SyncAuditionButtons");
+            Assert.Equal(new[] { "cleaned", "raw", "removed", "keep" }, Visible(dialog));   // positive control
+
+            Put(dialog, "_auditionStartPending", true);   // the press admitted a start; the count runs
+            Invoke(dialog, "SyncAuditionButtons");
+            Assert.Empty(Visible(dialog));
+
+            Put(dialog, "_auditionStartPending", false);  // the count was called off: the take is still there
+            Invoke(dialog, "SyncAuditionButtons");
+            Assert.Equal(new[] { "cleaned", "raw", "removed", "keep" }, Visible(dialog));
+        });
+    }
+
+    [Fact]
     public void WithAChainTheyComeCleanedFirstThenRawThenWhatWasRemovedThenKeep()
     {
         NoiseReductionPerChannelTests.AssertWindowless();

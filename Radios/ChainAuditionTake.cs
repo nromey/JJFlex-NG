@@ -233,15 +233,20 @@ namespace Radios
         /// <param name="countSaid">The countdown's gate: true once it has been said and has ended.</param>
         /// <param name="stillWanted">Asked after the count: false when the start was cancelled or the window is closing.</param>
         /// <param name="localNow">The clock the take's file is named by, read as capture opens.</param>
-        /// <param name="beforeOpening">Run just before the recorder opens; the window stops a render still playing from the folder the new take empties.</param>
+        /// <param name="beforeOpening">
+        /// Run just before the recorder opens, in the same synchronous step as
+        /// the open, so nothing can start sounding between the two. The window
+        /// stops, saying nothing, everything of its own still sounding (Track Q2
+        /// repair 2), and answers true only when nothing is. False opens nothing.
+        /// </param>
         public async Task<bool> StartAfterAsync(Func<Task<bool>> countSaid, Func<bool> stillWanted,
-            Func<DateTime> localNow, Action? beforeOpening = null)
+            Func<DateTime> localNow, Func<bool>? beforeOpening = null)
         {
             if (countSaid == null) throw new ArgumentNullException(nameof(countSaid));
             if (stillWanted == null) throw new ArgumentNullException(nameof(stillWanted));
             if (localNow == null) throw new ArgumentNullException(nameof(localNow));
             if (!await countSaid() || !stillWanted()) return false;
-            beforeOpening?.Invoke();
+            if (beforeOpening != null && !beforeOpening()) return false;
             return Start(localNow());
         }
 

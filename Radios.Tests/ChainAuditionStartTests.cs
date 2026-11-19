@@ -121,9 +121,25 @@ namespace Radios.Tests
             var (take, _) = Make(log, () => 0);
             bool before = false;
             Assert.True(await take.StartAfterAsync(() => Task.FromResult(true), () => true, () => Now,
-                beforeOpening: () => { before = true; log.Add(("before", 0)); }));
+                beforeOpening: () => { before = true; log.Add(("before", 0)); return true; }));
             Assert.True(before);
             Assert.Equal(new[] { "before", "open", "marker" }, log.Select(e => e.What));
+        }
+
+        [Fact]
+        public async Task A_room_the_window_could_not_make_quiet_opens_nothing()
+        {
+            // Repair 2: the window answers whether everything of its own has
+            // stopped sounding; while anything still sounds, nothing is opened
+            // and no marker sounds, whether or not the countdown ran.
+            var log = new List<(string What, long At)>();
+            var (take, rec) = Make(log, () => 0);
+            Assert.False(await take.StartAfterAsync(() => Task.FromResult(true), () => true, () => Now,
+                beforeOpening: () => { log.Add(("before", 0)); return false; }));
+            Assert.Equal(0, rec.Opens);
+            Assert.Equal(new[] { "before" }, log.Select(e => e.What));
+            Assert.Equal(AuditionTakeState.Idle, take.State);
+            Assert.Equal("", take.TakePath);
         }
 
         // ── The marker ───────────────────────────────────────────────────

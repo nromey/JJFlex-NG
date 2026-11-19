@@ -107,8 +107,11 @@ namespace Radios.Tests
         {
             string start = Body(Code(Dialog("CheckYourAudioDialog.Audition")), "private async Task StartAuditionAsync()");
             int count = start.IndexOf("BeginStartCountdown(AudioCheckListenMethods.Audition);", StringComparison.Ordinal);
-            int open = start.IndexOf("Audition.StartAfterAsync(CountdownLetsKeyAsync,", StringComparison.Ordinal);
+            int open = start.IndexOf("Audition.StartAfterAsync(CountedThenRadioPlaysStoppedAsync,", StringComparison.Ordinal);
             Assert.True(count >= 0 && open > count, "the take must open through the countdown's gate, after the count begins");
+            // Repair 2: the gate is the countdown's own, first, and nothing else stands in for it.
+            string gate = Body(Code(Dialog("CheckYourAudioDialog.Audition")), "private async Task<bool> CountedThenRadioPlaysStoppedAsync()");
+            Assert.StartsWith("{\n        if (!await CountdownLetsKeyAsync()) return false;", gate);
             // Never around the gate: no direct start, and no other wait standing in for it.
             Assert.DoesNotContain("Audition.Start(", start);
             Assert.DoesNotContain("await CountdownLetsKeyAsync()", start);
@@ -117,19 +120,66 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_last_act_before_the_microphone_opens_stops_a_render_saying_nothing()
+        public void The_last_act_before_the_microphone_opens_stops_every_playback_saying_nothing()
         {
-            // Repair 1 (Codex's check of dd7c03b5): the window's last act before
-            // capture opens is stopping a render still playing, and the
-            // player's ordinary stop queues its sentence there, after the gate.
-            // The behaviour is AuditionNextTakeDuringPlaybackTests' (JJFlexWpf.Tests,
-            // the real player); this pins that it is the method the window passes.
-            string start = Body(Code(Dialog("CheckYourAudioDialog.Audition")), "private async Task StartAuditionAsync()");
-            Assert.Contains("beforeOpening: StopAuditionPlayback)", start);
-            string stop = Body(Code(Dialog("CheckYourAudioDialog.Audition")), "private void StopAuditionPlayback()");
-            Assert.Contains("RecordingPlayer.StopWithoutSpeaking();", stop);
-            Assert.DoesNotContain("RecordingPlayer.Stop();", stop);
-            Assert.DoesNotContain("Speak(", stop);
+            // Repairs 1 and 2 (Codex's check of dd7c03b5; Noel 2026-11-19 12:22):
+            // the window's last act before capture opens stops everything of ours
+            // still sounding, saying nothing, and refuses the take while anything
+            // still sounds. The behaviour is AuditionNextTakeDuringPlaybackTests'
+            // (JJFlexWpf.Tests, the real player); these pin the window to it.
+            string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
+            string start = Body(audition, "private async Task StartAuditionAsync()");
+            Assert.Contains("beforeOpening: QuietBeforeTake)", start);
+            string quiet = Body(audition, "private bool QuietBeforeTake()");
+            Assert.Contains("RecordingPlayer.StopForCapture();", quiet);
+            Assert.DoesNotContain("RecordingPlayer.Stop();", quiet);
+            Assert.DoesNotContain("StopWithoutSpeaking", quiet);
+            Assert.DoesNotContain("InAuditionFolder", quiet);   // every playback, not only a render of ours
+            Assert.Contains("EarconPlayer.StopTxToneMonitor();", quiet);
+            Assert.Contains("if (!CheckPlaybackRunning) return true;", quiet);
+            Assert.DoesNotContain("await", quiet);   // one synchronous step with the open
+
+            // The player's capture stop says nothing at all, the limiter notice included.
+            string player = Code(Source("JJFlexWpf/RecordingPlayer.cs"));
+            Assert.Contains("public static void StopForCapture() => End(spokenReason: \"\", sayLimited: false);", player);
+            Assert.Contains("if (limited && sayLimited) ScreenReaderOutput.Speak(", player);
+
+            // A radio's playback this window started is stopped after the gate and
+            // waited for; one the radio did not stop stays counted, so the take stays shut.
+            string gate = Body(audition, "private async Task<bool> CountedThenRadioPlaysStoppedAsync()");
+            int counted = gate.IndexOf("await CountdownLetsKeyAsync()", StringComparison.Ordinal);
+            int stop = gate.IndexOf("await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));", StringComparison.Ordinal);
+            Assert.True(counted >= 0 && stop > counted, "the radio's playback must be stopped after the count and waited for");
+            Assert.Contains("if (!rig.IsSlicePlaying(target)) _checkPlayTargets.Remove(target);", gate);
+            Assert.DoesNotContain("_checkPlayTargets.Clear()", gate);
+
+            // The tone monitor stays off while a take records.
+            string monitor = Body(Code(Dialog("CheckYourAudioDialog.TestTone")), "private void SyncToneMonitor()");
+            Assert.Contains("&& !AuditionRecording;", monitor);
+        }
+
+        [Fact]
+        public void Any_focus_move_comes_before_the_countdown_and_none_during_the_take()
+        {
+            // Repair 2: the take's buttons go at the press, before the count, so
+            // focus on one moves to Start then; once a take records, nothing moves it.
+            string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
+            string start = Body(audition, "private async Task StartAuditionAsync()");
+            int pending = start.IndexOf("_auditionStartPending = true;", StringComparison.Ordinal);
+            int sync = start.IndexOf("SyncAuditionButtons();", StringComparison.Ordinal);
+            int count = start.IndexOf("BeginStartCountdown(AudioCheckListenMethods.Audition);", StringComparison.Ordinal);
+            int open = start.IndexOf("Audition.StartAfterAsync(", StringComparison.Ordinal);
+            Assert.True(pending >= 0 && sync > pending && count > sync && open > count,
+                "the buttons must go, and any focus move happen, before the countdown begins");
+            // Cleared before the buttons are shown again after the count, and on every exit.
+            int cleared = start.IndexOf("_auditionStartPending = false;", open, StringComparison.Ordinal);
+            int resync = start.IndexOf("SyncAuditionButtons();", open, StringComparison.Ordinal);
+            Assert.True(cleared > open && resync > cleared, "a called-off start must bring the buttons back");
+            Assert.Contains("_auditionStartPending = false;", Body(start, "finally"));
+
+            string sync2 = Body(audition, "private void SyncAuditionButtons()");
+            Assert.Contains("bool shown = !_auditionStartPending", sync2);
+            Assert.Contains("if (focusLost && !AuditionRecording) _startCheckButton?.Focus();", sync2);
         }
 
         [Fact]

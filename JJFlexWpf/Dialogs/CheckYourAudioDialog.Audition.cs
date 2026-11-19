@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
@@ -186,23 +187,84 @@ public partial class CheckYourAudioDialog
         using var start = _checkStarts.TryBegin();
         if (start == null) return;
         SetStartButtonLabel("Stop Audio Check");
+        // The play buttons and Keep go NOW, before the count (repair 2): they
+        // would go when capture opens, and focus on one of them would then move
+        // to Start inside the take, with the screen reader saying so. Moved
+        // here, the move and its announcement come before the countdown, whose
+        // gate waits for its own words. They come back if the start is called off.
+        _auditionStartPending = true;
+        SyncAuditionButtons();
         BeginStartCountdown(AudioCheckListenMethods.Audition);
         try
         {
-            bool opened = await Audition.StartAfterAsync(CountdownLetsKeyAsync,
+            bool opened = await Audition.StartAfterAsync(CountedThenRadioPlaysStoppedAsync,
                 stillWanted: () => start.IsCurrent && !_closing,
                 localNow: () => DateTime.Now,
-                // A render still playing is a file in the folder the new take empties.
-                beforeOpening: StopAuditionPlayback);
+                // The last act before the microphone opens, in the same step as
+                // the open: everything of ours still sounding stops, saying nothing.
+                beforeOpening: QuietBeforeTake);
+            _auditionStartPending = false;
             if (_closing) return;
             if (opened) ShowAuditionReading(Lexicon.Get("audio.audition.recording"));
             SyncAuditionButtons();
         }
         finally
         {
+            _auditionStartPending = false;
             EndStartCountdown();
             if (!AuditionRecording) SetStartButtonLabel("Start Audio Check");
         }
+    }
+
+    /// <summary>True from the press that admits an audition start until its count ends: the take's buttons are hidden for it.</summary>
+    private bool _auditionStartPending;
+
+    /// <summary>
+    /// The countdown's gate, then the radio's playbacks this window started
+    /// (a Record yourself take playing on a slice) asked to stop, and waited
+    /// for, so the radio has stopped before the microphone opens. A stop the
+    /// radio refuses is said by the recorder controls, before anything opens.
+    /// </summary>
+    private async Task<bool> CountedThenRadioPlaysStoppedAsync()
+    {
+        if (!await CountdownLetsKeyAsync()) return false;
+        if (_rig is { } rig && _checkPlayTargets is { Count: > 0 })
+        {
+            foreach (var target in new List<SliceRecorderTarget>(_checkPlayTargets))
+            {
+                if (rig.IsSlicePlaying(target))
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
+                // Only a playback the radio has stopped leaves the list; one
+                // still playing keeps the take from opening.
+                if (!rig.IsSlicePlaying(target)) _checkPlayTargets.Remove(target);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The audition opens capture only when nothing of ours is sounding (Noel
+    /// 2026-11-19 12:22; repair 2). Run in the same synchronous step as the
+    /// open, so nothing can start between the two: every playback on this
+    /// computer stops (a render of the last take, an Off the air take, any
+    /// other), and the transmit tone's monitor, all saying nothing. A radio
+    /// playback that would not stop keeps the take shut, and says so: nothing
+    /// is recording yet, so that sentence cannot be in a take.
+    /// </summary>
+    private bool QuietBeforeTake()
+    {
+        RecordingPlayer.StopForCapture();
+        if (_toneMonitorSounding)
+        {
+            // It stays off while the take records: SyncToneMonitor asks.
+            EarconPlayer.StopTxToneMonitor();
+            _toneMonitorSounding = false;
+            _toneMonitorProvider = null;
+        }
+        if (!CheckPlaybackRunning) return true;
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.audition.not_quiet"), Radios.Speech.SpeechIntent.Queue,
+            VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.ComputerRecorder);
+        return false;
     }
 
     /// <summary>
@@ -319,12 +381,9 @@ public partial class CheckYourAudioDialog
 
     /// <summary>
     /// Stop a render of ours that is playing, before its file goes, saying
-    /// nothing. It runs as the next take's microphone opens, after the
-    /// countdown's gate (Track Q2 repair 1): the player's ordinary stop queues
-    /// its stop sentence then, and that sentence would be recorded into the
-    /// take. The start tone that follows marks the moment instead. An audition
-    /// render plays at unity gain, so the player's limiter notice cannot be
-    /// due either. On close the window's own playback has already stopped.
+    /// nothing. Used as the window closes, after its own playback has stopped.
+    /// A new take does not use this: <see cref="QuietBeforeTake"/> stops every
+    /// playback, not only a render of ours (repair 2).
     /// </summary>
     private void StopAuditionPlayback()
     {
@@ -358,7 +417,10 @@ public partial class CheckYourAudioDialog
     {
         if (_auditionCleanedButton == null) return;
         var audition = _audition;
-        bool shown = SelectedMethod == AudioCheckListenMethods.Audition && audition?.State == AuditionTakeState.Ready;
+        // Hidden from the press that starts a take (repair 2), so no focus
+        // has to move once capture opens.
+        bool shown = !_auditionStartPending
+            && SelectedMethod == AudioCheckListenMethods.Audition && audition?.State == AuditionTakeState.Ready;
         bool focusLost = false;
         foreach (var render in ChainAudition.PlayOrder)
         {
@@ -376,7 +438,8 @@ public partial class CheckYourAudioDialog
         bool keep = shown && !audition!.Kept;
         if (!keep && _auditionKeepButton!.IsKeyboardFocusWithin) focusLost = true;
         _auditionKeepButton!.Visibility = keep ? Visibility.Visible : Visibility.Collapsed;
-        if (focusLost) _startCheckButton?.Focus();
+        // Never during a take: the screen reader would announce the move into it.
+        if (focusLost && !AuditionRecording) _startCheckButton?.Focus();
         SyncResultsSection();
     }
 
