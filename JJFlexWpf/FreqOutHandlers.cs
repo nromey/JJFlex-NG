@@ -4422,50 +4422,35 @@ public class FreqOutHandlers
     };
 
     /// <summary>
-    /// Check if the current frequency + filter is within the operator's
-    /// licensed band segment. Returns true if TX is allowed, false if blocked.
+    /// Check if the transmitted signal is within the operator's licensed band
+    /// segment. Returns true if TX is allowed, false if blocked.
     /// </summary>
+    /// <remarks>
+    /// #1173: the TRANSMIT slice is judged, its frequency with its own filter
+    /// signed per mode (<see cref="TransmitBandLockout"/>), so a split checks
+    /// the signal that goes out rather than the one being listened to. With no
+    /// transmit slice of ours it judges the selected slice as it always did,
+    /// and traces that once.
+    /// </remarks>
     public bool CanTransmitHere()
     {
         if (License == null || !License.TxLockout) return true;
         if (Rig == null || GetRXFrequency == null) return true;
 
-        ulong freq = GetRXFrequency();
-        int filterLow = Rig.FilterLow;
-        int filterHigh = Rig.FilterHigh;
-
-        // Calculate signal extent (freq is carrier, filter offsets are relative)
-        // For USB: signal is freq + filterLow to freq + filterHigh
-        // For LSB: filter values are negative, so signal is freq + filterLow to freq + filterHigh
-        long signalLow = (long)freq + filterLow;
-        long signalHigh = (long)freq + filterHigh;
-        if (signalLow < 0) signalLow = 0;
-        if (signalHigh < 0) signalHigh = 0;
-
-        var bandInfo = Bands.Query((ulong)signalLow);
-        if (bandInfo == null)
+        bool allowed = TransmitBandLockout.Judge(Rig.TransmitSliceSignal(),
+            GetRXFrequency(), Rig.FilterLow, Rig.FilterHigh, License.LicenseClass, out bool judgedSelected);
+        if (judgedSelected != _lockoutJudgedSelected)
         {
-            // Not on any band — block TX
-            return false;
+            _lockoutJudgedSelected = judgedSelected;
+            if (judgedSelected)
+                Tracing.TraceLine("CanTransmitHere: no transmit slice of ours, so the TX band lockout judges the selected slice", TraceLevel.Info);
         }
-
-        // Check if the entire signal is within licensed divisions
-        var licensedBand = Bands.Query(bandInfo.Band, License.LicenseClass);
-        if (licensedBand?.Divisions == null)
-        {
-            // No divisions for this license on this band — block
-            return false;
-        }
-
-        // Check that the entire signal extent falls within at least one licensed division
-        foreach (var div in licensedBand.Divisions)
-        {
-            if ((ulong)signalLow >= div.Low && (ulong)signalHigh <= div.High)
-                return true;
-        }
-
-        return false;
+        return allowed;
     }
+
+    /// <summary>Whether the lockout's last judgement had no transmit slice to judge,
+    /// so its trace line is written once per change, not on every check.</summary>
+    private bool _lockoutJudgedSelected;
 
     /// <summary>
     /// Get a message explaining why TX is blocked at the current frequency.

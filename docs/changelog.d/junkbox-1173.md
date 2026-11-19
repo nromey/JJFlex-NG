@@ -1,0 +1,1 @@
+- With TX band lockout on and a split set up, the lockout now checks the frequency you will transmit on, with that slice's own filter, instead of the one you are listening to. A split whose transmit side is inside your privileges now keys, and one whose transmit side is outside them is refused.
