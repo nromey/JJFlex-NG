@@ -15,20 +15,23 @@ public sealed partial class ReceiveWalkFollowUpTests
 {
     // ── The CW starting point says why, in the trace and the journal ──
 
+    // Since Sprint 49 Track K2 the figure is the median of the last few
+    // measurements, and the reason says of how many.
     [Theory]
-    [InlineData(4.17, "premium_cw", "Premium CW measured 4.17 ms at the 99th percentile, under the 5 ms line")]
-    [InlineData(8.0, "standard_cw", "Premium CW measured 8.00 ms at the 99th percentile, not under the 5 ms line")]
-    [InlineData(null, "premium_cw", "unmeasured default, no Premium CW figure on this machine")]
-    public void The_CW_starting_point_traces_and_journals_why_it_chose_its_model(double? cost, string model, string why)
+    [InlineData(4.17, 3, "premium_cw", "Premium CW measured 4.17 ms at the 99th percentile, the median of 3 measurements, under the 5 ms line")]
+    [InlineData(8.0, 1, "standard_cw", "Premium CW measured 8.00 ms at the 99th percentile, the median of 1 measurement, not under the 5 ms line")]
+    [InlineData(null, 0, "premium_cw", "unmeasured default, no Premium CW figure on this machine")]
+    public void The_CW_starting_point_traces_and_journals_why_it_chose_its_model(double? cost, int measurements, string model, string why)
     {
         using var f = new NoiseFixture();
         f.Cost.PremiumCw99thPercentileMs = cost;
+        f.Cost.Measurements = measurements;
         f.Noise.Attach("USB");
         f.Noise.Toggle("rnnoise", "test");
         var (journal, trace) = Capture(() => f.Noise.OnModeChanged("CW"));
 
         Assert.Equal(model, f.Pipeline.NeuralSlot.GetSetting("nnr", "model").Choice);
-        Assert.Equal(why, NoiseModeRules.CwModelReason(cost));
+        Assert.Equal(why, NoiseModeRules.CwModelReason(cost, measurements));
         // One trace line naming the model and why.
         Assert.Single(trace, l => l == $"NoiseController: the CW model rule chose {model} (CW starting point): {why}");
         // One journal entry for the model, after the starting point's own, labelled with why.
@@ -56,7 +59,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         var (journal, trace) = Capture(() => f.Noise.Toggle("nnr", "n2-choice"));
         var entry = journal.Single(e => e.Kind == NoiseJournalKind.Model);
         Assert.Equal("n2-choice", entry.Source);
-        Assert.Equal("Premium CW measured 4.17 ms at the 99th percentile, under the 5 ms line", entry.Label);
+        Assert.Equal("Premium CW measured 4.17 ms at the 99th percentile, the median of 1 measurement, under the 5 ms line", entry.Label);
         Assert.Contains(trace, l => l.StartsWith("NoiseController: the CW model rule chose premium_cw (n2-choice): ", StringComparison.Ordinal));
     }
 

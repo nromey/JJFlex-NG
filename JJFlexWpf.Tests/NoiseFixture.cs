@@ -82,6 +82,15 @@ internal sealed class NoiseFixture : IDisposable
     internal sealed class CwCost : INnrCwCostSource
     {
         public double? PremiumCw99thPercentileMs { get; set; }
+        /// <summary>How many measurements the figure is the median of (Sprint 49 Track K2); 1 by default, and 0 whenever there is no figure.</summary>
+        public int Measurements { get; set; } = 1;
+        /// <summary>How many times the controller read the source.</summary>
+        public int Reads { get; private set; }
+        public NnrCwCost ReadPremiumCw()
+        {
+            Reads++;
+            return new NnrCwCost(PremiumCw99thPercentileMs, PremiumCw99thPercentileMs is null ? 0 : Measurements);
+        }
     }
 
     internal sealed class Engine : IDenoiseEngine

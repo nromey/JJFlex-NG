@@ -420,11 +420,52 @@ public sealed class HelperModelCostTests : IDisposable
         Assert.Equal((model, true, fast), NoiseModeRules.ChooseCwModel(source));
     }
 
+    // Sprint 49 Track K2, X11: the middle of the last few measurements, so one
+    // busy moment does not decide. Saved oldest first; the last figure is the
+    // newest. Each row is chosen so the newest alone, or the mean, would decide
+    // differently from the median.
+    [Theory]
+    [InlineData(new[] { 4.0, 4.5, 788.0 }, 4.5, 3, "premium_cw")]                  // one busy start: the newest alone would say Standard
+    [InlineData(new[] { 5.2, 8.2, 4.0, 80.0, 4.1 }, 5.2, 5, "standard_cw")]        // three of five busy: the newest alone would say Premium
+    [InlineData(new[] { 9.0, 9.0, 9.0, 4.0, 4.0, 4.0, 9.0 }, 4.0, 5, "premium_cw")] // only the last five count
+    [InlineData(new[] { 4.0, 6.0 }, 5.0, 2, "standard_cw")]                        // an even count: halfway between the middle two
+    [InlineData(new[] { 4.2 }, 4.2, 1, "premium_cw")]
+    public void The_rule_reads_the_median_of_the_kept_measurements(double[] p99Ms, double median, int count, string model)
+    {
+        var store = NewStore();
+        for (int i = 0; i < p99Ms.Length; i++)
+        {
+            var r = At(HelperModelCostStore.ThisArchitecture, i, (long)Math.Round(p99Ms[i] * 1e6));
+            Assert.Equal(HelperModelCostSave.Saved, store.Save(r));
+        }
+        var source = new MeasuredNnrCwCost(() => NewStore());
+        var read = source.ReadPremiumCw();
+        Assert.Equal(median, read.Ms!.Value, 9);
+        Assert.Equal(count, read.Measurements);
+        Assert.Equal(median, source.PremiumCw99thPercentileMs!.Value, 9);
+        Assert.Equal(model, NoiseModeRules.ChooseCwModel(source).Model);
+    }
+
+    [Fact]
+    public void A_measurement_without_Premium_CW_gives_no_figure_and_is_not_counted()
+    {
+        var store = NewStore();
+        store.Record(At(HelperModelCostStore.ThisArchitecture, 1, 4_000_000));
+        var missing = At(HelperModelCostStore.ThisArchitecture, 2, 0);
+        missing.Slots[0].Frames = 0; missing.Slots[0].MedianNanos = 0;
+        store.Record(missing);
+        store.Record(At(HelperModelCostStore.ThisArchitecture, 3, 8_000_000));
+        store.Record(At(HelperModelCostStore.ThisArchitecture, 4, 8_000_000));
+        Assert.Equal(4, store.FindRecent().Count);
+        Assert.Equal(new NnrCwCost(8.0, 3), new MeasuredNnrCwCost(() => NewStore()).ReadPremiumCw());
+    }
+
     [Fact]
     public void No_figure_keeps_the_ruled_unmeasured_default()
     {
         var none = new MeasuredNnrCwCost(() => NewStore());
         Assert.Null(none.PremiumCw99thPercentileMs);
+        Assert.Equal(new NnrCwCost(null, 0), none.ReadPremiumCw());
         Assert.Equal((NoiseModeRules.UnmeasuredCwModel, false, false), NoiseModeRules.ChooseCwModel(none));
         Assert.Null(new MeasuredNnrCwCost(() => null).PremiumCw99thPercentileMs);
 

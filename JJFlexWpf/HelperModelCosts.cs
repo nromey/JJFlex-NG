@@ -317,10 +317,14 @@ namespace JJFlexWpf
     }
 
     /// <summary>
-    /// Premium CW's cost as the helper last measured it on this machine, for
-    /// the CW starting point's rule (<see cref="NoiseModeRules.ChooseCwModel"/>).
-    /// No measurement, or one in which Premium CW was not measured, is null,
-    /// which keeps the ruled unmeasured default.
+    /// Premium CW's cost on this machine, for the CW model rule
+    /// (<see cref="NoiseModeRules.ChooseCwModel(INnrCwCostSource)"/>): the
+    /// median of its 99th percentile over the measurements the store keeps
+    /// for this architecture (Sprint 49 Track K2, ruled 2026-11-19, X11: "the
+    /// middle of the last few measurements", so one busy moment does not
+    /// decide it). A measurement in which Premium CW was not measured gives no
+    /// figure and is not counted. None at all is null, which keeps the ruled
+    /// unmeasured default.
     /// </summary>
     public sealed class MeasuredNnrCwCost : INnrCwCostSource
     {
@@ -331,13 +335,26 @@ namespace JJFlexWpf
 
         internal MeasuredNnrCwCost(Func<HelperModelCostStore?> store) => _store = store;
 
-        public double? PremiumCw99thPercentileMs
+        public double? PremiumCw99thPercentileMs => ReadPremiumCw().Ms;
+
+        /// <summary>The median and how many measurements it was taken from, from one read of the store.</summary>
+        public NnrCwCost ReadPremiumCw()
         {
-            get
-            {
-                var slot = _store()?.Find()?.Measured("nnr", NoiseModeRules.NnrPremiumCw);
-                return slot == null ? null : slot.P99Nanos / 1e6;
-            }
+            var records = _store()?.FindRecent() ?? Array.Empty<HelperModelCostRecord>();
+            var figures = records.Select(r => r.Measured("nnr", NoiseModeRules.NnrPremiumCw))
+                .Where(s => s != null).Select(s => s!.P99Nanos / 1e6).ToList();
+            return figures.Count == 0 ? new NnrCwCost(null, 0) : new NnrCwCost(Median(figures), figures.Count);
+        }
+
+        /// <summary>
+        /// The middle figure; with an even count, halfway between the two middle
+        /// ones (the ordinary median).
+        /// </summary>
+        internal static double Median(IReadOnlyList<double> figures)
+        {
+            var sorted = figures.OrderBy(f => f).ToList();
+            int mid = sorted.Count / 2;
+            return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
         }
     }
 }

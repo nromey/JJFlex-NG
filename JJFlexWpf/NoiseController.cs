@@ -566,12 +566,14 @@ namespace JJFlexWpf
         /// (Sprint 49 Track N2): the figure read against the line, or the
         /// unmeasured default. The figure is read once, so the trace and the
         /// choice cannot disagree. Every road that asks the rule asks here.
+        /// Since Sprint 49 Track K2 the figure is the median of the last few
+        /// measurements, and the line says of how many.
         /// </summary>
         private (string Model, bool Measured, bool Fast, string Why) ChooseCwModel(string road)
         {
-            double? cost = _cwCost.PremiumCw99thPercentileMs;
-            var (model, measured, fast) = NoiseModeRules.ChooseCwModel(cost);
-            string why = NoiseModeRules.CwModelReason(cost);
+            var cost = _cwCost.ReadPremiumCw();
+            var (model, measured, fast) = NoiseModeRules.ChooseCwModel(cost.Ms);
+            string why = NoiseModeRules.CwModelReason(cost.Ms, cost.Measurements);
             System.Diagnostics.Trace.WriteLine($"NoiseController: the CW model rule chose {model} ({road}): {why}");
             return (model, measured, fast, why);
         }
