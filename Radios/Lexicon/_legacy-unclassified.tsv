@@ -775,8 +775,6 @@ audio.noise.select_a_profile_first	97cd88dfd1de35ae
 audio.noise.turn_a_stage_on_first	e5a22d6dca6805f9
 audio.noise_layer.closed	e663ff9d842c0927
 audio.noise_layer.name	5ec924031fb3708f
-audio.noise_layer.restored	fab82e037a83d7dd
-audio.noise_layer.restored_nothing	14202a48f299105f
 audio.noise_profiles.folder_open_failed	a5594d59d1604d54
 audio.noise_profiles.folder_opened	f878fca5d748d15b
 audio.nr.advanced_available_reopen	c74945fe6aa7e234

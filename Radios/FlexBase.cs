@@ -4897,6 +4897,10 @@ namespace Radios
                             _RXFrequency = LibFreqtoLong(s.Freq);
                             _RXMode = s.DemodMode;
                             _RXVFO = SliceToVFO(s);
+                            // The radio's own report moves the selection as surely
+                            // as the app's setter (repair 4); a repeat of the
+                            // current slice is not counted.
+                            NoteReceiveSliceSelection("radio report");
                             s.Panadapter.GetRFGainInfo();
                             FilterObj.RXFreqChange(s);
                             EscStateChanged?.Invoke();
@@ -6426,6 +6430,8 @@ namespace Radios
                     // Re-derive VFO positions from slice identity.
                     if (rxSlice != null) _RXVFO = mySlices.IndexOf(rxSlice);
                     if (txSlice != null) _TXVFO = mySlices.IndexOf(txSlice);
+                    // A reindex of the same slice is not a change (repair 4).
+                    NoteReceiveSliceSelection("slice arrived");
                 }
                 Tracing.TraceLine("sliceAdded:mine " + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                 // Own-station evidence for the station coordinator. FlexLib
@@ -6453,6 +6459,7 @@ namespace Radios
                 {
                     Tracing.TraceLine("sliceAdded:activeSlice", TraceLevel.Info);
                     _RXVFO = SliceToVFO(slc);
+                    NoteReceiveSliceSelection("slice arrived active");
                     NoteActiveSliceAsFound(slc);
                 }
                 // A slice arrives ready, its status already parsed, so no property
@@ -6610,6 +6617,10 @@ namespace Radios
 
                             if (_RXVFO != oldRX || _TXVFO != oldTX)
                                 Tracing.TraceLine($"sliceRemoved:VFO re-derive RXVFO {oldRX}→{_RXVFO} TXVFO {oldTX}→{_TXVFO}", TraceLevel.Info);
+                            // By identity (repair 4): the selected slice removed is a
+                            // change even when its replacement takes the same
+                            // position; a lower slice removed only reindexes it.
+                            NoteReceiveSliceSelection("slice removed");
                         }
                     }
                     mySliceRemoved = true;
@@ -8798,6 +8809,72 @@ namespace Radios
             return ((vfo >= 0) & (vfo < MyNumSlices));
         }
 
+        private int _rxSliceChoices;
+        // The receive slice OBJECT the count last saw selected (guarded by
+        // mySlices). Compared by reference: a slice is its object, not its
+        // position, which a roster change shifts (QB Track J).
+        private Slice _rxSliceSeen;
+
+        /// <summary>
+        /// How many times the selected receive slice has CHANGED, by identity
+        /// (Sprint 49 Track N2 repair 4, Codex's third re-check): every effective
+        /// change, whoever made it: the app's <see cref="RXVFO"/> setter (which
+        /// JumpToSlice, <see cref="CurVFO"/> and the operator switch reach), the
+        /// radio's own ActiveSlice report, a slice arriving active, the selected
+        /// slice removed, or the slice identity restored after an allocation.
+        /// A pending memory recall is retired by any of them: the slice alone
+        /// cannot see a move away and back, because the round trip restores it.
+        /// A duplicate report of the current slice, or the same slice merely
+        /// moving to another position when a lower one comes or goes, is not a
+        /// change and is not counted. Reading it first catches up with any
+        /// writer that did not say so (a safety net; every known writer does).
+        /// </summary>
+        public int RXSliceChoices
+        {
+            get
+            {
+                NoteReceiveSliceSelection("read");
+                return System.Threading.Volatile.Read(ref _rxSliceChoices);
+            }
+        }
+
+        /// <summary>
+        /// The selected receive slice's identity: the slice object itself, or
+        /// null when none is selected. Stable across roster changes that only
+        /// reindex it, unlike <see cref="RXVFO"/>, which is a list position
+        /// (repair 4: a position confused a replacement at the same position
+        /// with the same slice, and a reindex of the same slice with a move).
+        /// </summary>
+        public object RXSliceIdentity
+        {
+            get
+            {
+                lock (mySlices)
+                    return ((_RXVFO >= 0) && (_RXVFO < mySlices.Count)) ? mySlices[_RXVFO] : null;
+            }
+        }
+
+        /// <summary>
+        /// Count a change of the selected receive slice, when the slice now
+        /// selected is a different object from the one last seen. Called by
+        /// every writer of the receive slice position and of the roster, after
+        /// its write.
+        /// </summary>
+        internal void NoteReceiveSliceSelection(string why)
+        {
+            Slice was, now;
+            int choices;
+            lock (mySlices)
+            {
+                now = ((_RXVFO >= 0) && (_RXVFO < mySlices.Count)) ? mySlices[_RXVFO] : null;
+                if (ReferenceEquals(now, _rxSliceSeen)) return;
+                was = _rxSliceSeen;
+                _rxSliceSeen = now;
+                choices = System.Threading.Interlocked.Increment(ref _rxSliceChoices);
+            }
+            Tracing.TraceLine($"RXSlice:selection {was?.Letter ?? "none"}→{now?.Letter ?? "none"} ({why}) choices={choices}", TraceLevel.Info);
+        }
+
         // Note that VFOToSlice(RXVFO) is the ActiveSlice.
         internal int _RXVFO = noVFO;
         public int RXVFO
@@ -8809,6 +8886,8 @@ namespace Radios
                 {
                     int old = _RXVFO;
                     _RXVFO = value;
+                    // Counted before anything is sent (repair 3), by identity (repair 4).
+                    NoteReceiveSliceSelection("setter");
                     Tracing.TraceLine($"RXVFO:{old}→{value} valid={ValidVFO(value)} slices={MyNumSlices}", TraceLevel.Info);
                     if (ValidVFO(value))
                     {
@@ -9070,6 +9149,19 @@ namespace Radios
         private readonly FrequencyEchoGuard _rxFreqEcho = new FrequencyEchoGuard("RX");
         private readonly FrequencyEchoGuard _txFreqEcho = new FrequencyEchoGuard("TX");
 
+        private int _rxFrequencyRequests;
+
+        /// <summary>
+        /// How many times the app has asked for a receive frequency (every write
+        /// of <see cref="RXFrequency"/>, which <see cref="Frequency"/> and, while
+        /// it shows receive, <see cref="VirtualRXFrequency"/> reach), counted before anything
+        /// is sent. A pending memory recall is retired by any of them (Sprint 49
+        /// Track N2 repair 2, Codex's R1): a tune can leave no mark in the
+        /// radio's reported state, because the radio's later report of the
+        /// recall's own frequency overwrites the tune's cached value.
+        /// </summary>
+        public int RXFrequencyRequests => System.Threading.Volatile.Read(ref _rxFrequencyRequests);
+
         private ulong _RXFrequency;
         public ulong RXFrequency
         {
@@ -9079,6 +9171,7 @@ namespace Radios
             }
             set
             {
+                System.Threading.Interlocked.Increment(ref _rxFrequencyRequests);
                 ulong replaced = _RXFrequency;
                 _RXFrequency = value;
                 if (!ValidVFO(RXVFO))

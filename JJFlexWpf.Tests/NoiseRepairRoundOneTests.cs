@@ -472,7 +472,9 @@ public sealed class NoiseRepairRoundOneTests
         Assert.True(gate > 0);
         string gateBody = noise.Substring(gate, noise.IndexOf("Gate();", gate + 12, StringComparison.Ordinal) - gate);
         Assert.DoesNotContain("_advancedDelays", gateBody);
-        Assert.Contains("foreach (string row in MeasuredDelayRows(Noise)) _advancedDelays.Items.Add(row);", noise);
+        // The refill now leaves rows that read the same in place (Sprint 49
+        // Track N2: a refill under a focused row destroyed it).
+        Assert.Contains("FillRowsKeepingPlace(_advancedDelays, MeasuredDelayRows(Noise));", noise);
     }
 
     [Theory]

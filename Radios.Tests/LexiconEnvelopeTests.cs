@@ -2630,6 +2630,10 @@ namespace Radios.Tests
                 // Escape keeps a change made elsewhere. Placeholders for Codex.
                 "audio.noise_layer.restored_kept_elsewhere",
                 "audio.noise_layer.restored_nothing_kept_elsewhere",
+                // Sprint 49 Track N2 words (2026-11-19, Noel's W1, Codex's set A): the two
+                // older closing sentences, reworded with their siblings, so classified.
+                "audio.noise_layer.restored",
+                "audio.noise_layer.restored_nothing",
                 // Reworded by the JJ Flex naming sweep (#851), so classified.
                 "audio.micprofile.create_reason",
                 "audio.micprofile.load_reason",
@@ -2681,7 +2685,9 @@ namespace Radios.Tests
             // 3,133: main's junk box classified two (3,140 to 3,138) and Check
             // your audio five (3,140 to 3,135); the two sets are disjoint.
             // Sprint 49 Track E: 8 unclassified entries reworded and classified, 8 retired.
-            Assert.Equal(3079, unclassified);
+            // Sprint 49 Track N2 words (2026-11-19, W1): audio.noise_layer.restored and
+            // restored_nothing reworded to Codex's set A and classified (3,079 to 3,077).
+            Assert.Equal(3077, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

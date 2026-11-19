@@ -144,12 +144,30 @@ namespace JJFlexWpf
         public static bool IsCwModel(string? model) => model is NnrStandardCw or NnrPremiumCw;
 
         /// <summary>The CW model to start with, and whether it rests on a measurement.</summary>
-        public static (string Model, bool Measured, bool Fast) ChooseCwModel(INnrCwCostSource source)
+        public static (string Model, bool Measured, bool Fast) ChooseCwModel(INnrCwCostSource source) =>
+            ChooseCwModel(source.PremiumCw99thPercentileMs);
+
+        /// <summary>The same rule from one reading of the figure, so a caller that also says why reads the source once (Sprint 49 Track N2).</summary>
+        public static (string Model, bool Measured, bool Fast) ChooseCwModel(double? cost)
         {
-            double? cost = source.PremiumCw99thPercentileMs;
             if (cost is not double ms || !double.IsFinite(ms)) return (UnmeasuredCwModel, false, false);
             bool fast = ms < PremiumCwBudgetMs;
             return (fast ? NnrPremiumCw : NnrStandardCw, true, fast);
+        }
+
+        /// <summary>
+        /// Why the rule chose as it did, for the trace and the noise journal
+        /// (Sprint 49 Track N2; before this only the spoken sentence said why):
+        /// the measured figure against the line, or the unmeasured default.
+        /// Diagnostic text, never spoken.
+        /// </summary>
+        public static string CwModelReason(double? cost)
+        {
+            var (_, measured, fast) = ChooseCwModel(cost);
+            if (!measured) return "unmeasured default, no Premium CW figure on this machine";
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            return "Premium CW measured " + cost!.Value.ToString("0.00", inv) + " ms at the 99th percentile, "
+                + (fast ? "under" : "not under") + " the " + PremiumCwBudgetMs.ToString("0.##", inv) + " ms line";
         }
     }
 }

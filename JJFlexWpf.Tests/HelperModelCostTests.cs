@@ -473,7 +473,8 @@ public sealed class HelperModelCostTests : IDisposable
     // ------------------------------------------------------------------ the real helper
 
     /// <summary>
-    /// The real helper, built from its repository: after the handshake it
+    /// The real helper, named by JJFLEX_WDSP_HELPER (not run otherwise, with
+    /// the reason; see <see cref="HelperLifecycleTests.ExplicitRealHelper(out string)"/>): after the handshake it
     /// reports every model slot, each listed slot measured over as many frames
     /// as the handshake's own figure, the default model's figures the
     /// handshake's, and JJ Flexible remembers them. Prints this machine's
@@ -482,8 +483,11 @@ public sealed class HelperModelCostTests : IDisposable
     [Fact]
     public void Real_helper_reports_every_model_slots_cost_and_it_is_remembered()
     {
-        string? path = HelperLifecycleTests.RealHelper();
-        if (path == null) { _out.WriteLine("NOT RUN: the real helper is not built on this machine (set JJFLEX_WDSP_HELPER to its path)"); return; }
+        // Only a helper named explicitly: an older default build without
+        // ModelCosts is supported, not broken (Sprint 49 Track N2 repair 1).
+        // A named helper keeps the strict timeout and every assertion below.
+        string? path = HelperLifecycleTests.ExplicitRealHelper(out string notRun);
+        if (path == null) { _out.WriteLine("NOT RUN: " + notRun); return; }
         _out.WriteLine("RAN against " + path);
         var store = NewStore();
         using var rig = new HelperTestRig(path: path, costStore: store);

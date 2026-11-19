@@ -705,6 +705,8 @@ public partial class NativeMenuBar : IDisposable
         bool radio = Rig != null;
         string R(string text) => Radios.AudioMenuLayout.MarkNeedsRadio(text, radio);
         var noise = _window.Noise;
+        // The Presets submenus below follow the store (Sprint 49 Track N2).
+        FollowNoiseStores(noise);
 
         foreach (var e in noise.Engines(group))
         {

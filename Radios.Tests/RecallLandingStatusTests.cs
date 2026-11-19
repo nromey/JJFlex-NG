@@ -53,16 +53,21 @@ namespace Radios.Tests
             int select = main.IndexOf("dialog.SelectMemory = (memRef) =>", StringComparison.Ordinal);
             Assert.True(select >= 0);
             string body = main.Substring(select, main.IndexOf("dialog.FormatFrequency", select, StringComparison.Ordinal) - select);
-            int recorded = body.IndexOf("_recallAskedFor = ", StringComparison.Ordinal);
+            // Repair 2 (Codex's R1): the radio's reading is taken at the action,
+            // before the request, and the recall bound to it after.
+            int before = body.IndexOf("BuildDetailedStatus(rig)", StringComparison.Ordinal);
             int asked = body.IndexOf("AskRadioForMode(() => mem.Select());", StringComparison.Ordinal);
-            Assert.True(recorded >= 0 && asked > recorded, "the recall records what it asks for before it asks");
+            int recorded = body.IndexOf("_pendingRecall = new Radios.PendingRecall(", StringComparison.Ordinal);
+            Assert.True(before >= 0 && asked > before, "the recall reads where the radio is before it asks");
+            Assert.True(recorded > asked, "and records itself after its own request");
             int landing = main.IndexOf("private void RunReturnToAppLanding(", StringComparison.Ordinal);
             Assert.True(landing >= 0);
             string land = main.Substring(landing, 6000);
             int take = land.IndexOf("var asked = TakeRecallAskedFor();", StringComparison.Ordinal);
             int firstReturn = land.IndexOf("return;", StringComparison.Ordinal);
             Assert.True(take >= 0 && take < firstReturn, "taken before any guard can return");
-            Assert.Contains("BuildSpokenStatus(rig, asked?.FrequencyHz, asked?.Mode)", land);
+            // One capture builds the text and its replay answer (Sprint 49 Track N2 repair 1).
+            Assert.Contains("CaptureSpokenStatus(rig, asked)", land);
         }
 
         private static string Source(params string[] path)

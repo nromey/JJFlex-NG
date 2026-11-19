@@ -694,20 +694,32 @@ namespace JJFlexWpf
             if (Math.Abs(slot.GetStrength(id) - strength) > 0.0001)
                 changes.Add(new NoiseJournalChange(id, FloorKey, FloorText(slot.GetStrength(id)), FloorText(strength)));
             slot.SetStrength(id, strength);
+            // Why the CW model rule chose, when it chose a model this entry changes:
+            // carried in the one compound entry's label, never a second entry
+            // (Sprint 49 Track N2 repair 1, Codex's F3).
+            string? cwModelWhy = null;
             foreach (var d in e.Settings)
             {
                 var target = DefaultFor(e, d);
+                string? why = null;
                 // NNR's model only: in CW it returns to the CW model the rule picks.
                 // RNNoise's model has no CW rule (#1015, nothing ruled) and returns to its default.
-                if (e.Id == "nnr" && d.Name == "model" && CurrentGroup == NoiseModeGroup.Cw) target = new EngineSettingValue(0, NoiseModeRules.ChooseCwModel(_cwCost).Model);
+                if (e.Id == "nnr" && d.Name == "model" && CurrentGroup == NoiseModeGroup.Cw)
+                {
+                    var chosen = ChooseCwModel(source);
+                    target = new EngineSettingValue(0, chosen.Model);
+                    why = chosen.Why;
+                }
                 var was = slot.GetSetting(id, d.Name);
                 if (!Same(was, target))
                 {
                     slot.TrySetSetting(id, d.Name, target);
                     changes.Add(new NoiseJournalChange(id, d.Name, Describe(was), Describe(target)));
+                    cwModelWhy ??= why;
                 }
             }
-            NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.ReturnToDefaults, source, false, changes, name));
+            NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.ReturnToDefaults, source, false, changes,
+                cwModelWhy == null ? name : name + "; CW model: " + cwModelWhy));
             if (e.Id == "nr2") RememberNr2Tracking();
             _persist();
             foreach (var lever in Levers(id, includeAdvanced: false))

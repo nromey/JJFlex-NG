@@ -516,13 +516,15 @@ namespace Radios
         /// digit typed so far, in order, rather than only the last one.
         /// </param>
         /// <param name="stillValid">
-        /// Urgent only. The producer's answer to whether the PRESENT state this
-        /// sentence claims still holds, asked before every automatic replay of
-        /// an unheard copy. A transmit-cut sentence says the operator is no
-        /// longer on the air; keyed again, that is false, and the copy is
+        /// Urgent and Queue. The producer's answer to whether the PRESENT state
+        /// this sentence claims still holds, asked before every automatic
+        /// replay of an unheard copy. A transmit-cut sentence says the operator
+        /// is no longer on the air; keyed again, that is false, and the copy is
         /// withdrawn rather than rescued into the new transmission (Astra's
-        /// Track IJK review, blocker 6). Null where the sentence makes no such
-        /// claim.
+        /// Track IJK review, blocker 6). A queued status sentence ("Listening on
+        /// ...") is dropped rather than salvaged once the radio has moved
+        /// (Sprint 49 Track N2). Null where the sentence makes no such claim.
+        /// Ignored for Latest and Interrupt, which retain nothing to replay.
         /// </param>
         public static void Speak(
             string message,
@@ -579,7 +581,10 @@ namespace Radios
                     return;
 
                 case Speech.SpeechIntent.Queue:
-                    _arbiter.Emit(message, interrupt: false, intent, level, origin, subject, additive);
+                    if (stillValid != null)
+                        _arbiter.EmitQueuedWhileTrue(message, intent, level, origin, subject, additive, stillValid);
+                    else
+                        _arbiter.Emit(message, interrupt: false, intent, level, origin, subject, additive);
                     return;
 
                 default:
