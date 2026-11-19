@@ -152,4 +152,83 @@ public sealed class SwitchRendersTests
                 }
         File.WriteAllText(Path.Combine(dir, "measured.txt"), notes.ToString());
     }
+
+    // ── Repair 2: the retime, for Noel's ear ──
+
+    /// <summary>
+    /// One engine running ("rnnoise", 480 samples, the same colouring as above)
+    /// held at <paramref name="fromHeld"/>; at <paramref name="atBuffer"/> the
+    /// shared plan changes to <paramref name="toHeld"/> and the slot retimes the
+    /// running engine on the shared ramp. No engine switch happens.
+    /// </summary>
+    private static float[] RenderRetime(float[] signal, int fromHeld, int toHeld, int atBuffer, out long retimeSample, out PcDenoiseSlot.RetimeNote? note)
+    {
+        DenoiseEngineEntry Row(string id, int d, float a, float b) => new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label",
+            new[] { DenoiseDirection.Receive }, (_, _) => new ColourEngine(id, d, a, b), () => Unavailability.None);
+        using var p = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("rnnoise", 480, 0.85f, 0.15f), Row("b", 3408, 1.1f, -0.2f) }));
+        var slot = p.NeuralSlot;
+        static SharedDelayPlan Plan(int n) => new(n, new[] { new ReceiveSharedDelay.Member("rnnoise", null), new ReceiveSharedDelay.Member("b", null) });
+        slot.SharedPlan = Plan(fromHeld);
+        slot.MuteOverrideForTest = false;
+        slot.SetStrength("rnnoise", 1); slot.SetStrength("b", 1);
+        p.RnnEnabled = true;
+        var output = new float[signal.Length];
+        var audio = new float[2 * F];
+        retimeSample = -1;
+        for (int b = 0; b * F + F <= signal.Length; b++)
+        {
+            if (b == atBuffer) slot.SharedPlan = Plan(toHeld);
+            for (int i = 0; i < F; i++) audio[2 * i] = audio[2 * i + 1] = signal[b * F + i];
+            bool before = slot.LastRetime != null;
+            p.Process(audio);
+            if (!before && slot.LastRetime != null) retimeSample = (long)b * F;
+            for (int i = 0; i < F; i++) output[b * F + i] = audio[2 * i];
+        }
+        note = slot.LastRetime;
+        return output;
+    }
+
+    /// <summary>
+    /// Codex's measure of the retime on a tone: the energy over the central 2 ms
+    /// of the 10 ms retime buffer against the same stretch of the tone itself,
+    /// in dB (0 is no dip).
+    /// </summary>
+    private static double CentreDb(float[] y, float[] x, long at, int held)
+    {
+        double e = 0, r = 0;
+        for (long i = at + 192; i < at + 288; i++) { e += y[i] * y[i]; double v = x[i - held]; r += v * v; }
+        return 10 * Math.Log10(Math.Max(e, 1e-12) / Math.Max(r, 1e-12));
+    }
+
+    [Fact]
+    public void Renders_the_retime_for_listening()
+    {
+        string? dir = Environment.GetEnvironmentVariable("JJFLEX_TRACKP_RENDER_DIR");
+        if (string.IsNullOrEmpty(dir)) { _out.WriteLine("NOT RUN: set JJFLEX_TRACKP_RENDER_DIR to a folder to write the renders"); return; }
+        Directory.CreateDirectory(dir);
+        int samples = 6 * Rate, atBuffer = 300; // the plan changes at 3 seconds
+        var materials = new (string Name, float[] Signal)[]
+        {
+            ("band-noise", BandNoise(samples, 1)),
+            ("voice", Voice(samples)),
+            ("tone500", Enumerable.Range(0, samples).Select(i => 0.3f * MathF.Sin(2 * MathF.PI * 500 * i / Rate)).ToArray()),
+        };
+        var notes = new StringBuilder();
+        foreach (var (name, signal) in materials)
+            foreach (var (from, to, kind) in new[] { (1440, 1008, "shrink"), (1008, 1440, "grow") })
+            {
+                var y = RenderRetime(signal, from, to, atBuffer, out long at, out var note);
+                Assert.True(at > 0, "the retime never happened");
+                Assert.True(note is { Faded: true } n && n.From == from && n.To == to, $"the retime was {note}");
+                string file = $"retime-{name}-{kind}-{from}to{to}.wav";
+                using (var w = new WaveFileWriter(Path.Combine(dir, file), new WaveFormat(Rate, 16, 1)))
+                    w.WriteSamples(y, 0, y.Length);
+                string line = $"{file}: retime at {at / (double)Rate:0.000} s, from {from} to {to} samples, correlation {note!.Value.R0:0.000}; " +
+                    $"level 5 ms around the retime {DipDb(y, at):0.0} dB below the second before it";
+                if (name == "tone500") line += $"; centre 2 ms of the fade {CentreDb(y, signal, at, from):0.0} dB against the tone";
+                notes.AppendLine(line);
+                _out.WriteLine(line);
+            }
+        File.WriteAllText(Path.Combine(dir, "retime-measured.txt"), notes.ToString());
+    }
 }

@@ -252,6 +252,7 @@ namespace JJFlexWpf
                 _runPad = new PadLine(MaxPadSamples, channels);
                 _warmPad = new PadLine(MaxPadSamples, channels);
                 _corr = new float[channels];
+                _retimeCorr = new float[channels];
             }
             // Every engine's default parameters, made here rather than on the audio thread (repair round 1).
             foreach (var row in catalog.Entries) DefaultParameters(row.Id);
@@ -609,9 +610,10 @@ namespace JJFlexWpf
             if (_warming != null)
             {
                 ApplyParameters(_warming.Bank, _warming.Choice.Id, ref _warming.Applied);
-                // Decided when the warm-up starts, and again if a new plan arrives while it warms (repair 1, B2).
+                // Decided when the warm-up starts, again if a new plan arrives while it warms (repair 1, B2),
+                // and again after the running engine retimed under it (repair 2, R1-B1).
                 var warmPlan = SharedPlan;
-                if (!ReferenceEquals(_warmDecidedFor, _warming) || !ReferenceEquals(_warmPlan, warmPlan)) DecideWarm(_warming, run, running, warmPlan);
+                if (!ReferenceEquals(_warmDecidedFor, _warming) || !ReferenceEquals(_warmPlan, warmPlan) || _warmStale) DecideWarm(_warming, run, running, warmPlan);
                 if (_nextAudio.Length != audio.Length) _nextAudio = new float[audio.Length];
                 audio.CopyTo(_nextAudio, 0);
                 long late = _warming.Bank.LateFrames, failed = _warming.Bank.FallbackFrames;
@@ -630,13 +632,25 @@ namespace JJFlexWpf
                     return;
                 }
                 string? processedBy = running == null ? "" : null;
+                bool retimed = false;
                 if (running != null)
                 {
                     long runningTook = running.EngineFrames, runningFailed = running.FallbackFrames;
                     running.Process(audio, GetStrength(run!.Id));
-                    if (_held >= 0) _runPad!.Process(audio, _held - running.LatencySamples);
+                    // The audible engine follows a new plan while another warms, exactly
+                    // as when nothing warms (repair 2, R1-B1). A warm-up can last as long
+                    // as the incoming engine stays late, which has no bound, so a plan
+                    // waiting for the switch could wait forever.
+                    int heldWas = _held, basisWas = _heldBasis;
+                    CheckPlan(run!, running);
+                    PadRunning(audio, running);
+                    retimed = _held != heldWas || _heldBasis != basisWas;
                     processedBy = ProcessedBy(running, run.Id, runningTook, runningFailed);
                 }
+                // The hold the warm-up was decided against has moved: decide it again
+                // on the next buffer, with a fresh correlation, and do not switch on
+                // this one (its running output is the retime's fade).
+                if (retimed) { _warmStale = true; _haveCorrelation = false; }
                 if (produced) _warmSamples += audio.Length / _channels;
                 else _warmSamples = 0;
                 // Long enough that the incoming bank's padded output is real audio
@@ -644,7 +658,7 @@ namespace JJFlexWpf
                 // plus the window, never under today's 100 ms).
                 int need = _sampleRate / 10;
                 if (_warmTarget >= 0) need = Math.Max(need, _warmTarget + 2 * (audio.Length / _channels));
-                if (_warmSamples >= need && (!_warmAligned || _haveCorrelation) && ReferenceEquals(choice, Volatile.Read(ref _choice)))
+                if (!retimed && _warmSamples >= need && (!_warmAligned || _haveCorrelation) && ReferenceEquals(choice, Volatile.Read(ref _choice)))
                 {
                     InstallHook?.Invoke("before-running-id");
                     bool mute = (MuteOverrideForTest ?? SwitchMuteEnabled) && running != null;
@@ -662,6 +676,8 @@ namespace JJFlexWpf
                     // The hold now rests on the plan the warm-up was decided on, which is the one in force (repair 1, B2).
                     _heldBasis = _warmBasis;
                     _planSeen = _warmPlan;
+                    // The switch lands the plan it was decided on, so a retime still waiting is dropped.
+                    _retimePending = false;
                     if (mute) { _muteLeft = MuteSamples; _rampLeft = MuteRampSamples; }
                     // One reference: the bank, its id and its build, made on the
                     // worker, so nothing is allocated here and no reader can see
@@ -678,7 +694,7 @@ namespace JJFlexWpf
                     if (processedBy != null) Volatile.Write(ref _processingId, processedBy);
                     return;
                 }
-                if (_warmAligned) { AlignedSwitch.Correlation(audio, _nextAudio.AsSpan(0, audio.Length), _channels, _corr); _haveCorrelation = true; }
+                if (_warmAligned && !retimed) { AlignedSwitch.Correlation(audio, _nextAudio.AsSpan(0, audio.Length), _channels, _corr); _haveCorrelation = true; }
                 ApplyMute(audio);
                 if (processedBy != null) Volatile.Write(ref _processingId, processedBy);
                 return;
@@ -883,8 +899,12 @@ namespace JJFlexWpf
         private PadLine? _runPad, _warmPad;
         private int _held = -1, _warmTarget = -1;
         private Built? _warmDecidedFor;
-        private bool _warmAligned, _haveCorrelation;
+        private bool _warmAligned, _haveCorrelation, _warmStale;
         private float[] _corr = Array.Empty<float>();
+        // The retime's own scratch (repair 2): a retime can now run while a switch
+        // warms, and must not overwrite the incoming engine's output or its correlation.
+        private float[] _retimeAudio = Array.Empty<float>();
+        private float[] _retimeCorr = Array.Empty<float>();
         private int _muteLeft, _rampLeft;
 
         // Which plan the hold was decided on (repair 1, B2). The BASIS is what a
@@ -924,6 +944,7 @@ namespace JJFlexWpf
             else { _held = -1; _heldBasis = -1; }
             _retimePending = false;
             _warmDecidedFor = null;
+            _warmStale = false;
             _muteLeft = 0; _rampLeft = 0;
         }
 
@@ -949,8 +970,15 @@ namespace JJFlexWpf
         /// A hold from an EARLIER plan is never inherited (repair 1, B2): the
         /// incoming engine takes the current plan's figure, and the switch is
         /// aligned only if that happens to be the delay held now. Otherwise the
-        /// switch itself moves time, once, as today's switch does. A pending
-        /// retime is dropped: the switch lands the current plan.
+        /// switch itself moves time, once, as today's switch does.
+        /// </para>
+        /// <para>
+        /// A pending retime is NOT dropped here (repair 2, R1-B1): the running
+        /// engine keeps following the plan while this engine warms, because a
+        /// late incoming engine can keep the warm-up going indefinitely. When that
+        /// retime lands, the decision is made again against the hold it left, so
+        /// the incoming target and the aligned decision agree with what is heard.
+        /// The switch itself drops a retime still waiting when it completes.
         /// </para>
         /// </summary>
         private void DecideWarm(Built warming, RunningBuild? run, PerChannelDenoiserBank? running, SharedDelayPlan plan)
@@ -958,7 +986,7 @@ namespace JJFlexWpf
             bool first = !ReferenceEquals(_warmDecidedFor, warming);
             _warmDecidedFor = warming;
             _warmPlan = plan;
-            _retimePending = false;
+            _warmStale = false;
             int own = warming.Bank.LatencySamples;
             string? model = ModelOf(warming.Running?.Initial);
             bool incomingIn = _warmPad != null && plan.Contains(warming.Choice.Id, model);
@@ -1036,15 +1064,15 @@ namespace JJFlexWpf
                 int oldPad = Effective(_held, own) - own, newPad = Effective(_retimeTarget, own) - own;
                 if (_runPad.Filled >= newPad)
                 {
-                    if (_nextAudio.Length != audio.Length) _nextAudio = new float[audio.Length];
-                    var next = _nextAudio.AsSpan(0, audio.Length);
+                    if (_retimeAudio.Length != audio.Length) _retimeAudio = new float[audio.Length];
+                    var next = _retimeAudio.AsSpan(0, audio.Length);
                     _runPad.ProcessTwo(audio, oldPad, next, newPad);
-                    AlignedSwitch.Correlation(audio, next, _channels, _corr);
+                    AlignedSwitch.Correlation(audio, next, _channels, _retimeCorr);
                     bool faded = CrossFadeEnabled;
-                    if (faded) AlignedSwitch.Fade(audio, next, _channels, _corr);
+                    if (faded) AlignedSwitch.Fade(audio, next, _channels, _retimeCorr);
                     else next.CopyTo(audio);
                     var note = new RetimeNote(Effective(_held, own), Effective(_retimeTarget, own),
-                        _channels > 0 ? _corr[0] : 0, _channels > 1 ? _corr[1] : 0, faded);
+                        _channels > 0 ? _retimeCorr[0] : 0, _channels > 1 ? _retimeCorr[1] : 0, faded);
                     LastRetime = note;
                     Volatile.Write(ref _held, _retimeTarget);
                     _heldBasis = _retimeBasis;

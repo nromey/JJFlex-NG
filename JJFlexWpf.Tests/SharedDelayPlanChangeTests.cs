@@ -129,16 +129,22 @@ public sealed class SharedDelayPlanChangeTests
         rig.Feed(Ramp, 40, o);
         Assert.Equal(3894, rig.Slot.HeldSamples);
 
-        // No buffer between the new plan and the switch: the running engine
-        // never got to retime, so the switch itself must land the new plan.
+        // No buffer between the new plan and the switch. Repair 1 had the
+        // switch itself land the new plan, unaligned. Since repair 2 (R1-B1)
+        // the running engine follows the plan while the switch warms, so it
+        // retimes on the warm-up's first buffer, and the switch is then decided
+        // again against that hold and is aligned. Either way time moves once,
+        // by 3,894 to 1,440, and the old hold is never inherited.
         rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
         rig.ChooseB();
+        int retimeAt = o.Count;
         rig.Feed(Ramp, 40, o, "b");
-        _out.WriteLine($"held {rig.Slot.HeldSamples}, switch {rig.Slot.LastSwitch}");
+        _out.WriteLine($"held {rig.Slot.HeldSamples}, retime {rig.Slot.LastRetime}, switch {rig.Slot.LastSwitch}");
         Assert.Equal(1440, rig.Slot.HeldSamples);
-        // Time moved once (3,894 to 1,440) at the switch, so it is not called aligned.
-        Assert.True(rig.Slot.LastSwitch is { Aligned: false, Held: 1440 }, $"the switch was {rig.Slot.LastSwitch}");
-        Assert.Equal(1440, Lag(rig, o));
+        Assert.True(rig.Slot.LastRetime is { From: 3894, To: 1440, Faded: true }, $"the retime was {rig.Slot.LastRetime}");
+        Assert.True(rig.Slot.LastSwitch is { Aligned: true, Held: 1440 }, $"the switch was {rig.Slot.LastSwitch}");
+        // Time moved once, at the retime buffer; after it, through the switch, every sample is exactly 1,440 behind.
+        for (int i = retimeAt + F; i < o.Count; i++) Assert.Equal(i - 1440, (long)Math.Round(o[i] * Scale));
     }
 
     [Fact]
@@ -237,6 +243,181 @@ public sealed class SharedDelayPlanChangeTests
         // Every sample after the republishing is exactly 1,440 behind its input.
         for (int i = start; i < o.Count; i++)
             Assert.Equal(i - 1440, (long)Math.Round(o[i] * Scale));
+    }
+
+    // ── Repair 2, R1-B1: a plan change reaches the running engine while another warms ──
+
+    /// <summary>
+    /// An available engine that is late, by the interface's own late-frame
+    /// result, for its first <paramref name="lateFrames"/> frames (forever when
+    /// negative), then on time: a pure delay of <paramref name="delay"/> samples.
+    /// The helper engine does exactly this when its reply is not back by the
+    /// receive deadline (<c>WdspHelperEngine.ProcessFrame</c>).
+    /// </summary>
+    private sealed class LateEngine : IDenoiseEngine
+    {
+        private readonly float[] _ring;
+        private int _at, _lateLeft;
+        private readonly bool _forever;
+        public LateEngine(string id, int delay, int lateFrames)
+        { Id = id; _ring = new float[delay]; LatencySamples = delay; _lateLeft = lateFrames; _forever = lateFrames < 0; }
+        public string Id { get; }
+        public int SampleRate => 48000;
+        public int FrameLength => F;
+        public int LatencySamples { get; }
+        public bool IsAvailable => true;
+        public IReadOnlyList<EngineSettingDescriptor> Settings => Array.Empty<EngineSettingDescriptor>();
+        public EngineSettingValue GetSetting(string name) => throw new ArgumentException(name);
+        public bool TrySetSetting(string name, EngineSettingValue value) => false;
+        public bool ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
+        {
+            for (int i = 0; i < input.Length; i++)
+            {
+                output[i] = _ring[_at];
+                _ring[_at] = input[i];
+                if (++_at == _ring.Length) _at = 0;
+            }
+            if (_forever) return false;
+            if (_lateLeft > 0) { _lateLeft--; return false; }
+            return true;
+        }
+        public void Reset() { Array.Clear(_ring); _at = 0; }
+        public void Dispose() { }
+    }
+
+    /// <summary>A receive pipeline running "rnnoise" (a 480-sample delay) that can switch to a late "b".</summary>
+    private sealed class LateRig : IDisposable
+    {
+        public RxAudioPipeline P { get; }
+        public PcDenoiseSlot Slot => P.NeuralSlot;
+        public long At;
+        public LateRig(int delayB, int lateFrames, SharedDelayPlan plan)
+        {
+            var catalog = new DenoiseEngineCatalog(new[]
+            {
+                new DenoiseEngineEntry("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
+                    (_, _) => new AlignedSwitchTests.DelayGainEngine("rnnoise", 480, 1), () => Unavailability.None),
+                new DenoiseEngineEntry("b", DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
+                    (_, _) => new LateEngine("b", delayB, lateFrames), () => Unavailability.None),
+            });
+            P = new RxAudioPipeline(catalog: catalog);
+            Slot.SharedPlan = plan;
+            Slot.MuteOverrideForTest = false;
+            Slot.SetStrength("rnnoise", 1);
+            Slot.SetStrength("b", 1);
+            P.RnnEnabled = true;
+        }
+
+        public void Feed(int buffers, List<float> output)
+        {
+            var audio = new float[2 * F];
+            for (int b = 0; b < buffers; b++)
+            {
+                for (int i = 0; i < F; i++) audio[2 * i] = audio[2 * i + 1] = Ramp(At + i);
+                P.Process(audio);
+                for (int i = 0; i < F; i++) output.Add(audio[2 * i]);
+                At += F;
+            }
+        }
+
+        public void ChooseB()
+        {
+            Assert.True(Slot.Select("b", out _));
+            var t = System.Diagnostics.Stopwatch.StartNew();
+            while (!Slot.BuildDelivered("b") && t.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(1);
+            Assert.True(Slot.BuildDelivered("b"), "b's bank was never delivered");
+        }
+
+        public long Lag(List<float> o) => (At - 1) - (long)Math.Round(o[^1] * Scale);
+        public void Dispose() => P.Dispose();
+    }
+
+    /// <summary>
+    /// Codex's reproduction from its re-check of <c>bcdf2f70</c>, adopted: with
+    /// an incoming engine that stays late, an empty plan never reached the
+    /// running engine, because the warm-up never finished and the plan was
+    /// applied only when nothing warmed. <c>warming: false</c> is Codex's
+    /// control, the identical case with no warm-up, which already passed.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Codex_R1_an_empty_plan_reaches_the_running_engine_while_the_incoming_one_stays_late(bool warming)
+    {
+        using var rig = new LateRig(1440, lateFrames: -1, Plan(1440, "rnnoise", "b"));
+        var o = new List<float>();
+        rig.Feed(40, o);
+        Assert.Equal(1440, rig.Slot.HeldSamples);
+        if (warming) { rig.ChooseB(); rig.Feed(1, o); }
+
+        rig.Slot.SharedPlan = SharedDelayPlan.None;
+        rig.Feed(100, o);
+        _out.WriteLine($"warming {warming}: running {rig.Slot.RunningEngineId}, held {rig.Slot.HeldSamples}, heard at {rig.Lag(o)}, retime {rig.Slot.LastRetime}");
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId); // b never finished warming
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+        Assert.Equal(480, rig.Lag(o));
+        Assert.True(rig.Slot.LastRetime is { From: 1440, To: 480, Faded: true }, $"the retime was {rig.Slot.LastRetime}");
+    }
+
+    /// <summary>
+    /// A retime already waiting when a switch begins is not dropped (repair 2):
+    /// an unpadded engine joins a plan, its line needs two buffers before the
+    /// longer delay is real audio, and a late engine is chosen after one. Repair
+    /// 1 dropped the waiting retime when the warm-up began, so with an incoming
+    /// engine that never comes on time the plan was never applied.
+    /// </summary>
+    [Fact]
+    public void A_retime_waiting_when_a_late_switch_begins_still_lands()
+    {
+        using var rig = new LateRig(1440, lateFrames: -1, SharedDelayPlan.None);
+        var o = new List<float>();
+        rig.Feed(40, o);
+        Assert.Equal(-1, rig.Slot.HeldSamples);
+
+        rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
+        rig.Feed(1, o);
+        Assert.Equal(-1, rig.Slot.HeldSamples); // waiting: the line holds 480 of the 960 it needs
+        rig.ChooseB();
+        rig.Feed(20, o);
+        _out.WriteLine($"running {rig.Slot.RunningEngineId}, held {rig.Slot.HeldSamples}, heard at {rig.Lag(o)}, retime {rig.Slot.LastRetime}");
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+        Assert.Equal(1440, rig.Slot.HeldSamples);
+        Assert.Equal(1440, rig.Lag(o));
+        Assert.True(rig.Slot.LastRetime is { From: 480, To: 1440, Faded: true }, $"the retime was {rig.Slot.LastRetime}");
+    }
+
+    /// <summary>
+    /// The incoming engine's decision follows the running engine's retime
+    /// (repair 2): a plan shrinks while "b" is late, the running engine retimes
+    /// to it at once, and when "b" comes on time the switch is aligned at the
+    /// new figure. Time moves once, at the retime; the switch moves none.
+    /// </summary>
+    [Fact]
+    public void When_the_late_engine_comes_on_time_its_switch_is_aligned_at_the_retimed_hold()
+    {
+        using var rig = new LateRig(960, lateFrames: 30, Plan(1440, "rnnoise", "b"));
+        var o = new List<float>();
+        rig.Feed(40, o);
+        Assert.Equal(1440, rig.Slot.HeldSamples);
+        rig.ChooseB();
+        rig.Feed(2, o);
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+
+        rig.Slot.SharedPlan = Plan(960, "rnnoise", "b");
+        rig.Feed(3, o);
+        // Still warming (b is late), and the running engine already holds the new figure.
+        Assert.Equal("rnnoise", rig.Slot.RunningEngineId);
+        Assert.True(rig.Slot.LastRetime is { From: 1440, To: 960, Faded: true }, $"the retime was {rig.Slot.LastRetime}");
+        Assert.Equal(960, rig.Slot.HeldSamples);
+        Assert.Equal(960, rig.Lag(o));
+
+        int after = o.Count;
+        rig.Feed(80, o);
+        _out.WriteLine($"held {rig.Slot.HeldSamples}, switch {rig.Slot.LastSwitch}, retime {rig.Slot.LastRetime}");
+        Assert.Equal("b", rig.Slot.RunningEngineId);
+        Assert.True(rig.Slot.LastSwitch is { Aligned: true, Held: 960 }, $"the switch was {rig.Slot.LastSwitch}");
+        // Every sample from the retime on, through the switch, is exactly 960 behind its input.
+        for (int i = after; i < o.Count; i++) Assert.Equal(i - 960, (long)Math.Round(o[i] * Scale));
     }
 
     // ── How the hold moves: a fade at one buffer, not a jump ──
