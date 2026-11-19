@@ -8,6 +8,9 @@
 # Every line carries the wall clock and Environment.TickCount, the clock JAWS's capture and the
 # probe's own trace also use.
 #
+# Round 2 adds UIA MenuOpened/MenuClosed (and MenuModeStart/End where the managed client knows them),
+# and each UIA focus event's window handle and runtime id.
+#
 # Built from the 2026-11-10 bench's evlog.ps1, adding the MSAA name and role and NAMECHANGE that
 # the #550 cause report asked for. Its positive control is the --hybrid probe: on a menu Escape
 # it must show OBJ_FOCUS on the ElementHost's window with MSAA name "JJ Shell Probe host".
@@ -60,6 +63,7 @@ public static class EvRec {
       string extra = (ev==0x8005 || ev==3 || ev==0x800C || ev==4 || ev==6) ? Msaa(hwnd, idObj, idChild) : "";
       Q.Enqueue(Now()+" WIN "+EvName(ev)+" pid="+p+" idObj="+idObj+" idChild="+idChild+" "+Win(hwnd)+extra);
     } catch (Exception x) { Q.Enqueue(Now()+" WIN callback error "+x.GetType().Name); } }
+  static string Rid(AutomationElement el){ try { var r = el.GetRuntimeId(); return r == null ? "(none)" : string.Join(".", Array.ConvertAll(r, i => i.ToString("X"))); } catch { return "(err)"; } }
   public static void Start(string name){
     _name=name; _proc=Cb;
     _t=new Thread(()=>{ _tid=GetCurrentThreadId();
@@ -73,7 +77,17 @@ public static class EvRec {
       foreach (var h in hs) UnhookWinEvent(h); });
     _t.SetApartmentState(ApartmentState.STA); _t.IsBackground=true; _t.Start();
     Automation.AddAutomationFocusChangedEventHandler((s,e)=>{ try{ var el=(AutomationElement)s; if(!Ours((uint)el.Current.ProcessId)) return;
-      Q.Enqueue(Now()+" UIA FOCUS name=\""+el.Current.Name+"\" type="+el.Current.ControlType.ProgrammaticName+" class="+el.Current.ClassName+" id="+el.Current.AutomationId+" fw="+el.Current.FrameworkId); }catch(Exception x){ Q.Enqueue(Now()+" UIA FOCUS (gone) "+x.GetType().Name); } });
+      Q.Enqueue(Now()+" UIA FOCUS name=\""+el.Current.Name+"\" type="+el.Current.ControlType.ProgrammaticName+" class="+el.Current.ClassName+" id="+el.Current.AutomationId+" fw="+el.Current.FrameworkId+" hwnd=0x"+el.Current.NativeWindowHandle.ToString("X")+" rid="+Rid(el)); }catch(Exception x){ Q.Enqueue(Now()+" UIA FOCUS (gone) "+x.GetType().Name); } });
+    // Round 2: UIA's menu events (MenuOpened 20003, MenuClosed 20007, MenuModeStart 20018, MenuModeEnd 20019).
+    var known = new AutomationEvent[]{ AutomationElement.MenuOpenedEvent, AutomationElement.MenuClosedEvent };
+    foreach (int id in new int[]{20003,20007,20018,20019}) {
+      AutomationEvent ev = AutomationEvent.LookupById(id);
+      if (ev == null) { Q.Enqueue(Now()+" UIA event "+id+" not available to the managed UIA client; not recorded"); continue; }
+      int cid = id;
+      Automation.AddAutomationEventHandler(ev, AutomationElement.RootElement, TreeScope.Subtree, (s,e)=>{ try{ var el=(AutomationElement)s; if(!Ours((uint)el.Current.ProcessId)) return;
+        Q.Enqueue(Now()+" UIA EVENT "+cid+" name=\""+el.Current.Name+"\" type="+el.Current.ControlType.ProgrammaticName+" fw="+el.Current.FrameworkId); }catch(Exception x){ Q.Enqueue(Now()+" UIA EVENT "+cid+" (gone) "+x.GetType().Name); } });
+      Q.Enqueue(Now()+" UIA event "+id+" ("+ev.ProgrammaticName+") recorded");
+    }
     Q.Enqueue(Now()+" recorder started for process name "+name);
   }
   public static void Stop(){ PostThreadMessage(_tid,0x0012,IntPtr.Zero,IntPtr.Zero); Automation.RemoveAllEventHandlers(); Q.Enqueue(Now()+" recorder stopped"); }

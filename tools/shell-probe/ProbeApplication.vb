@@ -13,11 +13,22 @@ Namespace My
     '''   (none)              the target: a WPF Window, no main form
     '''   --hybrid            the positive control: today's WinForms + ElementHost shape
     '''   --keymenu-fallback  the WPF window posts SC_KEYMENU itself for Alt+letter and F10
+    '''
+    ''' Round 2 (the menu; for-claude/2026-11-19-shell-probe-menu-research.md):
+    '''   --no-dialog-keys    candidate 1: keys WPF declines are dispatched by a message
+    '''                       filter, never run through IsDialogMessage
+    '''   --focus-after-menu  candidate 2: after WM_EXITMENULOOP, raise WPF's focus
+    '''                       notification on the element that already has focus
+    '''   --dispatcher-loop   candidate 4: the WPF window on Dispatcher.Run, no WinForms
+    '''                       loop and no EnableModelessKeyboardInterop
+    '''   --hybrid --nohop    control: the hybrid without ShellForm's menu-close hop
+    '''   --raw               reference: a plain Win32 window and Edit on a bare loop
     ''' </summary>
     Partial Friend Class MyApplication
 
         Private _window As Global.ShellProbe.ProbeWindow
         Private _hybrid As Global.ShellProbe.HybridShell
+        Private _raw As Global.ShellProbe.RawShell
 
         <Global.System.Diagnostics.DebuggerStepThrough()>
         Public Sub New()
@@ -37,18 +48,39 @@ Namespace My
 
         Protected Overrides Sub OnRun()
             Dim hybrid = HasArg("--hybrid")
-            ProbeLog.Log("---- launch: " & If(hybrid, "HYBRID (WinForms form + ElementHost)", "WPF window, no main form") &
+            Dim raw = HasArg("--raw")
+            Dim opts As New Global.ShellProbe.ProbeOptions With {
+                .KeyMenuFallback = HasArg("--keymenu-fallback"),
+                .NoDialogKeys = HasArg("--no-dialog-keys"),
+                .FocusAfterMenu = HasArg("--focus-after-menu"),
+                .DispatcherLoop = HasArg("--dispatcher-loop")}
+            ProbeLog.Log("---- launch: " & If(hybrid, "HYBRID (WinForms form + ElementHost)", If(raw, "RAW Win32 window, bare loop", "WPF window, no main form")) &
                          ", args [" & String.Join(" ", Me.CommandLineArgs) & "]")
             AddHandler System.Windows.Forms.Application.ThreadException, Sub(s, e) ProbeLog.Log("ThreadException: " & e.Exception.ToString())
 
+            If raw Then
+                _raw = New Global.ShellProbe.RawShell()
+                _raw.Run()
+                Return
+            End If
+
             Dim context As ApplicationContext
             If hybrid Then
-                _hybrid = New Global.ShellProbe.HybridShell()
+                _hybrid = New Global.ShellProbe.HybridShell(HasArg("--nohop"))
                 context = New ApplicationContext(_hybrid)
                 _hybrid.Show()
             Else
-                _window = New Global.ShellProbe.ProbeWindow(HasArg("--keymenu-fallback"))
+                _window = New Global.ShellProbe.ProbeWindow(opts)
                 _window.Prepare()
+                If opts.DispatcherLoop Then
+                    Dim d = System.Windows.Threading.Dispatcher.CurrentDispatcher
+                    AddHandler _window.Closed, Sub(s, e) d.BeginInvokeShutdown(System.Windows.Threading.DispatcherPriority.Normal)
+                    _window.Show()
+                    ProbeLog.Log("OnRun: shown; entering Dispatcher.Run (no WinForms loop)")
+                    System.Windows.Threading.Dispatcher.Run()
+                    ProbeLog.Log("OnRun: Dispatcher.Run returned")
+                    Return
+                End If
                 context = New ApplicationContext()
                 AddHandler _window.Closed, Sub(s, e) context.ExitThread()
                 _window.Show()
@@ -68,11 +100,28 @@ Namespace My
                 _window.Dispatcher.Invoke(Sub() _window.BringForward())
             ElseIf _hybrid IsNot Nothing Then
                 _hybrid.Invoke(Sub() _hybrid.BringForward())
+            ElseIf _raw IsNot Nothing Then
+                _raw.BringForward()
             End If
         End Sub
 
         Private Sub ProbeApplication_Shutdown(sender As Object, e As EventArgs) Handles Me.Shutdown
             ProbeLog.Log("Shutdown event")
         End Sub
+    End Class
+End Namespace
+
+Namespace Global.ShellProbe
+    ''' <summary>The WPF window's switches, round 1 and round 2.</summary>
+    Friend NotInheritable Class ProbeOptions
+        Friend KeyMenuFallback As Boolean
+        Friend NoDialogKeys As Boolean
+        Friend FocusAfterMenu As Boolean
+        Friend DispatcherLoop As Boolean
+
+        Friend Function Describe() As String
+            Return "keymenu-fallback=" & KeyMenuFallback.ToString() & " no-dialog-keys=" & NoDialogKeys.ToString() &
+                   " focus-after-menu=" & FocusAfterMenu.ToString() & " dispatcher-loop=" & DispatcherLoop.ToString()
+        End Function
     End Class
 End Namespace

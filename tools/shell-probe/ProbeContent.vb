@@ -160,6 +160,11 @@ Friend NotInheritable Class ProbeContent
 
     ''' <summary>One utterance through the product's own speech path (Radios.ScreenReaderOutput, Prism underneath).</summary>
     Friend Sub SpeakOnce()
+        SpeakShared()
+    End Sub
+
+    ''' <summary>The same utterance, callable from a shell with no content (the raw baseline).</summary>
+    Friend Shared Sub SpeakShared()
         Try
             If Not _speechReady Then
                 Radios.ScreenReaderOutput.Initialize()

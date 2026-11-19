@@ -75,6 +75,13 @@ Friend Module Win32
     Friend Const WM_CLOSE As Integer = &H10
     Friend Const SC_KEYMENU As Integer = &HF100
     Friend Const SC_CLOSE As Integer = &HF060
+    Friend Const WM_GETDLGCODE As Integer = &H87
+    Friend Const WM_INITMENU As Integer = &H116
+    Friend Const WM_MENUCHAR As Integer = &H120
+    Friend Const WM_NEXTDLGCTL As Integer = &H28
+    Friend Const WM_USER As Integer = &H400
+    Friend Const WM_KEYDOWN As Integer = &H100
+    Friend Const WM_CHAR As Integer = &H102
 
     <DllImport("user32.dll")> Friend Function GetFocus() As IntPtr
     End Function
@@ -113,6 +120,16 @@ Friend Module Win32
             Case WM_INITMENUPOPUP : Return "WM_INITMENUPOPUP"
             Case WM_COMMAND : Return "WM_COMMAND"
             Case WM_CLOSE : Return "WM_CLOSE"
+            ' Round 2: the dialog manager and the menu, seen directly.
+            Case WM_GETDLGCODE : Return "WM_GETDLGCODE"
+            Case WM_INITMENU : Return "WM_INITMENU"
+            Case WM_MENUCHAR : Return "WM_MENUCHAR"
+            Case WM_MENUSELECT : Return "WM_MENUSELECT"
+            Case WM_NEXTDLGCTL : Return "WM_NEXTDLGCTL"
+            Case WM_USER : Return "DM_GETDEFID(WM_USER)"
+            Case WM_USER + 1 : Return "DM_SETDEFID(WM_USER+1)"
+            Case WM_KEYDOWN : Return "WM_KEYDOWN"
+            Case WM_CHAR : Return "WM_CHAR"
             Case Else : Return Nothing
         End Select
     End Function

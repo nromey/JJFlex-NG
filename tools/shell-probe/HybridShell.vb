@@ -21,7 +21,12 @@ Friend NotInheritable Class HybridShell
     Friend ReadOnly Body As ProbeContent
     Private ReadOnly _menu As New NativeMenu()
 
-    Friend Sub New()
+    Private ReadOnly _noHop As Boolean
+
+    ''' <param name="noHop">Round 2's control (--hybrid --nohop): leave out ShellForm's
+    ''' menu-close hop, to see whether JAWS's "Leaving menus" depends on it.</param>
+    Friend Sub New(noHop As Boolean)
+        _noHop = noHop
         Text = "JJ Shell Probe"
         Width = 800
         Height = 600
@@ -41,7 +46,7 @@ Friend NotInheritable Class HybridShell
     Protected Overrides Sub OnHandleCreated(e As EventArgs)
         MyBase.OnHandleCreated(e)
         _menu.AttachTo(Handle)
-        ProbeLog.Log("HybridShell: handle " & Win32.Hex(Handle))
+        ProbeLog.Log("HybridShell: handle " & Win32.Hex(Handle) & If(_noHop, ", menu-close hop OFF (--nohop)", ", menu-close hop on"))
     End Sub
 
     Protected Overrides Sub OnShown(e As EventArgs)
@@ -78,7 +83,11 @@ Friend NotInheritable Class HybridShell
             Case Win32.WM_EXITMENULOOP
                 MyBase.WndProc(m)
                 ' ShellForm's unconditional hop, the cause of #550's host utterance.
-                BeginInvoke(Sub() _host?.Focus())
+                If _noHop Then
+                    ProbeLog.Log("Hybrid: menu-close hop SKIPPED (--nohop)")
+                Else
+                    BeginInvoke(Sub() _host?.Focus())
+                End If
                 Return
             Case Win32.WM_COMMAND
                 If m.LParam = IntPtr.Zero Then
@@ -95,7 +104,7 @@ Friend NotInheritable Class HybridShell
         Select Case id
             Case NativeMenu.IdOpenDialog : Body.OpenDialog()
             Case NativeMenu.IdMessageBox : Body.ShowMessageBox()
-            Case NativeMenu.IdSpeak : Body.SpeakOnce()
+            Case NativeMenu.IdSpeak : ProbeContent.SpeakShared()
             Case NativeMenu.IdExit : Close()
             Case NativeMenu.IdAbout
                 MessageBox.Show(Me, "The shell probe, a throwaway test window.", "About the probe")

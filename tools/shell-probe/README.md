@@ -52,6 +52,29 @@ a speaking-rate file under the settings root. Its trace is
 - `evrec.ps1`: a passive WinEvent recorder (foreground, menu, dialog, show,
   focus and name-change events, each with the MSAA name and role a screen reader
   would fetch), plus UIA focus.
-- `jaws/jjshellprobe.jss` and `.jkm`: byte-for-byte copies of
+- `jaws/jjshellprobe.jss` and `.jkm`: copies of
   `tools/readercapture/jaws/jjflexible.*`, renamed because JAWS loads an
-  application script by the executable's name.
+  application script by the executable's name. Round 2 appends two logging
+  overrides to the `.jss` (`MenuModeEvent` and `FocusChangedEventEx`, each
+  emitting a capture line and then calling the default), so the `.jss` is no
+  longer byte-for-byte; the `.jkm` still is.
+
+## Round 2 switches (the menu)
+
+See `for-claude/2026-11-19-shell-probe-menu-research.md` (private) for why.
+
+- `--no-dialog-keys`: candidate 1. A WinForms message filter, added after
+  WPF's, translates and dispatches the keys WPF declined, so they never reach
+  `IsDialogMessage` and Alt plus a menu letter reaches `DefWindowProc`.
+- `--focus-after-menu`: candidate 2. On `WM_EXITMENULOOP`, raise
+  `AutomationFocusChanged` on the focused element's peer without moving focus.
+- `--dispatcher-loop`: candidate 4. The WPF window on `Dispatcher.Run`, with no
+  WinForms loop and no `EnableModelessKeyboardInterop`.
+- `--hybrid --nohop`: the hybrid without `ShellForm`'s menu-close hop.
+- `--raw`: a plain Win32 window and Edit on a bare message loop, the reference
+  for what the readers do with an untouched native menu.
+
+Always on in the WPF window under the WinForms loop (instruments, behaviour-
+neutral): key-message logging filters FIRST and LAST in the filter chain, and
+`WM_GETDLGCODE`, `WM_INITMENU`, `WM_MENUCHAR`, `WM_MENUSELECT`, `DM_GETDEFID`
+and friends in the hook's trace.

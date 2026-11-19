@@ -3,6 +3,8 @@ Imports System.Windows
 Imports System.Windows.Input
 Imports System.Windows.Interop
 Imports System.Windows.Forms.Integration
+Imports System.Windows.Automation.Peers
+Imports System.Windows.Threading
 
 ''' <summary>
 ''' The target architecture of the research's section 6: a WPF Window, run from
@@ -16,6 +18,7 @@ Friend NotInheritable Class ProbeWindow
     Friend ReadOnly Body As ProbeContent
     Private ReadOnly _menu As New NativeMenu()
     Private ReadOnly _keyMenuFallback As Boolean
+    Private ReadOnly _opts As ProbeOptions
     Private _handle As IntPtr
 
     Friend ReadOnly Property Handle As IntPtr
@@ -24,8 +27,9 @@ Friend NotInheritable Class ProbeWindow
         End Get
     End Property
 
-    Friend Sub New(keyMenuFallback As Boolean)
-        _keyMenuFallback = keyMenuFallback
+    Friend Sub New(opts As ProbeOptions)
+        _opts = opts
+        _keyMenuFallback = opts.KeyMenuFallback
         Title = "JJ Shell Probe"
         Width = 800
         Height = 600
@@ -53,9 +57,24 @@ Friend NotInheritable Class ProbeWindow
         _handle = New WindowInteropHelper(Me).EnsureHandle()
         HwndSource.FromHwnd(_handle).AddHook(AddressOf Hook)
         _menu.AttachTo(_handle)
-        ElementHost.EnableModelessKeyboardInterop(Me)
-        ProbeLog.Log("ProbeWindow: handle " & Win32.Hex(_handle) & ", EnableModelessKeyboardInterop called, keymenu fallback " &
-                     If(_keyMenuFallback, "ON", "off"))
+        If _opts.DispatcherLoop Then
+            ' Candidate 4: WPF's own Dispatcher.Run loop (no WPF Application
+            ' object), so no WinForms filters, no IsDialogMessage, and no
+            ' EnableModelessKeyboardInterop.
+            ProbeLog.Log("ProbeWindow: handle " & Win32.Hex(_handle) & ", DISPATCHER LOOP (no WinForms loop, no interop filter)")
+        Else
+            Dim root As Func(Of IntPtr) = Function() _handle
+            ' Instruments (behaviour-neutral, return False): FIRST in the chain,
+            ' then WPF's filter, then LAST, then (round 2) the bypass.
+            System.Windows.Forms.Application.AddMessageFilter(New KeyLogFilter("FIRST", root))
+            ElementHost.EnableModelessKeyboardInterop(Me)
+            System.Windows.Forms.Application.AddMessageFilter(New KeyLogFilter("LAST", root))
+            If _opts.NoDialogKeys Then
+                System.Windows.Forms.Application.AddMessageFilter(New DialogKeyBypass(root))
+            End If
+            ProbeLog.Log("ProbeWindow: handle " & Win32.Hex(_handle) & ", EnableModelessKeyboardInterop called")
+        End If
+        ProbeLog.Log("ProbeWindow: options " & _opts.Describe())
     End Sub
 
     ''' <summary>Restore and bring forward: the StartupNextInstance duty.</summary>
@@ -109,16 +128,44 @@ Friend NotInheritable Class ProbeWindow
                                                Body.Field.Focus()
                                            End If
                                        End Sub)
+                If _opts.FocusAfterMenu Then
+                    Dispatcher.BeginInvoke(DispatcherPriority.Input, New Action(AddressOf RaiseFocusInPlace))
+                End If
         End Select
         Return IntPtr.Zero
     End Function
+
+    ''' <summary>
+    ''' Candidate 2 of the menu research (--focus-after-menu): after the menu
+    ''' loop ends, raise WPF's own focus notification for the element that
+    ''' ALREADY has focus, without moving focus (so no GotKeyboardFocus handler
+    ''' runs). This is the call WPF makes itself on a focus change
+    ''' (AutomationPeer.RaiseFocusChangedEventHelper raises
+    ''' AutomationFocusChanged on the focused element's peer).
+    ''' </summary>
+    Private Sub RaiseFocusInPlace()
+        Dim f = TryCast(Keyboard.FocusedElement, UIElement)
+        If f Is Nothing OrElse Not IsAncestorOf(f) Then
+            ProbeLog.Log("FocusAfterMenu: no focused element inside the window (" & ProbeContent.Describe(Keyboard.FocusedElement) & "); nothing raised")
+            Return
+        End If
+        Dim peer = UIElementAutomationPeer.CreatePeerForElement(f)
+        If peer Is Nothing Then
+            ProbeLog.Log("FocusAfterMenu: no automation peer for " & ProbeContent.Describe(f))
+            Return
+        End If
+        Dim listening = AutomationPeer.ListenerExists(AutomationEvents.AutomationFocusChanged)
+        peer.RaiseAutomationEvent(AutomationEvents.AutomationFocusChanged)
+        ProbeLog.Log("FocusAfterMenu: raised AutomationFocusChanged on " & ProbeContent.Describe(f) &
+                     " (listener exists " & listening.ToString() & ", focus not moved)")
+    End Sub
 
     Private Sub RunCommand(id As Integer)
         ProbeLog.Log("Menu command " & id.ToString())
         Select Case id
             Case NativeMenu.IdOpenDialog : Body.OpenDialog()
             Case NativeMenu.IdMessageBox : Body.ShowMessageBox()
-            Case NativeMenu.IdSpeak : Body.SpeakOnce()
+            Case NativeMenu.IdSpeak : ProbeContent.SpeakShared()
             Case NativeMenu.IdExit : Close()
             Case NativeMenu.IdAbout
                 System.Windows.Forms.MessageBox.Show(New Win32Owner(_handle), "The shell probe, a throwaway test window.", "About the probe")

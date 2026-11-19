@@ -407,3 +407,36 @@ JjfCapEmit ("meta", "selftest", "positive control armed",
     + "\",\"scope\":\"internal\",\"how\":\"SayString\"")
 Builtin::SayString (gJjfCapControlToken)
 EndScript
+
+;=======================================================================
+; ROUND 2 INSTRUMENT (shell probe only; NOT in the readercapture original)
+;=======================================================================
+
+; JAWS speaks "Menu bar" and "Leaving menus" only from MenuModeEvent, which
+; the JAWS engine raises; the default scripts merely react. Logging it here,
+; then handing on to the default, turns "JAWS was silent" into either "the
+; engine never reported menu mode" or "it reported it and the default script
+; stayed quiet" (MenuInactiveProcessed is silent while the focus object is a
+; descendant of a menu). Modes: 0 MENU_INACTIVE, 1 MENUBAR_ACTIVE, 2 MENU_ACTIVE.
+Void Function MenuModeEvent (handle WinHandle, int mode)
+var int nPrev, int nDesc
+nPrev = GlobalMenuMode
+nDesc = IsFocusObjectDescendantOfmenu ()
+JjfCapEmit ("meta", "menumode",
+    "MenuModeEvent mode=" + IntToString (mode) + " prev=" + IntToString (nPrev)
+    + " class=" + GetWindowClass (WinHandle) + " descOfMenu=" + IntToString (nDesc), "")
+MenuModeEvent (WinHandle, mode)
+EndFunction
+
+; Every focus change JAWS's engine reports, so a silent exit can be checked
+; for whether any focus change reached JAWS at all after the menu closed.
+void function FocusChangedEventEx (
+	handle hwndFocus, int nObject, int nChild,
+	handle hwndPrevFocus, int nPrevObject, int nPrevChild,
+	int nChangeDepth)
+JjfCapEmit ("meta", "focus",
+    "FocusChangedEventEx class=" + GetWindowClass (hwndFocus) + " obj=" + IntToString (nObject)
+    + " child=" + IntToString (nChild) + " depth=" + IntToString (nChangeDepth)
+    + " name=" + GetObjectName () + " menumode=" + IntToString (GlobalMenuMode), "")
+FocusChangedEventEx (hwndFocus, nObject, nChild, hwndPrevFocus, nPrevObject, nPrevChild, nChangeDepth)
+endFunction
