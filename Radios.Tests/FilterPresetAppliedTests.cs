@@ -214,7 +214,8 @@ namespace Radios.Tests
             Assert.Contains("FilterPresets.ActiveStatus(mode, low, high, Radios.ScreenReaderOutput.CurrentVerbosity)", handlers, StringComparison.Ordinal);
             string menu = Src("JJFlexWpf", "NativeMenuBar.cs");
             Assert.Contains("rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(rig, applied)));", menu, StringComparison.Ordinal);
-            Assert.Contains("string label = preset.FormatForDisplay();", menu, StringComparison.Ordinal);
+            // #960: the row is named by FormatForDisplay and checked natively, no glyph.
+            Assert.Contains("AddRadioChecked(parent, preset.FormatForDisplay(), () =>", menu, StringComparison.Ordinal);
             Assert.DoesNotContain("preset.Announcement(", handlers + menu, StringComparison.Ordinal);
         }
     }
