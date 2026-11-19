@@ -45,9 +45,14 @@ namespace Radios.Tests
             public int Requests;
             private bool _taken;
             public override bool WaitUntilProducing(int timeoutMs) => true;
-            public override void RequestTakeOver() { Requests++; OnRequest?.Invoke(); _taken = true; }
+            // Repair 2: a take-over withdrawn before it completes (a key-down)
+            // never completes, exactly as the real hand-over's one outcome.
+            private bool _withdrawn;
+            public override void RequestTakeOver() { Requests++; OnRequest?.Invoke(); if (!_withdrawn) _taken = true; }
             public override bool HasTakenOver => _taken;
-            public override void ForceTakeOver() { _taken = true; }
+            public override void ForceTakeOver() { if (!_withdrawn) _taken = true; }
+            public override bool WithdrawTakeOver() { if (_taken) return false; _withdrawn = true; return true; }
+            public override bool TakeOverWithdrawn => _withdrawn;
         }
 
         private sealed class Rig : IDisposable
@@ -153,14 +158,17 @@ namespace Radios.Tests
         /// no longer stops the microphone at all: the key-down here lands inside
         /// the swap itself (under its admission lock, as it asks the running
         /// stream to hand over), returns at once, and meets a running stream that
-        /// was never stopped.
+        /// was never stopped. Repair 2 (the brief's item 2): admitted before the
+        /// hand-over completed, it abandons the swap. The running stream carries
+        /// on as the channel's stream, the new one is closed, and the fall back
+        /// is asked again at the next unkeyed moment.
         /// </summary>
         [Fact]
-        public void Our_key_down_during_the_swaps_hand_over_is_never_held_by_it_and_meets_a_live_microphone()
+        public void Our_key_down_during_the_swaps_hand_over_is_never_held_by_it_and_abandons_the_swap_on_a_live_microphone()
         {
             using var x = new Rig();
             var old = new FakeStream(); var fresh = new FakeStream();
-            Channel(x, old);
+            var channel = Channel(x, old);
             Set(x.Base, "_txTryFallbackDue", true);
             x.Base.TxCaptureOpenForTest = rate => fresh;
             bool returnedDuringSwap = false;
@@ -180,7 +188,18 @@ namespace Radios.Tests
             Assert.Equal(1, fresh.Requests);              // positive control: the swap really ran its hand-over
             Assert.Equal(0, old.Stops);
             Assert.Equal("Mox", x.Base.q.Dequeue().Name); // the key-down's write, queued as it always is
+            // Repair 2: abandoned, not completed.
+            Assert.True(fresh.TakeOverWithdrawn);
+            Assert.False(fresh.HasTakenOver);
+            Assert.Same(old, channel.PortAudioStream);     // the running stream carries the over
+            Assert.True(channel.Started);
+            Assert.Equal(0, old.Closes);
+            Assert.Equal(1, fresh.Closes);                 // the new one is closed
+            Assert.True((bool)Get(x.Base, "_txTryFallbackDue")); // and asked again at the next unkeyed moment
+            Assert.Null(Get0(x.Base, "_txPendingTakeOver"));  // nothing left for a later key-down to touch
         }
+
+        private static object? Get0(FlexBase b, string name) => typeof(FlexBase).GetField(name, Any)!.GetValue(b);
 
         // ── Fix 5 (P2): a failed automatic open never stalls receive ──
 

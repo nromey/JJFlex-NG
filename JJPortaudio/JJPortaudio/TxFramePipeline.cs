@@ -43,6 +43,9 @@ namespace JJPortaudio
     /// FlexBase enforces the one-producer rule by stopping the capture stream
     /// before starting the self-clocked source and vice versa; PortAudio's stop
     /// waits for the callback to quiesce, so the handover has no overlap.
+    /// Since the H2 split's capture swap runs two capture streams at once, the
+    /// rule is also held by <see cref="Gate"/>, which every producer of a
+    /// shared chain takes for the whole of each buffer.
     /// </para>
     /// </remarks>
     public sealed class TxFramePipeline
@@ -85,6 +88,18 @@ namespace JJPortaudio
 
         /// <summary>Where encoded frames go. In the app, FlexBase.sendOpusInput.</summary>
         public Audio.OpusCallback Handler { get; set; }
+
+        /// <summary>
+        /// The exclusion for the chain this pipeline feeds (the H2 split, repair
+        /// 2): the same <see cref="TxChainGate"/> on every pipeline whose
+        /// producers share the source, conditioner, meter and send. Each
+        /// capture callback holds it for its whole buffer, and the self-clocked
+        /// source for each pump. Set when the stream is opened, BEFORE it is
+        /// started, and never changed while it runs, so no producer of the
+        /// stream's life is outside it. Null means nothing to share (a stream
+        /// that is the only producer of its chain).
+        /// </summary>
+        public TxChainGate Gate { get; set; }
 
         /// <summary>Borrowed post-conditioning stereo samples, immediately before Opus.
         /// Observers must copy synchronously and must not block or change the buffer.</summary>

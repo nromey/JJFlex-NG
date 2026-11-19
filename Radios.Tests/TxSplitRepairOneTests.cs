@@ -38,7 +38,15 @@ public sealed class TxSplitRepairOneTests
         private static Audio.StreamCB Cb(Audio a) =>
             (Audio.StreamCB)typeof(Audio).GetProperty("CBData", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(a)!;
 
-        public Pair() { Fresh.StandBeside(Old); }
+        /// <summary>The chain's gate, put on both pipelines as the transmit open path does (repair 2).</summary>
+        public readonly TxChainGate Gate = new();
+
+        public Pair()
+        {
+            OldCb.TxPipeline.Gate = Gate;
+            FreshCb.TxPipeline.Gate = Gate;
+            Assert.True(Fresh.StandBeside(Old));
+        }
 
         public void Dispose()
         {
@@ -55,17 +63,17 @@ public sealed class TxSplitRepairOneTests
     {
         using var p = new Pair();
         Assert.Same(p.Handover, p.OldCb.Handover);           // both streams share it
-        Assert.False(Audio.EnterTxChain(p.Handover, p.FreshCb)); // standing by
+        Assert.False(Audio.EnterTxChain(p.Handover, p.Gate, p.FreshCb)); // standing by
         Assert.False(p.Fresh.TakenOver);
-        Assert.True(Audio.EnterTxChain(p.Handover, p.OldCb));    // the running stream carries on
+        Assert.True(Audio.EnterTxChain(p.Handover, p.Gate, p.OldCb));    // the running stream carries on
         p.Fresh.RequestTakeOver();                                // asked while the old buffer is in the chain
         Assert.False(p.Fresh.TakenOver);                          // nothing changes inside a buffer
-        Assert.False(Audio.EnterTxChain(p.Handover, p.FreshCb));
-        Audio.LeaveTxChain(p.Handover, mayHandOver: true);        // the end of that buffer
+        Assert.False(Audio.EnterTxChain(p.Handover, p.Gate, p.FreshCb));
+        Audio.LeaveTxChain(p.Handover, p.Gate, p.OldCb, mayHandOver: true);        // the end of that buffer
         Assert.True(p.Fresh.TakenOver);
-        Assert.False(Audio.EnterTxChain(p.Handover, p.OldCb));    // retired: feeds nothing
-        Assert.True(Audio.EnterTxChain(p.Handover, p.FreshCb));   // the next buffer is the new stream's
-        Audio.LeaveTxChain(p.Handover, mayHandOver: true);
+        Assert.False(Audio.EnterTxChain(p.Handover, p.Gate, p.OldCb));    // retired: feeds nothing
+        Assert.True(Audio.EnterTxChain(p.Handover, p.Gate, p.FreshCb));   // the next buffer is the new stream's
+        Audio.LeaveTxChain(p.Handover, p.Gate, p.FreshCb, mayHandOver: true);
         Assert.True(p.Fresh.TakenOver);
     }
 
@@ -74,8 +82,8 @@ public sealed class TxSplitRepairOneTests
     {
         using var p = new Pair();
         p.Fresh.RequestTakeOver();
-        Assert.True(Audio.EnterTxChain(p.Handover, p.OldCb));
-        Audio.LeaveTxChain(p.Handover, mayHandOver: false);       // the running stream's last (aborting) buffer
+        Assert.True(Audio.EnterTxChain(p.Handover, p.Gate, p.OldCb));
+        Audio.LeaveTxChain(p.Handover, p.Gate, p.OldCb, mayHandOver: false);       // the running stream's last (aborting) buffer
         Assert.False(p.Fresh.TakenOver);                          // so the swap's bound, and a forced take-over, decide
         Assert.Same(p.FreshCb, p.Handover.Next);
     }
@@ -84,14 +92,14 @@ public sealed class TxSplitRepairOneTests
     public void A_forced_take_over_never_lets_two_callbacks_into_the_chain()
     {
         using var p = new Pair();
-        Assert.True(Audio.EnterTxChain(p.Handover, p.OldCb));     // a late buffer of the old stream, inside
+        Assert.True(Audio.EnterTxChain(p.Handover, p.Gate, p.OldCb));     // a late buffer of the old stream, inside
         p.Fresh.ForceTakeOver();
         Assert.True(p.Fresh.TakenOver);
-        Assert.False(Audio.EnterTxChain(p.Handover, p.FreshCb));  // finds the chain taken: feeds nothing
-        Audio.LeaveTxChain(p.Handover, mayHandOver: true);
-        Assert.True(Audio.EnterTxChain(p.Handover, p.FreshCb));   // the next buffer feeds it
-        Assert.False(Audio.EnterTxChain(p.Handover, p.OldCb));
-        Audio.LeaveTxChain(p.Handover, mayHandOver: true);
+        Assert.False(Audio.EnterTxChain(p.Handover, p.Gate, p.FreshCb));  // finds the chain taken: feeds nothing
+        Audio.LeaveTxChain(p.Handover, p.Gate, p.OldCb, mayHandOver: true);
+        Assert.True(Audio.EnterTxChain(p.Handover, p.Gate, p.FreshCb));   // the next buffer feeds it
+        Assert.False(Audio.EnterTxChain(p.Handover, p.Gate, p.OldCb));
+        Audio.LeaveTxChain(p.Handover, p.Gate, p.FreshCb, mayHandOver: true);
     }
 
     [Fact]
@@ -127,13 +135,13 @@ public sealed class TxSplitRepairOneTests
                 go.Wait();
                 while (!Volatile.Read(ref stop))
                 {
-                    if (!Audio.EnterTxChain(p.Handover, me)) { Thread.SpinWait(20); continue; }
+                    if (!Audio.EnterTxChain(p.Handover, p.Gate, me)) { Thread.SpinWait(20); continue; }
                     if (Interlocked.Increment(ref inside) != 1) Interlocked.Increment(ref overlap);
                     if (isOld && Volatile.Read(ref handedOver)) Interlocked.Increment(ref oldAfter);
                     if (!isOld) Interlocked.Increment(ref freshFed);
                     Thread.SpinWait(50);
                     Interlocked.Decrement(ref inside);
-                    Audio.LeaveTxChain(p.Handover, mayHandOver: true);
+                    Audio.LeaveTxChain(p.Handover, p.Gate, me, mayHandOver: true);
                 }
             }
             var a = new Thread(() => Callback(p.OldCb, true)) { IsBackground = true };
@@ -161,7 +169,7 @@ public sealed class TxSplitRepairOneTests
             Assert.Equal(0, overlap);
             Assert.Equal(0, oldAfter);    // a retired stream never fed again
             Assert.True(freshFed > 0);    // positive control: the new one did feed
-            Assert.False(Audio.EnterTxChain(p.Handover, p.OldCb));
+            Assert.False(Audio.EnterTxChain(p.Handover, p.Gate, p.OldCb));
         }
     }
 

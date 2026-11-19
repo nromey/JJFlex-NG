@@ -39,9 +39,29 @@ namespace Radios
         // make the swap. A new stream that will not start, or delivers nothing,
         // changes nothing: the running one was never touched, so there is no
         // restart and no rescue. If the running stream has itself stopped
-        // producing, the new one takes over by force (a guard keeps two
-        // callbacks out of the chain even then). The old stream is closed off
-        // the loop. A fallback after a failed try is the same swap in the other
+        // producing, the new one takes over by force. The old stream is closed
+        // off the loop.
+        //
+        // REPAIR 2 (Codex's re-check of ab5ba9a8). Two capture callbacks are
+        // kept out of the chain by the CHAIN's gate (txChainGate, JJPortaudio's
+        // TxChainGate), put on every stream when it is opened and taken by each
+        // of its callbacks for the whole buffer, not by a guard the swap makes,
+        // which a callback already inside never took. And no hand-over
+        // completes while keyed: a key-down admitted before it completes
+        // withdraws it (our own key-down does so itself, in
+        // NoteTxKeyDownAdmitted; the radio keyed is seen by the running
+        // stream's callback at the end of its buffer, and by this loop), the
+        // running stream carries on, the new one is closed, and the swap is
+        // asked again at the next unkeyed moment. That includes the forced
+        // case (as ruled; see the report). An unkeyed hand-over keeps the make
+        // before break seam: two independently buffered streams are not sample
+        // aligned, so up to about one new buffer may repeat, or a little may be
+        // skipped, at a moment nothing is on the air. The bounds that are real:
+        // TxHandoverWaitMs bounds the wait BEFORE a forced take-over, not the
+        // gap after it; a stalled callback inside the chain keeps the new
+        // stream out for as many buffers as it stalls.
+        //
+        // A fallback after a failed try is the same swap in the other
         // direction, and a fallback that will not open or start leaves the
         // faster stream running (dropping audio, but never silent) and is
         // asked again five seconds later.
@@ -147,9 +167,11 @@ namespace Radios
         // is rebuilt on main. So the Transmit setter only records the key-down
         // (a counter and a time, no lock, no wait): a key-down admitted while the
         // open ran, or in the last TxKeyAdmissionFreshMs, still refuses the swap.
-        // One that lands inside the swap itself (the hand-over wait) no longer
-        // meets a stopped microphone (repair 1): until the hand-over the running
-        // stream feeds the over, and from it the new one does.
+        // One that lands inside the swap itself (the hand-over wait) meets a
+        // microphone that was never stopped (repair 1), and since repair 2 it
+        // abandons the hand-over if it is admitted first: the running stream
+        // carries the over, and nothing captured is fed twice into it. The
+        // key-down's own part is one compare-and-swap; it still never waits.
 
         /// <summary>A key-down we admitted counts as keyed for this long, until the radio's own report says so (or not).</summary>
         internal const int TxKeyAdmissionFreshMs = 2000;
@@ -183,7 +205,33 @@ namespace Radios
         {
             System.Threading.Interlocked.Increment(ref _txKeyDownAdmissions);
             System.Threading.Volatile.Write(ref _txKeyAdmittedTick, Math.Max(1, Environment.TickCount64));
+            // Repair 2: a key-down admitted before a capture hand-over completes
+            // abandons the swap (the running stream carries on). One
+            // compare-and-swap on the hand-over, raced fairly against the
+            // running stream's callback completing it; it never waits, never
+            // refuses the key-down, and never throws into it. The increment
+            // above is a full fence, and the swap publishes its stream with
+            // Interlocked.Exchange before it reads the count, so either this
+            // sees the stream or the swap sees the count.
+            var pending = System.Threading.Volatile.Read(ref _txPendingTakeOver);
+            if (pending != null)
+            {
+                try { pending.WithdrawTakeOver(); } catch { }
+            }
         }
+
+        /// <summary>The new stream of a swap whose hand-over is in progress (repair 2), for our key-down to withdraw; null otherwise.</summary>
+        private JJAudioStream _txPendingTakeOver;
+
+        /// <summary>
+        /// The one exclusion for this rig's transmit chain (repair 2): the input
+        /// source mux, the conditioner, the loudness meter and the send are
+        /// shared by every capture stream (and the self-clocked source on its
+        /// pipeline), so every one of them takes this, for every buffer of its
+        /// life. Put on each stream's pipeline by <see cref="OpenTxCaptureAt"/>,
+        /// before the stream is started.
+        /// </summary>
+        private readonly TxChainGate txChainGate = new TxChainGate();
 
         /// <summary>Our unkey: a key-down admitted earlier no longer counts. Never waits.</summary>
         private void NoteTxKeyUpRequested() => System.Threading.Volatile.Write(ref _txKeyAdmittedTick, 0);
@@ -695,7 +743,8 @@ namespace Radios
         /// <paramref name="rate"/> callbacks a second with the transmit Opus
         /// profile, traces the rate the device actually gave, and wires it: the
         /// input source mux, the conditioner, the loudness meter, the key state
-        /// on the conditioner and the stream's pipeline, and the death hook to
+        /// on the conditioner and the stream's pipeline, the chain's gate on
+        /// the pipeline (repair 2), and the death hook to
         /// <paramref name="wake"/>, the run that asked. NOT started. Null when it
         /// would not open, with nothing left behind.
         /// </summary>
@@ -759,7 +808,14 @@ namespace Radios
             // stage's skip when it changes (#1074).
             txConditioner.KeySource = TransmitKeySource;
             var pipeline = stream.TransmitPipeline;
-            if (pipeline != null) pipeline.KeySource = TransmitKeySource;
+            if (pipeline != null)
+            {
+                pipeline.KeySource = TransmitKeySource;
+                // Repair 2: the chain's one exclusion, on this stream before its
+                // first callback, so every buffer of its life takes it (and a
+                // swap beside it can never meet a callback that took nothing).
+                pipeline.Gate = txChainGate;
+            }
             // #1145: a microphone stream that ends on its own wakes the loop of
             // the run that opened it; the loop also checks the flag on every
             // pass without it.
@@ -768,6 +824,18 @@ namespace Radios
         }
 
         private enum TxSwapResult { Refused, Swapped }
+
+        /// <summary>
+        /// Repair 2: whether a key-down has been admitted since the swap was
+        /// (our own, counted; or the radio keyed, our Mox or its interlock, as
+        /// with a hardware key or VOX). Anything that throws reads as keyed,
+        /// which only ever abandons a swap.
+        /// </summary>
+        private bool TxKeyedSinceSwapAdmitted(long keyDownsAtStart)
+        {
+            if (System.Threading.Interlocked.Read(ref _txKeyDownAdmissions) != keyDownsAtStart) return true;
+            try { return TransmitKeyedOrInterlock; } catch { return true; }
+        }
 
         /// <summary>
         /// Put an open, wired stream in place of the running one, on the loop's
@@ -780,7 +848,9 @@ namespace Radios
         /// never stopped to make the swap. If the running stream has stopped
         /// producing, the new one takes over by force. The old stream is closed
         /// off the loop once it is out of use; nothing is ever stopped first, so
-        /// there is nothing to start again and no rescue.
+        /// there is nothing to start again and no rescue. Repair 2: a key-down
+        /// admitted before the hand-over completes (forced or not) withdraws it,
+        /// and the swap is Refused with the running stream untouched.
         /// </summary>
         private TxSwapResult SwapTxCaptureStreamAdmitted(JJAudioStream fresh, JJAudioStream beside, int rate, string why, long keyDownsAtStart, out string refusal)
         {
@@ -808,12 +878,52 @@ namespace Radios
                     old = channel.PortAudioStream;
                     if (!ReferenceEquals(old, beside)) { refusal = "the running stream changed while it opened"; return TxSwapResult.Refused; }
                     var clock = Stopwatch.StartNew();
-                    fresh.RequestTakeOver();
-                    int bound = TxHandoverWaitMs(_txCallbackRateThisStream);
-                    while (!fresh.HasTakenOver && clock.ElapsedMilliseconds < bound) System.Threading.Thread.Sleep(1);
-                    forced = !fresh.HasTakenOver;
-                    if (forced) fresh.ForceTakeOver(); // the running stream had stopped producing
+                    // Repair 2: a key-down admitted before the hand-over
+                    // completes abandons the swap. Published for our key-down
+                    // first (a full fence), then the count is read, so a key-down
+                    // either finds the stream to withdraw or is seen here.
+                    System.Threading.Interlocked.Exchange(ref _txPendingTakeOver, fresh);
+                    bool abandoned = false;
+                    forced = false;
+                    try
+                    {
+                        if (TxKeyedSinceSwapAdmitted(keyDownsAtStart)) abandoned = fresh.WithdrawTakeOver();
+                        else
+                        {
+                            fresh.RequestTakeOver();
+                            int bound = TxHandoverWaitMs(_txCallbackRateThisStream);
+                            while (!fresh.HasTakenOver)
+                            {
+                                if (fresh.TakeOverWithdrawn) { abandoned = true; break; }
+                                if (TxKeyedSinceSwapAdmitted(keyDownsAtStart))
+                                {
+                                    // False only if the running stream completed it first.
+                                    abandoned = fresh.WithdrawTakeOver();
+                                    break;
+                                }
+                                if (clock.ElapsedMilliseconds >= bound)
+                                {
+                                    // The running stream has stopped producing. A
+                                    // key-down's withdrawal can still win the race.
+                                    fresh.ForceTakeOver();
+                                    forced = fresh.HasTakenOver;
+                                    abandoned = !forced;
+                                    break;
+                                }
+                                System.Threading.Thread.Sleep(1);
+                            }
+                        }
+                    }
+                    finally { System.Threading.Interlocked.Exchange(ref _txPendingTakeOver, null); }
                     handoverMs = clock.ElapsedMilliseconds;
+                    if (abandoned)
+                    {
+                        // The running stream was never touched and carries on;
+                        // the caller closes the new one and asks again at the
+                        // next unkeyed moment.
+                        refusal = "a key-down arrived before the hand-over completed (" + handoverMs + " ms in); the running stream carried on";
+                        return TxSwapResult.Refused;
+                    }
                     channel.PortAudioStream = fresh;
                     channel.Started = true;
                 }

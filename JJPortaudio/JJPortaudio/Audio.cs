@@ -815,18 +815,37 @@ namespace JJPortaudio
         /// buffer it is processing, so the replacement's next buffer is the
         /// first it feeds and the microphone is never stopped first. If the
         /// running stream has stopped producing, the swap takes over by force.
-        /// <see cref="Busy"/> keeps the two callbacks out of the chain at the
-        /// same moment even then: a callback that finds it taken feeds nothing.
+        /// <para>
+        /// Repair 2: this object says only WHICH stream may feed the chain. It
+        /// no longer keeps the two callbacks apart; the chain's own
+        /// <see cref="TxChainGate"/> does that, for every callback of each
+        /// stream's life, including one already inside when this was made
+        /// (Codex's re-check). And a hand-over now has an outcome,
+        /// <see cref="State"/>: it completes once, or it is withdrawn once,
+        /// never both. A key-down withdraws it (the running stream simply
+        /// carries on), and so does a running stream that finds the radio keyed
+        /// at the end of its buffer, so no hand-over completes while keyed and
+        /// no captured audio is fed twice into an over.
+        /// </para>
         /// No allocation on the callback.
         /// </summary>
         internal sealed class TxCaptureHandover
         {
+            /// <summary>Nobody has asked yet.</summary>
+            public const int Idle = 0;
+            /// <summary><see cref="Next"/> asks to take over at the end of <see cref="Active"/>'s next buffer.</summary>
+            public const int Requested = 1;
+            /// <summary>Done: <see cref="Active"/> is (or, for a moment, is about to be) the replacement.</summary>
+            public const int TookOver = 2;
+            /// <summary>Withdrawn before it completed (a key-down, or the radio keyed): <see cref="Active"/> carries on, for good.</summary>
+            public const int Withdrawn = 3;
+
             /// <summary>The one stream whose callback may feed the chain.</summary>
             public StreamCB Active;
-            /// <summary>Asked to take over at the end of <see cref="Active"/>'s next buffer; null when nobody is asking.</summary>
+            /// <summary>The replacement asking to take over; null when nobody is asking.</summary>
             public StreamCB Next;
-            /// <summary>1 while a callback of either stream is inside the chain.</summary>
-            public int Busy;
+            /// <summary><see cref="Idle"/>, <see cref="Requested"/>, <see cref="TookOver"/> or <see cref="Withdrawn"/>; moved only by compare-and-swap, so exactly one outcome wins.</summary>
+            public int State;
         }
 
         internal class StreamCB
@@ -1123,24 +1142,80 @@ namespace JJPortaudio
         /// nothing, while <paramref name="running"/> carries on feeding the chain.
         /// A null or closed <paramref name="running"/> leaves nobody to hand over,
         /// and <see cref="ForceTakeOver"/> is then the only way in.
+        /// <para>
+        /// Repair 2: the two must feed one chain, so they must share its
+        /// <see cref="TxChainGate"/>. This stream is not started yet, so it
+        /// takes the running stream's gate here; a running stream with NO gate
+        /// was opened outside the transmit open path, its callbacks have never
+        /// taken one, and nothing done now could cover a callback of it already
+        /// in flight. That refuses (false), and the swap leaves it running.
+        /// </para>
         /// </summary>
-        internal void StandBeside(Audio running)
+        internal bool StandBeside(Audio running)
         {
             var cb = CBData;
-            if (cb == null) return;
+            if (cb == null) return false;
             var runningCb = running?.CBData;
+            if (runningCb != null)
+            {
+                var gate = runningCb.TxPipeline.Gate;
+                if (gate == null)
+                {
+                    Tracing.TraceLine("audio: a capture stream cannot stand beside one that is not on a guarded transmit chain;"
+                        + " the running stream is left as it is", TraceLevel.Error);
+                    return false;
+                }
+                cb.TxPipeline.Gate = gate;
+            }
             var handover = new TxCaptureHandover { Active = runningCb };
             if (runningCb != null) System.Threading.Volatile.Write(ref runningCb.Handover, handover);
             System.Threading.Volatile.Write(ref cb.Handover, handover);
+            return true;
         }
 
-        /// <summary>Ask the running stream to hand over at the end of its next buffer.</summary>
+        /// <summary>Ask the running stream to hand over at the end of its next buffer. A hand-over already withdrawn stays withdrawn.</summary>
         internal void RequestTakeOver()
         {
             var cb = CBData;
             var handover = cb?.Handover;
             if (handover == null || ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), cb)) return;
             System.Threading.Volatile.Write(ref handover.Next, cb);
+            System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.Requested, TxCaptureHandover.Idle);
+        }
+
+        /// <summary>
+        /// Withdraw this stream's take-over before it completes (repair 2: a
+        /// key-down was admitted). True when it will now never complete (this
+        /// call withdrew it, or it was withdrawn already); false when it had
+        /// already completed, so this stream is the one feeding the chain.
+        /// One compare-and-swap; never waits.
+        /// </summary>
+        internal bool WithdrawTakeOver()
+        {
+            var cb = CBData;
+            var handover = cb?.Handover;
+            if (handover == null) return false;
+            while (true)
+            {
+                int s = System.Threading.Volatile.Read(ref handover.State);
+                if (s == TxCaptureHandover.Withdrawn) return true;
+                if (s == TxCaptureHandover.TookOver) return false;
+                if (System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.Withdrawn, s) == s)
+                {
+                    System.Threading.Interlocked.CompareExchange(ref handover.Next, null, cb);
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>True once this stream's take-over was withdrawn: it will never feed the chain.</summary>
+        internal bool TakeOverWithdrawn
+        {
+            get
+            {
+                var handover = CBData?.Handover;
+                return handover != null && System.Threading.Volatile.Read(ref handover.State) == TxCaptureHandover.Withdrawn;
+            }
         }
 
         /// <summary>True once this stream is the one feeding the chain (always, for a stream that never stood by).</summary>
@@ -1157,16 +1232,25 @@ namespace JJPortaudio
 
         /// <summary>
         /// Take over without the running stream's hand-over, because it has
-        /// stopped producing. Safe at any moment: a callback of the other stream
-        /// still inside the chain keeps <see cref="TxCaptureHandover.Busy"/>, so
-        /// this stream's next buffer finds it taken and feeds nothing, and the
-        /// one after feeds the chain.
+        /// stopped producing. Never two in the chain: a callback of the other
+        /// stream still inside holds the chain's <see cref="TxChainGate"/>, and
+        /// every buffer of this stream that arrives meanwhile finds it taken and
+        /// feeds nothing. That is as many buffers as the other callback stays
+        /// inside, NOT one (repair 2, Codex's characterization): the wait before
+        /// a force is bounded, the gap after it is not. A hand-over already
+        /// withdrawn is not forced.
         /// </summary>
         internal void ForceTakeOver()
         {
             var cb = CBData;
             var handover = cb?.Handover;
             if (handover == null) return;
+            while (true)
+            {
+                int s = System.Threading.Volatile.Read(ref handover.State);
+                if (s == TxCaptureHandover.Withdrawn || s == TxCaptureHandover.TookOver) return;
+                if (System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.TookOver, s) == s) break;
+            }
             System.Threading.Volatile.Write(ref handover.Next, null);
             System.Threading.Volatile.Write(ref handover.Active, cb);
         }
@@ -2077,41 +2161,58 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// A capture callback's way into the transmit chain while its stream
-        /// takes part in a swap (the H2 split, repair 1): true only for the
-        /// hand-over's Active stream, and only while it holds Busy. A stream
-        /// standing by, or retired after handing over, or (only around a forced
-        /// take-over) meeting the other stream's callback inside the chain, gets
-        /// false and feeds nothing. No allocation.
+        /// A capture callback's way into the transmit chain (the H2 split,
+        /// repairs 1 and 2). With a hand-over (its stream takes part in a swap):
+        /// only the hand-over's Active stream. With a gate (every stream the
+        /// transmit open path opens, for its whole life): only while it holds
+        /// the gate. A stream standing by, or retired after handing over, or
+        /// meeting another producer inside the chain, gets false and feeds
+        /// nothing. Both null: true, nothing to share. No allocation.
         /// </summary>
-        internal static bool EnterTxChain(TxCaptureHandover handover, StreamCB data)
+        internal static bool EnterTxChain(TxCaptureHandover handover, TxChainGate gate, StreamCB data)
         {
-            if (!ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), data)) return false;
-            if (System.Threading.Interlocked.CompareExchange(ref handover.Busy, 1, 0) != 0) return false;
-            if (ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), data)) return true;
-            System.Threading.Volatile.Write(ref handover.Busy, 0);
+            if (handover != null && !ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), data)) return false;
+            if (gate != null && !gate.TryEnter()) return false;
+            if (handover == null || ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), data)) return true;
+            gate?.Leave();
             return false;
         }
 
         /// <summary>
         /// The way out, for a callback <see cref="EnterTxChain"/> let in. When
         /// <paramref name="mayHandOver"/> (the buffer ended normally) and a
-        /// replacement is asking, it is made Active HERE, at the end of this
-        /// buffer and still holding Busy, so its next buffer is the first it
-        /// feeds and the two never feed the chain together.
+        /// replacement is asking, the hand-over is decided HERE, at the end of
+        /// this buffer and still holding the gate, by one compare-and-swap that
+        /// a key-down's withdrawal races fairly: if the radio is keyed now (this
+        /// stream's own key source: our Mox or the interlock), it is withdrawn
+        /// and this stream carries on; otherwise the replacement is made Active,
+        /// so its next buffer is the first it feeds. Then the gate is given back.
         /// </summary>
-        internal static void LeaveTxChain(TxCaptureHandover handover, bool mayHandOver)
+        internal static void LeaveTxChain(TxCaptureHandover handover, TxChainGate gate, StreamCB data, bool mayHandOver)
         {
-            if (mayHandOver)
+            if (handover != null && mayHandOver
+                && System.Threading.Volatile.Read(ref handover.State) == TxCaptureHandover.Requested)
             {
-                StreamCB next = System.Threading.Volatile.Read(ref handover.Next);
-                if (next != null)
+                bool keyed = false;
+                var keySource = data?.TxPipeline.KeySource;
+                if (keySource != null)
                 {
+                    try { keyed = keySource(); }
+                    catch { keyed = true; }
+                }
+                if (keyed)
+                {
+                    System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.Withdrawn, TxCaptureHandover.Requested);
+                }
+                else if (System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.TookOver, TxCaptureHandover.Requested)
+                         == TxCaptureHandover.Requested)
+                {
+                    StreamCB next = System.Threading.Volatile.Read(ref handover.Next);
                     System.Threading.Volatile.Write(ref handover.Next, null);
                     System.Threading.Volatile.Write(ref handover.Active, next);
                 }
             }
-            System.Threading.Volatile.Write(ref handover.Busy, 0);
+            gate?.Leave();
         }
 
         private static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
@@ -2132,16 +2233,21 @@ namespace JJPortaudio
             noteDeviceLatency(data, ref timeInfo, true);
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
-            // The H2 split, repair 1: a stream taking part in a capture swap
-            // feeds the transmit chain only while it is the hand-over's Active
-            // one AND it holds Busy. Standing by beside the running stream, or
-            // retired after handing over, its buffer feeds nothing. Counted
-            // above, so a standing-by stream can be seen producing.
+            // The H2 split, repairs 1 and 2: a stream taking part in a capture
+            // swap feeds the transmit chain only while it is the hand-over's
+            // Active one, and EVERY stream on a shared chain only while it holds
+            // the chain's gate, for the whole buffer. The gate was put on this
+            // stream's pipeline when it was opened, before its first callback,
+            // so no buffer of its life is outside it (repair 2: a guard made
+            // per swap missed a callback already inside). Standing by, retired,
+            // or meeting another producer inside, its buffer feeds nothing.
+            // Counted above, so a standing-by stream can be seen producing.
             TxCaptureHandover handover = System.Threading.Volatile.Read(ref data.Handover);
+            TxChainGate gate = data.TxPipeline.Gate;
             bool chainHeld = false;
-            if (handover != null)
+            if (handover != null || gate != null)
             {
-                chainHeld = EnterTxChain(handover, data);
+                chainHeld = EnterTxChain(handover, gate, data);
                 if (!chainHeld)
                 {
                     if (data.Active) return rv;
@@ -2292,7 +2398,7 @@ namespace JJPortaudio
             }
 
             inCallbackDone:
-            if (chainHeld) LeaveTxChain(handover, rv == PortAudio.PaStreamCallbackResult.paContinue);
+            if (chainHeld) LeaveTxChain(handover, gate, data, rv == PortAudio.PaStreamCallbackResult.paContinue);
             if (rv != PortAudio.PaStreamCallbackResult.paContinue)
             {
                 if (data.UseOpus) data.OpusInputHandler(new byte[0]);

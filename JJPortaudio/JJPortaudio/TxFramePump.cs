@@ -185,19 +185,32 @@ namespace JJPortaudio
                     + " frames dropped so far this transmission)", TraceLevel.Warning);
             }
 
+            // The H2 split, repair 2: the self-clocked source is a producer of
+            // the same chain as the capture streams, so it takes the chain's
+            // gate for this pump. The transmit gate already stops the capture
+            // before starting this; the gate makes "never two in the encoder"
+            // hold even if a capture callback is still inside. Found taken: the
+            // frames owed now are not sent (counted on the gate), never waited
+            // for.
+            var gate = _pipeline.Gate;
+            if (gate != null && !gate.TryEnter()) return 0;
             int sent = 0;
-            for (int i = 0; i < due; i++)
+            try
             {
-                if (!_running) break;
-                // Silence, freshly, every frame — see the class remarks.
-                Array.Clear(_buffer, 0, _floatsPerFrame);
-                // The first false answer means stop, not retry: either the
-                // producer was told to stop mid-frame, or the encoder failed,
-                // and hammering a broken encoder eight more times for one
-                // stall helps nobody.
-                if (!_pipeline.Emit(_buffer, _floatsPerFrame, _sampleRate, _stillRunning)) break;
-                sent++;
+                for (int i = 0; i < due; i++)
+                {
+                    if (!_running) break;
+                    // Silence, freshly, every frame — see the class remarks.
+                    Array.Clear(_buffer, 0, _floatsPerFrame);
+                    // The first false answer means stop, not retry: either the
+                    // producer was told to stop mid-frame, or the encoder failed,
+                    // and hammering a broken encoder eight more times for one
+                    // stall helps nobody.
+                    if (!_pipeline.Emit(_buffer, _floatsPerFrame, _sampleRate, _stillRunning)) break;
+                    sent++;
+                }
             }
+            finally { gate?.Leave(); }
             return sent;
         }
 
