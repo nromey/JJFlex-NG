@@ -2694,6 +2694,10 @@ namespace Radios.Tests
                 "audio.audition.verdict.threshold",
                 "audio.audition.verdict.threshold_unknown",
                 "audio.audition.verdict.not_level_matched",
+                // Track Q repair 1: why there is no change when the aligned comparison cannot measure.
+                "audio.audition.verdict.no_comparison_too_short",
+                "audio.audition.verdict.no_comparison_no_speech",
+                "audio.audition.verdict.no_comparison_nothing_came_out",
                 "audio.audition.fault.never_opens",
                 "audio.audition.fault.never_closes",
                 "audio.audition.fault.chatters",

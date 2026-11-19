@@ -21,10 +21,34 @@ namespace Radios
     {
         /// <summary>Speech stands clear of the room's noise, so the figures mean something.</summary>
         Heard,
-        /// <summary>Too short for the loudness meter's noise floor (<see cref="LufsMeter.MinProfileBlocks"/>).</summary>
+        /// <summary>Too few blocks for the loudness meter's noise floor (<see cref="LufsMeter.MinProfileBlocks"/>), decided by the block count alone.</summary>
         TooShort,
-        /// <summary>Long enough, but nothing in it stands clear of the noise: no figure is reported.</summary>
+        /// <summary>
+        /// Long enough, but nothing in it stands clear of the noise: no figure is
+        /// reported. This includes a take with no usable signal at all (silence,
+        /// or everything under the meter's absolute gate), whose profile is
+        /// invalid for a reason recording longer would not fix.
+        /// </summary>
         NoSpeech,
+    }
+
+    /// <summary>
+    /// Whether the raw and cleaned takes, once lined up, could be compared. Kept
+    /// apart from <see cref="AuditionSpeech"/>, which is about the original take:
+    /// speech can be heard in the take and the comparison still be impossible.
+    /// </summary>
+    public enum AuditionComparison
+    {
+        /// <summary>Not attempted: no speech in the take, or no output from the chain.</summary>
+        NotAttempted,
+        /// <summary>Both lined-up takes measured: the speech-to-noise figures and the change are reported.</summary>
+        Valid,
+        /// <summary>Lining the output up left too few blocks for a noise floor on one side or both.</summary>
+        TooShortOnceAligned,
+        /// <summary>The lined-up stretch of the raw take holds no speech clear of the noise.</summary>
+        NoSpeechOnceAligned,
+        /// <summary>The cleaned take held nothing the meter could measure: the chain silenced it.</summary>
+        NothingCameOut,
     }
 
     /// <summary>The gate failures #262 says the verdict must name. Several can be found in one take.</summary>
@@ -137,17 +161,30 @@ namespace Radios
         /// <summary>Why the chain did not run, as a lexicon key; empty when it did.</summary>
         public string ChainUnavailableKey { get; internal init; } = "";
 
-        public float RawSpeechLufs { get; internal init; } = LufsMeter.Floor;
-        public float RawFloorLufs { get; internal init; } = LufsMeter.Floor;
-        public float RawSpeechToNoiseLu { get; internal init; }
+        /// <summary>
+        /// The raw take's figures: from the lined-up stretch when the comparison
+        /// is <see cref="AuditionComparison.Valid"/> or
+        /// <see cref="AuditionComparison.NothingCameOut"/>, otherwise from the
+        /// whole take. Null when the profile they would come from is invalid,
+        /// never a sentinel.
+        /// </summary>
+        public float? RawSpeechLufs { get; internal init; }
+        public float? RawFloorLufs { get; internal init; }
+        public float? RawSpeechToNoiseLu { get; internal init; }
 
-        /// <summary>The cleaned take's figures, measured after lining it up with the raw one and before level matching.</summary>
-        public float CleanedSpeechLufs { get; internal init; } = LufsMeter.Floor;
-        public float CleanedFloorLufs { get; internal init; } = LufsMeter.Floor;
-        public float CleanedSpeechToNoiseLu { get; internal init; }
+        /// <summary>Whether the lined-up raw and cleaned takes could be compared.</summary>
+        public AuditionComparison Comparison { get; internal init; }
 
-        /// <summary>Cleaned speech-to-noise less raw speech-to-noise, in LU: #262's figure of merit. Zero unless speech was heard and the chain ran.</summary>
-        public float SpeechToNoiseChangeLu { get; internal init; }
+        /// <summary>Length of the lined-up stretch that was compared, in seconds; null when the chain did not run on heard speech.</summary>
+        public double? ComparedSeconds { get; internal init; }
+
+        /// <summary>The cleaned take's figures, measured after lining it up with the raw one and before level matching. Null unless the comparison is valid.</summary>
+        public float? CleanedSpeechLufs { get; internal init; }
+        public float? CleanedFloorLufs { get; internal init; }
+        public float? CleanedSpeechToNoiseLu { get; internal init; }
+
+        /// <summary>Cleaned speech-to-noise less raw speech-to-noise, in LU: #262's figure of merit. Null unless the comparison is valid.</summary>
+        public float? SpeechToNoiseChangeLu { get; internal init; }
 
         /// <summary>The gate threshold that produced the cleaned take, when the chain said.</summary>
         public float? ThresholdDb { get; internal init; }
@@ -290,9 +327,7 @@ namespace Radios
             double seconds = (double)raw.Length / sampleRate;
 
             var rawProfile = Measure(raw, raw.Length, sampleRate);
-            var speech = !rawProfile.IsValid ? AuditionSpeech.TooShort
-                : rawProfile.SpeechToNoiseLu >= MinSpeechToNoiseLu ? AuditionSpeech.Heard
-                : AuditionSpeech.NoSpeech;
+            var speech = ClassifySpeech(rawProfile);
 
             var processing = processor.Process((float[])raw.Clone(), sampleRate)
                 ?? ChainProcessing.Unavailable(ChainNotConnectedYet.ReasonKey);
@@ -310,9 +345,10 @@ namespace Radios
                     Speech = speech,
                     ChainAvailable = chain,
                     ChainUnavailableKey = chain ? "" : processing.UnavailableKey,
-                    RawSpeechLufs = rawProfile.SpeechLufs,
-                    RawFloorLufs = rawProfile.NoiseFloorLufs,
-                    RawSpeechToNoiseLu = rawProfile.IsValid ? rawProfile.SpeechToNoiseLu : 0f,
+                    Comparison = AuditionComparison.NotAttempted,
+                    RawSpeechLufs = Figure(rawProfile, rawProfile.SpeechLufs),
+                    RawFloorLufs = Figure(rawProfile, rawProfile.NoiseFloorLufs),
+                    RawSpeechToNoiseLu = Figure(rawProfile, rawProfile.SpeechToNoiseLu),
                     ThresholdDb = chain ? processing.ThresholdDb : null,
                     GateEnabled = chain && processing.GateEnabled,
                     PlaybackScale = scaleRaw,
@@ -328,10 +364,11 @@ namespace Radios
 
             var rawPart = Measure(raw, length, sampleRate);
             var cleanedProfile = Measure(aligned, length, sampleRate);
+            var comparison = Compare(rawPart, cleanedProfile);
+            bool valid = comparison == AuditionComparison.Valid;
 
             float match = rawPart.SpeechLufs - cleanedProfile.SpeechLufs;
-            bool matched = cleanedProfile.IsValid && cleanedProfile.SpeechLufs > LufsMeter.Floor
-                && Math.Abs(match) <= MaxMatchGainDb;
+            bool matched = valid && Math.Abs(match) <= MaxMatchGainDb;
             float gainDb = matched ? match : 0f;
             float gain = (float)Math.Pow(10, gainDb / 20.0);
 
@@ -341,19 +378,26 @@ namespace Radios
             float peak = Math.Max(Peak(raw, length), Math.Max(Peak(aligned, length) * gain, Peak(removed, length)));
             float scale = ScaleFor(peak);
 
-            // The speech's own level change, in dB, before any matching: how much
-            // the chain did to the voice itself.
-            // A chain that silenced the take entirely has cut the speech by
-            // more than any gate's depth.
-            float speechChangeDb = cleanedProfile.SpeechLufs <= LufsMeter.Floor
-                ? NeverOpensDb - 1f
-                : cleanedProfile.SpeechLufs - rawPart.SpeechLufs;
-            var faults = processing.GateEnabled
-                ? FindGateFaults(raw, aligned, length, sampleRate, speechChangeDb)
-                : AuditionGateFault.None;
+            // The gate's failures are named only from evidence that measured.
+            // A valid comparison judges every frame relative to the speech's own
+            // level change (how much the chain did to the voice itself, before
+            // any matching). A chain that silenced heard speech entirely has cut
+            // it by more than any gate's depth, and that is all a silent output
+            // can show: it carries no evidence of chatter or a late opening.
+            // A comparison too short, or with no speech in its stretch, rests
+            // on no measurement at all, so it names nothing.
+            AuditionGateFault faults = AuditionGateFault.None;
+            if (processing.GateEnabled && valid)
+                faults = FindGateFaults(raw, aligned, length, sampleRate, cleanedProfile.SpeechLufs - rawPart.SpeechLufs);
+            else if (processing.GateEnabled && comparison == AuditionComparison.NothingCameOut)
+                faults = AuditionGateFault.NeverOpens;
 
-            float rawSnr = rawPart.IsValid ? rawPart.SpeechToNoiseLu : rawProfile.SpeechToNoiseLu;
-            float cleanedSnr = cleanedProfile.IsValid ? cleanedProfile.SpeechToNoiseLu : 0f;
+            // The raw figures come from the stretch that was compared when that
+            // stretch measured, and from the whole take, which heard speech,
+            // when it did not. The cleaned figures and the change exist only
+            // for a valid comparison: no slot is filled with a sentinel or a zero.
+            bool rawPartHeard = ClassifySpeech(rawPart) == AuditionSpeech.Heard;
+            var rawSource = rawPartHeard ? rawPart : rawProfile;
 
             return new ChainAuditionResult
             {
@@ -361,13 +405,15 @@ namespace Radios
                 Seconds = seconds,
                 Speech = speech,
                 ChainAvailable = true,
-                RawSpeechLufs = rawPart.SpeechLufs,
-                RawFloorLufs = rawPart.NoiseFloorLufs,
-                RawSpeechToNoiseLu = rawSnr,
-                CleanedSpeechLufs = cleanedProfile.SpeechLufs,
-                CleanedFloorLufs = cleanedProfile.NoiseFloorLufs,
-                CleanedSpeechToNoiseLu = cleanedSnr,
-                SpeechToNoiseChangeLu = cleanedProfile.IsValid ? cleanedSnr - rawSnr : 0f,
+                Comparison = comparison,
+                ComparedSeconds = (double)length / sampleRate,
+                RawSpeechLufs = Figure(rawSource, rawSource.SpeechLufs),
+                RawFloorLufs = Figure(rawSource, rawSource.NoiseFloorLufs),
+                RawSpeechToNoiseLu = Figure(rawSource, rawSource.SpeechToNoiseLu),
+                CleanedSpeechLufs = valid ? cleanedProfile.SpeechLufs : null,
+                CleanedFloorLufs = valid ? cleanedProfile.NoiseFloorLufs : null,
+                CleanedSpeechToNoiseLu = valid ? cleanedProfile.SpeechToNoiseLu : null,
+                SpeechToNoiseChangeLu = valid ? cleanedProfile.SpeechToNoiseLu - rawPart.SpeechToNoiseLu : null,
                 ThresholdDb = processing.ThresholdDb,
                 GateEnabled = processing.GateEnabled,
                 Faults = faults,
@@ -404,6 +450,35 @@ namespace Radios
             }
             return meter.Profile;
         }
+
+        /// <summary>
+        /// What a profile says about speech. <see cref="LufsMeter.LoudnessProfile.IsValid"/>
+        /// is false for two different reasons, and only one is shortness: too
+        /// few blocks, or enough blocks with no signal over the meter's absolute
+        /// gate (silence, a muted microphone, a level far too low). The second
+        /// is no speech, since a longer take of it would not help.
+        /// </summary>
+        public static AuditionSpeech ClassifySpeech(LufsMeter.LoudnessProfile profile) =>
+            profile.BlockCount < LufsMeter.MinProfileBlocks ? AuditionSpeech.TooShort
+            : !profile.IsValid ? AuditionSpeech.NoSpeech
+            : profile.SpeechToNoiseLu >= MinSpeechToNoiseLu ? AuditionSpeech.Heard
+            : AuditionSpeech.NoSpeech;
+
+        /// <summary>
+        /// Whether the lined-up raw stretch and the cleaned take can be compared,
+        /// re-checked after trimming for latency, since the trim can take a take
+        /// that measured below the meter's minimum.
+        /// </summary>
+        public static AuditionComparison Compare(LufsMeter.LoudnessProfile rawPart, LufsMeter.LoudnessProfile cleaned)
+        {
+            if (rawPart.BlockCount < LufsMeter.MinProfileBlocks || cleaned.BlockCount < LufsMeter.MinProfileBlocks)
+                return AuditionComparison.TooShortOnceAligned;
+            if (ClassifySpeech(rawPart) != AuditionSpeech.Heard) return AuditionComparison.NoSpeechOnceAligned;
+            if (!cleaned.IsValid) return AuditionComparison.NothingCameOut;
+            return AuditionComparison.Valid;
+        }
+
+        private static float? Figure(LufsMeter.LoudnessProfile profile, float value) => profile.IsValid ? value : null;
 
         /// <summary>
         /// Name the gate's failures (#262): never opens, never closes, chatters,
@@ -503,8 +578,8 @@ namespace Radios
                     break;
                 default:
                     parts.Add(Lexicon.Get("audio.audition.verdict.heard",
-                        ("speech", Number(result.RawSpeechLufs)), ("floor", Number(result.RawFloorLufs)),
-                        ("ratio", Number(result.RawSpeechToNoiseLu))));
+                        ("speech", Measured(result.RawSpeechLufs)), ("floor", Measured(result.RawFloorLufs)),
+                        ("ratio", Measured(result.RawSpeechToNoiseLu))));
                     break;
             }
 
@@ -515,9 +590,25 @@ namespace Radios
             }
             if (result.Speech != AuditionSpeech.Heard) return string.Join(" ", parts);
 
-            parts.Add(Lexicon.Get("audio.audition.verdict.change",
-                ("change", Number(result.SpeechToNoiseChangeLu)),
-                ("before", Number(result.RawSpeechToNoiseLu)), ("after", Number(result.CleanedSpeechToNoiseLu))));
+            // The change only from a comparison that measured; otherwise why not.
+            switch (result.Comparison)
+            {
+                case AuditionComparison.Valid:
+                    parts.Add(Lexicon.Get("audio.audition.verdict.change",
+                        ("change", Measured(result.SpeechToNoiseChangeLu)),
+                        ("before", Measured(result.RawSpeechToNoiseLu)), ("after", Measured(result.CleanedSpeechToNoiseLu))));
+                    break;
+                case AuditionComparison.TooShortOnceAligned:
+                    parts.Add(Lexicon.Get("audio.audition.verdict.no_comparison_too_short",
+                        ("length", Number(result.ComparedSeconds ?? 0))));
+                    break;
+                case AuditionComparison.NoSpeechOnceAligned:
+                    parts.Add(Lexicon.Get("audio.audition.verdict.no_comparison_no_speech"));
+                    break;
+                case AuditionComparison.NothingCameOut:
+                    parts.Add(Lexicon.Get("audio.audition.verdict.no_comparison_nothing_came_out"));
+                    break;
+            }
             if (!result.GateEnabled) parts.Add(Lexicon.Get("audio.audition.verdict.gate_off"));
             else if (result.ThresholdDb is float threshold)
                 parts.Add(Lexicon.Get("audio.audition.verdict.threshold", ("threshold", Number(threshold))));
@@ -544,15 +635,23 @@ namespace Radios
         /// </summary>
         public static string TraceLine(ChainAuditionResult r) =>
             "Check your audio audition: " + Number(r.Seconds) + " s, speech " + r.Speech
-            + ", raw " + Number(r.RawSpeechLufs) + "/" + Number(r.RawFloorLufs) + " LUFS"
+            + ", raw " + Optional(r.RawSpeechLufs) + "/" + Optional(r.RawFloorLufs) + " LUFS"
             + (r.ChainAvailable
-                ? ", cleaned " + Number(r.CleanedSpeechLufs) + "/" + Number(r.CleanedFloorLufs) + " LUFS, change "
-                  + Number(r.SpeechToNoiseChangeLu) + " LU, match " + Number(r.MatchGainDb) + " dB"
+                ? ", comparison " + r.Comparison
+                  + (r.ComparedSeconds is double c ? " over " + Number(c) + " s" : "")
+                  + ", cleaned " + Optional(r.CleanedSpeechLufs) + "/" + Optional(r.CleanedFloorLufs) + " LUFS, change "
+                  + Optional(r.SpeechToNoiseChangeLu) + " LU, match " + Number(r.MatchGainDb) + " dB"
                   + (r.LevelMatched ? "" : " (not matched)") + ", gate " + (r.GateEnabled ? "on" : "off")
                   + (r.ThresholdDb is float t ? " at " + Number(t) + " dB" : "") + ", faults " + r.Faults
                 : ", chain not available");
 
         private static string Number(double v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+
+        private static string Optional(float? v) => v is float x ? Number(x) : "none";
+
+        /// <summary>A figure the verdict is about to say. Its absence is a defect in the caller's branch, never something to paper over with a sentinel.</summary>
+        private static string Measured(float? v) =>
+            v is float x ? Number(x) : throw new InvalidOperationException("the verdict was asked to say a figure that was not measured");
 
         private static List<(int Start, int End)> SpeechRuns(double[] rawDb, double mid)
         {

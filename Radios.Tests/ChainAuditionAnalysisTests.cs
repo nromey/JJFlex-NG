@@ -151,6 +151,56 @@ namespace Radios.Tests
             Assert.Equal(new[] { AuditionRender.Raw }, r.Playable);
         }
 
+        // Repair 1, finding 1 (Codex, 2026-11-19): the meter's profile is
+        // invalid both before it has enough blocks AND after enough blocks of
+        // silence or of signal under its absolute gate. Only the first is short.
+
+        [Fact]
+        public void A_long_silent_take_is_no_speech_and_not_too_short()
+        {
+            var silence = new float[8 * Rate];
+            // Positive control, through the real meter: enough blocks, and still invalid.
+            var profile = ChainAudition.Measure(silence, silence.Length, Rate);
+            Assert.True(profile.BlockCount >= LufsMeter.MinProfileBlocks, "blocks " + profile.BlockCount);
+            Assert.False(profile.IsValid);
+
+            var r = ChainAudition.Analyse(silence, Rate, ChainNotConnectedYet.Instance);
+            Assert.Equal(AuditionSpeech.NoSpeech, r.Speech);
+            Assert.Equal(new[] { AuditionRender.Raw }, r.Playable);
+            // Nothing measured, so nothing reported: no -150 LUFS sentinel in a figure's slot.
+            Assert.Null(r.RawSpeechLufs);
+            Assert.Null(r.RawFloorLufs);
+            Assert.Null(r.RawSpeechToNoiseLu);
+        }
+
+        [Fact]
+        public void A_long_take_below_the_meters_gate_is_no_speech_and_not_too_short()
+        {
+            // The same speech and room 60 dB down: speech near -80 dBFS, under the
+            // meter's -70 LUFS absolute gate, so no block counts as signal.
+            float down = (float)Math.Pow(10, -60 / 20.0);
+            var faint = Take(8).Select(s => s * down).ToArray();
+            var profile = ChainAudition.Measure(faint, faint.Length, Rate);
+            Assert.True(profile.BlockCount >= LufsMeter.MinProfileBlocks, "blocks " + profile.BlockCount);
+            Assert.False(profile.IsValid);
+
+            var r = ChainAudition.Analyse(faint, Rate, new FakeChain(GoodGate));
+            Assert.Equal(AuditionSpeech.NoSpeech, r.Speech);
+            Assert.Equal(new[] { AuditionRender.Raw }, r.Playable);
+        }
+
+        [Fact]
+        public void A_short_take_is_too_short_whether_or_not_it_holds_sound()
+        {
+            // Beside the two long cases: short is decided by the block count alone.
+            foreach (var take in new[] { Take(0.2), Take(2), new float[2 * Rate] })
+            {
+                var profile = ChainAudition.Measure(take, take.Length, Rate);
+                Assert.True(profile.BlockCount < LufsMeter.MinProfileBlocks, "blocks " + profile.BlockCount);
+                Assert.Equal(AuditionSpeech.TooShort, ChainAudition.Analyse(take, Rate, ChainNotConnectedYet.Instance).Speech);
+            }
+        }
+
         [Fact]
         public void With_no_speech_only_the_raw_take_is_offered_and_nothing_is_matched()
         {
@@ -159,7 +209,8 @@ namespace Radios.Tests
             var r = ChainAudition.Analyse(Take(8, speech: false), Rate, new FakeChain(GoodGate));
             Assert.Equal(AuditionSpeech.NoSpeech, r.Speech);
             Assert.Equal(new[] { AuditionRender.Raw }, r.Playable);
-            Assert.Equal(0f, r.SpeechToNoiseChangeLu);
+            Assert.Null(r.SpeechToNoiseChangeLu);
+            Assert.Equal(AuditionComparison.NotAttempted, r.Comparison);
             Assert.Equal(AuditionGateFault.None, r.Faults);
         }
 
@@ -201,7 +252,7 @@ namespace Radios.Tests
             var cleaned = ChainAudition.Measure(r.Render(AuditionRender.Cleaned)!, r.Render(AuditionRender.Cleaned)!.Length, Rate);
             Assert.InRange(cleaned.SpeechLufs - raw.SpeechLufs, -0.3f, 0.3f);
             // A level change is not a noise change.
-            Assert.InRange(r.SpeechToNoiseChangeLu, -0.5f, 0.5f);
+            Assert.InRange(r.SpeechToNoiseChangeLu!.Value, -0.5f, 0.5f);
             Assert.Equal(AuditionGateFault.None, r.Faults);
         }
 
@@ -263,8 +314,10 @@ namespace Radios.Tests
             var r = Run(GoodGate);
             Assert.True(r.ChainAvailable);
             Assert.Equal(AuditionSpeech.Heard, r.Speech);
+            Assert.Equal(AuditionComparison.Valid, r.Comparison);
+            Assert.NotNull(r.CleanedSpeechToNoiseLu);
             Assert.Equal(AuditionGateFault.None, r.Faults);
-            Assert.InRange(r.SpeechToNoiseChangeLu, 15f, 30f);
+            Assert.InRange(r.SpeechToNoiseChangeLu!.Value, 15f, 30f);
             Assert.InRange(r.MatchGainDb, -1f, 1f);
             Assert.Equal(-42f, r.ThresholdDb);
         }
@@ -309,6 +362,71 @@ namespace Radios.Tests
             Assert.Equal(0f, r.MatchGainDb);
         }
 
+        // Repair 1, finding 2 (Codex, 2026-11-19): whether speech was heard in
+        // the take and whether the lined-up comparison is valid are separate.
+
+        [Fact]
+        public void Speech_processed_to_silence_has_no_cleaned_figures_and_no_change()
+        {
+            var r = ChainAudition.Analyse(Take(8), Rate, new FakeChain(_ => 0f, gate: true, threshold: -42f));
+            Assert.Equal(AuditionSpeech.Heard, r.Speech);
+            Assert.Equal(AuditionComparison.NothingCameOut, r.Comparison);
+            Assert.Null(r.CleanedSpeechLufs);
+            Assert.Null(r.CleanedFloorLufs);
+            Assert.Null(r.CleanedSpeechToNoiseLu);
+            Assert.Null(r.SpeechToNoiseChangeLu);
+            // The raw take measured, and says so; the justified failure stays.
+            Assert.True(r.RawSpeechToNoiseLu > 20, "raw " + r.RawSpeechToNoiseLu);
+            Assert.Equal(AuditionGateFault.NeverOpens, r.Faults);
+            Assert.False(r.LevelMatched);
+            // The silence can still be heard for what it is.
+            Assert.Equal(ChainAudition.PlayOrder, r.Playable);
+        }
+
+        [Fact]
+        public void A_chain_that_silences_the_take_with_its_gate_off_names_no_gate_failure()
+        {
+            var r = ChainAudition.Analyse(Take(8), Rate, new FakeChain(_ => 0f, gate: false));
+            Assert.Equal(AuditionComparison.NothingCameOut, r.Comparison);
+            Assert.Equal(AuditionGateFault.None, r.Faults);
+        }
+
+        [Fact]
+        public void A_take_alignment_leaves_too_short_is_heard_but_not_compared()
+        {
+            var take = Take(3.3);
+            var whole = ChainAudition.Measure(take, take.Length, Rate);
+            Assert.True(whole.IsValid);
+            var r = ChainAudition.Analyse(take, Rate, new FakeChain(_ => 1f, latency: 480, gate: false));
+            Assert.Equal(AuditionSpeech.Heard, r.Speech);
+            Assert.Equal(AuditionComparison.TooShortOnceAligned, r.Comparison);
+            Assert.InRange(r.ComparedSeconds!.Value, 3.28, 3.30);
+            // The whole take's figures, which measured, and none of the comparison's.
+            Assert.Equal(whole.SpeechLufs, r.RawSpeechLufs);
+            Assert.Equal(whole.NoiseFloorLufs, r.RawFloorLufs);
+            Assert.Equal(whole.SpeechToNoiseLu, r.RawSpeechToNoiseLu);
+            Assert.Null(r.CleanedSpeechToNoiseLu);
+            Assert.Null(r.SpeechToNoiseChangeLu);
+            Assert.False(r.LevelMatched);
+        }
+
+        [Fact]
+        public void A_comparison_whose_lined_up_stretch_holds_no_speech_is_not_made()
+        {
+            // Speech only in the last two seconds, and a chain reporting 2.5 s of
+            // latency: the stretch that lines up is the room alone.
+            var take = Take(8);
+            var room = Take(8, speech: false);
+            int cut = 6 * Rate;
+            var late = room.Take(cut).Concat(take.Skip(cut)).ToArray();
+            Assert.Equal(AuditionSpeech.Heard, ChainAudition.ClassifySpeech(ChainAudition.Measure(late, late.Length, Rate)));
+            var r = ChainAudition.Analyse(late, Rate, new FakeChain(_ => 1f, latency: 2 * Rate + Rate / 2, gate: true));
+            Assert.Equal(AuditionSpeech.Heard, r.Speech);
+            Assert.Equal(AuditionComparison.NoSpeechOnceAligned, r.Comparison);
+            Assert.Null(r.SpeechToNoiseChangeLu);
+            Assert.Equal(AuditionGateFault.None, r.Faults);
+        }
+
         [Fact]
         public void With_the_gate_off_no_gate_failure_is_named()
         {
@@ -334,6 +452,8 @@ namespace Radios.Tests
                 ChainNotConnectedYet.ReasonKey, "audio.audition.verdict.change", "audio.audition.verdict.gate_off",
                 "audio.audition.verdict.threshold", "audio.audition.verdict.threshold_unknown",
                 "audio.audition.verdict.not_level_matched",
+                "audio.audition.verdict.no_comparison_too_short", "audio.audition.verdict.no_comparison_no_speech",
+                "audio.audition.verdict.no_comparison_nothing_came_out",
             }.Concat(ChainAudition.FaultKeys.Select(f => f.Key)))
                 Assert.NotEqual(key, L(key));
         }
@@ -355,9 +475,9 @@ namespace Radios.Tests
             var r = ChainAudition.Analyse(ChainAuditionAnalysisTests.Take(8), ChainAuditionAnalysisTests.Rate,
                 ChainNotConnectedYet.Instance);
             string v = ChainAudition.Verdict(r);
-            string heard = Lexicon.Get("audio.audition.verdict.heard", ("speech", r.RawSpeechLufs.ToString("0.0",
-                    System.Globalization.CultureInfo.InvariantCulture)), ("floor", r.RawFloorLufs.ToString("0.0",
-                    System.Globalization.CultureInfo.InvariantCulture)), ("ratio", r.RawSpeechToNoiseLu.ToString("0.0",
+            string heard = Lexicon.Get("audio.audition.verdict.heard", ("speech", r.RawSpeechLufs!.Value.ToString("0.0",
+                    System.Globalization.CultureInfo.InvariantCulture)), ("floor", r.RawFloorLufs!.Value.ToString("0.0",
+                    System.Globalization.CultureInfo.InvariantCulture)), ("ratio", r.RawSpeechToNoiseLu!.Value.ToString("0.0",
                     System.Globalization.CultureInfo.InvariantCulture)));
             // What was heard, then the chain's sentence, and nothing about a change it did not make.
             Assert.Equal(heard + " " + L(ChainNotConnectedYet.ReasonKey), v);
@@ -379,6 +499,88 @@ namespace Radios.Tests
             var r = ChainAudition.Analyse(ChainAuditionAnalysisTests.Take(8), ChainAuditionAnalysisTests.Rate,
                 new ChainAuditionAnalysisTests.FakeChain(_ => 1f, gate: true));
             Assert.Contains(L("audio.audition.fault.never_closes"), ChainAudition.Verdict(r));
+        }
+
+        // Repair 1, finding 2 (Codex, 2026-11-19): a comparison whose aligned
+        // profiles are invalid reports no speech-to-noise after the chain and no
+        // change, rather than sentinel or zero figures that read as measured.
+
+        /// <summary>The longest literal stretch of the change sentence, whatever its figures.</summary>
+        private static string ChangeSentenceText()
+        {
+            const char Mark = '\u0001';
+            string s = Lexicon.Get("audio.audition.verdict.change",
+                ("change", Mark.ToString()), ("before", Mark.ToString()), ("after", Mark.ToString()));
+            string longest = s.Split(Mark).OrderByDescending(p => p.Length).First();
+            Assert.True(longest.Trim().Length > 0, "the change sentence has no text of its own: " + s);
+            return longest;
+        }
+
+        [Fact]
+        public void Speech_processed_to_silence_with_the_gate_on_reports_no_change_and_still_names_the_gate()
+        {
+            var r = ChainAudition.Analyse(ChainAuditionAnalysisTests.Take(8), ChainAuditionAnalysisTests.Rate,
+                new ChainAuditionAnalysisTests.FakeChain(_ => 0f, gate: true, threshold: -42f));
+            string v = ChainAudition.Verdict(r);
+            Assert.StartsWith(L("audio.audition.verdict.heard").Split('{')[0], v);
+            Assert.DoesNotContain(ChangeSentenceText(), v);
+            Assert.DoesNotContain("-150", v);
+            // The evidence that IS justified stays: speech cut to nothing, with the threshold that did it.
+            Assert.Contains(L("audio.audition.fault.never_opens"), v);
+            Assert.Contains(Lexicon.Get("audio.audition.verdict.threshold", ("threshold", "-42.0")), v);
+            Assert.Contains(L("audio.audition.verdict.no_comparison_nothing_came_out"), v);
+        }
+
+        [Fact]
+        public void A_take_alignment_leaves_too_short_reports_the_whole_takes_figures_and_no_change()
+        {
+            int rate = ChainAuditionAnalysisTests.Rate;
+            var take = ChainAuditionAnalysisTests.Take(3.3);
+            // Positive control, through the real meter: the whole take measures,
+            // the 10 ms shorter aligned part does not.
+            var whole = ChainAudition.Measure(take, take.Length, rate);
+            Assert.True(whole.IsValid);
+            Assert.False(ChainAudition.Measure(take, take.Length - 480, rate).IsValid);
+
+            var r = ChainAudition.Analyse(take, rate, new ChainAuditionAnalysisTests.FakeChain(_ => 1f, latency: 480, gate: false));
+            Assert.Equal(AuditionSpeech.Heard, r.Speech);
+            string v = ChainAudition.Verdict(r);
+            Assert.DoesNotContain(ChangeSentenceText(), v);
+            Assert.DoesNotContain("-150", v);
+            string n(float x) => x.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+            Assert.StartsWith(Lexicon.Get("audio.audition.verdict.heard", ("speech", n(whole.SpeechLufs)),
+                ("floor", n(whole.NoiseFloorLufs)), ("ratio", n(whole.SpeechToNoiseLu))), v);
+            Assert.Contains(Lexicon.Get("audio.audition.verdict.no_comparison_too_short", ("length", "3.3")), v);
+        }
+
+        [Fact]
+        public void A_long_silent_take_says_no_speech_and_not_too_short()
+        {
+            string v = ChainAudition.Verdict(ChainAudition.Analyse(new float[8 * ChainAuditionAnalysisTests.Rate],
+                ChainAuditionAnalysisTests.Rate, ChainNotConnectedYet.Instance));
+            Assert.StartsWith(L("audio.audition.verdict.no_speech"), v);
+            Assert.DoesNotContain(L("audio.audition.verdict.too_short").Split('{')[0], v);
+        }
+
+        [Fact]
+        public void The_trace_line_says_none_rather_than_a_sentinel()
+        {
+            var r = ChainAudition.Analyse(ChainAuditionAnalysisTests.Take(8), ChainAuditionAnalysisTests.Rate,
+                new ChainAuditionAnalysisTests.FakeChain(_ => 0f, gate: true));
+            string line = ChainAudition.TraceLine(r);
+            Assert.Contains("comparison NothingCameOut", line);
+            Assert.DoesNotContain("-150", line);
+        }
+
+        [Fact]
+        public void A_take_alignment_leaves_too_short_names_no_gate_failure_it_could_not_measure()
+        {
+            // The same pass-through with the gate on: nothing was cut, and a
+            // comparison too short to measure is no evidence that it was.
+            var r = ChainAudition.Analyse(ChainAuditionAnalysisTests.Take(3.3), ChainAuditionAnalysisTests.Rate,
+                new ChainAuditionAnalysisTests.FakeChain(_ => 1f, latency: 480, gate: true));
+            Assert.Equal(AuditionGateFault.None, r.Faults);
+            foreach (var (_, key) in ChainAudition.FaultKeys) Assert.DoesNotContain(L(key), ChainAudition.Verdict(r));
         }
 
         [Fact]
