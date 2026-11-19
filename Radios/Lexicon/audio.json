@@ -346,6 +346,7 @@
   "audio.filter.at_end": "End",
   "audio.filter.at_maximum": "Filter at maximum",
   "audio.filter.at_minimum": "Filter at minimum",
+  "audio.filter.preset_list_changed": { "text": "The filter presets changed with the mode, so nothing was applied. Open the menu again to choose one.", "delivery": null },
   "audio.filter.calculator.all_three": {"text": "Filter {low} to {high}, width {width}", "delivery": null},
   "audio.filter.calculator.applied": "Filter set to {low} to {high}",
   "audio.filter.calculator.computed_high": "Computed high: {high} Hz (filter {low} to {high})",

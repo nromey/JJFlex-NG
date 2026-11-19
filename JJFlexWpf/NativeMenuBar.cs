@@ -251,6 +251,7 @@ public class NativeMenuBar : IDisposable
             _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
             _subscribedRig.OwnerProfileLoadOffered -= OnOwnerProfileLoadOffered;
             _subscribedRig.ModeChanged -= OnModeChanged;
+            _subscribedRig.ActiveSliceChanged -= OnActiveSliceChanged;
         }
         if (rig != null)
         {
@@ -258,6 +259,7 @@ public class NativeMenuBar : IDisposable
             rig.ConnectionStateChanged += OnConnectionStateChanged;
             rig.OwnerProfileLoadOffered += OnOwnerProfileLoadOffered;
             rig.ModeChanged += OnModeChanged;
+            rig.ActiveSliceChanged += OnActiveSliceChanged;
         }
         _subscribedRig = rig;
     }
@@ -329,6 +331,17 @@ public class NativeMenuBar : IDisposable
     private void OnModeChanged(string mode)
     {
         QueueMenuRebuild("mode changed to " + mode);
+    }
+
+    /// <summary>
+    /// Selecting another existing slice changes the mode the Filter menu's
+    /// rows must follow without any mode change being reported (#960, batch 14
+    /// repair round 3, Codex's F1): the radio raises the slices' Active and its
+    /// ActiveSlice, never ModeChanged. The same coalesced rebuild.
+    /// </summary>
+    private void OnActiveSliceChanged()
+    {
+        QueueMenuRebuild("selected slice changed");
     }
 
     /// <summary>
@@ -471,6 +484,7 @@ public class NativeMenuBar : IDisposable
             // rebuild could fire against a disposed menu bar.
             _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
             _subscribedRig.ModeChanged -= OnModeChanged;
+            _subscribedRig.ActiveSliceChanged -= OnActiveSliceChanged;
             _subscribedRig = null;
         }
         if (_currentMenuBar != IntPtr.Zero)
@@ -1253,6 +1267,17 @@ public class NativeMenuBar : IDisposable
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     string currentMode = Rig.Mode ?? "USB";
+                    // A row built for another mode's list never applies its
+                    // preset (#960, batch 14 repair round 3): SSB's "Normal"
+                    // clicked in DIGU would put the SSB filter on a data slice.
+                    // The menu rebuilds on a mode or slice change; until it has,
+                    // the row says so and changes nothing.
+                    if (!Radios.FilterPresets.SameList(mode, currentMode))
+                    {
+                        Tracing.TraceLine("Filter preset row built for " + mode + " clicked in " + currentMode + "; nothing applied", TraceLevel.Info);
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.preset_list_changed"));
+                        return;
+                    }
                     // The preset's one announcement, as Alt with a bracket says
                     // it, from what the filter became (#747 rounds four and five).
                     var rig = Rig;   // the originating rig, from the request (round eleven)

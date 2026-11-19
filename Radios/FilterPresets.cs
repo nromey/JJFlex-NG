@@ -250,9 +250,17 @@ public class FilterPresets
     public bool RowIsActive(string builtMode, string? liveMode, int liveLow, int liveHigh, int row)
     {
         string live = liveMode ?? "USB";
-        if (!string.Equals(NormalizeMode(builtMode), NormalizeMode(live), StringComparison.Ordinal)) return false;
+        if (!SameList(builtMode, live)) return false;
         return FindActivePreset(live, liveLow, liveHigh) == row;
     }
+
+    /// <summary>
+    /// Whether two modes use the same preset list (USB and LSB both use SSB's;
+    /// DIGU uses DIGI's). A Filter menu row built for one mode's list may be
+    /// checked or applied only while the live mode uses the same list (#960).
+    /// </summary>
+    public static bool SameList(string? builtMode, string? liveMode) =>
+        string.Equals(NormalizeMode(builtMode ?? "USB"), NormalizeMode(liveMode ?? "USB"), StringComparison.Ordinal);
 
     /// <summary>
     /// Cycle to the next or previous preset for the current mode.

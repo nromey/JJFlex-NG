@@ -3010,6 +3010,9 @@ namespace Radios.Tests
                 // refusal. Draft prose, awaiting Noel.
                 "audio.tnf.frequency_label",
                 "audio.tnf.frequency_invalid",
+                // Junk box #960 (batch 14 repair round 3): a Filter preset row
+                // built for another mode's list refuses. Draft prose, awaiting Noel.
+                "audio.filter.preset_list_changed",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

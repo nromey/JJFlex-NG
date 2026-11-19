@@ -5102,6 +5102,7 @@ namespace Radios
                                     _RXVFO = SliceToVFO(s);
                                 }))
                                 break;
+                            RaiseActiveSliceChanged();   // #960, batch 14 repair round 3
                             s.Panadapter.GetRFGainInfo();
                             FilterObj.RXFreqChange(s);
                             EscStateChanged?.Invoke();
