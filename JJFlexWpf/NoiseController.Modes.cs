@@ -190,7 +190,7 @@ namespace JJFlexWpf
                 _heldMode = mode;
                 if (_group != g) return;   // still another group: the hold decides
                 ReleaseBounceHold();
-                System.Diagnostics.Trace.WriteLine($"NoiseController: dropped a held mode report; the radio came back to {mode} within the window (#1124, {why})");
+                System.Diagnostics.Trace.WriteLine($"NoiseController: dropped a held mode report; the radio came back to {mode} within the window ({why})");
                 return;
             }
             if (_group is { } now && now != g && _enteredSinceRequest && _clock() - _modeRequestedAt < ModeBounceWindowMs)
@@ -201,10 +201,10 @@ namespace JJFlexWpf
                     string? held = _heldMode;
                     ReleaseBounceHold();
                     if (held == null) return;
-                    System.Diagnostics.Trace.WriteLine($"NoiseController: a held mode report ({held}) stood for the window; entering it (#1124)");
+                    System.Diagnostics.Trace.WriteLine($"NoiseController: a held mode report ({held}) stood for the window; entering it");
                     EnterGroupCounted(held);
                 });
-                System.Diagnostics.Trace.WriteLine($"NoiseController: held a mode report ({mode}) that moves the group again right after the radio answered the app's request (#1124, {why})");
+                System.Diagnostics.Trace.WriteLine($"NoiseController: held a mode report ({mode}) that moves the group again right after the radio answered the app's request ({why})");
                 return;
             }
             EnterGroupCounted(mode);
