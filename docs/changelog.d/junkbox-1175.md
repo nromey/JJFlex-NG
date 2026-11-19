@@ -1,0 +1,1 @@
+- If saving an operator under a new name or callsign fails, the operator keeps their old name for the rest of the session, so a later save no longer leaves two copies of the same operator at the next start.

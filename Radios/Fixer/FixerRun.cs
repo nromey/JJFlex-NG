@@ -105,8 +105,8 @@ namespace Radios.Fixer
         public string WhatItBecame { get; }
 
         /// <summary>
-        /// True when a hold refused the fix and has already said so
-        /// (<see cref="FixerFixOutcome.Refused"/>). In memory only: the saved
+        /// True when a hold refused the fix; the Fix tool, not the hold, says
+        /// the hold's sentence (<see cref="FixerFixOutcome.Refused"/>). In memory only: the saved
         /// run format is unchanged, so a run read back from disk shows a
         /// refusal as a fix that did not succeed, with the hold's sentence.
         /// </summary>

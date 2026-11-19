@@ -434,11 +434,11 @@ namespace Radios.Fixer
 
         /// <summary>
         /// True when nothing was attempted because a hold refused it (the
-        /// change-nothing hold), and the hold has ALREADY said why. Not a
-        /// success, and not a failure of the fix either. The Fix tool records
-        /// the refusal as the stage's notice and says nothing more, so the
-        /// hold's one sentence is not followed by "That fix did not succeed"
-        /// (#486).
+        /// change-nothing hold). Not a success, and not a failure of the fix
+        /// either. The hold is asked silently, so it has said nothing; the Fix
+        /// tool records the hold's sentence as the stage's notice and says it
+        /// once, after the page re-renders, never as "That fix did not
+        /// succeed" (#486, #1043 F2).
         /// </summary>
         public bool Refused { get; }
 
@@ -456,9 +456,10 @@ namespace Radios.Fixer
         public static FixerFixOutcome Failed(string why)
             => new FixerFixOutcome(false, why);
 
-        /// <summary>A hold refused the fix and has already spoken;
-        /// <paramref name="theHoldsSentence"/> is what it said, kept so the
-        /// stage's notice can be re-read.</summary>
+        /// <summary>A hold refused the fix, asked silently;
+        /// <paramref name="theHoldsSentence"/> is the sentence it returned,
+        /// which the Fix tool says once and keeps as the stage's notice so it
+        /// can be re-read.</summary>
         public static FixerFixOutcome RefusedByHold(string theHoldsSentence)
             => new FixerFixOutcome(false, theHoldsSentence, refused: true);
     }

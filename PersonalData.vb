@@ -712,20 +712,39 @@ Public Class PersonalData
             ' a new file, and the old one goes only once the new one is written
             ' (SaveThenRetireOld): deleted first, a failed write lost the record.
             Dim oldPath As String = ops(id).pathName
-            ops.RemoveAt(id)
-            ops.Insert(id, theOp)
-            ' Reset the default if changed.
-            ' Note we only allow for this one becoming the default.
-            If (dfltID <> id) And theOp.DefaultFlag Then
-                DefaultID = id ' handles the reset.
-            End If
-            SaveThenRetireOld(oldPath, theOp.pathName, Function() TryWrite(theOp))
-            ' Report the change if the current one.
-            If id = CurrentID Then
-                reportEvent()
+            ' #1175: the edited operator replaces the old one in memory only
+            ' after the save succeeds (SaveThenReplace). Swapped first, a failed
+            ' save left the session holding the new name, so the next good save
+            ' took the NEW path as the old one and never retired the old file,
+            ' and both loaded at the next start.
+            If SaveThenReplace(ops, id, theOp, oldPath, theOp.pathName, Function() TryWrite(theOp)) Then
+                ' Reset the default if changed.
+                ' Note we only allow for this one becoming the default.
+                If (dfltID <> id) And theOp.DefaultFlag Then
+                    DefaultID = id ' handles the reset.
+                End If
+                ' Report the change if the current one.
+                If id = CurrentID Then
+                    reportEvent()
+                End If
             End If
         End If
         Return rv
+    End Function
+
+    ''' <summary>
+    ''' Save an edited entry, retiring the file it used to be in
+    ''' (<see cref="SaveThenRetireOld"/>), and only once the save has succeeded
+    ''' put it in place of the old entry in <paramref name="entries"/>. A save
+    ''' that fails leaves the old entry in memory and its file on disk, so the
+    ''' session and the disk still agree about where the operator lives (#1175).
+    ''' </summary>
+    ''' <returns>True when the save succeeded and the entry was replaced.</returns>
+    Friend Shared Function SaveThenReplace(Of T)(entries As IList(Of T), id As Integer, edited As T,
+                                                 oldPath As String, newPath As String, save As Func(Of Boolean)) As Boolean
+        If Not SaveThenRetireOld(oldPath, newPath, save) Then Return False
+        entries(id) = edited
+        Return True
     End Function
 
     ''' <summary>
