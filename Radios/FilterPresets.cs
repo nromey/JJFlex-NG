@@ -239,6 +239,22 @@ public class FilterPresets
     }
 
     /// <summary>
+    /// Whether a Filter menu preset row reads as checked (#960, batch 14
+    /// repair round 2). The rows were built for <paramref name="builtMode"/>'s
+    /// list; the live filter is read in the live mode, so a lower sideband's
+    /// negative edges are mirrored as LSB, not as the mode the menu was built
+    /// in. When the live mode uses another list (USB to DIGU: SSB rows, DIGI
+    /// filter), no row is checked, because these rows are not that list; the
+    /// menu rebuilds on the mode change.
+    /// </summary>
+    public bool RowIsActive(string builtMode, string? liveMode, int liveLow, int liveHigh, int row)
+    {
+        string live = liveMode ?? "USB";
+        if (!string.Equals(NormalizeMode(builtMode), NormalizeMode(live), StringComparison.Ordinal)) return false;
+        return FindActivePreset(live, liveLow, liveHigh) == row;
+    }
+
+    /// <summary>
     /// Cycle to the next or previous preset for the current mode.
     /// Returns the preset, or null if no presets are available.
     /// </summary>

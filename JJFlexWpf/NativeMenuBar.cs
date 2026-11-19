@@ -250,12 +250,14 @@ public class NativeMenuBar : IDisposable
             _subscribedRig.SliceCountChanged -= OnSliceCountChanged;
             _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
             _subscribedRig.OwnerProfileLoadOffered -= OnOwnerProfileLoadOffered;
+            _subscribedRig.ModeChanged -= OnModeChanged;
         }
         if (rig != null)
         {
             rig.SliceCountChanged += OnSliceCountChanged;
             rig.ConnectionStateChanged += OnConnectionStateChanged;
             rig.OwnerProfileLoadOffered += OnOwnerProfileLoadOffered;
+            rig.ModeChanged += OnModeChanged;
         }
         _subscribedRig = rig;
     }
@@ -312,6 +314,21 @@ public class NativeMenuBar : IDisposable
     private void OnConnectionStateChanged(bool connected)
     {
         QueueMenuRebuild(connected ? "connected" : "disconnected");
+    }
+
+    /// <summary>
+    /// The Filter menu's preset rows are built for one mode's list (#960,
+    /// batch 14 repair round 2, Codex's F1): SSB, DIGI and CW each have their
+    /// own. A mode change rebuilds the menu, the same coalesced way a slice
+    /// count or a connection change does, so the rows are the live mode's
+    /// list; until the rebuild has run, a row's check reads off only while
+    /// the live mode still uses the list the rows were built from
+    /// (<see cref="Radios.FilterPresets.RowIsActive"/>). Raised on the
+    /// radio's thread; the rebuild goes through the dispatcher.
+    /// </summary>
+    private void OnModeChanged(string mode)
+    {
+        QueueMenuRebuild("mode changed to " + mode);
     }
 
     /// <summary>
@@ -453,6 +470,7 @@ public class NativeMenuBar : IDisposable
             // but never unhooked here — the leaked handler was another way a
             // rebuild could fire against a disposed menu bar.
             _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
+            _subscribedRig.ModeChanged -= OnModeChanged;
             _subscribedRig = null;
         }
         if (_currentMenuBar != IntPtr.Zero)
@@ -1239,7 +1257,7 @@ public class NativeMenuBar : IDisposable
                     // it, from what the filter became (#747 rounds four and five).
                     var rig = Rig;   // the originating rig, from the request (round eleven)
                     rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(rig, applied)));
-                }, () => Rig != null && FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh) == index);   // the mode these rows were built for
+                }, () => Rig != null && FilterPresets.RowIsActive(mode, Rig.Mode, Rig.FilterLow, Rig.FilterHigh, index));
             }
         }
 

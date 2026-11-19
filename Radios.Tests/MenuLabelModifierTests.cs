@@ -78,6 +78,6 @@ public sealed class MenuLabelModifierTests
         Assert.DoesNotContain("\\u2713", filter);
         Assert.DoesNotContain("✓", filter);
         Assert.Contains("AddRadioChecked(parent, preset.FormatForDisplay(), () =>", filter);
-        Assert.Contains("FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh) == index", filter);
+        Assert.Contains("FilterPresets.RowIsActive(mode, Rig.Mode, Rig.FilterLow, Rig.FilterHigh, index)", filter);   // repair round 2: the live mode
     }
 }
