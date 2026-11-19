@@ -1185,7 +1185,6 @@ connect.home.rem_on_disabled	8a5b9d89486b356a
 connect.home.rem_on_enabled	42f8a76f52fa21c2
 connect.home.returning_to_mode	464d14b2a2e073cc
 connect.home.sixty_meter_channel	ce79a298ca6116cd
-connect.home.sixty_meter_digital	bf750d7eba29f312
 connect.home.status_power_off	f1ccbc24d136155f
 connect.home.status_power_on	c8f38519492ed5b2
 connect.home.status_ready_no_radio	458897f223705a75
@@ -2130,7 +2129,6 @@ settings.audio.pc_audio_still_off	973ba0f898e207a2
 settings.audio.pc_audio_still_off_choose_devices	e16eed9ff3b90c12
 settings.audio.pc_output_volume_label	532cef01d80afcb4
 settings.auto_connect.applied	6586e5b4cc3ec3ce
-settings.band.digital_segment	815a0a18ad42da2d
 settings.band.entering	ea7fef6825bae1e2
 settings.band.entering_subband	757dd4485fa0690a
 settings.band.filter_all	61df468d92e2388f

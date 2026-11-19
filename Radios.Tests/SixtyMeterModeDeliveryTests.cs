@@ -64,13 +64,18 @@ namespace Radios.Tests
 
         private (FlexBase rig, Slice? slice) Rig(bool withSlice, bool transmitting, bool running = true)
         {
+            // The slice starts on AM: since the 2026 rule (#1172) phone, CW and
+            // data are all lawful in the segment, and AM is the ordinary mode
+            // the segment still corrects (to USB).
             var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
             Slice? slice = null;
             if (withSlice)
             {
                 var radio = (Radio)Activator.CreateInstance(typeof(Radio), Private, null, new object[] { false }, null)!;
                 slice = (Slice)Activator.CreateInstance(typeof(Slice), Private, null, new object[] { radio }, null)!;
-                Assert.Equal("USB", slice.DemodMode); // positive control: starts on voice
+                Assert.Equal("USB", slice.DemodMode); // FlexLib's own default
+                typeof(Slice).GetField("_demodMode", Private)!.SetValue(slice, "AM");
+                Assert.Equal("AM", slice.DemodMode); // positive control: starts on a mode the segment corrects
                 rig.mySlices.Add(slice);
                 rig._RXVFO = 0;
             }
@@ -81,10 +86,10 @@ namespace Radios.Tests
             return (rig, slice);
         }
 
-        /// <summary>The rotation's own stop: Channel 5 on USB, one press up.</summary>
-        private static SixtyMeterChannels.RotationStop IntoTheSegmentFromUsb()
+        /// <summary>The rotation's own stop: Channel 4 on AM, one press up.</summary>
+        private static SixtyMeterChannels.RotationStop IntoTheSegmentFromAm()
         {
-            var stop = SixtyMeterChannels.Rotate("US", 4, +1, "USB")!;
+            var stop = SixtyMeterChannels.Rotate("US", 3, +1, "AM")!;
             Assert.NotNull(stop.Correction);
             return stop;
         }
@@ -107,38 +112,38 @@ namespace Radios.Tests
             return e.GetProperty("text").GetString()!;
         }
 
-        private static string Segment => $"60 meter digital and CW segment, {5.3515:F4} megahertz";
+        private static string Segment => $"60 meter segment, {5.3570:F4} megahertz";
 
         [Fact]
         public void Sent_says_switching_and_claims_nothing_more()
         {
             var (rig, slice) = Rig(withSlice: true, transmitting: false);
-            var stop = IntoTheSegmentFromUsb();
+            var stop = IntoTheSegmentFromAm();
 
             string said = SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.Equal(1, rig.q.Count); // positive control: the request really went out
-            Assert.Equal(Segment + ", digital segment needs CW, switching", said);
+            Assert.Equal(Segment + ", 60 meter segment needs USB, switching", said);
             Assert.Equal(said, SpokenPastTheGate());
             Assert.DoesNotContain("set to", said);
             // Even after the write runs, nothing on this path heard the radio:
             // the slice changing is FlexLib's local echo, so the sentence above
             // is all that may be said.
             ((FlexBase.FunctionDel)rig.q.Dequeue().Item)();
-            Assert.Equal("CW", slice!.DemodMode);
+            Assert.Equal("USB", slice!.DemodMode);
         }
 
         [Fact]
         public void Transmitting_says_the_mode_was_not_changed_and_nothing_about_the_frequency()
         {
             var (rig, slice) = Rig(withSlice: true, transmitting: true);
-            var stop = IntoTheSegmentFromUsb();
+            var stop = IntoTheSegmentFromAm();
 
             string said = SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
-            Assert.Equal("USB", slice!.DemodMode);
+            Assert.Equal("AM", slice!.DemodMode);
             Assert.Equal(0, rig.q.Count);
-            Assert.Equal(Segment + ", digital segment needs CW, mode not changed while transmitting", SpokenPastTheGate());
+            Assert.Equal(Segment + ", 60 meter segment needs USB, mode not changed while transmitting", SpokenPastTheGate());
             Assert.DoesNotContain("nothing was changed", said);
         }
 
@@ -146,24 +151,24 @@ namespace Radios.Tests
         public void No_slice_of_ours_says_the_mode_was_not_changed()
         {
             var (rig, _) = Rig(withSlice: false, transmitting: false);
-            var stop = IntoTheSegmentFromUsb();
+            var stop = IntoTheSegmentFromAm();
 
             SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.Equal(0, rig.q.Count);
-            Assert.Equal(Segment + ", digital segment needs CW, mode not changed", SpokenPastTheGate());
+            Assert.Equal(Segment + ", 60 meter segment needs USB, mode not changed", SpokenPastTheGate());
         }
 
         [Fact]
         public void A_command_loop_that_is_not_running_says_the_mode_was_not_changed()
         {
             var (rig, slice) = Rig(withSlice: true, transmitting: false, running: false);
-            var stop = IntoTheSegmentFromUsb();
+            var stop = IntoTheSegmentFromAm();
 
             SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
-            Assert.Equal("USB", slice!.DemodMode);
-            Assert.Equal(Segment + ", digital segment needs CW, mode not changed", SpokenPastTheGate());
+            Assert.Equal("AM", slice!.DemodMode);
+            Assert.Equal(Segment + ", 60 meter segment needs USB, mode not changed", SpokenPastTheGate());
         }
 
         [Fact]
@@ -173,7 +178,7 @@ namespace Radios.Tests
             // never reports gating at all.
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;
             var (rig, _) = Rig(withSlice: true, transmitting: false);
-            var stop = IntoTheSegmentFromUsb();
+            var stop = IntoTheSegmentFromAm();
 
             SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 

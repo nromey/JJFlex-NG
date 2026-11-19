@@ -20,19 +20,26 @@ namespace Radios
         /// Get the remembered frequency for a band+mode combination.
         /// Falls back to band center, or Channel 1 for channelized bands (60m).
         /// </summary>
+        /// <remarks>
+        /// On 60 m a remembered dial comes back as the lawful dial for the
+        /// mode the slice will end in (<see cref="SixtyMeterChannels.SnapToDial"/>),
+        /// so the 5332.0 kHz USB every old channel stop saved comes back as
+        /// 5330.5; with nothing remembered it is Channel 1's dial for the mode.
+        /// The US table, as before: band memory has no country.
+        /// </remarks>
         public ulong GetFrequency(Bands.BandNames band, string mode)
         {
             var entry = Entries.FirstOrDefault(e => e.Band == band &&
                 string.Equals(e.Mode, mode, StringComparison.OrdinalIgnoreCase));
-            if (entry != null) return entry.Frequency;
 
-            // Channelized bands: fall back to Channel 1 instead of band center
+            // Channelized bands: a lawful dial, and Channel 1 instead of band center
             if (band == Bands.BandNames.m60)
             {
-                var alloc = SixtyMeterChannels.GetAllocation("US");
-                if (alloc?.Channels.Length > 0)
-                    return (ulong)(alloc.Value.Channels[0].FrequencyMHz * 1_000_000.0 + 0.5);
+                return entry != null
+                    ? SixtyMeterChannels.SnapToDial("US", entry.Frequency, mode)
+                    : SixtyMeterChannels.DefaultDialHz("US", mode);
             }
+            if (entry != null) return entry.Frequency;
 
             // Fall back to band center
             var bandInfo = Bands.Query(band);

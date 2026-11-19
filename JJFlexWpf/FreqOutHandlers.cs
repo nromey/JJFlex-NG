@@ -1218,8 +1218,9 @@ public class FreqOutHandlers
     /// Typed entry is the second path #312's report named. Landing on a 60m
     /// frequency now asks for the same correction the band jump and the channel
     /// rotation ask for, through <see cref="SixtyMeterChannels.GetModeCorrection"/>:
-    /// into the digital segment on a voice mode, CW; onto a channel, the
-    /// channel's mode. The arrival carries NO mode clause: what may be said
+    /// into the segment on a mode it does not keep (AM, FM, FreeDV), USB; onto
+    /// a channel on anything but USB, DIGU or CW, USB or DIGU. A typed dial is
+    /// never moved: a typed 5332.0 in USB stays there. The arrival carries NO mode clause: what may be said
     /// depends on whether the request left, which
     /// <see cref="SixtyMeterModeDelivery"/> knows and says (repair round two).
     /// With no current mode known (no rig) there is no correction.
@@ -4102,12 +4103,8 @@ public class FreqOutHandlers
             // otherwise use band center.
             if (targetBand == Bands.BandNames.m60)
             {
-                string country = License?.Country ?? "US";
-                var alloc = SixtyMeterChannels.GetAllocation(country);
-                if (alloc?.Channels.Length > 0)
-                    targetFreq = (ulong)(alloc.Value.Channels[0].FrequencyMHz * 1_000_000.0 + 0.5);
-                else
-                    targetFreq = 5_332_000; // US Channel 1 fallback
+                // Channel 1's dial for the mode the slice will end in there.
+                targetFreq = SixtyMeterChannels.DefaultDialHz(License?.Country ?? "US", mode);
             }
             else
             {
@@ -4118,24 +4115,13 @@ public class FreqOutHandlers
 
         if (targetFreq == 0) return;
 
-        // 60m channel validation: snap off-channel frequencies to the nearest valid channel.
-        // Catches stale band memory and ensures we never land between channels.
+        // 60m: snap a dial that is not lawful for the mode the slice will end
+        // in onto the one that is (a channel's CW centre or its phone and data
+        // dial 1.5 kHz below, or inside the segment with the whole emission in).
+        // Catches stale band memory, including the centre-frequency USB dials
+        // the old channel stops saved, and leaves a correct dial alone.
         if (targetBand == Bands.BandNames.m60)
-        {
-            string country = License?.Country ?? "US";
-            if (!SixtyMeterChannels.IsValidSixtyMeterFrequency(country, targetFreq))
-            {
-                var alloc = SixtyMeterChannels.GetAllocation(country);
-                if (alloc?.Channels.Length > 0)
-                {
-                    double freqMHz = targetFreq / 1_000_000.0;
-                    var nearest = alloc.Value.Channels
-                        .OrderBy(ch => System.Math.Abs(ch.FrequencyMHz - freqMHz))
-                        .First();
-                    targetFreq = (ulong)(nearest.FrequencyMHz * 1_000_000.0 + 0.5);
-                }
-            }
-        }
+            targetFreq = SixtyMeterChannels.SnapToDial(License?.Country ?? "US", targetFreq, mode);
 
         // Only an admitted tune names its arrival, moves the band memory or
         // asks 60 m for its mode, the rule SayTypedTuneAnswer states: a band
@@ -4366,17 +4352,14 @@ public class FreqOutHandlers
     /// </summary>
     private string? GetSubBandKey(ulong freq, Bands.BandNames band)
     {
-        // 60m: detect digital segment boundaries only.
+        // 60m: detect the segment's boundaries only.
         // Channels are point frequencies, not zones — they don't need boundary tracking.
-        // The digital segment has real edges that matter for mode legality.
+        // The segment (5351.5 to 5366.5 kHz) has real edges.
         if (band == Bands.BandNames.m60)
         {
-            string country = License?.Country ?? "US";
-            double freqMHz = freq / 1_000_000.0;
-            var alloc = Radios.SixtyMeterChannels.GetAllocation(country);
-            if (alloc?.Digi is { } digi && freqMHz >= digi.StartMHz && freqMHz <= digi.EndMHz)
-                return Lexicon.Get("settings.band.digital_segment");
-            return null;
+            return Radios.SixtyMeterChannels.IsInSegment(License?.Country ?? "US", freq)
+                ? Radios.SixtyMeterChannels.SegmentLabel
+                : null;
         }
 
         if (License == null) return null;
