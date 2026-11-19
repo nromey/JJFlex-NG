@@ -187,6 +187,60 @@ public sealed class ValueFieldReaderAwayTests : IDisposable
         Assert.Contains("ReaderAway.Settled();", MethodBody(src, "private static System.Windows.Threading.DispatcherTimer CreateSettleTimer("));
     }
 
+    // ---- #1013: the way back from a dialog or Alt+Tab ----
+
+    [Fact]
+    public void A_trailing_name_is_brought_up_to_date_when_keyboard_focus_leaves()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var field = new Field();
+        ValueFieldControl.ReaderAway.Stale(field);
+
+        ValueFieldControl.ReaderAway.KeyboardFocusLeft(field, hasKeyboardFocus: false);
+        Assert.Equal(1, field.Refreshes);
+
+        // Once: nothing trails now.
+        ValueFieldControl.ReaderAway.KeyboardFocusLeft(field, hasKeyboardFocus: false);
+        Assert.Equal(1, field.Refreshes);
+    }
+
+    [Fact]
+    public void Not_while_the_field_still_holds_keyboard_focus_the_rule_StatusTextName_uses()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.False(StatusTextName.RenamesNow(hasKeyboardFocus: true));
+        var field = new Field();
+        ValueFieldControl.ReaderAway.Stale(field);
+
+        ValueFieldControl.ReaderAway.KeyboardFocusLeft(field, hasKeyboardFocus: true);
+        Assert.Equal(0, field.Refreshes);
+    }
+
+    [Fact]
+    public void Another_field_losing_focus_does_not_rename_the_one_that_trails()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var trailing = new Field();
+        var other = new Field();
+        ValueFieldControl.ReaderAway.Stale(trailing);
+
+        ValueFieldControl.ReaderAway.KeyboardFocusLeft(other, hasKeyboardFocus: false);
+        Assert.Equal(0, trailing.Refreshes);
+        Assert.Equal(0, other.Refreshes);
+    }
+
+    [Fact]
+    public void The_control_brings_its_name_up_to_date_as_keyboard_focus_leaves()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string src = File.ReadAllText(Path.Combine(Repo(), "JJFlexWpf", "Controls", "ValueFieldControl.xaml.cs"));
+        string lost = MethodBody(src, "protected override void OnLostKeyboardFocus(KeyboardFocusChangedEventArgs e)");
+        Assert.Contains("ReaderAway.KeyboardFocusLeft(this, IsKeyboardFocusWithin);", lost);
+        string left = MethodBody(src, "internal static void KeyboardFocusLeft(IStaleName field, bool hasKeyboardFocus)");
+        Assert.Contains("StatusTextName.RenamesNow(hasKeyboardFocus)", left);
+        Assert.Contains("field.RefreshStaleName();", left);
+    }
+
     private static string MethodBody(string source, string signature)
     {
         int at = source.IndexOf(signature, StringComparison.Ordinal);
