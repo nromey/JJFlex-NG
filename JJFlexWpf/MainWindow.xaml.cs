@@ -7354,9 +7354,43 @@ public partial class MainWindow : UserControl
     /// Guards against key auto-repeat producing rapid on/off/on/off chirps.
     /// </summary>
     private long _lastTuneToggleTicks;
+
+    /// <summary>
+    /// Set only while a caller that has ALREADY decided this press through the
+    /// tune key's press gate (the tune key's carrier start) runs the toggle,
+    /// so the one press is not gated twice.
+    /// </summary>
+    private bool _tunePressDecided;
+
     public void ToggleTuneCarrier()
     {
         if (RigControl == null) return;
+
+        // Batch 14 repair 10 (the 8600 bench of 2026-11-19): a held
+        // Ctrl+Shift+T toggled the carrier off on its first repeat, 0.52 s in,
+        // and a longer hold would go on keying and unkeying the radio, because
+        // this had only a 500 ms debounce. Every route in from a key or a
+        // button (Ctrl+Shift+T, the Tune carrier button, the menu item) now
+        // goes through the tune key's own press gate, the same one as Ctrl+T:
+        // one action per press, and a held key's repeats or a reader's pairs do
+        // nothing. A stop is immediate and never refused. The carrier flag is
+        // read once and the decision made from it alone.
+        if (!_tunePressDecided)
+        {
+            bool ours = RigControl.TuneAskedOrUp;
+            switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, ours, () => true))
+            {
+                case Radios.PressAct.Stop:
+                    Tracing.TraceLine("TuneToggle: our tune carrier is up or asked; the press turns it off", TraceLevel.Info);
+                    TurnTuneCarrierOff();
+                    return;
+                case Radios.PressAct.Nothing:
+                    Tracing.TraceLine("TuneToggle: more of a press already answered; nothing sent", TraceLevel.Info);
+                    // The carrier button has flipped itself; it shows what is true.
+                    if (TuneToggleButton != null) TuneToggleButton.IsChecked = ours;
+                    return;
+            }
+        }
 
         // A press that would START a tune on a rig whose tune power reads 0
         // watts (#859). Ahead of the debounce, which would leave a click's
@@ -7790,8 +7824,9 @@ public partial class MainWindow : UserControl
         FlexBase rig = RigControl;
         Tracing.TraceLine("TuneKey: a tune carrier, through the tune carrier toggle", TraceLevel.Info);
         _tuneAnswerFollowsLead = true;
+        _tunePressDecided = true;   // TunePressFor's gate has decided this press
         try { ToggleTuneCarrier(); }
-        finally { _tuneAnswerFollowsLead = false; }
+        finally { _tuneAnswerFollowsLead = false; _tunePressDecided = false; }
         // Only when the toggle asked: a refusal (tune power at zero, no
         // callsign, the toggle's own debounce) has said its own piece.
         if (rig.TuneAskedOrUp)

@@ -992,4 +992,81 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Assert.DoesNotContain("FlexTunerOn = true", stopArm);
         Assert.DoesNotContain("ToggleTuneCarrier", stopArm);
     }
+
+    // ---- batch 14 repair 10 (the 8600 bench: a held Ctrl+Shift+T toggled the carrier on and off) ----
+
+    private void ToggleBy(MainWindow main, bool button)
+    {
+        if (button)
+        {
+            var click = typeof(MainWindow).GetMethod("TuneToggleButton_Click", Any);
+            Assert.NotNull(click);
+            Record.Exception(() => click!.Invoke(main, new object?[] { null, null }));
+        }
+        else Record.Exception(main.ToggleTuneCarrier);
+    }
+
+    /// <summary>
+    /// A held Ctrl+Shift+T (or a held press on the Tune carrier button):
+    /// NVDA's repeat key-downs, the first at the keyboard's repeat delay, or
+    /// JAWS-style down/up pairs about 250 ms apart. The bench measured the
+    /// first repeat turning the carrier off at 0.52 s, and a longer hold
+    /// would go on keying and unkeying. Now it is the tune key's rule: the
+    /// press keys once, the first repeat stops it (the safe direction), and
+    /// nothing after that starts it again until the key has rested.
+    /// </summary>
+    [Theory]
+    [InlineData(true, new[] { 512, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33 })]
+    [InlineData(true, new[] { 512, 250, 250, 250, 250, 250, 250 })]
+    [InlineData(false, new[] { 512, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33 })]
+    [InlineData(false, new[] { 512, 250, 250, 250, 250, 250, 250 })]
+    public void A_held_carrier_toggle_keys_once_and_never_keys_again_while_held(bool button, int[] gapsMs)
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        DebounceSpent(main);
+
+        ToggleBy(main, button);
+        Assert.True(_rig.TuneAskedOrUp, "the press keys the carrier");
+        Assert.True(LastWriteWasOn());
+
+        int ons = 0, offs = 0;
+        bool up = true;
+        foreach (int gap in gapsMs)
+        {
+            _now += gap;
+            DebounceSpent(main);   // the toggle's own 500 ms debounce spent: the gate alone must hold
+            ToggleBy(main, button);
+            bool nowUp = _rig.TuneAskedOrUp;
+            if (nowUp && !up) ons++;
+            if (!nowUp && up) offs++;
+            up = nowUp;
+        }
+        Assert.Equal(1, offs);   // the first repeat stops it: the safe direction
+        Assert.Equal(0, ons);    // and nothing keys it again while the key is held
+        Assert.False(_rig.TuneAskedOrUp);
+
+        // Rested: a new press keys it again.
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        DebounceSpent(main);
+        ToggleBy(main, button);
+        Assert.True(_rig.TuneAskedOrUp, "positive control: a rested press keys the carrier");
+    }
+
+    /// <summary>A stop through the toggle is immediate: it is never refused, even a moment after the start.</summary>
+    [Fact]
+    public void A_carrier_toggle_stop_is_never_refused()
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        DebounceSpent(main);
+        ToggleBy(main, button: false);
+        Assert.True(_rig.TuneAskedOrUp);
+        _now += 40;   // well inside the gate's window and the old debounce
+        ToggleBy(main, button: false);
+        Assert.False(_rig.TuneAskedOrUp, "the stop went through at once");
+        Assert.False(LastWriteWasOn());
+    }
 }
