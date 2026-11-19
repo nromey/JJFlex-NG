@@ -699,7 +699,7 @@ namespace JJFlexWpf
                 var target = DefaultFor(e, d);
                 // NNR's model only: in CW it returns to the CW model the rule picks.
                 // RNNoise's model has no CW rule (#1015, nothing ruled) and returns to its default.
-                if (e.Id == "nnr" && d.Name == "model" && CurrentGroup == NoiseModeGroup.Cw) target = new EngineSettingValue(0, NoiseModeRules.ChooseCwModel(_cwCost).Model);
+                if (e.Id == "nnr" && d.Name == "model" && CurrentGroup == NoiseModeGroup.Cw) target = new EngineSettingValue(0, ChooseCwModel(source).Model);
                 var was = slot.GetSetting(id, d.Name);
                 if (!Same(was, target))
                 {

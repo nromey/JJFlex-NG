@@ -387,6 +387,7 @@ namespace JJFlexWpf
             }
             string? sentence = null;
             string? replaced = null;
+            (string From, string To, string Why)? startingModel = null;
             switch (g)
             {
                 case NoiseModeGroup.Voice:
@@ -409,10 +410,13 @@ namespace JJFlexWpf
                 case NoiseModeGroup.Cw:
                 {
                     if (_catalog.Find("nnr") is not { Factory: not null } e) break;
-                    var (model, measured, fast) = NoiseModeRules.ChooseCwModel(_cwCost);
+                    var (model, measured, fast, why) = ChooseCwModel("CW starting point");
                     string current = p.NeuralSlot.GetSetting("nnr", "model").Choice ?? "standard";
                     if (mem != null && !NoiseModeRules.IsCwModel(current)) mem.NnrVoiceModelOwed = current;
                     p.NeuralSlot.TrySetSetting("nnr", "model", new EngineSettingValue(0, model));
+                    // Journalled after the starting point's own entry, with why
+                    // (Sprint 49 Track N2): until then only the sentence said it.
+                    if (current != model) startingModel = (current, model, why);
                     replaced = StartNeural(p, e, changes);
                     var reason = SafeAvailability(e);
                     // The refusal still leaves NNR in the slot, so the engine it
@@ -433,6 +437,9 @@ namespace JJFlexWpf
             }
             if (mem != null) { var gm = mem.For(g); gm.Known = true; Capture(gm, p); }
             NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.StartingPoint, source, true, changes, GroupWord(g)));
+            if (startingModel is { } sm)
+                NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.Model, source, true,
+                    new[] { new NoiseJournalChange("nnr", "model", sm.From, sm.To) }, sm.Why));
             _persist();
             if (sentence != null) Say(WithReplaced(sentence, replaced), SpeechSubject.NoiseModeStart);
         }
@@ -538,9 +545,9 @@ namespace JJFlexWpf
         private string AdmitModel(DenoiseEngineEntry e, string model, string source)
         {
             if (e.Id != "nnr" || CurrentGroup != NoiseModeGroup.Cw || NoiseModeRules.IsCwModel(model)) return model;
-            string cw = NoiseModeRules.ChooseCwModel(_cwCost).Model;
+            var (cw, _, _, why) = ChooseCwModel(source);
             if (Memory is { } mem) mem.NnrVoiceModelOwed = model;
-            JournalModelAdmission(source, e.Id, model, cw);
+            JournalModelAdmission(source, e.Id, model, cw, why);
             return cw;
         }
 
@@ -601,10 +608,10 @@ namespace JJFlexWpf
             if (p.NeuralSlot.ChosenEngineId != "nnr" && !choosing) return null;
             string current = p.NeuralSlot.GetSetting("nnr", "model").Choice ?? "standard";
             if (NoiseModeRules.IsCwModel(current)) return null;
-            string model = NoiseModeRules.ChooseCwModel(_cwCost).Model;
+            var (model, _, _, why) = ChooseCwModel(source);
             if (Memory is { } mem) mem.NnrVoiceModelOwed = current;
             p.NeuralSlot.TrySetSetting("nnr", "model", new EngineSettingValue(0, model));
-            JournalModelAdmission(source, "nnr", current, model);
+            JournalModelAdmission(source, "nnr", current, model, why);
             if (speak && (p.NeuralSlot.Enabled || choosing)) SpeakCwModel(model);
             return model;
         }

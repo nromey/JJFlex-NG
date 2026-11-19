@@ -552,11 +552,28 @@ namespace JJFlexWpf
         /// the action to end (<see cref="_journalAfterAction"/>); outside one it is
         /// recorded at once.
         /// </summary>
-        private void JournalModelAdmission(string source, string engineId, string from, string to)
+        /// <param name="why">Why the rule chose that model, as the entry's label (Sprint 49 Track N2); empty for none.</param>
+        private void JournalModelAdmission(string source, string engineId, string from, string to, string why = "")
         {
-            void Record() => NoiseSettingsJournal.Record(NoiseJournalKind.Model, source, engineId, "model", from, to, byJjFlexible: true);
+            void Record() => NoiseSettingsJournal.Record(new NoiseJournalEntry(NoiseJournalKind.Model, source, true,
+                new[] { new NoiseJournalChange(engineId, "model", from, to) }, why));
             if (_utteranceDepth > 0) (_journalAfterAction ??= new()).Add(Record);
             else Record();
+        }
+
+        /// <summary>
+        /// The CW model the measured rule picks, with one trace line saying why
+        /// (Sprint 49 Track N2): the figure read against the line, or the
+        /// unmeasured default. The figure is read once, so the trace and the
+        /// choice cannot disagree. Every road that asks the rule asks here.
+        /// </summary>
+        private (string Model, bool Measured, bool Fast, string Why) ChooseCwModel(string road)
+        {
+            double? cost = _cwCost.PremiumCw99thPercentileMs;
+            var (model, measured, fast) = NoiseModeRules.ChooseCwModel(cost);
+            string why = NoiseModeRules.CwModelReason(cost);
+            System.Diagnostics.Trace.WriteLine($"NoiseController: the CW model rule chose {model} ({road}): {why}");
+            return (model, measured, fast, why);
         }
 
         /// <summary>As <see cref="Say(string, string, VerbosityLevel)"/>, but after whatever is being said, never cutting it (<see cref="INoiseSpeaker.SayAfter"/>).</summary>
