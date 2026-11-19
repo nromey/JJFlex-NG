@@ -205,6 +205,113 @@ public sealed class HelperModelCostTests : IDisposable
         Assert.Equal(2, File.ReadAllText(reread.FilePath).Split("<Measurement ").Length - 1);
     }
 
+    /// <summary>A record measured at 22:00:<paramref name="second"/>, Premium CW only.</summary>
+    private static HelperModelCostRecord At(string arch, int second, long p99, string version = "v") => new()
+    {
+        Architecture = arch, HelperVersion = version,
+        MeasuredUtc = new DateTime(2026, 11, 18, 22, 0, 0, DateTimeKind.Utc).AddSeconds(second),
+        Slots = new() { new() { Engine = "nnr", Slot = 3, Option = "premium_cw", Frames = 200, MedianNanos = 2_000_000, P99Nanos = p99 } },
+    };
+
+    private long PremiumCwP99(string arch) => NewStore().Find(arch)!.Measured("nnr", "premium_cw")!.P99Nanos;
+
+    // Repair 1, Codex's first reproduction: the host stamps a measurement when
+    // it arrives and saves it on a pool thread, so a save from an earlier
+    // helper run can reach the store after a later run's.
+    [Fact]
+    public void An_earlier_measurement_saved_after_a_later_one_never_replaces_it()
+    {
+        var store = NewStore();
+        Assert.Equal(HelperModelCostSave.Saved, store.Save(At("x64", 2, 5_800_000)));
+        Assert.Equal(5_800_000, PremiumCwP99("x64"));
+        Assert.Equal(HelperModelCostSave.Older, store.Save(At("x64", 1, 4_200_000)));
+        Assert.False(store.Record(At("x64", 1, 4_200_000)));
+        Assert.Equal(5_800_000, PremiumCwP99("x64"));   // Standard CW stays Standard CW
+
+        // An earlier figure for the OTHER architecture is still its own first record.
+        Assert.Equal(HelperModelCostSave.Saved, store.Save(At("x86", 0, 4_000_000)));
+        Assert.Equal(5_800_000, PremiumCwP99("x64"));
+    }
+
+    // Repair 1, Codex's second reproduction: two stores on one settings root,
+    // the first writing again after the second wrote the other architecture.
+    [Fact]
+    public void A_store_never_erases_the_record_another_store_wrote_for_the_other_architecture()
+    {
+        var first = NewStore();
+        Assert.True(first.Record(At("x64", 1, 4_200_000)));
+        var second = NewStore();
+        Assert.True(second.Record(At("x86", 2, 5_800_000)));
+        Assert.NotNull(NewStore().Find("x86"));
+        Assert.True(first.Record(At("x64", 3, 4_400_000)));
+        Assert.Equal(5_800_000, PremiumCwP99("x86"));
+        Assert.Equal(4_400_000, PremiumCwP99("x64"));
+        // And a store that read before the other wrote sees the other's write.
+        Assert.Equal(5_800_000, first.Find("x86")!.Measured("nnr", "premium_cw")!.P99Nanos);
+    }
+
+    // Many stores, each on its own thread, saving into one file at once: the
+    // lock is the named mutex alone (there is no other), so this is the lock
+    // every process shares. Two threads per architecture, interleaved in time,
+    // so the latest of each must survive whatever order the saves land in.
+    [Fact]
+    public void Stores_saving_at_once_keep_each_architectures_latest_measurement()
+    {
+        const int Each = 40;
+        var failures = 0;
+        var threads = new List<Thread>();
+        foreach (var (arch, odd) in new[] { ("x64", 0), ("x64", 1), ("x86", 0), ("x86", 1) })
+        {
+            var t = new Thread(() =>
+            {
+                var store = NewStore();
+                for (int i = 0; i < Each; i++)
+                {
+                    int second = 2 * i + odd;
+                    if (store.Save(At(arch, second, 1_000_000 + second)) == HelperModelCostSave.Failed)
+                        Interlocked.Increment(ref failures);
+                }
+            });
+            threads.Add(t);
+            t.Start();
+        }
+        foreach (var t in threads) Assert.True(t.Join(TimeSpan.FromSeconds(60)));
+        Assert.Equal(0, failures);
+        Assert.Equal(1_000_000 + 2 * Each - 1, PremiumCwP99("x64"));
+        Assert.Equal(1_000_000 + 2 * Each - 1, PremiumCwP99("x86"));
+        Assert.Empty(Directory.GetFiles(_dir, HelperModelCostStore.FileName + ".*.tmp"));
+    }
+
+    [Fact]
+    public void A_record_from_a_clock_since_set_back_is_replaced_not_kept_for_ever()
+    {
+        var now = new DateTime(2026, 11, 18, 22, 0, 0, DateTimeKind.Utc);
+        Assert.True(HelperModelCostStore.IsLater(now.AddSeconds(1), now, now));
+        Assert.False(HelperModelCostStore.IsLater(now, now, now));               // equal times: the later call wins
+        Assert.False(HelperModelCostStore.IsLater(now.AddHours(1), now, now));   // held in the future: a clock set back
+        Assert.True(HelperModelCostStore.IsLater(now.AddSeconds(30), now, now)); // within the slack: kept
+
+        var store = NewStore();
+        var future = At("x64", 0, 5_800_000);
+        future.MeasuredUtc = DateTime.UtcNow.AddDays(30);
+        Assert.True(store.Record(future));
+        var present = At("x64", 0, 4_200_000);
+        present.MeasuredUtc = DateTime.UtcNow;
+        Assert.Equal(HelperModelCostSave.Saved, store.Save(present));
+        Assert.Equal(4_200_000, PremiumCwP99("x64"));
+    }
+
+    [Fact]
+    public void Every_store_naming_one_file_shares_one_lock_whatever_case_the_path_is_in()
+    {
+        var lower = new HelperModelCostStore(_dir.ToLowerInvariant());
+        var upper = new HelperModelCostStore(_dir.ToUpperInvariant());
+        Assert.Equal(HelperModelCostStore.MutexNameFor(lower.FilePath), HelperModelCostStore.MutexNameFor(upper.FilePath));
+        Assert.NotEqual(HelperModelCostStore.MutexNameFor(lower.FilePath),
+            HelperModelCostStore.MutexNameFor(new HelperModelCostStore(Path.Combine(_dir, "other")).FilePath));
+        Assert.StartsWith(@"Local\", HelperModelCostStore.MutexNameFor(lower.FilePath));
+    }
+
     [Theory]
     [InlineData(4_200_000L, 4.2, "premium_cw", true)]
     [InlineData(5_800_000L, 5.8, "standard_cw", false)]

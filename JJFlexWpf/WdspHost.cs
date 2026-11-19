@@ -1400,8 +1400,13 @@ namespace JJFlexWpf
             {
                 try
                 {
-                    if (store != null && store.Record(HelperModelCostStore.From(version, usable, measured)))
-                        Trace.WriteLine($"WdspHost: remembered {usable.Count} model costs in {store.FilePath}");
+                    // Stamped when it arrived, so a save that waits behind a later
+                    // connection's is refused by the store rather than undoing it.
+                    var saved = store?.Save(HelperModelCostStore.From(version, usable, measured));
+                    if (saved == HelperModelCostSave.Saved)
+                        Trace.WriteLine($"WdspHost: remembered {usable.Count} model costs in {store!.FilePath}");
+                    else if (saved == HelperModelCostSave.Older)
+                        Trace.WriteLine("WdspHost: did not remember these model costs: a later measurement is already remembered");
                 }
                 catch (Exception ex) { Trace.WriteLine("WdspHost: could not remember the model costs: " + ex.Message); }
                 ModelCostsHandledForTest?.Invoke(usable);
