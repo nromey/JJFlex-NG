@@ -147,6 +147,11 @@ public sealed class EngineKeepUpHelperTests
         var r = meter.Read(channels, Stopwatch.GetTimestamp());
         Assert.Equal((11_000_000L, 1), (r.PerFrameNanos, r.Frames));
         Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
+        // Repair 3: the left's second answer was not forwarded, so it waits; the right's next answer completes its round.
+        Answer(7_000_000, right);
+        r = meter.Read(channels, Stopwatch.GetTimestamp());
+        Assert.Equal((11_000_000L, 1), (r.PerFrameNanos, r.Frames));
+        Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
 
         // Caught mid-answer (the sequence odd): not read this time, read whole the next.
         Answer(1_000_000, left, right);
@@ -171,6 +176,76 @@ public sealed class EngineKeepUpHelperTests
         Answer(1_000_000, left, right);
         r = meter.Read(channels, Stopwatch.GetTimestamp());
         Assert.Equal((2_000_000L, 1), (r.PerFrameNanos, r.Frames));
+    }
+
+    /// <summary>
+    /// Repair 3, adopted from Codex's second re-check: every measured answer
+    /// reaches the rule exactly once, whatever order the channels' answers are
+    /// published in. Left twice and right once, then right twice and left
+    /// once, each answer 6 ms: three new answers a channel, three stereo
+    /// frames, 36 ms of work. Repair 2 forwarded two frames at 12 ms, 24 ms,
+    /// because a round advanced every channel past answers it did not forward.
+    /// </summary>
+    [Fact]
+    public void Staggered_stereo_answers_forward_all_their_work_exactly_once()
+    {
+        long now = Stopwatch.GetTimestamp();
+        var left = Channel(1_000_000, now); var right = Channel(1_000_000, now);
+        var channels = new[] { left, right };
+        var meter = new HelperServiceMeter();
+        meter.Read(channels, now);
+        left.RecordAnswer(6_000_000, now); left.RecordAnswer(6_000_000, now); right.RecordAnswer(6_000_000, now);
+        var first = meter.Read(channels, now);
+        right.RecordAnswer(6_000_000, now); right.RecordAnswer(6_000_000, now); left.RecordAnswer(6_000_000, now);
+        var second = meter.Read(channels, now);
+        long credited = first.PerFrameNanos * first.Frames + second.PerFrameNanos * second.Frames;
+        _out.WriteLine($"3 new answers a channel, 36 ms of work: {first.Frames} + {second.Frames} frames forwarded, {credited / 1e6} ms");
+        Assert.Equal((12_000_000L, 1), (first.PerFrameNanos, first.Frames));
+        Assert.Equal((12_000_000L, 2), (second.PerFrameNanos, second.Frames));
+        Assert.Equal(36_000_000L, credited);
+        // Everything is forwarded: nothing is left to count again.
+        Assert.Equal(0, meter.Read(channels, now).Frames);
+
+        // A surplus keeps its share of the cost: the left answers twice (1 and 9 ms, 5 ms each on average), the right once.
+        left.RecordAnswer(1_000_000, now); left.RecordAnswer(9_000_000, now); right.RecordAnswer(1_000_000, now);
+        var r = meter.Read(channels, now);
+        Assert.Equal((6_000_000L, 1), (r.PerFrameNanos, r.Frames)); // the left's two at their 5 ms average, and the right's 1
+        right.RecordAnswer(2_000_000, now);
+        r = meter.Read(channels, now);
+        Assert.Equal((7_000_000L, 1), (r.PerFrameNanos, r.Frames)); // the left's remaining half, 5 ms, and the right's 2
+        Assert.Equal(0, meter.Read(channels, now).Frames);
+    }
+
+    /// <summary>
+    /// Repair 3, Codex's control from its second re-check, kept: a channel that
+    /// stops answering holds the rounds back only for its one second of
+    /// freshness; after that the other channel's waiting work is judged, all of
+    /// it, so a stopped channel cannot freeze the warning.
+    /// </summary>
+    [Fact]
+    public void A_channel_that_stops_answering_holds_the_rounds_for_one_second_and_then_the_waiting_work_is_judged()
+    {
+        long now = Stopwatch.GetTimestamp();
+        var a = Channel(1_000_000, now); var b = Channel(1_000_000, now);
+        var channels = new[] { a, b };
+        var meter = new HelperServiceMeter();
+        meter.Read(channels, now);
+        for (int i = 1; i <= 99; i++)
+        {
+            long n = now + i * Stopwatch.Frequency / 100;
+            a.RecordAnswer(12_000_000, n);
+            Assert.Equal(0, meter.Read(channels, n).Frames);
+        }
+        long after = now + Stopwatch.Frequency + 1;
+        a.RecordAnswer(12_000_000, after);
+        var r = meter.Read(channels, after);
+        _out.WriteLine($"after the stopped channel expires: following={meter.Following}, frames={r.Frames}, cost={r.PerFrameNanos}");
+        Assert.Equal(1, meter.Following);
+        Assert.Equal((12_000_000L, 100), (r.PerFrameNanos, r.Frames));
+        var rule = new EngineKeepUpRule();
+        rule.Restart("fakehelper");
+        for (int i = 0; i < r.Frames; i++) rule.Observe(HelperServiceTime.Late(r.PerFrameNanos));
+        Assert.True(rule.Behind);
     }
 
     private static float[] Audio(int salt) => Enumerable.Range(0, 960).Select(i => MathF.Sin((i + salt * 960) * 0.013f) * 0.3f).ToArray();

@@ -456,6 +456,53 @@ public sealed class EngineKeepUpPipelineTests
         Assert.Equal(freshSlowAnswers, rig.Has("stuckhelper", EngineKeepUpChange.FellBehind));
     }
 
+    /// <summary>
+    /// Repair 3, adopted from Codex's second re-check (2026-11-19,
+    /// <c>CodexTrackLRecheck2Tests</c>): the same measured work reaches the
+    /// same fall whatever order the helper's reader publishes the two stereo
+    /// channels' answers in. The host's writer drains one channel's queue
+    /// before the next, so a reader can see the left two answers ahead of the
+    /// right and then the right two ahead of the left. Settled on fast stereo
+    /// answers, then twenty-one new stereo frames at 6 ms a channel (12 ms
+    /// together): staggered seven times as two-and-one then one-and-two, or,
+    /// the positive control, balanced. Repair 2 advanced every channel past
+    /// its surplus answers while forwarding only the fewest, so the staggered
+    /// schedule recorded 14 late frames and never warned; balanced recorded 21
+    /// and warned.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Twenty_one_slow_stereo_frames_warn_whatever_order_their_answers_are_published_in(bool staggered)
+    {
+        using var rig = new Rig();
+        var left = AnsweredChannel(1_000_000);
+        var right = AnsweredChannel(1_000_000);
+        var channels = new[] { left, right };
+        rig.Pipeline.HelperService = (_, meter, now) => meter.Read(channels, now);
+        rig.BeforeBuffer = () => { long n = Stopwatch.GetTimestamp(); left.RecordAnswer(1_700_000, n); right.RecordAnswer(1_700_000, n); };
+        rig.Choose("fakehelper"); rig.UntilRunning("fakehelper");
+        Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.KeepingUp, 300));
+        rig.BeforeBuffer = null;
+        if (staggered)
+        {
+            for (int i = 0; i < 7; i++)
+            {
+                long n = Stopwatch.GetTimestamp();
+                left.RecordAnswer(6_000_000, n); left.RecordAnswer(6_000_000, n); right.RecordAnswer(6_000_000, n); rig.Pump();
+                right.RecordAnswer(6_000_000, n); right.RecordAnswer(6_000_000, n); left.RecordAnswer(6_000_000, n); rig.Pump();
+            }
+        }
+        else
+        {
+            for (int i = 0; i < 21; i++) { long n = Stopwatch.GetTimestamp(); left.RecordAnswer(6_000_000, n); right.RecordAnswer(6_000_000, n); rig.Pump(); }
+        }
+        Thread.Sleep(100);
+        var rule = rig.Pipeline.KeepUpRuleFor(DenoiseFamily.Neural);
+        _out.WriteLine($"staggered={staggered}: 21 new stereo frames at 12 ms each; late in window={rule.LateInWindow}, behind={rule.Behind}");
+        Assert.True(rig.Has("fakehelper", EngineKeepUpChange.FellBehind), "the same measured work did not reach the same fall");
+    }
+
     [Fact]
     public void An_engine_switch_is_not_counted_and_the_new_engine_starts_its_own_count()
     {
@@ -513,11 +560,21 @@ public sealed class EngineKeepUpPipelineTests
         before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++) { foreach (var c in channels) c.RecordAnswer(Rig.FastService, Stopwatch.GetTimestamp()); Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio); }
         long metered = GC.GetAllocatedBytesForCurrentThread() - before;
-        _out.WriteLine($"Managed bytes on the audio thread: {steady} over 300 buffers keeping up, {delivery} over 100 buffers of late answers, {falling} over 100 buffers falling behind, {metered} over 100 buffers read by the real meter over four channels, {stalled} over 100 with no new answers.");
+        // Repair 3: the channels answering unequally, so each round carries a surplus forward.
+        before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++)
+        {
+            long n = Stopwatch.GetTimestamp();
+            for (int c = 0; c < channels.Length; c++) { channels[c].RecordAnswer(Rig.FastService, n); if ((c + i) % 2 == 0) channels[c].RecordAnswer(Rig.FastService, n); }
+            Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio);
+        }
+        long staggered = GC.GetAllocatedBytesForCurrentThread() - before;
+        _out.WriteLine($"Managed bytes on the audio thread: {steady} over 300 buffers keeping up, {delivery} over 100 buffers of late answers, {falling} over 100 buffers falling behind, {metered} over 100 buffers read by the real meter over four channels, {stalled} over 100 with no new answers, {staggered} over 100 with the channels answering unequally.");
         Assert.Equal(0, steady);
         Assert.Equal(0, delivery);
         Assert.Equal(0, falling);
         Assert.Equal(0, metered);
         Assert.Equal(0, stalled);
+        Assert.Equal(0, staggered);
     }
 }

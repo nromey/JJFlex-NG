@@ -109,7 +109,18 @@ namespace JJFlexWpf
     /// over the channels, because the helper's one worker does every channel's
     /// frame in each 10 ms. Its frames are the fewest new answers any channel
     /// had, so a round never claims more audio than every channel was served.
-    /// Then the round starts again from those counts.
+    /// </para>
+    /// <para>
+    /// <b>Every answer reaches the rule exactly once</b> (repair 3, after
+    /// Codex's second re-check). The host's writer drains one channel's queue
+    /// before the next, so channels advance unequally: left twice and right
+    /// once, then right twice and left once. A round advances each channel only
+    /// by the frames it forwards, and its new cost only by those answers' share
+    /// at the channel's average; the surplus answers and the rest of their cost
+    /// wait for the next round. Repair 2 advanced every channel to its newest
+    /// count and forwarded only the fewest, so a channel's extra answers were
+    /// consumed without their work reaching the rule (36 ms of work became
+    /// 24 ms). A channel that leaves the round takes its surplus with it.
     /// </para>
     /// <para>
     /// <b>No new answers, no new work.</b> Until every served channel answers
@@ -191,14 +202,19 @@ namespace JJFlexWpf
                 if (fresh <= 0) return HelperServiceReading.NoNewWork;
                 if (fresh < fewest) fewest = fresh;
             }
+            // Each channel gives up only the answers the round forwards, at its
+            // own average; the rest, and their share of the cost (with any
+            // rounding left over), wait for the next round (repair 3).
+            if (fewest > int.MaxValue) fewest = int.MaxValue;
             long perFrame = 0;
             for (int i = 0; i < _count; i++)
             {
-                perFrame += (_nowNanos[i] - _nanos[i]) / (_nowAnswers[i] - _answers[i]);
-                _answers[i] = _nowAnswers[i];
-                _nanos[i] = _nowNanos[i];
+                long perAnswer = (_nowNanos[i] - _nanos[i]) / (_nowAnswers[i] - _answers[i]);
+                perFrame += perAnswer;
+                _answers[i] += fewest;
+                _nanos[i] += perAnswer * fewest;
             }
-            return new HelperServiceReading(perFrame, (int)Math.Min(fewest, int.MaxValue));
+            return new HelperServiceReading(perFrame, (int)fewest);
         }
 
         private int IndexOf(WdspChannel ch)
