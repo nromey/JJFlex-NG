@@ -722,7 +722,9 @@ public sealed class TuneKeyCarrierTests : IDisposable
         int end = src.IndexOf("// Audio narrative for ATU tune cycle.", at, StringComparison.Ordinal);
         string head = src.Substring(at, end - at);
         Assert.Contains("AntTuneButtonTextFor(e.Type, e.Status, e.SWR,", head);
-        Assert.Contains("RigControl.ATUTuneInProgress, AntennaTuneButtonText);", head);
+        // Repair round 4: the radio's ATU status is read once, above, for the label and every side effect.
+        Assert.Contains("atuRunning, AntennaTuneButtonText);", head);
+        Assert.Contains("bool atuRunning = RigControl.ATUTuneInProgress;", head);
         Assert.DoesNotContain("RigControl.FlexTunerType", head);
         Assert.Equal(1, head.Split("SetButtonText(").Length - 1);
     }
@@ -733,5 +735,145 @@ public sealed class TuneKeyCarrierTests : IDisposable
         while (d != null && !System.IO.File.Exists(System.IO.Path.Combine(d.FullName, "JJFlexRadio.sln"))) d = d.Parent;
         Assert.NotNull(d);
         return d!.FullName;
+    }
+
+    // ---- batch 14 repair round 4 (Codex's B1 on 5f93fd12: the ATU side effects of a plain carrier's InProgress) ----
+
+    private bool AtuNoted() => (bool)typeof(PttSafetyController).GetField("_atuTuning", Any)!.GetValue(_controller)!;
+
+    private static System.Windows.Threading.DispatcherTimer? AtuTimer(MainWindow main) =>
+        (System.Windows.Threading.DispatcherTimer?)typeof(MainWindow).GetField("_atuTuneTimer", Any)!.GetValue(main);
+
+    private void RadioAtuStatus(Flex.Smoothlake.FlexLib.ATUTuneStatus status)
+    {
+        var radio = typeof(FlexBase).GetField("theRadio", Any)!.GetValue(_rig)!;
+        radio.GetType().GetField("_atuTuneStatus", Any)!.SetValue(radio, status);
+        // The radio has an ATU it reports enabled (FlexBase.HasATU), as on the bench.
+        radio.GetType().GetField("_atuEnabled", Any)!.SetValue(radio, true);
+    }
+
+    /// <summary>
+    /// Run the real handler for a sequence of events on a private STA thread
+    /// whose own dispatcher the (uninitialized) window answers to; nothing is
+    /// shown or sourced. Each event sets the radio's own ATU status first, as
+    /// the radio's report would have.
+    /// </summary>
+    private void Handle(MainWindow main, params (Flex.Smoothlake.FlexLib.ATUTuneStatus Radio, FlexBase.FlexTunerTypes Type, Flex.Smoothlake.FlexLib.ATUTuneStatus Status)[] events)
+    {
+        Exception? failure = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                var dispatcherField = typeof(System.Windows.Threading.DispatcherObject).GetField("_dispatcher", Any)!;
+                dispatcherField.SetValue(main, System.Windows.Threading.Dispatcher.CurrentDispatcher);
+                var handler = typeof(MainWindow).GetMethod("FlexAntTuneStartStopHandler", Any)!;
+                foreach (var ev in events)
+                {
+                    RadioAtuStatus(ev.Radio);
+                    var arg = new FlexBase.FlexAntTunerArg(ev.Type, ev.Status, 1.1f);
+                    handler.Invoke(main, new object[] { arg });
+                }
+            }
+            catch (Exception ex) { failure = ex is System.Reflection.TargetInvocationException t && t.InnerException != null ? t.InnerException : ex; }
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "the STA thread did not finish");
+        if (failure != null) throw failure;
+    }
+
+    /// <summary>
+    /// The bench's step 2c sequence: automatic type, a plain Ctrl+Shift+T
+    /// carrier, so FlexBase raises InProgress while the radio's ATU reads
+    /// TUNE_MANUAL_BYPASS. Held past 15 s it said "ATU tune timed out" with
+    /// the fail tone, and the progress earcon ran. Now the 15 s timer is never
+    /// armed, so no tick can ever say it, and the transmit episode is not told
+    /// an ATU is tuning.
+    /// </summary>
+    [Fact]
+    public void A_plain_carrier_in_automatic_type_arms_no_ATU_timeout_and_notes_no_ATU_tuning()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        Handle(main, (Flex.Smoothlake.FlexLib.ATUTuneStatus.ManualBypass, FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress));
+        Assert.Null(AtuTimer(main));
+        Assert.False(AtuNoted(), "a plain carrier is not an ATU cycle");
+    }
+
+    /// <summary>
+    /// A real automatic cycle (the radio's ATU in progress) still gets all
+    /// three: the ATU note, the 15 s timeout armed (with the progress earcon
+    /// started beside it), and at its end (Bypass, the bench's 2d) the note
+    /// is cleared and the timeout disarmed.
+    /// </summary>
+    [Fact]
+    public void A_real_automatic_cycle_still_notes_the_ATU_and_arms_its_timeout_until_it_ends()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        Handle(main, (Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress, FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress));
+        var timer = AtuTimer(main);
+        Assert.NotNull(timer);
+        Assert.Equal(TimeSpan.FromSeconds(15), timer!.Interval);
+        Assert.True(AtuNoted(), "a real ATU cycle is RF for the transmit episode");
+
+        Handle(main, (Flex.Smoothlake.FlexLib.ATUTuneStatus.Bypass, FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.Bypass));
+        Assert.Null(AtuTimer(main));
+        Assert.False(AtuNoted(), "the cycle's end ends the ATU note");
+    }
+
+    /// <summary>
+    /// A carrier's stop ends any ATU episode with it, by either stop: the
+    /// tune key's and the carrier toggle's.
+    /// </summary>
+    [Fact]
+    public void A_carrier_stop_ends_the_ATU_note()
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        Press(main);
+        Assert.True(_rig.TuneAskedOrUp);
+        _controller.NoteAtuTuning(true);   // an ATU episode noted while the carrier is up
+        _now += 400;
+        Press(main);                       // the tune key's stop
+        Assert.False(_rig.TuneAskedOrUp);
+        Assert.False(AtuNoted(), "the tune key's stop ends the ATU note");
+
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        DebounceSpent(main);
+        Press(main);
+        Assert.True(_rig.TuneAskedOrUp);
+        _controller.NoteAtuTuning(true);
+        DebounceSpent(main);
+        // The toggle reads the radio's own tune flag to choose off; this radio
+        // never reports, so it is set up as reporting the carrier up.
+        var radio = typeof(FlexBase).GetField("theRadio", Any)!.GetValue(_rig)!;
+        radio.GetType().GetField("_txTune", Any)!.SetValue(radio, true);
+        Record.Exception(main.ToggleTuneCarrier);   // the carrier toggle's off
+        Assert.False(LastWriteWasOn(), "positive control: the toggle wrote the carrier off");
+        Assert.False(AtuNoted(), "the toggle's off ends the ATU note");
+    }
+
+    /// <summary>The label, the note, the earcon and the timeout share the one rule.</summary>
+    [Fact]
+    public void The_progress_earcon_and_timeout_follow_the_same_rule_as_the_label()
+    {
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs"));
+        int at = src.IndexOf("private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)", StringComparison.Ordinal);
+        string body = src.Substring(at, src.IndexOf("case \"OK\":", at, StringComparison.Ordinal) - at);
+        Assert.Contains("bool atuRunning = RigControl.ATUTuneInProgress;", body);
+        Assert.Equal(1, body.Split("ATUTuneInProgress").Length - 1);   // read once
+        Assert.Contains("bool atuStart = IsAtuCycleStart(e.Status, atuRunning);", body);
+        Assert.Contains("_pttController?.NoteAtuTuning(atuStart);", body);
+        int guard = body.IndexOf("if (isAutoATU && atuStart)", StringComparison.Ordinal);
+        Assert.True(guard > 0 && guard < body.IndexOf("EarconPlayer.StartATUProgressEarcon();", StringComparison.Ordinal)
+            && guard < body.IndexOf("StartATUTimeout();", StringComparison.Ordinal));
+        Assert.True(MainWindow.IsAtuCycleStart("InProgress", true));
+        Assert.False(MainWindow.IsAtuCycleStart("InProgress", false));
+        Assert.False(MainWindow.IsAtuCycleStart("Bypass", true));
     }
 }

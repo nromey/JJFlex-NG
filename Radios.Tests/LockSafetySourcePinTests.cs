@@ -186,7 +186,11 @@ namespace Radios.Tests
             Assert.Contains("_pttController?.NoteTuneCarrier(newState);", tune);
             Assert.DoesNotContain("RefuseIfHeldAfterCut", tune);
             Assert.Contains("_pttController?.NoteAtuTuning(true);", Body(main, "private void TunePressFor(bool ours)"));
-            Assert.Contains("_pttController?.NoteAtuTuning(e.Status == \"InProgress\");", Body(main, "private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)"));
+            // Batch 14 repair round 4: the ATU note follows the one rule for an ATU
+            // cycle's start (the radio's own ATU status), not every InProgress.
+            string handler = Body(main, "private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)");
+            Assert.Contains("bool atuStart = IsAtuCycleStart(e.Status, atuRunning);", handler);
+            Assert.Contains("_pttController?.NoteAtuTuning(atuStart);", handler);
             string tx = Body(main, "private void TransmitChangeHandler(object sender, bool transmit)");
             Assert.Contains("_pttController?.NoteRadioTransmit(transmit);", tx);
 

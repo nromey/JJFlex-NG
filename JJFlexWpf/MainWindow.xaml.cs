@@ -5776,13 +5776,27 @@ public partial class MainWindow : UserControl
     /// rest); manual shows the SWR on its own "OK" (Jim's manual tune) and
     /// otherwise the neutral label.</para>
     /// </remarks>
+    internal static bool IsInProgressStatus(string? status) =>
+        status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress)
+        || status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.TGXL_InProgress);
+
+    /// <summary>
+    /// Whether an antenna-tuner event is an ATU cycle's start: an in-progress
+    /// status while the radio's own ATU status really reads in progress. The
+    /// one rule for the Ant Tune button's "InProgress", the transmit episode's
+    /// ATU note, the progress earcon and the 15 s timeout (batch 14 repair
+    /// rounds 3 and 4). A plain tune carrier's rise, which FlexBase also
+    /// reports as InProgress, is none of them.
+    /// </summary>
+    internal static bool IsAtuCycleStart(string? status, bool atuCycleRunning) =>
+        IsInProgressStatus(status) && atuCycleRunning;
+
     internal static string? AntTuneButtonTextFor(string? eventType, string? status, string? swr,
                                                  bool atuCycleRunning, string neutral)
     {
         if (string.IsNullOrEmpty(status)) return null;
-        if (status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress)
-            || status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.TGXL_InProgress))
-            return atuCycleRunning ? status : null;
+        if (IsInProgressStatus(status))
+            return IsAtuCycleStart(status, atuCycleRunning) ? status : null;
         if (status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.None)) return neutral;
         if (eventType == nameof(FlexBase.FlexTunerTypes.manual))
             return status == nameof(Flex.Smoothlake.FlexLib.ATUTuneStatus.OK) && !string.IsNullOrEmpty(swr) ? swr : neutral;
@@ -5808,8 +5822,11 @@ public partial class MainWindow : UserControl
         // The Ant Tune button's text and name (batch 14 repair round 3): one
         // rule, from the event itself and whether the radio's ATU is really
         // tuning, never from the tuner type read later.
+        // Read ONCE, for the label and every side effect below (batch 14
+        // repair round 4): whether the radio's own ATU is really tuning.
+        bool atuRunning = RigControl.ATUTuneInProgress;
         string? buttonText = AntTuneButtonTextFor(e.Type, e.Status, e.SWR,
-            RigControl.ATUTuneInProgress, AntennaTuneButtonText);
+            atuRunning, AntennaTuneButtonText);
         if (buttonText != null && AntennaTuneButton != null) SetButtonText(AntennaTuneButton, buttonText);
 
         // Audio narrative for ATU tune cycle.
@@ -5819,14 +5836,23 @@ public partial class MainWindow : UserControl
         // the carrier and uses meter tones/speech to monitor SWR, power, etc.
         bool isAutoATU = e.Type == "auto" && RigControl.HasATU;
 
+        // Batch 14 repair round 4 (Codex's B1 on 5f93fd12): FlexBase raises
+        // InProgress whenever ANY tune carrier rises, so a plain Ctrl+Shift+T
+        // carrier in automatic type told the transmit episode the ATU was
+        // tuning, started the ATU progress earcon, and armed the 15 s timeout
+        // that says "ATU tune timed out" with the fail tone. An ATU cycle's
+        // start is now the same thing the button's label calls one: the
+        // radio's own ATU status in progress (IsAtuCycleStart).
+        bool atuStart = IsAtuCycleStart(e.Status, atuRunning);
+
         // The ATU's own status, to the transmit episode (#571, Astra B6):
-        // in progress is RF on, every other status is its end.
-        _pttController?.NoteAtuTuning(e.Status == "InProgress");
+        // a real ATU cycle in progress is RF on, every other status is its end.
+        _pttController?.NoteAtuTuning(atuStart);
 
         switch (e.Status)
         {
             case "InProgress":
-                if (isAutoATU)
+                if (isAutoATU && atuStart)
                 {
                     EarconPlayer.StartATUProgressEarcon();
                     StartATUTimeout();
@@ -7407,6 +7433,8 @@ public partial class MainWindow : UserControl
         // rather than replayed under it. The carrier is NOT held and keys
         // exactly as before (Noel, 2026-10-22 05:42).
         _pttController?.NoteTuneCarrier(newState);
+        // A carrier's stop ends any ATU episode with it (batch 14 repair round 4).
+        if (!newState) _pttController?.NoteAtuTuning(false);
         TuneToggleButton.IsChecked = newState;
         ShowTuneButtonNeutral();   // batch 14 repair 2 (#1144)
         if (newState)
@@ -7461,6 +7489,7 @@ public partial class MainWindow : UserControl
         float capturedSwr = rig.TuneCycleSettledComputedSwr;
         rig.TxTune = false;
         _pttController?.NoteTuneCarrier(false);
+        _pttController?.NoteAtuTuning(false);   // the stop ends any ATU episode with it (batch 14 repair round 4)
         // A toggle press right behind this one is more of it: a start inside
         // the toggle's window is swallowed, which is the safe direction.
         _lastTuneToggleTicks = Environment.TickCount64;
