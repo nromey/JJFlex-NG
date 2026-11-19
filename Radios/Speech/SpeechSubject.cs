@@ -714,6 +714,24 @@ namespace Radios.Speech
         public const string NoiseHelperState = "noise-helper-state";
 
         /// <summary>
+        /// A receive computer noise engine cannot keep up on this computer: it
+        /// has been falling behind the audio (Sprint 49 Track L). Not asked
+        /// for, so queued, and its own subject: a switch sentence or the
+        /// helper's state must not retire the news that the engine is too slow.
+        /// The newest such warning covers an unheard older one. Receive only;
+        /// the transmit twin is <see cref="TransmitNoiseFallback"/>.
+        /// </summary>
+        public const string NoiseKeepUp = "noise-keep-up";
+
+        /// <summary>
+        /// The Audio Workshop's engine speed test: that it started, each engine's
+        /// or pairing's line as it finishes, and that it ended (Sprint 49 Track
+        /// L). Every line is also in the test's result box, so a newer line
+        /// covering an unheard older one loses nothing.
+        /// </summary>
+        public const string EngineSpeedTest = "engine-speed-test";
+
+        /// <summary>
         /// The radio turned one of its own noise engines off after another went
         /// on ("The radio turned Standard NR off."), seen by the check that runs
         /// after a radio switch. Not asked for, so it is queued, and on its own
