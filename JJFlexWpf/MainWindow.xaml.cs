@@ -2243,6 +2243,22 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// What a memory recall from the Memories window asked the radio for
+    /// (#1131): the frequency in hertz, the mode, and when. The landing after
+    /// the window closes speaks these rather than the radio's pre-answer state.
+    /// </summary>
+    private (ulong FrequencyHz, string Mode, long At)? _recallAskedFor;
+
+    /// <summary>The recall's asked-for values, once, and only for a recall made in the last few seconds; otherwise null.</summary>
+    private (ulong FrequencyHz, string Mode)? TakeRecallAskedFor()
+    {
+        var asked = _recallAskedFor;
+        _recallAskedFor = null;
+        if (asked is not { } a || Environment.TickCount64 - a.At > 5000) return null;
+        return (a.FrequencyHz, a.Mode);
+    }
+
+    /// <summary>
     /// The standard "a dialog closed back into the app" landing — focus
     /// repair plus compact orientation speech. Extracted verbatim from the
     /// <see cref="JJFlexDialog.FocusReturnCallback"/> lambda (Sprint 42
@@ -2252,6 +2268,9 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void RunReturnToAppLanding(string? rescueLead = null)
     {
+        // Taken first, before any guard below can return, so a recall's values
+        // are used by the landing it belongs to or by none (#1131).
+        var asked = TakeRecallAskedFor();
         try
         {
             // A dialog can close in the MIDDLE of a flow that still owns
@@ -2321,7 +2340,7 @@ public partial class MainWindow : UserControl
             // While slices are absent the connect flow owns the narration;
             // once they exist, this is real information about where the
             // operator returned to.
-            string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
+            string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig, asked?.FrequencyHz, asked?.Mode);
             Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
         }
         else if (rig == null)
@@ -6144,6 +6163,9 @@ public partial class MainWindow : UserControl
         {
             if (memRef is Flex.Smoothlake.FlexLib.Memory mem)
             {
+                // The landing after this window closes says what was asked for,
+                // not what the radio reports before it has answered (#1131).
+                _recallAskedFor = ((ulong)Math.Round(mem.Freq * 1e6), mem.Mode ?? "", Environment.TickCount64);
                 // A memory carries its mode: a mode request like any other (#1117).
                 AskRadioForMode(() => mem.Select());
             }
