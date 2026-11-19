@@ -478,6 +478,9 @@ public partial class CheckYourAudioDialog
     /// </summary>
     private void OnRecordingSaved(string path)
     {
+        // An audition take is not a reference take until it is kept (#262); its
+        // path is not in the list, and refreshing to it would move the pick.
+        if (InAuditionFolder(path)) return;
         Dispatcher.BeginInvoke(new Action(() =>
         {
             RefreshReferenceList(selectPath: path);

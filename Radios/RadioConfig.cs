@@ -101,6 +101,13 @@ namespace Radios
         /// the only method offered with no radio connected (ruled by Noel
         /// 2026-10-28 20:30 and 20:34).</summary>
         ComputerMic = 5,
+
+        /// <summary>Hear your own voice through the transmit chain (#262, X7
+        /// ruled by Noel 2026-11-19 07:03): record this computer's microphone
+        /// with nothing keyed, then play the one take three ways, cleaned, raw
+        /// and what was removed, each by its own button and never by itself.
+        /// Offered only with a radio connected (the 2026-10-28 20:34 ruling).</summary>
+        Audition = 6,
     }
 
     /// <summary>The last take this app made in one of the radio's slice buffers.</summary>

@@ -41,9 +41,11 @@ namespace Radios.Tests
         public void Dispose() => _scope.Dispose();
 
         // Fix round 2026-10-28: this computer's microphone leads every offer (ruled 20:30).
+        // #262 (2026-11-19): the audition follows it, over SmartLink too, since
+        // nothing in it crosses the network.
         private static readonly AudioCheckListenMethods[] SmartLinkThree =
         {
-            AudioCheckListenMethods.ComputerMic,
+            AudioCheckListenMethods.ComputerMic, AudioCheckListenMethods.Audition,
             AudioCheckListenMethods.MicTest, AudioCheckListenMethods.Monitor, AudioCheckListenMethods.RecordPlayback,
         };
 
@@ -59,7 +61,8 @@ namespace Radios.Tests
             Assert.Equal(3, (int)AudioCheckListenMethods.MicTest);
             Assert.Equal(4, (int)AudioCheckListenMethods.Loopback);
             Assert.Equal(5, (int)AudioCheckListenMethods.ComputerMic);
-            Assert.Equal(6, Enum.GetValues<AudioCheckListenMethods>().Length);
+            Assert.Equal(6, (int)AudioCheckListenMethods.Audition);   // #262, at the end
+            Assert.Equal(7, Enum.GetValues<AudioCheckListenMethods>().Length);
         }
 
         [Fact]
@@ -67,9 +70,11 @@ namespace Radios.Tests
         {
             // An escalation (ruled 2026-10-28 20:30): the computer's microphone,
             // the radio's at zero power, live, recorded, then off the air.
+            // The audition (#262) keys nothing, so it sits at the gentle end,
+            // straight after this computer's microphone.
             Assert.Equal(new[]
             {
-                AudioCheckListenMethods.ComputerMic,
+                AudioCheckListenMethods.ComputerMic, AudioCheckListenMethods.Audition,
                 AudioCheckListenMethods.MicTest, AudioCheckListenMethods.Monitor, AudioCheckListenMethods.RecordPlayback,
                 AudioCheckListenMethods.OffAir, AudioCheckListenMethods.Loopback,
             }, AudioCheckMethods.DisplayOrder);
@@ -130,7 +135,11 @@ namespace Radios.Tests
                     AudioCheckMethods.Offered(false, false, "no-radio", false), remote: false));
             Assert.False(AudioCheckMethods.KeysTheRadio(AudioCheckListenMethods.ComputerMic));
             Assert.False(AudioCheckMethods.UsesCheckPower(AudioCheckListenMethods.ComputerMic));
-            Assert.All(AudioCheckMethods.DisplayOrder.Where(m => m != AudioCheckListenMethods.ComputerMic),
+            // The audition records this computer's microphone and keys nothing
+            // either (#262), but waits for a radio by the same ruling.
+            Assert.False(AudioCheckMethods.KeysTheRadio(AudioCheckListenMethods.Audition));
+            Assert.All(AudioCheckMethods.DisplayOrder.Where(m => m is not (AudioCheckListenMethods.ComputerMic
+                    or AudioCheckListenMethods.Audition)),
                 m => Assert.True(AudioCheckMethods.KeysTheRadio(m)));
         }
 
@@ -200,6 +209,7 @@ namespace Radios.Tests
         [InlineData(AudioCheckListenMethods.RecordPlayback, true)]
         [InlineData(AudioCheckListenMethods.OffAir, false)]
         [InlineData(AudioCheckListenMethods.Loopback, false)]
+        [InlineData(AudioCheckListenMethods.Audition, false)]   // nothing keyed, no power to choose
         public void The_check_power_choice_is_shown_only_where_it_acts(AudioCheckListenMethods method, bool uses)
         {
             Assert.Equal(uses, AudioCheckMethods.UsesCheckPower(method));
@@ -213,9 +223,32 @@ namespace Radios.Tests
         // The loopback's take lives on its listening slice, which goes when
         // the check does, so there is nothing left for Play last take.
         [InlineData(AudioCheckListenMethods.Loopback, false)]
+        // The audition's take has three buttons of its own, not Play last take (#262).
+        [InlineData(AudioCheckListenMethods.Audition, false)]
         public void Play_last_take_belongs_to_the_methods_that_leave_a_take(AudioCheckListenMethods method, bool makes)
         {
             Assert.Equal(makes, AudioCheckMethods.MakesTake(method));
+        }
+
+        [Theory]
+        [InlineData(false, "", true)]
+        [InlineData(true, "", true)]
+        [InlineData(false, "one-scu-not-confirmed", false)]
+        public void The_audition_is_offered_whenever_a_radio_is_connected_and_never_without_one(bool remote,
+            string refusal, bool loopback)
+        {
+            // #262, 2026-11-19: offered only with a radio, by the 2026-10-28
+            // 20:34 ruling; over SmartLink too; straight after this computer's
+            // microphone, before anything that keys.
+            var offered = AudioCheckMethods.Offered(true, remote, refusal, loopback);
+            Assert.Equal(AudioCheckListenMethods.Audition, offered[1]);
+            Assert.DoesNotContain(AudioCheckListenMethods.Audition, AudioCheckMethods.Offered(false, false, "no-radio", false));
+            // A saved audition comes back on a connection, and falls back with none.
+            Assert.Equal(AudioCheckListenMethods.Audition,
+                AudioCheckMethods.Resolve(AudioCheckListenMethods.Audition, chosen: true, offered, remote));
+            Assert.Equal(AudioCheckListenMethods.ComputerMic,
+                AudioCheckMethods.Resolve(AudioCheckListenMethods.Audition, chosen: true,
+                    AudioCheckMethods.Offered(false, false, "no-radio", false), remote: false));
         }
 
         [Fact]
