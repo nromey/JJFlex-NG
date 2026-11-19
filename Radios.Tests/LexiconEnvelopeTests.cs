@@ -3022,6 +3022,11 @@ namespace Radios.Tests
                 // Junk box #960 (batch 14 repair round 3): a Filter preset row
                 // built for another mode's list refuses. Noel's own words, 2026-11-19.
                 "audio.filter.preset_list_changed",
+                // Junk box #1173 (2026-11-19, batch 15): the TX band lockout's
+                // refusal, shared by push to talk, the lock and voice messages.
+                // Codex's words with Noel's edit, approved 2026-11-19.
+                "audio.ptt.blocked_by_license",
+                "settings.band.tx_lockout_message",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -3076,7 +3081,10 @@ namespace Radios.Tests
             // Three fewer (3040 to 3037): the batch 10 words round reworded and
             // classified settings.commit.some_items_wait_title,
             // some_items_wait_lead and waiting_lead (#1088).
-            Assert.Equal(3037, unclassified);
+            // Two fewer (3037 to 3035): junk box batch 15's words (#1173)
+            // reworded and classified audio.ptt.blocked_by_license and its
+            // companion settings.band.tx_lockout_message.
+            Assert.Equal(3035, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
