@@ -528,6 +528,19 @@ namespace Radios
         // it as a parameter, so no field can move under it.
         private long _remoteAudioRun;
 
+        // ── What the remote-audio loop waits on (#1156) ──
+        //
+        // Each run makes its own wake in a LOCAL and publishes it here so the
+        // signallers that are not the loop (noteRadioMox, stopRemoteAudioThread,
+        // the tone and file engage and release) can reach it. A run clears this
+        // field only if it still holds that run's own wake, and disposes only
+        // its own local, so an abandoned earlier run can never null or dispose
+        // the current run's wake. The same discipline as _remoteAudioRun.
+        private RemoteAudioWake _remoteAudioWake;
+
+        /// <summary>Wake the current run's loop, if one is running. Never throws.</summary>
+        private void SignalRemoteAudioWake() => Volatile.Read(ref _remoteAudioWake)?.Signal();
+
         /// <summary>
         /// Why a finishing PC-audio run must NOT give the shack speaker back,
         /// or null when it may. Pure, so the interleaving that matters can be
@@ -615,6 +628,9 @@ namespace Radios
                 try
                 {
                     stopRemoteAudio = true;
+                    // #1156: the loop may be waiting for a packet; end the wait
+                    // so it sees the flag now rather than within one timeout.
+                    SignalRemoteAudioWake();
                     // Engine Track (2026-08-11): 10 s, up from 6. Teardown's
                     // waits are all bounded now, and the worst legitimate case
                     // (a wedged device: two ~2.2 s stream aborts inside the
@@ -765,6 +781,16 @@ namespace Radios
             // hundred lines by four spaces would make every one of them a
             // change in a file three other tracks are editing at the same time,
             // for a purely cosmetic gain. The guard is two inserted lines.
+            //
+            // #1156: this run's wake, made before anything can signal it and
+            // disposed at the very end, after everything that could signal it
+            // has been unhooked. The packet subscription is held in locals so
+            // the teardown unhooks THIS run's stream even if a newer run has
+            // already replaced rxStream and opusOutputChannel.
+            var wake = new RemoteAudioWake();
+            Volatile.Write(ref _remoteAudioWake, wake);
+            RXAudioStream rxForWake = null;
+            RXAudioStream.OpusPacketReceivedEventHandler packetWake = wake.Signal;
             try
             {
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
@@ -883,6 +909,11 @@ namespace Radios
                 theRadio.IsMuteLocalAudioWhenRemoteOn = true;
             }
             opusOutputChannel = new audioChannelData(rxStream, "JJFlexRadio.OpusOutputChan");
+            // #1156: a packet's arrival wakes the loop. Stock FlexLib raises
+            // this on its network thread after releasing the list lock, once
+            // per Opus packet (ListenbackIntegrityTests proves it fires).
+            rxForWake = rxStream;
+            rxForWake.OpusPacketReceived += packetWake;
             opusOutputChannel.PortAudioStream = new JJAudioStream();
             // Track J (#462): the callback rate is passed rather than defaulted.
             // It was a default argument nobody had ever supplied, which is how
@@ -1104,15 +1135,21 @@ namespace Radios
                 rxPlaybackWaitMs > 500 ? TraceLevel.Error : TraceLevel.Info);
 
             // Main audio loop.
-            // Note that we must pole for opus output.
+            // It takes at most one receive packet per pass, and when none is
+            // waiting it WAITS on this run's wake (#1156) rather than spinning:
+            // a packet's arrival, a key edge, a stop request, a generated
+            // source engaging or releasing, and a stream that died all signal
+            // it, and anything else is noticed within
+            // RemoteAudioWake.IdleWakeMilliseconds.
             while (!stopRemoteAudio)
             {
                 // Idle if disconnecting. Engine Track: this was a bare
                 // `continue` — a BUSY spin at Highest priority burning a full
                 // core for the whole disconnect window (up to the 30 s radio
-                // wait in Disconnect() before it flips PCAudio off). Sleep
-                // instead; nothing here is latency-sensitive once we're
-                // tearing down.
+                // wait in Disconnect() before it flips PCAudio off). It then
+                // slept 10 ms; it now waits 10 ms on the wake, so a stop
+                // request ends the wait early. Nothing here is
+                // latency-sensitive once we're tearing down.
                 if (Disconnecting)
                 {
                     // The gate below never runs while disconnecting, so stop
@@ -1121,7 +1158,7 @@ namespace Radios
                     // teardown path stops it again — belt and braces on the
                     // one thing that must not outlive the connection.
                     stopSelfClockedTxInput();
-                    Thread.Sleep(10);
+                    wake.WaitForWork(RemoteAudioWake.DisconnectingWaitMilliseconds);
                     continue;
                 }
 
@@ -1345,7 +1382,10 @@ namespace Radios
                 }
                 else
                 {
-                    Thread.Yield();
+                    // Nothing to play: wait for a packet or another reason
+                    // to look again (#1156). This was Thread.Yield(), which
+                    // spun at Highest priority on a full core.
+                    wake.WaitForWork(RemoteAudioWake.IdleWakeMilliseconds);
                 }
             }
 
@@ -1379,6 +1419,19 @@ namespace Radios
             }
 
             remoteDone:
+            // #1156: unhook the packet wake FIRST, from this run's own locals,
+            // before any close that can take seconds. A newer run may already
+            // own rxStream and opusOutputChannel, so the fields are not used.
+            if (rxForWake != null)
+            {
+                try { rxForWake.OpusPacketReceived -= packetWake; }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("remoteAudioProc: unhooking the packet wake failed: " + ex.Message,
+                        TraceLevel.Error);
+                }
+                rxForWake = null;
+            }
             (ComputerRecorder.Current as ComputerFlacRecorder)?.ReceiveEnded(this);
             // Both exits pass through here, so the continuity totals are
             // reported for aborted runs too.
@@ -1497,6 +1550,13 @@ namespace Radios
                 Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is — "
                     + speakerRefusal, TraceLevel.Info);
             }
+
+            // #1156: retire this run's wake last. The field is cleared only if
+            // it still holds THIS run's wake, and only the local is disposed,
+            // so an abandoned run finishing late cannot touch a newer run's.
+            // A signal racing the disposal is swallowed inside the wake.
+            Interlocked.CompareExchange(ref _remoteAudioWake, null, wake);
+            wake.Dispose();
 
             Tracing.TraceLine("remoteAudioProc exiting", TraceLevel.Info);
         }
@@ -1653,6 +1713,9 @@ namespace Radios
             {
                 Tracing.TraceLine("TxToneStart: " + txToneGen.Frequency + " Hz at " + txToneGen.LevelDb + " dBFS", TraceLevel.Info);
                 txToneGen.Start();
+                // #1156: the transmit gate swaps producers on this; tell the
+                // loop now rather than within one idle wait.
+                SignalRemoteAudioWake();
                 return true;
             }
             catch (Exception ex)
@@ -1669,6 +1732,7 @@ namespace Radios
             {
                 Tracing.TraceLine("TxToneStop", TraceLevel.Info);
                 txToneGen.Stop();
+                SignalRemoteAudioWake(); // #1156: the gate reacts to the release
                 var lease = _toneVoxLease;
                 _toneVoxLease = null;
                 if (lease == null) return false;
@@ -1853,6 +1917,7 @@ namespace Radios
                 + txFilePlayer.ContentSampleRate + " Hz", TraceLevel.Info);
             _txFileFlowsWhileReceiving = false;
             txFilePlayer.Start();
+            SignalRemoteAudioWake(); // #1156: the gate reacts to the engage
         }
 
         /// <summary>
@@ -1894,6 +1959,7 @@ namespace Radios
                 TraceLevel.Info);
             txFilePlayer.Start();
             _txFileFlowsWhileReceiving = true;
+            SignalRemoteAudioWake(); // #1156: the gate reacts to the engage
         }
 
         /// <summary>Stop transmitting the recording and restore the microphone.</summary>
@@ -1910,6 +1976,7 @@ namespace Radios
                 Tracing.TraceLine("TxFileStop", TraceLevel.Info);
                 _txFileFlowsWhileReceiving = false;
                 txFilePlayer.Stop();
+                SignalRemoteAudioWake(); // #1156: the gate reacts to the release
                 // A disarm during an owned transmission stops the samples
                 // immediately, but VOX remains paused until the radio reports
                 // receive. Restoring it on the unkey REQUEST could rekey from
@@ -3004,8 +3071,10 @@ namespace Radios
             if (!opusInputAvailable || opusInputChannel == null) return false;
             JJPortaudio.JJAudioStream stream = opusInputChannel.PortAudioStream;
             if (stream == null) return false;
-            // Cheap first, and it is the answer on all but one poll in
-            // thousands — the loop spins on Thread.Yield().
+            // Cheap first, and it is the answer on nearly every pass — the
+            // loop runs once per receive packet, about a hundred times a
+            // second, plus a pass per wake (#1156; it used to spin on
+            // Thread.Yield()).
             if (stream.SelfClockedTxRunning) return true;
 
             bool started = stream.StartSelfClockedTx();
