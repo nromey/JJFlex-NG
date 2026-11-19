@@ -13,9 +13,12 @@ namespace JJFlexWpf.Tests;
 /// <summary>
 /// The receive pipeline's keep-up timing (Sprint 49 Track L, #866), with fake
 /// engines: a deliberately slow one in this process, and fake helper engines
-/// that return false, each raising the warning, beside the fast engines that
-/// do not. The audio thread allocates nothing for it, and the event is raised
-/// off that thread.
+/// whose processing time is set by the test, each raising the warning, beside
+/// the fast engines that do not. A fake helper whose answers come back late
+/// while its processing is fast raises only the delivery diagnostic (repair 1,
+/// B1), and an engine slower than the gap threshold still warns (B3). The
+/// audio thread allocates nothing for it, and the event is raised off that
+/// thread.
 /// </summary>
 public sealed class EngineKeepUpPipelineTests
 {
@@ -61,8 +64,12 @@ public sealed class EngineKeepUpPipelineTests
     {
         public RxAudioPipeline Pipeline { get; }
         public ConcurrentQueue<(EngineKeepUpResult Result, int Thread)> Results { get; } = new();
+        public ConcurrentQueue<EngineKeepUpResult> Delivery { get; } = new();
         public double SlowMs = 6;          // per frame per channel: 12 ms for a 10 ms stereo buffer
         public volatile bool HelperLate;   // the fake helper's answers stop coming back in time
+        /// <summary>The helper's processing time per 10 ms frame, every channel together: fast (two channels at 1.7 ms) until a test says otherwise.</summary>
+        public long ServiceNanos = FastService;
+        public const long FastService = 3_400_000, SlowService = 12_000_000;
         private readonly float[] _audio = new float[960];
 
         public Rig()
@@ -81,7 +88,19 @@ public sealed class EngineKeepUpPipelineTests
             {
                 IsHelperEngine = id => id is "fakehelper" or "stuckhelper",
             };
+            Pipeline.HelperServiceNanos = (_, _) => Volatile.Read(ref ServiceNanos);
             Pipeline.KeepUpResult += (_, r) => Results.Enqueue((r, Environment.CurrentManagedThreadId));
+            Pipeline.DeliveryDiagnostic += (_, r) => Delivery.Enqueue(r);
+        }
+
+        public void Service(long nanos) => Volatile.Write(ref ServiceNanos, nanos);
+
+        /// <summary>Wait a little for a delivery change that may still be on the pool thread.</summary>
+        public bool HasDelivery(string id, EngineKeepUpChange change)
+        {
+            var t = Stopwatch.StartNew();
+            while (t.ElapsedMilliseconds < 500) { if (Delivery.Any(r => r.EngineId == id && r.Change == change)) return true; Thread.Sleep(5); }
+            return false;
         }
 
         public void Pump(int buffers = 1)
@@ -147,64 +166,126 @@ public sealed class EngineKeepUpPipelineTests
     }
 
     [Fact]
-    public void A_fake_helper_engine_whose_answers_come_back_late_raises_fell_behind_and_one_that_keeps_up_does_not()
+    public void A_fake_helper_whose_answers_come_back_late_but_whose_processing_is_fast_is_not_warned_about_and_one_whose_processing_is_slow_is()
     {
-        using var rig = new Rig();
-        rig.Choose("fakehelper"); rig.UntilRunning("fakehelper");
-        // On time for longer than the grace and a whole window: keeps up, nothing else.
-        Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.KeepingUp, 300));
-        rig.Pump(200);
-        Assert.False(rig.Has("fakehelper", EngineKeepUpChange.FellBehind));
-        // Its answers stop coming back in time: late frames on the running bank.
-        rig.HelperLate = true;
-        Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.FellBehind, 60), "late helper answers were never said to fall behind");
-        var r = rig.Results.First(x => x.Result.Change == EngineKeepUpChange.FellBehind).Result;
+        // Repair 1, B1: delivery is not cost. Late answers, fast processing.
+        using (var rig = new Rig())
+        {
+            rig.Choose("fakehelper"); rig.UntilRunning("fakehelper");
+            Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.KeepingUp, 300));
+            rig.HelperLate = true;
+            rig.Pump(400);
+            // Positive control: the late answers were seen, as the delivery diagnostic.
+            Assert.True(rig.HasDelivery("fakehelper", EngineKeepUpChange.FellBehind), "the missed answers were never seen");
+            var d = rig.Delivery.First(x => x.Change == EngineKeepUpChange.FellBehind);
+            _out.WriteLine(d.Describe());
+            Assert.True(d.Delivery);
+            Thread.Sleep(100);
+            Assert.False(rig.Has("fakehelper", EngineKeepUpChange.FellBehind), "a fast helper whose answers were delayed was warned about");
+        }
+
+        // On-time answers, processing slower than the audio: falls behind.
+        using var slow = new Rig();
+        slow.Choose("fakehelper"); slow.UntilRunning("fakehelper");
+        Assert.True(slow.PumpUntil("fakehelper", EngineKeepUpChange.KeepingUp, 300));
+        slow.Pump(200);
+        Assert.False(slow.Has("fakehelper", EngineKeepUpChange.FellBehind));
+        slow.Service(Rig.SlowService);
+        Assert.True(slow.PumpUntil("fakehelper", EngineKeepUpChange.FellBehind, 60), "slow helper processing was never said to fall behind");
+        var r = slow.Results.First(x => x.Result.Change == EngineKeepUpChange.FellBehind).Result;
+        _out.WriteLine(r.Describe());
         Assert.True(r.Helper, r.Describe());
+        Assert.False(r.Delivery);
         Assert.Equal(EngineKeepUpRule.DefaultFallAt, r.LateBuffers);
+        // The average is over the window, so it has only begun to rise from the fast figure.
+        Assert.True(r.AverageMs > Rig.FastService / 1e6 && Math.Abs(r.BufferMs - 10) < 0.01, r.Describe());
+        Assert.Empty(slow.Delivery);
         // It keeps running: lateness is reported, nothing is stopped or switched.
-        Assert.Equal("fakehelper", rig.Pipeline.NeuralSlot.ChosenEngineId);
-        Assert.Equal("fakehelper", rig.Pipeline.NeuralSlot.RunningEngineId);
-        Assert.True(rig.Pipeline.RnnEnabled);
+        Assert.Equal("fakehelper", slow.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.Equal("fakehelper", slow.Pipeline.NeuralSlot.RunningEngineId);
+        Assert.True(slow.Pipeline.RnnEnabled);
     }
 
     [Fact]
-    public void A_fake_helper_engine_too_slow_ever_to_finish_its_warm_up_raises_fell_behind()
+    public void A_helper_warm_up_that_never_ends_is_warned_about_only_when_its_processing_is_too_slow()
     {
-        using var rig = new Rig();
-        rig.Choose("stuckhelper");
-        Assert.True(rig.PumpUntil("stuckhelper", EngineKeepUpChange.FellBehind, EngineKeepUpRule.DefaultStuckWarmup + 100),
-            "a helper engine that never warmed up was never said to fall behind");
-        Assert.NotEqual("stuckhelper", rig.Pipeline.NeuralSlot.RunningEngineId);
-        Assert.Equal("stuckhelper", rig.Pipeline.NeuralSlot.ChosenEngineId);
-        // The same warm-up time for an engine that warms up normally says nothing of the kind.
+        // Slow processing: its answers are always late, so it never warms; the warning comes from its cost.
+        using (var rig = new Rig())
+        {
+            rig.Service(Rig.SlowService);
+            rig.Choose("stuckhelper");
+            Assert.True(rig.PumpUntil("stuckhelper", EngineKeepUpChange.FellBehind, EngineKeepUpRule.DefaultStuckWarmup + 100),
+                "a helper engine too slow to warm up was never said to fall behind");
+            Assert.NotEqual("stuckhelper", rig.Pipeline.NeuralSlot.RunningEngineId);
+            Assert.Equal("stuckhelper", rig.Pipeline.NeuralSlot.ChosenEngineId);
+            Assert.True(rig.Results.First(x => x.Result.Change == EngineKeepUpChange.FellBehind).Result.Helper);
+        }
+        // Fast processing, answers never in time: the delivery diagnostic only.
+        using (var fast = new Rig())
+        {
+            fast.Choose("stuckhelper");
+            fast.Pump(EngineKeepUpRule.DefaultStuckWarmup + 100);
+            Assert.True(fast.HasDelivery("stuckhelper", EngineKeepUpChange.FellBehind), "the warm-up that never ended was never seen");
+            Thread.Sleep(100);
+            Assert.False(fast.Has("stuckhelper", EngineKeepUpChange.FellBehind), "a fast helper starved of delivery was warned about");
+        }
+        // The same warm-up time for an engine that warms up normally says nothing of either kind.
         using var ok = new Rig();
         ok.Choose("fakehelper");
         ok.Pump(EngineKeepUpRule.DefaultStuckWarmup + 100);
         Thread.Sleep(100);
         Assert.False(ok.Has("fakehelper", EngineKeepUpChange.FellBehind));
+        Assert.Empty(ok.Delivery);
     }
 
-    [Fact]
-    public void A_pause_in_the_stream_restarts_the_grace_so_lateness_straight_after_it_is_start_up()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_pause_in_the_stream_restarts_the_grace_so_lateness_straight_after_it_is_start_up(bool helper)
     {
+        string id = helper ? "fakehelper" : "slow";
+        void Late(Rig r, bool on) { if (helper) r.Service(on ? Rig.SlowService : Rig.FastService); else r.SlowMs = on ? 6 : 0; }
         // Positive control: forty late buffers with no pause, after the engine settled, fall behind.
         using (var control = new Rig())
         {
-            control.Choose("fakehelper"); control.UntilRunning("fakehelper");
+            Late(control, false);
+            control.Choose(id); control.UntilRunning(id);
             control.Pump(EngineKeepUpRule.DefaultGrace + 10);
-            control.HelperLate = true;
-            Assert.True(control.PumpUntil("fakehelper", EngineKeepUpChange.FellBehind, 40));
+            Late(control, true);
+            Assert.True(control.PumpUntil(id, EngineKeepUpChange.FellBehind, 40));
         }
         using var rig = new Rig();
-        rig.Choose("fakehelper"); rig.UntilRunning("fakehelper");
+        Late(rig, false);
+        rig.Choose(id); rig.UntilRunning(id);
         rig.Pump(EngineKeepUpRule.DefaultGrace + 10);
         Thread.Sleep((int)(RxAudioPipeline.KeepUpGapTicks * 1000 / Stopwatch.Frequency) + 50);
-        rig.HelperLate = true;
+        Late(rig, true);
         rig.Pump(40);
-        rig.HelperLate = false;
+        Late(rig, false);
         rig.Pump(200);
         Thread.Sleep(100);
-        Assert.False(rig.Has("fakehelper", EngineKeepUpChange.FellBehind));
+        Assert.False(rig.Has(id, EngineKeepUpChange.FellBehind));
+    }
+
+    /// <summary>
+    /// Repair 1, B3, adopted from Codex's reproduction (2026-11-19): the time an
+    /// engine spends inside the pipeline is never a gap in the audio, however
+    /// long it is. At 55 ms a channel a buffer takes over 110 ms, more than the
+    /// gap threshold; measured from start to start, every buffer reset the
+    /// grace and the warning never came.
+    /// </summary>
+    [Theory]
+    [InlineData(6)]
+    [InlineData(55)]
+    public void Sustained_slow_processing_must_warn_even_above_the_gap_threshold(double millisecondsPerChannel)
+    {
+        using var rig = new Rig { SlowMs = millisecondsPerChannel };
+        rig.Choose("slow");
+        rig.UntilRunning("slow");
+        bool warned = rig.PumpUntil("slow", EngineKeepUpChange.FellBehind, 90);
+        var rule = rig.Pipeline.KeepUpRuleFor(DenoiseFamily.Neural);
+        _out.WriteLine($"Per stereo buffer at least {millisecondsPerChannel * 2} ms for 10 ms of audio; warning={warned}; window filled={rule.Filled}; late={rule.LateInWindow}");
+        Assert.True(warned, "The gap grace hid sustained engine processing slower than 100 ms per buffer.");
     }
 
     [Fact]
@@ -231,7 +312,7 @@ public sealed class EngineKeepUpPipelineTests
     }
 
     [Fact]
-    public void Process_allocates_nothing_while_it_times_both_slots_including_a_fall_behind()
+    public void Process_allocates_nothing_while_it_times_both_slots_including_a_fall_behind_and_a_delivery_change()
     {
         using var rig = new Rig();
         rig.Choose("fastspectral"); rig.UntilRunning("fastspectral", DenoiseFamily.Spectral);
@@ -242,13 +323,21 @@ public sealed class EngineKeepUpPipelineTests
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 300; i++) { Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio); }
         long steady = GC.GetAllocatedBytesForCurrentThread() - before;
+        // The delivery diagnostic's fall: late answers, fast processing.
         rig.HelperLate = true;
         before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++) { Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio); }
+        long delivery = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(rig.HasDelivery("fakehelper", EngineKeepUpChange.FellBehind), "the delivery change was not raised");
+        // The warning's fall: slow processing.
+        rig.Service(Rig.SlowService);
+        before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++) { Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio); }
         long falling = GC.GetAllocatedBytesForCurrentThread() - before;
-        _out.WriteLine($"Managed bytes on the audio thread: {steady} over 300 buffers keeping up, {falling} over 100 buffers falling behind.");
+        _out.WriteLine($"Managed bytes on the audio thread: {steady} over 300 buffers keeping up, {delivery} over 100 buffers of late answers, {falling} over 100 buffers falling behind.");
         Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.FellBehind, 0), "the fall was not raised");
         Assert.Equal(0, steady);
+        Assert.Equal(0, delivery);
         Assert.Equal(0, falling);
     }
 }

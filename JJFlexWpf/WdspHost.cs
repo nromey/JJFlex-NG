@@ -265,6 +265,16 @@ namespace JJFlexWpf
         public long DiscardBelow;
         public uint Latency;
         /// <summary>
+        /// The helper's own measure of its engine's work on the newest frame it
+        /// answered on this channel, in nanoseconds (FrameOut's processing time:
+        /// the engine alone, not the pipe), and when that answer arrived
+        /// (<see cref="WdspHost.Now"/>; 0 before the first). Written by the reader
+        /// thread, read by the receive audio thread, which adds every live
+        /// channel's together to tell whether the helper's one worker keeps up
+        /// (Sprint 49 Track L repair 1, #866).
+        /// </summary>
+        public long ProcessingNanos, ProcessedAt;
+        /// <summary>
         /// This channel's share of the connection's settings in flight.
         /// Interlocked. When its close is answered, whatever is left is taken
         /// off the connection at once: a setting the helper answers after the
@@ -489,6 +499,8 @@ namespace JJFlexWpf
         internal IReadOnlyList<int> LaunchedProcessIds { get { lock (Gate) return _launched.ToArray(); } }
         internal int? CurrentProcessId { get { lock (Gate) return _conn?.Pid; } }
         internal WdspConnection? CurrentConnection { get { lock (Gate) return _conn; } }
+        /// <summary>The current connection without the lock, for the receive audio thread, which never waits (Sprint 49 Track L repair 1).</summary>
+        internal WdspConnection? LiveConnection => Volatile.Read(ref _conn);
 
         /// <summary>
         /// Start again after the cap, or after a missing, blocked or mismatched
@@ -1501,7 +1513,7 @@ namespace JJFlexWpf
 
         private static void OnFrameOut(WdspConnection c, ReadOnlySpan<byte> payload)
         {
-            WdspProtocol.ReadFrameOutHeader(payload, out uint channel, out ulong seq, out _, out int count);
+            WdspProtocol.ReadFrameOutHeader(payload, out uint channel, out ulong seq, out uint nanos, out int count);
             if (!c.ById.TryGetValue(channel, out var ch))
             {
                 if (RateAllows(c)) Trace.WriteLine($"WdspHost: discarded a FrameOut for forgotten channel {channel}");
@@ -1521,6 +1533,8 @@ namespace JJFlexWpf
                 }
             }
             ch.Publish(seq, payload);
+            Volatile.Write(ref ch.ProcessingNanos, nanos);
+            Volatile.Write(ref ch.ProcessedAt, Now);
         }
 
         // ------------------------------------------------------------------

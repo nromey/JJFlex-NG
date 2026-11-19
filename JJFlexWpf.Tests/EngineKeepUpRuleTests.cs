@@ -126,6 +126,27 @@ public sealed class EngineKeepUpRuleTests
     }
 
     [Fact]
+    public void A_helper_warm_up_counts_only_the_buffers_its_processing_was_over_the_audio()
+    {
+        // Repair 1, B1: a warm-up that never ends because answers are delayed,
+        // with the helper's processing fast, is not the warning's business.
+        var fast = new EngineKeepUpRule();
+        var none = Enumerable.Range(0, 1000).Select(_ => fast.Warming("nnr", late: false)).ToArray();
+        Assert.All(none, c => Assert.Equal(EngineKeepUpChange.None, c));
+        Assert.False(fast.Behind);
+
+        // Positive control: processing over the audio in every buffer falls behind at the stuck mark.
+        var slow = new EngineKeepUpRule();
+        var changes = Enumerable.Range(0, 400).Select(_ => slow.Warming("nnr", late: true)).ToArray();
+        Assert.Equal(EngineKeepUpRule.DefaultStuckWarmup - 1, Array.IndexOf(changes, EngineKeepUpChange.FellBehind));
+
+        // Only the late buffers count: half of them late takes twice as long.
+        var half = new EngineKeepUpRule();
+        var mixed = Enumerable.Range(0, 1000).Select(i => half.Warming("nnr", late: i % 2 == 0)).ToArray();
+        Assert.Equal(2 * EngineKeepUpRule.DefaultStuckWarmup - 2, Array.IndexOf(mixed, EngineKeepUpChange.FellBehind));
+    }
+
+    [Fact]
     public void Every_threshold_is_checked_at_construction()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new EngineKeepUpRule(window: 0));

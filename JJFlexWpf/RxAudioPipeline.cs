@@ -202,6 +202,12 @@ namespace JJFlexWpf
             try
             {
                 if (Volatile.Read(ref _disposed) != 0) return;
+                // A gap is time the audio was absent: from the end of the last
+                // buffer's processing to the start of this one. Never from start
+                // to start, which counts the pipeline's own processing as a pause
+                // and let a very slow engine reset its own grace (repair 1, B3).
+                long entered = Stopwatch.GetTimestamp();
+                bool gap = _lastProcessEnd != 0 && entered - _lastProcessEnd > KeepUpGapTicks;
                 int count = buffer.Length;
                 var capture = Volatile.Read(ref _spectralSub);
                 bool capturing = capture.IsSampling;
@@ -211,8 +217,6 @@ namespace JJFlexWpf
                 // read either side, so the keep-up rule can tell which engine fell
                 // behind (Sprint 49 Track L). Reads and arithmetic only.
                 long start = Stopwatch.GetTimestamp();
-                bool gap = _lastProcessStart != 0 && start - _lastProcessStart > KeepUpGapTicks;
-                _lastProcessStart = start;
                 var spectralBank = SpectralSlot.RunningBank;
                 long spectralLate = spectralBank?.LateFrames ?? 0;
                 SpectralSlot.Process(buffer, true, capture.HasProfile, capturing, _prepareSpectral);
@@ -223,10 +227,11 @@ namespace JJFlexWpf
                 long afterNeural = Stopwatch.GetTimestamp();
                 long bufferTicks = _channels > 0 && _sampleRate > 0
                     ? (long)((double)(count / _channels) * Stopwatch.Frequency / _sampleRate) : 0;
-                _spectralKeepUp.After(SpectralSlot, spectralBank, spectralLate, afterSpectral - start, bufferTicks, gap, capturing);
-                _neuralKeepUp.After(NeuralSlot, neuralBank, neuralLate, afterNeural - afterSpectral, bufferTicks, gap, false);
+                _spectralKeepUp.After(SpectralSlot, spectralBank, spectralLate, afterSpectral - start, bufferTicks, gap, capturing, afterNeural);
+                _neuralKeepUp.After(NeuralSlot, neuralBank, neuralLate, afterNeural - afterSpectral, bufferTicks, gap, false, afterNeural);
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
+                _lastProcessEnd = Stopwatch.GetTimestamp();
             }
             finally { Interlocked.Exchange(ref _processMark, 0); }
         }
@@ -239,14 +244,19 @@ namespace JJFlexWpf
         // from here. Receive only (ruled 2026-11-19, X3).
 
         /// <summary>
-        /// A pause this long between two buffers is a gap in the stream, and the
+        /// A pause this long with no audio, from the end of one buffer's
+        /// processing to the start of the next, is a gap in the stream, and the
         /// buffers after it are start-up again: a burst after an outage can make
         /// a helper engine's answers late without the engine being slow. Ten
         /// buffers' worth; the receive loop conceals shorter gaps to length.
+        /// Time spent inside <see cref="Process"/> is never a gap, however long:
+        /// that is the engine's cost, the very thing the rule judges (repair 1,
+        /// B3: an engine at 55 ms a channel reset its own grace every buffer
+        /// when the gap was measured from start to start).
         /// </summary>
         internal static readonly long KeepUpGapTicks = Stopwatch.Frequency / 10;
 
-        private long _lastProcessStart;
+        private long _lastProcessEnd;
         private readonly SlotKeepUp _spectralKeepUp, _neuralKeepUp;
         private int _keepUpQueued;
         private readonly KeepUpRaiser _keepUpRaiser;
@@ -259,15 +269,38 @@ namespace JJFlexWpf
         public event EventHandler<EngineKeepUpResult>? KeepUpResult;
 
         /// <summary>
-        /// Which engine ids run in the helper, where lateness is counted by the
-        /// bank rather than timed (NNR and NR2). A static lambda, so asking it
-        /// allocates nothing; tests give their own fake helper engines here.
+        /// A helper engine's answers stopped, or started again, arriving in time
+        /// (<see cref="EngineKeepUpResult.Delivery"/> set). A diagnostic only:
+        /// traced, raised here for tests, and never the warning's trigger,
+        /// because a fast engine can be starved of delivery and a slow one can
+        /// be on time (repair 1, B1). Raised off the audio thread.
+        /// </summary>
+        internal event EventHandler<EngineKeepUpResult>? DeliveryDiagnostic;
+
+        /// <summary>
+        /// Which engine ids run in the helper, judged by the helper's own
+        /// processing time rather than by timing the slot (NNR and NR2). A
+        /// static lambda, so asking it allocates nothing; tests give their own
+        /// fake helper engines here.
         /// </summary>
         internal Func<string, bool> IsHelperEngine { get; set; } = static id => Array.IndexOf(WdspHost.KnownEngines, id) >= 0;
+
+        /// <summary>
+        /// The helper's processing time for one frame, added over every channel
+        /// its one worker serves now, in nanoseconds, or -1 when no helper is
+        /// connected (<see cref="HelperServiceTime.PerFrameNanos"/>). Given the
+        /// slot's running bank and the time. Called on the audio thread, so it
+        /// must not allocate or wait; tests give their own figure here.
+        /// </summary>
+        internal Func<PerChannelDenoiserBank?, long, long> HelperServiceNanos { get; set; } = static (bank, now) => HelperServiceTime.PerFrameNanos(bank, now);
 
         /// <summary>The rule for one slot, for tests.</summary>
         internal EngineKeepUpRule KeepUpRuleFor(DenoiseFamily family) =>
             (family == DenoiseFamily.Spectral ? _spectralKeepUp : _neuralKeepUp).Rule;
+
+        /// <summary>The delivery diagnostic's rule for one slot, for tests.</summary>
+        internal EngineKeepUpRule DeliveryRuleFor(DenoiseFamily family) =>
+            (family == DenoiseFamily.Spectral ? _spectralKeepUp : _neuralKeepUp).Missed;
 
         private void QueueKeepUpRaise()
         {
@@ -285,7 +318,13 @@ namespace JJFlexWpf
 
         private void Raise(SlotKeepUp probe)
         {
-            if (!probe.TakePublished(out var result)) return;
+            if (probe.Delivery.TakePublished(probe.Family, out var delivery))
+            {
+                Trace.WriteLine("RxAudioPipeline: helper " + delivery.Describe());
+                try { DeliveryDiagnostic?.Invoke(this, delivery); }
+                catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a delivery listener threw: " + ex.Message); }
+            }
+            if (!probe.Main.TakePublished(probe.Family, out var result)) return;
             Trace.WriteLine("RxAudioPipeline: keep-up " + result.Describe());
             try { KeepUpResult?.Invoke(this, result); }
             catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a keep-up listener threw: " + ex.Message); }
@@ -299,53 +338,110 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// One slot's keep-up state: its rule, the bank it last saw, and the
-        /// mailbox a change waits in. Written only by the audio thread; the
-        /// mailbox is a sequence lock, so the pool thread reads a whole change
-        /// or tries again, and the audio thread never waits.
+        /// One published change, waiting for the pool thread. Written only by
+        /// the audio thread under a sequence lock, so the pool thread reads a
+        /// whole change or tries again, and the audio thread never waits.
+        /// </summary>
+        private sealed class Mailbox
+        {
+            private readonly bool _delivery;
+            private int _seq, _taken; // _seq is odd while the audio thread writes
+            private string _engine = "";
+            private EngineKeepUpChange _change;
+            private bool _helper;
+            private int _late, _filled, _missed;
+            private double _averageTicks, _bufferTicks;
+
+            public Mailbox(bool delivery) => _delivery = delivery;
+
+            public void Publish(EngineKeepUpRule rule, EngineKeepUpChange change, bool helper, double averageTicks, double bufferTicks, int missed)
+            {
+                Interlocked.Increment(ref _seq);
+                _engine = rule.EngineId; _change = change; _helper = helper;
+                _late = rule.LateInWindow; _filled = rule.Filled; _missed = missed;
+                _averageTicks = averageTicks; _bufferTicks = bufferTicks;
+                Interlocked.Increment(ref _seq);
+            }
+
+            /// <summary>The newest published change not yet taken, read whole. Off the audio thread only.</summary>
+            public bool TakePublished(DenoiseFamily family, out EngineKeepUpResult result)
+            {
+                var spin = new SpinWait();
+                while (true)
+                {
+                    int seq = Volatile.Read(ref _seq);
+                    if ((seq & 1) != 0) { spin.SpinOnce(); continue; }
+                    if (seq == Volatile.Read(ref _taken)) { result = null!; return false; }
+                    var r = new EngineKeepUpResult(family, _engine, _change, _helper, _late, _filled,
+                        _averageTicks * 1000.0 / Stopwatch.Frequency, _bufferTicks * 1000.0 / Stopwatch.Frequency, _missed, _delivery);
+                    Interlocked.MemoryBarrier(); // the field reads above may not move past the second look
+                    if (Volatile.Read(ref _seq) != seq) continue;
+                    Volatile.Write(ref _taken, seq);
+                    result = r;
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// One slot's keep-up state: the warning's rule, the delivery
+        /// diagnostic's rule, the bank it last saw, and a mailbox for each.
+        /// Written only by the audio thread.
         /// </summary>
         private sealed class SlotKeepUp
         {
+            /// <summary>One helper frame's audio, in stopwatch ticks.</summary>
+            private static readonly double HelperFrameTicks = (double)HelperServiceTime.FrameNanos * Stopwatch.Frequency / 1e9;
+
             private readonly RxAudioPipeline _owner;
-            private readonly DenoiseFamily _family;
+            public readonly DenoiseFamily Family;
+            /// <summary>The warning's rule: the slot's time for an engine here, the helper's processing time for a helper engine.</summary>
             public readonly EngineKeepUpRule Rule = new();
+            /// <summary>
+            /// A helper engine's delivery: buffers with a frame that did not come
+            /// back by its deadline (the running bank's late count), and warm-ups
+            /// that never end. Traced, never warned about.
+            /// </summary>
+            public readonly EngineKeepUpRule Missed = new();
+            public readonly Mailbox Main = new(false), Delivery = new(true);
             private PerChannelDenoiserBank? _bank;
             private bool _helper;
             private double _averageTicks, _bufferTicks;
 
-            // The mailbox. _seq is odd while the audio thread writes it.
-            private int _seq, _taken;
-            private string _engine = "";
-            private EngineKeepUpChange _change;
-            private bool _pubHelper;
-            private int _pubLate, _pubFilled;
-            private double _pubAverageTicks, _pubBufferTicks;
+            public SlotKeepUp(RxAudioPipeline owner, DenoiseFamily family) { _owner = owner; Family = family; }
 
-            public SlotKeepUp(RxAudioPipeline owner, DenoiseFamily family) { _owner = owner; _family = family; }
-
-            /// <summary>After the slot processed a buffer: what happened, told to the rule.</summary>
+            /// <summary>After the slot processed a buffer: what happened, told to the rules.</summary>
             public void After(PcDenoiseSlot slot, PerChannelDenoiserBank? bankBefore, long lateBefore, long elapsedTicks,
-                long bufferTicks, bool gap, bool paused)
+                long bufferTicks, bool gap, bool paused, long now)
             {
-                if (gap) Rule.Gap();
+                if (gap) { Rule.Gap(); Missed.Gap(); }
                 string chosen = slot.ChosenEngineId;
                 bool delivered = slot.BuildDelivered(chosen);
                 var change = EngineKeepUpChange.None;
+                var missed = EngineKeepUpChange.None;
                 if (delivered || !string.Equals(chosen, slot.RunningEngineId, StringComparison.Ordinal))
                 {
                     // A switch or a warm-up: two banks may run, and what is heard
-                    // is changing, so nothing is counted. The one exception is a
-                    // helper engine whose warm-up never ends (EngineKeepUpRule.Warming).
+                    // is changing, so this process's timing is not counted. A
+                    // helper engine's warm-up is the exception: the helper's own
+                    // processing time is its measure, so a helper too slow ever
+                    // to finish warming is still found (EngineKeepUpRule.Warming).
                     if (delivered && slot.Enabled && !paused && _owner.IsHelperEngine(chosen))
-                        change = Rule.Warming(chosen);
-                    else Rule.Gap();
+                    {
+                        _helper = true;
+                        long service = _owner.HelperServiceNanos(slot.RunningBank, now);
+                        AverageHelper(service);
+                        change = Rule.Warming(chosen, HelperServiceTime.Late(service));
+                        missed = Missed.Warming(chosen);
+                    }
+                    else { Rule.Gap(); Missed.Gap(); _averageTicks = 0; }
                     _bank = null;
                 }
                 else
                 {
                     string processing = slot.ProcessingEngineId;
                     var bank = slot.RunningBank;
-                    if (processing.Length == 0 || bank == null) { Rule.Gap(); _bank = null; }
+                    if (processing.Length == 0 || bank == null) { Rule.Gap(); Missed.Gap(); _bank = null; }
                     else if (!ReferenceEquals(bank, _bank) || !ReferenceEquals(bank, bankBefore)
                         || !string.Equals(processing, Rule.EngineId, StringComparison.Ordinal))
                     {
@@ -354,45 +450,47 @@ namespace JJFlexWpf
                         _helper = bank.EngineFor(0) is WdspHelperEngine || _owner.IsHelperEngine(processing);
                         _averageTicks = 0;
                         Rule.Restart(processing);
+                        Missed.Restart(processing);
                     }
                     else
                     {
-                        bool late = _helper ? bank.LateFrames != lateBefore : bufferTicks > 0 && elapsedTicks > bufferTicks;
-                        _averageTicks = _averageTicks == 0 ? elapsedTicks : _averageTicks + (elapsedTicks - _averageTicks) / Rule.Window;
-                        _bufferTicks = bufferTicks;
+                        bool late;
+                        if (_helper)
+                        {
+                            long service = _owner.HelperServiceNanos(bank, now);
+                            late = HelperServiceTime.Late(service);
+                            AverageHelper(service);
+                            missed = Missed.Observe(bank.LateFrames != lateBefore);
+                        }
+                        else
+                        {
+                            late = bufferTicks > 0 && elapsedTicks > bufferTicks;
+                            Average(elapsedTicks, bufferTicks);
+                        }
                         change = Rule.Observe(late);
                     }
                 }
-                if (change != EngineKeepUpChange.None) Publish(change);
-            }
-
-            private void Publish(EngineKeepUpChange change)
-            {
-                Interlocked.Increment(ref _seq);
-                _engine = Rule.EngineId; _change = change; _pubHelper = _helper;
-                _pubLate = Rule.LateInWindow; _pubFilled = Rule.Filled;
-                _pubAverageTicks = _averageTicks; _pubBufferTicks = _bufferTicks;
-                Interlocked.Increment(ref _seq);
-                _owner.QueueKeepUpRaise();
-            }
-
-            /// <summary>The newest published change not yet taken, read whole. Off the audio thread only.</summary>
-            public bool TakePublished(out EngineKeepUpResult result)
-            {
-                var spin = new SpinWait();
-                while (true)
+                // The delivery diagnostic is traced when it falls behind or comes
+                // back; its KeepingUp would only be noise in the log.
+                if (missed is EngineKeepUpChange.FellBehind or EngineKeepUpChange.Recovered)
                 {
-                    int seq = Volatile.Read(ref _seq);
-                    if ((seq & 1) != 0) { spin.SpinOnce(); continue; }
-                    if (seq == Volatile.Read(ref _taken)) { result = null!; return false; }
-                    var r = new EngineKeepUpResult(_family, _engine, _change, _pubHelper, _pubLate, _pubFilled,
-                        _pubAverageTicks * 1000.0 / Stopwatch.Frequency, _pubBufferTicks * 1000.0 / Stopwatch.Frequency);
-                    Interlocked.MemoryBarrier(); // the field reads above may not move past the second look
-                    if (Volatile.Read(ref _seq) != seq) continue;
-                    Volatile.Write(ref _taken, seq);
-                    result = r;
-                    return true;
+                    Delivery.Publish(Missed, missed, true, _averageTicks, _bufferTicks, Missed.LateInWindow);
+                    _owner.QueueKeepUpRaise();
                 }
+                if (change != EngineKeepUpChange.None)
+                {
+                    Main.Publish(Rule, change, _helper, _averageTicks, _bufferTicks, _helper ? Missed.LateInWindow : 0);
+                    _owner.QueueKeepUpRaise();
+                }
+            }
+
+            private void AverageHelper(long serviceNanos) =>
+                Average(serviceNanos <= 0 ? 0 : serviceNanos * HelperFrameTicks / HelperServiceTime.FrameNanos, HelperFrameTicks);
+
+            private void Average(double sampleTicks, double bufferTicks)
+            {
+                _averageTicks = _averageTicks == 0 ? sampleTicks : _averageTicks + (sampleTicks - _averageTicks) / Rule.Window;
+                _bufferTicks = bufferTicks;
             }
         }
 

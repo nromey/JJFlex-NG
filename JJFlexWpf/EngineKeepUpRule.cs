@@ -27,9 +27,13 @@ namespace JJFlexWpf
     /// <para>
     /// <b>What "late" means is the caller's.</b> For an engine in this process
     /// a buffer is late when its slot took longer than the audio it carried.
-    /// For a helper engine (NNR, NR2) it is late when the running bank counted
-    /// a late frame: the helper's frames come back through a pipe, so the time
-    /// the call takes says nothing, and the bank's own count is the fact.
+    /// For a helper engine (NNR, NR2) it is late when the helper's own
+    /// processing time for one frame, added over every channel its one worker
+    /// serves, is longer than the frame's audio (<see cref="HelperServiceTime"/>;
+    /// repair 1, after Codex's check). A helper frame that merely came back too
+    /// late is a delivery fact, not an engine's cost: the pipeline counts those
+    /// with a second rule of this class, traced as a diagnostic and never
+    /// warned about.
     /// </para>
     /// <para>
     /// <b>Sustained, not momentary.</b> A buffer now and then is late on any
@@ -71,12 +75,12 @@ namespace JJFlexWpf
         //   one run where DeepFilterNet3 really fell behind (mean 3.8 ms, worst
         //   92 ms); that run fell, came back for under four seconds, and fell
         //   again.
-        // - Helper engines (NNR, NR2), idle: 0 in four of six runs, but a
-        //   stretch of 38 to 100 late buffers a second in the other two, on an
-        //   idle machine. See the report: the counts alone cannot tell that from
-        //   a loaded helper (48 to 74), so for the helper this rule warns
-        //   whenever its audio really goes out unprocessed, which is the
-        //   failure the warning exists for, whatever its cause.
+        // - Helper engines (NNR, NR2), idle: 0 late answers in four of six
+        //   runs, but a stretch of 38 to 100 late answers a second in the other
+        //   two, on an idle machine, while the helper's own processing time was
+        //   about 1.7 ms a frame. So late answers are NOT this rule's signal for
+        //   the helper (repair 1): its processing time is, and late answers are
+        //   traced as a separate delivery diagnostic.
         // - After the helper is killed and restarts, its pipeline refills with
         //   11 late buffers in a row, then none.
 
@@ -193,14 +197,29 @@ namespace JJFlexWpf
         /// engine, and only while the slot is processing: an engine in this
         /// process always produces, so its warm-up always ends. Falls behind
         /// once, after <see cref="StuckWarmup"/> such buffers in a row for the
-        /// same engine.
+        /// same engine. The pipeline's delivery diagnostic uses this form: a
+        /// warm-up that never ends means the helper's answers never arrived in
+        /// time, whatever the cause.
         /// </summary>
-        public EngineKeepUpChange Warming(string engineId)
+        public EngineKeepUpChange Warming(string engineId) => Warming(engineId, true);
+
+        /// <summary>
+        /// One buffer of a helper engine's warm-up, counted only when
+        /// <paramref name="late"/>: the helper's processing time was over the
+        /// audio's length during it. Falls behind once, after
+        /// <see cref="StuckWarmup"/> such buffers in one warm-up of the same
+        /// engine. This is the warning's form (repair 1): a helper too slow to
+        /// keep up never finishes its warm-up, because its answers are always
+        /// late, so without it the running-engine window would never see it;
+        /// and a fast helper whose answers are delayed on the way back is not
+        /// counted at all.
+        /// </summary>
+        public EngineKeepUpChange Warming(string engineId, bool late)
         {
             engineId ??= "";
             if (!string.Equals(engineId, EngineId, StringComparison.Ordinal)) Restart(engineId);
             if (Behind) return EngineKeepUpChange.None;
-            if (++_warming < StuckWarmup) return EngineKeepUpChange.None;
+            if (!late || ++_warming < StuckWarmup) return EngineKeepUpChange.None;
             Behind = true;
             _knownGood = false;
             return EngineKeepUpChange.FellBehind;
@@ -245,20 +264,26 @@ namespace JJFlexWpf
 {
     /// <summary>
     /// A keep-up change for one receive slot's engine, raised by
-    /// <see cref="RxAudioPipeline.KeepUpResult"/> off the audio thread.
+    /// <see cref="RxAudioPipeline.KeepUpResult"/> off the audio thread; or,
+    /// with <see cref="Delivery"/> set, a change in a helper engine's delivery,
+    /// which is traced and raised only on the pipeline's internal diagnostic
+    /// event, never on the warning's.
     /// </summary>
-    /// <param name="Helper">The engine runs in the helper, so lateness was counted by its bank rather than timed.</param>
-    /// <param name="LateBuffers">Late buffers in the rule's window when the change was made.</param>
+    /// <param name="Helper">The engine runs in the helper, so its cost is the helper's own processing time for every channel it serves.</param>
+    /// <param name="LateBuffers">Late buffers in the rule's window when the change was made (for a delivery change, buffers with a frame missing).</param>
     /// <param name="WindowBuffers">Buffers in the window then.</param>
-    /// <param name="AverageMs">The slot's average processing time per buffer, in milliseconds (0 while a helper engine warms up).</param>
-    /// <param name="BufferMs">How much audio one buffer carried, in milliseconds.</param>
+    /// <param name="AverageMs">Average processing time per buffer, in milliseconds: the slot's, or for a helper engine the helper's for every channel it serves.</param>
+    /// <param name="BufferMs">How much audio one buffer carried, in milliseconds (for a helper engine, one helper frame).</param>
+    /// <param name="MissedBuffers">For a helper engine, buffers in the delivery window with a frame that did not come back in time: a diagnostic only.</param>
+    /// <param name="Delivery">A delivery diagnostic rather than a keep-up change.</param>
     public sealed record EngineKeepUpResult(DenoiseFamily Family, string EngineId, EngineKeepUpChange Change, bool Helper,
-        int LateBuffers, int WindowBuffers, double AverageMs, double BufferMs)
+        int LateBuffers, int WindowBuffers, double AverageMs, double BufferMs, int MissedBuffers = 0, bool Delivery = false)
     {
         /// <summary>One line for the diagnostic log.</summary>
-        public string Describe() =>
-            FormattableString.Invariant($"{Family} slot, {EngineId}: {Change}; {LateBuffers} late of {WindowBuffers} buffers")
-            + (Helper ? " (late frames counted by the helper's bank)"
-                : FormattableString.Invariant($", average {AverageMs:F2} ms per {BufferMs:F1} ms buffer"));
+        public string Describe() => Delivery
+            ? FormattableString.Invariant($"{Family} slot, {EngineId}: delivery {Change}; {LateBuffers} of {WindowBuffers} buffers had a helper frame missing at its deadline (a diagnostic only: the warning follows the helper's processing time, average {AverageMs:F2} ms of work per {BufferMs:F1} ms of audio)")
+            : FormattableString.Invariant($"{Family} slot, {EngineId}: {Change}; {LateBuffers} late of {WindowBuffers} buffers")
+              + (Helper ? FormattableString.Invariant($" (the helper's processing time for every channel it serves, average {AverageMs:F2} ms per {BufferMs:F1} ms of audio; {MissedBuffers} buffers with a frame missing at its deadline)")
+                  : FormattableString.Invariant($", average {AverageMs:F2} ms per {BufferMs:F1} ms buffer"));
     }
 }
