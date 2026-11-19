@@ -250,6 +250,9 @@ public partial class AudioWorkshopDialog
         // #835: the bench tools from the Hear Yourself page, ruled here 13:42.
         BuildBenchToolsSection();
 
+        // Its own section beside Bench tools (ruled 2026-11-19, X4): it needs no radio, so SmartLink keeps it.
+        BuildEngineSpeedSection();
+
         _rxAdvisoryBox.Text = "Choose Test My Receive Audio above.";
 
         // Fill the receive box for real once the dialog is up. It cannot be

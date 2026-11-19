@@ -85,10 +85,8 @@ partial class BenchApp
             throw new InvalidOperationException("Capture did not complete or a channel profile is absent");
         return profiles.Select(x=>x!).ToArray();
     }
-    static float[] Noise(int seconds,int seed=49)
-    {
-        var r=new Random(seed);return Enumerable.Range(0,seconds*Rate).Select(_=>(float)(Gaussian(r)*.025)).ToArray();
-    }
+    // The generator lives in the shared measuring core, so the Audio Workshop's speed test feeds the same signal (Sprint 49 Track L).
+    static float[] Noise(int seconds,int seed=49) => JJFlexWpf.EngineSpeedCore.GeneratedNoise(seconds,seed);
     static double[][] GeneratedProfile(int channels=1)
     {
         var mono=Noise(3);var audio=new float[mono.Length*channels];

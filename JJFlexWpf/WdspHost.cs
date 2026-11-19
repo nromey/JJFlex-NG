@@ -265,6 +265,57 @@ namespace JJFlexWpf
         public long DiscardBelow;
         public uint Latency;
         /// <summary>
+        /// The helper's own measure of its engine's work on the newest frame it
+        /// answered on this channel, in nanoseconds (FrameOut's processing time:
+        /// the engine alone, not the pipe), and when that answer arrived
+        /// (<see cref="WdspHost.Now"/>; 0 before the first). Written by the reader
+        /// thread in <see cref="RecordAnswer"/>. The arrival says whether the
+        /// channel is still being served; the newest figure is for diagnostics.
+        /// Neither is a count of work: re-reading them counts one answer as many
+        /// (Sprint 49 Track L repair 2, #866), so the keep-up measure reads
+        /// <see cref="ServedNanos"/> and <see cref="ServedSeq"/> instead.
+        /// </summary>
+        public long ProcessingNanos, ProcessedAt;
+        /// <summary>
+        /// Every answer's processing time on this channel, added up, in
+        /// nanoseconds; and twice the number of answers it holds, odd while the
+        /// reader thread is adding one (a sequence lock, so a reader that sees
+        /// the same even value either side of reading the total has a total and
+        /// a count that belong together). <see cref="HelperServiceMeter"/> takes
+        /// the difference since its last look, so each answer's work is counted
+        /// exactly once, against the one frame of audio it processed (Sprint 49
+        /// Track L repair 2, #866). Reader thread writes; any thread reads.
+        /// </summary>
+        public long ServedNanos, ServedSeq;
+
+        /// <summary>
+        /// One answer arrived: its processing time and when. Reader thread only.
+        /// Interlocked around the total, so the sequence's odd and even values
+        /// fence it.
+        /// </summary>
+        internal void RecordAnswer(long nanos, long at)
+        {
+            Interlocked.Increment(ref ServedSeq);
+            Volatile.Write(ref ServedNanos, Volatile.Read(ref ServedNanos) + nanos);
+            Interlocked.Increment(ref ServedSeq);
+            Volatile.Write(ref ProcessingNanos, nanos);
+            Volatile.Write(ref ProcessedAt, at);
+        }
+
+        /// <summary>
+        /// The answers so far and their total processing time, read whole; false
+        /// when an answer was being added at that moment (try again on the next
+        /// buffer: the audio thread never waits).
+        /// </summary>
+        internal bool TryReadServed(out long answers, out long nanos)
+        {
+            long before = Volatile.Read(ref ServedSeq);
+            nanos = Volatile.Read(ref ServedNanos);
+            long after = Volatile.Read(ref ServedSeq);
+            answers = before >> 1;
+            return (before & 1) == 0 && before == after;
+        }
+        /// <summary>
         /// This channel's share of the connection's settings in flight.
         /// Interlocked. When its close is answered, whatever is left is taken
         /// off the connection at once: a setting the helper answers after the
@@ -489,6 +540,8 @@ namespace JJFlexWpf
         internal IReadOnlyList<int> LaunchedProcessIds { get { lock (Gate) return _launched.ToArray(); } }
         internal int? CurrentProcessId { get { lock (Gate) return _conn?.Pid; } }
         internal WdspConnection? CurrentConnection { get { lock (Gate) return _conn; } }
+        /// <summary>The current connection without the lock, for the receive audio thread, which never waits (Sprint 49 Track L repair 1).</summary>
+        internal WdspConnection? LiveConnection => Volatile.Read(ref _conn);
 
         /// <summary>
         /// Start again after the cap, or after a missing, blocked or mismatched
@@ -1501,7 +1554,7 @@ namespace JJFlexWpf
 
         private static void OnFrameOut(WdspConnection c, ReadOnlySpan<byte> payload)
         {
-            WdspProtocol.ReadFrameOutHeader(payload, out uint channel, out ulong seq, out _, out int count);
+            WdspProtocol.ReadFrameOutHeader(payload, out uint channel, out ulong seq, out uint nanos, out int count);
             if (!c.ById.TryGetValue(channel, out var ch))
             {
                 if (RateAllows(c)) Trace.WriteLine($"WdspHost: discarded a FrameOut for forgotten channel {channel}");
@@ -1521,6 +1574,7 @@ namespace JJFlexWpf
                 }
             }
             ch.Publish(seq, payload);
+            ch.RecordAnswer(nanos, Now);
         }
 
         // ------------------------------------------------------------------

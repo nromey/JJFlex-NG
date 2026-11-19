@@ -257,6 +257,7 @@ public partial class ScreenFieldsPanel : UserControl
         // (Sprint 49 Track E, E5). Raised on a pool thread; spoken on the UI's.
         _audioPipeline.SelectionResult += (s, r) =>
             Dispatcher.BeginInvoke(() => FindMainWindow()?.Noise.OnSelectionResult(r));
+        _audioPipeline.KeepUpResult += (s, r) => Dispatcher.BeginInvoke(() => FindMainWindow()?.Noise.OnKeepUpResult(r));
         // Feed current mode so RNNoise auto-disables for CW/digital
         _audioPipeline.SetCurrentMode(rig.Mode ?? "");
 

@@ -275,11 +275,8 @@ static double ActiveRms(float[] s)
     return Math.Sqrt(active.Average());
 }
 
-static double Gaussian(Random r)
-{
-    double u1 = 1.0 - r.NextDouble(), u2 = r.NextDouble();
-    return Math.Sqrt(-2 * Math.Log(u1)) * Math.Cos(2 * Math.PI * u2);
-}
+// The kit's deviate, from the shared measuring core (Sprint 49 Track L).
+static double Gaussian(Random r) => JJFlexWpf.EngineSpeedCore.Gaussian(r);
 
 // Two cascaded RBJ second-order sections each way: a 24 dB per octave band-pass.
 static void BandPass(float[] s, double lowHz, double highHz)

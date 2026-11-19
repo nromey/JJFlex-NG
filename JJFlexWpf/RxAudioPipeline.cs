@@ -81,6 +81,9 @@ namespace JJFlexWpf
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
             _processingCapture = _spectralSub;
             _prepareSpectral = PrepareSpectral;
+            _spectralKeepUp = new SlotKeepUp(this, DenoiseFamily.Spectral);
+            _neuralKeepUp = new SlotKeepUp(this, DenoiseFamily.Neural);
+            _keepUpRaiser = new KeepUpRaiser(this);
 
             Trace.WriteLine($"RxAudioPipeline: created ({sampleRate}Hz, {channels}ch)");
         }
@@ -199,17 +202,323 @@ namespace JJFlexWpf
             try
             {
                 if (Volatile.Read(ref _disposed) != 0) return;
+                // A gap is time the audio was absent: from the end of the last
+                // buffer's processing to the start of this one. Never from start
+                // to start, which counts the pipeline's own processing as a pause
+                // and let a very slow engine reset its own grace (repair 1, B3).
+                long entered = Stopwatch.GetTimestamp();
+                bool gap = _lastProcessEnd != 0 && entered - _lastProcessEnd > KeepUpGapTicks;
                 int count = buffer.Length;
                 var capture = Volatile.Read(ref _spectralSub);
                 bool capturing = capture.IsSampling;
                 capture.ProcessInPlace(buffer, 0, count, _channels); // capture only, never enabled
                 _processingCapture = capture;
+                // Each slot is timed on its own and its running bank's late count
+                // read either side, so the keep-up rule can tell which engine fell
+                // behind (Sprint 49 Track L). Reads and arithmetic only.
+                long start = Stopwatch.GetTimestamp();
+                var spectralBank = SpectralSlot.RunningBank;
+                long spectralLate = spectralBank?.LateFrames ?? 0;
                 SpectralSlot.Process(buffer, true, capture.HasProfile, capturing, _prepareSpectral);
+                long afterSpectral = Stopwatch.GetTimestamp();
+                var neuralBank = NeuralSlot.RunningBank;
+                long neuralLate = neuralBank?.LateFrames ?? 0;
                 NeuralSlot.Process(buffer, true, true, false, null);
+                long afterNeural = Stopwatch.GetTimestamp();
+                long bufferTicks = _channels > 0 && _sampleRate > 0
+                    ? (long)((double)(count / _channels) * Stopwatch.Frequency / _sampleRate) : 0;
+                _spectralKeepUp.After(SpectralSlot, spectralBank, spectralLate, afterSpectral - start, bufferTicks, gap, capturing, afterNeural);
+                _neuralKeepUp.After(NeuralSlot, neuralBank, neuralLate, afterNeural - afterSpectral, bufferTicks, gap, false, afterNeural);
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
+                _lastProcessEnd = Stopwatch.GetTimestamp();
             }
             finally { Interlocked.Exchange(ref _processMark, 0); }
+        }
+
+        // --- Keeping up (Sprint 49 Track L) ---
+        //
+        // Whether each slot's engine keeps up with the audio. The rule runs on
+        // this thread, per buffer, with no allocation; a change is published to
+        // a small mailbox and the event is raised from the thread pool, never
+        // from here. Receive only (ruled 2026-11-19, X3).
+
+        /// <summary>
+        /// A pause this long with no audio, from the end of one buffer's
+        /// processing to the start of the next, is a gap in the stream, and the
+        /// buffers after it are start-up again: a burst after an outage can make
+        /// a helper engine's answers late without the engine being slow. Ten
+        /// buffers' worth; the receive loop conceals shorter gaps to length.
+        /// Time spent inside <see cref="Process"/> is never a gap, however long:
+        /// that is the engine's cost, the very thing the rule judges (repair 1,
+        /// B3: an engine at 55 ms a channel reset its own grace every buffer
+        /// when the gap was measured from start to start).
+        /// </summary>
+        internal static readonly long KeepUpGapTicks = Stopwatch.Frequency / 10;
+
+        private long _lastProcessEnd;
+        private readonly SlotKeepUp _spectralKeepUp, _neuralKeepUp;
+        private int _keepUpQueued;
+        private readonly KeepUpRaiser _keepUpRaiser;
+
+        /// <summary>
+        /// An engine fell behind, recovered, or proved it keeps up after
+        /// starting. Raised on a thread-pool thread, never the audio thread; a
+        /// listener marshals to the UI itself.
+        /// </summary>
+        public event EventHandler<EngineKeepUpResult>? KeepUpResult;
+
+        /// <summary>
+        /// A helper engine's answers stopped, or started again, arriving in time
+        /// (<see cref="EngineKeepUpResult.Delivery"/> set). A diagnostic only:
+        /// traced, raised here for tests, and never the warning's trigger,
+        /// because a fast engine can be starved of delivery and a slow one can
+        /// be on time (repair 1, B1). Raised off the audio thread.
+        /// </summary>
+        internal event EventHandler<EngineKeepUpResult>? DeliveryDiagnostic;
+
+        /// <summary>
+        /// Which engine ids run in the helper, judged by the helper's own
+        /// processing time rather than by timing the slot (NNR and NR2). A
+        /// static lambda, so asking it allocates nothing; tests give their own
+        /// fake helper engines here.
+        /// </summary>
+        internal Func<string, bool> IsHelperEngine { get; set; } = static id => Array.IndexOf(WdspHost.KnownEngines, id) >= 0;
+
+        /// <summary>
+        /// The helper's new work since the slot's last look: its processing time
+        /// for one frame, added over every channel its one worker serves, and how
+        /// many frames of audio that covers, each answer counted once (repair 2;
+        /// <see cref="HelperServiceMeter"/>). Given the slot's running bank, the
+        /// slot's own meter and the time. Called on the audio thread, so it must
+        /// not allocate or wait; tests give their own figures here.
+        /// </summary>
+        internal HelperServiceSource HelperService { get; set; } = static (bank, meter, now) => meter.Read(bank, now);
+
+        /// <summary>The rule for one slot, for tests.</summary>
+        internal EngineKeepUpRule KeepUpRuleFor(DenoiseFamily family) =>
+            (family == DenoiseFamily.Spectral ? _spectralKeepUp : _neuralKeepUp).Rule;
+
+        /// <summary>The delivery diagnostic's rule for one slot, for tests.</summary>
+        internal EngineKeepUpRule DeliveryRuleFor(DenoiseFamily family) =>
+            (family == DenoiseFamily.Spectral ? _spectralKeepUp : _neuralKeepUp).Missed;
+
+        private void QueueKeepUpRaise()
+        {
+            if (Interlocked.Exchange(ref _keepUpQueued, 1) == 0)
+                ThreadPool.UnsafeQueueUserWorkItem(_keepUpRaiser, preferLocal: false);
+        }
+
+        private void RaiseKeepUp()
+        {
+            Volatile.Write(ref _keepUpQueued, 0);
+            if (Volatile.Read(ref _disposed) != 0) return;
+            Raise(_spectralKeepUp);
+            Raise(_neuralKeepUp);
+        }
+
+        private void Raise(SlotKeepUp probe)
+        {
+            if (probe.Delivery.TakePublished(probe.Family, out var delivery))
+            {
+                Trace.WriteLine("RxAudioPipeline: helper " + delivery.Describe());
+                try { DeliveryDiagnostic?.Invoke(this, delivery); }
+                catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a delivery listener threw: " + ex.Message); }
+            }
+            if (!probe.Main.TakePublished(probe.Family, out var result)) return;
+            Trace.WriteLine("RxAudioPipeline: keep-up " + result.Describe());
+            try { KeepUpResult?.Invoke(this, result); }
+            catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a keep-up listener threw: " + ex.Message); }
+        }
+
+        private sealed class KeepUpRaiser : IThreadPoolWorkItem
+        {
+            private readonly RxAudioPipeline _owner;
+            public KeepUpRaiser(RxAudioPipeline owner) => _owner = owner;
+            public void Execute() => _owner.RaiseKeepUp();
+        }
+
+        /// <summary>
+        /// One published change, waiting for the pool thread. Written only by
+        /// the audio thread under a sequence lock, so the pool thread reads a
+        /// whole change or tries again, and the audio thread never waits.
+        /// </summary>
+        private sealed class Mailbox
+        {
+            private readonly bool _delivery;
+            private int _seq, _taken; // _seq is odd while the audio thread writes
+            private string _engine = "";
+            private EngineKeepUpChange _change;
+            private bool _helper;
+            private int _late, _filled, _missed;
+            private double _averageTicks, _bufferTicks;
+
+            public Mailbox(bool delivery) => _delivery = delivery;
+
+            public void Publish(EngineKeepUpRule rule, EngineKeepUpChange change, bool helper, double averageTicks, double bufferTicks, int missed)
+            {
+                Interlocked.Increment(ref _seq);
+                _engine = rule.EngineId; _change = change; _helper = helper;
+                _late = rule.LateInWindow; _filled = rule.Filled; _missed = missed;
+                _averageTicks = averageTicks; _bufferTicks = bufferTicks;
+                Interlocked.Increment(ref _seq);
+            }
+
+            /// <summary>The newest published change not yet taken, read whole. Off the audio thread only.</summary>
+            public bool TakePublished(DenoiseFamily family, out EngineKeepUpResult result)
+            {
+                var spin = new SpinWait();
+                while (true)
+                {
+                    int seq = Volatile.Read(ref _seq);
+                    if ((seq & 1) != 0) { spin.SpinOnce(); continue; }
+                    if (seq == Volatile.Read(ref _taken)) { result = null!; return false; }
+                    var r = new EngineKeepUpResult(family, _engine, _change, _helper, _late, _filled,
+                        _averageTicks * 1000.0 / Stopwatch.Frequency, _bufferTicks * 1000.0 / Stopwatch.Frequency, _missed, _delivery);
+                    Interlocked.MemoryBarrier(); // the field reads above may not move past the second look
+                    if (Volatile.Read(ref _seq) != seq) continue;
+                    Volatile.Write(ref _taken, seq);
+                    result = r;
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// One slot's keep-up state: the warning's rule, the delivery
+        /// diagnostic's rule, the bank it last saw, and a mailbox for each.
+        /// Written only by the audio thread.
+        /// </summary>
+        private sealed class SlotKeepUp
+        {
+            /// <summary>One helper frame's audio, in stopwatch ticks.</summary>
+            private static readonly double HelperFrameTicks = (double)HelperServiceTime.FrameNanos * Stopwatch.Frequency / 1e9;
+
+            private readonly RxAudioPipeline _owner;
+            public readonly DenoiseFamily Family;
+            /// <summary>The warning's rule: the slot's time for an engine here, the helper's processing time for a helper engine.</summary>
+            public readonly EngineKeepUpRule Rule = new();
+            /// <summary>
+            /// A helper engine's delivery: buffers with a frame that did not come
+            /// back by its deadline (the running bank's late count), and warm-ups
+            /// that never end. Traced, never warned about.
+            /// </summary>
+            public readonly EngineKeepUpRule Missed = new();
+            public readonly Mailbox Main = new(false), Delivery = new(true);
+            /// <summary>The helper's new work since this slot last looked (repair 2): each answer counted once.</summary>
+            public readonly HelperServiceMeter Meter = new();
+            private PerChannelDenoiserBank? _bank;
+            private bool _helper;
+            private double _averageTicks, _bufferTicks;
+
+            public SlotKeepUp(RxAudioPipeline owner, DenoiseFamily family) { _owner = owner; Family = family; }
+
+            /// <summary>After the slot processed a buffer: what happened, told to the rules.</summary>
+            public void After(PcDenoiseSlot slot, PerChannelDenoiserBank? bankBefore, long lateBefore, long elapsedTicks,
+                long bufferTicks, bool gap, bool paused, long now)
+            {
+                if (gap) { Rule.Gap(); Missed.Gap(); Meter.Forget(); }
+                string chosen = slot.ChosenEngineId;
+                bool delivered = slot.BuildDelivered(chosen);
+                var change = EngineKeepUpChange.None;
+                var missed = EngineKeepUpChange.None;
+                if (delivered || !string.Equals(chosen, slot.RunningEngineId, StringComparison.Ordinal))
+                {
+                    // A switch or a warm-up: two banks may run, and what is heard
+                    // is changing, so this process's timing is not counted. A
+                    // helper engine's warm-up is the exception: the helper's own
+                    // processing time is its measure, so a helper too slow ever
+                    // to finish warming is still found (EngineKeepUpRule.Warming).
+                    if (delivered && slot.Enabled && !paused && _owner.IsHelperEngine(chosen))
+                    {
+                        _helper = true;
+                        var service = _owner.HelperService(slot.RunningBank, Meter, now);
+                        // Each frame of new work is one warm-up buffer judged; no new answers, none (repair 2).
+                        // Every frame the meter forwarded is judged, however many (repair 4): the meter has
+                        // already moved past them, so a frame not judged now is never judged.
+                        bool late = HelperServiceTime.Late(service.PerFrameNanos);
+                        AverageHelper(service.PerFrameNanos, service.Frames);
+                        change = Rule.Warming(chosen, late, service.Frames);
+                        missed = Missed.Warming(chosen);
+                    }
+                    else { Rule.Gap(); Missed.Gap(); Meter.Forget(); _averageTicks = 0; }
+                    _bank = null;
+                }
+                else
+                {
+                    string processing = slot.ProcessingEngineId;
+                    var bank = slot.RunningBank;
+                    if (processing.Length == 0 || bank == null) { Rule.Gap(); Missed.Gap(); Meter.Forget(); _bank = null; }
+                    else if (!ReferenceEquals(bank, _bank) || !ReferenceEquals(bank, bankBefore)
+                        || !string.Equals(processing, Rule.EngineId, StringComparison.Ordinal))
+                    {
+                        // A new bank, or the first buffer after a gap: start counting afresh.
+                        _bank = bank;
+                        _helper = bank.EngineFor(0) is WdspHelperEngine || _owner.IsHelperEngine(processing);
+                        _averageTicks = 0;
+                        Rule.Restart(processing);
+                        Missed.Restart(processing);
+                        Meter.Forget();
+                    }
+                    else if (_helper)
+                    {
+                        // The helper's work, counted once per answer against the
+                        // audio it processed (repair 2): a buffer with no new
+                        // answer on every served channel judges nothing, so a
+                        // stall in delivery cannot repeat one slow answer, and a
+                        // burst after it counts each answer once.
+                        // Every frame the meter forwarded reaches the rule, however
+                        // many (repair 4, after Codex's third re-check): repair 3's
+                        // meter can forward hundreds at once when a channel leaves
+                        // the round, and judging only a window of them lost the
+                        // rest. The rule's batch form is exact and bounded in time.
+                        var service = _owner.HelperService(bank, Meter, now);
+                        bool late = HelperServiceTime.Late(service.PerFrameNanos);
+                        AverageHelper(service.PerFrameNanos, service.Frames);
+                        change = Rule.Observe(late, service.Frames);
+                        missed = Missed.Observe(bank.LateFrames != lateBefore);
+                    }
+                    else
+                    {
+                        bool late = bufferTicks > 0 && elapsedTicks > bufferTicks;
+                        Average(elapsedTicks, bufferTicks);
+                        change = Rule.Observe(late);
+                    }
+                }
+                // The delivery diagnostic is traced when it falls behind or comes
+                // back; its KeepingUp would only be noise in the log.
+                if (missed is EngineKeepUpChange.FellBehind or EngineKeepUpChange.Recovered)
+                {
+                    Delivery.Publish(Missed, missed, true, _averageTicks, _bufferTicks, Missed.LateInWindow);
+                    _owner.QueueKeepUpRaise();
+                }
+                if (change != EngineKeepUpChange.None)
+                {
+                    Main.Publish(Rule, change, _helper, _averageTicks, _bufferTicks, _helper ? Missed.LateInWindow : 0);
+                    _owner.QueueKeepUpRaise();
+                }
+            }
+
+            /// <summary>
+            /// <paramref name="frames"/> helper frames at one cost into the trace's
+            /// running average: exactly <see cref="Average"/> that many times, in
+            /// closed form (repair 4), so a large batch costs the audio thread nothing more.
+            /// </summary>
+            private void AverageHelper(long serviceNanos, int frames)
+            {
+                if (frames <= 0) return;
+                double sample = serviceNanos <= 0 ? 0 : serviceNanos * HelperFrameTicks / HelperServiceTime.FrameNanos;
+                _averageTicks = _averageTicks == 0
+                    ? sample
+                    : sample + (_averageTicks - sample) * Math.Pow(1 - 1.0 / Rule.Window, frames);
+                _bufferTicks = HelperFrameTicks;
+            }
+
+            private void Average(double sampleTicks, double bufferTicks)
+            {
+                _averageTicks = _averageTicks == 0 ? sampleTicks : _averageTicks + (sampleTicks - _averageTicks) / Rule.Window;
+                _bufferTicks = bufferTicks;
+            }
         }
 
         private void PrepareSpectral(PerChannelDenoiserBank bank)
