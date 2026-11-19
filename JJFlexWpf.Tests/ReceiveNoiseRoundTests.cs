@@ -30,4 +30,29 @@ public sealed class ReceiveNoiseRoundTests
         Assert.Equal(Lexicon.Get("audio.noise_surface.delay_figure", ("ms", 11)), f.Noise.DelayFigure("nr4"));
         Assert.Equal(Lexicon.Get("audio.noise_surface.delay", ("ms", 11)), f.Noise.DelayText("nr4", DenoiseDirection.Transmit));
     }
+
+    // ── #1126: the digital group's first visit is its first visit ──
+
+    [Fact]
+    public void A_first_digital_visit_with_nothing_on_is_remembered_so_a_later_visit_is_not_called_the_first()
+    {
+        // The e4 listen: DIGU from CW with nothing on said nothing; DIGL later,
+        // from AM with RNNoise on, said "First time in a digital mode".
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.OnModeChanged("CW");
+        f.Spoken.Clear();
+        f.Noise.OnModeChanged("DIGU");
+        Assert.Empty(f.Spoken.Said);                        // nothing changed, nothing said
+        Assert.True(f.Config.NoiseModeMemory.Digital.Known);
+        f.Noise.OnModeChanged("AM");
+        f.Noise.Toggle("rnnoise", "test");
+        f.Spoken.Clear();
+        f.Noise.OnModeChanged("DIGL");
+        Assert.False(f.Pipeline.NeuralSlot.Enabled);         // digital still turns it off
+        Assert.DoesNotContain(f.Spoken.Said, s => s.Text.StartsWith("First time in a digital mode", StringComparison.Ordinal));
+        Assert.Contains(f.Spoken.Said, s => s.Text.StartsWith("Back in", StringComparison.Ordinal) && s.Text.Contains("RNNoise off"));
+        // CW keeps its rule: a first visit with nothing on stays unknown.
+        Assert.False(f.Config.NoiseModeMemory.Cw.Known);
+    }
 }

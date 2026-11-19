@@ -170,6 +170,19 @@ namespace JJFlexWpf
             var gm = mem.For(g);
             if (gm.Known) RestoreGroup(g, gm, p);
             else if (p.SpectralSlot.Enabled || p.NeuralSlot.Enabled) ApplyStartingPoint(g, "mode change", onlyNeural: false);
+            else if (g == NoiseModeGroup.Digital)
+            {
+                // Digital's starting point is every computer engine off, which is
+                // exactly what a visit with nothing on already is (#1126). So the
+                // first visit is remembered, silently, as it found the slots:
+                // nothing changed and nothing is said. Until then the group stayed
+                // unknown, and the NEXT visit that had something on turned it off
+                // with "First time in a digital mode", on the second visit. CW is
+                // left as it was: its starting point switches NNR ON, which a visit
+                // with the computer's noise reduction off must not do.
+                gm.Known = true;
+                Capture(gm, p);
+            }
             if (g == NoiseModeGroup.Cw) EnsureCwModel(speak: true);
             else if (from == NoiseModeGroup.Cw) GiveBackVoiceModel(speak: true);
             mem.LastGroup = GroupWord(g);
