@@ -129,15 +129,17 @@ public sealed class UpdaterService
     }
 
     /// <summary>
-    /// Phase 3 of the update flow: download the delta into a fresh staging
-    /// dir, write the handoff manifest, launch the helper exe. On
-    /// success the helper is detached and running; the caller MUST
-    /// invoke <see cref="System.Windows.Application.Current"/>.Shutdown
-    /// (or its WinForms equivalent) immediately so the helper can swap
-    /// files. On failure (delta-download or helper-launch), this method
-    /// transparently falls back to <see cref="ExecuteFullBundleAsync"/>.
+    /// Phase 3 of the update flow, first half: download the delta into a
+    /// fresh staging dir, write the handoff manifest, and check the helper exe
+    /// is there. Launches NOTHING: the caller asks the app's exit questions
+    /// first and only then calls <see cref="PreparedUpdate.Launch"/>, so the
+    /// helper's 30-second wait for this process cannot start before the
+    /// operator has decided to close (#1204, repair 1). On failure of the
+    /// delta path, including a missing helper, this transparently falls back
+    /// to downloading the full installer (<see cref="PrepareFullBundleAsync"/>),
+    /// which is likewise not launched.
     /// </summary>
-    public async Task<UpdateExecutionResult> ExecuteAsync(
+    public async Task<PreparedUpdate> PrepareAsync(
         UpdatePlan plan,
         IUpdaterProgressSink? progress = null,
         CancellationToken cancellationToken = default)
@@ -145,10 +147,9 @@ public sealed class UpdaterService
         ArgumentNullException.ThrowIfNull(plan);
         progress ??= NullUpdaterProgressSink.Instance;
 
-        StagingDir staging;
         try
         {
-            staging = StagingDir.Create();
+            var staging = StagingDir.Create();
             await _deltaDownloader
                 .DownloadAllAsync(plan.Delta, staging.FilesDir, progress, cancellationToken)
                 .ConfigureAwait(false);
@@ -163,15 +164,16 @@ public sealed class UpdaterService
             await HandoffManifestBuilder.WriteAsync(staging, handoff, cancellationToken)
                                         .ConfigureAwait(false);
 
-            progress.Report(new UpdaterProgressSnapshot(
-                UpdaterPhase.HandingOff, "Launching updater helper", 0, 0, 0, 0));
-            HelperLauncher.LaunchAndDetach(staging,
-                new HelperLauncher.LaunchOptions
-                {
-                    InstallDir = _installDirProvider(),
-                });
+            // The helper's absence used to surface only at launch, where it
+            // fell back to the full installer. Launch now comes after the exit
+            // questions, so the check is made here, where the fallback can
+            // still download without anyone having been asked to close.
+            var options = new HelperLauncher.LaunchOptions { InstallDir = _installDirProvider() };
+            string helperPath = HelperLauncher.ResolveHelperPath(options);
+            if (!File.Exists(helperPath))
+                throw new HelperLaunchException(helperPath, $"updater helper exe not found at {helperPath}");
 
-            return UpdateExecutionResult.HelperHandoff(staging.Root);
+            return PreparedUpdate.ForHelper(staging, options);
         }
         catch (Exception deltaFailure)
             when (deltaFailure is DeltaDownloadException
@@ -183,18 +185,17 @@ public sealed class UpdaterService
                 UpdaterPhase.FullBundleDownloading,
                 "Delta path failed; falling back to full installer",
                 0, 0, 0, 0));
-            return await ExecuteFullBundleAsync(plan.AvailableUpdate, progress, cancellationToken)
+            return await PrepareFullBundleAsync(plan.AvailableUpdate, progress, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
 
     /// <summary>
-    /// Force the full-bundle path (used when the delta path threw or the
-    /// user explicitly chose "Reinstall"). Downloads the installer to a
-    /// staging dir and launches it silently. Caller exits immediately
-    /// after a successful return.
+    /// Download the full installer into a staging dir. Launches nothing; the
+    /// caller launches it with <see cref="PreparedUpdate.Launch"/> once the
+    /// app has decided to close.
     /// </summary>
-    public async Task<UpdateExecutionResult> ExecuteFullBundleAsync(
+    public async Task<PreparedUpdate> PrepareFullBundleAsync(
         AvailableUpdate update,
         IUpdaterProgressSink? progress = null,
         CancellationToken cancellationToken = default)
@@ -206,13 +207,53 @@ public sealed class UpdaterService
         string installerPath = await _fullDownloader
             .DownloadAsync(update.Entry, staging.Root, progress, cancellationToken)
             .ConfigureAwait(false);
+        return PreparedUpdate.ForInstaller(installerPath);
+    }
 
-        progress.Report(new UpdaterProgressSnapshot(
-            UpdaterPhase.FullBundleInstalling,
-            "Launching installer",
-            0, 0, 0, 0));
-        InstallerLauncher.LaunchSilentAndDetach(installerPath);
-        return UpdateExecutionResult.FullBundle(installerPath);
+    /// <summary>
+    /// Phase 3 in one step, for a caller with no exit questions to ask:
+    /// <see cref="PrepareAsync"/>, then <see cref="PreparedUpdate.Launch"/>,
+    /// falling back to the full installer if the helper fails to start. On
+    /// success the helper or installer is detached and waiting for this
+    /// process to exit, so the caller must exit at once. The app does NOT use
+    /// this (#1204, repair 1): it prepares, asks, and launches only on go.
+    /// </summary>
+    public async Task<UpdateExecutionResult> ExecuteAsync(
+        UpdatePlan plan,
+        IUpdaterProgressSink? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        progress ??= NullUpdaterProgressSink.Instance;
+
+        var prepared = await PrepareAsync(plan, progress, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return prepared.Launch(progress);
+        }
+        catch (HelperLaunchException)
+        {
+            progress.Report(new UpdaterProgressSnapshot(
+                UpdaterPhase.FullBundleDownloading,
+                "Delta path failed; falling back to full installer",
+                0, 0, 0, 0));
+            return await ExecuteFullBundleAsync(plan.AvailableUpdate, progress, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Force the full-bundle path in one step (download, then launch it
+    /// silently), for a caller with no exit questions to ask. Caller exits
+    /// immediately after a successful return.
+    /// </summary>
+    public async Task<UpdateExecutionResult> ExecuteFullBundleAsync(
+        AvailableUpdate update,
+        IUpdaterProgressSink? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareFullBundleAsync(update, progress, cancellationToken).ConfigureAwait(false);
+        return prepared.Launch(progress);
     }
 
     /// <summary>
@@ -307,6 +348,61 @@ public sealed class UpdatePlan
         AvailableUpdate = available;
         FileManifest = fileManifest;
         Delta = delta;
+    }
+}
+
+/// <summary>
+/// A downloaded and staged update that has NOT been launched (#1204, repair
+/// 1): either a staged delta for the helper exe, or a downloaded full
+/// installer. <see cref="Launch"/> starts it; the helper or installer then
+/// waits for this process to exit, so launch only once the app has decided
+/// to close.
+/// </summary>
+public sealed class PreparedUpdate
+{
+    private readonly StagingDir? _staging;
+    private readonly HelperLauncher.LaunchOptions? _helperOptions;
+
+    public UpdateExecutionMode Mode { get; }
+
+    /// <summary>The staging root (helper) or the installer's path (full bundle).</summary>
+    public string PathOfNote { get; }
+
+    private PreparedUpdate(UpdateExecutionMode mode, string path, StagingDir? staging,
+        HelperLauncher.LaunchOptions? helperOptions)
+    {
+        Mode = mode;
+        PathOfNote = path;
+        _staging = staging;
+        _helperOptions = helperOptions;
+    }
+
+    internal static PreparedUpdate ForHelper(StagingDir staging, HelperLauncher.LaunchOptions options)
+        => new(UpdateExecutionMode.HelperHandoff, staging.Root, staging, options);
+
+    internal static PreparedUpdate ForInstaller(string installerPath)
+        => new(UpdateExecutionMode.FullBundleInstaller, installerPath, null, null);
+
+    /// <summary>
+    /// Start the helper or the installer, detached. Throws
+    /// <see cref="HelperLaunchException"/> if the helper fails to start, or
+    /// the installer launcher's own exception if the installer does.
+    /// </summary>
+    public UpdateExecutionResult Launch(IUpdaterProgressSink? progress = null)
+    {
+        progress ??= NullUpdaterProgressSink.Instance;
+        if (Mode == UpdateExecutionMode.HelperHandoff)
+        {
+            progress.Report(new UpdaterProgressSnapshot(
+                UpdaterPhase.HandingOff, "Launching updater helper", 0, 0, 0, 0));
+            HelperLauncher.LaunchAndDetach(_staging!, _helperOptions);
+            return UpdateExecutionResult.HelperHandoff(PathOfNote);
+        }
+
+        progress.Report(new UpdaterProgressSnapshot(
+            UpdaterPhase.FullBundleInstalling, "Launching installer", 0, 0, 0, 0));
+        InstallerLauncher.LaunchSilentAndDetach(PathOfNote);
+        return UpdateExecutionResult.FullBundle(PathOfNote);
     }
 }
 

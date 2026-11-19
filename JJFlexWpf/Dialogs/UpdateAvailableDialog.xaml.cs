@@ -14,8 +14,10 @@ namespace JJFlexWpf.Dialogs;
 /// Skip this version / Cancel.
 ///
 /// On Download &amp; install: planning + delta-download run inline; on
-/// completion the helper exe is launched, the dialog closes with a true
-/// result, and the caller closes the app (MainWindow.CloseForInstalledUpdate). On any
+/// completion the update is staged but NOT launched, the dialog closes with a
+/// true result carrying <see cref="Prepared"/>, and the caller asks the exit
+/// questions, launches, and closes the app
+/// (MainWindow.InstallDownloadedUpdate). On any
 /// failure path the orchestrator transparently falls back to the full-bundle
 /// installer per the Track D scope. Progress text updates a polite live
 /// region so screen-reader users hear milestones without being interrupted
@@ -28,6 +30,13 @@ public partial class UpdateAvailableDialog : JJFlexDialog
     private readonly Dispatcher _dispatcher;
     private readonly UiProgressSink _sink;
     private CancellationTokenSource? _cts;
+
+    /// <summary>
+    /// The downloaded, staged and NOT launched update, set when the dialog
+    /// closes with a true result. The caller launches it only after the exit
+    /// questions are answered (MainWindow.InstallDownloadedUpdate).
+    /// </summary>
+    public PreparedUpdate? Prepared { get; private set; }
 
     public UpdateAvailableDialog(AvailableUpdate update)
         : this(update, new UpdaterService()) { }
@@ -96,32 +105,19 @@ public partial class UpdateAvailableDialog : JJFlexDialog
 
             UpdateSizeText(plan);
 
-            UpdateExecutionResult result = await _service
-                .ExecuteAsync(plan, _sink, _cts.Token)
+            // Download and verify ONLY (#1204, repair 1). Nothing is launched
+            // here: the helper waits just 30 seconds for this process to exit,
+            // so it must not start until the exit questions are answered. The
+            // caller takes Prepared and hands it to
+            // MainWindow.InstallDownloadedUpdate, which asks the questions,
+            // launches on go, says "Update is ready. Closing...", and closes.
+            Prepared = await _service
+                .PrepareAsync(plan, _sink, _cts.Token)
                 .ConfigureAwait(true);
 
-            if (result.Mode == UpdateExecutionMode.HelperHandoff)
-            {
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("connect.update.helper_handoff"),
-                    VerbosityLevel.Critical, interrupt: true);
-            }
-            else
-            {
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("connect.update.installer_running"),
-                    VerbosityLevel.Critical, interrupt: true);
-            }
-
-            // Success is reported, never acted on here. The helper or the
-            // installer is now waiting for this process to exit, and the
-            // CALLER closes the app: it closes its own window, then posts the
-            // shell's close (MainWindow.CloseForInstalledUpdate), so the close
-            // runs after every modal loop has unwound and still goes through
-            // the exit questions, RequestShutdown and the farewell. This used
-            // to ask the WPF Application to shut down, which does nothing in
-            // this app: there is no WPF Application, so the app never closed
-            // and the helper gave up after its 30 seconds.
+            // Success is reported, never acted on here. This used to ask the
+            // WPF Application to shut down, which does nothing in this app:
+            // there is no WPF Application.
             DialogResult = true;
             Close();
         }

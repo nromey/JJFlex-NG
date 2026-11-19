@@ -3030,6 +3030,8 @@ namespace Radios.Tests
                 // Junk box batch 16 (2026-11-19), DRAFT wording awaiting Noel:
                 // #1204, an update whose exit the operator cancelled.
                 "connect.update.exit_cancelled",
+                // Repair 1: Settings could not apply its edits, so nothing launched.
+                "connect.update.settings_need_fixing",
                 // #1195, an added or edited operator that could not be saved.
                 "settings.operator.not_saved",
                 // #1189 item 2, a typed notch frequency outside the range a notch can go.

@@ -6068,6 +6068,35 @@ RadioConnected:
     End Sub
 
     ''' <summary>
+    ''' The exit questions alone: an unsaved contact, then the still-running
+    ''' question. Returns False when the operator chose to stay. Commits
+    ''' nothing, so an in-app update can ask them before it launches anything
+    ''' (#1204, repair 1); ExitApplication asks them through here too.
+    ''' </summary>
+    ''' <remarks>
+    ''' <c>Ending</c> holds while they are asked, as it always has, so the
+    ''' running-cost sampler does not speak over a question; it is put back as
+    ''' it was afterwards, and ExitApplication sets it for itself.
+    ''' </remarks>
+    Friend Function AskExitQuestions() As Boolean
+        Dim endingWas As Boolean = Ending
+        Ending = True
+        Try
+            ' Check for unsaved QSO
+            If Not LogEntry.optionalWrite() Then Return False
+
+            ' The register's exit read (#253) — Noel's ruled priority boundary.
+            ' Second, after the unsaved QSO: losing a contact is worse than leaving
+            ' instrumentation on, so the higher-stakes question is asked first and
+            ' this one is never reached if that one cancelled. Silent unless
+            ' something Notable is actually running.
+            Return ConfirmStillRunningAtExit()
+        Finally
+            Ending = endingWas
+        End Try
+    End Function
+
+    ''' <summary>
     ''' Application exit sequence — cleanup and shutdown.
     ''' Moved from Form1.FileExitToolStripMenuItem_Click during Sprint 11 Phase 11.8.
     ''' Returns False to cancel exit, True to proceed.
@@ -6075,18 +6104,15 @@ RadioConnected:
     Friend Function ExitApplication() As Boolean
         Ending = True
 
-        ' Check for unsaved QSO
-        If Not LogEntry.optionalWrite() Then
-            Ending = False
-            Return False
-        End If
-
-        ' The register's exit read (#253) — Noel's ruled priority boundary.
-        ' Second, after the unsaved QSO: losing a contact is worse than leaving
-        ' instrumentation on, so the higher-stakes question is asked first and
-        ' this one is never reached if that one cancelled. Silent unless
-        ' something Notable is actually running.
-        If Not ConfirmStillRunningAtExit() Then
+        ' An in-app update asks these questions itself, BEFORE it launches the
+        ' helper or installer (whose wait for this process is only 30
+        ' seconds), and marks this one exit as already answered (#1204,
+        ' repair 1). Taking the mark clears it, so it never reaches a later
+        ' exit. Everything after the questions runs as on any exit.
+        Dim answered As Boolean = WpfMainWindow IsNot Nothing AndAlso WpfMainWindow.TakeExitQuestionsAnswered()
+        If answered Then
+            Tracing.TraceLine("ExitApplication: the exit questions were answered before the update launched")
+        ElseIf Not AskExitQuestions() Then
             Ending = False
             Return False
         End If

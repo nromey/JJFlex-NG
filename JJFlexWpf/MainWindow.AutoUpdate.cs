@@ -108,72 +108,158 @@ public partial class MainWindow
             {
                 Owner = Window.GetWindow(this),
             };
-            if (dialog.ShowDialog() == true)
-                CloseForInstalledUpdate();
+            if (dialog.ShowDialog() == true && dialog.Prepared != null)
+                InstallDownloadedUpdate(dialog.Prepared);
         }));
     }
 
     /// <summary>
-    /// After a successful update hand-off, close the app so the waiting
-    /// helper or installer can replace its files. Called by each route that
-    /// shows <see cref="Dialogs.UpdateAvailableDialog"/>, only when it
-    /// reported success, and only after that route's own window has closed.
+    /// After an update has been downloaded and staged (not launched), install
+    /// it and close the app: ask the exit questions, and only on go launch
+    /// the helper or installer and close (#1204, repair 1). Called by each
+    /// route that shows <see cref="Dialogs.UpdateAvailableDialog"/>, only when
+    /// it reported success, and only after that route's own window closed.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>Posted, not called.</b> The update dialog can sit over Settings,
-    /// itself modal over the shell, so a close made where the result arrives
-    /// would run inside two nested modal loops. Posting puts it on the
-    /// dispatcher's queue, so it runs once the caller's stack has unwound.
+    /// itself modal over the shell, so this would otherwise run inside the
+    /// caller's nested modal loops. Posting puts it on the dispatcher's queue,
+    /// so it runs once the caller's own stack has unwound.
     /// </para>
     /// <para>
-    /// <b>Through the ordinary close.</b> It invokes
-    /// <see cref="CloseShellCallback"/>, the same path the Exit menu item
-    /// takes, so the shell's close still runs <see cref="RequestShutdown"/>,
-    /// the exit questions (an unsaved contact, the still-running question)
-    /// and the shutdown that follows (the farewell, the trace archive).
-    /// Nothing here creates a WPF Application or ends the process directly.
-    /// </para>
-    /// <para>
-    /// <b>A cancelled exit is said.</b> The operator may answer an exit
-    /// question by staying. The helper then gives up on its own and changes
-    /// nothing, so the app says plainly that the update was not installed
-    /// and that it stays open, since the dialog has just said it was closing.
+    /// <b>The questions come before the launch.</b> The helper waits only 30
+    /// seconds for this process to exit, and gives up if it is still running.
+    /// Launching first gave the operator 30 seconds, unannounced, to answer an
+    /// exit question; and staying open did not stop a helper already running.
+    /// So nothing is launched until the questions are answered, which they
+    /// are once, with no deadline. See <see cref="InstallAndClose"/>.
     /// </para>
     /// </remarks>
-    public void CloseForInstalledUpdate()
+    public void InstallDownloadedUpdate(PreparedUpdate prepared)
     {
-        Tracing.TraceLine("CloseForInstalledUpdate: update handed off; posting the shell close",
+        ArgumentNullException.ThrowIfNull(prepared);
+        Tracing.TraceLine($"InstallDownloadedUpdate: update downloaded ({prepared.Mode}); posting the exit questions",
             System.Diagnostics.TraceLevel.Info);
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
-            new Action(CloseShellForInstalledUpdate));
+            new Action(() => InstallAndClose(() => prepared.Launch())));
     }
 
     /// <summary>
-    /// The posted half of <see cref="CloseForInstalledUpdate"/>: close the
-    /// shell, and if the exit was cancelled, say the update did not install.
+    /// The exit questions alone, asked without committing the exit. Returns
+    /// true to go, false to stay. Set by ApplicationEvents.vb to
+    /// <c>AskExitQuestions</c>, the same two questions
+    /// <c>ExitApplication</c> asks (an unsaved contact, then the still-running
+    /// question), in the same order and with the same words.
     /// </summary>
-    internal void CloseShellForInstalledUpdate()
+    public Func<bool>? ExitQuestionsCallback { get; set; }
+
+    /// <summary>
+    /// One-shot: true only while the shell close that follows an update's
+    /// answered exit questions is running. Read and cleared by
+    /// <see cref="TakeExitQuestionsAnswered"/>.
+    /// </summary>
+    private bool _exitQuestionsAnswered;
+
+    /// <summary>
+    /// True when this exit's questions were already answered (an update asked
+    /// them before launching), and clears the mark, so it serves exactly one
+    /// exit. Called by <c>ExitApplication</c> before it asks the questions.
+    /// </summary>
+    public bool TakeExitQuestionsAnswered()
     {
+        bool answered = _exitQuestionsAnswered;
+        _exitQuestionsAnswered = false;
+        return answered;
+    }
+
+    /// <summary>
+    /// The posted half of <see cref="InstallDownloadedUpdate"/>, in order:
+    /// ask the exit questions; on stay, launch nothing and say so; on go,
+    /// launch, say the update is ready, and close the shell through its own
+    /// close with the questions marked as answered for that one exit.
+    /// </summary>
+    /// <param name="launch">Starts the staged helper or installer
+    /// (<see cref="PreparedUpdate.Launch"/>); a parameter so the order can be
+    /// tested without starting a process.</param>
+    internal void InstallAndClose(Func<UpdateExecutionResult> launch)
+    {
+        bool go;
         try
         {
+            // No callback means no questions can be asked here; the close
+            // below then asks them itself, as an ordinary exit would.
+            go = ExitQuestionsCallback?.Invoke() ?? true;
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("InstallDownloadedUpdate: the exit questions threw; staying: " + ex.Message,
+                System.Diagnostics.TraceLevel.Error);
+            go = false;
+        }
+
+        if (!go)
+        {
+            // Nothing was launched, so this is true whatever happens next.
+            Tracing.TraceLine("InstallDownloadedUpdate: the operator stayed; the update was not launched",
+                System.Diagnostics.TraceLevel.Info);
+            // DRAFT wording, connect.update.exit_cancelled.
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("connect.update.exit_cancelled"),
+                Radios.VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+
+        UpdateExecutionResult result;
+        try
+        {
+            result = launch();
+        }
+        catch (Exception ex)
+        {
+            // A helper that exists but will not start. The app stays open on
+            // the version it has; nothing is waiting for it to exit.
+            Tracing.TraceLine("InstallDownloadedUpdate: the launch failed: " + ex.Message,
+                System.Diagnostics.TraceLevel.Error);
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("connect.update.failed_speech", ("message", ex.Message)),
+                Radios.VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+
+        Tracing.TraceLine($"InstallDownloadedUpdate: launched ({result.Mode}); closing the shell",
+            System.Diagnostics.TraceLevel.Info);
+        Radios.ScreenReaderOutput.Speak(
+            Radios.Lexicon.Get(result.Mode == UpdateExecutionMode.HelperHandoff
+                ? "connect.update.helper_handoff"
+                : "connect.update.installer_running"),
+            Radios.VerbosityLevel.Critical, interrupt: true);
+
+        // The questions were asked above only if a callback asked them.
+        _exitQuestionsAnswered = ExitQuestionsCallback != null;
+        try
+        {
+            // The Exit item's path: the shell's FormClosing runs
+            // RequestShutdown and ExitApplication, which skips the questions
+            // this once and runs everything else (the CW farewell, the radio
+            // close, the trace archive), and MyApplication_Shutdown after it.
             CloseShellCallback?.Invoke();
         }
         catch (Exception ex)
         {
-            Tracing.TraceLine("CloseForInstalledUpdate: the shell close threw: " + ex.Message,
+            Tracing.TraceLine("InstallDownloadedUpdate: the shell close threw: " + ex.Message,
                 System.Diagnostics.TraceLevel.Error);
         }
+        finally
+        {
+            // Consumed by that one exit, or cleared here if it never reached
+            // ExitApplication, so it cannot answer a later exit's questions.
+            _exitQuestionsAnswered = false;
+        }
 
-        // RequestShutdown sets _isClosing only when the exit went ahead.
-        if (_isClosing) return;
-
-        Tracing.TraceLine("CloseForInstalledUpdate: the exit was cancelled; the update was not installed",
-            System.Diagnostics.TraceLevel.Info);
-        // DRAFT wording, connect.update.exit_cancelled.
-        Radios.ScreenReaderOutput.Speak(
-            Radios.Lexicon.Get("connect.update.exit_cancelled"),
-            Radios.VerbosityLevel.Critical, interrupt: true);
+        if (!_isClosing)
+            Tracing.TraceLine("InstallDownloadedUpdate: the shell did not close after the launch",
+                System.Diagnostics.TraceLevel.Error);
     }
 
     /// <summary>

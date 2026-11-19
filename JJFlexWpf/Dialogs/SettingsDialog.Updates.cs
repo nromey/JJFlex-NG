@@ -19,12 +19,33 @@ public partial class SettingsDialog
     private bool _updaterLoading;
 
     /// <summary>
-    /// True once Check now's update dialog reported a successful hand-off.
-    /// Settings has then closed itself, and its opener must close the app
-    /// (<see cref="MainWindow.CloseForInstalledUpdate"/>) so the update can
-    /// install.
+    /// The update Check now downloaded, set only once Settings has applied
+    /// its pending edits and closed. Its opener then hands it to
+    /// <see cref="MainWindow.InstallDownloadedUpdate"/>, which asks the exit
+    /// questions and launches it only on go. Null otherwise.
     /// </summary>
-    public bool UpdateHandedOff { get; private set; }
+    public PreparedUpdate? DownloadedUpdate { get; private set; }
+
+    /// <summary>
+    /// What Settings does with a downloaded update, decided in one place so
+    /// it can be tested without a window (#1204, repair 1): apply the pending
+    /// edits through the ordinary commit, as OK does; if that fails its
+    /// validation, Settings stays open, nothing is handed on (so nothing
+    /// launches), and the operator hears that the update was not installed.
+    /// Otherwise mark the update and close. Returns whether it was handed on.
+    /// </summary>
+    internal static bool HandOffDownloadedUpdate(Func<bool> applyPendingEdits, Action markAndClose,
+        Action sayNotInstalled)
+    {
+        if (!applyPendingEdits())
+        {
+            sayNotInstalled();
+            return false;
+        }
+
+        markAndClose();
+        return true;
+    }
 
     private void LoadUpdaterSettingsIntoUi()
     {
@@ -175,15 +196,27 @@ public partial class SettingsDialog
             {
                 Owner = this,
             };
-            if (dialog.ShowDialog() == true)
+            if (dialog.ShowDialog() == true && dialog.Prepared != null)
             {
-                // The update is handed off and waits for the app to exit.
-                // Settings closes as Cancel would, and the code that opened
-                // it closes the app once Settings' own modal loop is gone
-                // (NativeMenuBar.ShowSettingsDialog reads UpdateHandedOff).
-                UpdateHandedOff = true;
-                DialogResult = false;
-                Close();
+                // Downloaded, not launched. Settings' pending edits are dealt
+                // with first, exactly as OK would, so the app's close cannot
+                // drop them (#1204, repair 1); the opener then asks the exit
+                // questions and launches on go, once Settings' own modal loop
+                // is gone (NativeMenuBar.ShowSettingsDialog reads
+                // DownloadedUpdate).
+                PreparedUpdate prepared = dialog.Prepared;
+                HandOffDownloadedUpdate(
+                    applyPendingEdits: () => ApplyAllSettings(closing: true),
+                    markAndClose: () =>
+                    {
+                        DownloadedUpdate = prepared;
+                        DialogResult = true;
+                        Close();
+                    },
+                    sayNotInstalled: () => ScreenReaderOutput.Speak(
+                        // DRAFT wording, connect.update.settings_need_fixing.
+                        Lexicon.Get("connect.update.settings_need_fixing"),
+                        VerbosityLevel.Critical, interrupt: true));
             }
         }
         catch (Exception ex)

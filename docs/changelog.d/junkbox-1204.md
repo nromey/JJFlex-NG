@@ -1,1 +1,1 @@
-- Installing an update from inside JJ Flexible now closes the app so the new version can go in. If you choose to stay when it asks about closing, you hear that the update was not installed and the app stays open.
+- Installing an update from inside JJ Flexible now closes the app so the new version can go in. If something is still running when it asks to close and you choose to stay open, nothing is installed and you hear that the app stays on the version you have. Updating from Settings keeps the changes you made there first, just as OK would.

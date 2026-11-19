@@ -4114,10 +4114,11 @@ public class NativeMenuBar : IDisposable
         if (_window.FreqHandlers != null)
             _window.FreqHandlers.TypingSound = audioConfig.TypingSound;
 
-        // An update handed off from Settings' Check now: Settings has closed
-        // itself, and the app now closes so the update can install.
-        if (dialog.UpdateHandedOff)
-            _window.CloseForInstalledUpdate();
+        // An update downloaded from Settings' Check now: Settings applied its
+        // edits and closed itself, and the app now asks the exit questions,
+        // launches the update on go, and closes so it can install.
+        if (dialog.DownloadedUpdate != null)
+            _window.InstallDownloadedUpdate(dialog.DownloadedUpdate);
     }
 
     /// <summary>
@@ -4191,8 +4192,8 @@ public class NativeMenuBar : IDisposable
             }
 
             var dialog = new Dialogs.UpdateAvailableDialog(available);
-            if (dialog.ShowDialog() == true)
-                _window.CloseForInstalledUpdate();
+            if (dialog.ShowDialog() == true && dialog.Prepared != null)
+                _window.InstallDownloadedUpdate(dialog.Prepared);
         }
         catch (Exception ex)
         {

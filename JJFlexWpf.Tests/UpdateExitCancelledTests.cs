@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.CompilerServices;
+using JJFlexUpdater;
+using JJFlexWpf.Dialogs;
 using JJFlexWpf.Tests.Infrastructure;
 using Radios;
 using Xunit;
@@ -10,21 +11,34 @@ using Xunit;
 namespace JJFlexWpf.Tests;
 
 /// <summary>
-/// After an update is handed off, the app closes through the shell's own
-/// close, and an exit the operator cancels is said (#1204, junk box batch 16).
+/// An in-app update, in the right order (#1204, junk box batch 16, repair 1):
+/// download, apply Settings' edits (Settings route), ask the exit questions,
+/// and only on go launch the helper or installer and close the app.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Windowless, proved: an MTA thread, and a <see cref="MainWindow"/> built as
 /// an uninitialized object, as <see cref="TuneKeyCarrierTests"/> builds it.
-/// The posted half, <see cref="MainWindow.CloseShellForInstalledUpdate"/>, is
-/// called directly; the post itself needs a dispatcher this object does not
-/// have, and the source test in Radios.Tests (<c>UpdateCloseTests</c>) pins
-/// that the callers post it. The shell close is a stand-in that runs the real
-/// <see cref="MainWindow.RequestShutdown"/>, as the shell's FormClosing does.
+/// The posted half, <see cref="MainWindow.InstallAndClose"/>, is called
+/// directly with a stand-in launch, so no process is ever started. The shell
+/// close is a stand-in that runs the real <see cref="MainWindow.RequestShutdown"/>,
+/// as the shell's FormClosing does, and the exit is a stand-in for
+/// <c>ExitApplication</c>'s question step: it takes the one-shot mark, and
+/// asks the questions only when the mark was not set. The VB side's use of
+/// the mark is pinned in source by Radios.Tests' <c>UpdateCloseTests</c>.
+/// </para>
+/// <para>
+/// The download is the update dialog's <c>PrepareAsync</c>, which needs a
+/// network; that it launches nothing is pinned in source there too. Here a
+/// downloaded update is represented by the launch it carries.
+/// </para>
+/// <para>
+/// The class name is from the first build, kept so the merge filter that
+/// names it still covers it.
+/// </para>
 /// </remarks>
 public sealed class UpdateExitCancelledTests : IDisposable
 {
-    private const BindingFlags Any = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
     private readonly VerbosityLevel _verbosityWas;
 
     public UpdateExitCancelledTests()
@@ -49,46 +63,181 @@ public sealed class UpdateExitCancelledTests : IDisposable
         return ScreenReaderOutput.RecentMessages.TakeWhile(m => m != marker).Reverse().ToList();
     }
 
-    private static string Cancelled => Lexicon.Get("connect.update.exit_cancelled");
+    private static string Stayed => Lexicon.Get("connect.update.exit_cancelled");
+    private static string NeedsFixing => Lexicon.Get("connect.update.settings_need_fixing");
+    private static string Ready => Lexicon.Get("connect.update.helper_handoff");
+    private static string InstallerRunning => Lexicon.Get("connect.update.installer_running");
 
-    [Fact]
-    public void An_exit_the_operator_cancels_says_the_update_did_not_install()
+    /// <summary>
+    /// A shell wired as the app wires it: the questions callback, the exit
+    /// (which asks the same questions unless the mark says they were
+    /// answered), and the shell close through the real RequestShutdown.
+    /// Every step is written to <paramref name="log"/>.
+    /// </summary>
+    private static MainWindow Wired(List<string> log, bool answer)
     {
         var main = Window();
-        int closes = 0;
-        main.AppExitCallback = () => false;   // the operator answered an exit question by staying
-        main.CloseShellCallback = () => { closes++; main.RequestShutdown(); };
+        main.ExitQuestionsCallback = () => { log.Add("ask"); return answer; };
+        main.AppExitCallback = () =>
+        {
+            if (main.TakeExitQuestionsAnswered())
+            {
+                log.Add("exit, questions already answered");
+                return true;
+            }
+            log.Add("ask");
+            return answer;
+        };
+        main.CloseShellCallback = () => { log.Add("close"); main.RequestShutdown(); };
+        return main;
+    }
 
-        var said = Said(main.CloseShellForInstalledUpdate);
+    private static Func<UpdateExecutionResult> Launch(List<string> log,
+        UpdateExecutionMode mode = UpdateExecutionMode.HelperHandoff) => () =>
+    {
+        log.Add("launch");
+        return mode == UpdateExecutionMode.HelperHandoff
+            ? UpdateExecutionResult.HelperHandoff("staging")
+            : UpdateExecutionResult.FullBundle("setup.exe");
+    };
 
-        Assert.Equal(1, closes);
-        Assert.Contains(Cancelled, said);
+    [Fact]
+    public void The_order_is_download_apply_ask_launch_close()
+    {
+        var log = new List<string>();
+        var main = Wired(log, answer: true);
+
+        log.Add("download");   // the dialog's PrepareAsync has returned
+        bool handedOn = SettingsDialog.HandOffDownloadedUpdate(
+            applyPendingEdits: () => { log.Add("apply"); return true; },
+            markAndClose: () => { log.Add("settings closed"); main.InstallAndClose(Launch(log)); },
+            sayNotInstalled: () => log.Add("said not installed"));
+
+        Assert.True(handedOn);
+        Assert.Equal(new[] { "download", "apply", "settings closed", "ask", "launch", "close",
+                             "exit, questions already answered" }, log);
     }
 
     [Fact]
-    public void An_exit_that_goes_ahead_says_nothing_more()
+    public void Staying_launches_nothing_and_says_the_update_was_not_installed()
     {
-        var main = Window();
-        int closes = 0;
-        // The exit went ahead: RequestShutdown's own mark, set as it sets it.
-        main.CloseShellCallback = () =>
+        var log = new List<string>();
+        var main = Wired(log, answer: false);
+
+        var said = Said(() => main.InstallAndClose(Launch(log)));
+
+        Assert.Equal(new[] { "ask" }, log);
+        Assert.Contains(Stayed, said);
+        Assert.DoesNotContain(Ready, said);
+    }
+
+    [Fact]
+    public void Going_launches_once_asks_once_and_closes_once()
+    {
+        var log = new List<string>();
+        var main = Wired(log, answer: true);
+
+        var said = Said(() => main.InstallAndClose(Launch(log)));
+
+        Assert.Equal(1, log.Count(s => s == "ask"));
+        Assert.Equal(1, log.Count(s => s == "launch"));
+        Assert.Equal(1, log.Count(s => s == "close"));
+        Assert.Contains(Ready, said);
+        Assert.DoesNotContain(Stayed, said);
+    }
+
+    [Fact]
+    public void A_failed_Settings_apply_launches_nothing_and_says_so()
+    {
+        var log = new List<string>();
+        var main = Wired(log, answer: true);
+
+        bool handedOn = SettingsDialog.HandOffDownloadedUpdate(
+            applyPendingEdits: () => { log.Add("apply"); return false; },
+            markAndClose: () => { log.Add("settings closed"); main.InstallAndClose(Launch(log)); },
+            sayNotInstalled: () => log.Add("said not installed"));
+
+        Assert.False(handedOn);
+        Assert.Equal(new[] { "apply", "said not installed" }, log);
+    }
+
+    [Fact]
+    public void The_one_shot_mark_serves_one_exit_and_is_gone_after_it()
+    {
+        var log = new List<string>();
+        var main = Wired(log, answer: true);
+        bool secondTake = true;
+        var exit = main.AppExitCallback!;
+        main.AppExitCallback = () =>
         {
-            closes++;
-            typeof(MainWindow).GetField("_isClosing", Any)!.SetValue(main, true);
+            bool go = exit();
+            secondTake = main.TakeExitQuestionsAnswered();   // already consumed
+            return go;
         };
 
-        var said = Said(main.CloseShellForInstalledUpdate);
+        main.InstallAndClose(Launch(log));
 
-        Assert.Equal(1, closes);
-        Assert.DoesNotContain(Cancelled, said);
+        Assert.Contains("exit, questions already answered", log);
+        Assert.False(secondTake);
+        Assert.False(main.TakeExitQuestionsAnswered());
     }
 
     [Fact]
-    public void The_cancelled_sentence_is_a_real_entry()
+    public void The_mark_is_gone_even_when_the_close_never_reaches_the_exit()
     {
-        // Positive control for the two above: the key resolves to text, so
-        // "not said" cannot pass merely because the key is missing.
-        Assert.False(string.IsNullOrWhiteSpace(Cancelled));
-        Assert.NotEqual("connect.update.exit_cancelled", Cancelled);
+        var log = new List<string>();
+        var main = Wired(log, answer: true);
+        main.CloseShellCallback = () => throw new InvalidOperationException("the shell is gone");
+
+        main.InstallAndClose(Launch(log));
+
+        Assert.Equal(new[] { "ask", "launch" }, log);
+        Assert.False(main.TakeExitQuestionsAnswered());
+    }
+
+    [Fact]
+    public void A_launch_that_fails_closes_nothing_and_says_the_update_failed()
+    {
+        var log = new List<string>();
+        var main = Wired(log, answer: true);
+
+        var said = Said(() => main.InstallAndClose(() =>
+        {
+            log.Add("launch");
+            throw new JJFlexUpdater.Staging.HelperLaunchException("helper.exe", "it would not start");
+        }));
+
+        Assert.Equal(new[] { "ask", "launch" }, log);
+        Assert.Contains(Lexicon.Get("connect.update.failed_speech", ("message", "it would not start")), said);
+        Assert.DoesNotContain(Ready, said);
+        Assert.False(main.TakeExitQuestionsAnswered());
+    }
+
+    [Fact]
+    public void The_installer_route_says_its_own_sentence_after_go()
+    {
+        var log = new List<string>();
+        var main = Wired(log, answer: true);
+
+        var said = Said(() => main.InstallAndClose(Launch(log, UpdateExecutionMode.FullBundleInstaller)));
+
+        Assert.Contains(InstallerRunning, said);
+        Assert.DoesNotContain(Ready, said);
+    }
+
+    [Fact]
+    public void The_sentences_are_real_entries()
+    {
+        // Positive control for the tests above: each key resolves to text, so
+        // "not said" cannot pass merely because a key is missing.
+        foreach (var (key, text) in new[] {
+                     ("connect.update.exit_cancelled", Stayed),
+                     ("connect.update.settings_need_fixing", NeedsFixing),
+                     ("connect.update.helper_handoff", Ready),
+                     ("connect.update.installer_running", InstallerRunning) })
+        {
+            Assert.False(string.IsNullOrWhiteSpace(text));
+            Assert.NotEqual(key, text);
+        }
     }
 }
