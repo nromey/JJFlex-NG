@@ -286,13 +286,14 @@ namespace JJFlexWpf
         internal Func<string, bool> IsHelperEngine { get; set; } = static id => Array.IndexOf(WdspHost.KnownEngines, id) >= 0;
 
         /// <summary>
-        /// The helper's processing time for one frame, added over every channel
-        /// its one worker serves now, in nanoseconds, or -1 when no helper is
-        /// connected (<see cref="HelperServiceTime.PerFrameNanos"/>). Given the
-        /// slot's running bank and the time. Called on the audio thread, so it
-        /// must not allocate or wait; tests give their own figure here.
+        /// The helper's new work since the slot's last look: its processing time
+        /// for one frame, added over every channel its one worker serves, and how
+        /// many frames of audio that covers, each answer counted once (repair 2;
+        /// <see cref="HelperServiceMeter"/>). Given the slot's running bank, the
+        /// slot's own meter and the time. Called on the audio thread, so it must
+        /// not allocate or wait; tests give their own figures here.
         /// </summary>
-        internal Func<PerChannelDenoiserBank?, long, long> HelperServiceNanos { get; set; } = static (bank, now) => HelperServiceTime.PerFrameNanos(bank, now);
+        internal HelperServiceSource HelperService { get; set; } = static (bank, meter, now) => meter.Read(bank, now);
 
         /// <summary>The rule for one slot, for tests.</summary>
         internal EngineKeepUpRule KeepUpRuleFor(DenoiseFamily family) =>
@@ -404,6 +405,8 @@ namespace JJFlexWpf
             /// </summary>
             public readonly EngineKeepUpRule Missed = new();
             public readonly Mailbox Main = new(false), Delivery = new(true);
+            /// <summary>The helper's new work since this slot last looked (repair 2): each answer counted once.</summary>
+            public readonly HelperServiceMeter Meter = new();
             private PerChannelDenoiserBank? _bank;
             private bool _helper;
             private double _averageTicks, _bufferTicks;
@@ -414,7 +417,7 @@ namespace JJFlexWpf
             public void After(PcDenoiseSlot slot, PerChannelDenoiserBank? bankBefore, long lateBefore, long elapsedTicks,
                 long bufferTicks, bool gap, bool paused, long now)
             {
-                if (gap) { Rule.Gap(); Missed.Gap(); }
+                if (gap) { Rule.Gap(); Missed.Gap(); Meter.Forget(); }
                 string chosen = slot.ChosenEngineId;
                 bool delivered = slot.BuildDelivered(chosen);
                 var change = EngineKeepUpChange.None;
@@ -429,19 +432,27 @@ namespace JJFlexWpf
                     if (delivered && slot.Enabled && !paused && _owner.IsHelperEngine(chosen))
                     {
                         _helper = true;
-                        long service = _owner.HelperServiceNanos(slot.RunningBank, now);
-                        AverageHelper(service);
-                        change = Rule.Warming(chosen, HelperServiceTime.Late(service));
+                        var service = _owner.HelperService(slot.RunningBank, Meter, now);
+                        // Each frame of new work is one warm-up buffer judged; no new answers, none (repair 2).
+                        bool late = HelperServiceTime.Late(service.PerFrameNanos);
+                        int frames = Math.Min(service.Frames, Rule.Window);
+                        change = Rule.Warming(chosen, false);
+                        for (int i = 0; i < frames; i++)
+                        {
+                            AverageHelper(service.PerFrameNanos);
+                            var c = Rule.Warming(chosen, late);
+                            if (c != EngineKeepUpChange.None) change = c;
+                        }
                         missed = Missed.Warming(chosen);
                     }
-                    else { Rule.Gap(); Missed.Gap(); _averageTicks = 0; }
+                    else { Rule.Gap(); Missed.Gap(); Meter.Forget(); _averageTicks = 0; }
                     _bank = null;
                 }
                 else
                 {
                     string processing = slot.ProcessingEngineId;
                     var bank = slot.RunningBank;
-                    if (processing.Length == 0 || bank == null) { Rule.Gap(); Missed.Gap(); _bank = null; }
+                    if (processing.Length == 0 || bank == null) { Rule.Gap(); Missed.Gap(); Meter.Forget(); _bank = null; }
                     else if (!ReferenceEquals(bank, _bank) || !ReferenceEquals(bank, bankBefore)
                         || !string.Equals(processing, Rule.EngineId, StringComparison.Ordinal))
                     {
@@ -451,22 +462,30 @@ namespace JJFlexWpf
                         _averageTicks = 0;
                         Rule.Restart(processing);
                         Missed.Restart(processing);
+                        Meter.Forget();
+                    }
+                    else if (_helper)
+                    {
+                        // The helper's work, counted once per answer against the
+                        // audio it processed (repair 2): a buffer with no new
+                        // answer on every served channel judges nothing, so a
+                        // stall in delivery cannot repeat one slow answer, and a
+                        // burst after it counts each answer once.
+                        var service = _owner.HelperService(bank, Meter, now);
+                        bool late = HelperServiceTime.Late(service.PerFrameNanos);
+                        int frames = Math.Min(service.Frames, Rule.Window);
+                        for (int i = 0; i < frames; i++)
+                        {
+                            AverageHelper(service.PerFrameNanos);
+                            var c = Rule.Observe(late);
+                            if (c != EngineKeepUpChange.None) change = c;
+                        }
+                        missed = Missed.Observe(bank.LateFrames != lateBefore);
                     }
                     else
                     {
-                        bool late;
-                        if (_helper)
-                        {
-                            long service = _owner.HelperServiceNanos(bank, now);
-                            late = HelperServiceTime.Late(service);
-                            AverageHelper(service);
-                            missed = Missed.Observe(bank.LateFrames != lateBefore);
-                        }
-                        else
-                        {
-                            late = bufferTicks > 0 && elapsedTicks > bufferTicks;
-                            Average(elapsedTicks, bufferTicks);
-                        }
+                        bool late = bufferTicks > 0 && elapsedTicks > bufferTicks;
+                        Average(elapsedTicks, bufferTicks);
                         change = Rule.Observe(late);
                     }
                 }

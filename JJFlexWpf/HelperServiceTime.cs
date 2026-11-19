@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Threading;
 
@@ -22,10 +23,11 @@ namespace JJFlexWpf
     /// against 10 ms would miss a helper that is overloaded only in total.
     /// </para>
     /// <para>
-    /// A channel counts while it is open and its newest answer arrived within
-    /// <see cref="RecentTicks"/>; a channel nobody feeds drops out of the sum.
-    /// No allocation, no lock, no wait: the receive audio thread calls it per
-    /// buffer.
+    /// <b>Each answer once</b> (repair 2, after Codex's re-check): the work is
+    /// read by a <see cref="HelperServiceMeter"/>, which counts only answers
+    /// that arrived since its last look. Repair 1 re-read each channel's newest
+    /// figure on every buffer for a second, so one slow answer followed by a
+    /// stall in delivery was counted as many slow computations.
     /// </para>
     /// </remarks>
     internal static class HelperServiceTime
@@ -34,26 +36,12 @@ namespace JJFlexWpf
         public const long FrameNanos = (long)WdspProtocol.FrameLength * 1_000_000_000L / WdspProtocol.SampleRate;
 
         /// <summary>
-        /// How recent a channel's newest answer must be for its work to count:
-        /// one second, the keep-up rule's window. Long enough that a badly
-        /// overloaded helper, whose answers come seldom, still counts every
-        /// channel it is serving; short enough that a channel no longer fed
-        /// stops counting within the window.
+        /// How recent a channel's newest answer must be for the channel to count
+        /// as served: one second, the keep-up rule's window. A channel no longer
+        /// fed stops being waited for within the window. This decides only which
+        /// channels a round waits for; it never makes an old answer count again.
         /// </summary>
         public static readonly long RecentTicks = Stopwatch.Frequency;
-
-        /// <summary>
-        /// The helper's processing time for one frame on every channel it is
-        /// serving now, in nanoseconds; -1 when no helper is connected. The
-        /// connection is the running bank's when it is a helper bank, otherwise
-        /// the app's helper's (a warming helper bank is the slot's own, so it is
-        /// reached through the host).
-        /// </summary>
-        public static long PerFrameNanos(PerChannelDenoiserBank? bank, long now)
-        {
-            var conn = ConnectionOf(bank) ?? WdspHost.DefaultIfCreated?.LiveConnection;
-            return conn == null ? -1 : Sum(conn.Lives, now);
-        }
 
         /// <summary>The helper connection a bank's engines run on, or null when it is not a helper bank or has no channel yet.</summary>
         internal static WdspConnection? ConnectionOf(PerChannelDenoiserBank? bank)
@@ -64,21 +52,159 @@ namespace JJFlexWpf
             return null;
         }
 
-        /// <summary>The newest per-frame processing time of every open channel answered within <see cref="RecentTicks"/> of <paramref name="now"/>, added together.</summary>
-        internal static long Sum(WdspChannel[] channels, long now)
+        /// <summary>Whether a channel is being served: open, not closed, and answered within <see cref="RecentTicks"/> of <paramref name="now"/>.</summary>
+        internal static bool Served(WdspChannel? ch, long now)
         {
-            long sum = 0;
-            foreach (var ch in channels)
-            {
-                if (ch == null || !ch.Opened || ch.Closed) continue;
-                long at = Volatile.Read(ref ch.ProcessedAt);
-                if (at == 0 || now - at > RecentTicks) continue;
-                sum += Volatile.Read(ref ch.ProcessingNanos);
-            }
-            return sum;
+            if (ch == null || !ch.Opened || ch.Closed) return false;
+            long at = Volatile.Read(ref ch.ProcessedAt);
+            return at != 0 && now - at <= RecentTicks;
         }
 
         /// <summary>Whether that much work per frame takes longer than the frame's audio lasts. An unknown figure (-1) is not late.</summary>
         public static bool Late(long perFrameNanos) => perFrameNanos > FrameNanos;
+    }
+
+    /// <summary>
+    /// Where a receive slot reads the helper's new work: given the slot's running
+    /// bank, the slot's own meter and the time (<see cref="RxAudioPipeline.HelperService"/>).
+    /// </summary>
+    internal delegate HelperServiceReading HelperServiceSource(PerChannelDenoiserBank? bank, HelperServiceMeter meter, long now);
+
+    /// <summary>
+    /// What a <see cref="HelperServiceMeter"/> found: the helper's new work since
+    /// its last look, as the processing time per frame of audio (every served
+    /// channel added together) over <see cref="Frames"/> frames. No frames
+    /// means no new work, and nothing to judge.
+    /// </summary>
+    internal readonly struct HelperServiceReading
+    {
+        /// <summary>Processing time for one frame on every served channel together, in nanoseconds; -1 when no helper is connected.</summary>
+        public readonly long PerFrameNanos;
+        /// <summary>How many frames of audio, on every served channel, that work covered; 0 when no new answer completed a round.</summary>
+        public readonly int Frames;
+
+        public HelperServiceReading(long perFrameNanos, int frames) { PerFrameNanos = perFrameNanos; Frames = frames; }
+
+        /// <summary>No helper is connected.</summary>
+        public static HelperServiceReading NoHelper => new(-1, 0);
+        /// <summary>A helper is connected, but nothing new has been answered on every channel it serves.</summary>
+        public static HelperServiceReading NoNewWork => new(0, 0);
+        /// <summary>One frame's new work at this cost (tests and fakes).</summary>
+        public static HelperServiceReading Fresh(long perFrameNanos) => new(perFrameNanos, 1);
+    }
+
+    /// <summary>
+    /// The helper's new work since the last look, counted once per answer
+    /// (Sprint 49 Track L repair 2, #866; Codex's re-check found repair 1's
+    /// reading turned one slow answer and a delivery stall into a sustained
+    /// fall). One per reader: each receive slot owns one, so the two slots do
+    /// not take each other's answers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A round.</b> The meter remembers, per served channel, the answer
+    /// count and processing total it last saw. A round ends when every served
+    /// channel has at least one new answer. The round's work per frame is, for
+    /// each channel, its new processing time divided by its new answers, added
+    /// over the channels, because the helper's one worker does every channel's
+    /// frame in each 10 ms. Its frames are the fewest new answers any channel
+    /// had, so a round never claims more audio than every channel was served.
+    /// Then the round starts again from those counts.
+    /// </para>
+    /// <para>
+    /// <b>No new answers, no new work.</b> Until every served channel answers
+    /// again the meter reports no frames, so a stall in delivery adds nothing,
+    /// however long; and a burst after it counts each delayed answer once, at
+    /// its own processing time. A channel that stops being served (closed, or
+    /// no answer for <see cref="HelperServiceTime.RecentTicks"/>) leaves the
+    /// round; one that starts is first seen with its counts as they stand, so
+    /// answers before the meter saw it are not counted.
+    /// </para>
+    /// <para>
+    /// Audio thread only. No allocation, no lock, no wait: a channel caught
+    /// mid-answer is read again on the next buffer.
+    /// </para>
+    /// </remarks>
+    internal sealed class HelperServiceMeter
+    {
+        /// <summary>
+        /// Channels one meter follows: far more than one helper serves (two
+        /// receive slots in stereo and a transmit channel is six). A channel past
+        /// this is not followed, so its work is under-counted, never invented.
+        /// </summary>
+        public const int Capacity = 16;
+
+        private readonly WdspChannel?[] _channel = new WdspChannel?[Capacity];
+        private readonly long[] _answers = new long[Capacity], _nanos = new long[Capacity];
+        private readonly long[] _nowAnswers = new long[Capacity], _nowNanos = new long[Capacity];
+        private readonly bool[] _seen = new bool[Capacity];
+        private int _count;
+
+        /// <summary>Channels followed now, for tests.</summary>
+        internal int Following => _count;
+
+        /// <summary>Start again: every channel is first seen afresh, so answers before now are not counted. After a restart, a switch or a gap.</summary>
+        public void Forget()
+        {
+            Array.Clear(_channel);
+            _count = 0;
+        }
+
+        /// <summary>The new work on the connection a bank's engines run on, or the app's helper's when the bank has none.</summary>
+        public HelperServiceReading Read(PerChannelDenoiserBank? bank, long now)
+        {
+            var conn = HelperServiceTime.ConnectionOf(bank) ?? WdspHost.DefaultIfCreated?.LiveConnection;
+            return conn == null ? HelperServiceReading.NoHelper : Read(conn.Lives, now);
+        }
+
+        /// <summary>The new work on these channels since the last look.</summary>
+        public HelperServiceReading Read(WdspChannel[] channels, long now)
+        {
+            for (int i = 0; i < _count; i++) _seen[i] = false;
+            foreach (var ch in channels)
+            {
+                if (!HelperServiceTime.Served(ch, now)) continue;
+                int at = IndexOf(ch!);
+                if (at >= 0) { _seen[at] = true; continue; }
+                if (_count == Capacity || !ch!.TryReadServed(out long answers, out long nanos)) continue;
+                _channel[_count] = ch; _answers[_count] = answers; _nanos[_count] = nanos; _seen[_count] = true;
+                _count++;
+            }
+            // Channels no longer served leave the round.
+            int kept = 0;
+            for (int i = 0; i < _count; i++)
+            {
+                if (!_seen[i]) continue;
+                if (kept != i) { _channel[kept] = _channel[i]; _answers[kept] = _answers[i]; _nanos[kept] = _nanos[i]; }
+                kept++;
+            }
+            for (int i = kept; i < _count; i++) _channel[i] = null;
+            _count = kept;
+            if (_count == 0) return HelperServiceReading.NoNewWork;
+
+            // The round ends only when every served channel has a new answer.
+            long fewest = long.MaxValue;
+            for (int i = 0; i < _count; i++)
+            {
+                if (!_channel[i]!.TryReadServed(out _nowAnswers[i], out _nowNanos[i])) return HelperServiceReading.NoNewWork;
+                long fresh = _nowAnswers[i] - _answers[i];
+                if (fresh <= 0) return HelperServiceReading.NoNewWork;
+                if (fresh < fewest) fewest = fresh;
+            }
+            long perFrame = 0;
+            for (int i = 0; i < _count; i++)
+            {
+                perFrame += (_nowNanos[i] - _nanos[i]) / (_nowAnswers[i] - _answers[i]);
+                _answers[i] = _nowAnswers[i];
+                _nanos[i] = _nowNanos[i];
+            }
+            return new HelperServiceReading(perFrame, (int)Math.Min(fewest, int.MaxValue));
+        }
+
+        private int IndexOf(WdspChannel ch)
+        {
+            for (int i = 0; i < _count; i++) if (ReferenceEquals(_channel[i], ch)) return i;
+            return -1;
+        }
     }
 }

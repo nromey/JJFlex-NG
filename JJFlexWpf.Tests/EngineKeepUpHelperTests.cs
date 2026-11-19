@@ -28,37 +28,149 @@ public sealed class EngineKeepUpHelperTests
         _out = output;
     }
 
+    /// <summary>A channel as the host makes it, answered once at this figure and time (0 for never answered).</summary>
     private static WdspChannel Channel(long nanos, long answeredAt, bool opened = true, bool closed = false)
     {
-        // The constructor only stores the engine and the connection; the sum reads neither.
+        // The constructor only stores the engine and the connection; the meter reads neither.
         var ch = new WdspChannel(null!, null!, 1, 2, Array.Empty<int>(), offline: false) { Opened = opened, Closed = closed };
-        ch.ProcessingNanos = nanos;
-        ch.ProcessedAt = answeredAt;
+        if (answeredAt != 0) ch.RecordAnswer(nanos, answeredAt);
         return ch;
+    }
+
+    /// <summary>One more answer on each channel, at this figure, now.</summary>
+    private static void Answer(long nanos, params WdspChannel[] channels)
+    {
+        long at = Stopwatch.GetTimestamp();
+        foreach (var ch in channels) ch.RecordAnswer(nanos, at);
     }
 
     [Fact]
     public void The_helpers_work_is_every_live_channel_added_together_because_it_has_one_worker()
     {
-        long now = Stopwatch.GetTimestamp();
-        long fresh = now - Stopwatch.Frequency / 100;
+        long now() => Stopwatch.GetTimestamp();
         // One channel at 6 ms keeps up; stereo at 6 ms each does not.
-        Assert.False(HelperServiceTime.Late(HelperServiceTime.Sum(new[] { Channel(6_000_000, fresh) }, now)));
-        Assert.True(HelperServiceTime.Late(HelperServiceTime.Sum(new[] { Channel(6_000_000, fresh), Channel(6_000_000, fresh) }, now)));
+        var mono = Channel(6_000_000, now());
+        var meter = new HelperServiceMeter();
+        Assert.Equal(0, meter.Read(new[] { mono }, now()).Frames); // first seen: its answers so far are not counted
+        Answer(6_000_000, mono);
+        var r = meter.Read(new[] { mono }, now());
+        Assert.Equal((6_000_000L, 1), (r.PerFrameNanos, r.Frames));
+        Assert.False(HelperServiceTime.Late(r.PerFrameNanos));
+
+        var left = Channel(6_000_000, now()); var right = Channel(6_000_000, now());
+        meter = new HelperServiceMeter();
+        meter.Read(new[] { left, right }, now());
+        Answer(6_000_000, left, right);
+        r = meter.Read(new[] { left, right }, now());
+        Assert.Equal((12_000_000L, 1), (r.PerFrameNanos, r.Frames));
+        Assert.True(HelperServiceTime.Late(r.PerFrameNanos));
+
         // Both slots in stereo, each channel well inside 10 ms alone, together over it.
-        var four = Enumerable.Range(0, 4).Select(_ => Channel(3_000_000, fresh)).ToArray();
-        Assert.Equal(12_000_000, HelperServiceTime.Sum(four, now));
-        Assert.True(HelperServiceTime.Late(HelperServiceTime.Sum(four, now)));
+        var four = Enumerable.Range(0, 4).Select(_ => Channel(3_000_000, now())).ToArray();
+        meter = new HelperServiceMeter();
+        meter.Read(four, now());
+        Answer(3_000_000, four);
+        r = meter.Read(four, now());
+        Assert.Equal((12_000_000L, 1), (r.PerFrameNanos, r.Frames));
+
         // A channel nobody feeds any more, one closed, one not open and one never answered do not count.
-        long stale = now - 2 * HelperServiceTime.RecentTicks;
-        var others = new[] { Channel(6_000_000, fresh), Channel(9_000_000, stale), Channel(9_000_000, fresh, closed: true),
-            Channel(9_000_000, fresh, opened: false), Channel(9_000_000, 0) };
-        Assert.Equal(6_000_000, HelperServiceTime.Sum(others, now));
+        long stale = now() - 2 * HelperServiceTime.RecentTicks;
+        var fed = Channel(6_000_000, now());
+        var others = new[] { fed, Channel(9_000_000, stale), Channel(9_000_000, now(), closed: true),
+            Channel(9_000_000, now(), opened: false), Channel(9_000_000, 0) };
+        meter = new HelperServiceMeter();
+        meter.Read(others, now());
+        Assert.Equal(1, meter.Following);
+        Answer(6_000_000, fed);
+        r = meter.Read(others, now());
+        Assert.Equal((6_000_000L, 1), (r.PerFrameNanos, r.Frames));
+
         // Exactly the audio's length is not over it; and an unknown figure is not late.
         Assert.False(HelperServiceTime.Late(HelperServiceTime.FrameNanos));
         Assert.True(HelperServiceTime.Late(HelperServiceTime.FrameNanos + 1));
         Assert.False(HelperServiceTime.Late(-1));
         Assert.Equal(10_000_000, HelperServiceTime.FrameNanos);
+    }
+
+    /// <summary>
+    /// Repair 2, after Codex's re-check: each answer's processing time is
+    /// counted exactly once, against the frame of audio it processed. Reading
+    /// again with no new answer is no new work, however slow the last answer
+    /// was; a burst counts each delayed answer once, at its own cost.
+    /// </summary>
+    [Fact]
+    public void Each_answer_is_counted_once_and_no_new_answer_is_no_new_work()
+    {
+        var ch = Channel(3_400_000, Stopwatch.GetTimestamp());
+        var channels = new[] { ch };
+        var meter = new HelperServiceMeter();
+        meter.Read(channels, Stopwatch.GetTimestamp());
+        Answer(12_000_000, ch);
+        var r = meter.Read(channels, Stopwatch.GetTimestamp());
+        Assert.Equal((12_000_000L, 1), (r.PerFrameNanos, r.Frames));
+        Assert.True(HelperServiceTime.Late(r.PerFrameNanos));
+        // The same answer, read a hundred more times within its second: nothing new.
+        for (int i = 0; i < 100; i++) Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
+
+        // A burst after the stall: five delayed answers, two at 12 ms and three at 2 ms, are five frames at their average.
+        Answer(12_000_000, ch); Answer(12_000_000, ch);
+        Answer(2_000_000, ch); Answer(2_000_000, ch); Answer(2_000_000, ch);
+        r = meter.Read(channels, Stopwatch.GetTimestamp());
+        Assert.Equal((6_000_000L, 5), (r.PerFrameNanos, r.Frames));
+        Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
+    }
+
+    /// <summary>
+    /// Repair 2: a round waits for every served channel, so stereo is summed
+    /// from both halves' own answers, never by repeating one half's figure;
+    /// a channel that stops being served leaves the round; a channel caught
+    /// mid-answer is read again later; and starting again counts nothing from
+    /// before.
+    /// </summary>
+    [Fact]
+    public void A_round_waits_for_every_served_channel_and_a_channel_no_longer_served_leaves_it()
+    {
+        var left = Channel(2_000_000, Stopwatch.GetTimestamp());
+        var right = Channel(2_000_000, Stopwatch.GetTimestamp());
+        var channels = new[] { left, right };
+        var meter = new HelperServiceMeter();
+        meter.Read(channels, Stopwatch.GetTimestamp());
+        Assert.Equal(2, meter.Following);
+
+        // Only the left has answered: no round yet.
+        Answer(4_000_000, left);
+        Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
+        Answer(4_000_000, left);
+        Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
+        // The right answers: one round, each channel's own average, added; as many frames as the fewer answers.
+        Answer(7_000_000, right);
+        var r = meter.Read(channels, Stopwatch.GetTimestamp());
+        Assert.Equal((11_000_000L, 1), (r.PerFrameNanos, r.Frames));
+        Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
+
+        // Caught mid-answer (the sequence odd): not read this time, read whole the next.
+        Answer(1_000_000, left, right);
+        Interlocked.Increment(ref right.ServedSeq);
+        Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
+        Interlocked.Decrement(ref right.ServedSeq);
+        r = meter.Read(channels, Stopwatch.GetTimestamp());
+        Assert.Equal((2_000_000L, 1), (r.PerFrameNanos, r.Frames));
+
+        // The right stops being served (no answer for over a second): the left's rounds go on alone.
+        Answer(3_000_000, left);
+        long later = Stopwatch.GetTimestamp() + 2 * HelperServiceTime.RecentTicks;
+        left.RecordAnswer(3_000_000, later);
+        r = meter.Read(channels, later);
+        Assert.Equal(1, meter.Following);
+        Assert.Equal((3_000_000L, 2), (r.PerFrameNanos, r.Frames));
+
+        // Starting again: what was answered before is not counted.
+        Answer(9_000_000, left);
+        meter.Forget();
+        Assert.Equal(0, meter.Read(channels, Stopwatch.GetTimestamp()).Frames);
+        Answer(1_000_000, left, right);
+        r = meter.Read(channels, Stopwatch.GetTimestamp());
+        Assert.Equal((2_000_000L, 1), (r.PerFrameNanos, r.Frames));
     }
 
     private static float[] Audio(int salt) => Enumerable.Range(0, 960).Select(i => MathF.Sin((i + salt * 960) * 0.013f) * 0.3f).ToArray();
@@ -123,17 +235,29 @@ public sealed class EngineKeepUpHelperTests
         Assert.Equal(2, channels.Length);
         foreach (var ch in channels)
         {
-            _out.WriteLine($"channel {ch.Id}: processing {Volatile.Read(ref ch.ProcessingNanos)} ns, answered at {Volatile.Read(ref ch.ProcessedAt)}");
+            Assert.True(ch.TryReadServed(out long answers, out long total));
+            _out.WriteLine($"channel {ch.Id}: processing {Volatile.Read(ref ch.ProcessingNanos)} ns, answered at {Volatile.Read(ref ch.ProcessedAt)}, {answers} answers, {total} ns in all");
             Assert.True(Volatile.Read(ref ch.ProcessedAt) != 0, "the answer's arrival was not kept");
             Assert.True(Volatile.Read(ref ch.ProcessingNanos) > 0, "the helper's processing time was thrown away");
+            Assert.True(answers >= 20, "the host did not count each answer: " + answers);
+            Assert.True(total >= answers, "the host did not add each answer's processing time");
         }
         var conn = HelperServiceTime.ConnectionOf(bank);
         Assert.Same(channels[0].Conn, conn);
-        long now = Stopwatch.GetTimestamp();
-        long sum = HelperServiceTime.PerFrameNanos(bank, now);
         Assert.Equal(2, conn!.Lives.Length);
-        Assert.Equal(channels.Sum(c => Volatile.Read(ref c.ProcessingNanos)), sum);
-        Assert.False(HelperServiceTime.Late(sum), "the stub's echo is far inside 10 ms");
+        // A meter over the running bank: nothing new while no buffer is fed; then each new answer, on both channels.
+        var meter = new HelperServiceMeter();
+        Assert.Equal(0, meter.Read(bank, Stopwatch.GetTimestamp()).Frames);
+        Assert.Equal(2, meter.Following);
+        Assert.Equal(0, meter.Read(bank, Stopwatch.GetTimestamp()).Frames);
+        for (int i = 0; i < 5; i++) p.Paced();
+        Thread.Sleep(100);
+        var r = meter.Read(bank, Stopwatch.GetTimestamp());
+        _out.WriteLine($"after five buffers: {r.Frames} frames at {r.PerFrameNanos} ns for both channels");
+        Assert.True(r.Frames >= 1, "the new answers were not seen");
+        Assert.True(r.PerFrameNanos > 0);
+        Assert.False(HelperServiceTime.Late(r.PerFrameNanos), "the stub's echo is far inside 10 ms");
+        Assert.Equal(0, meter.Read(bank, Stopwatch.GetTimestamp()).Frames);
     }
 
     [Fact]

@@ -88,7 +88,8 @@ public sealed class EngineKeepUpPipelineTests
             {
                 IsHelperEngine = id => id is "fakehelper" or "stuckhelper",
             };
-            Pipeline.HelperServiceNanos = (_, _) => Volatile.Read(ref ServiceNanos);
+            // One fresh answer's work on every buffer, at the figure the test sets.
+            Pipeline.HelperService = (_, _, _) => HelperServiceReading.Fresh(Volatile.Read(ref ServiceNanos));
             Pipeline.KeepUpResult += (_, r) => Results.Enqueue((r, Environment.CurrentManagedThreadId));
             Pipeline.DeliveryDiagnostic += (_, r) => Delivery.Enqueue(r);
         }
@@ -103,15 +104,34 @@ public sealed class EngineKeepUpPipelineTests
             return false;
         }
 
+        /// <summary>Run before every pumped buffer: a test that plays the helper's reader thread publishes its answers here.</summary>
+        public Action? BeforeBuffer;
+
         public void Pump(int buffers = 1)
         {
-            for (int i = 0; i < buffers; i++) { Array.Fill(_audio, 0.1f); Pipeline.Process(_audio); }
+            for (int i = 0; i < buffers; i++) { BeforeBuffer?.Invoke(); Array.Fill(_audio, 0.1f); Pipeline.Process(_audio); }
         }
 
         public void Choose(string id)
         {
             Assert.True(Pipeline.SelectPcEngine(id, out var refusal), refusal);
             if (Pipeline.NeuralSlot.ChosenEngineId == id) Pipeline.RnnEnabled = true; else Pipeline.SpectralEnabled = true;
+        }
+
+        /// <summary>
+        /// One buffer asks for the chosen engine's bank; then wait, feeding
+        /// nothing, until it is delivered, so every buffer after counts as a
+        /// warm-up buffer. The bank is built off the audio thread; without this
+        /// a fast pump spends most of its buffers before the bank arrives
+        /// (repair 2: on x86 the stuck warm-up controls failed two runs in five).
+        /// </summary>
+        public void UntilDelivered(string id, DenoiseFamily family = DenoiseFamily.Neural)
+        {
+            var slot = family == DenoiseFamily.Neural ? Pipeline.NeuralSlot : Pipeline.SpectralSlot;
+            Pump();
+            var t = Stopwatch.StartNew();
+            while (!slot.BuildDelivered(id) && t.ElapsedMilliseconds < 5000) Thread.Sleep(1);
+            Assert.True(slot.BuildDelivered(id), id + " was never delivered");
         }
 
         /// <summary>Feed buffers until the slot runs the chosen engine.</summary>
@@ -214,6 +234,7 @@ public sealed class EngineKeepUpPipelineTests
         {
             rig.Service(Rig.SlowService);
             rig.Choose("stuckhelper");
+            rig.UntilDelivered("stuckhelper");
             Assert.True(rig.PumpUntil("stuckhelper", EngineKeepUpChange.FellBehind, EngineKeepUpRule.DefaultStuckWarmup + 100),
                 "a helper engine too slow to warm up was never said to fall behind");
             Assert.NotEqual("stuckhelper", rig.Pipeline.NeuralSlot.RunningEngineId);
@@ -224,6 +245,7 @@ public sealed class EngineKeepUpPipelineTests
         using (var fast = new Rig())
         {
             fast.Choose("stuckhelper");
+            fast.UntilDelivered("stuckhelper");
             fast.Pump(EngineKeepUpRule.DefaultStuckWarmup + 100);
             Assert.True(fast.HasDelivery("stuckhelper", EngineKeepUpChange.FellBehind), "the warm-up that never ended was never seen");
             Thread.Sleep(100);
@@ -288,6 +310,152 @@ public sealed class EngineKeepUpPipelineTests
         Assert.True(warned, "The gap grace hid sustained engine processing slower than 100 ms per buffer.");
     }
 
+    /// <summary>A helper channel for the real meter, open and answered once at this figure.</summary>
+    private static WdspChannel AnsweredChannel(long nanos)
+    {
+        // The constructor only stores the engine and the connection; the meter reads neither.
+        var ch = new WdspChannel(null!, null!, 1, 2, Array.Empty<int>(), offline: false) { Opened = true };
+        ch.RecordAnswer(nanos, Stopwatch.GetTimestamp());
+        return ch;
+    }
+
+    /// <summary>
+    /// Repair 2, adopted from Codex's re-check reproduction (2026-11-19,
+    /// <c>CodexTrackLRepairReviewTests</c>): one slow answer followed by a
+    /// stall in delivery is one slow computation, not a sustained fall. The
+    /// real pipeline reads a real <see cref="HelperServiceMeter"/> over a real
+    /// channel, whose answers the test publishes as the reader thread does.
+    /// Settled on fast answers, then exactly one 12 ms answer, then 35 buffers
+    /// with late answers and no new ones, 10 ms apart (below the gap
+    /// threshold). Repair 1 re-read the last figure and warned, 20 late of 100.
+    /// The positive control publishes a fresh slow answer on every buffer, and
+    /// must warn.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Delivery_starvation_after_one_slow_answer_is_not_sustained_slow_computation(bool freshSlowAnswers)
+    {
+        using var rig = new Rig();
+        var ch = AnsweredChannel(Rig.FastService);
+        var channels = new[] { ch };
+        rig.Pipeline.HelperService = (_, meter, now) => meter.Read(channels, now);
+        rig.BeforeBuffer = () => ch.RecordAnswer(Rig.FastService, Stopwatch.GetTimestamp());
+        rig.Choose("fakehelper"); rig.UntilRunning("fakehelper");
+        Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.KeepingUp, 300));
+
+        // Exactly one costly answer; the answers after it are delayed.
+        rig.BeforeBuffer = null;
+        ch.RecordAnswer(Rig.SlowService, Stopwatch.GetTimestamp());
+        long first = Volatile.Read(ref ch.ProcessedAt);
+        rig.HelperLate = true;
+        int newSlowAnswers = 1;
+        for (int i = 0; i < 35; i++)
+        {
+            if (freshSlowAnswers) { ch.RecordAnswer(Rig.SlowService, Stopwatch.GetTimestamp()); newSlowAnswers++; }
+            rig.Pump();
+            Thread.Sleep(10);
+        }
+        Thread.Sleep(100);
+        bool warned = rig.Has("fakehelper", EngineKeepUpChange.FellBehind);
+        _out.WriteLine($"new slow answers={newSlowAnswers}; warning={warned}; last answer age={(Stopwatch.GetTimestamp() - first) * 1000.0 / Stopwatch.Frequency:F1} ms");
+        foreach (var r in rig.Results) _out.WriteLine(r.Result.Describe());
+        Assert.True(rig.HasDelivery("fakehelper", EngineKeepUpChange.FellBehind));
+        Assert.Equal(freshSlowAnswers, warned);
+    }
+
+    /// <summary>
+    /// Repair 2: the real meter, stereo, through the real pipeline. Two
+    /// channels answering every buffer at 1.7 ms each keep up; at 6 ms each
+    /// (12 ms together, every channel inside 10 ms alone) they fall behind.
+    /// Delivery stays on time throughout.
+    /// </summary>
+    [Fact]
+    public void Through_the_real_meter_stereo_answers_slow_only_together_fall_behind_and_fast_ones_keep_up()
+    {
+        using var rig = new Rig();
+        var left = AnsweredChannel(1_700_000);
+        var right = AnsweredChannel(1_700_000);
+        var channels = new[] { left, right };
+        long each = 1_700_000;
+        rig.Pipeline.HelperService = (_, meter, now) => meter.Read(channels, now);
+        rig.BeforeBuffer = () =>
+        {
+            long n = Volatile.Read(ref each), at = Stopwatch.GetTimestamp();
+            left.RecordAnswer(n, at); right.RecordAnswer(n, at);
+        };
+        rig.Choose("fakehelper"); rig.UntilRunning("fakehelper");
+        Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.KeepingUp, 300));
+        rig.Pump(200);
+        Thread.Sleep(50);
+        Assert.False(rig.Has("fakehelper", EngineKeepUpChange.FellBehind));
+        Volatile.Write(ref each, 6_000_000);
+        Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.FellBehind, 60), "stereo at 6 ms a channel was never said to fall behind");
+        var r = rig.Results.First(x => x.Result.Change == EngineKeepUpChange.FellBehind).Result;
+        _out.WriteLine(r.Describe());
+        Assert.True(r.Helper);
+        Assert.Empty(rig.Delivery);
+    }
+
+    /// <summary>
+    /// Repair 2: a burst of answers after a stall counts each answer once, at
+    /// its own processing time, against the frame of audio it processed. Thirty
+    /// delayed answers that each took 12 ms are thirty slow computations, and
+    /// warn; thirty delayed fast ones are not, and do not. Nothing is counted
+    /// for the stall itself.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_burst_of_delayed_answers_counts_each_answer_once_at_its_own_cost(bool slowAnswers)
+    {
+        using var rig = new Rig();
+        var ch = AnsweredChannel(Rig.FastService);
+        var channels = new[] { ch };
+        rig.Pipeline.HelperService = (_, meter, now) => meter.Read(channels, now);
+        rig.BeforeBuffer = () => ch.RecordAnswer(Rig.FastService, Stopwatch.GetTimestamp());
+        rig.Choose("fakehelper"); rig.UntilRunning("fakehelper");
+        Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.KeepingUp, 300));
+
+        rig.BeforeBuffer = null;
+        rig.Pump(30); // the stall: no new answers
+        var rule = rig.Pipeline.KeepUpRuleFor(DenoiseFamily.Neural);
+        Assert.Equal(0, rule.LateInWindow);
+        long at = Stopwatch.GetTimestamp();
+        for (int i = 0; i < 30; i++) ch.RecordAnswer(slowAnswers ? Rig.SlowService : Rig.FastService, at);
+        rig.Pump();
+        Thread.Sleep(100);
+        _out.WriteLine($"slow={slowAnswers}: late in window {rule.LateInWindow} of {rule.Filled}");
+        Assert.Equal(slowAnswers ? 30 : 0, rule.LateInWindow);
+        Assert.Equal(slowAnswers, rig.Has("fakehelper", EngineKeepUpChange.FellBehind));
+    }
+
+    /// <summary>
+    /// Repair 2: a helper warm-up is judged on new work too. One slow answer
+    /// and then a warm-up that never ends for want of answers is a delivery
+    /// fact, not a slow helper; the positive control, a slow answer on every
+    /// buffer of the warm-up, warns.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_never_ending_warm_up_after_one_slow_answer_is_not_a_slow_helper(bool freshSlowAnswers)
+    {
+        using var rig = new Rig();
+        var ch = AnsweredChannel(Rig.FastService);
+        var channels = new[] { ch };
+        rig.Pipeline.HelperService = (_, meter, now) => meter.Read(channels, now);
+        rig.Choose("stuckhelper");
+        rig.UntilDelivered("stuckhelper");
+        rig.Pump(5);
+        ch.RecordAnswer(Rig.SlowService, Stopwatch.GetTimestamp());
+        if (freshSlowAnswers) rig.BeforeBuffer = () => ch.RecordAnswer(Rig.SlowService, Stopwatch.GetTimestamp());
+        rig.Pump(EngineKeepUpRule.DefaultStuckWarmup + 100);
+        Assert.True(rig.HasDelivery("stuckhelper", EngineKeepUpChange.FellBehind), "the warm-up that never ended was never seen");
+        Thread.Sleep(100);
+        Assert.Equal(freshSlowAnswers, rig.Has("stuckhelper", EngineKeepUpChange.FellBehind));
+    }
+
     [Fact]
     public void An_engine_switch_is_not_counted_and_the_new_engine_starts_its_own_count()
     {
@@ -334,10 +502,22 @@ public sealed class EngineKeepUpPipelineTests
         before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++) { Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio); }
         long falling = GC.GetAllocatedBytesForCurrentThread() - before;
-        _out.WriteLine($"Managed bytes on the audio thread: {steady} over 300 buffers keeping up, {delivery} over 100 buffers of late answers, {falling} over 100 buffers falling behind.");
         Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.FellBehind, 0), "the fall was not raised");
+        // Repair 2: the real meter over four answered channels (both slots in stereo), answering every buffer, and then not.
+        var channels = Enumerable.Range(0, 4).Select(_ => AnsweredChannel(Rig.FastService)).ToArray();
+        rig.Pipeline.HelperService = (_, meter, now) => meter.Read(channels, now);
+        for (int i = 0; i < 20; i++) { foreach (var c in channels) c.RecordAnswer(Rig.FastService, Stopwatch.GetTimestamp()); Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio); }
+        before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++) { Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio); }
+        long stalled = GC.GetAllocatedBytesForCurrentThread() - before;
+        before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++) { foreach (var c in channels) c.RecordAnswer(Rig.FastService, Stopwatch.GetTimestamp()); Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio); }
+        long metered = GC.GetAllocatedBytesForCurrentThread() - before;
+        _out.WriteLine($"Managed bytes on the audio thread: {steady} over 300 buffers keeping up, {delivery} over 100 buffers of late answers, {falling} over 100 buffers falling behind, {metered} over 100 buffers read by the real meter over four channels, {stalled} over 100 with no new answers.");
         Assert.Equal(0, steady);
         Assert.Equal(0, delivery);
         Assert.Equal(0, falling);
+        Assert.Equal(0, metered);
+        Assert.Equal(0, stalled);
     }
 }

@@ -30,7 +30,10 @@ namespace JJFlexWpf
     /// For a helper engine (NNR, NR2) it is late when the helper's own
     /// processing time for one frame, added over every channel its one worker
     /// serves, is longer than the frame's audio (<see cref="HelperServiceTime"/>;
-    /// repair 1, after Codex's check). A helper frame that merely came back too
+    /// repair 1, after Codex's check). For a helper engine the pipeline calls
+    /// this once per frame of NEW work, each answer counted once, and not at
+    /// all on a buffer with no new answers (<see cref="HelperServiceMeter"/>;
+    /// repair 2), so its "buffers" are frames of the helper's work. A helper frame that merely came back too
     /// late is a delivery fact, not an engine's cost: the pipeline counts those
     /// with a second rule of this class, traced as a diagnostic and never
     /// warned about.
