@@ -279,6 +279,13 @@ public sealed class HelperModelCostTests : IDisposable
         Assert.Equal(0, failures);
         Assert.Equal(1_000_000 + 2 * Each - 1, PremiumCwP99("x64"));
         Assert.Equal(1_000_000 + 2 * Each - 1, PremiumCwP99("x86"));
+        // And each keeps five, newest first, none out of order (Track K2).
+        foreach (var arch in new[] { "x64", "x86" })
+        {
+            var kept = KeptP99(arch);
+            Assert.Equal(HelperModelCostStore.Kept, kept.Count);
+            Assert.Equal(kept.OrderByDescending(p => p), kept);
+        }
         Assert.Empty(Directory.GetFiles(_dir, HelperModelCostStore.FileName + ".*.tmp"));
     }
 
@@ -299,6 +306,93 @@ public sealed class HelperModelCostTests : IDisposable
         present.MeasuredUtc = DateTime.UtcNow;
         Assert.Equal(HelperModelCostSave.Saved, store.Save(present));
         Assert.Equal(4_200_000, PremiumCwP99("x64"));
+    }
+
+    // ------------------------------------------------------------------ the last few measurements (Sprint 49 Track K2, X11)
+
+    private IReadOnlyList<long> KeptP99(string arch) =>
+        NewStore().FindRecent(arch).Select(r => r.Measured("nnr", "premium_cw")!.P99Nanos).ToList();
+
+    [Fact]
+    public void The_store_keeps_the_last_five_measurements_of_each_architecture_newest_last_in_the_file()
+    {
+        Assert.Equal(5, HelperModelCostStore.Kept);
+        var store = NewStore();
+        for (int second = 1; second <= 7; second++) Assert.Equal(HelperModelCostSave.Saved, store.Save(At("x64", second, 1_000_000 + second)));
+        Assert.True(store.Record(At("x86", 3, 6_000_000)));
+
+        // Newest first, the five latest only; the other architecture untouched.
+        Assert.Equal(new long[] { 1_000_007, 1_000_006, 1_000_005, 1_000_004, 1_000_003 }, KeptP99("x64"));
+        Assert.Equal(new long[] { 6_000_000 }, KeptP99("x86"));
+        Assert.Equal(1_000_007, PremiumCwP99("x64"));   // Find is still the newest
+
+        // In the file, oldest first: an app from before this reads an
+        // architecture's LAST record, and must read the newest.
+        HelperModelCostFile file;
+        using (var fs = File.OpenRead(store.FilePath))
+            file = (HelperModelCostFile)new System.Xml.Serialization.XmlSerializer(typeof(HelperModelCostFile)).Deserialize(fs)!;
+        var x64 = file.Measurements.Where(m => m.Architecture == "x64").ToList();
+        Assert.Equal(5, x64.Count);
+        Assert.Equal(1_000_007, x64.Last().Measured("nnr", "premium_cw")!.P99Nanos);
+        Assert.Equal(x64.OrderBy(m => m.MeasuredUtc).Select(m => m.MeasuredUtc), x64.Select(m => m.MeasuredUtc));
+
+        // A later save of the other architecture keeps this one's five.
+        Assert.True(NewStore().Record(At("x86", 9, 6_100_000)));
+        Assert.Equal(5, KeptP99("x64").Count);
+        Assert.Equal(new long[] { 6_100_000, 6_000_000 }, KeptP99("x86"));
+    }
+
+    [Fact]
+    public void An_earlier_measurement_never_joins_the_list_and_equal_times_replace()
+    {
+        var store = NewStore();
+        store.Record(At("x64", 2, 4_000_000));
+        store.Record(At("x64", 4, 4_400_000));
+        Assert.Equal(HelperModelCostSave.Older, store.Save(At("x64", 3, 9_000_000)));   // between two held: still refused
+        Assert.Equal(new long[] { 4_400_000, 4_000_000 }, KeptP99("x64"));
+        Assert.Equal(HelperModelCostSave.Saved, store.Save(At("x64", 4, 4_500_000)));   // the newest's own time: replaces it
+        Assert.Equal(new long[] { 4_500_000, 4_000_000 }, KeptP99("x64"));
+    }
+
+    [Fact]
+    public void A_file_written_with_one_measurement_per_architecture_reads_as_it_is()
+    {
+        // The shape Track K wrote: one Measurement per architecture.
+        File.WriteAllText(Path.Combine(_dir, HelperModelCostStore.FileName),
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<HelperModelCosts>\r\n" +
+            "  <Measurement Architecture=\"x64\" HelperVersion=\"806b934\" MeasuredUtc=\"2026-11-19T03:12:00Z\">\r\n" +
+            "    <Slot Engine=\"nnr\" Slot=\"3\" Option=\"premium_cw\" Frames=\"200\" MedianNanos=\"2000000\" P99Nanos=\"4170000\" />\r\n" +
+            "  </Measurement>\r\n" +
+            "  <Measurement Architecture=\"x86\" HelperVersion=\"806b934\" MeasuredUtc=\"2026-11-19T03:13:00Z\">\r\n" +
+            "    <Slot Engine=\"nnr\" Slot=\"3\" Option=\"premium_cw\" Frames=\"200\" MedianNanos=\"2000000\" P99Nanos=\"4806000\" />\r\n" +
+            "  </Measurement>\r\n</HelperModelCosts>\r\n");
+        var store = NewStore();
+        Assert.Equal(new long[] { 4_170_000 }, KeptP99("x64"));
+        Assert.Equal(new long[] { 4_806_000 }, KeptP99("x86"));
+        Assert.Equal("806b934", store.Find("x64")!.HelperVersion);
+
+        // The next measurement joins it rather than replacing it.
+        var next = At("x64", 0, 5_200_000);
+        next.MeasuredUtc = new DateTime(2026, 11, 19, 4, 0, 0, DateTimeKind.Utc);
+        Assert.True(store.Record(next));
+        Assert.Equal(new long[] { 5_200_000, 4_170_000 }, KeptP99("x64"));
+        Assert.Equal(new long[] { 4_806_000 }, KeptP99("x86"));
+    }
+
+    [Fact]
+    public void A_record_from_a_clock_since_set_back_leaves_the_list_when_a_present_one_arrives()
+    {
+        var store = NewStore();
+        var past = At("x64", 0, 4_000_000);
+        past.MeasuredUtc = DateTime.UtcNow.AddHours(-1);
+        Assert.True(store.Record(past));
+        var future = At("x64", 0, 5_800_000);
+        future.MeasuredUtc = DateTime.UtcNow.AddDays(30);
+        Assert.True(store.Record(future));
+        var present = At("x64", 0, 4_200_000);
+        present.MeasuredUtc = DateTime.UtcNow;
+        Assert.Equal(HelperModelCostSave.Saved, store.Save(present));
+        Assert.Equal(new long[] { 4_200_000, 4_000_000 }, KeptP99("x64"));
     }
 
     [Fact]
@@ -326,11 +420,52 @@ public sealed class HelperModelCostTests : IDisposable
         Assert.Equal((model, true, fast), NoiseModeRules.ChooseCwModel(source));
     }
 
+    // Sprint 49 Track K2, X11: the middle of the last few measurements, so one
+    // busy moment does not decide. Saved oldest first; the last figure is the
+    // newest. Each row is chosen so the newest alone, or the mean, would decide
+    // differently from the median.
+    [Theory]
+    [InlineData(new[] { 4.0, 4.5, 788.0 }, 4.5, 3, "premium_cw")]                  // one busy start: the newest alone would say Standard
+    [InlineData(new[] { 5.2, 8.2, 4.0, 80.0, 4.1 }, 5.2, 5, "standard_cw")]        // three of five busy: the newest alone would say Premium
+    [InlineData(new[] { 9.0, 9.0, 9.0, 4.0, 4.0, 4.0, 9.0 }, 4.0, 5, "premium_cw")] // only the last five count
+    [InlineData(new[] { 4.0, 6.0 }, 5.0, 2, "standard_cw")]                        // an even count: halfway between the middle two
+    [InlineData(new[] { 4.2 }, 4.2, 1, "premium_cw")]
+    public void The_rule_reads_the_median_of_the_kept_measurements(double[] p99Ms, double median, int count, string model)
+    {
+        var store = NewStore();
+        for (int i = 0; i < p99Ms.Length; i++)
+        {
+            var r = At(HelperModelCostStore.ThisArchitecture, i, (long)Math.Round(p99Ms[i] * 1e6));
+            Assert.Equal(HelperModelCostSave.Saved, store.Save(r));
+        }
+        var source = new MeasuredNnrCwCost(() => NewStore());
+        var read = source.ReadPremiumCw();
+        Assert.Equal(median, read.Ms!.Value, 9);
+        Assert.Equal(count, read.Measurements);
+        Assert.Equal(median, source.PremiumCw99thPercentileMs!.Value, 9);
+        Assert.Equal(model, NoiseModeRules.ChooseCwModel(source).Model);
+    }
+
+    [Fact]
+    public void A_measurement_without_Premium_CW_gives_no_figure_and_is_not_counted()
+    {
+        var store = NewStore();
+        store.Record(At(HelperModelCostStore.ThisArchitecture, 1, 4_000_000));
+        var missing = At(HelperModelCostStore.ThisArchitecture, 2, 0);
+        missing.Slots[0].Frames = 0; missing.Slots[0].MedianNanos = 0;
+        store.Record(missing);
+        store.Record(At(HelperModelCostStore.ThisArchitecture, 3, 8_000_000));
+        store.Record(At(HelperModelCostStore.ThisArchitecture, 4, 8_000_000));
+        Assert.Equal(4, store.FindRecent().Count);
+        Assert.Equal(new NnrCwCost(8.0, 3), new MeasuredNnrCwCost(() => NewStore()).ReadPremiumCw());
+    }
+
     [Fact]
     public void No_figure_keeps_the_ruled_unmeasured_default()
     {
         var none = new MeasuredNnrCwCost(() => NewStore());
         Assert.Null(none.PremiumCw99thPercentileMs);
+        Assert.Equal(new NnrCwCost(null, 0), none.ReadPremiumCw());
         Assert.Equal((NoiseModeRules.UnmeasuredCwModel, false, false), NoiseModeRules.ChooseCwModel(none));
         Assert.Null(new MeasuredNnrCwCost(() => null).PremiumCw99thPercentileMs);
 
@@ -385,6 +520,73 @@ public sealed class HelperModelCostTests : IDisposable
         Assert.Equal(4.2, new MeasuredNnrCwCost(() => NewStore()).PremiumCw99thPercentileMs!.Value, 9);
         Assert.True(nnr.IsAvailable);
         Assert.Equal(0, rig.Host.Failures);
+    }
+
+    // Sprint 49 Track K2 (X1): the host says when this machine's model costs
+    // have been remembered, so a CW model chosen before them is looked at once
+    // more. Raised after the save, so the store already holds them.
+    [Fact]
+    public void The_host_says_when_the_model_costs_are_remembered_and_the_store_already_holds_them()
+    {
+        var store = NewStore();
+        using var rig = StubRig(store, "--model-costs", FourCosts, "--model-costs-delay", "300");
+        int raised = 0, handled = 0;
+        double? seen = null;
+        rig.Host.ModelCostsRemembered += (s, e) =>
+        {
+            Assert.Same(rig.Host, s);
+            seen = new MeasuredNnrCwCost(() => NewStore()).PremiumCw99thPercentileMs;
+            Interlocked.Increment(ref raised);
+        };
+        rig.Host.ModelCostsHandledForTest = _ => Interlocked.Increment(ref handled);
+        rig.Engine("nnr");
+        HelperTestRig.Until(() => Volatile.Read(ref handled) == 1, "the model costs to be handled");
+        Assert.Equal(1, Volatile.Read(ref raised));
+        Assert.Equal(4.2, seen!.Value, 9);
+    }
+
+    [Fact]
+    public void The_host_does_not_say_so_when_nothing_was_remembered()
+    {
+        // No store: nothing remembered.
+        using (var rig = StubRig(null, "--model-costs", FourCosts))
+        {
+            int raised = 0, handled = 0;
+            rig.Host.ModelCostsRemembered += (_, _) => Interlocked.Increment(ref raised);
+            rig.Host.ModelCostsHandledForTest = _ => Interlocked.Increment(ref handled);
+            rig.Engine("nnr");
+            HelperTestRig.Until(() => Volatile.Read(ref handled) == 1, "the model costs");
+            Assert.Equal(0, Volatile.Read(ref raised));
+        }
+        // A later measurement already held: the store refuses this one as older.
+        var store = NewStore();
+        var later = At(HelperModelCostStore.ThisArchitecture, 0, 5_800_000);
+        later.MeasuredUtc = DateTime.UtcNow.AddSeconds(50);
+        Assert.True(store.Record(later));
+        using (var rig = StubRig(store, "--model-costs", FourCosts))
+        {
+            int raised = 0, handled = 0;
+            rig.Host.ModelCostsRemembered += (_, _) => Interlocked.Increment(ref raised);
+            rig.Host.ModelCostsHandledForTest = _ => Interlocked.Increment(ref handled);
+            rig.Engine("nnr");
+            HelperTestRig.Until(() => Volatile.Read(ref handled) == 1, "the model costs");
+            Assert.Equal(0, Volatile.Read(ref raised));
+            Assert.Equal(5_800_000, PremiumCwP99(HelperModelCostStore.ThisArchitecture));
+        }
+    }
+
+    [Fact]
+    public void The_app_tells_its_noise_controller_when_the_model_costs_are_remembered()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string source = File.ReadAllText(Path.Combine(dir!.FullName, "JJFlexWpf", "MainWindow.xaml.cs"));
+        int at = source.IndexOf("private NoiseController CreateNoiseController()", StringComparison.Ordinal);
+        Assert.True(at >= 0, "CreateNoiseController not found");
+        int end = source.IndexOf("return noise;", at, StringComparison.Ordinal);
+        string body = source[at..end].Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("WdspHost.Default.ModelCostsRemembered+=(s,e)=>Dispatcher.BeginInvoke(()=>noise.OnModelCostsRemembered());", body);
     }
 
     [Fact]

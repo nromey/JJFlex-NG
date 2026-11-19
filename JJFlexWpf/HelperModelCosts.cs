@@ -56,12 +56,18 @@ namespace JJFlexWpf
     /// <summary>
     /// What each of the helper's model slots costs on this machine, remembered
     /// between runs (Sprint 49 Track K, #1002; ruled 2026-11-07, question 11:
-    /// "remembered per machine and re-measured when the helper restarts"). One
-    /// record per architecture, because an x86 helper and an x64 helper are
-    /// different programs with different costs; a later measurement replaces
-    /// the earlier for its architecture, and an earlier one never replaces a
-    /// later one. A file that cannot be read reads as "not measured", and the
-    /// next measurement overwrites it. The file lives under
+    /// "remembered per machine and re-measured when the helper restarts").
+    /// Kept per architecture, because an x86 helper and an x64 helper are
+    /// different programs with different costs. Since Sprint 49 Track K2 (ruled
+    /// 2026-11-19, X11) the file keeps the last <see cref="Kept"/> measurements
+    /// of each architecture, oldest first, so the CW rule can read the middle
+    /// of them rather than whichever one came last. A file written with one
+    /// measurement per architecture has exactly this shape with fewer records,
+    /// and reads as it is. A later measurement joins its architecture's list,
+    /// pushing the oldest out beyond <see cref="Kept"/>; one earlier than the
+    /// newest held is never saved at all, so it can neither replace a later
+    /// one nor sit after it. A file that cannot be read reads as "not
+    /// measured", and the next measurement overwrites it. The file lives under
     /// <see cref="RadioConfig.AppDataRoot"/>, so a run with a throwaway settings
     /// folder never touches the operator's.
     ///
@@ -80,6 +86,20 @@ namespace JJFlexWpf
     public sealed class HelperModelCostStore
     {
         public const string FileName = "helperModelCosts.xml";
+
+        /// <summary>
+        /// How many measurements each architecture keeps (Sprint 49 Track K2,
+        /// X11). Five, the ruling's own example, because the rule reads their
+        /// median: the middle of five stays on a quiet measurement while up to
+        /// two of the five were taken on a busy machine (Track K measured
+        /// Premium CW's 99th percentile here at about 4 ms quiet, 5.2 to 8.2 ms
+        /// while compiling, and 80 to 788 ms under heavy load). The helper
+        /// measures once per start, so five is the last five helper starts:
+        /// recent enough that a changed machine moves the median within three
+        /// starts. More would hold an old machine's figures longer for little
+        /// more protection.
+        /// </summary>
+        public const int Kept = 5;
         /// <summary>How long a read or an update waits for another to finish before giving up.</summary>
         internal static readonly TimeSpan LockWait = TimeSpan.FromSeconds(5);
         /// <summary>
@@ -128,22 +148,34 @@ namespace JJFlexWpf
         public string FilePath => _path;
 
         /// <summary>The last measurement for an architecture (this process's by default), or null.</summary>
-        public HelperModelCostRecord? Find(string? architecture = null)
+        public HelperModelCostRecord? Find(string? architecture = null) => FindRecent(architecture).FirstOrDefault();
+
+        /// <summary>
+        /// The measurements kept for an architecture (this process's by default),
+        /// newest first, at most <see cref="Kept"/>; empty when there are none or
+        /// the file cannot be read. Read once, holding the lock, so the list is
+        /// the file at one moment.
+        /// </summary>
+        public IReadOnlyList<HelperModelCostRecord> FindRecent(string? architecture = null)
         {
             architecture ??= ThisArchitecture;
             HelperModelCostFile? file = null;
-            if (!Locked(() => file = Read())) return null;
-            return file!.Measurements.LastOrDefault(m => string.Equals(m.Architecture, architecture, StringComparison.Ordinal));
+            if (!Locked(() => file = Read())) return Array.Empty<HelperModelCostRecord>();
+            return Newest(Of(file!, architecture)).Take(Kept).ToList();
         }
 
-        /// <summary>Replace the measurement for the record's architecture. False when nothing was written.</summary>
+        /// <summary>Add a measurement to its architecture's list. False when nothing was written.</summary>
         public bool Record(HelperModelCostRecord record) => Save(record) == HelperModelCostSave.Saved;
 
         /// <summary>
-        /// Replace the measurement for the record's architecture, unless the file
-        /// already holds a later one for it: a save left queued from an earlier
-        /// helper run must not undo a later run's. Equal times replace (the later
-        /// call wins).
+        /// Add a measurement to its architecture's list, unless the file already
+        /// holds a later one for it: a save left queued from an earlier helper
+        /// run must not undo a later run's, nor sit after it in the list. Equal
+        /// times replace (the later call wins). The list keeps the newest
+        /// <see cref="Kept"/>. A record stamped more than <see cref="FutureSlack"/>
+        /// beyond the present came from a clock since set back and is dropped, so
+        /// it cannot freeze the list. The other architecture's records are written
+        /// back exactly as they were read.
         /// </summary>
         public HelperModelCostSave Save(HelperModelCostRecord record)
         {
@@ -152,20 +184,42 @@ namespace JJFlexWpf
             bool locked = Locked(() =>
             {
                 var file = Read();
-                var held = file.Measurements.LastOrDefault(m => string.Equals(m.Architecture, record.Architecture, StringComparison.Ordinal));
-                if (held != null && IsLater(held.MeasuredUtc, record.MeasuredUtc, DateTime.UtcNow))
+                var now = DateTime.UtcNow;
+                var mine = Of(file, record.Architecture);
+                var held = Newest(mine).FirstOrDefault(m => ToUtc(m.MeasuredUtc) <= now + FutureSlack);
+                if (held != null && IsLater(held.MeasuredUtc, record.MeasuredUtc, now))
                 {
                     System.Diagnostics.Trace.WriteLine($"HelperModelCostStore: kept the {record.Architecture} measurement of " +
                         $"{held.MeasuredUtc:O} over an earlier one of {record.MeasuredUtc:O}");
                     result = HelperModelCostSave.Older;
                     return;
                 }
+                var candidates = mine
+                    .Where(m => ToUtc(m.MeasuredUtc) <= now + FutureSlack && ToUtc(m.MeasuredUtc) != ToUtc(record.MeasuredUtc))
+                    .Append(record);
+                // Oldest first in the file, newest last: an app from before Track
+                // K2 reads an architecture's LAST record as its measurement, so it
+                // still reads the newest.
+                var kept = Newest(candidates).Take(Kept).Reverse().ToList();
                 file.Measurements.RemoveAll(m => string.Equals(m.Architecture, record.Architecture, StringComparison.Ordinal));
-                file.Measurements.Add(record);
+                file.Measurements.AddRange(kept);
                 result = Write(file) ? HelperModelCostSave.Saved : HelperModelCostSave.Failed;
             });
             return locked ? result : HelperModelCostSave.Failed;
         }
+
+        private static List<HelperModelCostRecord> Of(HelperModelCostFile file, string architecture) =>
+            file.Measurements.Where(m => string.Equals(m.Architecture, architecture, StringComparison.Ordinal)).ToList();
+
+        /// <summary>
+        /// Newest first, by the measurement's own time. Of two stamped alike, the
+        /// one later in the file counts as newer, as the last record did when the
+        /// file held one per architecture.
+        /// </summary>
+        private static IEnumerable<HelperModelCostRecord> Newest(IEnumerable<HelperModelCostRecord> records) =>
+            records.Select((r, i) => (Record: r, Index: i))
+                .OrderByDescending(x => ToUtc(x.Record.MeasuredUtc)).ThenByDescending(x => x.Index)
+                .Select(x => x.Record);
 
         /// <summary>
         /// Whether the held measurement is later than the offered one, and so is
@@ -263,10 +317,14 @@ namespace JJFlexWpf
     }
 
     /// <summary>
-    /// Premium CW's cost as the helper last measured it on this machine, for
-    /// the CW starting point's rule (<see cref="NoiseModeRules.ChooseCwModel"/>).
-    /// No measurement, or one in which Premium CW was not measured, is null,
-    /// which keeps the ruled unmeasured default.
+    /// Premium CW's cost on this machine, for the CW model rule
+    /// (<see cref="NoiseModeRules.ChooseCwModel(INnrCwCostSource)"/>): the
+    /// median of its 99th percentile over the measurements the store keeps
+    /// for this architecture (Sprint 49 Track K2, ruled 2026-11-19, X11: "the
+    /// middle of the last few measurements", so one busy moment does not
+    /// decide it). A measurement in which Premium CW was not measured gives no
+    /// figure and is not counted. None at all is null, which keeps the ruled
+    /// unmeasured default.
     /// </summary>
     public sealed class MeasuredNnrCwCost : INnrCwCostSource
     {
@@ -277,13 +335,26 @@ namespace JJFlexWpf
 
         internal MeasuredNnrCwCost(Func<HelperModelCostStore?> store) => _store = store;
 
-        public double? PremiumCw99thPercentileMs
+        public double? PremiumCw99thPercentileMs => ReadPremiumCw().Ms;
+
+        /// <summary>The median and how many measurements it was taken from, from one read of the store.</summary>
+        public NnrCwCost ReadPremiumCw()
         {
-            get
-            {
-                var slot = _store()?.Find()?.Measured("nnr", NoiseModeRules.NnrPremiumCw);
-                return slot == null ? null : slot.P99Nanos / 1e6;
-            }
+            var records = _store()?.FindRecent() ?? Array.Empty<HelperModelCostRecord>();
+            var figures = records.Select(r => r.Measured("nnr", NoiseModeRules.NnrPremiumCw))
+                .Where(s => s != null).Select(s => s!.P99Nanos / 1e6).ToList();
+            return figures.Count == 0 ? new NnrCwCost(null, 0) : new NnrCwCost(Median(figures), figures.Count);
+        }
+
+        /// <summary>
+        /// The middle figure; with an even count, halfway between the two middle
+        /// ones (the ordinary median).
+        /// </summary>
+        internal static double Median(IReadOnlyList<double> figures)
+        {
+            var sorted = figures.OrderBy(f => f).ToList();
+            int mid = sorted.Count / 2;
+            return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
         }
     }
 }

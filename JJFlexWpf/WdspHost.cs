@@ -533,6 +533,15 @@ namespace JJFlexWpf
         /// <summary>Tests only: runs once a ModelCosts has been remembered, or found to have nothing to remember.</summary>
         internal Action<IReadOnlyList<WdspModelCost>>? ModelCostsHandledForTest;
 
+        /// <summary>
+        /// A connection's model costs were saved in the store, so a reader of the
+        /// store now sees them (Sprint 49 Track K2: the CW model chosen before
+        /// the first measurement is looked at once more). Raised on a pool
+        /// thread, after the save, and only when the save took: not for a
+        /// measurement the store refused as older, nor one it could not write.
+        /// </summary>
+        public event EventHandler? ModelCostsRemembered;
+
         public WdspHelperState State { get { lock (Gate) return _state; } }
         internal int Failures { get { lock (Gate) return _failures; } }
         internal string Detail { get { lock (Gate) return _detail; } }
@@ -1451,17 +1460,26 @@ namespace JJFlexWpf
             var measured = DateTime.UtcNow;
             ThreadPool.QueueUserWorkItem(_ =>
             {
+                bool remembered = false;
                 try
                 {
                     // Stamped when it arrived, so a save that waits behind a later
                     // connection's is refused by the store rather than undoing it.
                     var saved = store?.Save(HelperModelCostStore.From(version, usable, measured));
                     if (saved == HelperModelCostSave.Saved)
+                    {
                         Trace.WriteLine($"WdspHost: remembered {usable.Count} model costs in {store!.FilePath}");
+                        remembered = true;
+                    }
                     else if (saved == HelperModelCostSave.Older)
                         Trace.WriteLine("WdspHost: did not remember these model costs: a later measurement is already remembered");
                 }
                 catch (Exception ex) { Trace.WriteLine("WdspHost: could not remember the model costs: " + ex.Message); }
+                if (remembered)
+                {
+                    try { ModelCostsRemembered?.Invoke(this, EventArgs.Empty); }
+                    catch (Exception ex) { Trace.WriteLine("WdspHost: a listener to the remembered model costs failed: " + ex.Message); }
+                }
                 ModelCostsHandledForTest?.Invoke(usable);
             });
         }

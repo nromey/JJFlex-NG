@@ -2264,6 +2264,8 @@ namespace Radios.Tests
                 "audio.noise_surface.start_digital",
                 "audio.noise_surface.cw_model",
                 "audio.noise_surface.voice_model_back",
+                // Sprint 49 Track K2 (X1): the provisional CW model switched after the first measurement. Placeholder, for the words round.
+                "audio.noise_surface.cw_model_measured",
                 "audio.noise_surface.start_failed",
                 "audio.noise_layer.entered",
                 "audio.noise_layer.switches_only",

@@ -72,6 +72,18 @@ namespace JJFlexWpf
         public string NnrVoiceModelOwed { get; set; } = "";
 
         /// <summary>
+        /// The CW model the measured rule chose while this machine had no
+        /// Premium CW figure, still waiting to be looked at once more; empty
+        /// when nothing is provisional (Sprint 49 Track K2, ruled 2026-11-19,
+        /// X1). When the first figure arrives, if CW's model is still this one
+        /// and the operator has not changed it, the rule is run once more, and
+        /// the model switched if it now says otherwise. A choice made with a
+        /// figure clears it, an operator's own choice of CW's model clears it,
+        /// and the one look clears it, so nothing is ever looked at twice.
+        /// </summary>
+        public string NnrCwModelProvisional { get; set; } = "";
+
+        /// <summary>
         /// The mode group the stored settings were last in ("voice", "cw" or
         /// "digital"; empty in a config written before this existed). At
         /// connect it tells "back in the group the settings were saved in"
@@ -97,9 +109,31 @@ namespace JJFlexWpf
     {
         /// <summary>Premium CW's 99th-percentile frame cost in milliseconds on this machine, or null when nobody has measured it.</summary>
         double? PremiumCw99thPercentileMs { get; }
+
+        /// <summary>
+        /// The figure and how many measurements it was taken from, read together
+        /// so the two cannot disagree (Sprint 49 Track K2, X11: the figure is the
+        /// median of the last few measurements). A source that keeps one figure
+        /// reports it as the median of one.
+        /// </summary>
+        NnrCwCost ReadPremiumCw()
+        {
+            double? ms = PremiumCw99thPercentileMs;
+            return new NnrCwCost(ms, ms is null ? 0 : 1);
+        }
     }
 
-    /// <summary>The source the app uses today: the helper does not yet measure Premium CW (per-model calibration is held helper work), so it never knows.</summary>
+    /// <summary>
+    /// Premium CW's 99th-percentile frame cost in milliseconds, the median of
+    /// <see cref="Measurements"/> measurements; null (and 0) when there is none.
+    /// </summary>
+    public readonly record struct NnrCwCost(double? Ms, int Measurements);
+
+    /// <summary>
+    /// The source used when none is given (tests, and any caller without a
+    /// store): it never knows. The app passes <see cref="MeasuredNnrCwCost"/>
+    /// (HelperModelCosts.cs), which reads the helper's measurements.
+    /// </summary>
     public sealed class UnmeasuredNnrCwCost : INnrCwCostSource
     {
         public double? PremiumCw99thPercentileMs => null;
@@ -123,7 +157,10 @@ namespace JJFlexWpf
         /// recommendation of Standard CW: Premium CW. The measured rule above
         /// takes over by itself the day the cost source reports a figure.
         /// PRE-TESTER ITEM: a slower tester machine needs the measured rule
-        /// live, or this needs asking again.
+        /// live, or this needs asking again. The measured rule is live with a
+        /// helper that reports ModelCosts (Sprint 49 Track K), and a CW model
+        /// chosen on this default before the first figure arrives is
+        /// provisional: looked at once more when it does (Track K2, X1).
         /// </summary>
         public const string UnmeasuredCwModel = NnrPremiumCw;
 
@@ -145,7 +182,7 @@ namespace JJFlexWpf
 
         /// <summary>The CW model to start with, and whether it rests on a measurement.</summary>
         public static (string Model, bool Measured, bool Fast) ChooseCwModel(INnrCwCostSource source) =>
-            ChooseCwModel(source.PremiumCw99thPercentileMs);
+            ChooseCwModel(source.ReadPremiumCw().Ms);
 
         /// <summary>The same rule from one reading of the figure, so a caller that also says why reads the source once (Sprint 49 Track N2).</summary>
         public static (string Model, bool Measured, bool Fast) ChooseCwModel(double? cost)
@@ -159,14 +196,17 @@ namespace JJFlexWpf
         /// Why the rule chose as it did, for the trace and the noise journal
         /// (Sprint 49 Track N2; before this only the spoken sentence said why):
         /// the measured figure against the line, or the unmeasured default.
-        /// Diagnostic text, never spoken.
+        /// Since Sprint 49 Track K2 it also says how many measurements the
+        /// figure is the median of. Diagnostic text, never spoken.
         /// </summary>
-        public static string CwModelReason(double? cost)
+        /// <param name="measurements">How many measurements <paramref name="cost"/> is the median of.</param>
+        public static string CwModelReason(double? cost, int measurements = 1)
         {
             var (_, measured, fast) = ChooseCwModel(cost);
             if (!measured) return "unmeasured default, no Premium CW figure on this machine";
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             return "Premium CW measured " + cost!.Value.ToString("0.00", inv) + " ms at the 99th percentile, "
+                + "the median of " + measurements.ToString(inv) + (measurements == 1 ? " measurement, " : " measurements, ")
                 + (fast ? "under" : "not under") + " the " + PremiumCwBudgetMs.ToString("0.##", inv) + " ms line";
         }
     }
