@@ -1,0 +1,1 @@
+- A tune press always turns off a tune carrier you started, even if the radio switched its tuner to automatic in the moment after you connected. It used to start the tuner's own tuning on top of the carrier instead.

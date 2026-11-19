@@ -7559,6 +7559,16 @@ public partial class MainWindow : UserControl
     public void StartATUTuneCycle()
     {
         if (RigControl == null) return;
+        // #1141: a press with our tune carrier asked for or up stops it, whatever
+        // the tuner type, ahead of every refusal (a stop is never refused). The
+        // radio's ATUEnabled status can flip the type to automatic under a
+        // carrier keyed in manual type, and the next press then started an ATU
+        // cycle on top of that carrier instead of turning it off.
+        if (RigControl.TuneAskedOrUp)
+        {
+            TuneKeyCarrierPress();
+            return;
+        }
         // #1127 (J4): what this press does, by tuner state (Radios.TunePress).
         // Out of automatic type, with or without an ATU, it is the tune
         // carrier's own key; automatic type is the ATU's tune, as before.

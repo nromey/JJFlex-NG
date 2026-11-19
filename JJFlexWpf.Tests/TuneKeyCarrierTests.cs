@@ -302,4 +302,34 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Assert.Contains(Tune, said);
         Assert.DoesNotContain(Lexicon.Get("audio.tune.tune_carrier_sent"), said);
     }
+
+    /// <summary>
+    /// #1141: a carrier keyed in manual type, then the radio's ATUEnabled
+    /// report turns the type automatic under it (FlexBase's ATUEnabled case;
+    /// both arrival orders are in Radios.Tests' TuneTypeFlipTests). The next
+    /// press must stop that carrier. Until then it was read by type, set the
+    /// tuner latch and queued an ATU start on top of the live carrier.
+    /// </summary>
+    [Fact]
+    public void A_press_stops_our_carrier_even_after_the_type_turned_automatic_under_it()
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        Press(main);
+        Assert.True(_rig.TuneAskedOrUp, "positive control: the first press asked for a carrier");
+
+        // What the radio's ATUEnabled report does under the carrier.
+        typeof(FlexBase).GetField("_FlexTunerType", Any)!.SetValue(_rig, FlexBase.FlexTunerTypes.auto);
+        _rig.MyCaps.getCaps = _rig.MyCaps.SetCap(_rig.MyCaps.getCaps, RigCaps.Caps.ATGet);
+        Assert.Equal(TunePressOutcome.AtuTune,
+            TunePress.For(_rig.MyCaps.HasCap(RigCaps.Caps.ATGet), _rig.FlexTunerType));
+
+        _now += 400;
+        var said = Said(() => main.StartATUTuneCycle());
+        Assert.False(_rig.TuneAskedOrUp, "the press writes our carrier off");
+        Assert.False(LastWriteWasOn());
+        Assert.False(_rig.FlexTunerOn, "no tuner latch, so no ATU cycle was asked for");
+        Assert.DoesNotContain(Lexicon.Get("audio.tune.atu_tuning"), said);
+    }
 }
