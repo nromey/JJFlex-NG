@@ -38,7 +38,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         using var bench = NewStatusBench(out var rig);
         Put(rig, "_RXFrequency", 14_100_000UL);
         Put(rig, "_RXMode", "USB");
-        RecallMarks MarksNow() => new(rig, rig.RXVFO, 4, rig.RXFrequencyRequests, rig.RXSliceChoices);
+        RecallMarks MarksNow() => new(rig, rig.RXSliceIdentity, 4, rig.RXFrequencyRequests, rig.RXSliceChoices);
         var recall = new PendingRecall(7_030_000, "CW", RadioStatusBuilder.BuildDetailedStatus(rig), 1000, MarksNow());
 
         // Positive control: nothing intervened, the landing names the recall.

@@ -13,13 +13,20 @@ namespace Radios
     /// another slice and back restores the slice number, so only the count of
     /// moves can see the round trip, as only the count of frequency requests
     /// can see a tune the radio's own report has overwritten.
+    ///
+    /// The slice is its identity, not its position (repair 4, Codex's third
+    /// re-check): the selected slice object, compared by reference, and a count
+    /// of every effective change of it, whether the app, the radio's own report
+    /// or a slice arriving or leaving made it. A position confused the selected
+    /// slice's replacement at the same position with the slice itself, and the
+    /// same slice reindexed by a lower one leaving with a move.
     /// </summary>
-    public sealed record RecallMarks(object? Radio, int ReceiveSlice, int ModeChoices, int FrequencyRequests, int SliceChoices)
+    public sealed record RecallMarks(object? Radio, object? ReceiveSlice, int ModeChoices, int FrequencyRequests, int SliceChoices)
     {
         /// <summary>The same radio, the same receive slice, and no choice made since.</summary>
         public bool SameAs(RecallMarks other) =>
             ReferenceEquals(Radio, other.Radio)
-            && ReceiveSlice == other.ReceiveSlice
+            && ReferenceEquals(ReceiveSlice, other.ReceiveSlice)
             && ModeChoices == other.ModeChoices
             && FrequencyRequests == other.FrequencyRequests
             && SliceChoices == other.SliceChoices;

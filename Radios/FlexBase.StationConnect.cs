@@ -817,6 +817,7 @@ namespace Radios
                 if (d.RestoreRx)
                 {
                     _rig._RXVFO = d.RxPosition;
+                    _rig.NoteReceiveSliceSelection("identity restored");
                     rx.Active = true;
                 }
                 if (d.RestoreTx)

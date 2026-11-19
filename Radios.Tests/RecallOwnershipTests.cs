@@ -125,7 +125,8 @@ namespace Radios.Tests
         public void A_pending_recall_owns_the_radio_only_until_a_later_choice()
         {
             var radio = new object();
-            var marks = new RecallMarks(radio, 0, ModeChoices: 4, FrequencyRequests: 9, SliceChoices: 2);
+            var slice = new object();   // the slice itself (repair 4), not its position
+            var marks = new RecallMarks(radio, slice, ModeChoices: 4, FrequencyRequests: 9, SliceChoices: 2);
             // A fresh recall for each case: retirement is permanent (repair 3),
             // so a case after the first false answer on a shared recall would
             // pass whatever its marks said.
@@ -135,7 +136,8 @@ namespace Radios.Tests
             Assert.False(Fresh().StillOwns(marks, 1001 + PendingRecall.LifetimeMs), "outlived");
             Assert.False(Fresh().StillOwns(marks with { FrequencyRequests = 10 }, 1000), "a tune");
             Assert.False(Fresh().StillOwns(marks with { ModeChoices = 5 }, 1000), "a mode choice");
-            Assert.False(Fresh().StillOwns(marks with { ReceiveSlice = 1 }, 1000), "a slice change");
+            Assert.False(Fresh().StillOwns(marks with { ReceiveSlice = new object() }, 1000), "another slice");
+            Assert.False(Fresh().StillOwns(marks with { ReceiveSlice = null }, 1000), "no slice selected");
             Assert.False(Fresh().StillOwns(marks with { SliceChoices = 4 }, 1000), "a slice change and back");
             Assert.False(Fresh().StillOwns(marks with { Radio = null }, 1000), "a disconnect");
             Assert.False(Fresh().StillOwns(marks with { Radio = new object() }, 1000), "another radio");
@@ -148,7 +150,7 @@ namespace Radios.Tests
             // mark comes back. A disconnect and the same radio object again is
             // the case no count can see.
             var radio = new object();
-            var marks = new RecallMarks(radio, 0, 4, 9, 2);
+            var marks = new RecallMarks(radio, new object(), 4, 9, 2);
             var recall = new PendingRecall(7_030_000, "CW", At(14_100_000, "USB"), 1000, marks);
             var control = new PendingRecall(7_030_000, "CW", At(14_100_000, "USB"), 1000, marks);
 
@@ -164,7 +166,7 @@ namespace Radios.Tests
         public void A_later_choice_retires_the_ask_before_the_landing_and_its_pending_answer_after()
         {
             var radio = new object();
-            var marks = new RecallMarks(radio, 0, 4, 9, 2);
+            var marks = new RecallMarks(radio, new object(), 4, 9, 2);
             var current = marks;
             long ticks = 1000;
             var recall = new PendingRecall(7_030_000, "CW", At(14_100_000, "USB"), 1000, marks);

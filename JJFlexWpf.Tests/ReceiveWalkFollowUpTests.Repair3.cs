@@ -32,7 +32,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         using var bench = NewStatusBench(out var rig);
         Put(rig, "_RXFrequency", 14_100_000UL);
         Put(rig, "_RXMode", "USB");
-        RecallMarks MarksNow() => new(rig, rig.RXVFO, 4, rig.RXFrequencyRequests, rig.RXSliceChoices);
+        RecallMarks MarksNow() => new(rig, rig.RXSliceIdentity, 4, rig.RXFrequencyRequests, rig.RXSliceChoices);
         int slice = rig.RXVFO;
         int requests = rig.RXFrequencyRequests;
         var recall = new PendingRecall(7_030_000, "CW", RadioStatusBuilder.BuildDetailedStatus(rig), 1000, MarksNow());
@@ -70,7 +70,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         using var bench = NewStatusBench(out var rig);
         Put(rig, "_RXFrequency", 14_100_000UL);
         Put(rig, "_RXMode", "USB");
-        RecallMarks MarksNow() => new(rig, rig.RXVFO, 4, rig.RXFrequencyRequests, rig.RXSliceChoices);
+        RecallMarks MarksNow() => new(rig, rig.RXSliceIdentity, 4, rig.RXFrequencyRequests, rig.RXSliceChoices);
         var recall = new PendingRecall(7_030_000, "CW", RadioStatusBuilder.BuildDetailedStatus(rig), 1000, MarksNow());
         Assert.NotNull(recall.AskIfStillOwned(MarksNow, () => 1000));
         Assert.NotNull(recall.AskIfStillOwned(MarksNow, () => 1001));
