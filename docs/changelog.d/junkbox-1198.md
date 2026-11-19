@@ -1,0 +1,1 @@
+- In the tracking notch window, leaving the Width box without changing it no longer sends anything to the radio, and a typed notch frequency outside 30 kilohertz to 54 megahertz is now refused with a sentence instead of being quietly moved to the nearest edge.

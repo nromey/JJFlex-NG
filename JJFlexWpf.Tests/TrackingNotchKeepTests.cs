@@ -267,6 +267,119 @@ public sealed class TrackingNotchKeepTests
         });
     }
 
+    // ---- #1198: Width writes only a change; #1189 item 2: a typed frequency out of range is refused ----
+
+    private static (TNFDialog Dialog, TextBox Width, List<(int, int)> Writes) WidthDialog()
+    {
+        var (dialog, list, _, _) = Dialog(new[] { false, false });
+        var writes = new List<(int, int)>();
+        dialog.SetTNFWidth = (i, w) => writes.Add((i, w));
+        list.SelectedIndex = 1;
+        Invoke(dialog, "UpdateTNFProperties");
+        var width = (TextBox)typeof(TNFDialog).GetField("WidthBox", Private | BindingFlags.Public)!.GetValue(dialog)!;
+        return (dialog, width, writes);
+    }
+
+    [Fact]
+    public void TabbingThroughAnUnchangedWidthWritesNothing()
+    {
+        Run(() =>
+        {
+            var (dialog, width, writes) = WidthDialog();
+            Assert.Equal("100", width.Text);   // the radio's, shown on selection
+            Handler(dialog, "WidthBox_LostFocus")(width, new RoutedEventArgs());
+            Assert.Empty(writes);
+
+            // Positive control: a changed width is written, once.
+            width.Text = "150";
+            Handler(dialog, "WidthBox_LostFocus")(width, new RoutedEventArgs());
+            Handler(dialog, "WidthBox_LostFocus")(width, new RoutedEventArgs());
+            Assert.Equal(new[] { (1, 150) }, writes.ToArray());
+        });
+    }
+
+    [Fact]
+    public void LeavingTheWidthAfterAnArrowWritesNothingMore()
+    {
+        Run(() =>
+        {
+            var (dialog, width, writes) = WidthDialog();
+            typeof(TNFDialog).GetMethod("AdjustWidth", Private)!.Invoke(dialog, new object[] { 1, 50 });
+            Assert.Equal(new[] { (1, 150) }, writes.ToArray());
+            Assert.Equal("150", width.Text);
+            // The radio's read-back still says 100 (a queued write lags); the
+            // comparison is with what was shown, so nothing more goes out.
+            Handler(dialog, "WidthBox_LostFocus")(width, new RoutedEventArgs());
+            Assert.Single(writes);
+        });
+    }
+
+    [Fact]
+    public void WidthTextThatIsNotANumberPutsTheShownWidthBackAndWritesNothing()
+    {
+        Run(() =>
+        {
+            var (dialog, width, writes) = WidthDialog();
+            width.Text = "wide";
+            Handler(dialog, "WidthBox_LostFocus")(width, new RoutedEventArgs());
+            Assert.Empty(writes);
+            Assert.Equal("100", width.Text);
+        });
+    }
+
+    [Theory]
+    [InlineData("60.0")]        // 60 MHz, read by the tuning entry's parser
+    [InlineData("0.020.000")]   // 20 kHz, in the box's own shown form
+    [InlineData("54.000.001")]  // one hertz over the top
+    public void ATypedFrequencyOutsideTheNotchRangeIsRefusedAndMovesNothing(string typed)
+    {
+        Run(() =>
+        {
+            var (dialog, _, box, moves) = MoveDialog();
+            Assert.NotNull(TNFDialog.ParseFrequencyHz(typed));   // a number that was read, not unreadable text
+            box.Text = typed;
+            dialog.ApplyTypedFrequency(1);
+            Assert.Empty(moves);
+            Assert.Equal("14.201.000", box.Text);
+        });
+    }
+
+    [Theory]
+    [InlineData("0.030.000", 30_000UL)]
+    [InlineData("54.000.000", 54_000_000UL)]
+    [InlineData("7.074", 7_074_000UL)]
+    public void ATypedFrequencyInsideTheNotchRangeMoves(string typed, ulong hz)
+    {
+        Run(() =>
+        {
+            var (dialog, _, box, moves) = MoveDialog();
+            box.Text = typed;
+            dialog.ApplyTypedFrequency(1);
+            Assert.Equal(new[] { (1, hz) }, moves.ToArray());
+        });
+    }
+
+    [Fact]
+    public void TheRangeIsTheRadioLayersAndOnlyTheTypedPathRefuses()
+    {
+        Assert.Equal(30_000UL, Radios.FlexBase.TNFFrequencyMinHz);       // the refusal's sentence names these two
+        Assert.Equal(54_000_000UL, Radios.FlexBase.TNFFrequencyMaxHz);
+        Assert.True(TNFDialog.FrequencyInRange(30_000));
+        Assert.False(TNFDialog.FrequencyInRange(29_999));
+        Assert.True(TNFDialog.FrequencyInRange(54_000_000));
+        Assert.False(TNFDialog.FrequencyInRange(54_000_001));
+
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "TNFDialog.xaml.cs")).Replace("\r\n", "\n");
+        int typed = src.IndexOf("internal void ApplyTypedFrequency(int idx)", StringComparison.Ordinal);
+        string body = src.Substring(typed, src.IndexOf("\n    }\n", typed, StringComparison.Ordinal) - typed);
+        int refuse = body.IndexOf("\"settings.tnf.frequency_out_of_range\"", StringComparison.Ordinal);
+        Assert.True(refuse > 0 && refuse < body.IndexOf("MoveTo(idx, hz.Value);", StringComparison.Ordinal),
+            "the refusal comes before the move");
+        int step = src.IndexOf("internal void StepFrequency(int idx, int deltaHz)", StringComparison.Ordinal);
+        string arrows = src.Substring(step, src.IndexOf("\n    }\n", step, StringComparison.Ordinal) - step);
+        Assert.DoesNotContain("FrequencyInRange", arrows);   // the arrows stop at the edge, by design
+    }
+
     [Fact]
     public void TheHelpTextCarriesNoSpokenMarker()
     {

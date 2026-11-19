@@ -3032,6 +3032,8 @@ namespace Radios.Tests
                 "connect.update.exit_cancelled",
                 // #1195, an added or edited operator that could not be saved.
                 "settings.operator.not_saved",
+                // #1189 item 2, a typed notch frequency outside the range a notch can go.
+                "settings.tnf.frequency_out_of_range",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
