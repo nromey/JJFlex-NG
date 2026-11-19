@@ -60,6 +60,12 @@ public static class TNFLauncher
             GetTNFCount = () => rig.TNFCount(),
             GetTNFFrequencyDisplay = i => rig.TNFFrequencyDisplay(i),
 
+            // #773: moving a notch, and the app's own frequency format for
+            // the box, the row and the spoken frequency.
+            GetTNFFrequencyHz = i => rig.TNFFrequencyHz(i),
+            SetTNFFrequencyHz = (i, hz) => rig.SetTNFFrequencyHz(i, hz),
+            FormatTNFFrequency = hz => rig.TNFFrequencyDisplayFor(hz),
+
             GetTNFWidth = i => rig.TNFWidthHz(i),
             SetTNFWidth = (i, hz) => rig.SetTNFWidthHz(i, hz),
 

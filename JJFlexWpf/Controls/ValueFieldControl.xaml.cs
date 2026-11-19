@@ -398,6 +398,25 @@ public partial class ValueFieldControl : UserControl, ValueFieldControl.ReaderAw
             }
         }
 
+        /// <summary>
+        /// Keyboard focus has left this field (#1013): a dialog opened over
+        /// it, the app lost the foreground (Alt+Tab), or focus moved on. Its
+        /// name, if it trails the number, is brought up to date now, while the
+        /// reader is somewhere else, by the rule <see cref="StatusTextName"/>
+        /// uses (<see cref="StatusTextName.RenamesNow"/>). Logical focus stays
+        /// on the field across a dialog or Alt+Tab, so <c>OnGotFocus</c> does
+        /// not run on the way back and could not refresh it then.
+        /// </summary>
+        internal static void KeyboardFocusLeft(IStaleName field, bool hasKeyboardFocus)
+        {
+            if (!StatusTextName.RenamesNow(hasKeyboardFocus)) return;
+            if (s_stale != null && s_stale.TryGetTarget(out IStaleName? held) && ReferenceEquals(held, field))
+            {
+                s_stale = null;
+                field.RefreshStaleName();
+            }
+        }
+
         /// <summary>For tests: forget everything.</summary>
         internal static void Reset()
         {
@@ -983,5 +1002,16 @@ public partial class ValueFieldControl : UserControl, ValueFieldControl.ReaderAw
     {
         base.OnLostFocus(e);
         OuterBorder.BorderBrush = System.Windows.Media.Brushes.Gray;
+    }
+
+    /// <summary>
+    /// #1013: a name that trailed the number while the field held keyboard
+    /// focus is brought up to date as that focus leaves (a dialog, Alt+Tab, or
+    /// Tab), so the reader reads the current number when it comes back.
+    /// </summary>
+    protected override void OnLostKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        base.OnLostKeyboardFocus(e);
+        ReaderAway.KeyboardFocusLeft(this, IsKeyboardFocusWithin);
     }
 }

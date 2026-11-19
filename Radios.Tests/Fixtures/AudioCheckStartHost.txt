@@ -11,6 +11,14 @@ public static class AudioCheckPowerRule
         int watts, int current, bool dummyLoad) => Radios.AudioCheckPowerRule.Plan(model,
             Enum.Parse<Radios.AudioCheckListenMethods>(method.ToString()),
             Enum.Parse<Radios.AudioCheckPowerModes>(mode.ToString()), watts, current, dummyLoad);
+
+    // The cap that changes nothing, said once on the air (#567).
+    public static bool CapLeavesPowerUnchanged(string model, AudioCheckListenMethods method, AudioCheckPowerModes mode,
+        int watts, int current, bool dummyLoad) => Radios.AudioCheckPowerRule.CapLeavesPowerUnchanged(model,
+            Enum.Parse<Radios.AudioCheckListenMethods>(method.ToString()),
+            Enum.Parse<Radios.AudioCheckPowerModes>(mode.ToString()), watts, current, dummyLoad);
+
+    public static string CapAboveCurrentNotice(int watts, int current) => "cap above current";
 }
 
 public class Host

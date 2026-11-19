@@ -1,0 +1,1 @@
+- In Settings, you can now hear the explanation for each connection choice by pressing Ctrl+F1.

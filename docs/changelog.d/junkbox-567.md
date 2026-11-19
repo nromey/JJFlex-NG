@@ -1,0 +1,1 @@
+- Check your audio now names its power limit clearly and explains why a higher limit does not raise your radio's power.

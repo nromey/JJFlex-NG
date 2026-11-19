@@ -256,6 +256,99 @@ public sealed class MemoriesDetailsFollowSelectionTests
         });
     }
 
+    // ---- #1079: Enter in Frequency writes once; Tab never clamps a value nobody edited ----
+
+    [Fact]
+    public void Enter_in_Frequency_then_the_focus_move_writes_a_rejected_frequency_once()
+    {
+        OnSta(() =>
+        {
+            var rig = Open(Three());
+            var a = rig.Memories[0];
+            // The radio rejects it: the memory keeps its frequency, and the box
+            // keeps the typed text (the same memory's details are left alone).
+            rig.Dialog.SetFrequencyFromText = (o, v) => rig.Writes.Add("Freq " + ((FakeMemory)o).Id + "=" + v);
+            rig.Box("FreqBox").Text = "999";
+
+            PressEnterInFrequency(rig);
+            rig.Call("FreqBox_LostFocus");   // WPF raises it as Enter moves focus on
+
+            Assert.Equal(new[] { "Freq A=999" }, rig.Writes);
+            Assert.Equal("14.074000", a.Freq);
+        });
+    }
+
+    [Fact]
+    public void After_Enter_an_edit_in_Frequency_still_writes_when_the_box_is_left()
+    {
+        OnSta(() =>
+        {
+            var rig = Open(Three());
+            rig.Box("FreqBox").Text = "14.100000";
+            PressEnterInFrequency(rig);
+            rig.Call("FreqBox_LostFocus");
+            // Back in the box, a new value, then away again: written.
+            rig.Box("FreqBox").Text = "14.200000";
+            rig.Call("FreqBox_LostFocus");
+
+            Assert.Equal(new[] { "Freq A=14.100000", "Freq A=14.200000" }, rig.Writes);
+        });
+    }
+
+    [Fact]
+    public void Tab_through_filter_edges_outside_the_typed_range_leaves_them_as_they_are()
+    {
+        OnSta(() =>
+        {
+            var cw = Memory("A", "7.030000", "Straight key", "Me", "CW", -12600, 12600, 0, 0);
+            var rig = Open(new List<FakeMemory> { cw });
+            Assert.Equal("-12600", rig.Box("FilterLowBox").Text);
+
+            rig.Call("FilterLowBox_LostFocus");
+            rig.Call("FilterHighBox_LostFocus");
+
+            Assert.True(rig.Writes.Count == 0, "Tab through an unedited filter wrote: " + string.Join("; ", rig.Writes));
+            Assert.Equal("-12600", rig.Box("FilterLowBox").Text);
+            Assert.Equal("12600", rig.Box("FilterHighBox").Text);
+            Assert.Equal((-12600, 12600), (cw.Low, cw.High));
+        });
+    }
+
+    [Fact]
+    public void A_typed_filter_edge_outside_the_range_is_still_held_to_it()
+    {
+        OnSta(() =>
+        {
+            var rig = Open(Three());
+            rig.Box("FilterLowBox").Text = "-13000";
+            rig.Call("FilterLowBox_LostFocus");
+            rig.Box("FilterHighBox").Text = "13000";
+            rig.Call("FilterHighBox_LostFocus");
+
+            Assert.Equal(new[] { "Low A=-12000", "High A=12000" }, rig.Writes);
+            Assert.Equal("-12000", rig.Box("FilterLowBox").Text);
+        });
+    }
+
+    /// <summary>Enter in Frequency, through the dialog's own key handler. The box is not in the scope, so the handler's focus move goes nowhere and the test raises the LostFocus that WPF would.</summary>
+    private static void PressEnterInFrequency(Rig rig)
+    {
+        var box = rig.Box("FreqBox");
+        var enter = new KeyEventArgs(Keyboard.PrimaryDevice, new NoSource(), 0, Key.Return) { RoutedEvent = Keyboard.KeyDownEvent };
+        (typeof(MemoriesDialog).GetMethod("FreqBox_KeyDown", AnyInstance)
+            ?? throw new InvalidOperationException("MemoriesDialog has no handler FreqBox_KeyDown"))
+            .Invoke(rig.Dialog, new object?[] { box, enter });
+        Assert.True(enter.Handled);
+    }
+
+    /// <summary>A presentation source for a key event only: it shows nothing and hosts nothing.</summary>
+    private sealed class NoSource : PresentationSource
+    {
+        protected override System.Windows.Media.CompositionTarget GetCompositionTargetCore() => null!;
+        public override System.Windows.Media.Visual RootVisual { get; set; } = null!;
+        public override bool IsDisposed => false;
+    }
+
     private static List<FakeMemory> Three() => new()
     {
         Memory("A", "14.074000", "Calling", "Me", "FT8", -100, 3000, 10, 0),

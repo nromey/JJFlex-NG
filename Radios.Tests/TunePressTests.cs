@@ -149,7 +149,7 @@ public sealed class TunePressTests : IDisposable
     public void The_press_says_tune_carrier_whenever_it_sends_one_and_ATU_tuning_only_otherwise()
     {
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
-        int at = main.IndexOf("public void StartATUTuneCycle()", StringComparison.Ordinal);
+        int at = main.IndexOf("private void TunePressFor(bool ours)", StringComparison.Ordinal);   // the press's body since batch 14 repair 1
         string body = main.Substring(at, main.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
         Assert.Contains("Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType)", body);
         Assert.Contains("if (outcome == Radios.TunePressOutcome.NoTuner)", body);
@@ -195,16 +195,25 @@ public sealed class TunePressTests : IDisposable
     public void The_tune_keys_carrier_is_the_toggles_own()
     {
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
-        string press = Body(main, "private void TuneKeyCarrierPress()");
-        Assert.Contains(".Decide(TuneKeyClock(), isRepeat: false, ours, () => true)", press);
-        Assert.Contains("bool ours = rig.TuneAskedOrUp;", press);
-        int stop = press.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
-        int start = press.IndexOf("case Radios.PressAct.Start:", StringComparison.Ordinal);
-        Assert.True(stop > 0 && start > stop);
-        string stopArm = press.Substring(stop, start - stop);
+        // Batch 14 repair 1: the gate and its stop sit in TunePressFor, ahead
+        // of the tuner type, deciding from the one read its caller passed in;
+        // TuneKeyCarrierPress is the start alone.
+        string gate = Body(main, "private void TunePressFor(bool ours)");
+        // Repair round 5: live is our carrier OR the tuner latch, both read once.
+        Assert.Contains(".Decide(TuneKeyClock(), isRepeat: _registryKeyIsRepeat, ours || latched, () => true)", gate);
+        Assert.DoesNotContain("TuneAskedOrUp", gate);
+        int stop = gate.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
+        int nothing = gate.IndexOf("case Radios.PressAct.Nothing:", StringComparison.Ordinal);
+        Assert.True(stop > 0 && nothing > stop);
+        string stopArm = gate.Substring(stop, nothing - stop);
         Assert.Contains("TurnTuneCarrierOff();", stopArm);
+        Assert.Contains("return;", stopArm);
         Assert.DoesNotContain("ToggleTuneCarrier", stopArm);
+        Assert.True(nothing < gate.IndexOf("Radios.TunePress.For(", StringComparison.Ordinal), "the gate decides before the type is read");
+        string press = Body(main, "private void TuneKeyCarrierPress()");
+        Assert.Contains("try { ToggleTuneCarrier(); }", press);
         Assert.DoesNotContain("FlexTunerOn", press);
+        Assert.DoesNotContain(".Decide(", press);
 
         // The radio's answer, "Tune on", queues behind the press's sentence
         // rather than cutting it, and only on this route.

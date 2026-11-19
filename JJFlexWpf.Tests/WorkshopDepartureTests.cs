@@ -304,6 +304,9 @@ public sealed class WorkshopDepartureTests
                 gain?.Dispose();
                 rig.Dispose();
                 ScreenReaderOutput.CurrentVerbosity = verbosity;
+                // The arrow's "Mic Gain 39" is still held when the body returns;
+                // drop it here, or the next class to listen hears it (#1139).
+                SpeechStateReset.Now();
             }
         });
         thread.SetApartmentState(System.Threading.ApartmentState.STA);

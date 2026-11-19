@@ -250,12 +250,16 @@ public class NativeMenuBar : IDisposable
             _subscribedRig.SliceCountChanged -= OnSliceCountChanged;
             _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
             _subscribedRig.OwnerProfileLoadOffered -= OnOwnerProfileLoadOffered;
+            _subscribedRig.ModeChanged -= OnModeChanged;
+            _subscribedRig.ActiveSliceChanged -= OnActiveSliceChanged;
         }
         if (rig != null)
         {
             rig.SliceCountChanged += OnSliceCountChanged;
             rig.ConnectionStateChanged += OnConnectionStateChanged;
             rig.OwnerProfileLoadOffered += OnOwnerProfileLoadOffered;
+            rig.ModeChanged += OnModeChanged;
+            rig.ActiveSliceChanged += OnActiveSliceChanged;
         }
         _subscribedRig = rig;
     }
@@ -312,6 +316,32 @@ public class NativeMenuBar : IDisposable
     private void OnConnectionStateChanged(bool connected)
     {
         QueueMenuRebuild(connected ? "connected" : "disconnected");
+    }
+
+    /// <summary>
+    /// The Filter menu's preset rows are built for one mode's list (#960,
+    /// batch 14 repair round 2, Codex's F1): SSB, DIGI and CW each have their
+    /// own. A mode change rebuilds the menu, the same coalesced way a slice
+    /// count or a connection change does, so the rows are the live mode's
+    /// list; until the rebuild has run, a row's check reads off only while
+    /// the live mode still uses the list the rows were built from
+    /// (<see cref="Radios.FilterPresets.RowIsActive"/>). Raised on the
+    /// radio's thread; the rebuild goes through the dispatcher.
+    /// </summary>
+    private void OnModeChanged(string mode)
+    {
+        QueueMenuRebuild("mode changed to " + mode);
+    }
+
+    /// <summary>
+    /// Selecting another existing slice changes the mode the Filter menu's
+    /// rows must follow without any mode change being reported (#960, batch 14
+    /// repair round 3, Codex's F1): the radio raises the slices' Active and its
+    /// ActiveSlice, never ModeChanged. The same coalesced rebuild.
+    /// </summary>
+    private void OnActiveSliceChanged()
+    {
+        QueueMenuRebuild("selected slice changed");
     }
 
     /// <summary>
@@ -453,6 +483,8 @@ public class NativeMenuBar : IDisposable
             // but never unhooked here — the leaked handler was another way a
             // rebuild could fire against a disposed menu bar.
             _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
+            _subscribedRig.ModeChanged -= OnModeChanged;
+            _subscribedRig.ActiveSliceChanged -= OnActiveSliceChanged;
             _subscribedRig = null;
         }
         if (_currentMenuBar != IntPtr.Zero)
@@ -663,7 +695,9 @@ public class NativeMenuBar : IDisposable
         if (!stored)
         {
             Tracing.TraceLine("Profiles on This Radio: " + intent + " was not saved", TraceLevel.Warning);
+            // Critical: a failed save is heard at every verbosity, Off included (#1086 F8).
             SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.not_saved"),
+                Radios.VerbosityLevel.Critical,
                 subject: Radios.Speech.SpeechSubject.ProfileGuestOutcome);
             return;   // nothing changed, so the menu's marks stand
         }
@@ -1145,7 +1179,10 @@ public class NativeMenuBar : IDisposable
                 SayFilterWrite(newLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.range", ("low", l), ("high", h)));
             }
         });
-        AddWired(parent, "Shift Low Edge Up", () =>
+        // #960, Codex's words: a label that begins with a modifier word
+        // ("Shift Low Edge Up") is read by Windows' menu UI Automation as a
+        // shortcut, so its Name came out empty. "Move" is the plain verb.
+        AddWired(parent, "Move Low Edge Up", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             int newLow = Rig.FilterLow + filterStep;
@@ -1159,7 +1196,7 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.at_minimum"));
             }
         });
-        AddWired(parent, "Shift Low Edge Down", () =>
+        AddWired(parent, "Move Low Edge Down", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             var (lowMin, _) = GetFilterBounds();
@@ -1174,7 +1211,7 @@ public class NativeMenuBar : IDisposable
                 SayFilterWrite(newLow, Rig.FilterHigh, (l, h) => Radios.Lexicon.Get("audio.filter.low_edge", ("low", l)));
             }
         });
-        AddWired(parent, "Shift High Edge Up", () =>
+        AddWired(parent, "Move High Edge Up", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             var (_, highMax) = GetFilterBounds();
@@ -1189,7 +1226,7 @@ public class NativeMenuBar : IDisposable
                 SayFilterWrite(Rig.FilterLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.high_edge", ("high", h)));
             }
         });
-        AddWired(parent, "Shift High Edge Down", () =>
+        AddWired(parent, "Move High Edge Down", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             int low = Rig.FilterLow;
@@ -1217,23 +1254,35 @@ public class NativeMenuBar : IDisposable
             AddSep(parent);
             string mode = Rig.Mode ?? "USB";
             var presets = FilterPresets.GetPresetsForMode(mode);
-            int activeIdx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
 
             for (int i = 0; i < presets.Count; i++)
             {
                 var preset = presets[i];
-                string label = preset.FormatForDisplay();
-                if (i == activeIdx)
-                    label = $"\u2713 {label}"; // Unicode checkmark prefix
-                AddWired(parent, label, () =>
+                int index = i;
+                // #960: the active preset is checked natively, one of a group,
+                // read at the moment the menu opens. It was a literal check-mark
+                // character in the label, which a screen reader speaks, and
+                // which set no checked state at all.
+                AddRadioChecked(parent, preset.FormatForDisplay(), () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     string currentMode = Rig.Mode ?? "USB";
+                    // A row built for another mode's list never applies its
+                    // preset (#960, batch 14 repair round 3): SSB's "Normal"
+                    // clicked in DIGU would put the SSB filter on a data slice.
+                    // The menu rebuilds on a mode or slice change; until it has,
+                    // the row says so and changes nothing.
+                    if (!Radios.FilterPresets.SameList(mode, currentMode))
+                    {
+                        Tracing.TraceLine("Filter preset row built for " + mode + " clicked in " + currentMode + "; nothing applied", TraceLevel.Info);
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.preset_list_changed"));
+                        return;
+                    }
                     // The preset's one announcement, as Alt with a bracket says
                     // it, from what the filter became (#747 rounds four and five).
                     var rig = Rig;   // the originating rig, from the request (round eleven)
                     rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(rig, applied)));
-                });
+                }, () => Rig != null && FilterPresets.RowIsActive(mode, Rig.Mode, Rig.FilterLow, Rig.FilterHigh, index));
             }
         }
 
@@ -1682,31 +1731,43 @@ public class NativeMenuBar : IDisposable
     {
         if (Rig == null) return;
 
+        // #1136, ruled by Noel 2026-11-18 (J3): ATU on is automatic, off is
+        // bypassed (the manual type, for an outside tuner), and "none" is gone.
+        // Both items read on as automatic, so either can switch back, and both
+        // say what the type reads after the change: while the tuner latch is
+        // set the setter keeps the old type without a word (FlexBase.SetAtuAutomatic).
         AddChecked(parent, "ATU On/Off", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            bool isOn = Rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
-            Rig.FlexTunerType = isOn ? FlexBase.FlexTunerTypes.none : FlexBase.FlexTunerTypes.auto;
-            EarconPlayer.ToggleTone(!isOn);
-            SpeakAfterMenuClose(isOn
-                ? Radios.Lexicon.Get("settings.atu.turned_off")
-                : Radios.Lexicon.Get("settings.atu.turned_on"));
-        }, () => Rig?.FlexTunerType != FlexBase.FlexTunerTypes.none);
+            bool turnOn = !FlexBase.AtuSwitchReadsOn(Rig.FlexTunerType);
+            string? refusal = Rig.SetAtuAutomatic(turnOn);
+            if (refusal != null)
+            {
+                EarconPlayer.LeaderInvalidTone();
+                SpeakAfterMenuClose(refusal, subject: Radios.Speech.SpeechSubject.TuneAlreadyTuning);
+                return;
+            }
+            EarconPlayer.ToggleTone(turnOn);
+            SpeakAfterMenuClose(turnOn
+                ? Radios.Lexicon.Get("settings.atu.turned_on")
+                : Radios.Lexicon.Get("settings.atu.turned_off"));
+        }, () => Rig != null && FlexBase.AtuSwitchReadsOn(Rig.FlexTunerType));
 
         AddWired(parent, "ATU Mode", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            // Cycle: none → manual → auto → none
-            var mode = Rig.FlexTunerType;
-            var newMode = mode switch
+            // Two states: automatic and bypassed.
+            bool toAutomatic = !FlexBase.AtuSwitchReadsOn(Rig.FlexTunerType);
+            string? refusal = Rig.SetAtuAutomatic(toAutomatic);
+            if (refusal != null)
             {
-                FlexBase.FlexTunerTypes.none => FlexBase.FlexTunerTypes.manual,
-                FlexBase.FlexTunerTypes.manual => FlexBase.FlexTunerTypes.auto,
-                FlexBase.FlexTunerTypes.auto => FlexBase.FlexTunerTypes.none,
-                _ => FlexBase.FlexTunerTypes.auto
-            };
-            Rig.FlexTunerType = newMode;
-            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.atu.mode", ("newMode", newMode)));
+                EarconPlayer.LeaderInvalidTone();
+                SpeakAfterMenuClose(refusal, subject: Radios.Speech.SpeechSubject.TuneAlreadyTuning);
+                return;
+            }
+            SpeakAfterMenuClose(Radios.Lexicon.Get(toAutomatic
+                ? "settings.atu.mode_automatic"
+                : "settings.atu.mode_bypassed"));
         });
 
         AddWired(parent, "ATU Memories", () =>

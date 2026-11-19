@@ -1,0 +1,1 @@
+- In Memories, Enter no longer repeats your frequency edit or its rejection message, and tabbing past an unchanged filter edge leaves its stored value alone.

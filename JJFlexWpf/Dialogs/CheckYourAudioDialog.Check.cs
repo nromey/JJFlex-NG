@@ -226,7 +226,8 @@ public partial class CheckYourAudioDialog
         _sections.Add(CheckContent, _checkPowerControl);
 
         _checkWattsControl = new ValueFieldControl();
-        _checkWattsControl.Setup("Low power level", 1, 100, 1, 10, 0, "watts");
+        // A CAP, not a target (#567): the label says so. DRAFT words, AudioCheckPowerRule.
+        _checkWattsControl.Setup(AudioCheckPowerRule.LowPowerLevelLabel, 1, 100, 1, 10, 0, "watts");
         // The arrows, the Page keys and Home already stop at this field's 1. A
         // typed 0 would clamp to it in silence, so on a radio that cannot check
         // at zero it is refused aloud instead (#859, Noel 2026-11-01 07:54).
@@ -1688,6 +1689,8 @@ public partial class CheckYourAudioDialog
                 // records; nothing is on disk until the playback (SaveTakes.cs).
                 AdmitTake(rig);
             }
+            bool capChangesNothing = false;
+            int capUnchangedPower = 0;
             if (!_loopback)
             {
                 // Power handling BEFORE keying, decided by one rule
@@ -1705,6 +1708,11 @@ public partial class CheckYourAudioDialog
                 bool theirDummyLoad = rig.DummyLoadMode;
                 var power = AudioCheckPowerRule.Plan(rig.RadioModel, _method, _powerMode, _lowPowerWatts,
                     currentPower, theirDummyLoad);
+                // A level above the radio's power changes nothing, and that is
+                // said once the check is on the air (#567).
+                capChangesNothing = AudioCheckPowerRule.CapLeavesPowerUnchanged(rig.RadioModel, _method,
+                    _powerMode, _lowPowerWatts, currentPower, theirDummyLoad);
+                if (capChangesNothing) capUnchangedPower = currentPower;
                 JJTrace.Tracing.TraceLine("AudioCheck: power " + _powerMode + " on " + rig.RadioModel + ", at "
                     + currentPower + (theirDummyLoad ? " in dummy load" : "") + ": " + power,
                     System.Diagnostics.TraceLevel.Info);
@@ -1843,6 +1851,11 @@ public partial class CheckYourAudioDialog
             // nothing has spoken since recorder round 5 (c7c6539b); it is gone.
             ScreenReaderOutput.Speak("Transmitting", Radios.Speech.SpeechIntent.Queue,
                 VerbosityLevel.Critical);
+            // The cap above the radio's power was a silent no-op (#567); it is
+            // said here, behind the confirmation, once per check.
+            if (capChangesNothing)
+                ScreenReaderOutput.Speak(AudioCheckPowerRule.CapAboveCurrentNotice(_lowPowerWatts, capUnchangedPower),
+                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
 
             _keyedAt = DateTime.UtcNow;
             // Which transmission is the check's (7i-2): taken here, with no

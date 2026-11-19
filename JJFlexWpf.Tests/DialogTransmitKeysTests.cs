@@ -136,10 +136,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
     /// </summary>
     private static void ResetSpeechState()
     {
-        var reset = typeof(ScreenReaderOutput).GetMethod("ResetTransientSpeechStateForTest",
-            BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.True(reset != null, "ScreenReaderOutput.ResetTransientSpeechStateForTest is missing");
-        reset!.Invoke(null, null);
+        SpeechStateReset.Now();   // the one shared reset (#1095)
     }
 
     /// <summary>

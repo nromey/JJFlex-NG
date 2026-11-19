@@ -1,0 +1,1 @@
+- The Filter menu's edge commands now have readable names for screen readers. The preset matching your current filter is marked as checked, and the preset list follows mode and slice changes.

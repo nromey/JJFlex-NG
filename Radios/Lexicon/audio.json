@@ -346,6 +346,7 @@
   "audio.filter.at_end": "End",
   "audio.filter.at_maximum": "Filter at maximum",
   "audio.filter.at_minimum": "Filter at minimum",
+  "audio.filter.preset_list_changed": { "text": "The preset list changed, so that filter was not applied. Reopen the Filter menu and choose a valid preset.", "delivery": null },
   "audio.filter.calculator.all_three": {"text": "Filter {low} to {high}, width {width}", "delivery": null},
   "audio.filter.calculator.applied": "Filter set to {low} to {high}",
   "audio.filter.calculator.computed_high": "Computed high: {high} Hz (filter {low} to {high})",
@@ -830,6 +831,16 @@
   "audio.tnf.removed": "Notch removed",
   "audio.tnf.title": "Tracking Notch Filters",
   "audio.tnf.unnamed": "Notch {n}",
+  "audio.tnf.frequency_label": { "text": "Notch frequency", "delivery": null },
+  "audio.tnf.frequency_invalid": {
+    "text": {
+      "critical": "Notch not moved. Edit frequency and apply to move the notch.",
+      "terse": "Notch not moved. Edit frequency and apply to move the notch.",
+      "chatty": "The frequency entry could not be read and therefore, the notch did not move. Edit the value of the desired notch frequency and press Enter to apply the change.",
+      "diagnostic": "The frequency entry could not be read and therefore, the notch did not move. Edit the value of the desired notch frequency and press Enter to apply the change."
+    },
+    "delivery": null
+  },
   "audio.tune.atu_bypassed": "ATU bypassed",
   "audio.tune.atu_timed_out": "ATU tune timed out",
   "audio.tune.atu_tuning": "ATU tuning",
@@ -1713,6 +1724,16 @@
   "audio.check.power.dummy_load": {"text": "Dummy load, no RF", "delivery": null},
   "audio.check.power.low_power": {"text": "Low power", "delivery": null},
   "audio.check.power.refused_zero": {"text": "You can't use this audio check method at 0 power on this rig.", "delivery": null},
+  "audio.check.power.low_power_level": {"text": "Power limit for the check", "delivery": null},
+  "audio.check.power.cap_above_current": {
+    "text": {
+      "critical": "Radio set to {watts} watts, less than Check your audio's limit setting. Current power setting will be used for transmission.",
+      "terse": "Radio set to {watts} watts, less than Check your audio's limit setting. Current power setting will be used for transmission.",
+      "chatty": "The radio's current power is set to {watts} watts, a lower value than the power limit of {cap} watts which is allowed for use with Check your audio. The radio will use the radio's current value rather than setting a higher value.",
+      "diagnostic": "The radio's current power is set to {watts} watts, a lower value than the power limit of {cap} watts which is allowed for use with Check your audio. The radio will use the radio's current value rather than setting a higher value."
+    },
+    "delivery": null
+  },
   "audio.power.refused_zero": {"text": "You can't use 0 watts on this rig.", "delivery": null},
   "audio.power.transmit_at_zero": {"text": "This rig is at 0 watts. Set your power first.", "delivery": null},
   "audio.power.tune_at_zero": {"text": "This rig's tune power is at 0 watts. Set your tune power first.", "delivery": null},

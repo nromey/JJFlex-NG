@@ -1,0 +1,1 @@
+- The ATU On/Off switch now works in both directions. On selects automatic tuning; off bypasses the radio's tuner.

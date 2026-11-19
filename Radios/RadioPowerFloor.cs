@@ -168,6 +168,50 @@ namespace Radios
         }
 
         /// <summary>
+        /// True when the check's low power level is above the radio's power, so
+        /// the cap changes nothing and the check runs at the power the radio
+        /// already has (#567). The one "nothing to do" that has to be said: the
+        /// operator asked for a level and is not getting it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Kept beside <see cref="Plan"/> rather than in its result, so the plan
+        /// that recorded takes write into their headers keeps its three acts.
+        /// It is true only where <see cref="Plan"/> leaves power alone, and never
+        /// in the other two cases that do: a dummy load already on, which is the
+        /// operator's own choice of no RF, and the Dummy load choice on a radio
+        /// with a floor, where the floor decides.
+        /// </para>
+        /// <para>
+        /// A power of zero is never this case either: it is the dummy load's own
+        /// reading, or the placeholder zero a radio reports before its first real
+        /// report, and neither is a level the operator meant to transmit at.
+        /// </para>
+        /// </remarks>
+        public static bool CapLeavesPowerUnchanged(string? radioModel, AudioCheckListenMethods method,
+            AudioCheckPowerModes powerMode, int lowPowerWatts, int currentPower, bool dummyLoadActive)
+        {
+            if (powerMode != AudioCheckPowerModes.LowPower || dummyLoadActive || currentPower <= 0) return false;
+            if (Plan(radioModel, method, powerMode, lowPowerWatts, currentPower, dummyLoadActive).Act != AudioCheckPowerAct.None)
+                return false;
+            return lowPowerWatts > currentPower;
+        }
+
+        /// <summary>
+        /// What the check says when its low power level is above the radio's power
+        /// (#567): the level changed nothing, and the power the check runs at.
+        /// </summary>
+        // Noel's own words, a chatty and terse ladder (batch 13 words, 2026-11-19),
+        // picked by the operator's verbosity unless a level is given.
+        public static string CapAboveCurrentNotice(int lowPowerWatts, int currentPower, VerbosityLevel? level = null) =>
+            Lexicon.Get("audio.check.power.cap_above_current", level ?? ScreenReaderOutput.CurrentVerbosity,
+                ("cap", lowPowerWatts), ("watts", currentPower));
+
+        /// <summary>The label of the field that sets the check's low power level, which is a ceiling.</summary>
+        // Worded by Codex, approved by Noel 2026-11-19 (batch 13 words).
+        public static string LowPowerLevelLabel => Lexicon.Get("audio.check.power.low_power_level");
+
+        /// <summary>
         /// The power choice to show. A floored radio has only Low power; a saved
         /// dummy load keeps its meaning in the file and shows as Low power.
         /// </summary>

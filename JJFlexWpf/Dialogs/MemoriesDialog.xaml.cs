@@ -380,11 +380,22 @@ public partial class MemoriesDialog : JJFlexDialog
 
     #region Property Change Handlers
 
+    /// <summary>
+    /// The memory and the text Enter last wrote from Frequency. The focus move
+    /// that follows Enter raises LostFocus, which would write the same text a
+    /// second time, and a frequency the radio rejected was then said twice
+    /// (#1079). Cleared by the next LostFocus, whichever way it goes.
+    /// </summary>
+    private object? _freqEnterRef;
+    private string? _freqEnterText;
+
     private void FreqBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Return)
         {
-            FreqBox_LostFocus(sender, e);
+            CommitFrequency();
+            _freqEnterRef = SelectedMemoryRef;
+            _freqEnterText = FreqBox.Text;
             e.Handled = true;
             // Move focus forward
             FreqBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
@@ -403,6 +414,18 @@ public partial class MemoriesDialog : JJFlexDialog
         getter != null && EqualityComparer<T>.Default.Equals(getter(memRef), value);
 
     private void FreqBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        // Enter has already written exactly this to this memory: leaving the
+        // box straight after it writes nothing more.
+        bool writtenByEnter = _freqEnterRef != null && ReferenceEquals(_freqEnterRef, SelectedMemoryRef)
+            && _freqEnterText == FreqBox.Text;
+        _freqEnterRef = null;
+        _freqEnterText = null;
+        if (writtenByEnter) return;
+        CommitFrequency();
+    }
+
+    private void CommitFrequency()
     {
         if (SelectedMemoryRef == null) return;
         if (Holds(FormatFrequency, SelectedMemoryRef, FreqBox.Text)) return;
@@ -425,6 +448,11 @@ public partial class MemoriesDialog : JJFlexDialog
         if (SelectedMemoryRef == null) return;
         if (int.TryParse(FilterLowBox.Text, out int val))
         {
+            // Unchanged is asked BEFORE the clamp (#1079): a value the memory
+            // already holds is left exactly as it is, even one outside the
+            // range a typed value is held to. Clamped first, a CW memory's
+            // -12600 was rewritten to -12000 by Tab alone.
+            if (Holds(GetFilterLow, SelectedMemoryRef, val)) return;
             val = Math.Clamp(val, FilterMin, FilterMax);
             FilterLowBox.Text = val.ToString();
             if (Holds(GetFilterLow, SelectedMemoryRef, val)) return;
@@ -437,6 +465,11 @@ public partial class MemoriesDialog : JJFlexDialog
         if (SelectedMemoryRef == null) return;
         if (int.TryParse(FilterHighBox.Text, out int val))
         {
+            // Unchanged is asked BEFORE the clamp (#1079): a value the memory
+            // already holds is left exactly as it is, even one outside the
+            // range a typed value is held to. Clamped first, a CW memory's
+            // -12600 was rewritten to -12000 by Tab alone.
+            if (Holds(GetFilterHigh, SelectedMemoryRef, val)) return;
             val = Math.Clamp(val, FilterMin, FilterMax);
             FilterHighBox.Text = val.ToString();
             if (Holds(GetFilterHigh, SelectedMemoryRef, val)) return;

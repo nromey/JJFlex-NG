@@ -1,0 +1,2 @@
+- Ctrl+T now stops an existing tune carrier even if the ATU mode changed after you connected. Holding the key after the stop no longer starts an ATU cycle.
+- Holding Ctrl+Shift+T now keeps the tune carrier on; a second press stops it, just as with the Tune carrier button and menu item. Stopping an automatic tune also cancels a start that has not yet reached the radio.

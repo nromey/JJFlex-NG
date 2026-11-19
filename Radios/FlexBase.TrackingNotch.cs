@@ -159,6 +159,53 @@ namespace Radios
         }
 
         /// <summary>
+        /// The lowest and highest frequency a notch may be moved to, in Hz
+        /// (#773): 30 kHz to 54 MHz, the receive coverage every supported
+        /// radio shares. FlexLib's <c>TNF.Frequency</c> sends whatever it is
+        /// given, so this is the only guard against a step walking a notch
+        /// below zero or a typed number putting it nowhere a radio receives.
+        /// </summary>
+        public const ulong TNFFrequencyMinHz = 30_000;
+        public const ulong TNFFrequencyMaxHz = 54_000_000;
+
+        /// <summary>The notch's frequency in Hz, or 0 when that position no longer exists.</summary>
+        public ulong TNFFrequencyHz(int index)
+        {
+            TNF tnf = TNFAt(index);
+            return (tnf == null) ? 0 : LibFreqtoLong(tnf.Frequency);
+        }
+
+        /// <summary>A frequency in Hz, formatted the way every other frequency in the app is.</summary>
+        public string TNFFrequencyDisplayFor(ulong hz)
+        {
+            FormatFreqDel fmt = Callouts?.FormatFreq;
+            return (fmt != null) ? fmt(hz) : hz.ToString();
+        }
+
+        /// <summary>
+        /// Move the notch to this frequency (#773), clamped to
+        /// <see cref="TNFFrequencyMinHz"/> through <see cref="TNFFrequencyMaxHz"/>,
+        /// queued like its siblings. Returns the frequency asked for after the
+        /// clamp, or 0 when that position no longer exists.
+        /// </summary>
+        /// <remarks>
+        /// A notch is radio-wide: on a MultiFlex radio the other operator hears
+        /// it move, as width and depth already allow. FlexLib's setter sets its
+        /// own value before it sends, so a read-back proves nothing; the tests
+        /// read the command that went out.
+        /// </remarks>
+        public ulong SetTNFFrequencyHz(int index, ulong hz)
+        {
+            TNF tnf = TNFAt(index);
+            if (tnf == null) return 0;
+            ulong clamped = Math.Max(TNFFrequencyMinHz, Math.Min(TNFFrequencyMaxHz, hz));
+            Tracing.TraceLine("SetTNFFrequencyHz:" + index + '=' + clamped, TraceLevel.Info);
+            double mhz = LongFreqToLibFreq(clamped);
+            q.Enqueue((FunctionDel)(() => { tnf.Frequency = mhz; }));
+            return clamped;
+        }
+
+        /// <summary>
         /// Place a notch at the receive slice's current frequency and return
         /// its formatted frequency, or null if the radio did not report one.
         ///

@@ -1,0 +1,2 @@
+- The Ant Tune button now starts and stops a plain tune carrier when the radio's tuner is bypassed. With automatic tuning selected, it starts the ATU cycle, and another press stops it.
+- The Ant Tune button now keeps its normal label during a plain carrier and shows the result when an automatic tune ends. A plain carrier no longer triggers ATU progress sounds or an ATU timeout warning.

@@ -1,1 +1,2 @@
 The tracking notch's keep-it choice is now a checkbox, "Keep this notch when the radio restarts", so Space checks it and your screen reader says checked or not checked. The tracking notch filters also have a menu item now, under Audio, DSP, beside Auto Notch.
+- The Tracking Notch Filters window now has a Frequency box for moving the selected notch. Up and Down move it by 100 hertz, Shift with either arrow moves it by 10 hertz, and you can edit or type a frequency and press Enter.

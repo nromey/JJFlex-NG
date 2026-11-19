@@ -1,0 +1,1 @@
+- Home value fields now report the current value when you return from a dialog or another program, instead of reading an earlier value.

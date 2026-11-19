@@ -176,7 +176,7 @@ namespace HamBands
                 }),
             new BandItem(BandNames.m60, 5300000, 5500000, 
                 new BandDivision[] {
-                    new BandDivision(5300, 5500,
+                    new BandDivision(5300000, 5500000,
                         new Licenses[] {Licenses.general, Licenses.advanced, Licenses.extra},
                         new Modes[] {Modes.USB, Modes.M60Data}),
                 }),
