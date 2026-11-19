@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Radios;
 using Xunit;
 
@@ -68,6 +69,110 @@ public sealed class EscapeClosingOwnershipTests
 
         var again = f.Noise.TakeSnapshot();
         Assert.Equal("audio.noise_layer.restored_nothing", Close(f, again));
+    }
+
+    // ── Repair 2, R1 (Codex's re-check): a rebased picture must not erase the
+    // evidence of an outside change. Home changed a slot before the layer's
+    // next edit, so the restore target was rebased onto Home's change; Escape
+    // correctly puts Home's change back, and the closing key must say a
+    // change was kept rather than "All changes reverted".
+
+    [Fact]
+    public void A_kept_receive_change_rebased_before_the_layers_edit_is_still_reported_as_kept()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.Toggle("deepfilternet3", "Home");
+        var lever = f.Noise.Levers("deepfilternet3", false).Single(l => l.Key == "attenuation_limit_db");
+        var original = f.Noise.NumberOf(lever);
+        f.Noise.Adjust(lever, +1, Layer);
+        Assert.True(f.Noise.RestoreSnapshot(snap, Layer));
+        Assert.Equal(original, f.Noise.NumberOf(lever));
+        Assert.True(f.Pipeline.NeuralSlot.Enabled);
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.Equal("audio.noise_layer.restored_kept_elsewhere", f.Noise.RestoreClosingKey(true));
+    }
+
+    [Fact]
+    public void A_kept_transmit_change_rebased_before_the_layers_edit_is_still_reported_as_kept()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.TransmitToggle("nnr", "Home");
+        f.Noise.TransmitToggle("rnnoise", Layer);
+        Assert.True(f.Noise.RestoreSnapshot(snap, Layer));
+        Assert.True(f.Transmit.WantsEnabled(DenoiseFamily.Neural));
+        Assert.Equal("nnr", f.Transmit.ChosenEngineId(DenoiseFamily.Neural));
+        Assert.Equal("audio.noise_layer.restored_kept_elsewhere", f.Noise.RestoreClosingKey(true));
+    }
+
+    [Fact]
+    public void A_rebased_slot_whose_target_is_the_entry_picture_again_is_not_reported_as_kept()
+    {
+        // The control for R1: the layer turns the engine on, Home turns it off
+        // again (back to the entry), and the layer turns it on once more. That
+        // second edit rebases the target onto Home's state, which IS the entry
+        // picture, so nothing that differs from the entry is left standing.
+        // DeepFilterNet3 is the chosen engine before the picture, so the
+        // chosen engine (part of the picture) never differs from it.
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("deepfilternet3", "test");
+        f.Noise.Toggle("deepfilternet3", "test");
+        Assert.False(f.Pipeline.NeuralSlot.Enabled);
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.Toggle("deepfilternet3", Layer);
+        f.Noise.Toggle("deepfilternet3", "Home");
+        Assert.False(f.Pipeline.NeuralSlot.Enabled);
+        f.Noise.Toggle("deepfilternet3", Layer);
+        Assert.True(f.Pipeline.NeuralSlot.Enabled);
+        Assert.True(f.Noise.RestoreSnapshot(snap, Layer));
+        Assert.False(f.Pipeline.NeuralSlot.Enabled);
+        Assert.Equal("audio.noise_layer.restored", f.Noise.RestoreClosingKey(true));
+    }
+
+    // ── Repair 2, R2 (Codex's re-check): a radio switch or level that differs
+    // from the layer's picture and that Escape leaves standing, whatever moved
+    // it (another client, or the radio itself as a sibling effect), means the
+    // sentence must claim neither "No noise changes made" nor "All changes
+    // reverted". The cause is not established, so it is a separate fact from
+    // a change made elsewhere.
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_radio_change_kept_by_Escape_is_not_described_as_no_changes_or_all_reverted(bool layerChange)
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        var snap = f.Noise.TakeSnapshot();
+        if (layerChange) f.Noise.Toggle("nr4", Layer);
+        f.Radio.Switches["radio_nr"] = true;
+        bool restored = f.Noise.RestoreSnapshot(snap, Layer);
+        Assert.Equal(layerChange, restored);
+        Assert.True(f.Noise.IsOn("radio_nr"));
+        Assert.True(f.Noise.LastRestoreLeftRadioDifferences);
+        Assert.False(f.Noise.LastRestoreKeptOutsideChanges);
+        Assert.Equal(layerChange ? "audio.noise_layer.restored_kept_elsewhere" : "audio.noise_layer.restored_nothing_kept_elsewhere",
+            f.Noise.RestoreClosingKey(restored));
+    }
+
+    [Fact]
+    public void A_radio_switch_the_layer_changed_and_Escape_put_back_leaves_no_radio_difference()
+    {
+        // The control for R2: the layer's own radio write is put back, so
+        // nothing on the radio differs from the picture after Escape.
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.Toggle("radio_nr", Layer);
+        Assert.True(f.Noise.RestoreSnapshot(snap, Layer));
+        Assert.False(f.Noise.IsOn("radio_nr"));
+        Assert.False(f.Noise.LastRestoreLeftRadioDifferences);
+        Assert.Equal("audio.noise_layer.restored", f.Noise.RestoreClosingKey(true));
     }
 
     [Fact]
