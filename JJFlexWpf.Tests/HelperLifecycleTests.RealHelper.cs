@@ -21,9 +21,45 @@ public sealed partial class HelperLifecycleTests
     internal static string? RealHelper()
     {
         string? path = Environment.GetEnvironmentVariable("JJFLEX_WDSP_HELPER");
-        path ??= Path.Combine(@"C:\dev\jjflex-wdsp-helper\build", (Environment.Is64BitProcess ? "x64" : "x86") + "-Release", "jjflex-wdsp-helper.exe");
+        path ??= DefaultRealHelper();
         return File.Exists(path) ? path : null;
     }
+
+    /// <summary>
+    /// The real helper for a test of a feature only newer helpers have (the
+    /// model costs): only one JJFLEX_WDSP_HELPER names explicitly. The default
+    /// build in the helper repository may be any older, supported helper, and
+    /// an older helper not sending a newer message is compatibility, not a
+    /// defect, so it is never assumed capable (Sprint 49 Track N2 repair 1,
+    /// Codex's F4). Null with <paramref name="notRun"/> saying why, naming
+    /// the path, when there is none to run.
+    /// </summary>
+    internal static string? ExplicitRealHelper(out string notRun) =>
+        ExplicitRealHelper(Environment.GetEnvironmentVariable("JJFLEX_WDSP_HELPER"), DefaultRealHelper(), File.Exists, out notRun);
+
+    /// <summary>The decision itself, with what it reads passed in.</summary>
+    internal static string? ExplicitRealHelper(string? named, string defaultPath, Func<string, bool> exists, out string notRun)
+    {
+        if (string.IsNullOrEmpty(named))
+        {
+            notRun = exists(defaultPath)
+                ? "JJFLEX_WDSP_HELPER does not name a helper. The default build at " + defaultPath
+                    + " may predate this feature, so it is not assumed to have it; set JJFLEX_WDSP_HELPER to a helper that does"
+                : "JJFLEX_WDSP_HELPER does not name a helper, and none is built at " + defaultPath
+                    + "; set JJFLEX_WDSP_HELPER to a helper that has this feature";
+            return null;
+        }
+        if (!exists(named))
+        {
+            notRun = "JJFLEX_WDSP_HELPER names " + named + ", which does not exist";
+            return null;
+        }
+        notRun = "";
+        return named;
+    }
+
+    private static string DefaultRealHelper() =>
+        Path.Combine(@"C:\dev\jjflex-wdsp-helper\build", (Environment.Is64BitProcess ? "x64" : "x86") + "-Release", "jjflex-wdsp-helper.exe");
 
     private bool NoRealHelper()
     {
