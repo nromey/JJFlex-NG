@@ -787,6 +787,7 @@
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
                                          AutomationProperties.Name="Tier 1 — Manual port forwarding only (recommended default)"
+                                         local:JJFlexHelp.Text="You forward the port configured above on your router. No UPnP, no hole-punch. The only mode compatible with strict security policies (DISA STIGs, PCI-DSS, HIPAA) and the most reliable path through picky NATs."
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 — Manual port forwarding only (recommended default)" FontWeight="SemiBold"/>
@@ -798,6 +799,7 @@
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
                                          AutomationProperties.Name="Tier 1 + 2 — Manual + UPnP"
+                                         local:JJFlexHelp.Text="The radio asks your router via UPnP to open the port automatically. JJ Flexible Radio Access does not do this itself and cannot turn UPnP on — if your router has UPnP switched off, that is a change on the router, not here. UPnP is also convenient in a way worth knowing about: it lets any program on your network open a way in without asking, which is why many routers and most workplace networks disable it. If UPnP does not work, JJ Flexible Radio Access falls back to Tier 1."
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 — Manual + UPnP" FontWeight="SemiBold"/>
@@ -809,7 +811,7 @@
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
                                          AutomationProperties.Name="Tier 1+2+3 — Allow automatic hole-punch"
-                   local:JJFlexHelp.Text="allow automatic hole punch for restrictive networks"
+                   local:JJFlexHelp.Text="If direct port forwarding or UPnP is not working, let Flex's SmartLink coordinate a UDP hole-punch between the radio and JJ Flexible Radio Access. Works through most home NATs. May fail on symmetric-NAT networks (some corporate environments and mobile-carrier networks). Fallback to Tier 2 then Tier 1 on failure is automatic."
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1+2+3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
@@ -1136,6 +1138,7 @@
                                         KeyboardNavigation.TabNavigation="Once">
                             <RadioButton x:Name="RadioProfileAutoRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Automatic (recommended)"
+                                         local:JJFlexHelp.Text="JJ Flexible Radio Access follows what the radio reports about itself on every connection: if it advertises forwarded ports, they are used; if it says it needs a hole-punch, one is punched. No configuration needed."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Automatic (recommended)" FontWeight="SemiBold"/>
@@ -1145,6 +1148,7 @@
                             </RadioButton>
                             <RadioButton x:Name="RadioProfileForwardRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Forwarded ports only, never hole punch"
+                                         local:JJFlexHelp.Text="Always connect through the radio's forwarded public ports, even if the radio claims it needs a hole-punch. Use when you know a port forward exists and the radio's own report is wrong. If the radio truly has no reachable public ports, the connection will fail."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Forwarded ports only" FontWeight="SemiBold"/>
@@ -1154,6 +1158,7 @@
                             </RadioButton>
                             <RadioButton x:Name="RadioProfilePunchRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Hole punch always, never use forwarded ports"
+                                         local:JJFlexHelp.Text="Always coordinate a UDP hole-punch through SmartLink, even if the radio advertises forwarded ports. Mostly useful for testing the hole-punch path on a radio that would normally connect the easy way."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Hole-punch always" FontWeight="SemiBold"/>

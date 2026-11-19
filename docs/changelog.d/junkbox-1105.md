@@ -1,0 +1,1 @@
+- In Settings, each connection choice (the three connection tiers, and the three per-radio choices) now reads the description shown under it when you press Ctrl+F1 on it.

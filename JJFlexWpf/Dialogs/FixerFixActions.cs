@@ -329,20 +329,22 @@ internal static class FixerFixActions
         // The hold is asked FIRST, and says nothing (#1043 F2): the Fix tool
         // says its sentence itself, once, after its page re-renders. Spoken
         // here, the re-render that follows at once could cut it, and then it
-        // was heard zero times. Traced exactly as the hold's own refusal is.
-        if (rig.HoldRefusalToSay("settings.guard.action.profile_load") != null)
-            return FixerFixOutcome.RefusedByHold(Lexicon.Get("settings.guard.refused",
-                ("action", Lexicon.Get("settings.guard.action.profile_load"))));
+        // was heard zero times. Traced exactly as the hold's own refusal is,
+        // and the sentence is the one the hold returns (#1086 F5).
+        string? held = rig.HoldRefusalToSay("settings.guard.action.profile_load");
+        if (held != null)
+            return FixerFixOutcome.RefusedByHold(held);
 
         var selected = rig.SelectMicProfileIfPresent(candidate);
-        // The change-nothing hold refused it and has said so. The outcome
-        // carries the hold's own sentence rather than "stopped listing",
-        // which was untrue (#486), as a REFUSAL: the Fix tool records it as
-        // the stage's notice and says nothing more, so the operator hears the
-        // hold's one sentence and not "That fix did not succeed" behind it.
+        // The hold was armed between the question above and the select: it
+        // refused, traced and spoke. The outcome carries the hold's own
+        // sentence rather than "stopped listing", which was untrue (#486), as
+        // a REFUSAL: the Fix tool records it as the stage's notice and says it
+        // after the re-render, never "That fix did not succeed" in front of it.
+        // The sentence comes from the hold's one builder, untraced, because the
+        // refusal is already traced (#1086 F5).
         if (selected == GuardedOutcome.Refused)
-            return FixerFixOutcome.RefusedByHold(Lexicon.Get("settings.guard.refused",
-                ("action", Lexicon.Get("settings.guard.action.profile_load"))));
+            return FixerFixOutcome.RefusedByHold(FlexBase.HoldRefusalSentence("settings.guard.action.profile_load"));
         if (selected != GuardedOutcome.Done)
             return FixerFixOutcome.Failed("The radio stopped listing \"" + candidate + "\" before "
                 + "it could be selected, so nothing was changed.");

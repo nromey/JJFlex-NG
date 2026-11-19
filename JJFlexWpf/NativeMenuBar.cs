@@ -663,7 +663,9 @@ public class NativeMenuBar : IDisposable
         if (!stored)
         {
             Tracing.TraceLine("Profiles on This Radio: " + intent + " was not saved", TraceLevel.Warning);
+            // Critical: a failed save is heard at every verbosity, Off included (#1086 F8).
             SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.not_saved"),
+                Radios.VerbosityLevel.Critical,
                 subject: Radios.Speech.SpeechSubject.ProfileGuestOutcome);
             return;   // nothing changed, so the menu's marks stand
         }

@@ -1,0 +1,1 @@
+- In Memories, Enter in the Frequency box now writes the frequency once, so a frequency the radio turns down is only reported once, and tabbing through the filter boxes no longer changes a CW memory's filter edges that you never touched.

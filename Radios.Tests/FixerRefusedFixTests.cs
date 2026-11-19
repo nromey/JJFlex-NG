@@ -84,11 +84,14 @@ namespace Radios.Tests
         public void The_mic_profile_fix_asks_the_hold_silently_before_it_selects()
         {
             string src = Source("JJFlexWpf", "Dialogs", "FixerFixActions.cs");
-            int ask = src.IndexOf("rig.HoldRefusalToSay(\"settings.guard.action.profile_load\") != null", StringComparison.Ordinal);
+            // #1086 F5: the outcome carries the sentence the hold returned,
+            // not a second copy built by hand beside it.
+            int ask = src.IndexOf("string? held = rig.HoldRefusalToSay(\"settings.guard.action.profile_load\");", StringComparison.Ordinal);
             int select = src.IndexOf("rig.SelectMicProfileIfPresent(candidate)", StringComparison.Ordinal);
             Assert.True(ask > 0 && ask < select, "the fix asks the hold before it selects");
-            string answer = src.Substring(ask, src.IndexOf(";", ask, StringComparison.Ordinal) - ask);
-            Assert.Contains("FixerFixOutcome.RefusedByHold(", answer, StringComparison.Ordinal);
+            string answer = src.Substring(ask, select - ask);
+            Assert.Contains("if (held != null)", answer, StringComparison.Ordinal);
+            Assert.Contains("FixerFixOutcome.RefusedByHold(held)", answer, StringComparison.Ordinal);
         }
 
         /// <summary>

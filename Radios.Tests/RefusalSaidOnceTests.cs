@@ -180,7 +180,9 @@ public sealed class RefusalSaidOnceTests : IDisposable
         Assert.True(at > 0, "not found in " + file + ": " + start);
         int stop = text.IndexOf(end, at + start.Length, StringComparison.Ordinal);
         string branch = text.Substring(at, stop - at);
-        Assert.Contains("settings.guard.refused", branch, StringComparison.Ordinal);
+        // The hold's sentence, from its one untraced builder (#1086 F5), so the
+        // line never goes blank while the radio's speech is suppressed.
+        Assert.Contains("FlexBase.HoldRefusalSentence(\"settings.guard.action.", branch, StringComparison.Ordinal);
         Assert.DoesNotContain("ScreenReaderOutput.Speak", branch, StringComparison.Ordinal);
         Assert.DoesNotContain("Report(", branch, StringComparison.Ordinal);
     }

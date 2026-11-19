@@ -269,8 +269,7 @@ namespace JJFlexWpf.Controls
         /// after it was untrue (#486).
         /// </summary>
         private void ShowHoldRefusal()
-            => ResultText.Text = Lexicon.Get("settings.guard.refused",
-                ("action", Lexicon.Get("settings.guard.action.network")));
+            => ResultText.Text = FlexBase.HoldRefusalSentence("settings.guard.action.network");
 
         private void ApplyDhcp()
         {

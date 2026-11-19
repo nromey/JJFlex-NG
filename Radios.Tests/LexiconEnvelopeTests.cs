@@ -1751,6 +1751,9 @@ namespace Radios.Tests
                 "audio.check.power.dummy_load",
                 "audio.check.power.low_power",
                 "audio.check.power.refused_zero",
+                // The low power level reads as a ceiling, and says when it changes nothing (DRAFT, #567).
+                "audio.check.power.low_power_level",
+                "audio.check.power.cap_above_current",
                 "audio.power.refused_zero",
                 "audio.power.transmit_at_zero",
                 "audio.power.tune_at_zero",

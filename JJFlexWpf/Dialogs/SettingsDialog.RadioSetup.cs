@@ -548,8 +548,7 @@ namespace JJFlexWpf.Dialogs
                 // so in the old order the re-readable copy was gone at once
                 // (repair one).
                 RefreshSetupStatuses(startARegistrationCheck: false);
-                SetupRegisterStatus.Text = Lexicon.Get("settings.guard.refused",
-                    ("action", Lexicon.Get("settings.guard.action.registration")));
+                SetupRegisterStatus.Text = FlexBase.HoldRefusalSentence("settings.guard.action.registration");
             }
             else if (sent != GuardedOutcome.Done)
             {
@@ -945,8 +944,7 @@ namespace JJFlexWpf.Dialogs
             {
                 // The change-nothing hold refused it and has said so; the line
                 // carries the same sentence, and nothing more is spoken (#486).
-                SetupFirmwareFileText.Text = Lexicon.Get("settings.guard.refused",
-                    ("action", Lexicon.Get("settings.guard.action.firmware")));
+                SetupFirmwareFileText.Text = FlexBase.HoldRefusalSentence("settings.guard.action.firmware");
             }
             else
             {

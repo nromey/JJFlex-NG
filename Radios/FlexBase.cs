@@ -2104,8 +2104,20 @@ namespace Radios
         private string TheHoldRefused(string actionKey)
         {
             Tracing.TraceLine("ChangeNothing: refused " + actionKey, TraceLevel.Warning);
-            return SuppressSpeech ? "" : Lexicon.Get("settings.guard.refused", ("action", Lexicon.Get(actionKey)));
+            return SuppressSpeech ? "" : HoldRefusalSentence(actionKey);
         }
+
+        /// <summary>
+        /// The hold's refusal sentence, naming the action, and nothing else:
+        /// no trace, no speech, and never empty (#1086 F5). For text the
+        /// operator re-reads after the hold has refused and traced (a status
+        /// line, a result line), which must not go blank because this radio's
+        /// speech is suppressed, and must not trace the refusal a second time.
+        /// The one place the sentence is built; <see cref="HoldRefusalToSay"/>
+        /// and the hold's own refusal use it too.
+        /// </summary>
+        public static string HoldRefusalSentence(string actionKey) =>
+            Lexicon.Get("settings.guard.refused", ("action", Lexicon.Get(actionKey)));
 
         /// <summary>
         /// The hold's refusal, for a caller that must say it itself, LATER:

@@ -991,8 +991,7 @@ namespace JJFlexWpf.Dialogs
             }
             if (outcome == GuardedOutcome.Refused)
             {
-                refused.Add(Lexicon.Get("settings.guard.refused",
-                    ("action", Lexicon.Get("settings.guard.action.ports"))));
+                refused.Add(FlexBase.HoldRefusalSentence("settings.guard.action.ports"));
                 return null;
             }
             string note = Lexicon.Get("settings.network.forwarding_command_failed");
@@ -1062,8 +1061,7 @@ namespace JJFlexWpf.Dialogs
                 // carries the same sentence so it can be re-read; the generic
                 // "command failed" would be a lie with a worse diagnosis (#403).
                 // Nothing is spoken here or by the caller (#486).
-                NetworkCurrentStateText.Text = Lexicon.Get("settings.guard.refused",
-                    ("action", Lexicon.Get("settings.guard.action.ports")));
+                NetworkCurrentStateText.Text = FlexBase.HoldRefusalSentence("settings.guard.action.ports");
             }
             else
             {
