@@ -1852,6 +1852,95 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         Assert.Contains("WindowSettledSpeech.After(Dispatcher, () =>", Source("JJFlexWpf", "Dialogs", "RecordedQsosDialog.cs"));
     }
 
+    // ── Slice-mode round: transmit noise reduction follows the TRANSMIT slice's mode ──
+
+    [Fact]
+    public void A_CW_active_slice_never_bypasses_cleanup_on_a_USB_transmit_slice()
+    {
+        // Harness walk 2: a second slice in CW bypassed cleanup on the USB
+        // transmit slice, and the summary said "not running yet".
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Radio.Mode = "CW";                                            // the active slice
+        f.Radio.TransmitModeOverride = "USB";                           // the slice that transmits
+        string summary = f.Noise.TransmitActiveSummary();
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), summary);
+    }
+
+    [Fact]
+    public void A_CW_transmit_slice_bypasses_cleanup_whatever_the_active_slice_and_the_summary_says_so()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Radio.Mode = "USB";                                           // the active slice
+        f.Radio.TransmitModeOverride = "CW";                            // the slice that transmits
+        string summary = f.Noise.TransmitActiveSummary();
+        Assert.EndsWith(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), summary);
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.active.waiting", ("engine", "RNNoise")), summary);   // named as chosen, not "not running yet"
+        Assert.Contains("RNNoise", summary);
+    }
+
+    [Fact]
+    public void Moving_the_transmit_slice_to_a_CW_slice_and_back_follows_it()
+    {
+        var (f, _) = Make();
+        using var _f = f;
+        f.Noise.TransmitToggle("rnnoise", "test");
+        f.Radio.Mode = "USB";
+        f.Radio.TransmitModeOverride = "USB";
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), f.Noise.TransmitActiveSummary());
+        f.Radio.TransmitModeOverride = "CW";                            // the transmit designation moves to a CW slice
+        Assert.EndsWith(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), f.Noise.TransmitActiveSummary());
+        f.Radio.TransmitModeOverride = "USB";                           // and back
+        Assert.DoesNotContain(Lexicon.Get("audio.noise_surface.tx.active.bypassed"), f.Noise.TransmitActiveSummary());
+    }
+
+    [Fact]
+    public void The_chains_mode_policy_reads_the_transmit_slice_on_every_event_that_can_change_it()
+    {
+        Assert.True(TxAudioConditioning.BypassedIn("CW"));
+        Assert.True(TxAudioConditioning.BypassedIn("DIGU"));
+        Assert.False(TxAudioConditioning.BypassedIn("USB"));
+        string owner = Source("JJFlexWpf", "TxAudioConditioning.cs");
+        Assert.Contains("rig.TransmitModeMayHaveChanged += OnTransmitModeMayHaveChanged;", owner);
+        Assert.Contains("rig.TransmitModeMayHaveChanged -= OnTransmitModeMayHaveChanged;", owner);
+        Assert.Contains("private static void OnModeChanged(string newMode) => OnTransmitModeMayHaveChanged();", owner);   // never the active slice's mode
+        Assert.Contains("ApplyModePolicy(TransmitModeOf(rig));", owner);
+        Assert.Contains("string mode = rig.TXModeAsReported;", owner);
+        // FlexBase raises it on any slice's mode, a transmit designation, the
+        // active slice changing, and a slice going.
+        string flex = Source("Radios", "FlexBase.cs").Replace("\r\n", "\n");
+        foreach (string marker in new[] { "case \"Active\":", "case \"DemodMode\":", "case \"IsTransmitSlice\":", "private void sliceRemoved(" })
+        {
+            int at = flex.IndexOf(marker, StringComparison.Ordinal);
+            Assert.True(at > 0, marker);
+            int end = flex.IndexOf(marker.StartsWith("case") ? "break;" : "\n        }\n", at, StringComparison.Ordinal);
+            Assert.Contains("TransmitModeMayHaveChanged?.Invoke();", flex.Substring(at, end - at));
+        }
+        // Any slice's mode, not only the active one's: outside the active-only branch.
+        int demod = flex.IndexOf("case \"DemodMode\":", StringComparison.Ordinal);
+        string demodBody = flex.Substring(demod, flex.IndexOf("if (s.Active)\n                            {\n                                FilterObj.RXFreqChange(s);", demod, StringComparison.Ordinal) - demod);
+        Assert.Contains("TransmitModeMayHaveChanged?.Invoke();", demodBody);
+    }
+
+    [Fact]
+    public void Both_release_rows_join_the_noise_answer_to_the_release_sentence()
+    {
+        string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
+        foreach (string row in new[] { "AddWired(selSub, \"Release Active Slice\"", "AddWired(parent, \"Release Slice\"" })
+        {
+            int at = menu.IndexOf(row, StringComparison.Ordinal);
+            Assert.True(at > 0, row);
+            string body = menu.Substring(at, 2200);
+            int hold = body.IndexOf("_window.Noise.HoldModeAnswer();", StringComparison.Ordinal);
+            Assert.True(hold > 0, row + ": no hold");
+            Assert.True(hold < body.IndexOf("RemoveSlice(", StringComparison.Ordinal), row + ": the hold must be taken before the slice goes");
+            Assert.Contains("SaySliceAfterMenuClose(", body);
+        }
+    }
+
     private static string Describe(TxNoiseChain chain)
     {
         var (s, n) = chain.CaptureSlots();

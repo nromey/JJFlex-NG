@@ -21,6 +21,9 @@ internal sealed class NoiseFixture : IDisposable
     {
         public string Serial { get; set; } = "1234-5678";
         public string Mode { get; set; } = "USB";
+        /// <summary>The transmit slice's mode when it differs from the active slice's (slice-mode round); null reads <see cref="Mode"/>.</summary>
+        public string? TransmitModeOverride { get; set; }
+        string INoiseRadio.TransmitMode => TransmitModeOverride ?? Mode;
         /// <summary>The slice the fake reads; a test switches it, with the values, to model the radio activating another slice.</summary>
         public object? SliceIdentity { get; set; } = "slice A";
         public bool PcAudioOn { get; set; } = true;

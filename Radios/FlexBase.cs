@@ -5322,6 +5322,7 @@ namespace Radios
                     case "Active":
                         {
                             Tracing.TraceLine("Active:slice " + s.Index.ToString() + " " + s.Active.ToString(), TraceLevel.Info);
+                            TransmitModeMayHaveChanged?.Invoke();
                             // "or on moving to another slice" — the second half
                             // of Noel's spec. The radio confirming a slice as
                             // Active is the honest moment the operator arrived
@@ -5348,6 +5349,7 @@ namespace Radios
                                 FollowTransmitSlice(s);
                                 _TXMode = s.DemodMode;
                             }
+                            TransmitModeMayHaveChanged?.Invoke();
                             if (s.Active)
                             {
                                 FilterObj.RXFreqChange(s);
@@ -5467,6 +5469,7 @@ namespace Radios
                             {
                                 ForgetTransmitCaches(s);
                             }
+                            TransmitModeMayHaveChanged?.Invoke();
                         }
                         break;
                     case "Mute":
@@ -6347,6 +6350,18 @@ namespace Radios
         public event Action<string> ModeChanged;
 
         /// <summary>
+        /// Fired when the TRANSMIT slice's mode may have changed (Sprint 49 Track
+        /// H2, slice-mode round): any slice's mode changing, a slice becoming or
+        /// ceasing to be the transmit slice, the active slice changing, or a
+        /// slice going. <see cref="ModeChanged"/> covers only the active slice's
+        /// mode, so transmit noise reduction, which must follow the slice that
+        /// transmits, read the wrong slice: a second slice set to CW bypassed it
+        /// on a USB transmit slice. Read <see cref="TXModeAsReported"/> when it
+        /// fires; it may fire when nothing changed.
+        /// </summary>
+        public event Action TransmitModeMayHaveChanged;
+
+        /// <summary>
         /// Fired when what the Enhanced Signal Clarity dialog shows may have
         /// changed under it: the active slice moved, or the radio reported
         /// ESC on or off, phase or gain for one of our slices.
@@ -6588,6 +6603,7 @@ namespace Radios
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                     ObserveOwnSliceRemoved(binding, slc);
                     SliceCountChanged?.Invoke();
+                    TransmitModeMayHaveChanged?.Invoke();
                     // #58 and #117: one census after the set settles, and — when
                     // the operator asked for it — the receipt saying the change
                     // is provisional. Releasing three slices in a burst still

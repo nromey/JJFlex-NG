@@ -778,6 +778,9 @@ namespace JJFlexWpf
         {
             var items = new List<string>();
             bool offAtUnkey = false;
+            // Bypassed by the TRANSMIT slice's mode (slice-mode round): the engines
+            // are named as chosen, never "not running yet", and the bypass is said.
+            bool bypassed = _radio() is { } tr && TxAudioConditioning.BypassedIn(tr.TransmitMode);
             var chain = _txChain();
             if (chain != null)
                 foreach (var family in new[] { DenoiseFamily.Spectral, DenoiseFamily.Neural })
@@ -811,7 +814,7 @@ namespace JJFlexWpf
                         item = L("audio.noise_surface.tx.active.cannot_run", ("engine", name));
                     else if (chain.IsKeyed && (chain.HasDeferredChanges || !slot.Enabled || !slot.RunningIsCurrent(e.Id)))
                         item = L("audio.noise_surface.tx.active.at_unkey", ("engine", name));
-                    else if (slot.ProcessingEngineId != e.Id)
+                    else if (!bypassed && slot.ProcessingEngineId != e.Id)
                         item = L("audio.noise_surface.active.waiting", ("engine", name));
                     items.Add(item);
                 }
@@ -828,7 +831,7 @@ namespace JJFlexWpf
             string summary = L("audio.noise_surface.tx.active", ("list", string.Join("; ", items)));
             if (chain != null && (chain.HasDeferredChanges || offAtUnkey))
                 summary += " " + L("audio.noise_surface.tx.active.held");
-            if (_radio() is { } r && NoiseModeRules.GroupOf(r.Mode) != NoiseModeGroup.Voice)
+            if (bypassed)
                 summary += " " + L("audio.noise_surface.tx.active.bypassed");
             return summary;
         }

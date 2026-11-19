@@ -199,8 +199,13 @@ namespace JJFlexWpf
             cond.MonitorSink = MonitorStage;
             PushGate(cond);
 
+            // The TRANSMIT slice's mode (Sprint 49 Track H2, slice-mode round):
+            // ModeChanged follows only the active slice, so a second slice in CW
+            // bypassed cleanup on a USB transmit slice, and a CW transmit slice
+            // with a USB active slice ran it.
             rig.ModeChanged += OnModeChanged;
-            ApplyModePolicy(rig.Mode ?? "");
+            rig.TransmitModeMayHaveChanged += OnTransmitModeMayHaveChanged;
+            ApplyModePolicy(TransmitModeOf(rig));
 
             // Twice a second: refresh the derived threshold from the live
             // noise-floor estimate. Cheap — the profile is cached against
@@ -232,6 +237,7 @@ namespace JJFlexWpf
             if (rig != null)
             {
                 rig.ModeChanged -= OnModeChanged;
+                rig.TransmitModeMayHaveChanged -= OnTransmitModeMayHaveChanged;
                 var cond = rig.TxConditioner;
                 cond.NoiseReducer = null;
                 cond.NoiseReducerAppliedLatencySamples = null;
@@ -304,17 +310,32 @@ namespace JJFlexWpf
             }
         }
 
-        private static void OnModeChanged(string newMode)
+        // The active slice's mode changing is one of the ways the transmit
+        // slice's can (they are often the same slice): the policy reads the
+        // transmit slice either way, never the mode this event carries.
+        private static void OnModeChanged(string newMode) => OnTransmitModeMayHaveChanged();
+
+        private static void OnTransmitModeMayHaveChanged()
         {
-            ApplyModePolicy(newMode ?? "");
+            if (_rig is { } rig) ApplyModePolicy(TransmitModeOf(rig));
+        }
+
+        /// <summary>The transmit slice's mode, read from the slice itself; the active slice's when no slice transmits.</summary>
+        internal static string TransmitModeOf(FlexBase rig)
+        {
+            string mode = rig.TXModeAsReported;
+            return string.IsNullOrEmpty(mode) ? rig.Mode ?? "" : mode;
         }
 
         private static void ApplyModePolicy(string mode)
         {
             var rig = _rig;
             if (rig == null) return;
-            rig.TxConditioner.BypassAll = IsNonVoiceMode(mode);
+            rig.TxConditioner.BypassAll = BypassedIn(mode);
         }
+
+        /// <summary>Whether the transmit chain stands aside in a transmit mode: CW and the digital modes (the one rule the summary reads too).</summary>
+        public static bool BypassedIn(string mode) => IsNonVoiceMode(mode);
 
         /// <summary>
         /// The transmit chain's mode policy applies before its noise reducer.
