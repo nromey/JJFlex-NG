@@ -688,18 +688,51 @@ Public Class PersonalData
             ' Create the file name using the handle.
             Dim theOp As personal_v1 = PersonalInfo.theOp
             theOp.fileName = opFileName(theOp)
-            rv = ops.Count ' new id
-            If theOp.DefaultFlag Then
+            ' #1195: saved first, and the new operator joins the list, and
+            ' becomes the default, only when the save succeeded (SaveThenAdd),
+            ' as an edit does (SaveThenReplace, #1175). Added first, a failed
+            ' save left an operator in the list that was not on disk, and an
+            ' "Exception" box read the .NET message and stack trace aloud.
+            rv = SaveThenAdd(ops, theOp, Function() TryWrite(theOp), OperatorNotSavedNotice)
+            If rv >= 0 AndAlso theOp.DefaultFlag Then
                 DefaultID = rv
             End If
-            ops.Add(theOp)
-            ' Write the new file.
-            write(theOp)
         End If
         ' No event is reported.
         addFlag = False
         Return rv
     End Function
+
+    ''' <summary>
+    ''' Save a new entry, and only once the save has succeeded add it to
+    ''' <paramref name="entries"/>. A save that fails leaves the list as it
+    ''' was and says so once, through <paramref name="notSaved"/> (#1195).
+    ''' </summary>
+    ''' <returns>The new entry's index, or -1 when the save failed.</returns>
+    Friend Shared Function SaveThenAdd(Of T)(entries As IList(Of T), added As T,
+                                            save As Func(Of Boolean), notSaved As Action) As Integer
+        If Not save() Then
+            Tracing.TraceLine("PersonalData: the new operator was not saved; the list is unchanged", TraceLevel.Error)
+            If notSaved IsNot Nothing Then notSaved()
+            Return -1
+        End If
+        entries.Add(added)
+        Return entries.Count - 1
+    End Function
+
+    ''' <summary>
+    ''' Tells the operator plainly that an operator they added or edited was
+    ''' not saved (#1195): a plain box over the operator list, carrying one
+    ''' sentence and no exception text. Replaceable so a test never opens it.
+    ''' </summary>
+    Friend Shared OperatorNotSavedNotice As Action = AddressOf ShowOperatorNotSaved
+
+    Private Shared Sub ShowOperatorNotSaved()
+        ' DRAFT wording, settings.operator.not_saved. No owner, as the
+        ' operator list's own boxes have none: it sits over the list.
+        MessageBox.Show(Radios.Lexicon.Get("settings.operator.not_saved"),
+                        Radios.Lexicon.Get("settings.lister.operator_title"), MessageBoxButtons.OK)
+    End Sub
 
     Public Function Update(ByVal id As Integer) As Boolean
         PersonalInfo.theOp = ops(id)
@@ -727,6 +760,9 @@ Public Class PersonalData
                 If id = CurrentID Then
                     reportEvent()
                 End If
+            Else
+                ' #1195: said once, plainly; TryWrite no longer opens the box.
+                If OperatorNotSavedNotice IsNot Nothing Then OperatorNotSavedNotice()
             End If
         End If
         Return rv
@@ -769,7 +805,9 @@ Public Class PersonalData
                 File.Delete(oldPath)
             Catch ex As Exception
                 ' The edit is saved; an old file left behind costs a stale copy, not the record.
-                Tracing.ErrMessageTrace(ex)
+                ' Traced only (#1195): the "Exception" box read the .NET message and
+                ' stack trace to the operator about a save that had succeeded.
+                Tracing.TraceLine("PersonalData: the operator was saved, but the old file was not removed: " & ex.Message, TraceLevel.Error)
             End Try
         End If
         Return True
@@ -874,18 +912,34 @@ Public Class PersonalData
         write(CurrentOp)
     End Sub
 
+    ''' <summary>
+    ''' Write, showing today's error box when the write fails. Every caller
+    ''' other than Add and Update comes here (#1195 left them as they were;
+    ''' the box's general fate is a separate entry).
+    ''' </summary>
     Friend Sub Write(ByVal op As personal_v1)
-        TryWrite(op)
+        If Not TryWrite(op) Then
+            Tracing.ErrMessageTrace(LastWriteFailure)
+        End If
     End Sub
 
     ''' <summary>
+    ''' What the last failed <see cref="TryWrite"/> caught; Nothing after a
+    ''' write that succeeded.
+    ''' </summary>
+    Friend Property LastWriteFailure As Exception
+
+    ''' <summary>
     ''' Write, saying whether the operator was written: false when the write
-    ''' failed (traced). For a caller that must not go on as though it had
-    ''' been, such as removing the operator's old file.
+    ''' failed (traced, never shown: the caller decides what the operator is
+    ''' told, and <see cref="LastWriteFailure"/> holds the reason). For a caller
+    ''' that must not go on as though it had been, such as removing the
+    ''' operator's old file.
     ''' </summary>
     Friend Function TryWrite(ByVal op As personal_v1) As Boolean
         ' Encrypt credentials before writing to disk.
         op.EncryptCredentials()
+        LastWriteFailure = Nothing
 
         ' Whole or not at all: an operator file cut short by a failure part-way
         ' through would lose the operator.
@@ -894,7 +948,10 @@ Public Class PersonalData
             AtomicFile.Write(op.pathName, Sub(cfgFile) xs.Serialize(cfgFile, op))
             Return True
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            ' No box here (#1195): Write shows it for its callers, and Add and
+            ' Update say one plain sentence instead of the exception's text.
+            LastWriteFailure = ex
+            Tracing.TraceLine("PersonalData.TryWrite: the operator file was not written: " & ex.ToString(), TraceLevel.Error)
             Return False
         End Try
     End Function

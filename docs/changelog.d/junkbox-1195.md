@@ -1,0 +1,1 @@
+- When an operator you add or edit cannot be saved, you now get one plain sentence saying it was not saved, instead of a box full of error details, and an added operator no longer appears in the list unless it was really saved.

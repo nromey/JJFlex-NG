@@ -3030,6 +3030,8 @@ namespace Radios.Tests
                 // Junk box batch 16 (2026-11-19), DRAFT wording awaiting Noel:
                 // #1204, an update whose exit the operator cancelled.
                 "connect.update.exit_cancelled",
+                // #1195, an added or edited operator that could not be saved.
+                "settings.operator.not_saved",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
