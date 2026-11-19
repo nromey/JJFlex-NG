@@ -9,6 +9,31 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-19 (COVERS 2026-11-12 07:58 TO 2026-11-19 05:40, MEASURED FROM `3911d53c`) — BATCH 12 ON MAIN; JUNK BOX BATCHES 13, 14 AND 15 BUILT, CHECKED AND BENCHED; THE RECEIVE-AUDIO TRACK ON SPRINT 49'S INTEGRATION; THE EIGHTH NIGHT MODE
+
+*Two working days in that span: 11-13 to 11-17 are empty (Noel's second eye surgery on 11-16). 2026-11-18 ran as night mode by day from 10:30 at Noel's word, then night mode from 21:16; Noel said "morning" at 05:25 in the junk box window; the Audio Processing window replied received and wrapped up (its Track N2 repair 2 agent still running, local only). The cross-surface sweep is `JJFlex-private/planning/for-claude/2026-11-19-seal-sweep.md`; the morning recap is at the top of `for-noel/2026-11-18-night-status.md`.*
+
+**Main (23 commits since the last seal; 15 unpushed: batch 12 and one CLAUDE.md filter line):**
+- Junk box batch 12 merged at Noel's word 2026-11-18 09:34 (`b3ed488a`): the tune key's own carrier and its words (#1127), #1106, #1113, #1068. CLAUDE.md's filter gained `CategoryListWholeNameTests` and `TuneKeyCarrierTests` (`6b0ec0dc`).
+
+**Junk box (unmerged, stacked, each waiting on Noel's sheet and merge word; `junkbox/2026-11-19-batch-15` at `b53bf3d1` carries all three):**
+- **Batch 13** (`d71f6082`): #567, #1105, #1086's rest, #1139 with #1095, #1079; Codex clean, benched, words done. Sheet `for-noel/2026-11-18-junkbox-b13-your-sheet.md`.
+- **Batch 14** (`0927d31f`, 8 fixes, six repair rounds, four benches into the dummy load): the ATU switch turns back on (#1136); Ctrl+T and the Ant Tune button one rule, a stop never refused, a held key never re-keys, a queued tuner start revoked on a stop (#1141, #1144); a Home field's name after a dialog (#1013); moving a tracking notch (#773); test statics (#1160); 60 m lockout units (#1171); Filter menu names and native preset check (#960). Radios.Tests 9,187, windowless 1,311. Two rare races filed low under the everyday-use bar rather than repaired (#1191, #1192; a repair round 7 was sent and called back). **JAWS limit:** a held Ctrl+Shift+T stops its carrier at the first JAWS pair. Sheet `for-noel/2026-11-19-junkbox-b14-your-sheet.md`.
+- **Batch 15** (5 fixes; the pool was exhausted without rulings): the TX band lockout judges the transmit slice on a split (#1173); one has-an-ATU source (#1164); the manual settle off the caller's thread (#1163); the ATU note and timer on disconnect (#1183); a failed operator rename keeps the old entry (#1175). Codex clean, benched. On top of batch 14: Radios.Tests 9,217, windowless 1,316. Sheet `for-noel/2026-11-19-junkbox-b15-your-sheet.md`.
+- **When they merge:** CLAUDE.md's filter gains batch 13's `HeldSpeechLeakTests` (the builders found no other new class).
+
+**Receive-audio track (#1156, #1155, #1145):** built on `rxaudio/2026-11-18`, four Codex checks clean, benched (the receive thread fell from 93.2% to 8.6% of a core), MERGED into `sprint49/integration` at 23:44 (`93f2a94e`) at Noel's 21:36 word with the Audio Processing window's agreement. #1155's premise was false (gaps were spliced, not doubled). Sheet `for-noel/2026-11-18-rxaudio-your-sheet.md`.
+
+**Sprint 49 (Audio Processing window):** integration at `f3beb60b` (rxaudio, then Tracks N and K), verified, walked on the radio; H2's join paused for Noel's call (main has newer unkey code than the sprint base). The WDSP helper's `sprint49/track-k` is unmerged and unpushed.
+
+**Decisions and research:** #1140 ruled no change (tuning outside the license stays allowed); #1136 ruled (on automatic, off bypassed); #1157 ruled build what the tiers promise, plan `planning/agile/ladder-qsy-elmer.md` revised after Codex (13 decisions); #694's design `planning/design/pc-audio-while-disconnected-694.md` (J40, revised after Codex). Found: the FCC's 2026 change to 60 m (#1172), the band lockout's hertz units bug (#1171, fixed), the doubled title is the ElementHost taking focus (#550, J7). Closure sweep: 9 closed, 18 retargeted. Questions J5 to J8 and Audio Processing's H1, V1-V7, S18, W1, X1-X12 open.
+
+**Incidents and lessons:** the batch 13 bench was missed for hours under day night mode (memory: never pause in night mode); batch 14's builder waited two hours on a background notice (memory: foreground); four Codex re-checks blocked on a `git checkout` request (memory); a Codex probe put an "Exception" box on the live desktop about 04:50 (memory: no probe may reach UI); a register number collision between windows (renumbered #1177, #1178).
+
+**Seal checks:** no vulnerable packages (32 projects); memory drift candidates only; Codex instruction tests 5 of 5, prompt-input positive, no sandbox error file; NVDA logs archived; backups run (memory, Claude state, AppData; private and dev mirror after this entry). MEMORY.md 12.4 KB, over the 12 KB threshold, with no stamped entry left to archive. Rigmeter `from 2026-11-12` on main: 42 commits, +4,892/-618 work done (net +4,274), 4,367 of it C#; branch work is not counted.
+
+**Next:** Noel's three junk box sheets (batch 14 first), the receive-audio sheet, J5 to J8, the two plans, H1. Pushing main waits on his word.
+
 ## END-OF-DAY SEAL — 2026-11-12 (COVERS 2026-11-11 05:00 TO 2026-11-12 07:50, MEASURED FROM `78956e9f`) — JUNK BOX BATCHES 4 TO 9 AND #1058 ON MAIN, THEN THE SEVENTH NIGHT MODE: BATCHES 10 AND 11 BENCHED AND READY, WORDS, HELP AND TOOLS BRANCHES READY, SPRINT 49 NOISE ROUNDS E2 TO E4 ON INTEGRATION, FREIGHT FATE WORKTREES ARCHIVED
 
 *Covers the 2026-11-11 day session (merges at Noel's word from 19:30) and night mode from 20:55. Noel said "Morning" at 07:40 in the junk box window; the Audio Processing window wrapped up at 07:41 (the other listed sessions were offline). Noel leaves for an eye doctor appointment this morning. The nightly promote (step 1) was SKIPPED: no debug build was produced (the newest on the NAS is 4.1.16.2859, 2026-11-02), and the night's work is on unmerged branches.*
