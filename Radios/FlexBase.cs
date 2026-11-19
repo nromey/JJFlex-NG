@@ -14163,6 +14163,19 @@ namespace Radios
             /// </summary>
             public System.Windows.Forms.IWin32Window ParentWindow;
             /// <summary>
+            /// The way onto the UI thread that owns <see cref="ParentWindow"/>,
+            /// set beside it by the code that builds the shell (#1205). The
+            /// SmartLink sign-in shows and disposes its browser form through
+            /// this, so it never has to cast the parent to a WinForms control.
+            /// </summary>
+            public UiThreadInvoker UiThread;
+            /// <summary>
+            /// Brings the parent window forward after a sign-in dialog closes
+            /// (activates it and raises it), run on the UI thread. Set beside
+            /// <see cref="ParentWindow"/>; null leaves only the foreground call.
+            /// </summary>
+            public Action ActivateParentWindow;
+            /// <summary>
             /// Get the displayable SWR.
             /// </summary>
             public GetSWRTextDel GetSWRText = null;

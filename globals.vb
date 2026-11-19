@@ -5399,6 +5399,19 @@ Module globals
             OpenParms = New FlexBase.OpenParms()
             OpenParms.ProgramName = ProgramName
             OpenParms.ParentWindow = AppShellForm
+            ' The radio layer's way onto the UI thread, and the shell's own way
+            ' to come forward, set beside the parent window so the SmartLink
+            ' sign-in never has to cast that window to a WinForms control. Only
+            ' this code knows what the shell is; a shell of another kind supplies
+            ' its own invoker here.
+            If AppShellForm IsNot Nothing Then
+                Dim shell = AppShellForm
+                OpenParms.UiThread = Radios.UiThreadInvoker.ForControl(shell)
+                OpenParms.ActivateParentWindow = Sub()
+                                                     shell.Activate()
+                                                     shell.BringToFront()
+                                                 End Sub
+            End If
             OpenParms.CWTextReceiver = AddressOf Commands.DisplayDecodedText
             OpenParms.FormatFreqForRadio = AddressOf UlongFreq
             OpenParms.FormatFreq = AddressOf FormatFreqUlong
