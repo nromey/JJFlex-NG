@@ -86,7 +86,7 @@ public sealed class TuneTypeFlipTests : IDisposable
 
         int at = main.IndexOf("private void TunePressFor(bool ours)", StringComparison.Ordinal);
         string body = main.Substring(at, main.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
-        int gate = body.IndexOf(".Decide(TuneKeyClock(), isRepeat: false, ours || latched, () => true)", StringComparison.Ordinal);   // repair round 5
+        int gate = body.IndexOf(".Decide(TuneKeyClock(), isRepeat: _registryKeyIsRepeat, ours || latched, () => true)", StringComparison.Ordinal);   // repair round 5
         int stop = body.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
         int type = body.IndexOf("Radios.TunePress.For(", StringComparison.Ordinal);
         int noTuner = body.IndexOf("if (outcome == Radios.TunePressOutcome.NoTuner)", StringComparison.Ordinal);
