@@ -159,6 +159,39 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_render_request_waiting_for_its_click_is_void_once_a_take_start_is_admitted()
+        {
+            // Repair 3 (Codex's re-check of f9b67186): a render's playback waits
+            // 240 ms for its click, and a stop cannot see a request that is not
+            // playing yet. The behaviour is AuditionPendingPlaybackTests'
+            // (JJFlexWpf.Tests, the real request and the real take); these pin
+            // the window to it.
+            string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
+
+            // The window's render request asks the window's own predicate,
+            // which turns down a press made before a take start.
+            string play = Body(audition, "private void PlayAuditionRender(AuditionRender render)");
+            Assert.Contains("PlayAfterClickAsync(path, announcement, _rig, AuditionPlaybackStillWanted());", play);
+            string wanted = Body(audition, "private Func<FlexBase?, bool> AuditionPlaybackStillWanted()");
+            Assert.Contains("asked == Volatile.Read(ref _auditionPlaybackGeneration)", wanted);
+
+            // Voided at the press that admits the start, before the count, so a
+            // waiting render does not play over the countdown either...
+            string start = Body(audition, "private async Task StartAuditionAsync()");
+            int admitted = start.IndexOf("if (start == null) return;", StringComparison.Ordinal);
+            int voided = start.IndexOf("VoidAuditionPlaybackRequests();", StringComparison.Ordinal);
+            int count = start.IndexOf("BeginStartCountdown(AudioCheckListenMethods.Audition);", StringComparison.Ordinal);
+            Assert.True(admitted >= 0 && voided > admitted && count > voided,
+                "a waiting render must be void from the press that admits the start, before the countdown");
+
+            // ...and again as the last act before the microphone opens.
+            string quiet = Body(audition, "private bool QuietBeforeTake()");
+            int fence = quiet.IndexOf("VoidAuditionPlaybackRequests();", StringComparison.Ordinal);
+            int stop = quiet.IndexOf("RecordingPlayer.StopForCapture();", StringComparison.Ordinal);
+            Assert.True(fence >= 0 && stop > fence, "the waiting renders must be void before the capture stop");
+        }
+
+        [Fact]
         public void Any_focus_move_comes_before_the_countdown_and_none_during_the_take()
         {
             // Repair 2: the take's buttons go at the press, before the count, so

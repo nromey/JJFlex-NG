@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
@@ -186,6 +187,9 @@ public partial class CheckYourAudioDialog
     {
         using var start = _checkStarts.TryBegin();
         if (start == null) return;
+        // A render asked for before this press is void (repair 3): its click
+        // is still sounding, and it must not start playing over the count.
+        VoidAuditionPlaybackRequests();
         SetStartButtonLabel("Stop Audio Check");
         // The play buttons and Keep go NOW, before the count (repair 2): they
         // would go when capture opens, and focus on one of them would then move
@@ -253,6 +257,9 @@ public partial class CheckYourAudioDialog
     /// </summary>
     private bool QuietBeforeTake()
     {
+        // Every render request still waiting for its click is void (repair 3),
+        // so none starts, or refuses aloud, once the microphone is open.
+        VoidAuditionPlaybackRequests();
         RecordingPlayer.StopForCapture();
         if (_toneMonitorSounding)
         {
@@ -350,7 +357,32 @@ public partial class CheckYourAudioDialog
         }
         double seconds = (audition!.Result?.Render(render)?.Length ?? 0) / (double)Math.Max(1, audition.Result?.SampleRate ?? 1);
         string announcement = Lexicon.Get(PlayingKey(render), ("length", RecordingStore.DescribeLength(seconds)));
-        _ = ListenbackTakes.PlayAfterClickAsync(path, announcement, _rig, rig => !_closing && ReferenceEquals(rig, _rig));
+        _ = ListenbackTakes.PlayAfterClickAsync(path, announcement, _rig, AuditionPlaybackStillWanted());
+    }
+
+    /// <summary>
+    /// Counts the moments a render's playback request stops being wanted: a
+    /// take start admitted, and the microphone about to open (repair 3,
+    /// Codex's re-check of <c>f9b67186</c>). A request waits 240 ms for its
+    /// confirmation click before it plays, and stopping what is playing cannot
+    /// see one still waiting: Play then Start inside the click let it start,
+    /// or refuse with a sound and a sentence, after capture had opened.
+    /// </summary>
+    private int _auditionPlaybackGeneration;
+
+    /// <summary>Make every render request made before now void.</summary>
+    private void VoidAuditionPlaybackRequests() => Interlocked.Increment(ref _auditionPlaybackGeneration);
+
+    /// <summary>
+    /// The question a render's playback asks after its click: still wanted
+    /// only if the window is open, the radio is the same, and no take start
+    /// has been admitted since the press.
+    /// </summary>
+    private Func<FlexBase?, bool> AuditionPlaybackStillWanted()
+    {
+        int asked = Volatile.Read(ref _auditionPlaybackGeneration);
+        return rig => !_closing && ReferenceEquals(rig, _rig)
+            && asked == Volatile.Read(ref _auditionPlaybackGeneration);
     }
 
     /// <summary>
