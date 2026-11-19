@@ -169,6 +169,28 @@ namespace JJPortaudio
         public bool IsOpen => aud != null && aud.IsOpen;
 
         /// <summary>
+        /// True when the stream ended on its own since it last started: its
+        /// callback aborted, or the device or driver failed under it (#1145).
+        /// Cleared when it starts again.
+        /// </summary>
+        public bool StreamDied => aud != null && aud.Died;
+
+        private Action? _diedHook;
+        /// <summary>
+        /// Called on PortAudio's thread when the stream dies. It must only
+        /// signal (the remote-audio loop's wake): it must not block, and must
+        /// not call back into this stream. Kept across an open.
+        /// </summary>
+        public Action? StreamDiedHook
+        {
+            get { return _diedHook; }
+            set { _diedHook = value; if (aud != null) aud.DiedHook = value; }
+        }
+
+        /// <summary>What is known about how the stream ended, for a trace line.</summary>
+        public string StreamEndDetail => aud?.EndDetail ?? "the stream was never opened";
+
+        /// <summary>
         /// true if stream is active.
         /// </summary>
         public bool IsActive { get { return aud.IsActive; } }
@@ -194,6 +216,7 @@ namespace JJPortaudio
         {
             Tracing.TraceLine("audioStream.open:" + inOut.ToString() + ' ' + rate, TraceLevel.Info);
             aud = new Audio();
+            aud.DiedHook = _diedHook;
             aud.WavInputHandler = inCallback;
             bool rv = aud.Open(inOut, rate, false, audioCallback, cbPerSec, null, streamName);
             if (!rv)
@@ -230,6 +253,7 @@ namespace JJPortaudio
 
             // Open the device.
             aud = new Audio();
+            aud.DiedHook = _diedHook;
             aud.OpusInputHandler = inCallback;
             if (!aud.Open(inOut, sampleRate, true, audioCallback, cbPerSec, profile, streamName))
             {

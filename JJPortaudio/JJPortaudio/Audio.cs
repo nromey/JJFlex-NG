@@ -223,6 +223,63 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// The host API TYPE a device index belongs to, read live, or null
+        /// when PortAudio will not say. For the WASAPI-only state handler
+        /// (#1145), which must never be registered on any other stream.
+        /// </summary>
+        private static PortAudio.PaHostApiTypeId? hostApiTypeOf(int devInfoId)
+        {
+            try
+            {
+                PortAudio.PaDeviceInfo info = PortAudio.Pa_GetDeviceInfo(devInfoId);
+                return PortAudio.Pa_GetHostApiInfo(info.hostApi).type;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Ask PortAudio to tell us when this stream ends (#1145). Called on
+        /// this thread right after a successful open, while the stream is
+        /// stopped, which is when PortAudio accepts it. Both answers are
+        /// checked and a refusal traced as an Error: a detector that failed to
+        /// register looks exactly like a healthy one otherwise.
+        /// </summary>
+        private static void watchStreamEnd(Audio.StreamCB cb)
+        {
+            try
+            {
+                PortAudio.PaError erv = StreamEndNative.SetStreamFinishedCallback(cb.Stream, Audio.finishedCallback);
+                cb.FinishedCallbackRegistered = (erv == PortAudio.PaError.paNoError);
+                if (!cb.FinishedCallbackRegistered)
+                {
+                    Tracing.TraceLine("audio " + cb.StreamName + " stream: PortAudio refused the stream-finished"
+                        + " callback (" + PortAudio.Pa_GetErrorText(erv) + "); a stream that dies on its own"
+                        + " will only be noticed if its callback stops", TraceLevel.Error);
+                }
+                PortAudio.PaHostApiTypeId? type = hostApiTypeOf(cb.Device.DevinfoID);
+                if (type.HasValue && StreamEnd.WasapiStateHandlerAllowed(type.Value))
+                {
+                    erv = StreamEndNative.SetWasapiStreamStateHandler(cb.Stream, Audio.wasapiStateCallback,
+                        (IntPtr)cb.CBUser);
+                    if (erv != PortAudio.PaError.paNoError)
+                    {
+                        Tracing.TraceLine("audio " + cb.StreamName + " stream: PortAudio refused the WASAPI state"
+                            + " handler (" + PortAudio.Pa_GetErrorText(erv) + "); a death will be traced without"
+                            + " its HRESULT", TraceLevel.Error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("audio " + cb.StreamName + " stream: could not watch for the stream ending: "
+                    + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
         /// True for the five rates Opus can encode. There is no 44.1 kHz mode,
         /// which is exactly why a device that insists on 44100 cannot simply be
         /// accommodated by opening the stream and hoping.
@@ -470,6 +527,8 @@ namespace JJPortaudio
                                 {
                                     item.StreamBlock.Open = true;
                                     traceStreamLatency(item.StreamBlock);
+                                    // #1145: only a stream that opened is watched.
+                                    watchStreamEnd(item.StreamBlock);
                                 }
                             }
                         }
@@ -479,6 +538,13 @@ namespace JJPortaudio
                             Tracing.TraceLine("server:start", TraceLevel.Info);
                             if (item.StreamBlock.Open & !item.StreamBlock.Started)
                             {
+                                // #1145: a fresh start is alive until it ends on
+                                // its own again; and the test-only abort switch,
+                                // if armed, is armed afresh for each start.
+                                item.StreamBlock.Died = false;
+                                item.StreamBlock.TestAbortDueTick = TestStreamAbort.DueTickFor(
+                                    item.StreamBlock.Device.Type == Devices.DeviceTypes.input,
+                                    item.StreamBlock.UseOpus, Environment.TickCount64);
                                 erv = PortAudio.Pa_StartStream(item.StreamBlock.Stream);
                                 item.StreamBlock.Active = (erv >= 0);
                                 if (item.StreamBlock.Active)
@@ -589,6 +655,13 @@ namespace JJPortaudio
 
         private static PortAudio.PaStreamCallbackDelegate inCallback = new PortAudio.PaStreamCallbackDelegate(inputCallback);
         private static PortAudio.PaStreamCallbackDelegate outCallback = new PortAudio.PaStreamCallbackDelegate(outputCallback);
+        // #1145: held here for the same reason as the two above. Native code
+        // keeps these pointers for the life of each stream, so the collector
+        // must never be able to take them.
+        internal static readonly StreamEndNative.StreamFinishedCallback finishedCallback =
+            new StreamEndNative.StreamFinishedCallback(streamFinished);
+        internal static readonly StreamEndNative.WasapiStreamStateCallback wasapiStateCallback =
+            new StreamEndNative.WasapiStreamStateCallback(wasapiStateChanged);
 
         public delegate void WavCallback(float[] data);
         public delegate void OpusCallback(byte[] data);
@@ -601,6 +674,18 @@ namespace JJPortaudio
             public bool Active = false;
             public bool Started = false; // true if started and out of start/stop code.
             public IntPtr Stream;
+            // ── #1145: a stream that ends on its own ──
+            /// <summary>Set by PortAudio's finished callback when the stream ended while still Active. Cleared at each start.</summary>
+            public volatile bool Died;
+            /// <summary>Called on PortAudio's thread when <see cref="Died"/> is set. Must only signal; it must not block or call PortAudio.</summary>
+            public volatile Action DiedHook;
+            public bool FinishedCallbackRegistered;
+            /// <summary>The last WASAPI state report, WASAPI streams only. Zero reports means none arrived.</summary>
+            public volatile int WasapiStateReports;
+            public uint WasapiStateFlags;
+            public uint WasapiErrorId;
+            /// <summary>JJFLEX_TEST_STREAM_ABORT: when this start aborts, on Environment.TickCount64; 0 for never.</summary>
+            public long TestAbortDueTick;
             public bool IsAlive
             {
                 get { return ((int)PortAudio.Pa_IsStreamActive(Stream) == 1); }
@@ -898,6 +983,28 @@ namespace JJPortaudio
         /// later start, stop or close would find nothing to act on (#1145).
         /// </summary>
         internal bool IsOpen { get { var cb = CBData; return cb != null && cb.Open; } }
+
+        /// <summary>True when the stream ended on its own since it last started (#1145).</summary>
+        internal bool Died { get { var cb = CBData; return cb != null && cb.Died; } }
+
+        /// <summary>What to call, on PortAudio's thread, when the stream dies. Signal only.</summary>
+        internal Action DiedHook
+        {
+            set { var cb = CBData; if (cb != null) cb.DiedHook = value; }
+        }
+
+        /// <summary>What is known about how the stream ended, for the trace.</summary>
+        internal string EndDetail
+        {
+            get
+            {
+                var cb = CBData;
+                if (cb == null) return "the stream is closed";
+                string wasapi = StreamEnd.DescribeWasapiState(cb.WasapiStateReports, cb.WasapiStateFlags, cb.WasapiErrorId);
+                return (cb.FinishedCallbackRegistered ? "PortAudio reported the stream finished" : "no finished callback was registered")
+                    + (wasapi.Length > 0 ? "; " + wasapi : "");
+            }
+        }
 
         // One trace line per stream for refusals of a closed stream, not one
         // per call: a gate retrying a start every pass would flood.
@@ -1590,6 +1697,49 @@ namespace JJPortaudio
                 + " ms, network and radio excluded", TraceLevel.Info);
         }
 
+        /// <summary>
+        /// PortAudio's finished callback, on PortAudio's own thread (#1145).
+        /// Sets the died flag and signals; it calls nothing in PortAudio, and
+        /// nothing may escape it: an exception thrown into native code here is
+        /// fatal. <paramref name="userData"/> is the stream table key, as for
+        /// the stream callbacks; a stream already removed is ignored.
+        /// </summary>
+        private static void streamFinished(IntPtr userData)
+        {
+            try
+            {
+                StreamCB data = queues.getQ((int)userData);
+                if (data == null) return;
+                if (!StreamEnd.IsDeath(finishedFired: true, active: data.Active)) return;
+                data.Died = true;
+                data.DiedHook?.Invoke();
+            }
+            catch
+            {
+                // Nothing may escape into PortAudio. The loop still polls Died.
+            }
+        }
+
+        /// <summary>
+        /// PortAudio's WASAPI state handler, WASAPI streams only (#1145):
+        /// records which state and HRESULT ended the stream, for the trace.
+        /// Records only; nothing may escape.
+        /// </summary>
+        private static void wasapiStateChanged(IntPtr stream, uint stateFlags, uint errorId, IntPtr userData)
+        {
+            try
+            {
+                StreamCB data = queues.getQ((int)userData);
+                if (data == null) return;
+                data.WasapiStateFlags = stateFlags;
+                if (errorId != 0) data.WasapiErrorId = errorId;
+                data.WasapiStateReports++;
+            }
+            catch
+            {
+            }
+        }
+
         private static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
                 IntPtr outbuf,
                 uint frameCount,
@@ -1608,6 +1758,17 @@ namespace JJPortaudio
             noteDeviceLatency(data, ref timeInfo, true);
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
+            // JJFLEX_TEST_STREAM_ABORT (#1145, test only): the encoder-failure
+            // abort, on demand. Off, this costs one read of a static field.
+            // The Audio Processing window's microphone re-open round reuses
+            // this hook rather than adding a second.
+            if (TestStreamAbort.Armed && TestStreamAbort.Due(ref data.TestAbortDueTick))
+            {
+                Tracing.TraceLine("audio " + data.StreamName + " stream: " + TestStreamAbort.Variable
+                    + " aborts it now", TraceLevel.Error);
+                rv = PortAudio.PaStreamCallbackResult.paAbort;
+                goto inCallbackDone;
+            }
             if (!data.Active)
             {
                 Tracing.TraceLine("audio.inputCallback done", TraceLevel.Info);
@@ -1771,6 +1932,17 @@ namespace JJPortaudio
             noteDeviceLatency(data, ref timeInfo, false);
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
+            // JJFLEX_TEST_STREAM_ABORT (#1145, test only). Off, one static read.
+            if (TestStreamAbort.Armed && TestStreamAbort.Due(ref data.TestAbortDueTick))
+            {
+                Tracing.TraceLine("audio " + data.StreamName + " stream: " + TestStreamAbort.Variable
+                    + " aborts it now", TraceLevel.Error);
+                float* silent = (float*)outbuf;
+                float* silentEnd = silent + ((data.Channels == 1) ? data.BufferSize / 2 : data.BufferSize);
+                while (silent != silentEnd) *(silent++) = 0f;
+                rv = PortAudio.PaStreamCallbackResult.paAbort;
+                goto outCallbackDone;
+            }
             if (!data.Active)
             {
                 rv = PortAudio.PaStreamCallbackResult.paComplete;

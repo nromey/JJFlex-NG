@@ -22,12 +22,20 @@ namespace Radios.Tests
     {
         private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
 
-        private static Audio ClosedAudio()
+        /// <summary>An engine stream in the stream table, as Audio's constructor leaves it. Nothing opened.</summary>
+        internal static Audio NewAudioInTable(out int key)
         {
             Assert.Null(AudioAnchor.work); // a post would throw, so a pass means nothing was posted
             var audio = (Audio)Activator.CreateInstance(typeof(Audio), nonPublic: true)!;
-            int key = (int)typeof(Audio).GetField("qKey", Private)!.GetValue(audio)!;
+            key = (int)typeof(Audio).GetField("qKey", Private)!.GetValue(audio)!;
             Assert.NotNull(Audio.queues.getQ(key));
+            return audio;
+        }
+
+        /// <summary>An engine stream already closed: what a failed start leaves.</summary>
+        internal static Audio ClosedAudio()
+        {
+            var audio = NewAudioInTable(out int key);
             Audio.queues.Remove(key); // what the server's close does
             Assert.Null(Audio.queues.getQ(key));
             return audio;
