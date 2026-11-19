@@ -126,5 +126,64 @@ namespace Radios.Tests
             string program = Read("Program.cs");
             Assert.Contains("armed: a.Flag(\"armed\")", program, StringComparison.Ordinal);
         }
+
+        // ---- #1067: act's refusals and "not found" exit nonzero ----
+
+        private static readonly Lazy<Type> ActExit = new(() =>
+        {
+            var refs = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
+                .Select(x => MetadataReference.CreateFromFile(x)).ToList();
+            var compilation = CSharpCompilation.Create("JjprobeActExit_" + Guid.NewGuid().ToString("N"),
+                new[] { CSharpSyntaxTree.ParseText(Read("ActOutcome.cs")) }, refs,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+            using var output = new MemoryStream();
+            var emitted = compilation.Emit(output);
+            Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+            return Assembly.Load(output.ToArray()).GetType("JJFlex.UiaProbe.ActExit")!;
+        });
+
+        private static int CodeFor(string outcome)
+        {
+            MethodInfo code = ActExit.Value.GetMethod("CodeFor", BindingFlags.Static | BindingFlags.Public)!;
+            Type kind = code.GetParameters()[0].ParameterType;
+            return (int)code.Invoke(null, new[] { Enum.Parse(kind, outcome) })!;
+        }
+
+        [Fact]
+        public void A_refused_act_exits_6_a_control_not_found_exits_4_and_an_act_that_ran_exits_0()
+        {
+            Assert.Equal(6, CodeFor("Refused"));    // the existing "refused at the safety gate"
+            Assert.Equal(4, CodeFor("NotFound"));   // the existing "target window not found"
+            Assert.Equal(0, CodeFor("Done"));
+        }
+
+        [Fact]
+        public void Act_returns_the_code_for_how_it_ended_and_each_ending_is_set_where_it_happens()
+        {
+            string program = Read("Program.cs");
+            int act = program.IndexOf("private static int CmdAct(Args a)", StringComparison.Ordinal);
+            string cmd = program.Substring(act, program.IndexOf("private static int CmdValue(", act, StringComparison.Ordinal) - act);
+            Assert.Contains("out ActOutcome outcome", cmd, StringComparison.Ordinal);
+            Assert.Contains("return ActExit.CodeFor(outcome);", cmd, StringComparison.Ordinal);
+            Assert.DoesNotContain("return 0;", cmd, StringComparison.Ordinal);
+
+            string tree = Read("Tree.cs");
+            int perform = tree.IndexOf("public static string Perform(", StringComparison.Ordinal);
+            int refused = tree.IndexOf("outcome = ActOutcome.Refused;", perform, StringComparison.Ordinal);
+            int armed = tree.IndexOf("if (!armed)", perform, StringComparison.Ordinal);
+            int find = tree.IndexOf("Find(pid, automationId, name, className, index,", perform, StringComparison.Ordinal);
+            int notFound = tree.IndexOf("outcome = ActOutcome.NotFound;", perform, StringComparison.Ordinal);
+            int done = tree.IndexOf("outcome = ActOutcome.Done;", perform, StringComparison.Ordinal);
+            Assert.True(perform < refused && refused < armed, "a refusal returns with the refused outcome already set");
+            Assert.True(find < notFound && notFound < done, "not found is set when nothing matched, done only after a match");
+
+            // The exit-code list lives in two places, and both list 4, 6 and 7.
+            foreach (string doc in new[] { program, Read("README.md") })
+            {
+                Assert.Contains("refused at the safety gate", doc, StringComparison.Ordinal);
+                Assert.Contains("no value pattern", doc, StringComparison.Ordinal);
+                Assert.Contains("`act`", doc, StringComparison.Ordinal);
+            }
+        }
     }
 }

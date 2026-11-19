@@ -151,8 +151,9 @@ clearances are refused. A ceiling you set is a wish; a ceiling you read back
 immediately before keying is a ceiling.
 
 Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
-4 target window not found (for `value`: no such control) ·
-5 could not foreground the window · 6 refused at the safety gate ·
+4 target window not found (for `value` and `act`: no such control) ·
+5 could not foreground the window · 6 refused at the safety gate
+(including `act --op value` without --armed or --value) ·
 7 `value` found the control but it has no value pattern, or the read failed.
 """);
         return error == null ? 0 : 2;
@@ -293,12 +294,17 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
         return r.Quiesced ? 0 : 3;
     }
 
+    /// <summary>
+    /// Act on a control. Exits 6 when the act is refused at the safety gate
+    /// and 4 when no control matched (#1067), so a script can tell either from
+    /// an act that ran; the printed text is unchanged.
+    /// </summary>
     private static int CmdAct(Args a)
     {
         int pid = ResolvePid(a);
         Console.WriteLine(Act.Perform(pid, a.Str("op") ?? "invoke", a.Str("id"), a.Str("name"),
-            a.Str("class"), a.Int("index", 0), a.Str("value"), armed: a.Flag("armed")));
-        return 0;
+            a.Str("class"), a.Int("index", 0), a.Str("value"), out ActOutcome outcome, armed: a.Flag("armed")));
+        return ActExit.CodeFor(outcome);
     }
 
     /// <summary>
