@@ -2998,6 +2998,13 @@ namespace Radios.Tests
                 // list problem notice by its title: shown text, TextOnly.
                 "audio.mic.could_not_open",
                 "settings.silenced.register",
+                // Junk box #1136 (2026-11-18, batch 14): the ATU switch is
+                // automatic or bypassed, and a change the tuner refused says
+                // so. Draft prose, awaiting Noel.
+                "settings.atu.mode_automatic",
+                "settings.atu.mode_bypassed",
+                "settings.atu.refused_while_tuning",
+                "settings.atu.did_not_change",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

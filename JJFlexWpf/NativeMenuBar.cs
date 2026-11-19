@@ -1684,31 +1684,43 @@ public class NativeMenuBar : IDisposable
     {
         if (Rig == null) return;
 
+        // #1136, ruled by Noel 2026-11-18 (J3): ATU on is automatic, off is
+        // bypassed (the manual type, for an outside tuner), and "none" is gone.
+        // Both items read on as automatic, so either can switch back, and both
+        // say what the type reads after the change: while the tuner latch is
+        // set the setter keeps the old type without a word (FlexBase.SetAtuAutomatic).
         AddChecked(parent, "ATU On/Off", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            bool isOn = Rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
-            Rig.FlexTunerType = isOn ? FlexBase.FlexTunerTypes.none : FlexBase.FlexTunerTypes.auto;
-            EarconPlayer.ToggleTone(!isOn);
-            SpeakAfterMenuClose(isOn
-                ? Radios.Lexicon.Get("settings.atu.turned_off")
-                : Radios.Lexicon.Get("settings.atu.turned_on"));
-        }, () => Rig?.FlexTunerType != FlexBase.FlexTunerTypes.none);
+            bool turnOn = !FlexBase.AtuSwitchReadsOn(Rig.FlexTunerType);
+            string? refusal = Rig.SetAtuAutomatic(turnOn);
+            if (refusal != null)
+            {
+                EarconPlayer.LeaderInvalidTone();
+                SpeakAfterMenuClose(refusal, subject: Radios.Speech.SpeechSubject.TuneAlreadyTuning);
+                return;
+            }
+            EarconPlayer.ToggleTone(turnOn);
+            SpeakAfterMenuClose(turnOn
+                ? Radios.Lexicon.Get("settings.atu.turned_on")
+                : Radios.Lexicon.Get("settings.atu.turned_off"));
+        }, () => Rig != null && FlexBase.AtuSwitchReadsOn(Rig.FlexTunerType));
 
         AddWired(parent, "ATU Mode", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            // Cycle: none → manual → auto → none
-            var mode = Rig.FlexTunerType;
-            var newMode = mode switch
+            // Two states: automatic and bypassed.
+            bool toAutomatic = !FlexBase.AtuSwitchReadsOn(Rig.FlexTunerType);
+            string? refusal = Rig.SetAtuAutomatic(toAutomatic);
+            if (refusal != null)
             {
-                FlexBase.FlexTunerTypes.none => FlexBase.FlexTunerTypes.manual,
-                FlexBase.FlexTunerTypes.manual => FlexBase.FlexTunerTypes.auto,
-                FlexBase.FlexTunerTypes.auto => FlexBase.FlexTunerTypes.none,
-                _ => FlexBase.FlexTunerTypes.auto
-            };
-            Rig.FlexTunerType = newMode;
-            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.atu.mode", ("newMode", newMode)));
+                EarconPlayer.LeaderInvalidTone();
+                SpeakAfterMenuClose(refusal, subject: Radios.Speech.SpeechSubject.TuneAlreadyTuning);
+                return;
+            }
+            SpeakAfterMenuClose(Radios.Lexicon.Get(toAutomatic
+                ? "settings.atu.mode_automatic"
+                : "settings.atu.mode_bypassed"));
         });
 
         AddWired(parent, "ATU Memories", () =>

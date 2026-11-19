@@ -1,0 +1,1 @@
+- The ATU On/Off switch can turn the tuner back on now. On means the radio's tuner tunes automatically; off bypasses it, for an outside tuner, and the switch says so if the tuner is busy tuning and it could not change.

@@ -1277,29 +1277,51 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AntennaContent.Children.Add(_txAntennaControl);
 
+        // #1136, ruled by Noel 2026-11-18 (J3): the ATU box is on for
+        // automatic and off for bypassed (manual, for an outside tuner); ATU
+        // Mode offers those two and no "none". A change the tuner kept back
+        // (its latch is set) puts the control back and says why, rather than
+        // announcing a change that did not happen.
+        string? SetAtu(bool automatic)
+        {
+            if (_polling || _rig == null) return null;
+            string? refusal = _rig.SetAtuAutomatic(automatic);
+            if (refusal == null) return null;
+            bool wasPolling = _polling;
+            _polling = true;
+            try
+            {
+                bool on = FlexBase.AtuSwitchReadsOn(_rig.FlexTunerType);
+                _atuCheck.IsChecked = on;
+                _atuModeControl.SelectedIndex = on ? 1 : 0;
+            }
+            finally { _polling = wasPolling; }
+            EarconPlayer.LeaderInvalidTone();
+            ScreenReaderOutput.Speak(refusal, VerbosityLevel.Terse, interrupt: true,
+                subject: Radios.Speech.SpeechSubject.TuneAlreadyTuning);
+            return refusal;
+        }
+
         _atuCheck = MakeToggle(Lexicon.Get("audio.fields.atu"));
-        _atuCheck.Checked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.atu"), v =>
+        _atuCheck.Checked += (s, e) =>
         {
-            if (_rig != null) _rig.FlexTunerType = FlexBase.FlexTunerTypes.auto;
-        }, true);
-        _atuCheck.Unchecked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.atu"), v =>
+            if (_polling || _rig == null) return;
+            if (SetAtu(true) == null) ToggleFeedback.Announce(Lexicon.Get("audio.fields.atu"), true);
+        };
+        _atuCheck.Unchecked += (s, e) =>
         {
-            if (_rig != null) _rig.FlexTunerType = FlexBase.FlexTunerTypes.none;
-        }, false);
+            if (_polling || _rig == null) return;
+            if (SetAtu(false) == null) ToggleFeedback.Announce(Lexicon.Get("audio.fields.atu"), false);
+        };
         AntennaContent.Children.Add(_atuCheck);
 
-        _atuModeControl = MakeCycle(Lexicon.Get("audio.fields.atu_mode"), new[] { Lexicon.Get("audio.fields.atu_mode_none"), Lexicon.Get("audio.fields.atu_mode_manual"), Lexicon.Get("audio.fields.atu_mode_auto") });
+        _atuModeControl = MakeCycle(Lexicon.Get("audio.fields.atu_mode"), new[] { Lexicon.Get("audio.fields.atu_mode_manual"), Lexicon.Get("audio.fields.atu_mode_auto") });
         _atuModeControl.SelectionChanged += (s, idx) =>
         {
-            if (_rig == null) return;
-            var mode = idx switch
-            {
-                0 => FlexBase.FlexTunerTypes.none,
-                1 => FlexBase.FlexTunerTypes.manual,
-                2 => FlexBase.FlexTunerTypes.auto,
-                _ => FlexBase.FlexTunerTypes.auto
-            };
-            _rig.FlexTunerType = mode;
+            // The poll sets the index under _polling; that is not the operator.
+            // No Speak on success: the control announces its new value natively.
+            if (_polling || _rig == null) return;
+            SetAtu(idx == 1);
         };
         AntennaContent.Children.Add(_atuModeControl);
     }
@@ -2009,18 +2031,10 @@ public partial class ScreenFieldsPanel : UserControl
         int txIdx = txList.IndexOf(_rig.TXAntennaName);
         if (txIdx >= 0) _txAntennaControl.SelectedIndex = txIdx;
 
-        // ATU controls — checkbox reflects tuner type (none=off, manual/auto=on)
-        _atuCheck.IsChecked = _rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
-
-        var atuMode = _rig.FlexTunerType;
-        int atuIndex = atuMode switch
-        {
-            FlexBase.FlexTunerTypes.none => 0,
-            FlexBase.FlexTunerTypes.manual => 1,
-            FlexBase.FlexTunerTypes.auto => 2,
-            _ => 2
-        };
-        _atuModeControl.SelectedIndex = atuIndex;
+        // ATU controls (#1136): on is automatic, off is bypassed (manual).
+        bool atuOn = FlexBase.AtuSwitchReadsOn(_rig.FlexTunerType);
+        _atuCheck.IsChecked = atuOn;
+        _atuModeControl.SelectedIndex = atuOn ? 1 : 0;
     }
 
     #endregion
