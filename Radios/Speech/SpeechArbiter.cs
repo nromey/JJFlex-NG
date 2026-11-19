@@ -1040,21 +1040,35 @@ namespace Radios.Speech
         /// over a field that reads 15. Almost everything is a restatement,
         /// so this defaults to false.
         /// </param>
-        /// <param name="stillValid">
-        /// For a QUEUED utterance that claims a present state (Sprint 49 Track
-        /// N2): the producer's answer to whether that state still holds, asked
-        /// before every salvage replay; a salvage it says no to is dropped and
-        /// traced rather than replayed. Null (the default) leaves the
-        /// utterance under the existing rules. An interrupting utterance is not
-        /// retained, so it has nothing to ask.
-        /// </param>
         public void Emit(string message, bool interrupt,
             SpeechIntent? intent, VerbosityLevel? level, string? origin,
-            string? subject = null, bool additive = false, Func<bool>? stillValid = null)
+            string? subject = null, bool additive = false)
         {
             lock (_lock)
             {
-                EmitLocked(message, interrupt, intent, level, origin, subject, additive, stillValid);
+                EmitLocked(message, interrupt, intent, level, origin, subject, additive);
+            }
+        }
+
+        /// <summary>
+        /// A QUEUED utterance that claims a present state, with its producer's
+        /// answer to whether that state still holds (Sprint 49 Track N2). It is
+        /// asked before every salvage replay, never before the first hand-over;
+        /// a salvage it says no to, or cannot answer for, is dropped and traced
+        /// rather than replayed. Otherwise exactly a queued <see cref="Emit"/>.
+        /// </summary>
+        /// <remarks>
+        /// A method of its own rather than a parameter on <see cref="Emit"/>:
+        /// tests reach <see cref="Emit"/> by reflection with a fixed argument
+        /// count, and a new parameter, or an overload, breaks them at run time
+        /// with no compile error.
+        /// </remarks>
+        public void EmitQueuedWhileTrue(string message, SpeechIntent? intent, VerbosityLevel? level,
+            string? origin, string? subject, bool additive, Func<bool> stillValid)
+        {
+            lock (_lock)
+            {
+                EmitLocked(message, interrupt: false, intent, level, origin, subject, additive, stillValid);
             }
         }
 

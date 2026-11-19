@@ -50,7 +50,8 @@ namespace Radios.Tests
         private IEnumerable<string> RunTheWalk(Func<bool>? stillValid, Action? beforeTheBandChange = null)
         {
             var a = NewArbiter();
-            a.Emit(Landing, false, SpeechIntent.Queue, VerbosityLevel.Chatty, "landing", stillValid: stillValid);
+            if (stillValid == null) a.Emit(Landing, false, SpeechIntent.Queue, VerbosityLevel.Chatty, "landing");
+            else a.EmitQueuedWhileTrue(Landing, SpeechIntent.Queue, VerbosityLevel.Chatty, "landing", null, false, stillValid);
             beforeTheBandChange?.Invoke();
             a.Emit(BandChange, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "band");
             _clock.Advance(Settle);
@@ -91,7 +92,7 @@ namespace Radios.Tests
             // releases it: the release asks again, and drops it.
             bool moved = false;
             var a = NewArbiter();
-            a.Emit(Landing, false, SpeechIntent.Queue, VerbosityLevel.Chatty, "landing", stillValid: () => !moved);
+            a.EmitQueuedWhileTrue(Landing, SpeechIntent.Queue, VerbosityLevel.Chatty, "landing", null, false, () => !moved);
             a.Emit(BandChange, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "band");
             moved = true;
             _clock.Advance(Settle);
@@ -104,7 +105,7 @@ namespace Radios.Tests
             // A sentence is true when built; only a replay asks.
             int asked = 0;
             var a = NewArbiter();
-            a.Emit(Landing, false, SpeechIntent.Queue, VerbosityLevel.Chatty, "landing", stillValid: () => { asked++; return false; });
+            a.EmitQueuedWhileTrue(Landing, SpeechIntent.Queue, VerbosityLevel.Chatty, "landing", null, false, () => { asked++; return false; });
             Assert.Contains(_calls, c => c.Message == Landing && !c.Salvaged);
             Assert.Equal(0, asked);
         }
@@ -162,7 +163,11 @@ namespace Radios.Tests
             Assert.Contains("Radios.ScreenReaderOutput.Speak(status, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Chatty,", land);
             Assert.Contains("stillValid: Radios.RadioStatusBuilder.StillDescribes(rig, asked?.FrequencyHz, asked?.Mode)", land);
             string sro = Source("Radios", "ScreenReaderOutput.cs");
-            Assert.Contains("_arbiter.Emit(message, interrupt: false, intent, level, origin, subject, additive, stillValid);", sro);
+            Assert.Contains("_arbiter.EmitQueuedWhileTrue(message, intent, level, origin, subject, additive, stillValid);", sro);
+            // Emit keeps its signature: tests reach it by reflection with a fixed argument count.
+            var emit = typeof(SpeechArbiter).GetMethods().Where(m => m.Name == "Emit").ToList();
+            Assert.Single(emit);
+            Assert.Equal(7, emit[0].GetParameters().Length);
         }
 
         private static string Source(params string[] path)

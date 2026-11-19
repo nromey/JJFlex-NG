@@ -581,7 +581,10 @@ namespace Radios
                     return;
 
                 case Speech.SpeechIntent.Queue:
-                    _arbiter.Emit(message, interrupt: false, intent, level, origin, subject, additive, stillValid);
+                    if (stillValid != null)
+                        _arbiter.EmitQueuedWhileTrue(message, intent, level, origin, subject, additive, stillValid);
+                    else
+                        _arbiter.Emit(message, interrupt: false, intent, level, origin, subject, additive);
                     return;
 
                 default:
