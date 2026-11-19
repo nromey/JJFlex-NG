@@ -1,1 +1,1 @@
-- In Check your audio, the low power setting now reads as the most power a check may use, and when you set it above the power your radio already has, the check tells you nothing changed and names the power it is running at.
+- Check your audio now names its power limit clearly and explains why a higher limit does not raise your radio's power.

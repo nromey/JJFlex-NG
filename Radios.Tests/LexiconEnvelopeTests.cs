@@ -138,7 +138,10 @@ namespace Radios.Tests
             // transmitting after the app let go, an audio check's form and the
             // general one, Noel's ruled Chatty and Terse (2026-11-06 17:40, C5).
             // Forty-two at the merge of Unified takes onto main: main's 38 plus takes' four.
-            Assert.Equal(42, ladders);
+            // Forty-three from junk box batch 13's words (#567): a power limit
+            // above the radio's power, Noel's own Chatty and Terse sentences
+            // (2026-11-19).
+            Assert.Equal(43, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -1745,7 +1748,8 @@ namespace Radios.Tests
                 "audio.check.power.dummy_load",
                 "audio.check.power.low_power",
                 "audio.check.power.refused_zero",
-                // The low power level reads as a ceiling, and says when it changes nothing (DRAFT, #567).
+                // The low power level reads as a ceiling, and says when it changes nothing (#567):
+                // the label is Codex's, the notice Noel's own ladder, approved 2026-11-19.
                 "audio.check.power.low_power_level",
                 "audio.check.power.cap_above_current",
                 "audio.power.refused_zero",

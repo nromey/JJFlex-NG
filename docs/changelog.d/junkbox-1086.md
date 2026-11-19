@@ -1,2 +1,2 @@
-- If a choice under Profiles on This Radio cannot be saved, you now hear that it was not saved at every verbosity setting, Off included.
-- Changing an operator's callsign or name no longer risks losing that operator: the old settings file is removed only after the new one is safely written.
+- If your choice under Profiles on This Radio cannot be saved, I now tell you even with verbosity set to Off.
+- Your operator's saved settings now stay in place if a callsign or name change cannot be saved.
