@@ -197,7 +197,12 @@ public partial class MainWindow : UserControl
         Dialogs.AudioWorkshopDialog.SavePresetsCallback = presets =>
         {
             if (OpenParms == null || presets == null) return false;
-            return presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+            bool saved = presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+            // The Workshop's writes reach the same store the noise menus list
+            // from, so the menus follow them as they follow the noise
+            // controller's own (Sprint 49 Track N2).
+            if (saved) Noise.PresetsChangedElsewhere();
+            return saved;
         };
 
         // Microphone profiles (Track F) — operator-scoped like the presets

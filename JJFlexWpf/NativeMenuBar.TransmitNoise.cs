@@ -33,13 +33,31 @@ public partial class NativeMenuBar
     /// <summary>The source every transmit menu row journals under.</summary>
     private const string TransmitMenuSource = "transmit menu";
 
-    /// <summary>The controller whose setup changes rebuild this menu, so it is hooked once.</summary>
+    /// <summary>The controller whose setup and preset changes rebuild this menu, so it is hooked once.</summary>
     private NoiseController? _txSetupsHookedOn;
+
+    /// <summary>
+    /// The lists this menu builds from the noise controller's stores follow
+    /// them: a transmit setup (bench round, item 3) or a noise preset (Sprint
+    /// 49 Track N2) saved, renamed or deleted this session rebuilds the menu,
+    /// coalesced like every other rebuild. Hooked once per controller, from
+    /// whichever of the receive and transmit noise menus is built first.
+    /// </summary>
+    private void FollowNoiseStores(NoiseController noise)
+    {
+        if (ReferenceEquals(_txSetupsHookedOn, noise)) return;
+        noise.TransmitSetupsChanged += () => QueueMenuRebuild("transmit noise setups changed");
+        noise.PresetsChanged += () => QueueMenuRebuild("noise presets changed");
+        _txSetupsHookedOn = noise;
+    }
 
     /// <summary>Build the transmit noise rows into a Transmit submenu: the summary, the engines, the gate, the setups and the presets.</summary>
     private void BuildTransmitNoiseItems(IntPtr parent)
     {
         var noise = _window.Noise;
+        // The setups and Presets lists below follow their stores (bench round,
+        // item 3; Sprint 49 Track N2): hooked once per controller.
+        FollowNoiseStores(noise);
         AddWired(parent, Radios.Lexicon.Get("audio.noise_menu.tx.say_active"),
             () => AfterMenu(n => n.SpeakTransmitActive()));
 
@@ -107,12 +125,7 @@ public partial class NativeMenuBar
         // ── Transmit noise setups: this radio's, each applying; Save; Manage ──
         // The list follows the store (bench round, item 3): a setup saved,
         // renamed or deleted this session rebuilds the menu, coalesced like
-        // every other rebuild. Hooked once per controller.
-        if (!ReferenceEquals(_txSetupsHookedOn, noise))
-        {
-            noise.TransmitSetupsChanged += () => QueueMenuRebuild("transmit noise setups changed");
-            _txSetupsHookedOn = noise;
-        }
+        // every other rebuild (FollowNoiseStores, at the top).
         var setups = AddSubmenu(parent, Radios.Lexicon.Get("audio.noise_menu.tx.setups"));
         IReadOnlyList<string> names;
         try { names = noise.TransmitSetupNames(); }

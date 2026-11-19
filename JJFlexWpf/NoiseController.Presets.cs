@@ -40,6 +40,24 @@ namespace JJFlexWpf
         /// <summary>The transmit chain, for presets that hold it; null where there is no radio to apply one to.</summary>
         public ITransmitChainAccess? TransmitChain { get; set; }
 
+        /// <summary>
+        /// Raised after the operator's preset store changed here (a preset saved,
+        /// renamed or deleted), so every list built from it can follow: the
+        /// receive and transmit Presets submenus rebuild on it the way the
+        /// transmit setups submenu rebuilds on <see cref="TransmitSetupsChanged"/>
+        /// (Sprint 49 Track N2; a preset saved from the Audio menu was missing
+        /// from that menu until something else rebuilt it). Not raised by a
+        /// refused or failed change, nor by the one-time offer of the starter.
+        /// </summary>
+        public event Action? PresetsChanged;
+
+        /// <summary>
+        /// The Audio Workshop writes the same store itself (its Load picker's
+        /// Delete, its chain preset Save, Import): the app says so here after a
+        /// write that landed, so the menus follow those roads too.
+        /// </summary>
+        public void PresetsChangedElsewhere() => PresetsChanged?.Invoke();
+
         /// <summary>The one shipped starter (ruled, departure D3): today's "Apply Recommended Levels" both-on values.</summary>
         public const string BalancedCaptureName = "Balanced capture";
 
@@ -440,6 +458,7 @@ namespace JJFlexWpf
             (preset.HoldsTransmitChain ? store.Presets : store.NoisePresets).Add(preset);
             if (PresetStore?.Save(store) != true) return null;
             NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, source, "preset", "saved", "", name);
+            PresetsChanged?.Invoke();
             // A preset that holds only transmit noise reduction is a transmit answer (item 8).
             bool transmitOnly = preset.TransmitNoise != null && preset.ReceiveNoise == null && !preset.HoldsTransmitChain;
             Say(L("audio.noise_surface.preset_saved", ("name", name), ("what", L(PresetWhatKey(preset)))),
@@ -476,6 +495,7 @@ namespace JJFlexWpf
             preset.Name = newName;
             if (PresetStore?.Save(store) != true) return false;
             Say(L("audio.noise_surface.preset_renamed", ("old", oldName), ("new", newName)), SpeechSubject.NoisePreset);
+            PresetsChanged?.Invoke();
             return true;
         }
 
@@ -487,6 +507,7 @@ namespace JJFlexWpf
             store.Presets.Remove(preset); store.NoisePresets.Remove(preset);
             if (PresetStore?.Save(store) != true) return false;
             Say(L("audio.noise_surface.preset_deleted", ("name", name)), SpeechSubject.NoisePreset);
+            PresetsChanged?.Invoke();
             return true;
         }
 
