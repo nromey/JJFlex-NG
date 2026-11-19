@@ -1,1 +1,1 @@
-- A value field on Home, such as transmit power, now reads its current number when you come back to it from a dialog or from another program. It used to read the number from before the change until you tabbed away and back.
+- Home value fields now report the current value when you return from a dialog or another program, instead of reading an earlier value.

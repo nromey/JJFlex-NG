@@ -98,11 +98,21 @@ public sealed class CheckPowerCapNoticeTests
     [Fact]
     public void The_sentence_names_both_powers_and_says_nothing_changed()
     {
-        string said = AudioCheckPowerRule.CapAboveCurrentNotice(100, 5);
-        Assert.Contains("100", said);
-        Assert.Contains("5 watts", said);
-        Assert.Contains("nothing changed", said, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("{", said);
+        // Noel's ladder (batch 13 words, 2026-11-19): Chatty names both powers,
+        // Terse and Critical name the radio's; every tier says the radio's own
+        // setting is used, and none leaves a placeholder unfilled.
+        string chatty = AudioCheckPowerRule.CapAboveCurrentNotice(100, 5, VerbosityLevel.Chatty);
+        Assert.Contains("100 watts", chatty);
+        Assert.Contains("5 watts", chatty);
+        Assert.Contains("current value", chatty, StringComparison.OrdinalIgnoreCase);
+        foreach (var level in new[] { VerbosityLevel.Critical, VerbosityLevel.Terse, VerbosityLevel.Chatty, VerbosityLevel.Diagnostic })
+        {
+            string said = AudioCheckPowerRule.CapAboveCurrentNotice(100, 5, level);
+            Assert.Contains("5 watts", said);
+            Assert.Contains("current", said, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("{", said);
+        }
+        Assert.NotEqual(AudioCheckPowerRule.CapAboveCurrentNotice(100, 5, VerbosityLevel.Terse), chatty);
     }
 
     [Fact]

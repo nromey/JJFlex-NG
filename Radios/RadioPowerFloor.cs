@@ -201,13 +201,14 @@ namespace Radios
         /// What the check says when its low power level is above the radio's power
         /// (#567): the level changed nothing, and the power the check runs at.
         /// </summary>
-        // DRAFT PROSE (#567): for Codex to word, then Noel.
-        public static string CapAboveCurrentNotice(int lowPowerWatts, int currentPower) =>
-            Lexicon.Get("audio.check.power.cap_above_current",
+        // Noel's own words, a chatty and terse ladder (batch 13 words, 2026-11-19),
+        // picked by the operator's verbosity unless a level is given.
+        public static string CapAboveCurrentNotice(int lowPowerWatts, int currentPower, VerbosityLevel? level = null) =>
+            Lexicon.Get("audio.check.power.cap_above_current", level ?? ScreenReaderOutput.CurrentVerbosity,
                 ("cap", lowPowerWatts), ("watts", currentPower));
 
         /// <summary>The label of the field that sets the check's low power level, which is a ceiling.</summary>
-        // DRAFT PROSE (#567): for Codex to word, then Noel.
+        // Worded by Codex, approved by Noel 2026-11-19 (batch 13 words).
         public static string LowPowerLevelLabel => Lexicon.Get("audio.check.power.low_power_level");
 
         /// <summary>
