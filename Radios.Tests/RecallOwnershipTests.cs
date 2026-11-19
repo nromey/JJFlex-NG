@@ -125,23 +125,46 @@ namespace Radios.Tests
         public void A_pending_recall_owns_the_radio_only_until_a_later_choice()
         {
             var radio = new object();
-            var marks = new RecallMarks(radio, 0, ModeChoices: 4, FrequencyRequests: 9);
-            var recall = new PendingRecall(7_030_000, "CW", At(14_100_000, "USB"), at: 1000, marks);
+            var marks = new RecallMarks(radio, 0, ModeChoices: 4, FrequencyRequests: 9, SliceChoices: 2);
+            // A fresh recall for each case: retirement is permanent (repair 3),
+            // so a case after the first false answer on a shared recall would
+            // pass whatever its marks said.
+            PendingRecall Fresh() => new PendingRecall(7_030_000, "CW", At(14_100_000, "USB"), at: 1000, marks);
 
-            Assert.True(recall.StillOwns(marks with { }, 1000 + PendingRecall.LifetimeMs), "unchanged, inside its lifetime");
-            Assert.False(recall.StillOwns(marks, 1001 + PendingRecall.LifetimeMs), "outlived");
-            Assert.False(recall.StillOwns(marks with { FrequencyRequests = 10 }, 1000), "a tune");
-            Assert.False(recall.StillOwns(marks with { ModeChoices = 5 }, 1000), "a mode choice");
-            Assert.False(recall.StillOwns(marks with { ReceiveSlice = 1 }, 1000), "a slice change");
-            Assert.False(recall.StillOwns(marks with { Radio = null }, 1000), "a disconnect");
-            Assert.False(recall.StillOwns(marks with { Radio = new object() }, 1000), "another radio");
+            Assert.True(Fresh().StillOwns(marks with { }, 1000 + PendingRecall.LifetimeMs), "unchanged, inside its lifetime");
+            Assert.False(Fresh().StillOwns(marks, 1001 + PendingRecall.LifetimeMs), "outlived");
+            Assert.False(Fresh().StillOwns(marks with { FrequencyRequests = 10 }, 1000), "a tune");
+            Assert.False(Fresh().StillOwns(marks with { ModeChoices = 5 }, 1000), "a mode choice");
+            Assert.False(Fresh().StillOwns(marks with { ReceiveSlice = 1 }, 1000), "a slice change");
+            Assert.False(Fresh().StillOwns(marks with { SliceChoices = 4 }, 1000), "a slice change and back");
+            Assert.False(Fresh().StillOwns(marks with { Radio = null }, 1000), "a disconnect");
+            Assert.False(Fresh().StillOwns(marks with { Radio = new object() }, 1000), "another radio");
+        }
+
+        [Fact]
+        public void A_recall_found_not_owning_the_radio_once_never_owns_it_again()
+        {
+            // Repair 3 (Codex's F2): a loss a check saw is final, even when every
+            // mark comes back. A disconnect and the same radio object again is
+            // the case no count can see.
+            var radio = new object();
+            var marks = new RecallMarks(radio, 0, 4, 9, 2);
+            var recall = new PendingRecall(7_030_000, "CW", At(14_100_000, "USB"), 1000, marks);
+            var control = new PendingRecall(7_030_000, "CW", At(14_100_000, "USB"), 1000, marks);
+
+            Assert.True(control.StillOwns(marks, 1000), "positive control: unchanged");
+            Assert.False(recall.StillOwns(marks with { Radio = null }, 1001), "the disconnect");
+            Assert.True(control.StillOwns(marks, 1002), "no intervention: the control still owns");
+            Assert.False(recall.StillOwns(marks, 1002), "the same radio back: still retired");
+            var current = marks;
+            Assert.Null(recall.AskIfStillOwned(() => current, () => 1003));
         }
 
         [Fact]
         public void A_later_choice_retires_the_ask_before_the_landing_and_its_pending_answer_after()
         {
             var radio = new object();
-            var marks = new RecallMarks(radio, 0, 4, 9);
+            var marks = new RecallMarks(radio, 0, 4, 9, 2);
             var current = marks;
             long ticks = 1000;
             var recall = new PendingRecall(7_030_000, "CW", At(14_100_000, "USB"), 1000, marks);

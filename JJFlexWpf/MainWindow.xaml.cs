@@ -2260,14 +2260,15 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// The marks a pending recall is compared against (<see cref="Radios.RecallMarks"/>):
-    /// this radio, its receive slice, the mode choices and the frequency
-    /// requests so far. A tune, a mode choice, a slice change or a disconnect
-    /// since the recall moves one of them and retires it.
+    /// this radio, its receive slice, the mode choices, the frequency requests
+    /// and the slice moves so far. A tune, a mode choice, a slice change (even
+    /// one that comes back) or a disconnect since the recall moves one of them
+    /// and retires it.
     /// </summary>
     private Radios.RecallMarks RecallMarksNow()
     {
         var rig = RigControl;
-        return new Radios.RecallMarks(rig, rig?.RXVFO ?? -1, ModeChoices, rig?.RXFrequencyRequests ?? -1);
+        return new Radios.RecallMarks(rig, rig?.RXVFO ?? -1, ModeChoices, rig?.RXFrequencyRequests ?? -1, rig?.RXSliceChoices ?? -1);
     }
 
     /// <summary>

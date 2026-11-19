@@ -211,7 +211,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         string take = Body(main, "private Radios.StatusAsk? TakeRecallAskedFor()", "private void RunReturnToAppLanding(");
         Assert.Contains("return recall?.AskIfStillOwned(RecallMarksNow, () => Environment.TickCount64);", take);
         string marks = Body(main, "private Radios.RecallMarks RecallMarksNow()", "private Radios.StatusAsk? TakeRecallAskedFor()");
-        Assert.Contains("new Radios.RecallMarks(rig, rig?.RXVFO ?? -1, ModeChoices, rig?.RXFrequencyRequests ?? -1)", marks);
+        Assert.Contains("new Radios.RecallMarks(rig, rig?.RXVFO ?? -1, ModeChoices, rig?.RXFrequencyRequests ?? -1, rig?.RXSliceChoices ?? -1)", marks);
         string select = Body(main, "dialog.SelectMemory = (memRef) =>", "dialog.FormatFrequency");
         int before = select.IndexOf("var before = rig == null ? null : Radios.RadioStatusBuilder.BuildDetailedStatus(rig);", StringComparison.Ordinal);
         int ask = select.IndexOf("AskRadioForMode(() => mem.Select());", StringComparison.Ordinal);

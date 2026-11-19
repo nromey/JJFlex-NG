@@ -3,20 +3,26 @@ namespace Radios
     /// <summary>
     /// What the operator's own choices have done to the radio so far, as marks
     /// a later moment can be compared against: the radio object, the receive
-    /// slice, how many mode choices and how many frequency requests the app has
-    /// made. A pending memory recall is the radio's live request only while
-    /// none of these has moved since the recall's own action (Sprint 49 Track
-    /// N2 repair 2, Codex's R1). The radio is compared by reference: a
-    /// disconnect or another radio is a new one.
+    /// slice, how many mode choices, how many frequency requests and how many
+    /// slice moves the app has made. A pending memory recall is the radio's
+    /// live request only while none of these has moved since the recall's own
+    /// action (Sprint 49 Track N2 repair 2, Codex's R1). The radio is compared
+    /// by reference: a disconnect or another radio is a new one.
+    ///
+    /// The slice is counted as well as read (repair 3, Codex's F2): a move to
+    /// another slice and back restores the slice number, so only the count of
+    /// moves can see the round trip, as only the count of frequency requests
+    /// can see a tune the radio's own report has overwritten.
     /// </summary>
-    public sealed record RecallMarks(object? Radio, int ReceiveSlice, int ModeChoices, int FrequencyRequests)
+    public sealed record RecallMarks(object? Radio, int ReceiveSlice, int ModeChoices, int FrequencyRequests, int SliceChoices)
     {
         /// <summary>The same radio, the same receive slice, and no choice made since.</summary>
         public bool SameAs(RecallMarks other) =>
             ReferenceEquals(Radio, other.Radio)
             && ReceiveSlice == other.ReceiveSlice
             && ModeChoices == other.ModeChoices
-            && FrequencyRequests == other.FrequencyRequests;
+            && FrequencyRequests == other.FrequencyRequests
+            && SliceChoices == other.SliceChoices;
     }
 
     /// <summary>
@@ -32,6 +38,12 @@ namespace Radios
     /// sentence. So the recall carries its own before from the action, and any
     /// choice made since (a tune, a mode choice, a slice change, a disconnect)
     /// retires it before the landing uses its values.
+    ///
+    /// Retirement is permanent (repair 3, Codex's F2): once any check finds the
+    /// recall no longer owns the radio, no later check can find that it does,
+    /// even if every mark has come back to its old value (a disconnect and the
+    /// same radio object again, say). The marks' counts catch a round trip
+    /// that happens between two checks; this catches one a check saw.
     /// </summary>
     public sealed class PendingRecall
     {
@@ -60,9 +72,20 @@ namespace Radios
         /// <summary>The marks right after the recall's own request (its own mode choice counted).</summary>
         public RecallMarks Marks { get; }
 
-        /// <summary>Whether this recall is still the radio's live request: inside its lifetime, and no choice made since.</summary>
-        public bool StillOwns(RecallMarks now, long nowTicks) =>
-            nowTicks - At <= LifetimeMs && Marks.SameAs(now);
+        private volatile bool _retired;
+
+        /// <summary>
+        /// Whether this recall is still the radio's live request: never found
+        /// otherwise before, inside its lifetime, and no choice made since. A
+        /// false answer retires it for good.
+        /// </summary>
+        public bool StillOwns(RecallMarks now, long nowTicks)
+        {
+            if (_retired) return false;
+            if (nowTicks - At <= LifetimeMs && Marks.SameAs(now)) return true;
+            _retired = true;
+            return false;
+        }
 
         /// <summary>
         /// The ask a landing's status names, or null when the recall no longer

@@ -8798,6 +8798,18 @@ namespace Radios
             return ((vfo >= 0) & (vfo < MyNumSlices));
         }
 
+        private int _rxSliceChoices;
+
+        /// <summary>
+        /// How many times the app has moved the receive slice (every write of
+        /// <see cref="RXVFO"/> that changes it, which JumpToSlice,
+        /// <see cref="CurVFO"/> and the operator switch reach), counted before
+        /// anything is sent. A pending memory recall is retired by any of them
+        /// (Sprint 49 Track N2 repair 3, Codex's F2): the slice number alone
+        /// cannot see a move away and back, because the round trip restores it.
+        /// </summary>
+        public int RXSliceChoices => System.Threading.Volatile.Read(ref _rxSliceChoices);
+
         // Note that VFOToSlice(RXVFO) is the ActiveSlice.
         internal int _RXVFO = noVFO;
         public int RXVFO
@@ -8807,6 +8819,7 @@ namespace Radios
             {
                 if (_RXVFO != value)
                 {
+                    System.Threading.Interlocked.Increment(ref _rxSliceChoices);
                     int old = _RXVFO;
                     _RXVFO = value;
                     Tracing.TraceLine($"RXVFO:{old}→{value} valid={ValidVFO(value)} slices={MyNumSlices}", TraceLevel.Info);
