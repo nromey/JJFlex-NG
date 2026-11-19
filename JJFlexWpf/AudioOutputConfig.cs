@@ -202,6 +202,36 @@ namespace JJFlexWpf
         /// </summary>
         public bool NoiseCrossFade { get; set; } = true;
 
+        /// <summary>
+        /// The three engine-change switches on receive (#873, ruled by Noel
+        /// 2026-11-08 12:57: "three switches"; Sprint 49 Track P). Independent:
+        /// all off is a silent switch, for comparing engines. Speech (default
+        /// on, today's behaviour) says the sentence for one receive computer
+        /// engine taking over from another; Beep (default off) plays a short
+        /// pitched beep then; Mute (default off) puts a short radio-style gap in
+        /// the receive audio at the switch. Receive only (ruled 12:55).
+        /// </summary>
+        public bool NoiseSwitchSpeech { get; set; } = true;
+
+        /// <summary>The Beep switch; see <see cref="NoiseSwitchSpeech"/>.</summary>
+        public bool NoiseSwitchBeep { get; set; }
+
+        /// <summary>The Mute switch; see <see cref="NoiseSwitchSpeech"/>.</summary>
+        public bool NoiseSwitchMute { get; set; }
+
+        /// <summary>
+        /// The WDSP helper's queue depth for receive engines, in 10 ms frames
+        /// (#873, X6 ruled yes 2026-11-19, after Noel 2026-11-06 11:52): the
+        /// standard models and NR2 (default 2) and the premium models (default
+        /// 3), on Settings, Advanced, behind its guard checkbox. Each frame is
+        /// 10 ms more delay and 10 ms more room before an answer is late. Takes
+        /// effect when an engine is next built. Transmit keeps the ruled defaults.
+        /// </summary>
+        public int HelperQueueDepthStandard { get; set; } = WdspPipelineDepth.NnrStandard;
+
+        /// <summary>The premium models' queue depth; see <see cref="HelperQueueDepthStandard"/>.</summary>
+        public int HelperQueueDepthPremium { get; set; } = WdspPipelineDepth.NnrPremium;
+
         /// <summary>The Settings Advanced tab's guard checkbox: its fields are enabled only once this is ticked.</summary>
         public bool AdvancedSettingsUnderstood { get; set; }
 

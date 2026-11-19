@@ -2410,6 +2410,17 @@ namespace Radios.Tests
                 // Sprint 49 Track P: the Measured delays rows with the shared receive delay (#873). Placeholders, for the words round.
                 "audio.noise_advanced.delay_line_shared",
                 "audio.noise_advanced.delay_line_outside",
+                "audio.noise_advanced.delay_line_outlier",
+                // Sprint 49 Track P phase 1: the three engine-change switches and the helper queue depths (#873). Placeholders.
+                "audio.noise_settings.switch_speech",
+                "audio.noise_settings.switch_beep",
+                "audio.noise_settings.switch_mute",
+                "audio.noise_help.settings.switch_speech",
+                "audio.noise_help.settings.switch_beep",
+                "audio.noise_help.settings.switch_mute",
+                "audio.noise_advanced.depth_standard_label",
+                "audio.noise_advanced.depth_premium_label",
+                "audio.noise_help.advanced.depth",
                 "audio.noise_advanced.difference_unknown",
                 "audio.noise_advanced.defaults_button",
                 "audio.noise_advanced.defaults",

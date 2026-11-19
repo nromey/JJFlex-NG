@@ -75,6 +75,7 @@ namespace JJFlexWpf
         private readonly float[] _lastDry;   // the same frame's last delayed dry sample
         private readonly int[] _fadeAt;      // per channel: samples of the latch fade already applied; -1 none running
         private readonly float[] _fadeFrom;  // per channel: the residual the fade starts from
+        private readonly int[] _quiet;       // per channel: samples still to come out of the engine from before the last ClearCarry (#1169)
 
         /// <param name="engineFactory">Called once per channel. Every instance must report the same frame length.</param>
         /// <param name="channels">Interleaved channel count, at least 1.</param>
@@ -106,6 +107,7 @@ namespace JJFlexWpf
             _lastDry = new float[channels];
             _fadeAt = new int[channels];
             _fadeFrom = new float[channels];
+            _quiet = new int[channels];
             Array.Fill(_fadeAt, -1);
             _delay = new float[channels][];
             _delayAt = new int[channels];
@@ -334,6 +336,15 @@ namespace JJFlexWpf
                             }
                             if (_fadeAt[ch] >= 0) Fade(ch, wet.AsSpan(outCount, f), dry.AsSpan(outCount, f));
                         }
+                        if (_quiet[ch] > 0)
+                        {
+                            // #1169: the engine is still emitting what it was given
+                            // before the stop. Its place takes the dry signal, which
+                            // the stop cleared, so nothing from before plays after.
+                            int n2 = Math.Min(_quiet[ch], f);
+                            Array.Copy(dry, outCount, wet, outCount, n2);
+                            _quiet[ch] -= n2;
+                        }
                         _lastWet[ch] = wet[outCount + f - 1];
                         _lastDry[ch] = dry[outCount + f - 1];
                         outCount += f;
@@ -367,17 +378,34 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Drop any audio waiting in the carry and return to zero delay. The
-        /// engines keep what they have learned. Call when the stream has been
-        /// interrupted (processing switched off and on again), so stale audio
-        /// from before the gap is not played after it.
+        /// Drop any audio waiting in the carry and return to zero delay. Call
+        /// when the stream has been interrupted (processing switched off and on
+        /// again), so stale audio from before the gap is not played after it.
         /// </summary>
+        /// <remarks>
+        /// #1169, fixed in Sprint 49 Track P: until then this kept the dry delay
+        /// lines, so a resumed bank played its whole delay of audio from before
+        /// the stop (measured: 960 of 960 samples, <c>ClearCarryMarkerTests</c>),
+        /// against this very comment. Now the dry lines are cleared, and for the
+        /// engine's own delay after the stop its output is replaced by that
+        /// cleared dry signal: the engines keep what they have LEARNED (their
+        /// noise estimates), but nothing they were GIVEN before the stop is
+        /// heard after it. The resumed stream starts with silence for the
+        /// bank's delay, then the processed audio, on the same timeline.
+        /// No allocation: called from the audio thread.
+        /// </remarks>
         public void ClearCarry()
         {
             _inCount = 0;
             _outCount = 0;
             _carrying = false;
             HasProcessedSinceGap = false;
+            for (int ch = 0; ch < _delay.Length; ch++)
+            {
+                Array.Clear(_delay[ch]);
+                _delayAt[ch] = 0;
+                _quiet[ch] = _delay[ch].Length;
+            }
         }
 
         /// <summary><see cref="ClearCarry"/>, and reset every engine as if new.</summary>
@@ -463,7 +491,7 @@ namespace JJFlexWpf
             if (_delay[channel].Length == samples) return;
             int before = _delay[channel].Length;
             // A deliberate latency change starts zeroed, like a new engine.
-            // ClearCarry alone keeps this history, just as it keeps the engine's.
+            // ClearCarry zeroes it too, since #1169.
             _delay[channel] = new float[samples];
             _delayAt[channel] = 0;
             Trace.WriteLine($"PerChannelDenoiserBank: channel {channel} delay changed from {before} to {samples} samples.");

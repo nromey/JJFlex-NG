@@ -10,9 +10,9 @@ namespace JJFlexWpf.Tests;
 /// #1169, settled by marker rather than by reading (Sprint 49 Track P): does a
 /// bank switched off (<see cref="PerChannelDenoiserBank.ClearCarry"/>, which the
 /// receive slot calls when it stops processing) and back on replay audio from
-/// before it was switched off? Its comment says it does not. NOT FIXED HERE:
-/// the bank serves both directions and the register holds the fix for after
-/// Track H2. The engine here has a REAL delay (a ring of its own), so its
+/// before it was switched off? Its comment says it does not. Measured in phase 0
+/// (960 of 960 samples replayed); fixed in phase 1 on the orchestrator's word,
+/// which the two tests at the end hold. The engine here has a REAL delay (a ring of its own), so its
 /// output is its input <see cref="Delay"/> samples later, as a real engine's is.
 /// </summary>
 public sealed class ClearCarryMarkerTests
@@ -96,10 +96,42 @@ public sealed class ClearCarryMarkerTests
         Assert.Equal(Delay, wet.FirstMarkerAt);
     }
 
-    [Fact(Skip = "#1169, measured 2026-11-19 by the test above: ClearCarry leaves the dry delay line (960 of 960 samples replayed at strength 0) and the engine's history (960 at strength 1); fix waits for Track H2 per the register")]
+    /// <summary>
+    /// The fix (Sprint 49 Track P, phase 1, on the orchestrator's word): skipped
+    /// until then, with the measured 960 of 960 as its reason. Strength 0 is the
+    /// dry line alone, strength 1 the engine's history alone, 0.5 both.
+    /// </summary>
+    [Fact]
     public void A_bank_switched_off_and_on_plays_nothing_from_before_the_stop()
     {
         Assert.Equal(0, Run(0f).Stale);
         Assert.Equal(0, Run(1f).Stale);
+        Assert.Equal(0, Run(0.5f).Stale);
+    }
+
+    /// <summary>And what comes after the stop still comes through, at the bank's delay, from the first sample after it.</summary>
+    [Fact]
+    public void After_a_stop_the_new_audio_starts_exactly_one_delay_later()
+    {
+        foreach (float strength in new[] { 0f, 0.5f, 1f })
+        {
+            using var bank = new PerChannelDenoiserBank(() => new DelayEngine(Delay), 1);
+            var buffer = new float[480];
+            for (int b = 0; b < 10; b++) { Array.Fill(buffer, 0.5f); bank.Process(buffer, strength); }
+            bank.ClearCarry();
+            int at = 0, first = -1;
+            for (int b = 0; b < 10; b++)
+            {
+                Array.Fill(buffer, 0.25f);
+                bank.Process(buffer, strength);
+                for (int i = 0; i < buffer.Length; i++)
+                {
+                    if (first < 0 && buffer[i] != 0) first = at + i;
+                    if (first >= 0) Assert.Equal(0.25f, buffer[i], 5);
+                }
+                at += buffer.Length;
+            }
+            Assert.Equal(Delay, first);
+        }
     }
 }

@@ -29,6 +29,8 @@ namespace JJFlexWpf
         private SpectralSubtractionProvider _processingCapture;
         private readonly Action<PerChannelDenoiserBank> _prepareSpectral;
         private readonly DenoiseEngineCatalog _catalog;
+        /// <summary>The engine catalog the slots were built from (Sprint 49 Track P: the load-time shared-delay plan reads it).</summary>
+        internal DenoiseEngineCatalog Catalog => _catalog;
         public PcDenoiseSlot SpectralSlot { get; }
         public PcDenoiseSlot NeuralSlot { get; }
         private int _processMark; // 0 idle, 1 inside Process, 2 permanently closed
@@ -579,7 +581,8 @@ namespace JJFlexWpf
                 for (int i = 0; i < count; i += channels)
                 {
                     t = Math.Min(1f, t + advance);
-                    gain = t >= 1f ? 1f : low + span * MathF.Sin(t * MathF.PI / 2f);
+                    // The shared ramp's equal-power member (#199, #873): the same sine as before.
+                    gain = t >= 1f ? 1f : low + span * CrossFadeCurve.In(t);
                     for (int c = 0; c < channels && i + c < count; c++)
                         buffer[i + c] *= gain;
                 }

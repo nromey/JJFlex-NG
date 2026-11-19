@@ -373,18 +373,63 @@ namespace JJFlexWpf
             return _measuredDelays.TryGetValue((id, model ?? ""), out int seen) ? seen : ReceiveSharedDelay.ExpectedSamples(id, model);
         }
 
-        /// <summary>The engines that set a family's shared delay: <see cref="ReceiveSharedDelay.SetFor"/>'s assumption, from the favourites.</summary>
-        public IReadOnlyList<ReceiveSharedDelay.Member> SharedDelaySet(DenoiseFamily family) =>
+        /// <summary>The favourites of a family that are computer engines: <see cref="ReceiveSharedDelay.SetFor"/>'s assumption, before outliers are taken out.</summary>
+        public IReadOnlyList<ReceiveSharedDelay.Member> SharedDelayCandidates(DenoiseFamily family) =>
             ReceiveSharedDelay.SetFor(_catalog, Favourites, family);
 
+        /// <summary>
+        /// A family's plan: its favourites without the outliers
+        /// (<see cref="ReceiveSharedDelay.OutlierSamples"/>), and the shared delay
+        /// of what remains. Built on the control side, never the audio thread.
+        /// </summary>
+        public SharedDelayPlan SharedDelayPlanFor(DenoiseFamily family, out IReadOnlyList<ReceiveSharedDelay.Member> outliers) =>
+            ReceiveSharedDelay.PlanFor(SharedDelayCandidates(family), m => ReceiveFigureSamples(m.EngineId, m.Model), out outliers);
+
+        /// <summary>The engines that set a family's shared delay: its favourites, outliers removed.</summary>
+        public IReadOnlyList<ReceiveSharedDelay.Member> SharedDelaySet(DenoiseFamily family) => SharedDelayPlanFor(family, out _).Members;
+
         /// <summary>A family's shared receive delay in samples: the largest figure in its set; 0 for an empty set.</summary>
-        public int SharedDelaySamples(DenoiseFamily family) =>
-            ReceiveSharedDelay.SharedSamples(SharedDelaySet(family), m => ReceiveFigureSamples(m.EngineId, m.Model));
+        public int SharedDelaySamples(DenoiseFamily family) => SharedDelayPlanFor(family, out _).Samples;
 
         /// <summary>Whether this engine, in the model it is set to now, is in its family's shared set.</summary>
         public bool InSharedDelaySet(string id) =>
             _catalog.Find(id) is { Side: DenoiseSide.Pc, Family: { } family }
-            && new SharedDelayPlan(0, SharedDelaySet(family)).Contains(id, CurrentModel(id));
+            && SharedDelayPlanFor(family, out _).Contains(id, CurrentModel(id));
+
+        /// <summary>
+        /// Plays the Beep switch's sound. A test gives its own, so no test makes a sound.
+        /// </summary>
+        internal Action SwitchBeep { get; set; } = EarconPlayer.NoiseSwitchBeep;
+
+        /// <summary>
+        /// The sentence for one receive computer engine taking over from another
+        /// (#873, ruled 2026-11-08 12:57, three independent switches): spoken only
+        /// while the Speech switch is on, which silences this sentence and nothing
+        /// else; and the Beep, while its switch is on. The Mute switch acts in the
+        /// slot itself, on the audio.
+        /// </summary>
+        private void SayEngineSwitch(string sentence)
+        {
+            var config = _config();
+            if (config?.NoiseSwitchBeep == true)
+            {
+                try { SwitchBeep(); }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine("NoiseController: the switch beep failed: " + ex.Message); }
+            }
+            if (config?.NoiseSwitchSpeech != false) Say(sentence, SpeechSubject.NoiseEngineSwitch);
+        }
+
+        /// <summary>
+        /// Hand each receive slot its family's plan (#873, Sprint 49 Track P). The
+        /// slot reads it on the audio thread when it turns on and at a switch.
+        /// Called when the favourites change, when an engine is chosen, and when a
+        /// slot reports a new engine running (its measured figure is known then).
+        /// </summary>
+        public void PublishSharedDelays()
+        {
+            foreach (var family in new[] { DenoiseFamily.Spectral, DenoiseFamily.Neural })
+                if (SlotOf(family) is { } slot) slot.SharedPlan = SharedDelayPlanFor(family, out _);
+        }
 
         /// <summary>
         /// Settings, Advanced, Measured delays: one row for a computer engine
@@ -402,12 +447,14 @@ namespace JJFlexWpf
             int? own = ReceiveFigureSamples(id, null);
             string ownText = own is int o ? Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(o)))
                 : Lexicon.Get("audio.noise_surface.delay_figure_unknown");
-            var set = SharedDelaySet(family);
-            if (set.Count == 0)
+            var plan = SharedDelayPlanFor(family, out var outliers);
+            if (outliers.Any(m => m.EngineId == id && (m.Model == null || m.Model == CurrentModel(id))))
+                return Lexicon.Get("audio.noise_advanced.delay_line_outlier", ("engine", NameOf(id)), ("delay", ownText));
+            if (plan.Members.Count == 0)
                 return Lexicon.Get("audio.noise_advanced.delay_line", ("engine", NameOf(id)), ("delay", ownText));
-            int shared = SharedDelaySamples(family);
+            int shared = plan.Samples;
             string sharedText = Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(shared)));
-            if (!InSharedDelaySet(id))
+            if (!plan.Contains(id, CurrentModel(id)))
                 return Lexicon.Get("audio.noise_advanced.delay_line_outside", ("engine", NameOf(id)), ("delay", ownText), ("shared", sharedText));
             string more = own is int mine
                 ? Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(Math.Max(0, shared - mine))))

@@ -246,6 +246,13 @@ namespace JJFlexWpf
             // The direction first: the default parameters below read it.
             _direction = direction;
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
+            if (direction == DenoiseDirection.Receive)
+            {
+                // The shared delay's lines, allocated here and never on the audio thread (#873).
+                _runPad = new PadLine(MaxPadSamples, channels);
+                _warmPad = new PadLine(MaxPadSamples, channels);
+                _corr = new float[channels];
+            }
             // Every engine's default parameters, made here rather than on the audio thread (repair round 1).
             foreach (var row in catalog.Entries) DefaultParameters(row.Id);
             _choice = new Choice(0, initialId, direction);
@@ -594,6 +601,7 @@ namespace JJFlexWpf
                 // Keep the built choice, but do not warm or announce it with no audio.
                 return;
             }
+            if (!_wasActive) BeginActive(run, running);
             _wasActive = true;
             bool listen = ListenToRemoved;
             if (running != null) { running.ListenToRemoved = listen; ApplyParameters(running, run!.Id, ref _runningApplied); }
@@ -601,10 +609,12 @@ namespace JJFlexWpf
             if (_warming != null)
             {
                 ApplyParameters(_warming.Bank, _warming.Choice.Id, ref _warming.Applied);
+                if (!ReferenceEquals(_warmDecidedFor, _warming)) DecideWarm(_warming, running);
                 if (_nextAudio.Length != audio.Length) _nextAudio = new float[audio.Length];
                 audio.CopyTo(_nextAudio, 0);
                 long late = _warming.Bank.LateFrames, failed = _warming.Bank.FallbackFrames;
                 _warming.Bank.Process(_nextAudio, GetStrength(_warming.Choice.Id));
+                if (_warmTarget >= 0) _warmPad!.Process(_nextAudio.AsSpan(0, audio.Length), _warmTarget - _warming.Bank.LatencySamples);
                 bool produced = late == _warming.Bank.LateFrames && failed == _warming.Bank.FallbackFrames;
                 if (failed != _warming.Bank.FallbackFrames)
                 {
@@ -622,15 +632,32 @@ namespace JJFlexWpf
                 {
                     long runningTook = running.EngineFrames, runningFailed = running.FallbackFrames;
                     running.Process(audio, GetStrength(run!.Id));
+                    if (_held >= 0) _runPad!.Process(audio, _held - running.LatencySamples);
                     processedBy = ProcessedBy(running, run.Id, runningTook, runningFailed);
                 }
                 if (produced) _warmSamples += audio.Length / _channels;
                 else _warmSamples = 0;
-                if (_warmSamples >= _sampleRate / 10 && ReferenceEquals(choice, Volatile.Read(ref _choice)))
+                // Long enough that the incoming bank's padded output is real audio
+                // for the measured window and the fade (#873: at least the delay
+                // plus the window, never under today's 100 ms).
+                int need = _sampleRate / 10;
+                if (_warmTarget >= 0) need = Math.Max(need, _warmTarget + 2 * (audio.Length / _channels));
+                if (_warmSamples >= need && (!_warmAligned || _haveCorrelation) && ReferenceEquals(choice, Volatile.Read(ref _choice)))
                 {
                     InstallHook?.Invoke("before-running-id");
-                    if (CrossFadeEnabled) CrossFade(audio, _nextAudio, _channels);
-                    else _nextAudio.AsSpan(0, audio.Length).CopyTo(audio);
+                    bool mute = (MuteOverrideForTest ?? SwitchMuteEnabled) && running != null;
+                    bool aligned = _warmAligned && !mute && CrossFadeEnabled;
+                    if (mute) FadeOutForMute(audio);
+                    else if (!CrossFadeEnabled) _nextAudio.AsSpan(0, audio.Length).CopyTo(audio);
+                    else if (aligned) AlignedSwitch.Fade(audio, _nextAudio.AsSpan(0, audio.Length), _channels, _corr);
+                    else CrossFade(audio, _nextAudio, _channels);
+                    var note = new SwitchNote(aligned, _channels > 0 ? _corr[0] : 0, _channels > 1 ? _corr[1] : 0, _warmTarget, mute);
+                    LastSwitch = note;
+                    // The incoming bank's pad line becomes the running one, so the
+                    // padded timeline carries straight on (#873).
+                    (_runPad, _warmPad) = (_warmPad, _runPad);
+                    _held = _warmTarget;
+                    if (mute) { _muteLeft = MuteSamples; _rampLeft = MuteRampSamples; }
                     // One reference: the bank, its id and its build, made on the
                     // worker, so nothing is allocated here and no reader can see
                     // the incoming bank under the outgoing id (repair round 5).
@@ -642,8 +669,12 @@ namespace JJFlexWpf
                     if (old != null) Retire(old);
                     _announced = choice.Generation;
                     processedBy = choice.Id;
-                    Publish(choice, true);
+                    Publish(choice, true, note: note);
+                    if (processedBy != null) Volatile.Write(ref _processingId, processedBy);
+                    return;
                 }
+                if (_warmAligned) { AlignedSwitch.Correlation(audio, _nextAudio.AsSpan(0, audio.Length), _channels, _corr); _haveCorrelation = true; }
+                ApplyMute(audio);
                 if (processedBy != null) Volatile.Write(ref _processingId, processedBy);
                 return;
             }
@@ -651,6 +682,8 @@ namespace JJFlexWpf
             {
                 long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames;
                 running.Process(audio, GetStrength(run!.Id));
+                if (_held >= 0) _runPad!.Process(audio, _held - running.LatencySamples);
+                ApplyMute(audio);
                 if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
                 if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
                     late == running.LateFrames && failed == running.FallbackFrames)
@@ -776,6 +809,140 @@ namespace JJFlexWpf
                 Publish(choice, false, Volatile.Read(ref choice.Failure), slotStopped: true);
         }
 
+        // ── The shared delay, the aligned switch and the mute (#873, Sprint 49 Track P) ──
+        //
+        // Receive only. A transmit slot never warms, never pads and never mutes:
+        // ProcessTransmit touches none of this, and its lines are not allocated.
+
+        /// <summary>The longest pad a receive slot holds: 250 ms. A plan that would need more is treated as outside the set.</summary>
+        public const int MaxPadSamples = 12000;
+
+        /// <summary>The Mute switch's planned gap: about 100 ms (#873, Noel 2026-11-08 12:48).</summary>
+        public const int MuteSamples = 4800;
+
+        /// <summary>How the new engine comes back after the Mute gap: 5 ms on the shared ramp.</summary>
+        public const int MuteRampSamples = 240;
+
+        private SharedDelayPlan _plan = SharedDelayPlan.None;
+
+        /// <summary>
+        /// This family's shared delay and the engines that share it, published by
+        /// the noise controller off the audio thread; read by the audio thread when
+        /// the slot turns on and when a switch begins warming.
+        /// </summary>
+        public SharedDelayPlan SharedPlan
+        {
+            get => Volatile.Read(ref _plan);
+            set => Volatile.Write(ref _plan, value ?? SharedDelayPlan.None);
+        }
+
+        private static int _switchMute;
+
+        /// <summary>
+        /// The Mute switch (ruled 2026-11-08 12:57; default off): a receive engine
+        /// change fades the old engine out across the switch buffer, holds
+        /// <see cref="MuteSamples"/> of silence, then fades the new engine in.
+        /// App-wide, read by the audio thread once per switch.
+        /// </summary>
+        public static bool SwitchMuteEnabled
+        {
+            get => Volatile.Read(ref _switchMute) != 0;
+            set => Volatile.Write(ref _switchMute, value ? 1 : 0);
+        }
+
+        /// <summary>Tests only: this slot's Mute switch, instead of the app-wide one, so a test never changes what another test's slots do.</summary>
+        internal bool? MuteOverrideForTest { get; set; }
+
+        /// <summary>What one switch did, for the trace and for tests: aligned or not, the measured correlation per channel (first two), the delay then held, and whether it was a muted switch.</summary>
+        internal readonly record struct SwitchNote(bool Aligned, float R0, float R1, int Held, bool Mute);
+
+        /// <summary>Tests only: the last switch this slot made.</summary>
+        internal SwitchNote? LastSwitch { get; private set; }
+
+        /// <summary>Tests only: the delay the slot's output is held at, in samples; -1 when it holds none (the running engine is outside the set).</summary>
+        internal int HeldSamples => _held;
+
+        private PadLine? _runPad, _warmPad;
+        private int _held = -1, _warmTarget = -1;
+        private Built? _warmDecidedFor;
+        private bool _warmAligned, _haveCorrelation;
+        private float[] _corr = Array.Empty<float>();
+        private int _muteLeft, _rampLeft;
+
+        private static string? ModelOf(IReadOnlyDictionary<string, EngineSettingValue>? values) =>
+            values != null && values.TryGetValue("model", out var v) ? v.Choice : null;
+
+        /// <summary>The slot turns on: forget the old timeline and decide what the running engine is held at.</summary>
+        private void BeginActive(RunningBuild? run, PerChannelDenoiserBank? running)
+        {
+            _runPad?.Clear();
+            _held = run != null && running != null ? HoldFor(run.Id, ModelOf(run.Initial), running.LatencySamples) : -1;
+            _warmDecidedFor = null;
+            _muteLeft = 0; _rampLeft = 0;
+        }
+
+        /// <summary>The delay to hold an engine at when it is the one running: the shared figure (or its own, if larger) when it is in the set; -1 otherwise.</summary>
+        private int HoldFor(string id, string? model, int own)
+        {
+            var plan = SharedPlan;
+            if (_runPad == null || !plan.Contains(id, model)) return -1;
+            int held = Math.Max(plan.Samples, own);
+            return held - own <= MaxPadSamples ? held : -1;
+        }
+
+        /// <summary>
+        /// A switch begins warming: decide what the incoming bank is padded to,
+        /// and whether the switch is aligned. Aligned when both engines are in the
+        /// set: the incoming one is padded to exactly the delay held now, so the
+        /// two outputs carry the same content and no time moves. A helper figure
+        /// read before its first open can be half a millisecond out
+        /// (<see cref="ReceiveSharedDelay.RoundingSamples"/>), so an incoming
+        /// engine up to that much slower is still aligned and moves time by that
+        /// much; anything more is today's switch.
+        /// </summary>
+        private void DecideWarm(Built warming, PerChannelDenoiserBank? running)
+        {
+            _warmDecidedFor = warming;
+            _warmAligned = false;
+            _haveCorrelation = false;
+            int own = warming.Bank.LatencySamples;
+            string? model = ModelOf(warming.Running?.Initial);
+            bool incomingIn = _warmPad != null && SharedPlan.Contains(warming.Choice.Id, model);
+            if (running != null && _held >= 0 && incomingIn && own <= _held + ReceiveSharedDelay.RoundingSamples)
+            {
+                _warmTarget = Math.Max(_held, own);
+                _warmAligned = true;
+            }
+            else _warmTarget = incomingIn ? HoldFor(warming.Choice.Id, model, own) : -1;
+            if (_warmTarget >= 0) { _warmPad!.Clear(); _warmSamples = 0; }
+        }
+
+        /// <summary>The Mute switch's first part: the outgoing engine fades out across the switch buffer.</summary>
+        private void FadeOutForMute(Span<float> audio)
+        {
+            int frames = audio.Length / _channels;
+            for (int f = 0; f < frames; f++)
+            {
+                float g = CrossFadeCurve.Out((f + 1f) / frames);
+                for (int c = 0; c < _channels; c++) audio[f * _channels + c] *= g;
+            }
+        }
+
+        /// <summary>The Mute switch's gap, then the new engine fading in. Nothing at all when no mute is running.</summary>
+        private void ApplyMute(Span<float> audio)
+        {
+            if (_muteLeft <= 0 && _rampLeft <= 0) return;
+            int frames = audio.Length / _channels;
+            for (int f = 0; f < frames; f++)
+            {
+                float g;
+                if (_muteLeft > 0) { g = 0f; _muteLeft--; }
+                else if (_rampLeft > 0) { g = CrossFadeCurve.In((MuteRampSamples - _rampLeft + 1f) / MuteRampSamples); _rampLeft--; }
+                else break;
+                for (int c = 0; c < _channels; c++) audio[f * _channels + c] *= g;
+            }
+        }
+
         internal static void CrossFade(Span<float> oldAudio, ReadOnlySpan<float> newAudio, int channels)
         {
             int frames = oldAudio.Length / channels;
@@ -786,9 +953,14 @@ namespace JJFlexWpf
                 { int i = f * channels + ch; oldAudio[i] = oldAudio[i] * (1 - gain) + newAudio[i] * gain; }
             }
         }
-        private void Publish(Choice choice, bool processing, string? failure = null, bool slotStopped = false) =>
+        private void Publish(Choice choice, bool processing, string? failure = null, bool slotStopped = false, SwitchNote? note = null) =>
             ThreadPool.QueueUserWorkItem(_ =>
             {
+                // The switch's record, written here off the audio thread (#873).
+                if (note is { } n)
+                    Trace.WriteLine($"PcDenoiseSlot: {Family} switched to {choice.Id}: " +
+                        (n.Mute ? "muted switch" : n.Aligned ? "aligned fade" : "unaligned switch") +
+                        $", correlation {n.R0:0.000} and {n.R1:0.000}, held at {n.Held} samples");
                 EventHandler<DenoiseSelectionResult>? handler;
                 lock (_control)
                 {

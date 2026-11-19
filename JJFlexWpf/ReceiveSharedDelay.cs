@@ -94,6 +94,60 @@ namespace JJFlexWpf
             return shared;
         }
 
+        /// <summary>
+        /// THE OUTLIER LINE: an engine whose own figure is above 100 ms (4,800
+        /// samples) never sets its family's shared delay, and is not held to it.
+        /// Noel's ruling of 2026-11-04 19:58 is that an outlier must not set the
+        /// shared delay ("I don't want it to throw it off"); this is how one is
+        /// recognised, applied on the orchestrator's word after phase 0
+        /// (2026-11-19). The line is the top of the range Noel called "not huge
+        /// at all" for tuning (19:59: "If we're talking 50 to 100 ms, that delay
+        /// for tuning isn't huge at all"), so an engine above it would push every
+        /// other engine of its family past what he judged unnoticeable.
+        /// Measured 2026-11-19: NR2 (105 ms) is the only engine above it, so the
+        /// spectral family shares at most 21 ms (Captured noise). The same test
+        /// would catch NNR Premium (81 ms today) if it ever rose past 100 ms, or
+        /// NVIDIA NR when it is built. An outlier is treated as outside the set:
+        /// a switch to or from it keeps today's behaviour.
+        /// </summary>
+        public const int OutlierSamples = 4800;
+
+        /// <summary>Whether a figure is above <see cref="OutlierSamples"/>. An unknown figure is not an outlier (it is measured once it runs).</summary>
+        public static bool IsOutlier(int? figure) => figure is int f && f > OutlierSamples;
+
+        /// <summary>
+        /// The plan for a family: the set with its outliers removed, and the
+        /// shared delay of what remains. <paramref name="outliers"/> names the
+        /// members that were removed, for the Advanced tab's rows.
+        /// </summary>
+        public static SharedDelayPlan PlanFor(IEnumerable<Member> set, Func<Member, int?> figure, out IReadOnlyList<Member> outliers)
+        {
+            var kept = new List<Member>();
+            var out1 = new List<Member>();
+            foreach (var m in set) (IsOutlier(figure(m)) ? out1 : kept).Add(m);
+            outliers = out1;
+            return new SharedDelayPlan(SharedSamples(kept, figure), kept);
+        }
+
+        /// <summary>
+        /// Hand both receive slots their first plan when a receive configuration
+        /// is loaded, before the noise controller has measured anything: the
+        /// favourites, the expected figures (a favourite with no model read in
+        /// the model its slot holds), outliers removed.
+        /// </summary>
+        public static void PublishExpected(RxAudioPipeline pipeline, IEnumerable<NoiseFavourite> favourites)
+        {
+            var list = favourites.ToList();
+            foreach (var slot in new[] { pipeline.SpectralSlot, pipeline.NeuralSlot })
+            {
+                var set = SetFor(pipeline.Catalog, list, slot.Family);
+                slot.SharedPlan = PlanFor(set, m => ExpectedSamples(m.EngineId, m.Model ?? ModelHeld(pipeline.Catalog, slot, m.EngineId)), out _);
+            }
+        }
+
+        private static string? ModelHeld(DenoiseEngineCatalog catalog, PcDenoiseSlot slot, string id) =>
+            catalog.Find(id)?.Settings.Any(d => d.Name == "model") == true ? slot.GetSetting(id, "model").Choice : null;
+
         /// <summary>Samples to whole milliseconds at 48 kHz, as every delay readout rounds them.</summary>
         public static int Milliseconds(int samples) => (int)Math.Round(samples / 48.0);
     }

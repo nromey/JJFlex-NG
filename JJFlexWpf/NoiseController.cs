@@ -1058,6 +1058,8 @@ namespace JJFlexWpf
             // The CW model the mode's rule chose is said AFTER the switch, in the
             // same utterance (#1110): the answer to the press comes first.
             string? cwModel = ApplyModeRulesForChoice(e, slot, source);
+            // The plan in force before the slot starts warming the new engine (#873).
+            PublishSharedDelays();
             slot.Select(e.Id, out _);
             slot.Enabled = true;
             // The engine pushed out of the slot is part of the same change (#1018
@@ -1098,7 +1100,10 @@ namespace JJFlexWpf
                 : L("audio.noise_surface.on_replacing", ("engine", name), ("other", NameOf(replaced)));
             string? delay = DelayClause(e);
             if (delay != null) sentence += " " + delay;
-            Say(sentence, SpeechSubject.NoiseEngineSwitch);
+            // One receive computer engine taking over from another is a switch:
+            // the operator's Speech and Beep switches decide what marks it (#873).
+            if (replaced != null) SayEngineSwitch(sentence);
+            else Say(sentence, SpeechSubject.NoiseEngineSwitch);
         }
 
         /// <summary>
@@ -1310,6 +1315,8 @@ namespace JJFlexWpf
             // A selection that now processes keeps a mode sentence that named its
             // engine on, and retires one whose refusal it made false (repair round 1, B2).
             CheckModeNotice("a noise engine's selection result changed what it stated");
+            // A new engine running has a measured figure now: the plans may sharpen (#873).
+            if (result.Processing && result.Direction == DenoiseDirection.Receive) PublishSharedDelays();
             if (result.Processing) { RetireHelperNotice("a noise engine started processing", modeNoticeToo: false); return; }
             if (!result.SlotStopped) return;
             // Queued behind whatever is being said (repair round 1): on every
