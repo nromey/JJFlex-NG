@@ -27,6 +27,7 @@ namespace JJFlexWpf
         public void Attach(string mode)
         {
             _group = null;
+            ReleaseBounceHold();
             WriteRadioIntents("connect");
             _zeroRestore = null;
             ClearListening();
@@ -110,13 +111,15 @@ namespace JJFlexWpf
             string mode = r.ReceiveMode;
             if (mode.Length == 0 || NoiseModeRules.GroupOf(mode) == now) return;
             System.Diagnostics.Trace.WriteLine($"NoiseController: the active slice's mode {mode} is another mode group; entering it ({why})");
-            EnterGroup(mode, attaching: false);
+            ArriveAtMode(mode, why);   // through the bounce rule too (#1124): the poll reads the same stale status
         }
 
         public void Detach()
         {
             RetireHelperNotice("the radio disconnected");
             ClearModeAnswerHolds();
+            ReleaseBounceHold();
+            _enteredSinceRequest = false;
             _activeSlice = null;
             _live = null;
             _readingSlice = null;
@@ -137,7 +140,89 @@ namespace JJFlexWpf
         /// that group's starting point, and says so. NNR's model and NR2's
         /// noise tracking follow CW.
         /// </summary>
-        public void OnModeChanged(string mode) => EnterGroup(mode, attaching: false);
+        public void OnModeChanged(string mode) => ArriveAtMode(mode, "the radio reported a mode");
+
+        // ── A stale mode status after the app's own request (#1124) ──
+
+        /// <summary>
+        /// How long after the app asks the radio for a mode a report that moves
+        /// the group again is held rather than acted on (#1124). A judgement, not
+        /// a measurement: the 8600 followed a menu mode about 0.5 s after the
+        /// click, and the stale status (USB between our CW and the radio's own CW)
+        /// came and went within 325 ms. Long enough to cover both; short enough
+        /// that a report the radio means (a refused mode) is acted on at once
+        /// after it.
+        /// </summary>
+        internal const int ModeBounceWindowMs = 1000;
+
+        private long _modeRequestedAt = long.MinValue / 2;
+        private bool _enteredSinceRequest;
+        private IDisposable? _bounceHold;
+        private string? _heldMode;
+
+        /// <summary>
+        /// The app has just asked the radio for a mode (#1124): every road does,
+        /// through <c>MainWindow.NoteModeChoice</c>, which a mode request and a
+        /// band jump both pass. The first group change reported after it is the
+        /// answer and is entered at once, as always. Another group change
+        /// reported within <see cref="ModeBounceWindowMs"/> contradicts the
+        /// answer the radio has just given, and is HELD: a status the radio
+        /// repeats from before the request when another client connects (seen
+        /// on the 8600 under the harness's polling: CW, USB, CW within 325 ms,
+        /// and a false "Back in a voice mode" spoken between two CW sentences).
+        /// If the group comes back while held, the bounce is dropped and nothing
+        /// is said; if the window passes with the other group still reported,
+        /// that group is entered then, so a mode the radio really keeps (it
+        /// refused the request, say) is followed, only later.
+        /// </summary>
+        public void NoteModeRequested()
+        {
+            _modeRequestedAt = _clock();
+            _enteredSinceRequest = false;
+        }
+
+        /// <summary>A reported mode, on either road (the radio's mode report, or the active slice's mode at a poll), through the bounce rule.</summary>
+        private void ArriveAtMode(string mode, string why)
+        {
+            var g = NoiseModeRules.GroupOf(mode);
+            if (_bounceHold != null)
+            {
+                _heldMode = mode;
+                if (_group != g) return;   // still another group: the hold decides
+                ReleaseBounceHold();
+                System.Diagnostics.Trace.WriteLine($"NoiseController: dropped a held mode report; the radio came back to {mode} within the window (#1124, {why})");
+                return;
+            }
+            if (_group is { } now && now != g && _enteredSinceRequest && _clock() - _modeRequestedAt < ModeBounceWindowMs)
+            {
+                _heldMode = mode;
+                _bounceHold = _scheduler.After(TimeSpan.FromMilliseconds(ModeBounceWindowMs), () =>
+                {
+                    string? held = _heldMode;
+                    ReleaseBounceHold();
+                    if (held == null) return;
+                    System.Diagnostics.Trace.WriteLine($"NoiseController: a held mode report ({held}) stood for the window; entering it (#1124)");
+                    EnterGroupCounted(held);
+                });
+                System.Diagnostics.Trace.WriteLine($"NoiseController: held a mode report ({mode}) that moves the group again right after the radio answered the app's request (#1124, {why})");
+                return;
+            }
+            EnterGroupCounted(mode);
+        }
+
+        private void EnterGroupCounted(string mode)
+        {
+            var before = _group;
+            EnterGroup(mode, attaching: false);
+            if (_group != before) _enteredSinceRequest = true;
+        }
+
+        private void ReleaseBounceHold()
+        {
+            _bounceHold?.Dispose();
+            _bounceHold = null;
+            _heldMode = null;
+        }
 
         private void EnterGroup(string mode, bool attaching)
         {

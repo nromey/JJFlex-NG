@@ -7366,7 +7366,14 @@ public partial class MainWindow : UserControl
     /// mode (repair round 3). Every request goes through
     /// <see cref="AskRadioForMode"/>, which counts it. Returns the new count.
     /// </summary>
-    public int NoteModeChoice() => _modeChoices.Note();
+    public int NoteModeChoice()
+    {
+        // The noise layer holds a report that contradicts the radio's answer to
+        // this request for a moment, so a stale status repeated when another
+        // client connects does not bounce its mode group (#1124).
+        _noise?.NoteModeRequested();
+        return _modeChoices.Note();
+    }
 
     /// <summary>
     /// THE road every mode request takes (#1117, repair round 3): count the

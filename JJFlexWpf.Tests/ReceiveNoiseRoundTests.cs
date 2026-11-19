@@ -55,4 +55,136 @@ public sealed class ReceiveNoiseRoundTests
         // CW keeps its rule: a first visit with nothing on stays unknown.
         Assert.False(f.Config.NoiseModeMemory.Cw.Known);
     }
+
+    // ── #1124: a stale mode status right after the app's own request ──
+
+    /// <summary>
+    /// The fixture with both groups remembered: voice with RNNoise on, CW with
+    /// NNR on (its starting point), so every group change swaps the neural
+    /// engine and says so. Back in voice when it returns.
+    /// </summary>
+    private static NoiseFixture VoiceAndCwKnown(Func<long> clock)
+    {
+        var f = new NoiseFixture(clock: clock);
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "test");
+        f.Noise.OnModeChanged("CW");
+        Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);
+        f.Noise.OnModeChanged("USB");
+        Assert.Equal("rnnoise", f.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.True(f.Pipeline.NeuralSlot.Enabled);
+        f.Spoken.Clear();
+        return f;
+    }
+
+    private static string Neural(NoiseFixture f) => f.Pipeline.NeuralSlot.ChosenEngineId;
+
+    [Fact]
+    public void A_stale_status_that_bounces_back_within_the_window_after_a_request_moves_nothing_and_says_nothing()
+    {
+        long now = 1_000_000;
+        using var f = VoiceAndCwKnown(() => now);
+        f.Noise.NoteModeRequested();                   // the operator asks for CW
+        f.Noise.OnModeChanged("CW");                   // FlexLib's own value at the write: entered at once
+        Assert.Equal(NoiseModeGroup.Cw, f.Noise.CurrentGroup);
+        Assert.Equal("nnr", Neural(f));
+        int said = f.Spoken.Said.Count;
+        now += 120;
+        f.Noise.OnModeChanged("USB");                  // the stale status another client's connect repeated
+        Assert.Equal(NoiseModeGroup.Cw, f.Noise.CurrentGroup);
+        Assert.Equal("nnr", Neural(f));                // no engine swap
+        now += 200;
+        f.Noise.OnModeChanged("CW");                   // the radio's own answer
+        f.Clock.RunAll();
+        Assert.Equal(NoiseModeGroup.Cw, f.Noise.CurrentGroup);
+        Assert.Equal("nnr", Neural(f));
+        Assert.Equal(said, f.Spoken.Said.Count);       // no false "Back in a voice mode"
+        Assert.DoesNotContain(f.Spoken.Said, s => s.Text.StartsWith("Back in a voice mode", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_report_that_stands_for_the_window_is_entered_when_the_window_ends()
+    {
+        // The radio refused the request (or really changed): its mode is followed, only later.
+        long now = 1_000_000;
+        using var f = VoiceAndCwKnown(() => now);
+        f.Noise.NoteModeRequested();
+        f.Noise.OnModeChanged("CW");
+        now += 300;
+        f.Noise.OnModeChanged("USB");
+        Assert.Equal(NoiseModeGroup.Cw, f.Noise.CurrentGroup);
+        f.Clock.RunAll();                              // the window ends with USB still reported
+        Assert.Equal(NoiseModeGroup.Voice, f.Noise.CurrentGroup);
+        Assert.Equal("rnnoise", Neural(f));
+        Assert.Contains(f.Spoken.Said, s => s.Text.StartsWith("Back in a voice mode", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Outside_the_window_or_with_no_request_a_group_change_is_entered_at_once_as_before()
+    {
+        long now = 1_000_000;
+        using var f = VoiceAndCwKnown(() => now);
+        // No request: two changes in quick succession act at once (another program, the radio itself).
+        f.Noise.OnModeChanged("CW");
+        f.Noise.OnModeChanged("USB");
+        Assert.Equal(NoiseModeGroup.Voice, f.Noise.CurrentGroup);
+        // A request, its answer, then a change after the window: at once.
+        f.Noise.NoteModeRequested();
+        f.Noise.OnModeChanged("CW");
+        now += NoiseController.ModeBounceWindowMs;
+        f.Noise.OnModeChanged("USB");
+        Assert.Equal(NoiseModeGroup.Voice, f.Noise.CurrentGroup);
+        Assert.Equal(0, f.Clock.Pending);
+        // A second request inside the window: its answer is an answer, not a bounce
+        // (the e4 listen's Alt+C then Alt+U 317 ms later).
+        f.Noise.NoteModeRequested();
+        f.Noise.OnModeChanged("CW");
+        now += 317;
+        f.Noise.NoteModeRequested();
+        f.Noise.OnModeChanged("USB");
+        Assert.Equal(NoiseModeGroup.Voice, f.Noise.CurrentGroup);
+    }
+
+    [Fact]
+    public void The_poll_road_obeys_the_same_window()
+    {
+        // FollowReceiveMode (the active slice's mode at a poll, #1123) reads the
+        // same stale status FlexLib now holds.
+        long now = 1_000_000;
+        using var f = VoiceAndCwKnown(() => now);
+        f.Noise.NoteModeRequested();
+        f.Radio.Mode = "CW";
+        f.Noise.OnModeChanged("CW");
+        now += 100;
+        f.Radio.Mode = "USB";
+        f.Noise.FollowReceiveMode("test poll");
+        Assert.Equal(NoiseModeGroup.Cw, f.Noise.CurrentGroup);
+        f.Radio.Mode = "CW";
+        f.Noise.OnModeChanged("CW");
+        f.Clock.RunAll();
+        Assert.Equal(NoiseModeGroup.Cw, f.Noise.CurrentGroup);
+        Assert.DoesNotContain(f.Spoken.Said, s => s.Text.StartsWith("Back in a voice mode", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Every_mode_request_and_band_jump_tells_the_noise_layer_it_asked()
+    {
+        // MainWindow.NoteModeChoice is the one count every mode request
+        // (AskRadioForMode) and band jump passes (#1117); it is where the
+        // window opens. Read from source: MainWindow cannot be built windowless.
+        string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
+        int at = main.IndexOf("public int NoteModeChoice()", StringComparison.Ordinal);
+        Assert.True(at >= 0);
+        int end = main.IndexOf("return _modeChoices.Note();", at, StringComparison.Ordinal);
+        Assert.True(end > at);
+        Assert.Contains("_noise?.NoteModeRequested();", main.Substring(at, end - at));
+        Assert.Contains("NoteModeChoice();", main.Substring(main.IndexOf("public void AskRadioForMode(Action ask)", StringComparison.Ordinal), 200));
+    }
+
+    private static string Source(params string[] path)
+    {
+        var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        return System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, System.IO.Path.Combine(path))).Replace("\r\n", "\n");
+    }
 }
