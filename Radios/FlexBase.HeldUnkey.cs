@@ -281,9 +281,15 @@ namespace Radios
             try { CancelSlicePlayback(); } catch { }
         }
 
-        /// <summary>Whether the connection a hold began on is still this rig's live one.</summary>
+        /// <summary>
+        /// Whether the connection a hold began on is still this rig's: the same
+        /// radio object and the rig not disposed. Deliberately NOT
+        /// <c>Disconnecting</c>: that flag is set by Disconnect and never cleared,
+        /// and an unkey must never be withheld while the radio may still be
+        /// keyed; Disconnect has already ended the hold itself, unkeying.
+        /// </summary>
         private bool HeldUnkeyConnectionCurrent(HeldUnkeyEpisode e) =>
-            !disposed && !Disconnecting && ReferenceEquals(theRadio, e.Radio);
+            !disposed && ReferenceEquals(theRadio, e.Radio);
 
         /// <summary>
         /// Queue the hold's Mox off, bound to the connection the hold began on:

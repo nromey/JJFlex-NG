@@ -253,7 +253,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_remote_audio_stopping_or_a_disconnect_ends_a_pending_unkey()
+        public void The_remote_audio_stopping_or_a_released_radio_ends_a_pending_unkey()
         {
             using (var x = new Rig())
             {
@@ -269,11 +269,17 @@ namespace Radios.Tests
             {
                 x.Delay(1440);
                 x.Base.UnkeyAfterNoiseDelay("review");
-                Set(x.Base, "Disconnecting", true); // the connection began closing
-                x.RunAll();
-                Assert.False(x.Base.HeldUnkeyPending);
-                Assert.Equal(0, x.Base.q.Count);  // checked when the end runs, not only when it was scheduled
-                Set(x.Base, "Disconnecting", false);
+                // The radio was released and another connection took its place
+                // (a stand-in object nothing dereferences) before the end ran.
+                Set(x.Base, "theRadio", RuntimeHelpers.GetUninitializedObject(typeof(Radio)));
+                try
+                {
+                    x.RunAll();
+                    Assert.False(x.Base.HeldUnkeyPending);
+                    Assert.Equal(0, x.Base.q.Count);  // checked when the end runs, not only when it was scheduled
+                    Assert.False(x.Base.TxConditioner.DrainInput);
+                }
+                finally { Set(x.Base, "theRadio", null!); }
             }
         }
 
