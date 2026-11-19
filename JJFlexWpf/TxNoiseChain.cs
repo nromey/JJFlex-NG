@@ -642,18 +642,39 @@ namespace JJFlexWpf
             _latchSeen[i] = true;
             string engine = slot.RunningEngineId;
             bool tell = Interlocked.Exchange(ref _noticeGiven[i], 1) == 0;
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                Trace.WriteLine($"TxNoiseChain: transmit {family} slot ({engine}) missed a frame mid-over; latched to the unprocessed microphone at the same delay until the unkey"
-                    + (tell ? "; telling the operator." : "; already told, not again until it recovers."));
-                if (tell) FellBack?.Invoke(family, engine);
-            });
+            ReportLatchOnWorker(family, engine, tell);
             if (!tell) return;
             // One notice for one failure (item 6): the first slot to latch waits
             // briefly for the other, and both are told together.
             _noticeEngine[i] = engine;
             Volatile.Write(ref _noticeRecoveriesAt[i], Volatile.Read(ref _recoveries[i]));
             if (Interlocked.Or(ref _noticeFamilies, 1 << i) == 0) ThreadPool.QueueUserWorkItem(_ => TellTogether());
+        }
+
+        // #1149 (rulings repair 1): the closures live in their own methods. A
+        // lambda that captures a PARAMETER makes the compiler allocate its
+        // closure object at the top of the method that declares it, on every
+        // call, whether or not the lambda runs; AfterSlot runs twice a buffer
+        // and Unlatch twice an unkeyed buffer, which was about 144 bytes a buffer
+        // on the audio thread. Here the closure is made only when it is used.
+        private void ReportLatchOnWorker(DenoiseFamily family, string engine, bool tell)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Trace.WriteLine($"TxNoiseChain: transmit {family} slot ({engine}) missed a frame mid-over; latched to the unprocessed microphone at the same delay until the unkey"
+                    + (tell ? "; telling the operator." : "; already told, not again until it recovers."));
+                if (tell) FellBack?.Invoke(family, engine);
+            });
+        }
+
+        private static void RebuildOnWorker(DenoiseFamily family, PcDenoiseSlot slot)
+        {
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                string id = slot.ChosenEngineId;
+                Trace.WriteLine($"TxNoiseChain: unkeyed after a latched over; rebuilding the transmit {family} slot's {id} while receiving.");
+                slot.Select(id, out _, force: true);
+            });
         }
 
         private void TellTogether()
@@ -715,12 +736,7 @@ namespace JJFlexWpf
             bank.ReleaseLatch();
             // The policy tick already started this rebuild (round 2): not twice.
             if (Interlocked.Exchange(ref _rebuildAhead[i], 0) == 1) return;
-            ThreadPool.QueueUserWorkItem(state =>
-            {
-                string id = slot.ChosenEngineId;
-                Trace.WriteLine($"TxNoiseChain: unkeyed after a latched over; rebuilding the transmit {family} slot's {id} while receiving.");
-                slot.Select(id, out _, force: true);
-            });
+            RebuildOnWorker(family, slot);
         }
 
         /// <summary>

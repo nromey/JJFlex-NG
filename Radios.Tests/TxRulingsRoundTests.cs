@@ -111,7 +111,7 @@ namespace Radios.Tests
             Assert.True(start > 0 && end > start, "the first open's block was not found in remoteAudioProc");
             string first = remote.Substring(start, end - start);
             int open = tryFile.IndexOf("private JJAudioStream OpenTxCaptureAt(int rate)", StringComparison.Ordinal);
-            int close = tryFile.IndexOf("private bool SwapTxCaptureStream(", open, StringComparison.Ordinal);
+            int close = tryFile.IndexOf("private enum TxSwapResult", open, StringComparison.Ordinal); // the swap that follows it (rulings repair 1)
             string reopen = tryFile.Substring(open, close - open);
 
             static string[] Wiring(string block, string streamPrefix) => Regex.Matches(block,
@@ -199,10 +199,15 @@ namespace Radios.Tests
             rig.Delay(4800);                          // 100 ms at 48 kHz, as the reducer reported it
             rig.Base.UnkeyAfterNoiseDelay("test");
             Assert.True(rig.Base.HeldUnkeyPending);
-            Assert.Equal(110, Assert.Single(rig.Scheduled).Ms);
+            Assert.Equal(110, rig.Base.LastHeldUnkeyMs);  // the delay plus 10%: the hold's minimum
+            // Rulings repair 1: the release schedules only the backstop; the end
+            // proper waits for the drained tail to be handed on (see
+            // TxRulingsRepairOneTests). This rig never sends a buffer, so the
+            // backstop is what ends it.
+            Assert.Equal(FlexBase.HeldUnkeyBackstopMs(100, FlexBase.TxAudioCallbacksPerSecond), Assert.Single(rig.Scheduled).Ms);
             Assert.Empty(rig.Writes());               // nothing written to the radio yet
             Assert.True(rig.Base.TxConditioner.DrainInput);
-            rig.Scheduled[0].End();                   // the hold runs out
+            rig.Scheduled[0].End();                   // the backstop runs out
             Assert.False(rig.Base.HeldUnkeyPending);
             Assert.Equal(new[] { "Mox" }, rig.Writes());
         }

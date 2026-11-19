@@ -113,7 +113,46 @@ namespace JJPortaudio
         /// <summary>The key state the current (or last) buffer was processed under, read from <see cref="KeySource"/> at its start.</summary>
         public bool Keyed => _keyed;
 
-        private volatile bool _drainInput;
+        /// <summary>
+        /// One held unkey's drain (S16; rulings repair 1): how much silence must
+        /// pass through the noise reduction before the audio captured before the
+        /// release has all come out of it. Made on the control side when the hold
+        /// begins; only the audio thread advances it.
+        /// </summary>
+        public sealed class DrainTicket
+        {
+            private int _neededSamples;
+            private long _drainedSamples;
+            private volatile bool _tailOut;
+
+            /// <param name="neededSamples">The reducer's delay at the release, in samples per channel.</param>
+            public DrainTicket(int neededSamples) { _neededSamples = Math.Max(0, neededSamples); }
+
+            /// <summary>The delay to drain, in samples per channel: the delay at the release, or a larger one a drained buffer reported.</summary>
+            public int NeededSamples => System.Threading.Volatile.Read(ref _neededSamples);
+
+            /// <summary>Samples per channel of silence that have gone through the chain since the release.</summary>
+            public long DrainedSamples => System.Threading.Interlocked.Read(ref _drainedSamples);
+
+            /// <summary>
+            /// True once a drained buffer has carried the last of the audio
+            /// captured before the release out of the reducer: the buffer that
+            /// set it holds the end of the tail, and is the one the unkey waits
+            /// to see handed on.
+            /// </summary>
+            public bool TailOut => _tailOut;
+
+            /// <summary>On the audio thread, after a drained buffer has been through the stages.</summary>
+            internal void Advance(int frames, int delaySamples)
+            {
+                if (delaySamples > _neededSamples) System.Threading.Volatile.Write(ref _neededSamples, delaySamples);
+                long drained = _drainedSamples + Math.Max(0, frames);
+                System.Threading.Interlocked.Exchange(ref _drainedSamples, drained);
+                if (!_tailOut && drained >= _neededSamples) _tailOut = true;
+            }
+        }
+
+        private DrainTicket _drain;
 
         /// <summary>
         /// S16 (ruled 2026-11-18 21:34): set while an unkey is held for the
@@ -121,12 +160,33 @@ namespace JJPortaudio
         /// silenced BEFORE the noise reduction, so the radio carries the chain's
         /// drained tail and never new microphone audio from after the release.
         /// Cleared by the first unkeyed buffer, or by the app when a key-down
-        /// ends the hold and the over carries on.
+        /// ends the hold and the over carries on. Setting it true by hand starts
+        /// a drain with nothing to wait for; the app uses <see cref="BeginDrain"/>.
         /// </summary>
         public bool DrainInput
         {
-            get { return _drainInput; }
-            set { _drainInput = value; }
+            get { return System.Threading.Volatile.Read(ref _drain) != null; }
+            set
+            {
+                if (!value) System.Threading.Volatile.Write(ref _drain, null);
+                else if (System.Threading.Volatile.Read(ref _drain) == null) System.Threading.Volatile.Write(ref _drain, new DrainTicket(0));
+            }
+        }
+
+        /// <summary>The drain in force, or null.</summary>
+        public DrainTicket Drain => System.Threading.Volatile.Read(ref _drain);
+
+        /// <summary>
+        /// Start a held unkey's drain: from the next buffer, silence goes in, and
+        /// the returned ticket says when <paramref name="neededSamples"/> of it
+        /// (the reducer's delay, per channel) have gone through, which is when
+        /// the tail is out. Replaces any drain in force.
+        /// </summary>
+        public DrainTicket BeginDrain(int neededSamples)
+        {
+            var ticket = new DrainTicket(neededSamples);
+            System.Threading.Volatile.Write(ref _drain, ticket);
+            return ticket;
         }
 
         private int _lastDelaySamples;
@@ -159,6 +219,16 @@ namespace JJPortaudio
             long at = System.Threading.Volatile.Read(ref _lastDelayTick);
             if (samples <= 0 || rate <= 0 || nowTick - at > DelayFreshnessMs) return 0;
             return samples * 1000.0 / rate;
+        }
+
+        /// <summary>The same delay as <see cref="RecentNoiseDelayMs"/>, in samples per channel (what a drain must pass), with the same freshness rule.</summary>
+        public int RecentNoiseDelaySamples(long nowTick)
+        {
+            int samples = System.Threading.Volatile.Read(ref _lastDelaySamples);
+            int rate = System.Threading.Volatile.Read(ref _lastDelayRate);
+            long at = System.Threading.Volatile.Read(ref _lastDelayTick);
+            if (samples <= 0 || rate <= 0 || nowTick - at > DelayFreshnessMs) return 0;
+            return samples;
         }
 
         /// <summary>Key-downs seen at a buffer boundary since this chain was made. A test and trace counter.</summary>
@@ -330,7 +400,7 @@ namespace JJPortaudio
             _keyed = keyed;
             // The held unkey's drain ends with the over (S16): the first buffer
             // the key reads up is receive, and the microphone runs as normal.
-            if (!keyed) _drainInput = false;
+            if (!keyed) System.Threading.Volatile.Write(ref _drain, null);
             // With a real key state, the key-down is what resets the gate open
             // (#1075), and a gap in the stream no longer does.
             Gate.ResetsOnStreamGap = source == null;
@@ -375,8 +445,11 @@ namespace JJPortaudio
             // what comes out is the chain's drained tail of the audio captured
             // before the release, then silence. Before the bypass, so it holds
             // whatever the mode.
-            if (_drainInput && count > 0) Array.Clear(buffer, 0, Math.Min(count, buffer.Length));
-            if (_bypassAll) { NoteDelay(0, sampleRate); return; }
+            // The drain read ONCE per buffer: a buffer is drained whole or not
+            // at all, and only a drained buffer counts toward the tail.
+            var drain = System.Threading.Volatile.Read(ref _drain);
+            if (drain != null && count > 0) Array.Clear(buffer, 0, Math.Min(count, buffer.Length));
+            if (_bypassAll) { NoteDelay(0, sampleRate); drain?.Advance(count / 2, 0); return; }
 
             var nr = NoiseReducer;
             var appliedLatency = NoiseReducerAppliedLatencySamples;
@@ -393,6 +466,7 @@ namespace JJPortaudio
             {
                 NoteDelay(0, sampleRate);
                 Gate.Process(buffer, 0, sampleRate);
+                drain?.Advance(count / 2, 0);
                 return;
             }
 
@@ -409,6 +483,9 @@ namespace JJPortaudio
             NoteDelay(delay, sampleRate);
             DelayInputCopy(count, delay);
             Gate.Process(buffer, count, sampleRate);
+            // S16: this drained buffer pushed count/2 samples of silence into the
+            // reducer, so that much more of the pre-release audio has come out.
+            drain?.Advance(count / 2, delay);
 
             if (!wantMonitor) return;
 

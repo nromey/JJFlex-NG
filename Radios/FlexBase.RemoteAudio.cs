@@ -637,6 +637,11 @@ namespace Radios
             if (PCAudio & !stopRemoteAudio)
             {
                 Tracing.TraceLine("stopRemoteAudioThread", TraceLevel.Info);
+                // S16, rulings repair 1: with the remote audio stopping, a held
+                // unkey's tail can never be handed on: it unkeys now.
+                CancelHeldUnkey("the remote audio is stopping", unkeyNow: true);
+                // And an automatic try's open still on its worker is closed, not left open.
+                AbandonTxOpenJob("the remote audio is stopping");
                 try
                 {
                     stopRemoteAudio = true;
@@ -1534,6 +1539,9 @@ namespace Radios
                 opusInputChannel.TXOpusChannel.AddTXData(data);
             }
             else { }
+            // S16, rulings repair 1: this frame has been handed on. If it carried
+            // the end of a held unkey's drained tail, the margin starts now.
+            NoteTxFrameHandedOn();
         }
 
         #region TX test tone (Audio Track C)

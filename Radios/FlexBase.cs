@@ -3932,6 +3932,9 @@ namespace Radios
             // The session's last speech counts, before the radio goes (#506).
             Speech.SpeechTally.Shared.Write("disconnect");
             if (theRadio == null) return;
+            // S16, rulings repair 1: a held unkey dies with its connection. One
+            // still waiting unkeys now, while the socket is certainly alive.
+            CancelHeldUnkey("the connection is closing", unkeyNow: true);
             AttachSliceRecorderStatus(null);
 
             // Held for the end of this method, which lets go of this rig's
@@ -4379,6 +4382,10 @@ namespace Radios
         protected virtual void Dispose(bool disposing)
         {
             Tracing.TraceLine("FlexBase.Dispose:" + disposing.ToString(), TraceLevel.Info);
+
+            // S16, rulings repair 1 (Codex's P2): a held unkey dies with the rig.
+            // Nothing is written; the connection's own teardown is Disconnect's.
+            try { CancelHeldUnkey("the rig is disposed", unkeyNow: false); } catch { }
 
             // #835: an Audio Check restore still waiting on this radio can no
             // longer happen; the owner says so in the trace and stops polling.
@@ -5092,6 +5099,11 @@ namespace Radios
                         // A restore withheld while the radio reported keyed can
                         // go the moment it reports receive (#835).
                         if (!RadioInterlockReportsTransmit) _checkRestorations?.Kick();
+                        // S16, rulings repair 1 (Codex's P2): the interlock at
+                        // receive ends a held unkey, unkeying NOW, so a radio that
+                        // resumes can never be left keyed with nothing waiting to
+                        // unkey it; it also ends any drain.
+                        if (!RadioInterlockReportsTransmit) CancelHeldUnkey("its interlock reported " + r.InterlockState, unkeyNow: true);
                     }
                     break;
                 case "IsMuteLocalAudioWhenRemoteOn":
@@ -7725,6 +7737,10 @@ namespace Radios
         private void noteRadioMox(bool mox)
         {
             bool oldTransmit = _Transmit;
+            // S16, rulings repair 1 (Codex's P2): the radio says it is off the
+            // air, so a held unkey still waiting is moot (nothing is written),
+            // and a drain left on after our own held unkey ends here.
+            if (!mox) NoteRadioUnkeyedForHold("its Mox off");
             if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
             if (mox && !oldTransmit && TxReferenceArmed)
                 txFilePlayer.RestartOnNextBuffer();
@@ -8192,6 +8208,10 @@ namespace Radios
                 // admission, here and again when the queued write runs; an
                 // unkey never is. See FlexBase.CheckRestore.cs for the boundary.
                 if (value && RefusedForCheckTeardown("transmit")) return;
+                // Rulings repair 1 (Codex's P1): our key-down is admitted against a
+                // transmit capture swap, so it never lands between the swap's stop
+                // and start (it waits for them). An unkey never waits.
+                if (value) AdmitTxKeyDown(); else NoteTxKeyUpRequested();
                 // S16: any direct write ends a held unkey. A key-down carries the
                 // over on; an immediate unkey (every safety path) goes now.
                 EndHeldUnkeyBy(value);

@@ -36,6 +36,16 @@ namespace Radios
         public long Overflows { get; set; }
         public long Underflows { get; set; }
         public DateTime MeasuredUtc { get; set; }
+
+        /// <summary>
+        /// Rulings repair 1 (Codex's P2): the automatic try's faster stream would
+        /// not OPEN while the running stream carried on (a device that refuses a
+        /// second simultaneous open, or an open that failed for a reason the app
+        /// cannot tell apart from that). Kept so the try is not repeated at every
+        /// connection; it expires like any verdict. NOT a verdict on the rate:
+        /// <see cref="Passed"/> is false only because nothing passed.
+        /// </summary>
+        public bool CannotOpenAlongside { get; set; }
     }
 
     [XmlRoot("TxCallbackChecks")]
@@ -179,6 +189,7 @@ namespace Radios
             if (helperCostP99Nanos is not long cost) return new(Shipped, "no helper benchmark yet this session");
             if (cost >= CostBudgetNanos) return new(Shipped, $"the helper's frame cost ({cost / 1000} microseconds at the 99th percentile) is over the {CostBudgetNanos / 1000} budget");
             if (verdictAtFast == null) return new(Shipped, $"this microphone has not yet been measured at {Fast} a second");
+            if (verdictAtFast.CannotOpenAlongside) return new(Shipped, $"this microphone would not open a second stream to try {Fast} a second (tried {verdictAtFast.MeasuredUtc:yyyy-MM-dd})");
             if (!verdictAtFast.Passed) return new(Shipped, $"this microphone dropped audio at {Fast} a second (measured {verdictAtFast.MeasuredUtc:yyyy-MM-dd})");
             if (nowUtc - verdictAtFast.MeasuredUtc > MaxVerdictAge)
                 return new(Shipped, $"this microphone's pass at {Fast} a second is from {verdictAtFast.MeasuredUtc:yyyy-MM-dd}, older than {MaxVerdictAge.TotalDays:0} days; it needs measuring again");
@@ -202,7 +213,7 @@ namespace Radios
             if (alreadyTriedThisConnection) return new(TxTryAnswer.NotThisConnection, "already tried on this connection");
             if (currentRate == Fast) return new(TxTryAnswer.NotThisConnection, $"the capture already runs at {Fast} a second");
             if (verdictAtFast != null && nowUtc - verdictAtFast.MeasuredUtc <= MaxVerdictAge)
-                return new(TxTryAnswer.NotThisConnection, (verdictAtFast.Passed ? "a pass" : "a failure")
+                return new(TxTryAnswer.NotThisConnection, (verdictAtFast.CannotOpenAlongside ? "a refusal to open alongside the running stream" : verdictAtFast.Passed ? "a pass" : "a failure")
                     + $" at {Fast} a second is held from {verdictAtFast.MeasuredUtc:yyyy-MM-dd}");
             if (helperCostP99Nanos is not long cost) return new(TxTryAnswer.NotNow, "no helper benchmark yet this session");
             if (cost >= CostBudgetNanos) return new(TxTryAnswer.NotNow, $"the helper's frame cost ({cost / 1000} microseconds at the 99th percentile) is over the {CostBudgetNanos / 1000} budget");
