@@ -489,6 +489,7 @@ namespace JJFlexWpf
         private void Move(NoiseLever lever, string source, Func<EngineSettingValue, EngineSettingValue?> to, int direction)
         {
             using var oneUtterance = OneUtterance();
+            using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
             var e = _catalog.Find(lever.EngineId);
             if (e == null) return;
             Point(e.Id, lever.Direction);
@@ -675,6 +676,7 @@ namespace JJFlexWpf
         public void ReturnToDefaults(string id, string source)
         {
             using var oneUtterance = OneUtterance();
+            using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
             var e = _catalog.Find(id);
             if (e == null) return;
             Current = id;

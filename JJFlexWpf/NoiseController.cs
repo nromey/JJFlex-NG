@@ -888,6 +888,7 @@ namespace JJFlexWpf
         public void Toggle(string id, string source)
         {
             using var oneUtterance = OneUtterance();
+            using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
             var e = _catalog.Find(id);
             if (e == null) return;
             // An engine this version cannot run is refused and never becomes the
@@ -904,6 +905,7 @@ namespace JJFlexWpf
         public void SetOn(string id, bool on, string source)
         {
             using var oneUtterance = OneUtterance();
+            using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
             if (IsOn(id) == on) { Current = id; SpeakSwitchState(id); return; }
             Toggle(id, source);
         }
@@ -1144,6 +1146,7 @@ namespace JJFlexWpf
         public void SetSlotOn(DenoiseFamily family, bool on, string source)
         {
             using var oneUtterance = OneUtterance();
+            using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
             var slot = SlotOf(family);
             if (slot == null) { NoRadio(); return; }
             if (!on)
@@ -1203,6 +1206,7 @@ namespace JJFlexWpf
         private void ApplySlotChoice(DenoiseFamily family, string id, string source, long epoch)
         {
             using var oneUtterance = OneUtterance();
+            using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
             _pendingChoice.Remove(family);
             var slot = SlotOf(family);
             var e = _catalog.Find(id);
@@ -1231,6 +1235,7 @@ namespace JJFlexWpf
         public void ComputerOffAndBack(string source)
         {
             using var oneUtterance = OneUtterance();
+            using var ownedRx = OwnRx(source); // the layer's own receive change, for its Escape (#1150)
             var p = _pipeline();
             if (p == null) { NoRadio(); return; }
             RetireHelperNotice("the computer's noise engines were switched off or back");

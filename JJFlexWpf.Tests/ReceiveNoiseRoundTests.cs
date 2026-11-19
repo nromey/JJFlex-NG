@@ -248,6 +248,113 @@ public sealed class ReceiveNoiseRoundTests
         Assert.Contains("_noiseLevers.IsKeyboardFocusWithin || _noiseAdvancedLevers.IsKeyboardFocusWithin", body);
     }
 
+    // ── #1150: the layer's Escape puts back only the layer's own receive changes ──
+
+    private const string Layer = NoiseController.LayerSource;
+
+    [Fact]
+    public void Escape_keeps_a_receive_slot_change_made_outside_the_layer_when_the_layer_changed_nothing()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "test");
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.Toggle("deepfilternet3", "Home");        // Home, while the layer is open
+        f.Noise.Toggle("nr4", "Audio menu");             // and the menu
+        Assert.False(f.Noise.RestoreSnapshot(snap, Layer));
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
+        Assert.True(f.Pipeline.NeuralSlot.Enabled);
+        Assert.True(f.Pipeline.SpectralSlot.Enabled);
+        // The kept change stays the voice group's (the memory was put back to the picture, then re-read).
+        Assert.Equal("deepfilternet3", f.Config.NoiseModeMemory.Voice.Neural.EngineId);
+        Assert.True(f.Config.NoiseModeMemory.Voice.Spectral.On);
+    }
+
+    [Fact]
+    public void Escape_keeps_an_outside_change_made_after_the_layers_own_change_to_the_same_slot()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        f.Noise.Toggle("rnnoise", "test");
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.Toggle("deepfilternet3", Layer);         // the layer's
+        f.Noise.Toggle("nnr", "Home");                   // then Home, on the same slot
+        f.Noise.Toggle("nr4", Layer);                    // and the layer, on the other slot
+        Assert.True(f.Noise.RestoreSnapshot(snap, Layer));
+        Assert.Equal("nnr", f.Pipeline.NeuralSlot.ChosenEngineId);   // kept
+        Assert.False(f.Pipeline.SpectralSlot.Enabled);                // the layer's own, put back
+    }
+
+    [Fact]
+    public void An_outside_change_before_the_layers_own_change_to_the_same_slot_is_what_Escape_returns_it_to()
+    {
+        using var f = new NoiseFixture();
+        f.Noise.Attach("USB");
+        var snap = f.Noise.TakeSnapshot();
+        f.Noise.Toggle("deepfilternet3", "Home");        // outside: DeepFilterNet3 on
+        var limit = f.Noise.Levers("deepfilternet3", false).Single(l => l.Key == "attenuation_limit_db");
+        double before = f.Noise.NumberOf(limit)!.Value;
+        f.Noise.Adjust(limit, +1, Layer);                // the layer moves its limit
+        Assert.NotEqual(before, f.Noise.NumberOf(limit));
+        Assert.True(f.Noise.RestoreSnapshot(snap, Layer));
+        Assert.Equal(before, f.Noise.NumberOf(limit));             // the layer's move undone
+        Assert.True(f.Pipeline.NeuralSlot.Enabled);                // Home's on is not rolled past
+        Assert.Equal("deepfilternet3", f.Pipeline.NeuralSlot.ChosenEngineId);
+    }
+
+    [Theory]
+    [InlineData("toggle")] [InlineData("lever")] [InlineData("bracket")]
+    [InlineData("zero")] [InlineData("defaults")] [InlineData("preset")]
+    public void Every_receive_road_the_layer_takes_is_its_own_for_Escape_and_the_same_road_from_elsewhere_is_kept(string road)
+    {
+        foreach (string source in new[] { Layer, "Audio menu" })
+        {
+            using var f = new NoiseFixture();
+            f.Noise.PresetStore = new MemoryPresetStore();
+            f.Noise.Attach("USB");
+            f.Noise.Toggle("nr4", "test");
+            Assert.NotNull(f.Noise.SavePreset("Plain", true, false, PresetCollision.Ask, "test"));   // NR4 on, nothing neural
+            f.Noise.Toggle("rnnoise", "test");
+            f.Noise.SetFavourite("deepfilternet3", true, "test");
+            var lever = f.Noise.Levers("rnnoise", false)[0];
+            if (road == "defaults") f.Noise.Adjust(lever, +1, "test");
+            string start = Describe(f);
+            var snap = f.Noise.TakeSnapshot();
+            switch (road)
+            {
+                case "toggle": f.Noise.Toggle("deepfilternet3", source); break;
+                case "lever": f.Noise.Adjust(lever, +1, source); break;
+                case "bracket": f.Noise.Step(+1, source); break;
+                case "zero": f.Noise.ComputerOffAndBack(source); break;
+                case "defaults": f.Noise.ReturnToDefaults("rnnoise", source); break;
+                case "preset": f.Noise.ApplyPreset("Plain", source); break;
+            }
+            string after = Describe(f);
+            Assert.True(after != start, road + " changed nothing to test with");
+            f.Noise.RestoreSnapshot(snap, Layer);
+            if (source == Layer) Assert.True(Describe(f) == start, road + ": the layer's own change was not put back: " + Describe(f) + " against " + start);
+            else Assert.True(Describe(f) == after, road + ": a change from " + source + " was undone by Escape: " + Describe(f) + " against " + after);
+        }
+    }
+
+    private static string Describe(NoiseFixture f)
+    {
+        string Slot(PcDenoiseSlot s) => (s.Enabled ? "on " : "off ") + s.ChosenEngineId + " " + string.Join(",",
+            s.ExportSettings()
+                // An entry with no values at its engine's default strength is no entry (as Escape's own comparison reads it).
+                .Where(x => x.Values.Count > 0 || Math.Abs(x.Strength - NoiseFloor.DefaultStrength(x.EngineId, DenoiseDirection.Receive)) > 1e-6)
+                .OrderBy(x => x.EngineId, StringComparer.Ordinal)
+                .Select(x => x.EngineId + ":" + x.Strength.ToString("R") + ":" + string.Join(";", x.Values.Select(v => v.Name + "=" + (v.Choice ?? v.Number.ToString("R"))))));
+        return Slot(f.Pipeline.SpectralSlot) + " / " + Slot(f.Pipeline.NeuralSlot);
+    }
+
+    private sealed class MemoryPresetStore : INoisePresetStore
+    {
+        public AudioChainPresets Store = new() { BalancedCaptureOffered = true };
+        public AudioChainPresets Load() => Store;
+        public bool Save(AudioChainPresets store) { Store = store; return true; }
+    }
+
     private static string Source(params string[] path)
     {
         var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);

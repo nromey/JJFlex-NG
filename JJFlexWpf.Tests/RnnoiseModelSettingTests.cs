@@ -73,7 +73,7 @@ public sealed class RnnoiseModelSettingTests
         f.Noise.Toggle("rnnoise", "test");
         f.Settle();
         var snap = f.Noise.TakeSnapshot();
-        f.Noise.Set(ModelLever(f), null, RnnoiseModels.Tag, "test");
+        f.Noise.Set(ModelLever(f), null, RnnoiseModels.Tag, NoiseController.LayerSource);   // the layer's own (#1150)
         Assert.Equal(RnnoiseModels.Tag, f.Noise.ChoiceOf(ModelLever(f)));
         Assert.True(f.Noise.RestoreSnapshot(snap, "test"));
         Assert.Equal(RnnoiseModels.Newest, f.Noise.ChoiceOf(ModelLever(f)));
