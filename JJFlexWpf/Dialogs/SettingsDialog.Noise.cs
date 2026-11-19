@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using JJFlexWpf.Controls;
 using Radios;
 
 namespace JJFlexWpf.Dialogs
@@ -42,6 +43,7 @@ namespace JJFlexWpf.Dialogs
         private ListBox? _noiseFavouriteOrder;
         private TextBox? _noiseFavouritePosition;
         private CheckBox? _noiseSayDelays;
+        private CheckBox? _noiseSwitchSpeech, _noiseSwitchBeep, _noiseSwitchMute;
         private bool _noiseSettingsFilling;
 
         private void InitializeNoiseSettings()
@@ -87,8 +89,33 @@ namespace JJFlexWpf.Dialogs
             _noiseSayDelays.Unchecked += (s, e) => { if (!_noiseSettingsFilling) _audioConfig.NoiseSayDelays = false; };
             panel.Children.Add(_noiseSayDelays);
 
+            // The three engine-change switches on receive (#873, ruled 2026-11-08
+            // 12:57; Sprint 49 Track P). Here rather than on the Advanced tab: they
+            // are everyday choices, and Advanced sits behind a warning (the draft's
+            // judgement; where they live was not ruled).
+            _noiseSwitchSpeech = SwitchCheck("audio.noise_settings.switch_speech", "audio.noise_help.settings.switch_speech",
+                on => _audioConfig.NoiseSwitchSpeech = on);
+            _noiseSwitchBeep = SwitchCheck("audio.noise_settings.switch_beep", "audio.noise_help.settings.switch_beep",
+                on => _audioConfig.NoiseSwitchBeep = on);
+            _noiseSwitchMute = SwitchCheck("audio.noise_settings.switch_mute", "audio.noise_help.settings.switch_mute",
+                on => { _audioConfig.NoiseSwitchMute = on; PcDenoiseSlot.SwitchMuteEnabled = on; });
+            panel.Children.Add(_noiseSwitchSpeech);
+            panel.Children.Add(_noiseSwitchBeep);
+            panel.Children.Add(_noiseSwitchMute);
+
             AudioTabPanel.Children.Add(group);
             FillNoiseSettings();
+        }
+
+        /// <summary>One of the three engine-change switches: named, with its Ctrl+F1 text, writing through <paramref name="set"/> unless the group is being filled.</summary>
+        private CheckBox SwitchCheck(string labelKey, string helpKey, Action<bool> set)
+        {
+            var check = new CheckBox { Content = Lexicon.Get(labelKey), Margin = new Thickness(0, 4, 0, 0) };
+            AutomationProperties.SetName(check, Lexicon.Get(labelKey));
+            JJFlexHelp.SetText(check, Lexicon.Get(helpKey));
+            check.Checked += (s, e) => { if (!_noiseSettingsFilling) set(true); };
+            check.Unchecked += (s, e) => { if (!_noiseSettingsFilling) set(false); };
+            return check;
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -103,6 +130,7 @@ namespace JJFlexWpf.Dialogs
         private CheckBox? _advancedUnderstood;
         private CheckBox? _advancedCrossFade;
         private ListBox? _advancedDelays;
+        private ValueFieldControl? _advancedDepthStandard, _advancedDepthPremium;
 
         private void InitializeAdvancedTab()
         {
@@ -120,6 +148,17 @@ namespace JJFlexWpf.Dialogs
             _advancedCrossFade.Unchecked += (s, e) => { _audioConfig.NoiseCrossFade = false; PcDenoiseSlot.CrossFadeEnabled = false; };
             panel.Children.Add(_advancedCrossFade);
 
+            // X6 (#873; ruled yes 2026-11-19, after Noel 2026-11-06 11:52): the
+            // helper's receive queue depths, typed fields, behind the guard. No
+            // deadline margin: the helper has none apart from this depth (an
+            // answer is late when it is not back k frames later).
+            _advancedDepthStandard = DepthField("audio.noise_advanced.depth_standard_label", _audioConfig.HelperQueueDepthStandard,
+                v => ApplyHelperDepths(v, _audioConfig.HelperQueueDepthPremium));
+            _advancedDepthPremium = DepthField("audio.noise_advanced.depth_premium_label", _audioConfig.HelperQueueDepthPremium,
+                v => ApplyHelperDepths(_audioConfig.HelperQueueDepthStandard, v));
+            panel.Children.Add(_advancedDepthStandard);
+            panel.Children.Add(_advancedDepthPremium);
+
             var delaysLabel = new Label { Content = Lexicon.Get("audio.noise_advanced.delays_label") };
             panel.Children.Add(delaysLabel);
             _advancedDelays = new ListBox { Height = 140 };
@@ -130,7 +169,17 @@ namespace JJFlexWpf.Dialogs
 
             var reset = new Button { Content = Lexicon.Get("audio.noise_advanced.defaults_button"), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 8, 0, 0) };
             AutomationProperties.SetName(reset, Lexicon.Get("audio.noise_advanced.defaults"));
-            reset.Click += (s, e) => { _advancedCrossFade.IsChecked = true; };
+            reset.Click += (s, e) =>
+            {
+                _advancedCrossFade.IsChecked = true;
+                // The fields' Value shows a figure and deliberately raises no
+                // ValueChanged, so the reset writes the saved and live depths
+                // itself (repair 1, B1): all three, or a risky depth stays in force
+                // behind a display that says the default.
+                _advancedDepthStandard.Value = WdspPipelineDepth.NnrStandard;
+                _advancedDepthPremium.Value = WdspPipelineDepth.NnrPremium;
+                ApplyHelperDepths(WdspPipelineDepth.NnrStandard, WdspPipelineDepth.NnrPremium);
+            };
             panel.Children.Add(reset);
 
             void Gate()
@@ -138,6 +187,8 @@ namespace JJFlexWpf.Dialogs
                 bool open = _advancedUnderstood.IsChecked == true;
                 _audioConfig.AdvancedSettingsUnderstood = open;
                 _advancedCrossFade.IsEnabled = open;
+                _advancedDepthStandard.IsEnabled = open;
+                _advancedDepthPremium.IsEnabled = open;
                 reset.IsEnabled = open;
             }
             _advancedUnderstood.Checked += (s, e) => Gate();
@@ -149,6 +200,30 @@ namespace JJFlexWpf.Dialogs
             RefillWhenTheTabTakesFocus(tab, FillMeasuredDelays);
             SettingsTabs.Items.Add(tab);
             FillMeasuredDelays();
+        }
+
+        /// <summary>
+        /// The helper's receive queue depths, saved and in force together: the
+        /// settings and <see cref="WdspPipelineDepth"/>'s receive overrides, which
+        /// the next helper engine built reads. The one way the fields and the
+        /// reset change them (repair 1, B1).
+        /// </summary>
+        private void ApplyHelperDepths(int standard, int premium)
+        {
+            _audioConfig.HelperQueueDepthStandard = standard;
+            _audioConfig.HelperQueueDepthPremium = premium;
+            WdspPipelineDepth.SetReceiveDepths(standard, premium);
+        }
+
+        /// <summary>A helper queue depth field: 1 to 6 frames, its Ctrl+F1 text, writing through <paramref name="set"/> as it changes.</summary>
+        private static ValueFieldControl DepthField(string labelKey, int value, Action<int> set)
+        {
+            var field = new ValueFieldControl { Margin = new Thickness(0, 2, 0, 8) };
+            field.Setup(Lexicon.Get(labelKey), WdspPipelineDepth.MinReceiveDepth, WdspPipelineDepth.MaxReceiveDepth, 1,
+                Math.Clamp(value, WdspPipelineDepth.MinReceiveDepth, WdspPipelineDepth.MaxReceiveDepth));
+            JJFlexHelp.SetText(field, Lexicon.Get("audio.noise_help.advanced.depth"));
+            field.ValueChanged += (s, v) => set(v);
+            return field;
         }
 
         /// <summary>One line per computer engine: the live figure where it is running, the expected one for a helper engine.</summary>
@@ -185,16 +260,17 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// The Measured delays rows, one per computer engine, each one phrase:
-        /// "NR2: about 105 milliseconds". No radio is needed: the figures are
-        /// the computer's. Only with no controller at all is there one line
-        /// saying there is nothing to show.
+        /// The Measured delays rows, one per computer engine: its own delay and
+        /// its family's shared delay (#873, Sprint 49 Track P; Noel 2026-11-04
+        /// 19:57), each row whole, from <see cref="NoiseController.SharedDelayRow"/>.
+        /// No radio is needed: the figures are the computer's. Only with no
+        /// controller at all is there one line saying there is nothing to show.
         /// </summary>
         internal static IReadOnlyList<string> MeasuredDelayRows(NoiseController? noise)
         {
             if (noise == null) return new[] { Lexicon.Get("audio.noise_advanced.delays_none") };
             return noise.Engines().Where(e => e.Side == DenoiseSide.Pc)
-                .Select(e => Lexicon.Get("audio.noise_advanced.delay_line", ("engine", noise.NameOf(e.Id)), ("delay", noise.DelayFigure(e.Id))))
+                .Select(e => noise.SharedDelayRow(e.Id))
                 .ToList();
         }
 
@@ -245,6 +321,9 @@ namespace JJFlexWpf.Dialogs
                 if (_noiseFavouriteOrder.Items.Count > 0)
                     _noiseFavouriteOrder.SelectedIndex = Math.Clamp(selected, 0, _noiseFavouriteOrder.Items.Count - 1);
                 _noiseSayDelays.IsChecked = _audioConfig.NoiseSayDelays;
+                if (_noiseSwitchSpeech != null) _noiseSwitchSpeech.IsChecked = _audioConfig.NoiseSwitchSpeech;
+                if (_noiseSwitchBeep != null) _noiseSwitchBeep.IsChecked = _audioConfig.NoiseSwitchBeep;
+                if (_noiseSwitchMute != null) _noiseSwitchMute.IsChecked = _audioConfig.NoiseSwitchMute;
                 ShowSelectedPosition();
             }
             finally { _noiseSettingsFilling = false; }
@@ -255,13 +334,21 @@ namespace JJFlexWpf.Dialogs
             string? model = Noise?.CurrentModel(id);
             if (_audioConfig.NoiseFavourites.Any(f => f.SameAs(id, model))) return;
             _audioConfig.NoiseFavourites.Add(new NoiseFavourite { EngineId = id, Model = model });
-            FillNoiseSettings();
+            FavouritesChanged();
         }
 
         private void RemoveFavourites(string id)
         {
             _audioConfig.NoiseFavourites.RemoveAll(f => f.EngineId == id);
+            FavouritesChanged();
+        }
+
+        /// <summary>The favourites are the shared delay's set (#873): refill, hand the slots their new plans, and refresh the delays list.</summary>
+        private void FavouritesChanged()
+        {
             FillNoiseSettings();
+            Noise?.PublishSharedDelays();
+            FillMeasuredDelays();
         }
 
         private void ShowSelectedPosition()

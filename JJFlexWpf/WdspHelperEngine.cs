@@ -49,6 +49,48 @@ namespace JJFlexWpf
             "nr2" => Nr2,
             _ => Other,
         };
+
+        // ── X6 (#873; ruled yes 2026-11-19): the receive depths on Settings, Advanced ──
+
+        /// <summary>The smallest depth the Advanced tab accepts: one frame, which is where the engine already clamps.</summary>
+        public const int MinReceiveDepth = 1;
+
+        /// <summary>The largest depth the Advanced tab accepts: six frames, 60 ms of room.</summary>
+        public const int MaxReceiveDepth = 6;
+
+        private static int _receiveStandard = NnrStandard, _receivePremium = NnrPremium;
+
+        /// <summary>
+        /// The operator's receive depths (the Advanced tab), clamped to
+        /// <see cref="MinReceiveDepth"/> to <see cref="MaxReceiveDepth"/>: one for
+        /// the premium models (NNR Premium and Premium CW), one for every other
+        /// receive engine and model. Read when an engine is BUILT, so a change
+        /// reaches the next build, never a running instance (its delay is fixed
+        /// for its life). The defaults are the ruled ones (S11).
+        /// </summary>
+        public static void SetReceiveDepths(int standard, int premium)
+        {
+            Volatile.Write(ref _receiveStandard, Math.Clamp(standard, MinReceiveDepth, MaxReceiveDepth));
+            Volatile.Write(ref _receivePremium, Math.Clamp(premium, MinReceiveDepth, MaxReceiveDepth));
+        }
+
+        /// <summary>The rule itself, with the depths passed in: premium models take <paramref name="premium"/>, every other receive engine <paramref name="standard"/>, both clamped.</summary>
+        internal static int ReceiveDepthFor(string engineId, string? model, int standard, int premium) =>
+            Math.Clamp(engineId == "nnr" && model is "premium" or "premium_cw" ? premium : standard, MinReceiveDepth, MaxReceiveDepth);
+
+        /// <summary>The receive depths in force: (standard, premium).</summary>
+        public static (int Standard, int Premium) ReceiveDepths => (Volatile.Read(ref _receiveStandard), Volatile.Read(ref _receivePremium));
+
+        /// <summary>
+        /// The depth for an engine and model in a direction. Transmit keeps the
+        /// ruled constants (<see cref="For(string, string?)"/>): the transmit
+        /// chain's timing is Track H2's, and these settings are receive's.
+        /// </summary>
+        public static int For(string engineId, string? model, DenoiseDirection direction)
+        {
+            if (direction != DenoiseDirection.Receive) return For(engineId, model);
+            return ReceiveDepthFor(engineId, model, Volatile.Read(ref _receiveStandard), Volatile.Read(ref _receivePremium));
+        }
     }
 
     /// <summary>
@@ -229,7 +271,7 @@ namespace JJFlexWpf
             Id = engineId;
             Direction = direction == DenoiseDirection.Transmit ? WdspProtocol.Transmit : WdspProtocol.Receive;
             string? model = starting != null && starting.TryGetValue(ModelSetting, out var m) ? m.Choice : null;
-            PipelineDepth = Math.Max(1, pipelineDepth ?? WdspPipelineDepth.For(engineId, model));
+            PipelineDepth = Math.Max(1, pipelineDepth ?? WdspPipelineDepth.For(engineId, model, direction));
             OfflineWait = offlineWait;
             _starting = starting;
             host.Attach(this);

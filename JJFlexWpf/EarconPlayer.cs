@@ -1951,6 +1951,29 @@ namespace JJFlexWpf
                 DingTone(); // fallback
         }
 
+        /// <summary>
+        /// The Beep switch's sound (#873, ruled 2026-11-08 12:52 to 12:57): one
+        /// short, clearly pitched beep when a receive computer noise engine takes
+        /// over from another, so the change is marked without speech talking over
+        /// the audio being compared. A tone, not a click: a click is broadband and
+        /// vanishes into band noise. Its pitch and length are placeholders for
+        /// Noel's ear (<see cref="NoiseSwitchBeepHz"/>, <see cref="NoiseSwitchBeepMs"/>);
+        /// its volume trim is its own, keyed by this method's name like every earcon's.
+        /// </summary>
+        [Earcon("WORDING PLACEHOLDER: noise engine changed", EarconCategory.CommandsAndConfirmations, Order = 40,
+            Description = "WORDING PLACEHOLDER: a receive computer noise reduction engine has taken over from another (Settings, Audio, the Beep switch).")]
+        public static void NoiseSwitchBeep()
+        {
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
+            PlayVoicedDecaySequence(EarconVoices.Press, new[] { (NoiseSwitchBeepHz, NoiseSwitchBeepMs) }, VolumeNormal);
+        }
+
+        /// <summary>The Beep's pitch: a placeholder for Noel's ear.</summary>
+        public const int NoiseSwitchBeepHz = 1000;
+
+        /// <summary>The Beep's length in milliseconds: a placeholder for Noel's ear.</summary>
+        public const int NoiseSwitchBeepMs = 60;
+
         /// <summary>Band boundary beep — 600 Hz double-beep.</summary>
         [Earcon("Band edge", EarconCategory.TuningAndFilters, Order = 3,
             Description = "Tuning has reached the edge of the band.")]

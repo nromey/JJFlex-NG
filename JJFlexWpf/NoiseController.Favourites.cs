@@ -63,6 +63,8 @@ namespace JJFlexWpf
             string name = FavouriteName(entry);
             if (existing != null) config.NoiseFavourites.Remove(existing);
             else config.NoiseFavourites.Add(entry);
+            // The favourites are the shared delay's set (#873).
+            PublishSharedDelays();
             NoiseSettingsJournal.Record(NoiseJournalKind.Favourite, source, id, model ?? "", existing != null ? "favourite" : "", existing != null ? "" : "favourite");
             _persist();
             Say(L(existing != null ? "audio.noise_surface.favourite_removed" : "audio.noise_surface.favourite_added", ("name", name)), SpeechSubject.NoiseFavourite);
@@ -169,7 +171,10 @@ namespace JJFlexWpf
                     if (!IsOn(e.Id)) TurnComputerOn(e, source, speak: false, model: to.Model);
                 }
                 else if (!IsOn(e.Id)) TurnOn(e, to.Model, source);
-                Say(L("audio.noise_surface.on", ("engine", SteppedName(to))) + CwModelClause(to), SpeechSubject.NoiseEngineSwitch);
+                string inPlace = L("audio.noise_surface.on", ("engine", SteppedName(to))) + CwModelClause(to);
+                // A computer engine changing model in place is a receive switch (#873).
+                if (e.Side == DenoiseSide.Pc) SayEngineSwitch(inPlace);
+                else Say(inPlace, SpeechSubject.NoiseEngineSwitch);
                 return;
             }
 
@@ -178,9 +183,11 @@ namespace JJFlexWpf
             string? replaced = TurnOn(e, to.Model, source);
             if (turnOffFrom && fromEntry!.Id != replaced) TurnOff(fromEntry, source);
             string? offName = turnOffFrom ? FavouriteName(from!) : replaced != null ? NameOf(replaced) : null;
-            Say((offName == null ? L("audio.noise_surface.on", ("engine", SteppedName(to)))
-                                 : L("audio.noise_surface.on_replacing", ("engine", SteppedName(to)), ("other", offName))) + CwModelClause(to),
-                SpeechSubject.NoiseEngineSwitch);
+            string stepped = (offName == null ? L("audio.noise_surface.on", ("engine", SteppedName(to)))
+                                 : L("audio.noise_surface.on_replacing", ("engine", SteppedName(to)), ("other", offName))) + CwModelClause(to);
+            // A receive computer engine replacing another computer engine is a switch (#873).
+            if (e.Side == DenoiseSide.Pc && fromEntry?.Side == DenoiseSide.Pc && offName != null) SayEngineSwitch(stepped);
+            else Say(stepped, SpeechSubject.NoiseEngineSwitch);
         }
 
         /// <summary>Whether a favourite's model was not the one it landed on (in CW, a voice model lands on CW's, B4).</summary>

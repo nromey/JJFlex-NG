@@ -644,7 +644,7 @@ public static class RecordingPlayer
                         // rising in step (bench 2026-10-25: a straight line
                         // "isn't crossed up enough").
                         float g = _fadeOutLeft > 0
-                            ? MathF.Cos((1f - _fadeOutLeft / (float)_fadeOutTotal) * MathF.PI / 2f)
+                            ? CrossFadeCurve.Out(1f - _fadeOutLeft / (float)_fadeOutTotal) // the shared ramp's equal-power member (#199, #873)
                             : 0f;
                         if (_fadeOutLeft > 0) _fadeOutLeft--;
                         for (int c = 0; c < _channels; c++) buffer[f * _channels + c] *= g;

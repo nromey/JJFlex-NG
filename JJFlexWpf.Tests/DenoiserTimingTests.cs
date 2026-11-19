@@ -183,14 +183,24 @@ public sealed class DenoiserTimingTests
         }
     }
 
+    /// <summary>
+    /// #1169, fixed in Sprint 49 Track P. This test said the opposite until then
+    /// ("ClearCarry_keeps_engine_and_dry_history"), pinning the replay of audio
+    /// from before a stop as if it were wanted, against ClearCarry's own comment.
+    /// Now neither the dry history nor the engine's history from before the stop
+    /// is heard after it: the resumed buffer is silence for the bank's delay.
+    /// </summary>
     [Fact]
-    public void ClearCarry_keeps_engine_and_dry_history_while_Reset_zeroes_both()
+    public void ClearCarry_plays_nothing_from_before_the_stop_and_Reset_zeroes_both()
     {
         using var bank = new PerChannelDenoiserBank(() => new StatefulDelay(480), 1);
         var samples = new float[F]; Array.Fill(samples, .25f);
         bank.Process(samples, .5f);
         bank.ClearCarry(); Array.Fill(samples, .75f); bank.Process(samples, .5f);
-        Assert.All(samples, x => Assert.Equal(.25f, x));
+        Assert.All(samples, x => Assert.Equal(0, x));
+        // After the delay, the audio given since the stop comes through as before.
+        Array.Fill(samples, .75f); bank.Process(samples, .5f);
+        Assert.All(samples, x => Assert.Equal(.75f, x));
         bank.Reset(); Array.Fill(samples, .75f); bank.Process(samples, .5f);
         Assert.All(samples, x => Assert.Equal(0, x));
     }

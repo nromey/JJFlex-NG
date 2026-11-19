@@ -37,6 +37,9 @@ namespace JJFlexWpf
             }
             // The cross-fade switch (#873; Settings, Advanced) is app-wide.
             PcDenoiseSlot.CrossFadeEnabled = config.NoiseCrossFade;
+            // So are the Mute switch and the helper's receive queue depths (Sprint 49 Track P).
+            PcDenoiseSlot.SwitchMuteEnabled = config.NoiseSwitchMute;
+            WdspPipelineDepth.SetReceiveDepths(config.HelperQueueDepthStandard, config.HelperQueueDepthPremium);
             if (config.ReceiveDenoiseVersion >= 1)
             {
                 Restore(pipeline, pipeline.NeuralSlot, config.ReceiveNeural);
@@ -52,6 +55,10 @@ namespace JJFlexWpf
                 pipeline.RnnEnabled = config.RNNoiseEnabled;
                 pipeline.SpectralEnabled = config.SpectralSubEnabled;
             }
+            // Each slot's first shared-delay plan, from the favourites and the
+            // expected figures; the noise controller refines it with measured
+            // ones as engines run (#873, Sprint 49 Track P).
+            ReceiveSharedDelay.PublishExpected(pipeline, config.NoiseFavourites);
         }
         private static ReceiveDenoiseSlotConfig Export(PcDenoiseSlot slot) => new() {
             Enabled = slot.Enabled, EngineId = slot.HasBeenEnabled ? slot.ChosenEngineId : "",
