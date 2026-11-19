@@ -409,6 +409,9 @@ namespace Radios.Tests
                         using var a = new AudioRig();
                         foreach (var e in schedule) a.Do(e);
                         a.Finish();
+                        // Flush the reducer's delay line: anything that went IN before now
+                        // comes out within three frames, so a leak cannot hide in it.
+                        for (int i = 0; i < 4; i++) a.Callback(Cls.Post);
                         runs++;
                         string at = " [" + string.Join(",", schedule) + "] " + a.Trace;
                         // (a) no microphone audio captured after the release, and no file audio made after it.
