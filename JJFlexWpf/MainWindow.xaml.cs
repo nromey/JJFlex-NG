@@ -945,7 +945,8 @@ public partial class MainWindow : UserControl
             PersistDspSettings,
             new ScreenReaderNoiseSpeaker(),
             new RadioConfigNoiseIntents(),
-            new TimerNoiseScheduler(a => Dispatcher.BeginInvoke(a)));
+            new TimerNoiseScheduler(a => Dispatcher.BeginInvoke(a)),
+            new MeasuredNnrCwCost());
         noise.PresetStore = new FilePresetStore(() => OpenParms == null ? null : (OpenParms.ConfigDirectory, OpenParms.GetOperatorName()));
         noise.TransmitChain = new RigTransmitChain(() => RigControl);
         // A dialog's answer as it closes is said once focus has landed (Sprint 49

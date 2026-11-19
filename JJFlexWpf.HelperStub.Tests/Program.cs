@@ -66,6 +66,13 @@
 //                            UnknownChannel after it (the shape the helper has today for a
 //                            setting read after a close), or, for drop, nothing (the other
 //                            reading of "nothing more for that channel")
+//   --model-costs <entries>  after the HelloAck, send one ModelCosts (type 0x0060) and offer
+//                            NNR's four model fingerprints. Entries are separated by commas,
+//                            each engine/slot/option/frames/median ns/p99 ns, the option
+//                            possibly empty (nnr/3/premium_cw/200/2000000/4200000)
+//   --model-costs-delay <ms> send it that long after the HelloAck (the helper measures first)
+//   --model-costs-twice      send it twice, the second time with every cost doubled
+//   --model-costs-first      send it before the HelloAck, out of handshake order
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -118,6 +125,9 @@ internal static class Program
     private static readonly AutoResetEvent OutboxWake = new(false);
     private static int _fatalAfter = -1;
     private static int _failBuild = -1, _failBuildMs, _opens;
+    private static WdspModelCosts? _modelCosts;
+    private static int _modelCostsDelay;
+    private static bool _modelCostsTwice, _modelCostsFirst;
     private static bool _closeUnknown, _swallowCloses;
     /// <summary>Channels whose build is pending a failure, and how many closes each has had meanwhile. Under Channels' lock.</summary>
     private static readonly Dictionary<uint, int> Building = new();
@@ -188,6 +198,10 @@ internal static class Program
                         break;
                     }
                     case "--slow-settings": _slowSettingsMs = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--model-costs": _modelCosts = ParseModelCosts(Next()); break;
+                    case "--model-costs-delay": _modelCostsDelay = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--model-costs-twice": _modelCostsTwice = true; break;
+                    case "--model-costs-first": _modelCostsFirst = true; break;
                     case "--request-limit":
                         _requestLimit = int.Parse(Next(), CultureInfo.InvariantCulture);
                         Work = new(new ConcurrentQueue<object>(), 64 + _requestLimit + 1);
@@ -349,8 +363,31 @@ internal static class Program
     {
         var offers = Engines.Where(e => !Omit.Contains(e.Key))
             .Select(e => new WdspEngineOffer(e.Key, 3, 48000, 480, (uint)_delay, 100, 50_000, 90_000, e.Value)).ToArray();
+        // NNR's four slots, as the real helper lists them, only when this run sends model costs.
+        var fingerprints = _modelCosts == null ? Array.Empty<WdspFingerprint>()
+            : new[] { "standard", "premium", "standard_cw", "premium_cw" }
+                .Select((o, i) => new WdspFingerprint("nnr", (byte)i, o, new byte[32])).ToArray();
         return new WdspHelloAck(1, "stub-1", "0.0", new string('0', 40), "none", (ushort)(_invalidHello ? 4 : 16),
-            Array.Empty<WdspFingerprint>(), offers);
+            fingerprints, offers);
+    }
+
+    private static WdspModelCosts ParseModelCosts(string text) =>
+        new(text.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(e =>
+        {
+            var f = e.Split('/');
+            if (f.Length != 6) throw new FormatException("a model cost needs six fields: " + e);
+            return new WdspModelCost(f[0], byte.Parse(f[1], CultureInfo.InvariantCulture), f[2],
+                ushort.Parse(f[3], CultureInfo.InvariantCulture), uint.Parse(f[4], CultureInfo.InvariantCulture),
+                uint.Parse(f[5], CultureInfo.InvariantCulture));
+        }).ToArray());
+
+    private static void SendModelCosts()
+    {
+        if (_modelCosts == null) return;
+        if (_modelCostsDelay > 0) Thread.Sleep(_modelCostsDelay);
+        Send(_modelCosts);
+        if (_modelCostsTwice)
+            Send(new WdspModelCosts(_modelCosts.Entries.Select(e => e with { MedianNanos = e.MedianNanos * 2, P99Nanos = e.P99Nanos * 2 }).ToArray()));
     }
 
     // ------------------------------------------------------------------ reading
@@ -396,8 +433,14 @@ internal static class Program
                         _reject = true;
                         continue;
                     }
+                    if (_modelCostsFirst && _modelCosts != null) Send(_modelCosts);
                     Send(Offer());
                     Volatile.Write(ref _answered, true);
+                    if (_modelCosts != null && !_modelCostsFirst)
+                    {
+                        if (_modelCostsDelay > 0) new Thread(SendModelCosts) { IsBackground = true }.Start();
+                        else SendModelCosts();
+                    }
                     continue;
                 }
                 if (_reject) continue;

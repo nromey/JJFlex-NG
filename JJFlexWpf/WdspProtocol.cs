@@ -30,6 +30,13 @@ namespace JJFlexWpf
         ReservedLatencyChanged = 0x0032,
         Heartbeat = 0x0040,
         Error = 0x0050,
+        /// <summary>
+        /// Helper to JJ Flexible, at most once per connection, after the
+        /// HelloAck: what each model slot costs on this machine. A helper that
+        /// does not measure its slots never sends it; a JJ Flexible that does
+        /// not know it skips it by its length.
+        /// </summary>
+        ModelCosts = 0x0060,
     }
 
     /// <summary>The one u16 result and error code space.</summary>
@@ -118,6 +125,19 @@ namespace JJFlexWpf
         public static readonly WdspHeartbeat Instance = new();
     }
     internal sealed record WdspError(uint Channel, WdspResult Code, string Text);
+
+    /// <summary>
+    /// One model slot's measured cost, measured as the HelloAck measures an
+    /// engine: one channel, default settings, the stated number of frames.
+    /// Zero frames means the slot was not measured, and both costs are then 0.
+    /// </summary>
+    internal sealed record WdspModelCost(string EngineId, byte Slot, string Option, ushort CalibrationFrames,
+        uint MedianNanos, uint P99Nanos)
+    {
+        public bool Measured => CalibrationFrames > 0;
+    }
+
+    internal sealed record WdspModelCosts(IReadOnlyList<WdspModelCost> Entries);
 
     /// <summary>
     /// Accumulates bytes from the pipe into whole messages. A partial read is
@@ -212,7 +232,7 @@ namespace JJFlexWpf
         public static bool IsAssigned(ushort type) => type switch
         {
             0x0000 or 0x0001 or 0x0002 or 0x0003 or 0x0010 or 0x0011 or 0x0012 or 0x0013 or
-            0x0020 or 0x0021 or 0x0030 or 0x0031 or 0x0040 or 0x0050 => true,
+            0x0020 or 0x0021 or 0x0030 or 0x0031 or 0x0040 or 0x0050 or 0x0060 => true,
             _ => false,
         };
 
@@ -222,7 +242,8 @@ namespace JJFlexWpf
             WdspMessageType.Hello or WdspMessageType.OpenChannel or WdspMessageType.CloseChannel or
             WdspMessageType.Frame or WdspMessageType.SetSetting => sender == WdspRole.JJFlexible,
             WdspMessageType.HelloAck or WdspMessageType.HelloReject or WdspMessageType.OpenChannelAck or
-            WdspMessageType.CloseChannelAck or WdspMessageType.FrameOut or WdspMessageType.SettingAck => sender == WdspRole.Helper,
+            WdspMessageType.CloseChannelAck or WdspMessageType.FrameOut or WdspMessageType.SettingAck or
+            WdspMessageType.ModelCosts => sender == WdspRole.Helper,
             WdspMessageType.Heartbeat or WdspMessageType.Error => true,
             _ => false,
         };
@@ -402,6 +423,14 @@ namespace JJFlexWpf
                 case WdspError m:
                     w.U32(m.Channel); w.U16((ushort)m.Code); w.Str(m.Text);
                     return w.Finish(WdspMessageType.Error);
+                case WdspModelCosts m:
+                    w.Count8(m.Entries.Count, 32, "Model cost");
+                    foreach (var e in m.Entries)
+                    {
+                        w.Str(e.EngineId); w.U8(e.Slot); w.Str(e.Option);
+                        w.U16(e.CalibrationFrames); w.U32(e.MedianNanos); w.U32(e.P99Nanos);
+                    }
+                    return w.Finish(WdspMessageType.ModelCosts);
                 default:
                     throw new ArgumentException("Not a Contract 2 message: " + message?.GetType().Name);
             }
@@ -517,6 +546,7 @@ namespace JJFlexWpf
         internal const int LeastDescriptor = LeastName + LeastName + 1 + 1 + LeastName + 1 + LeastOption; // a Choice with one option is the shortest
         internal const int LeastFingerprint = LeastName + 1 + 2 + 32;
         internal const int LeastEngineOffer = LeastName + 1 + 4 + 2 + 4 + 2 + 4 + 4 + 1;
+        internal const int LeastModelCost = LeastName + 1 + 2 + 2 + 4 + 4;                   // an empty option is the shortest
 
         private static WdspValue ReadValue(ref Reader r, bool noneAllowed)
         {
@@ -705,6 +735,23 @@ namespace JJFlexWpf
                     uint ch = r.U32(); var code = (WdspResult)r.U16(); string text = r.Str(); r.End();
                     return new WdspError(ch, code, text);
                 }
+                case WdspMessageType.ModelCosts:
+                {
+                    int count = r.U8();
+                    if (count > 32) throw new WdspProtocolException("More than 32 model costs.");
+                    r.Fits(count, LeastModelCost, "model costs");
+                    var entries = new WdspModelCost[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        string engine = r.Name("A model cost's engine id");
+                        byte slot = r.U8();
+                        string option = r.Str();
+                        if (option.Length != 0 && !IsName(option)) throw new WdspProtocolException("A model cost's option breaks the name rule.");
+                        entries[i] = new WdspModelCost(engine, slot, option, r.U16(), r.U32(), r.U32());
+                    }
+                    r.End();
+                    return new WdspModelCosts(entries);
+                }
                 default:
                     throw new WdspProtocolException("Type " + (ushort)type + " has no decoder.", WdspResult.UnexpectedMessage);
             }
@@ -762,6 +809,44 @@ namespace JJFlexWpf
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// What of a ModelCosts JJ Flexible may use, checked against the
+        /// connection's own HelloAck. The message is advisory, so nothing here
+        /// ends the connection (a layout break already has, in
+        /// <see cref="Decode"/>). Two rules make the whole message unusable,
+        /// returned as <paramref name="whole"/>: an entry that measured 0 frames
+        /// but has a cost, and two entries for one engine and slot. Otherwise an
+        /// entry is used only when the HelloAck listed a fingerprint for exactly
+        /// its engine, slot and option; any other is left out and named in
+        /// <paramref name="ignored"/>, for the trace.
+        /// </summary>
+        public static IReadOnlyList<WdspModelCost> UsableModelCosts(WdspModelCosts costs, WdspHelloAck hello,
+            out string? whole, out IReadOnlyList<string> ignored)
+        {
+            var skipped = new List<string>();
+            ignored = skipped;
+            whole = null;
+            var seen = new HashSet<(string, byte)>();
+            foreach (var e in costs.Entries)
+            {
+                if (!e.Measured && (e.MedianNanos != 0 || e.P99Nanos != 0))
+                { whole = $"{e.EngineId} slot {e.Slot} measured 0 frames but has a cost"; return Array.Empty<WdspModelCost>(); }
+                if (!seen.Add((e.EngineId, e.Slot)))
+                { whole = $"{e.EngineId} slot {e.Slot} is listed twice"; return Array.Empty<WdspModelCost>(); }
+            }
+            var usable = new List<WdspModelCost>();
+            foreach (var e in costs.Entries)
+            {
+                bool listed = false;
+                foreach (var f in hello.Fingerprints)
+                    if (string.Equals(f.EngineId, e.EngineId, StringComparison.Ordinal) && f.Slot == e.Slot
+                        && string.Equals(f.Option, e.Option, StringComparison.Ordinal)) { listed = true; break; }
+                if (listed) usable.Add(e);
+                else skipped.Add($"{e.EngineId} slot {e.Slot} option '{e.Option}', which the handshake did not list");
+            }
+            return usable;
         }
 
         private static bool IsLowerHex(string s)

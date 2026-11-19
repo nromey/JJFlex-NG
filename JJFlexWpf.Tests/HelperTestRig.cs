@@ -47,9 +47,10 @@ internal sealed class HelperTestRig : IDisposable
     private readonly List<WdspHelperEngine> _engines = new();
     private readonly List<int> _extraPids = new();
 
-    public HelperTestRig(Func<int, IReadOnlyList<string>>? args = null, WdspHostPolicy? policy = null, string? path = null)
+    public HelperTestRig(Func<int, IReadOnlyList<string>>? args = null, WdspHostPolicy? policy = null, string? path = null,
+        HelperModelCostStore? costStore = null)
     {
-        Host = new WdspHost(path ?? StubPath, policy ?? Fast, args);
+        Host = new WdspHost(path ?? StubPath, policy ?? Fast, args, costStore);
         var log = Environment.GetEnvironmentVariable("JJFLEX_HELPER_TEST_TRACE");
         if (log != null && !Trace.Listeners.OfType<TextWriterTraceListener>().Any(l => l.Name == "helper"))
         {
