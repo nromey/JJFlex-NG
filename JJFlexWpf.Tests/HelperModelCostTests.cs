@@ -279,6 +279,13 @@ public sealed class HelperModelCostTests : IDisposable
         Assert.Equal(0, failures);
         Assert.Equal(1_000_000 + 2 * Each - 1, PremiumCwP99("x64"));
         Assert.Equal(1_000_000 + 2 * Each - 1, PremiumCwP99("x86"));
+        // And each keeps five, newest first, none out of order (Track K2).
+        foreach (var arch in new[] { "x64", "x86" })
+        {
+            var kept = KeptP99(arch);
+            Assert.Equal(HelperModelCostStore.Kept, kept.Count);
+            Assert.Equal(kept.OrderByDescending(p => p), kept);
+        }
         Assert.Empty(Directory.GetFiles(_dir, HelperModelCostStore.FileName + ".*.tmp"));
     }
 
@@ -299,6 +306,93 @@ public sealed class HelperModelCostTests : IDisposable
         present.MeasuredUtc = DateTime.UtcNow;
         Assert.Equal(HelperModelCostSave.Saved, store.Save(present));
         Assert.Equal(4_200_000, PremiumCwP99("x64"));
+    }
+
+    // ------------------------------------------------------------------ the last few measurements (Sprint 49 Track K2, X11)
+
+    private IReadOnlyList<long> KeptP99(string arch) =>
+        NewStore().FindRecent(arch).Select(r => r.Measured("nnr", "premium_cw")!.P99Nanos).ToList();
+
+    [Fact]
+    public void The_store_keeps_the_last_five_measurements_of_each_architecture_newest_last_in_the_file()
+    {
+        Assert.Equal(5, HelperModelCostStore.Kept);
+        var store = NewStore();
+        for (int second = 1; second <= 7; second++) Assert.Equal(HelperModelCostSave.Saved, store.Save(At("x64", second, 1_000_000 + second)));
+        Assert.True(store.Record(At("x86", 3, 6_000_000)));
+
+        // Newest first, the five latest only; the other architecture untouched.
+        Assert.Equal(new long[] { 1_000_007, 1_000_006, 1_000_005, 1_000_004, 1_000_003 }, KeptP99("x64"));
+        Assert.Equal(new long[] { 6_000_000 }, KeptP99("x86"));
+        Assert.Equal(1_000_007, PremiumCwP99("x64"));   // Find is still the newest
+
+        // In the file, oldest first: an app from before this reads an
+        // architecture's LAST record, and must read the newest.
+        HelperModelCostFile file;
+        using (var fs = File.OpenRead(store.FilePath))
+            file = (HelperModelCostFile)new System.Xml.Serialization.XmlSerializer(typeof(HelperModelCostFile)).Deserialize(fs)!;
+        var x64 = file.Measurements.Where(m => m.Architecture == "x64").ToList();
+        Assert.Equal(5, x64.Count);
+        Assert.Equal(1_000_007, x64.Last().Measured("nnr", "premium_cw")!.P99Nanos);
+        Assert.Equal(x64.OrderBy(m => m.MeasuredUtc).Select(m => m.MeasuredUtc), x64.Select(m => m.MeasuredUtc));
+
+        // A later save of the other architecture keeps this one's five.
+        Assert.True(NewStore().Record(At("x86", 9, 6_100_000)));
+        Assert.Equal(5, KeptP99("x64").Count);
+        Assert.Equal(new long[] { 6_100_000, 6_000_000 }, KeptP99("x86"));
+    }
+
+    [Fact]
+    public void An_earlier_measurement_never_joins_the_list_and_equal_times_replace()
+    {
+        var store = NewStore();
+        store.Record(At("x64", 2, 4_000_000));
+        store.Record(At("x64", 4, 4_400_000));
+        Assert.Equal(HelperModelCostSave.Older, store.Save(At("x64", 3, 9_000_000)));   // between two held: still refused
+        Assert.Equal(new long[] { 4_400_000, 4_000_000 }, KeptP99("x64"));
+        Assert.Equal(HelperModelCostSave.Saved, store.Save(At("x64", 4, 4_500_000)));   // the newest's own time: replaces it
+        Assert.Equal(new long[] { 4_500_000, 4_000_000 }, KeptP99("x64"));
+    }
+
+    [Fact]
+    public void A_file_written_with_one_measurement_per_architecture_reads_as_it_is()
+    {
+        // The shape Track K wrote: one Measurement per architecture.
+        File.WriteAllText(Path.Combine(_dir, HelperModelCostStore.FileName),
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<HelperModelCosts>\r\n" +
+            "  <Measurement Architecture=\"x64\" HelperVersion=\"806b934\" MeasuredUtc=\"2026-11-19T03:12:00Z\">\r\n" +
+            "    <Slot Engine=\"nnr\" Slot=\"3\" Option=\"premium_cw\" Frames=\"200\" MedianNanos=\"2000000\" P99Nanos=\"4170000\" />\r\n" +
+            "  </Measurement>\r\n" +
+            "  <Measurement Architecture=\"x86\" HelperVersion=\"806b934\" MeasuredUtc=\"2026-11-19T03:13:00Z\">\r\n" +
+            "    <Slot Engine=\"nnr\" Slot=\"3\" Option=\"premium_cw\" Frames=\"200\" MedianNanos=\"2000000\" P99Nanos=\"4806000\" />\r\n" +
+            "  </Measurement>\r\n</HelperModelCosts>\r\n");
+        var store = NewStore();
+        Assert.Equal(new long[] { 4_170_000 }, KeptP99("x64"));
+        Assert.Equal(new long[] { 4_806_000 }, KeptP99("x86"));
+        Assert.Equal("806b934", store.Find("x64")!.HelperVersion);
+
+        // The next measurement joins it rather than replacing it.
+        var next = At("x64", 0, 5_200_000);
+        next.MeasuredUtc = new DateTime(2026, 11, 19, 4, 0, 0, DateTimeKind.Utc);
+        Assert.True(store.Record(next));
+        Assert.Equal(new long[] { 5_200_000, 4_170_000 }, KeptP99("x64"));
+        Assert.Equal(new long[] { 4_806_000 }, KeptP99("x86"));
+    }
+
+    [Fact]
+    public void A_record_from_a_clock_since_set_back_leaves_the_list_when_a_present_one_arrives()
+    {
+        var store = NewStore();
+        var past = At("x64", 0, 4_000_000);
+        past.MeasuredUtc = DateTime.UtcNow.AddHours(-1);
+        Assert.True(store.Record(past));
+        var future = At("x64", 0, 5_800_000);
+        future.MeasuredUtc = DateTime.UtcNow.AddDays(30);
+        Assert.True(store.Record(future));
+        var present = At("x64", 0, 4_200_000);
+        present.MeasuredUtc = DateTime.UtcNow;
+        Assert.Equal(HelperModelCostSave.Saved, store.Save(present));
+        Assert.Equal(new long[] { 4_200_000, 4_000_000 }, KeptP99("x64"));
     }
 
     [Fact]
