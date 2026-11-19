@@ -36,6 +36,22 @@ namespace Radios.Tests
     {
         private static IEnumerable<AudioCheckListenMethods> Methods => AudioCheckMethods.DisplayOrder;
 
+        /// <summary>
+        /// Methods whose help section is still to be written. Codex writes help,
+        /// Claude does not (ruled 2026-11-07), so a method that lands before its
+        /// words opens the page itself on F1 until its section exists. Each one
+        /// here is held to that by <see cref="A_method_awaiting_its_section_opens_the_page_and_has_no_entry_yet"/>,
+        /// which fails the day its ContextMap entry appears, so the exception
+        /// cannot outlive the reason for it.
+        /// </summary>
+        private static readonly AudioCheckListenMethods[] AwaitingHelpSection =
+        {
+            AudioCheckListenMethods.Audition,   // #262, Sprint 49 Track Q, 2026-11-19
+        };
+
+        private static IEnumerable<AudioCheckListenMethods> MethodsWithSections =>
+            Methods.Where(m => !AwaitingHelpSection.Contains(m));
+
         // ────────────────────────────────────────────────────────────────
         //  The descriptions
         // ────────────────────────────────────────────────────────────────
@@ -53,7 +69,7 @@ namespace Radios.Tests
                 Assert.EndsWith(".", text);
                 Assert.True(seen.Add(text), m + " says the same as another method");
             }
-            Assert.Equal(6, seen.Count);
+            Assert.Equal(7, seen.Count);   // the audition (#262) is the seventh
         }
 
         [Fact]
@@ -116,7 +132,7 @@ namespace Radios.Tests
         [Fact]
         public void Every_method_has_a_help_target_of_its_own()
         {
-            var targets = Methods.Select(AudioCheckMethods.HelpContext).ToList();
+            var targets = MethodsWithSections.Select(AudioCheckMethods.HelpContext).ToList();
             Assert.Equal(targets.Count, targets.Distinct(StringComparer.OrdinalIgnoreCase).Count());
             Assert.DoesNotContain(AudioCheckMethods.HelpPageContext, targets);
         }
@@ -142,7 +158,7 @@ namespace Radios.Tests
             // by being absent.
             Assert.True(map.Count >= 20, "only " + map.Count + " ContextMap entries were read");
 
-            foreach (var m in Methods)
+            foreach (var m in MethodsWithSections)
             {
                 string key = AudioCheckMethods.HelpContext(m);
                 Assert.True(map.TryGetValue(key, out var target),
@@ -161,6 +177,23 @@ namespace Radios.Tests
                 // And its heading is the method's name.
                 Assert.StartsWith(Lexicon.Get(MethodNameKey(m)) + " {#", section!.TrimStart('#', ' '),
                     StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public void A_method_awaiting_its_section_opens_the_page_and_has_no_entry_yet()
+        {
+            var map = ContextMap();
+            Assert.True(map.Count >= 20, "only " + map.Count + " ContextMap entries were read");
+            foreach (var m in AwaitingHelpSection)
+            {
+                Assert.Equal(AudioCheckMethods.HelpPageContext, AudioCheckMethods.HelpContext(m));
+                // When the section is written its entry will be named after the
+                // method, as every other one is. Then this list is wrong: name the
+                // context in AudioCheckMethods.HelpContext and take the method off.
+                string expected = "CheckYourAudio" + m;
+                Assert.False(map.ContainsKey(expected), expected + " now has a ContextMap entry: take "
+                    + m + " off AwaitingHelpSection and point HelpContext at it");
             }
         }
 
@@ -186,6 +219,7 @@ namespace Radios.Tests
             AudioCheckListenMethods.RecordPlayback => "audio.check.method.record",
             AudioCheckListenMethods.OffAir => "audio.check.method.off_air",
             AudioCheckListenMethods.Loopback => "audio.check.method.loopback",
+            AudioCheckListenMethods.Audition => "audio.check.method.audition",
             _ => throw new ArgumentOutOfRangeException(nameof(m))
         };
 

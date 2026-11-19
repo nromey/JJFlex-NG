@@ -91,7 +91,8 @@ public partial class CheckYourAudioDialog
             inst != null && (inst._checkStarts.IsBusy || inst._session?.Active == true),
             inst != null && (inst._iqBusy || inst._iqRun != null),
             AudioWorkshopDialog.ABenchTakeIsRunning,
-            inst?.ComputerMicCheckRunning == true);
+            // The audition's recording holds the same microphone (#262).
+            inst?.ComputerMicCheckRunning == true || inst?.AuditionRecording == true);
         JJTrace.Tracing.TraceLine("Fix tool from " + door + ": " + decision, System.Diagnostics.TraceLevel.Info);
         if (decision == FixToolHandoff.RefuseCheckRunning)
         {
@@ -99,7 +100,11 @@ public partial class CheckYourAudioDialog
             ScreenReaderOutput.Speak(Lexicon.Get("audio.fix_tool.wait_for_check"), VerbosityLevel.Critical, interrupt: true);
             return false;
         }
-        if (decision == FixToolHandoff.StopComputerMicThenOpen) inst!.StopComputerMicCheck(speak: false);
+        if (decision == FixToolHandoff.StopComputerMicThenOpen)
+        {
+            inst!.StopComputerMicCheck(speak: false);
+            if (inst.AuditionRecording) inst._audition!.StopRecording();
+        }
         return true;
     }
 
@@ -285,6 +290,9 @@ public partial class CheckYourAudioDialog
         _playTakeButton.GotFocus += (s, e) => SyncPlayTakeLabel();
         _sections.Add(CheckContent, _playTakeButton);
 
+        // The audition's three play buttons and Keep (#262), in the same section.
+        BuildAuditionResults();
+
         BuildOffAirResults();
 
         // The Fix tool, for when a check fails spectacularly or the transmit
@@ -347,6 +355,8 @@ public partial class CheckYourAudioDialog
         AudioCheckListenMethods.RecordPlayback => Lexicon.Get("audio.check.method.record"),
         AudioCheckListenMethods.OffAir => Lexicon.Get("audio.check.method.off_air"),
         AudioCheckListenMethods.Loopback => Lexicon.Get("audio.check.method.loopback"),
+        // #262, X7 ruled 2026-11-19 07:03. WORDING PLACEHOLDER for Codex.
+        AudioCheckListenMethods.Audition => Lexicon.Get("audio.check.method.audition"),
         _ => method.ToString()
     };
 
@@ -427,6 +437,7 @@ public partial class CheckYourAudioDialog
             _powerSection.Visibility = AudioCheckMethods.UsesCheckPower(method) ? Visibility.Visible : Visibility.Collapsed;
         }
         ApplyOffAirLayout(method);
+        ApplyAuditionLayout(method);
         SyncPlayTakeLabel();
         UpdateMethodStatus();
         UpdateMethodHelp(method);
@@ -770,6 +781,15 @@ public partial class CheckYourAudioDialog
         if (ComputerMicCheckRunning || SelectedMethod == AudioCheckListenMethods.ComputerMic)
         {
             ToggleComputerMicCheck();
+            return;
+        }
+
+        // The audition records this computer's microphone and keys nothing
+        // (#262): decided here, before anything below asks for the push-to-talk
+        // controller.
+        if (AuditionRecording || SelectedMethod == AudioCheckListenMethods.Audition)
+        {
+            ToggleAudition();
             return;
         }
 
@@ -1188,6 +1208,7 @@ public partial class CheckYourAudioDialog
         // The computer microphone method's reading is its own words, not the
         // radio's mic meter, which knows nothing about a check that keyed nothing.
         if (ShowingComputerMicReading()) return;
+        if (ShowingAuditionReading()) return;
         var rig = _rig;
         string text;
         if (rig == null)

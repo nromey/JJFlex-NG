@@ -43,9 +43,15 @@ namespace Radios
         /// yourself live, record and play back, then the off-air take and
         /// Loopback. Not the enum order, which is fixed by saved files.
         /// </summary>
+        /// <remarks>
+        /// Hear your voice through the transmit chain (#262) sits straight after
+        /// this computer's microphone: it keys nothing either, so it belongs at
+        /// the gentle end of the escalation (Claude's judgement, 2026-11-19).
+        /// </remarks>
         public static IReadOnlyList<AudioCheckListenMethods> DisplayOrder { get; } = new[]
         {
             AudioCheckListenMethods.ComputerMic,
+            AudioCheckListenMethods.Audition,
             AudioCheckListenMethods.MicTest,
             AudioCheckListenMethods.Monitor,
             AudioCheckListenMethods.RecordPlayback,
@@ -75,6 +81,11 @@ namespace Radios
             // and that is the window's whole offer (ruled 20:34).
             var offered = new List<AudioCheckListenMethods> { AudioCheckListenMethods.ComputerMic };
             if (!connected) return offered;
+            // The audition needs nothing from the radio and nothing in it
+            // crosses the network, so SmartLink offers it too. It waits for a
+            // radio only because of the 20:34 ruling; whether it should be
+            // offered without one is Noel's question (#262, 2026-11-19).
+            offered.Add(AudioCheckListenMethods.Audition);
             offered.Add(AudioCheckListenMethods.MicTest);
             offered.Add(AudioCheckListenMethods.Monitor);
             offered.Add(AudioCheckListenMethods.RecordPlayback);
@@ -119,8 +130,9 @@ namespace Radios
         public static bool UsesCheckPower(AudioCheckListenMethods method) =>
             method is AudioCheckListenMethods.Monitor or AudioCheckListenMethods.RecordPlayback;
 
-        /// <summary>True for every method that keys the radio; false only for checking this computer's microphone.</summary>
-        public static bool KeysTheRadio(AudioCheckListenMethods method) => method != AudioCheckListenMethods.ComputerMic;
+        /// <summary>True for every method that keys the radio; false for checking this computer's microphone and for the audition, which records it.</summary>
+        public static bool KeysTheRadio(AudioCheckListenMethods method) =>
+            method is not (AudioCheckListenMethods.ComputerMic or AudioCheckListenMethods.Audition);
 
         /// <summary>Methods that leave something to play afterwards.</summary>
         public static bool MakesTake(AudioCheckListenMethods method) =>
@@ -145,6 +157,7 @@ namespace Radios
         public static string DescriptionKey(AudioCheckListenMethods method) => method switch
         {
             AudioCheckListenMethods.ComputerMic => "audio.check.status.computer_mic",
+            AudioCheckListenMethods.Audition => "audio.check.status.audition",
             AudioCheckListenMethods.MicTest => "audio.check.status.mic_test",
             AudioCheckListenMethods.RecordPlayback => "audio.check.status.record",
             AudioCheckListenMethods.OffAir => "audio.check.status.off_air",
@@ -164,6 +177,7 @@ namespace Radios
         public static string AboutKey(AudioCheckListenMethods method) => method switch
         {
             AudioCheckListenMethods.ComputerMic => "audio.check.about.computer_mic",
+            AudioCheckListenMethods.Audition => "audio.check.about.audition",
             AudioCheckListenMethods.MicTest => "audio.check.about.mic_test",
             AudioCheckListenMethods.RecordPlayback => "audio.check.about.record",
             AudioCheckListenMethods.OffAir => "audio.check.about.off_air",
@@ -198,6 +212,11 @@ namespace Radios
         public static string HelpContext(AudioCheckListenMethods method) => method switch
         {
             AudioCheckListenMethods.ComputerMic => "CheckYourAudioComputerMic",
+            // No section yet: Codex writes it (#262). Until then F1 opens the
+            // page itself rather than the help's front page. When the section
+            // and its ContextMap entry exist, name it here and take the method
+            // off CheckYourAudioMethodHelpTests.AwaitingHelpSection.
+            AudioCheckListenMethods.Audition => HelpPageContext,
             AudioCheckListenMethods.MicTest => "CheckYourAudioMicTest",
             AudioCheckListenMethods.Monitor => "CheckYourAudioMonitor",
             AudioCheckListenMethods.RecordPlayback => "CheckYourAudioRecord",

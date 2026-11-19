@@ -169,6 +169,9 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // Local take playback: the player is static and would otherwise keep
             // sounding, and keep calling back into a button that is gone.
             DetachTakePlayback();
+            // The audition's take is thrown away unless it was kept (#262, X8
+            // ruled 2026-11-19 07:03), after its playback has stopped above.
+            EndAudition();
             _pollTimer.Stop();
             _gain.Dispose();
             // Guarded: only THIS window clears the pointer (the Workshop learned
@@ -394,6 +397,15 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             e.Handled = true;
             return;
         }
+        if (e.Key == Key.Escape && AuditionRecording && _session?.Active != true)
+        {
+            // The same for the audition (#262): Escape stops the recording and
+            // stays, so the verdict is heard before anything closes.
+            EscapeOurTune();
+            _audition!.StopRecording();
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Escape)
         {
             // The radio's own transmit report, not only the session's (fix round
@@ -466,6 +478,8 @@ public partial class CheckYourAudioDialog : JJFlexDialog
             // what it is now.
             var typing = Keyboard.FocusedElement as Controls.ValueFieldControl;
             bool checkLive = _checkStarts.IsBusy || _iqBusy || _session?.Active == true || ComputerMicCheckRunning;
+            // The audition's recording is live too (#262): Ctrl+Enter stops it.
+            checkLive |= AuditionRecording;
             switch (_ctrlEnterPress.Decide(Environment.TickCount64, e.IsRepeat, checkLive || CheckPlaybackRunning,
                 () => typing?.CommitPendingEntry() ?? true))
             {
