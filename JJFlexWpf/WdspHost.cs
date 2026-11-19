@@ -210,6 +210,8 @@ namespace JJFlexWpf
         public long SettingProgress;
         /// <summary>Writer only: which channel's settings go first, turn about, so one busy channel cannot starve another.</summary>
         public int SettingRotation;
+        /// <summary>Reader only: ModelCosts messages this connection has had (the helper sends at most one).</summary>
+        public int ModelCostsSeen;
 
         public WdspConnection(int startNumber, string pipeName, string commandLine, NamedPipeServerStream pipe,
             WdspNative.Started started)
@@ -393,7 +395,7 @@ namespace JJFlexWpf
         /// <summary>The app's one host. Creating it starts nothing.</summary>
         public static WdspHost Default
         {
-            get { lock (DefaultGate) return _default ??= new WdspHost(null, WdspHostPolicy.Default); }
+            get { lock (DefaultGate) return _default ??= new WdspHost(null, WdspHostPolicy.Default, costStore: HelperModelCostStore.Default()); }
         }
 
         internal static WdspHost? DefaultIfCreated => Volatile.Read(ref _default);
@@ -418,6 +420,8 @@ namespace JJFlexWpf
         private bool _capPending;
         private bool _disposed;
         private WdspHelloAck? _lastHello;
+        private readonly HelperModelCostStore? _costStore;
+        private IReadOnlyList<WdspModelCost>? _lastModelCosts;
 
         internal WdspHostPolicy Policy { get; }
         internal long SetSettingsSent;
@@ -447,12 +451,36 @@ namespace JJFlexWpf
         /// <param name="helperPath">The helper's path, or null for the app's locator.</param>
         /// <param name="policy">Timings; null for the defaults.</param>
         /// <param name="extraArguments">Tests only: from start number (1 upwards) to extra command-line arguments.</param>
-        internal WdspHost(string? helperPath, WdspHostPolicy? policy = null, Func<int, IReadOnlyList<string>>? extraArguments = null)
+        /// <param name="costStore">
+        /// Where each connection's model costs are remembered (#1002); null
+        /// remembers nothing. The app's host is given the store under the
+        /// settings root; a test host is given its own or none, so a test never
+        /// writes the operator's settings.
+        /// </param>
+        internal WdspHost(string? helperPath, WdspHostPolicy? policy = null, Func<int, IReadOnlyList<string>>? extraArguments = null,
+            HelperModelCostStore? costStore = null)
         {
             _explicitPath = helperPath;
             Policy = policy ?? WdspHostPolicy.Default;
             _extraArgs = extraArguments;
+            _costStore = costStore;
         }
+
+        /// <summary>
+        /// The usable model costs from the latest ModelCosts on any connection of
+        /// this host, or null until one has arrived. A helper that does not
+        /// measure its slots leaves it null.
+        /// </summary>
+        internal IReadOnlyList<WdspModelCost>? LastModelCosts => Volatile.Read(ref _lastModelCosts);
+
+        /// <summary>Where this host remembers model costs, or null.</summary>
+        internal HelperModelCostStore? CostStore => _costStore;
+
+        /// <summary>ModelCosts messages read, usable or not, over every connection.</summary>
+        internal long ModelCostsReceived;
+
+        /// <summary>Tests only: runs once a ModelCosts has been remembered, or found to have nothing to remember.</summary>
+        internal Action<IReadOnlyList<WdspModelCost>>? ModelCostsHandledForTest;
 
         public WdspHelperState State { get { lock (Gate) return _state; } }
         internal int Failures { get { lock (Gate) return _failures; } }
@@ -1324,6 +1352,9 @@ namespace JJFlexWpf
                     return;
                 case WdspHeartbeat:
                     return;
+                case WdspModelCosts costs:
+                    OnModelCosts(c, costs);
+                    return;
                 case WdspError error when WdspProtocol.IsFatal(error.Code):
                     // Once per connection, never rate-limited: it is the reason the pipe is about to close.
                     c.HelperSaid = WdspProtocol.DescribeError(error);
@@ -1335,6 +1366,51 @@ namespace JJFlexWpf
                             $"{(WdspProtocol.IsKnownResult(error.Code) ? error.Code.ToString() : "code " + (ushort)error.Code)}: {error.Text}");
                     return;
             }
+        }
+
+        /// <summary>
+        /// A ModelCosts: what each of the helper's model slots costs on this
+        /// machine (#1002). Advisory, so nothing about it ends the connection:
+        /// a second one, one that breaks a rule, or an entry naming a slot the
+        /// handshake did not list is traced and left out. What can be used
+        /// becomes <see cref="LastModelCosts"/> and is remembered per machine,
+        /// off the reader thread because remembering writes a file.
+        /// </summary>
+        private void OnModelCosts(WdspConnection c, WdspModelCosts costs)
+        {
+            Interlocked.Increment(ref ModelCostsReceived);
+            if (++c.ModelCostsSeen > 1)
+            {
+                Trace.WriteLine("WdspHost: ignored a second ModelCosts on one connection");
+                return;
+            }
+            foreach (var e in costs.Entries)
+                Trace.WriteLine($"WdspHost: model cost {e.EngineId} slot {e.Slot} option '{e.Option}': " +
+                    (e.Measured ? $"median {e.MedianNanos} ns, 99th percentile {e.P99Nanos} ns over {e.CalibrationFrames} frames" : "not measured"));
+            if (c.HelloResult is not WdspHelloAck hello) return; // cannot happen: Dispatch reads this only after the handshake
+            var usable = WdspProtocol.UsableModelCosts(costs, hello, out string? whole, out var ignored);
+            if (whole != null) Trace.WriteLine("WdspHost: ignored the ModelCosts as a whole: " + whole);
+            foreach (var why in ignored) Trace.WriteLine("WdspHost: ignored the model cost for " + why);
+            if (whole != null || usable.Count == 0) { ModelCostsHandledForTest?.Invoke(usable); return; }
+            Volatile.Write(ref _lastModelCosts, usable);
+            var store = _costStore;
+            string version = hello.HelperVersion;
+            var measured = DateTime.UtcNow;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    // Stamped when it arrived, so a save that waits behind a later
+                    // connection's is refused by the store rather than undoing it.
+                    var saved = store?.Save(HelperModelCostStore.From(version, usable, measured));
+                    if (saved == HelperModelCostSave.Saved)
+                        Trace.WriteLine($"WdspHost: remembered {usable.Count} model costs in {store!.FilePath}");
+                    else if (saved == HelperModelCostSave.Older)
+                        Trace.WriteLine("WdspHost: did not remember these model costs: a later measurement is already remembered");
+                }
+                catch (Exception ex) { Trace.WriteLine("WdspHost: could not remember the model costs: " + ex.Message); }
+                ModelCostsHandledForTest?.Invoke(usable);
+            });
         }
 
         /// <summary>

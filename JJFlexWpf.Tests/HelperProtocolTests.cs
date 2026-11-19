@@ -27,7 +27,7 @@ public sealed class HelperProtocolTests
         "error-utf8.bin", "hello-v1-extended.bin", "hello-reject.bin", "hello-ack.bin", "hello-ack-bad-stops.bin",
         "open-channel-with-values.bin", "open-channel-ack-ok.bin", "open-channel-ack-refused.bin",
         "close-channel-ack.bin", "frame.bin", "frame-out.bin", "set-setting-choice.bin", "setting-ack-ok.bin",
-        "setting-ack-refused.bin", "setting-ack-unknown.bin",
+        "setting-ack-refused.bin", "setting-ack-unknown.bin", "model-costs.bin",
     };
 
     // ---------------------------------------------------------------- reading
@@ -118,6 +118,7 @@ public sealed class HelperProtocolTests
         yield return new object[] { "setting-ack-ok.bin", new WdspSettingAck(3, WdspResult.Ok, "gain_method", new WdspValue(1, 0, "log")) };
         yield return new object[] { "setting-ack-refused.bin", new WdspSettingAck(3, WdspResult.InvalidValue, "trained_t2", new WdspValue(0, 0.2, null)) };
         yield return new object[] { "setting-ack-unknown.bin", new WdspSettingAck(3, WdspResult.UnknownSetting, "no_such_setting", WdspValue.None) };
+        yield return new object[] { "model-costs.bin", HelperModelCostTests.FixtureModelCosts() };
     }
 
     internal static WdspHelloAck FixtureHelloAck()

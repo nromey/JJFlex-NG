@@ -18,7 +18,7 @@ namespace JJFlexWpf.Tests;
 /// </summary>
 public sealed partial class HelperLifecycleTests
 {
-    private static string? RealHelper()
+    internal static string? RealHelper()
     {
         string? path = Environment.GetEnvironmentVariable("JJFLEX_WDSP_HELPER");
         path ??= Path.Combine(@"C:\dev\jjflex-wdsp-helper\build", (Environment.Is64BitProcess ? "x64" : "x86") + "-Release", "jjflex-wdsp-helper.exe");

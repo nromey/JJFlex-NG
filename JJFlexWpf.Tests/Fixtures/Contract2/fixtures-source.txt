@@ -489,3 +489,46 @@ u32 0
 u16 13
 u16 5                  # text length 5
 hex 63 61 66 C3 28     # "caf" then C3 28, not valid UTF-8
+
+# ---------------------------------------------------------------------------
+# ModelCosts, type 0x0060, helper to JJ Flexible, sent at most once, after
+# the HelloAck: what each model slot costs. Layout: entry count u8, then per
+# entry engine id (string), slot u8, option (string, empty if no option
+# selects the slot), frames u16, median ns u32, 99th percentile ns u32.
+# ---------------------------------------------------------------------------
+
+== model-costs.bin
+msg
+u32 75                 # type 2 + count 1 + entries 26 + 18 + 28
+u16 0x0060
+u8 3                   # three entries
+str "nnr"              # the default model, measured
+u8 0
+str "standard"
+u16 200
+u32 1516100
+u32 1680200
+str "nnr"              # a slot that did not load: no option, no figures
+u8 1
+str ""
+u16 0
+u32 0
+u32 0
+str "nnr"              # Premium CW, measured
+u8 3
+str "premium_cw"
+u16 200
+u32 3100000
+u32 3400000
+
+== model-costs-overrun.bin
+msg
+u32 29                 # type 2 + count 1 + one entry of 26
+u16 0x0060
+u8 2                   # two entries are claimed; one follows
+str "nnr"
+u8 0
+str "standard"
+u16 200
+u32 1516100
+u32 1680200
