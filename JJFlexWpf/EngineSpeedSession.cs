@@ -39,9 +39,24 @@ namespace JJFlexWpf
     /// thread through one normal-priority post, in the order it was made.
     /// </para>
     /// <para>
+    /// <b>The run's lines are one <see cref="SpokenSeries"/> (repair 1, Codex's
+    /// check of 979bfa1f).</b> The series owns every spoken line after
+    /// "started" until the reader has said it or it is taken back, which is
+    /// longer than the test runs: the test ends in seconds and its lines take
+    /// much longer to say. So closing the window takes back what is unsaid
+    /// whether the test is still running or not (B1); a list longer than the
+    /// arbiter's 16-entry ledger loses nothing to that cap, because the series
+    /// hands over a few lines at a time (B2); and after any interrupt, "busy"
+    /// or anyone else's, nothing new is handed over until the lines the
+    /// interrupt rescued are back in the reader's queue, so "finished" follows
+    /// every line that survived (B3). "started" and "busy" are not part of the
+    /// series: each is an interrupt, said at once.
+    /// </para>
+    /// <para>
     /// Closing the window stops the test between packets and takes back
     /// whatever is still waiting to be said: the trace says "stopped, the
-    /// window closed", and nothing is said after the close.
+    /// window closed", and nothing is said after the close. A fresh run takes
+    /// back what the run before it had left to say.
     /// </para>
     /// </remarks>
     internal sealed class EngineSpeedSession
@@ -56,8 +71,8 @@ namespace JJFlexWpf
         internal static void Say(string text, SpeechIntent intent, bool additive) =>
             ScreenReaderOutput.Speak(text, intent, VerbosityLevel.Terse, subject: SpeechSubject.EngineSpeedTest, additive: additive);
 
-        /// <summary>The app's way of taking back what has not been said yet.</summary>
-        internal static void WithdrawUnsaid(string by) => ScreenReaderOutput.Supersede(SpeechSubject.EngineSpeedTest, by);
+        /// <summary>The app's series for one run's lines, keyed with <see cref="SpeechSubject.EngineSpeedTest"/>.</summary>
+        internal static SpokenSeries NewSeries() => ScreenReaderOutput.NewSpokenSeries(SpeechSubject.EngineSpeedTest);
 
         private readonly Dispatcher _dispatcher;
         private readonly Action<string> _show;
@@ -65,21 +80,22 @@ namespace JJFlexWpf
         private readonly SpeedTest _test;
         private readonly Func<EngineSpeedResult, string> _words;
         private readonly Voice _voice;
-        private readonly Action<string> _withdraw;
+        private readonly Func<SpokenSeries> _newSeries;
 
         // The dispatcher's thread only.
         private CancellationTokenSource? _cancel;
         private bool _running;
+        private SpokenSeries? _series;
 
         /// <param name="dispatcher">The result box's dispatcher: every line after "started" is posted to it.</param>
         /// <param name="show">Sets the result box's whole text.</param>
         /// <param name="competing">Whether the radio's receive audio is running, read when Start is pressed.</param>
         /// <param name="test">The test (the app's is <see cref="EngineSpeedTest.Run"/>).</param>
         /// <param name="words">A line's words.</param>
-        /// <param name="voice">How a line is said; <see cref="Say"/> when null.</param>
-        /// <param name="withdraw">How unsaid lines are taken back; <see cref="WithdrawUnsaid"/> when null.</param>
+        /// <param name="voice">How "started" and "busy" are said; <see cref="Say"/> when null.</param>
+        /// <param name="series">A new series for a run's lines; <see cref="NewSeries"/> when null.</param>
         internal EngineSpeedSession(Dispatcher dispatcher, Action<string> show, Func<bool> competing, SpeedTest test,
-            Func<EngineSpeedResult, string> words, Voice? voice = null, Action<string>? withdraw = null)
+            Func<EngineSpeedResult, string> words, Voice? voice = null, Func<SpokenSeries>? series = null)
         {
             _dispatcher = dispatcher;
             _show = show;
@@ -87,11 +103,14 @@ namespace JJFlexWpf
             _test = test;
             _words = words;
             _voice = voice ?? Say;
-            _withdraw = withdraw ?? WithdrawUnsaid;
+            _newSeries = series ?? NewSeries;
         }
 
         /// <summary>Whether a run is going (the dispatcher's thread).</summary>
         internal bool Running => _running;
+
+        /// <summary>Whether any line of the latest run is still owed to the reader (the dispatcher's thread).</summary>
+        internal bool Speaking => _series?.Owes == true;
 
         /// <summary>
         /// The Start press, on the dispatcher's thread. Says "busy" if a run is
@@ -110,6 +129,10 @@ namespace JJFlexWpf
             _running = true;
             var cancel = new CancellationTokenSource();
             _cancel = cancel;
+            // Whatever the last run still had to say is history now.
+            _series?.Withdraw("a new speed test starting");
+            var series = _newSeries();
+            _series = series;
             var text = new StringBuilder();
             string started = Lexicon.Get("audio.diagnostics.speed.started");
             text.AppendLine(started);
@@ -124,7 +147,7 @@ namespace JJFlexWpf
                 if (cancel.IsCancellationRequested) return;
                 text.AppendLine(line);
                 _show(text.ToString());
-                if (spoken) _voice(line, SpeechIntent.Queue, additive: true);
+                if (spoken) series.Add(line, VerbosityLevel.Terse);
             });
 
             return Task.Factory.StartNew(() =>
@@ -165,13 +188,16 @@ namespace JJFlexWpf
             }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 
-        /// <summary>The window closed (the dispatcher's thread): stop the test and take back what has not been said.</summary>
+        /// <summary>
+        /// The window closed (the dispatcher's thread): stop the test if it is
+        /// running, and take back every line not yet said, whether it is or not
+        /// (B1: the test ending is not its lines being said).
+        /// </summary>
         internal void Stop()
         {
-            var cancel = _cancel;
-            if (cancel == null) return;
-            cancel.Cancel();
-            _withdraw("the Audio Workshop closing");
+            _cancel?.Cancel();
+            _series?.Withdraw("the Audio Workshop closing");
+            _series = null;
         }
 
         /// <summary>The trace line for one result.</summary>

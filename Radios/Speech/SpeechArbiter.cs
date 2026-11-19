@@ -1280,6 +1280,70 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// Whether a followed piece is waiting in the held set for its put-back
+        /// after an interrupt, rather than in the reader's queue. Read-only.
+        /// </summary>
+        /// <remarks>
+        /// Added for <see cref="SpokenSeries"/> (Sprint 49 Track L2 repair 1):
+        /// anything handed to the reader while a piece is held is said BEFORE
+        /// it, so a series that must stay in order hands nothing new until its
+        /// held pieces are back in the queue. <see cref="Inspect"/>'s
+        /// <c>InLedger</c> answers "owed", which a held piece and a queued one
+        /// both are; on the estimate path a held piece's old estimate can even
+        /// run out while it waits.
+        /// </remarks>
+        internal bool IsHeld(FollowedPiece piece)
+        {
+            lock (_lock) return _held.Contains((BelievedQueued)piece.Entry);
+        }
+
+        /// <summary>
+        /// Take back ONE followed piece: mark it superseded, so no interrupt
+        /// puts it back and a held copy is dropped at its release, and take it
+        /// out of the delivery pump if the pump still holds it unsent.
+        /// </summary>
+        /// <remarks>
+        /// <para>Added for <see cref="SpokenSeries"/> (Sprint 49 Track L2
+        /// repair 1; Codex's check of 979bfa1f, B2). <see cref="Supersede"/>
+        /// reaches only what the ledger still lists, and the ledger forgets its
+        /// oldest ordinary entry at <see cref="LedgerCap"/> WITHOUT taking it
+        /// out of the pump (<see cref="LedgerInsertLocked"/>), so a piece pushed
+        /// out by other speech could not be taken back by its subject. The
+        /// caller holds the piece itself, so this asks the pump by the piece's
+        /// own ticket whether or not the ledger still lists it. The cap is not
+        /// changed.</para>
+        /// <para>A pump that has already given the piece to the reader answers
+        /// no, and nothing is cut: what the reader is saying is not taken from
+        /// it.</para>
+        /// </remarks>
+        /// <param name="by">Plain prose for the trace, after "superseded by".</param>
+        /// <returns>True when it will now not be said: taken out of the pump, or held and so dropped at its release.</returns>
+        internal bool Withdraw(FollowedPiece piece, string by, string? origin)
+        {
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                var now = _clock.UtcNow;
+                if (e.SupersededBy == null)
+                {
+                    e.SupersededBy = by;
+                    e.SupersededByOrigin = origin;
+                    e.SupersededAtUtc = now;
+                }
+                if (_held.Contains(e)) return true;   // not in the pump; its release drops it, superseded
+                if (_withdrawUnsent == null || e.Ticket == 0 || e.State != Owed.Pending) return false;
+                bool taken;
+                try { taken = _withdrawUnsent(e.Ticket, $"superseded by {by}"); }
+                catch { taken = false; }
+                if (!taken) return false;
+                bool listed = _believedQueued.Remove(e);
+                TraceDropLocked(e, "taken back from the delivery queue before it was said, "
+                    + $"superseded by {by}" + (listed ? string.Empty : " (the ledger had already let go of it at its cap)"), now);
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Lead, then settle.
         ///
         /// The FIRST value for a key speaks immediately, so a single deliberate

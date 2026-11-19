@@ -281,6 +281,23 @@ namespace Radios
         public static Speech.CountdownSpeech CountdownSpeech =>
             _countdownSpeech ??= new Speech.CountdownSpeech(_arbiter, PumpReachedFirstWord, PumpNextProgress);
 
+        /// <summary>
+        /// A new series of lines on <paramref name="subject"/>, every one to be
+        /// heard in the order added, and all of them withdrawable at once (Sprint
+        /// 49 Track L2 repair 1, #866). See <see cref="Speech.SpokenSeries"/>.
+        /// The verbosity gate is this class's own, and a line it keeps back is
+        /// recorded as gated, as <see cref="Speak(string, Speech.SpeechIntent, VerbosityLevel, string?, Speech.SpeechCoalesceKind, string?, bool, Func{bool}?, string, int, string)"/> records one.
+        /// </summary>
+        public static Speech.SpokenSeries NewSpokenSeries(string subject,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            string origin = FormatOrigin(callerFile, callerLine, callerMember);
+            return new Speech.SpokenSeries(_arbiter, subject, origin, () => CurrentVerbosity,
+                (message, level) => RecordGated(message, level, Speech.SpeechIntent.Queue, origin));
+        }
+
         /// <summary>The reader's next report of progress (#855); never, with no paced delivery.</summary>
         private static System.Threading.Tasks.Task PumpNextProgress()
         {
