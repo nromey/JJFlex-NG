@@ -437,9 +437,17 @@ namespace Radios
         /// The hold's episode or connection ended (Codex's P2): the radio
         /// reported its unkey, its interlock went to receive, the connection is
         /// going, the rig is disposed, or the remote audio stopped. Any hold
-        /// waiting ends now and the drain with it. With <paramref name="unkeyNow"/>,
-        /// a hold that was waiting sends its unkey at once, on the connection it
-        /// began on, if that is still this rig's; otherwise nothing is written.
+        /// waiting ends now. With <paramref name="unkeyNow"/>, a hold that was
+        /// waiting sends its unkey at once, on the connection it began on, if
+        /// that is still this rig's; otherwise nothing is written.
+        /// <para>The drain ends here only WITHOUT <paramref name="unkeyNow"/>
+        /// (the radio reported itself off, or the rig is disposed), or when
+        /// there is no connection at all. With it, while a connection exists, the
+        /// radio may still be on the air until our unkey reaches it, so the drain
+        /// stays (join repair 3, invariant (a)): nothing captured after the
+        /// release goes out meanwhile. It ends as it always does, at the radio's
+        /// report that it is off, a key-down, or the first buffer the key reads
+        /// down.</para>
         /// </summary>
         internal void CancelHeldUnkey(string why, bool unkeyNow)
         {
@@ -452,7 +460,7 @@ namespace Radios
                 _heldUnkey = null;
                 _heldUnkeyGeneration++;
                 Volatile.Write(ref _heldUnkeyTailWatch, null);
-                try { if (txConditioner != null) txConditioner.DrainInput = false; } catch { }
+                try { if (txConditioner != null && !(unkeyNow && theRadio != null)) txConditioner.DrainInput = false; } catch { }
                 if (ended != null && unkeyNow && ended.Radio != null && ReferenceEquals(theRadio, ended.Radio) && !disposed)
                 {
                     EnqueueHeldUnkey(ended);
