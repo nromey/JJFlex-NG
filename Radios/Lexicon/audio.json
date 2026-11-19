@@ -830,6 +830,8 @@
   "audio.tnf.removed": "Notch removed",
   "audio.tnf.title": "Tracking Notch Filters",
   "audio.tnf.unnamed": "Notch {n}",
+  "audio.tnf.frequency_label": { "text": "Notch frequency", "delivery": null },
+  "audio.tnf.frequency_invalid": { "text": "That is not a frequency, so the notch did not move. Type megahertz with a point, or kilohertz.", "delivery": null },
   "audio.tune.atu_bypassed": "ATU bypassed",
   "audio.tune.atu_timed_out": "ATU tune timed out",
   "audio.tune.atu_tuning": "ATU tuning",

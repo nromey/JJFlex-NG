@@ -32,6 +32,17 @@ public partial class TNFDialog : JJFlexDialog
     private const int DepthMin = 1;
     private const int DepthMax = 3;
 
+    /// <summary>
+    /// How far one arrow press moves a notch (#773), in Hz: Up and Down move it
+    /// <see cref="FrequencyCoarseStepHz"/>, Shift with them
+    /// <see cref="FrequencyFineStepHz"/>. Named constants rather than the
+    /// operator's tuning steps: the launcher cannot reach those without a
+    /// signature change in another lane's files, and a tuning step of 5 kHz
+    /// would jump a notch straight across a sideband passband.
+    /// </summary>
+    internal const int FrequencyCoarseStepHz = 100;
+    internal const int FrequencyFineStepHz = 10;
+
     private const string WidthLabel = "Notch width";
     private const string DepthLabel = "Notch depth";
 
@@ -44,6 +55,18 @@ public partial class TNFDialog : JJFlexDialog
 
     /// <summary>Gets the formatted frequency display for TNF at index.</summary>
     public Func<int, string>? GetTNFFrequencyDisplay { get; set; }
+
+    /// <summary>Gets the frequency (Hz) of TNF at index; 0 when it is gone (#773).</summary>
+    public Func<int, ulong>? GetTNFFrequencyHz { get; set; }
+
+    /// <summary>
+    /// Moves TNF at index to a frequency (Hz) and returns the frequency asked
+    /// for after the radio layer's clamp, or 0 when the notch is gone (#773).
+    /// </summary>
+    public Func<int, ulong, ulong>? SetTNFFrequencyHz { get; set; }
+
+    /// <summary>Formats a frequency (Hz) the way every other frequency in the app is (#773).</summary>
+    public Func<ulong, string>? FormatTNFFrequency { get; set; }
 
     /// <summary>Gets the width (Hz) of TNF at index.</summary>
     public Func<int, int>? GetTNFWidth { get; set; }
@@ -238,19 +261,25 @@ public partial class TNFDialog : JJFlexDialog
             // never lands on a box that cannot act — which is the difference
             // between "there is nothing selected" and "this control is broken",
             // and without sight those two sound identical.
+            FrequencyBox.IsEnabled = hasSelection;
             WidthBox.IsEnabled = hasSelection;
             DepthBox.IsEnabled = hasSelection;
             PermanentCheck.IsEnabled = hasSelection;
             RemoveButton.IsEnabled = hasSelection;
 
+            // A new selection starts from the radio's own frequency again.
+            _freqAskedIndex = -1;
             if (hasSelection)
             {
+                ShowFrequency(GetTNFFrequencyHz?.Invoke(idx) ?? 0);
                 WidthBox.Text = (GetTNFWidth?.Invoke(idx) ?? 0).ToString();
                 DepthBox.Text = (GetTNFDepth?.Invoke(idx) ?? 1).ToString();
                 PermanentCheck.IsChecked = GetTNFPermanent?.Invoke(idx) ?? false;
             }
             else
             {
+                FrequencyBox.Text = "";
+                _freqShown = "";
                 WidthBox.Text = "";
                 DepthBox.Text = "";
                 PermanentCheck.IsChecked = false;
@@ -268,6 +297,114 @@ public partial class TNFDialog : JJFlexDialog
     {
         if (_suppressEvents) return;
         UpdateTNFProperties();
+    }
+
+    // ---- #773: moving the selected notch ----
+
+    /// <summary>The text the frequency box was last given; a Tab-through that leaves it as it was writes nothing.</summary>
+    private string _freqShown = "";
+
+    /// <summary>The notch the last move was asked for, and where; steps build on the ask, not on a read-back that may not have caught up.</summary>
+    private int _freqAskedIndex = -1;
+    private ulong _freqAskedHz;
+
+    private string FormatFrequency(ulong hz) => FormatTNFFrequency?.Invoke(hz) ?? hz.ToString();
+
+    private void ShowFrequency(ulong hz)
+    {
+        _freqShown = hz == 0 ? "" : FormatFrequency(hz);
+        FrequencyBox.Text = _freqShown;
+    }
+
+    /// <summary>Where the notch is, as far as this dialog knows: the last move asked for, else the radio's report.</summary>
+    private ulong CurrentFrequencyHz(int idx) =>
+        _freqAskedIndex == idx ? _freqAskedHz : GetTNFFrequencyHz?.Invoke(idx) ?? 0;
+
+    private void FrequencyBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        int idx = TNFList.SelectedIndex;
+        if (idx < 0) return;
+        bool fine = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+
+        switch (e.Key)
+        {
+            case Key.Enter:
+                e.Handled = true;
+                ApplyTypedFrequency(idx);
+                break;
+            case Key.Up:
+                e.Handled = true;
+                StepFrequency(idx, fine ? FrequencyFineStepHz : FrequencyCoarseStepHz);
+                break;
+            case Key.Down:
+                e.Handled = true;
+                StepFrequency(idx, -(fine ? FrequencyFineStepHz : FrequencyCoarseStepHz));
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Leaving the box writes only a typed change. A notch is radio-wide, so a
+    /// Tab-through that wrote the shown frequency back could move it for every
+    /// client by a formatting round trip; the shown text is not even a number
+    /// the typed-entry parser reads.
+    /// </summary>
+    private void FrequencyBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        int idx = TNFList.SelectedIndex;
+        if (idx >= 0 && FrequencyBox.Text != _freqShown) ApplyTypedFrequency(idx);
+    }
+
+    /// <summary>One arrow press: move from where the notch is, and say where it now is.</summary>
+    internal void StepFrequency(int idx, int deltaHz)
+    {
+        ulong current = CurrentFrequencyHz(idx);
+        if (current == 0) return;
+        long wanted = (long)current + deltaHz;
+        MoveTo(idx, wanted < 0 ? 0UL : (ulong)wanted);
+    }
+
+    /// <summary>
+    /// The typed frequency, read by the app's own typed-frequency parser
+    /// (<see cref="FreqOutHandlers.ParseQuickTypeFreq"/>, the tuning entry's):
+    /// digits with a point are megahertz, without one kilohertz, and a comma
+    /// groups kilohertz. Unchanged text writes nothing.
+    /// </summary>
+    internal void ApplyTypedFrequency(int idx)
+    {
+        string typed = FrequencyBox.Text.Trim();
+        if (typed == _freqShown.Trim()) return;
+        double? mhz = FreqOutHandlers.ParseQuickTypeFreq(typed);
+        if (mhz == null)
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Speak(Radios.Lexicon.Get("audio.tnf.frequency_invalid"));
+            ShowFrequency(CurrentFrequencyHz(idx));
+            return;
+        }
+        MoveTo(idx, (ulong)Math.Round(mhz.Value * 1_000_000.0));
+    }
+
+    private void MoveTo(int idx, ulong hz)
+    {
+        ulong asked = SetTNFFrequencyHz?.Invoke(idx, hz) ?? 0;
+        if (asked == 0) return;
+        _freqAskedIndex = idx;
+        _freqAskedHz = asked;
+        ShowFrequency(asked);
+        // The row is named by its frequency; keep it true. Focus is in the
+        // box, not the list, so the rename is not announced.
+        _suppressEvents = true;
+        try
+        {
+            if (idx < TNFList.Items.Count)
+            {
+                TNFList.Items[idx] = _freqShown;
+                TNFList.SelectedIndex = idx;
+            }
+        }
+        finally { _suppressEvents = false; }
+        SpeakValue(Radios.Lexicon.Get("audio.tnf.frequency_label"), _freqShown);
     }
 
     private void WidthBox_PreviewKeyDown(object sender, KeyEventArgs e)

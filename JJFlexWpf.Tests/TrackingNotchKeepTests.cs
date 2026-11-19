@@ -87,6 +87,122 @@ public sealed class TrackingNotchKeepTests
         });
     }
 
+    // ---- #773: moving the selected notch ----
+
+    private static (TNFDialog Dialog, ListBox List, TextBox Box, List<(int, ulong)> Moves) MoveDialog()
+    {
+        var (dialog, list, _, _) = Dialog(new[] { false, false });
+        var moves = new List<(int, ulong)>();
+        // The radio's report lags the ask, as a queued write does.
+        dialog.GetTNFFrequencyHz = i => 14_200_000UL + (ulong)i * 1000;
+        dialog.SetTNFFrequencyHz = (i, hz) => { moves.Add((i, hz)); return hz; };
+        dialog.FormatTNFFrequency = hz => (hz / 1_000_000.0).ToString("F6", System.Globalization.CultureInfo.InvariantCulture);
+        list.SelectedIndex = 1;
+        Invoke(dialog, "UpdateTNFProperties");
+        var box = (TextBox)typeof(TNFDialog).GetField("FrequencyBox", Private | BindingFlags.Public)!.GetValue(dialog)!;
+        return (dialog, list, box, moves);
+    }
+
+    [Fact]
+    public void TheFrequencyBoxShowsTheSelectedNotchWithoutMovingIt()
+    {
+        Run(() =>
+        {
+            var (_, _, box, moves) = MoveDialog();
+            Assert.Equal("14.201000", box.Text);
+            Assert.True(box.IsEnabled);
+            Assert.Empty(moves);
+        });
+    }
+
+    [Fact]
+    public void CoarseAndFineStepsMoveTheSelectedNotchAndBuildOnTheAsk()
+    {
+        Run(() =>
+        {
+            var (dialog, _, box, moves) = MoveDialog();
+            Assert.Equal(100, TNFDialog.FrequencyCoarseStepHz);
+            Assert.Equal(10, TNFDialog.FrequencyFineStepHz);
+
+            dialog.StepFrequency(1, TNFDialog.FrequencyCoarseStepHz);
+            dialog.StepFrequency(1, TNFDialog.FrequencyCoarseStepHz);
+            dialog.StepFrequency(1, -TNFDialog.FrequencyFineStepHz);
+
+            Assert.Equal(new[] { (1, 14_201_100UL), (1, 14_201_200UL), (1, 14_201_190UL) }, moves.ToArray());
+            Assert.Equal("14.201190", box.Text);
+        });
+    }
+
+    [Fact]
+    public void ATypedFrequencyMovesTheNotchByTheTuningEntrysOwnParser()
+    {
+        Run(() =>
+        {
+            var (dialog, list, box, moves) = MoveDialog();
+            box.Text = "14.2105";
+            dialog.ApplyTypedFrequency(1);
+            box.Text = "14,203.5";
+            dialog.ApplyTypedFrequency(1);
+            Assert.Equal(new[] { (1, 14_210_500UL), (1, 14_203_500UL) }, moves.ToArray());
+            Assert.Equal("14.203500", list.Items[1]);
+        });
+    }
+
+    [Fact]
+    public void TabbingThroughTheFrequencyBoxMovesNothing()
+    {
+        Run(() =>
+        {
+            var (dialog, _, box, moves) = MoveDialog();
+            Handler(dialog, "FrequencyBox_LostFocus")(box, new RoutedEventArgs());
+            Assert.Empty(moves);
+
+            // Positive control: a typed change does go on leaving.
+            box.Text = "14.2105";
+            Handler(dialog, "FrequencyBox_LostFocus")(box, new RoutedEventArgs());
+            Assert.Single(moves);
+        });
+    }
+
+    [Fact]
+    public void TextThatIsNotAFrequencyMovesNothingAndPutsTheFrequencyBack()
+    {
+        Run(() =>
+        {
+            var (dialog, _, box, moves) = MoveDialog();
+            box.Text = "abc";
+            dialog.ApplyTypedFrequency(1);
+            Assert.Empty(moves);
+            Assert.Equal("14.201000", box.Text);
+        });
+    }
+
+    [Fact]
+    public void TheArrowsAreCoarseAndShiftWithThemFine()
+    {
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "TNFDialog.xaml.cs"));
+        int at = src.IndexOf("private void FrequencyBox_PreviewKeyDown(", StringComparison.Ordinal);
+        string keys = src.Substring(at, src.IndexOf("private void FrequencyBox_LostFocus(", at, StringComparison.Ordinal) - at);
+        Assert.Contains("bool fine = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;", keys);
+        Assert.Contains("StepFrequency(idx, fine ? FrequencyFineStepHz : FrequencyCoarseStepHz);", keys);
+        Assert.Contains("StepFrequency(idx, -(fine ? FrequencyFineStepHz : FrequencyCoarseStepHz));", keys);
+        Assert.Contains("ApplyTypedFrequency(idx);", keys);
+        string xaml = System.IO.File.ReadAllText(System.IO.Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "TNFDialog.xaml"));
+        Assert.Contains("PreviewKeyDown=\"FrequencyBox_PreviewKeyDown\" LostFocus=\"FrequencyBox_LostFocus\"", xaml);
+    }
+
+    private static RoutedEventHandler Handler(TNFDialog dialog, string name) =>
+        (RoutedEventHandler)Delegate.CreateDelegate(typeof(RoutedEventHandler), dialog,
+            typeof(TNFDialog).GetMethod(name, Private)!);
+
+    private static string Repo()
+    {
+        var d = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+        while (d != null && !System.IO.File.Exists(System.IO.Path.Combine(d.FullName, "JJFlexRadio.sln"))) d = d.Parent;
+        Assert.NotNull(d);
+        return d!.FullName;
+    }
+
     private static (TNFDialog Dialog, ListBox List, CheckBox Check, List<(int, bool)> Writes) Dialog(bool[] kept)
     {
         var dialog = (TNFDialog)RuntimeHelpers.GetUninitializedObject(typeof(TNFDialog));
@@ -101,6 +217,7 @@ public sealed class TrackingNotchKeepTests
         for (int i = 0; i < kept.Length; i++) list.Items.Add("14.10" + i);
         var check = new CheckBox();
         Put(dialog, "TNFList", list);
+        Put(dialog, "FrequencyBox", new TextBox());
         Put(dialog, "WidthBox", new TextBox());
         Put(dialog, "DepthBox", new TextBox());
         Put(dialog, "PermanentCheck", check);

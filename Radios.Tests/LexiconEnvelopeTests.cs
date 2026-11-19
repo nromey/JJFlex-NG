@@ -3005,6 +3005,11 @@ namespace Radios.Tests
                 "settings.atu.mode_bypassed",
                 "settings.atu.refused_while_tuning",
                 "settings.atu.did_not_change",
+                // Junk box #773 (2026-11-18, batch 14): moving a tracking
+                // notch, the frequency box's spoken label and its typed-entry
+                // refusal. Draft prose, awaiting Noel.
+                "audio.tnf.frequency_label",
+                "audio.tnf.frequency_invalid",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

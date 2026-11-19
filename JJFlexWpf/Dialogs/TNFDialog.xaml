@@ -30,16 +30,30 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Width:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-            <TextBox x:Name="WidthBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
+            <!-- #773: moving the selected notch (ruled 2026-10-19: fine and
+                 coarse steps, like tuning, and a typed frequency). Up and
+                 down arrows move it 100 hertz, Shift with them 10 hertz;
+                 typed digits go in with Enter. It writes on Enter and on an
+                 arrow only, and on leaving only when the typed text was
+                 changed, so tabbing through moves nothing. DRAFT name and
+                 Ctrl+F1 text, for Codex. -->
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Frequency:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+            <TextBox x:Name="FrequencyBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
+                     AutomationProperties.Name="Notch frequency, up and down arrows to move it"
+                     local:JJFlexHelp.Text="DRAFT: Where the notch sits. Up and down arrows move it 100 hertz and say the new frequency; hold Shift with them for 10 hertz. You can also type a frequency, in megahertz with a point or in kilohertz, and press Enter."
+                     PreviewKeyDown="FrequencyBox_PreviewKeyDown" LostFocus="FrequencyBox_LostFocus"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Width:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+            <TextBox x:Name="WidthBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
                      AutomationProperties.Name="Notch width in hertz, up and down arrows to change"
                      local:JJFlexHelp.Text="How wide the notch is, from 50 to 5000 hertz, in steps of 50. Up and down arrows change it and say the new number; you can also type one and press Enter. Narrow is what you want for a single carrier — a wide notch takes a piece of the band with it."
                      PreviewKeyDown="WidthBox_PreviewKeyDown" LostFocus="WidthBox_LostFocus"/>
 
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Depth:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-            <TextBox x:Name="DepthBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Depth:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+            <TextBox x:Name="DepthBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,4"
                      AutomationProperties.Name="Notch depth, 1 to 3, up and down arrows to change"
                      local:JJFlexHelp.Text="How hard the notch bites, from 1 to 3. Deep is usually right for a steady carrier. Up and down arrows change it and say the new number."
                      PreviewKeyDown="DepthBox_PreviewKeyDown" LostFocus="DepthBox_LostFocus"/>
@@ -52,7 +66,7 @@
                  the flag is a notch kept through a power cycle. Nothing ties
                  it to band changes, so the old "across band changes" claim is
                  gone. DRAFT label and help text. -->
-            <CheckBox x:Name="PermanentCheck" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+            <CheckBox x:Name="PermanentCheck" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
                       Content="Keep this notch when the radio restarts"
                       AutomationProperties.Name="Keep this notch when the radio restarts"
                       local:JJFlexHelp.Text="Checked, the radio stores this notch and puts it back after it is turned off and on again. Right for a birdie that lives at one frequency forever, wrong for a station that will have moved by tomorrow. Not checked, the notch goes when the radio restarts."
