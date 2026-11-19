@@ -609,7 +609,9 @@ namespace JJFlexWpf
             if (_warming != null)
             {
                 ApplyParameters(_warming.Bank, _warming.Choice.Id, ref _warming.Applied);
-                if (!ReferenceEquals(_warmDecidedFor, _warming)) DecideWarm(_warming, running);
+                // Decided when the warm-up starts, and again if a new plan arrives while it warms (repair 1, B2).
+                var warmPlan = SharedPlan;
+                if (!ReferenceEquals(_warmDecidedFor, _warming) || !ReferenceEquals(_warmPlan, warmPlan)) DecideWarm(_warming, run, running, warmPlan);
                 if (_nextAudio.Length != audio.Length) _nextAudio = new float[audio.Length];
                 audio.CopyTo(_nextAudio, 0);
                 long late = _warming.Bank.LateFrames, failed = _warming.Bank.FallbackFrames;
@@ -656,7 +658,10 @@ namespace JJFlexWpf
                     // The incoming bank's pad line becomes the running one, so the
                     // padded timeline carries straight on (#873).
                     (_runPad, _warmPad) = (_warmPad, _runPad);
-                    _held = _warmTarget;
+                    Volatile.Write(ref _held, _warmTarget);
+                    // The hold now rests on the plan the warm-up was decided on, which is the one in force (repair 1, B2).
+                    _heldBasis = _warmBasis;
+                    _planSeen = _warmPlan;
                     if (mute) { _muteLeft = MuteSamples; _rampLeft = MuteRampSamples; }
                     // One reference: the bank, its id and its build, made on the
                     // worker, so nothing is allocated here and no reader can see
@@ -682,7 +687,8 @@ namespace JJFlexWpf
             {
                 long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames;
                 running.Process(audio, GetStrength(run!.Id));
-                if (_held >= 0) _runPad!.Process(audio, _held - running.LatencySamples);
+                CheckPlan(run, running);
+                PadRunning(audio, running);
                 ApplyMute(audio);
                 if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
                 if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
@@ -859,8 +865,20 @@ namespace JJFlexWpf
         /// <summary>Tests only: the last switch this slot made.</summary>
         internal SwitchNote? LastSwitch { get; private set; }
 
-        /// <summary>Tests only: the delay the slot's output is held at, in samples; -1 when it holds none (the running engine is outside the set).</summary>
-        internal int HeldSamples => _held;
+        /// <summary>
+        /// The delay the slot's output is held at now, in samples; -1 when it
+        /// holds none (the running engine is outside the set). What is IN FORCE,
+        /// not what the latest plan asks for: a new plan reaches the running
+        /// engine at its next safe point (repair 1, B2), and until then this still
+        /// says the old figure. Read by the Advanced tab's readout off the audio thread.
+        /// </summary>
+        internal int HeldSamples => Volatile.Read(ref _held);
+
+        /// <summary>What one retime did (repair 1, B2): the delay it moved from and to (the engine's own delay when unpadded), the correlation of the two taps across the fade, and whether it was faded or cut (the cross-fade switch off).</summary>
+        internal readonly record struct RetimeNote(int From, int To, float R0, float R1, bool Faded);
+
+        /// <summary>Tests only: the last retime this slot made.</summary>
+        internal RetimeNote? LastRetime { get; private set; }
 
         private PadLine? _runPad, _warmPad;
         private int _held = -1, _warmTarget = -1;
@@ -869,52 +887,204 @@ namespace JJFlexWpf
         private float[] _corr = Array.Empty<float>();
         private int _muteLeft, _rampLeft;
 
+        // Which plan the hold was decided on (repair 1, B2). The BASIS is what a
+        // plan said about the running engine: its shared figure when the engine
+        // is a member, -1 when it is not. A newly published plan that says the
+        // same thing changes nothing (the controller republishes often); one that
+        // says something else makes the hold stale, and the running engine moves
+        // to the new target at its next safe point. A stale hold is never
+        // inherited by the next switch.
+        private int _heldBasis = -1, _warmBasis = -1;
+        private SharedDelayPlan? _planSeen, _warmPlan;
+        private bool _retimePending;
+        private int _retimeTarget = -1, _retimeBasis = -1;
+        private readonly RetimeTrace _retimeTrace = new();
+
         private static string? ModelOf(IReadOnlyDictionary<string, EngineSettingValue>? values) =>
             values != null && values.TryGetValue("model", out var v) ? v.Choice : null;
 
-        /// <summary>The slot turns on: forget the old timeline and decide what the running engine is held at.</summary>
+        /// <summary>What a plan says about an engine: its shared figure when the engine is a member, -1 when it is not.</summary>
+        private static int Basis(SharedDelayPlan plan, string id, string? model) => plan.Contains(id, model) ? plan.Samples : -1;
+
+        /// <summary>The delay an engine's output actually comes out at: the hold, or its own delay when it holds none.</summary>
+        private static int Effective(int held, int own) => held >= 0 ? Math.Max(held, own) : own;
+
+        /// <summary>The slot turns on: forget the old timeline and decide what the running engine is held at, from the plan in force now.</summary>
         private void BeginActive(RunningBuild? run, PerChannelDenoiserBank? running)
         {
+            var plan = SharedPlan;
+            _planSeen = plan;
             _runPad?.Clear();
-            _held = run != null && running != null ? HoldFor(run.Id, ModelOf(run.Initial), running.LatencySamples) : -1;
+            if (run != null && running != null)
+            {
+                string? model = ModelOf(run.Initial);
+                _held = HoldFor(plan, run.Id, model, running.LatencySamples);
+                _heldBasis = Basis(plan, run.Id, model);
+            }
+            else { _held = -1; _heldBasis = -1; }
+            _retimePending = false;
             _warmDecidedFor = null;
             _muteLeft = 0; _rampLeft = 0;
         }
 
-        /// <summary>The delay to hold an engine at when it is the one running: the shared figure (or its own, if larger) when it is in the set; -1 otherwise.</summary>
-        private int HoldFor(string id, string? model, int own)
+        /// <summary>The delay to hold an engine at when it is the one running: the plan's shared figure (or its own, if larger) when it is in the plan; -1 otherwise.</summary>
+        private int HoldFor(SharedDelayPlan plan, string id, string? model, int own)
         {
-            var plan = SharedPlan;
             if (_runPad == null || !plan.Contains(id, model)) return -1;
             int held = Math.Max(plan.Samples, own);
             return held - own <= MaxPadSamples ? held : -1;
         }
 
         /// <summary>
-        /// A switch begins warming: decide what the incoming bank is padded to,
-        /// and whether the switch is aligned. Aligned when both engines are in the
-        /// set: the incoming one is padded to exactly the delay held now, so the
-        /// two outputs carry the same content and no time moves. A helper figure
-        /// read before its first open can be half a millisecond out
+        /// A switch begins warming, or the plan changed while it warms: decide
+        /// what the incoming bank is padded to, and whether the switch is aligned.
+        /// Aligned when both engines are in the plan and the delay held now is the
+        /// one this plan asks for: the incoming one is padded to exactly that
+        /// delay, so the two outputs carry the same content and no time moves. A
+        /// helper figure read before its first open can be half a millisecond out
         /// (<see cref="ReceiveSharedDelay.RoundingSamples"/>), so an incoming
         /// engine up to that much slower is still aligned and moves time by that
         /// much; anything more is today's switch.
+        /// <para>
+        /// A hold from an EARLIER plan is never inherited (repair 1, B2): the
+        /// incoming engine takes the current plan's figure, and the switch is
+        /// aligned only if that happens to be the delay held now. Otherwise the
+        /// switch itself moves time, once, as today's switch does. A pending
+        /// retime is dropped: the switch lands the current plan.
+        /// </para>
         /// </summary>
-        private void DecideWarm(Built warming, PerChannelDenoiserBank? running)
+        private void DecideWarm(Built warming, RunningBuild? run, PerChannelDenoiserBank? running, SharedDelayPlan plan)
         {
+            bool first = !ReferenceEquals(_warmDecidedFor, warming);
             _warmDecidedFor = warming;
-            _warmAligned = false;
-            _haveCorrelation = false;
+            _warmPlan = plan;
+            _retimePending = false;
             int own = warming.Bank.LatencySamples;
             string? model = ModelOf(warming.Running?.Initial);
-            bool incomingIn = _warmPad != null && SharedPlan.Contains(warming.Choice.Id, model);
-            if (running != null && _held >= 0 && incomingIn && own <= _held + ReceiveSharedDelay.RoundingSamples)
+            bool incomingIn = _warmPad != null && plan.Contains(warming.Choice.Id, model);
+            bool holdCurrent = run != null && Basis(plan, run.Id, ModelOf(run.Initial)) == _heldBasis;
+            int target;
+            bool aligned = false;
+            if (running != null && _held >= 0 && holdCurrent && incomingIn && own <= _held + ReceiveSharedDelay.RoundingSamples)
             {
-                _warmTarget = Math.Max(_held, own);
-                _warmAligned = true;
+                target = Math.Max(_held, own);
+                aligned = true;
             }
-            else _warmTarget = incomingIn ? HoldFor(warming.Choice.Id, model, own) : -1;
+            else
+            {
+                target = incomingIn ? HoldFor(plan, warming.Choice.Id, model, own) : -1;
+                if (running != null && _held >= 0 && target >= _held && target <= _held + ReceiveSharedDelay.RoundingSamples) aligned = true;
+            }
+            int basis = Basis(plan, warming.Choice.Id, model);
+            if (!first && target == _warmTarget && aligned == _warmAligned) { _warmBasis = basis; return; }
+            _warmTarget = target;
+            _warmAligned = aligned;
+            _warmBasis = basis;
+            _haveCorrelation = false;
             if (_warmTarget >= 0) { _warmPad!.Clear(); _warmSamples = 0; }
+        }
+
+        /// <summary>
+        /// The running engine alone, after its bank: notice a new plan (repair 1,
+        /// B2). If it says the same about this engine as the plan the hold was
+        /// decided on, nothing changes. If not, the new target is pending, and
+        /// <see cref="PadRunning"/> moves to it at the next safe point. An empty
+        /// plan, or one this engine has left, means no padding.
+        /// </summary>
+        private void CheckPlan(RunningBuild run, PerChannelDenoiserBank running)
+        {
+            var plan = SharedPlan;
+            if (ReferenceEquals(plan, _planSeen)) return;
+            _planSeen = plan;
+            string? model = ModelOf(run.Initial);
+            int basis = Basis(plan, run.Id, model);
+            if (basis == _heldBasis) { _retimePending = false; return; }
+            int own = running.LatencySamples;
+            int target = HoldFor(plan, run.Id, model, own);
+            if (Effective(target, own) == Effective(_held, own))
+            {
+                // Nothing moves in time: adopt it. A pad line that starts being
+                // fed starts empty, so its history is this engine's alone.
+                if (_held < 0 && target >= 0) _runPad!.Clear();
+                Volatile.Write(ref _held, target);
+                _heldBasis = basis;
+                _retimePending = false;
+                return;
+            }
+            if (_held < 0) _runPad!.Clear();
+            _retimeTarget = target;
+            _retimeBasis = basis;
+            _retimePending = true;
+        }
+
+        /// <summary>
+        /// Pad the running engine's output to the delay held. With a retime
+        /// pending, the line is fed (at no pad, if none is held) until it holds
+        /// enough of this engine's own output for the new delay; that buffer is
+        /// the safe point: both delays are read from the one line, and the old is
+        /// faded into the new across the buffer on the shared correlation-matched
+        /// ramp (a cut when the cross-fade switch is off). Time moves once, by
+        /// the difference, and is faded, never jumped. On the audio thread: no
+        /// allocation beyond the existing switch buffer, no wait.
+        /// </summary>
+        private void PadRunning(float[] audio, PerChannelDenoiserBank running)
+        {
+            if (_runPad == null) return;
+            int own = running.LatencySamples;
+            if (_retimePending)
+            {
+                int oldPad = Effective(_held, own) - own, newPad = Effective(_retimeTarget, own) - own;
+                if (_runPad.Filled >= newPad)
+                {
+                    if (_nextAudio.Length != audio.Length) _nextAudio = new float[audio.Length];
+                    var next = _nextAudio.AsSpan(0, audio.Length);
+                    _runPad.ProcessTwo(audio, oldPad, next, newPad);
+                    AlignedSwitch.Correlation(audio, next, _channels, _corr);
+                    bool faded = CrossFadeEnabled;
+                    if (faded) AlignedSwitch.Fade(audio, next, _channels, _corr);
+                    else next.CopyTo(audio);
+                    var note = new RetimeNote(Effective(_held, own), Effective(_retimeTarget, own),
+                        _channels > 0 ? _corr[0] : 0, _channels > 1 ? _corr[1] : 0, faded);
+                    LastRetime = note;
+                    Volatile.Write(ref _held, _retimeTarget);
+                    _heldBasis = _retimeBasis;
+                    _retimePending = false;
+                    _retimeTrace.Queue(Family, note);
+                    return;
+                }
+                _runPad.Process(audio, oldPad);
+                return;
+            }
+            if (_held >= 0) _runPad.Process(audio, _held - own);
+        }
+
+        /// <summary>
+        /// The retime's trace line, written on a pool thread from one work item
+        /// made with the slot, so the audio thread allocates nothing for it. A
+        /// second retime while the first line is still being written is not
+        /// traced (they are seconds apart in practice; the note is kept either way).
+        /// </summary>
+        private sealed class RetimeTrace : IThreadPoolWorkItem
+        {
+            private int _busy;
+            private DenoiseFamily _family;
+            private RetimeNote _note;
+
+            public void Queue(DenoiseFamily family, RetimeNote note)
+            {
+                if (Interlocked.Exchange(ref _busy, 1) != 0) return;
+                _family = family; _note = note;
+                ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
+            }
+
+            public void Execute()
+            {
+                var n = _note;
+                var family = _family;
+                Volatile.Write(ref _busy, 0);
+                Trace.WriteLine($"PcDenoiseSlot: {family} retimed to a new shared delay: from {n.From} to {n.To} samples, " +
+                    (n.Faded ? "faded" : "cut") + $", correlation {n.R0:0.000} and {n.R1:0.000}");
+            }
         }
 
         /// <summary>The Mute switch's first part: the outgoing engine fades out across the switch buffer.</summary>

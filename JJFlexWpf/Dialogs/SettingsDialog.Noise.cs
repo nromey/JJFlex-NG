@@ -153,9 +153,9 @@ namespace JJFlexWpf.Dialogs
             // deadline margin: the helper has none apart from this depth (an
             // answer is late when it is not back k frames later).
             _advancedDepthStandard = DepthField("audio.noise_advanced.depth_standard_label", _audioConfig.HelperQueueDepthStandard,
-                v => { _audioConfig.HelperQueueDepthStandard = v; WdspPipelineDepth.SetReceiveDepths(v, _audioConfig.HelperQueueDepthPremium); });
+                v => ApplyHelperDepths(v, _audioConfig.HelperQueueDepthPremium));
             _advancedDepthPremium = DepthField("audio.noise_advanced.depth_premium_label", _audioConfig.HelperQueueDepthPremium,
-                v => { _audioConfig.HelperQueueDepthPremium = v; WdspPipelineDepth.SetReceiveDepths(_audioConfig.HelperQueueDepthStandard, v); });
+                v => ApplyHelperDepths(_audioConfig.HelperQueueDepthStandard, v));
             panel.Children.Add(_advancedDepthStandard);
             panel.Children.Add(_advancedDepthPremium);
 
@@ -172,8 +172,13 @@ namespace JJFlexWpf.Dialogs
             reset.Click += (s, e) =>
             {
                 _advancedCrossFade.IsChecked = true;
+                // The fields' Value shows a figure and deliberately raises no
+                // ValueChanged, so the reset writes the saved and live depths
+                // itself (repair 1, B1): all three, or a risky depth stays in force
+                // behind a display that says the default.
                 _advancedDepthStandard.Value = WdspPipelineDepth.NnrStandard;
                 _advancedDepthPremium.Value = WdspPipelineDepth.NnrPremium;
+                ApplyHelperDepths(WdspPipelineDepth.NnrStandard, WdspPipelineDepth.NnrPremium);
             };
             panel.Children.Add(reset);
 
@@ -195,6 +200,19 @@ namespace JJFlexWpf.Dialogs
             RefillWhenTheTabTakesFocus(tab, FillMeasuredDelays);
             SettingsTabs.Items.Add(tab);
             FillMeasuredDelays();
+        }
+
+        /// <summary>
+        /// The helper's receive queue depths, saved and in force together: the
+        /// settings and <see cref="WdspPipelineDepth"/>'s receive overrides, which
+        /// the next helper engine built reads. The one way the fields and the
+        /// reset change them (repair 1, B1).
+        /// </summary>
+        private void ApplyHelperDepths(int standard, int premium)
+        {
+            _audioConfig.HelperQueueDepthStandard = standard;
+            _audioConfig.HelperQueueDepthPremium = premium;
+            WdspPipelineDepth.SetReceiveDepths(standard, premium);
         }
 
         /// <summary>A helper queue depth field: 1 to 6 frames, its Ctrl+F1 text, writing through <paramref name="set"/> as it changes.</summary>

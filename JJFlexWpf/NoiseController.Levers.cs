@@ -447,6 +447,20 @@ namespace JJFlexWpf
             int? own = ReceiveFigureSamples(id, null);
             string ownText = own is int o ? Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(o)))
                 : Lexicon.Get("audio.noise_surface.delay_figure_unknown");
+            // The engine a slot is processing right now is described by the delay
+            // it is ACTUALLY held at, not by the plan just calculated (repair 1,
+            // B2): a new plan reaches it at its next safe point, and until then
+            // the slot still holds the old figure. Every other engine is described
+            // by the plan, which is what it will be held at when chosen.
+            if (SlotFor(e) is { } running && running.ProcessingEngineId == id && running.HeldSamples is int held && held >= 0)
+            {
+                string heldText = Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(held)));
+                string heldMore = own is int ownNow
+                    ? Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(Math.Max(0, held - ownNow))))
+                    : Lexicon.Get("audio.noise_advanced.difference_unknown");
+                return Lexicon.Get("audio.noise_advanced.delay_line_shared", ("engine", NameOf(id)), ("delay", ownText), ("shared", heldText), ("more", heldMore));
+            }
+            bool runningUnheld = SlotFor(e) is { } slotNow && slotNow.ProcessingEngineId == id;
             var plan = SharedDelayPlanFor(family, out var outliers);
             if (outliers.Any(m => m.EngineId == id && (m.Model == null || m.Model == CurrentModel(id))))
                 return Lexicon.Get("audio.noise_advanced.delay_line_outlier", ("engine", NameOf(id)), ("delay", ownText));
@@ -454,7 +468,9 @@ namespace JJFlexWpf
                 return Lexicon.Get("audio.noise_advanced.delay_line", ("engine", NameOf(id)), ("delay", ownText));
             int shared = plan.Samples;
             string sharedText = Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(shared)));
-            if (!plan.Contains(id, CurrentModel(id)))
+            // Running and held at nothing, though the new plan includes it: it is
+            // not held at the shared figure yet, so it reads as outside (B2).
+            if (!plan.Contains(id, CurrentModel(id)) || runningUnheld)
                 return Lexicon.Get("audio.noise_advanced.delay_line_outside", ("engine", NameOf(id)), ("delay", ownText), ("shared", sharedText));
             string more = own is int mine
                 ? Lexicon.Get("audio.noise_surface.delay_figure", ("ms", ReceiveSharedDelay.Milliseconds(Math.Max(0, shared - mine))))

@@ -15,7 +15,7 @@ namespace JJFlexWpf
     {
         private readonly float[] _ring;
         private readonly int _channels, _frames;
-        private int _at;
+        private int _at, _filled;
 
         public PadLine(int maxPadFrames, int channels)
         {
@@ -26,6 +26,13 @@ namespace JJFlexWpf
 
         /// <summary>The longest pad this line can hold, in frames.</summary>
         public int MaxPad => _frames - 1;
+
+        /// <summary>
+        /// How many frames have gone in since the line was made or cleared, up
+        /// to <see cref="MaxPad"/>: a read at a pad no longer than this is real
+        /// audio from the start of the next buffer, never left-over history.
+        /// </summary>
+        public int Filled => _filled;
 
         /// <summary>Delay <paramref name="audio"/> in place by <paramref name="pad"/> frames (clamped to 0 to <see cref="MaxPad"/>).</summary>
         public void Process(Span<float> audio, int pad)
@@ -45,6 +52,38 @@ namespace JJFlexWpf
                 }
                 if (++_at == _frames) _at = 0;
             }
+            _filled = Math.Min(MaxPad, _filled + frames);
+        }
+
+        /// <summary>
+        /// Delay <paramref name="audio"/> by two pads at once from the one line
+        /// (repair 1, B2, the retime): <paramref name="audio"/> comes back at
+        /// <paramref name="padA"/> and <paramref name="second"/> is filled at
+        /// <paramref name="padB"/>, both read from the same history, so the two
+        /// are the same output at two delays. Each pad is clamped as in
+        /// <see cref="Process"/>.
+        /// </summary>
+        public void ProcessTwo(Span<float> audio, int padA, Span<float> second, int padB)
+        {
+            padA = Math.Clamp(padA, 0, MaxPad);
+            padB = Math.Clamp(padB, 0, MaxPad);
+            int frames = audio.Length / _channels;
+            for (int f = 0; f < frames; f++)
+            {
+                int w = _at * _channels, ra = _at - padA, rb = _at - padB;
+                if (ra < 0) ra += _frames;
+                if (rb < 0) rb += _frames;
+                ra *= _channels; rb *= _channels;
+                for (int c = 0; c < _channels; c++)
+                {
+                    int i = f * _channels + c;
+                    _ring[w + c] = audio[i];
+                    audio[i] = _ring[ra + c];
+                    second[i] = _ring[rb + c];
+                }
+                if (++_at == _frames) _at = 0;
+            }
+            _filled = Math.Min(MaxPad, _filled + frames);
         }
 
         /// <summary>Forget everything held: the next output is silence for the pad's length.</summary>
@@ -52,6 +91,7 @@ namespace JJFlexWpf
         {
             Array.Clear(_ring);
             _at = 0;
+            _filled = 0;
         }
     }
 
