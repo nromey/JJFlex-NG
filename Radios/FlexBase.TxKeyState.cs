@@ -31,7 +31,13 @@ namespace Radios
         /// <summary>The capture device the transmit microphone stream uses, by name, or "" before one is resolved (Sprint 49 Track H, repair round 1, R1).</summary>
         public string TransmitCaptureDeviceName => remoteInputDevice?.Name ?? "";
 
-        /// <summary>One delegate for <see cref="TransmitKeyedOrInterlock"/>, made once, for the audio thread to ask every buffer.</summary>
-        public Func<bool> TransmitKeySource => _transmitKeySource ??= () => TransmitKeyedOrInterlock;
+        /// <summary>
+        /// One delegate for the transmit chain's key, made once, for the audio
+        /// thread to ask every buffer: <see cref="TransmitKeyedOrInterlock"/>,
+        /// and while a held unkey's drain is in force, also our own key request
+        /// the radio has not yet confirmed (Sprint 49 Track H2, join repair 3;
+        /// see <c>TransmitChainKeyed</c> in FlexBase.HeldUnkey.cs).
+        /// </summary>
+        public Func<bool> TransmitKeySource => _transmitKeySource ??= () => TransmitChainKeyed;
     }
 }

@@ -1133,6 +1133,11 @@ namespace Radios
                     continue;
                 }
 
+                // Join repair 3 (Codex's P2): a re-open back from its worker is
+                // published on every pass, whatever producer the gate selects
+                // below. It starts nothing.
+                TakeReturnedTxReplacement();
+
                 string mode = "";
                 lock (mySlices)
                 {
@@ -3206,6 +3211,9 @@ namespace Radios
         private bool startSelfClockedTxInput()
         {
             if (!opusInputAvailable || opusInputChannel == null) return false;
+            // Join repair 3 (Codex's P2): a re-open back from its worker goes in
+            // first, so the self-clock has a stream to run on.
+            TakeReturnedTxReplacement();
             JJPortaudio.JJAudioStream stream = opusInputChannel.PortAudioStream;
             if (stream == null) return false;
             // Cheap first, and it is the answer on nearly every pass — the

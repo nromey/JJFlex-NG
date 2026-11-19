@@ -35,8 +35,14 @@ namespace Radios
         // period when the release falls just after a callback.
         //
         // A STALLED CAPTURE CAN NEVER HOLD THE RADIO KEYED: a backstop unkeys at
-        // the delay times 1.1, plus one capture period, plus
-        // HeldUnkeyBackstopAllowanceMs, whatever the audio did.
+        // the delay times 1.1, plus one capture period, plus the device latency
+        // the capture clock believes for this stream (at most
+        // TxCaptureClock.MaxTrustedInputLatencyMs), plus
+        // HeldUnkeyBackstopAllowanceMs, whatever the audio did. The latency is
+        // in it (join repair 3, Codex's P1) because the block holding the
+        // release is delivered up to one period plus that latency after the
+        // release: a bound without it cut the last word on a device whose
+        // timing the clock accepts.
         //
         // NEVER HERE: every safety unkey writes Transmit = false directly and
         // goes at once: the transmit timeout's 15-minute hard limit, the hard
@@ -126,9 +132,16 @@ namespace Radios
         public static int HeldUnkeyMarginMs(double delayMs) =>
             delayMs <= 0 || double.IsNaN(delayMs) ? 0 : Math.Max(1, (int)Math.Ceiling(Math.Round(delayMs * (HeldUnkeyMargin - 1), 6)));
 
-        /// <summary>The backstop: the delay times 1.1, plus one capture period at <paramref name="callbacksPerSecond"/>, plus <see cref="HeldUnkeyBackstopAllowanceMs"/>.</summary>
-        public static int HeldUnkeyBackstopMs(double delayMs, int callbacksPerSecond) =>
-            HeldUnkeyMs(delayMs) + (int)Math.Ceiling(1000.0 / Math.Max(1, callbacksPerSecond)) + HeldUnkeyBackstopAllowanceMs;
+        /// <summary>
+        /// The backstop: the delay times 1.1, plus one capture period at
+        /// <paramref name="callbacksPerSecond"/>, plus the capture latency the
+        /// clock believes for this stream (clamped to 0 ..
+        /// <see cref="JJPortaudio.TxCaptureClock.MaxTrustedInputLatencyMs"/>),
+        /// plus <see cref="HeldUnkeyBackstopAllowanceMs"/>.
+        /// </summary>
+        public static int HeldUnkeyBackstopMs(double delayMs, int callbacksPerSecond, int captureLatencyMs = 0) =>
+            HeldUnkeyMs(delayMs) + (int)Math.Ceiling(1000.0 / Math.Max(1, callbacksPerSecond))
+            + Math.Clamp(captureLatencyMs, 0, JJPortaudio.TxCaptureClock.MaxTrustedInputLatencyMs) + HeldUnkeyBackstopAllowanceMs;
 
         /// <summary>Whether an unkey is being held for the noise reduction's delay right now.</summary>
         public bool HeldUnkeyPending { get { lock (_heldUnkeyLock) return _heldUnkeyPending; } }
@@ -138,6 +151,21 @@ namespace Radios
 
         /// <summary>The last hold's backstop, in milliseconds.</summary>
         public int LastHeldUnkeyBackstopMs { get; private set; }
+
+        /// <summary>Tests only: the capture latency the backstop budgets, in place of the running stream's.</summary>
+        internal Func<int> TxCaptureLatencyMsForTest { get; set; }
+
+        /// <summary>The device latency the capture clock believes for the transmit stream running now (0 when none).</summary>
+        private int CaptureLatencyMsNow
+        {
+            get
+            {
+                var forTest = TxCaptureLatencyMsForTest;
+                if (forTest != null) return forTest();
+                try { return opusInputChannel?.PortAudioStream?.TransmitPipeline?.CaptureLatencyMs ?? 0; }
+                catch { return 0; }
+            }
+        }
 
         /// <summary>The capture's callbacks a second for the stream running now.</summary>
         private int CaptureCallbacksPerSecondNow => _txCallbackRateThisStream > 0 ? _txCallbackRateThisStream : TxAudioCallbacksPerSecond;
@@ -182,7 +210,7 @@ namespace Radios
                 DelayMs = delayMs,
                 MinMs = hold,
                 MarginMs = HeldUnkeyMarginMs(delayMs),
-                BackstopMs = HeldUnkeyBackstopMs(delayMs, CaptureCallbacksPerSecondNow),
+                BackstopMs = HeldUnkeyBackstopMs(delayMs, CaptureCallbacksPerSecondNow, CaptureLatencyMsNow),
                 ArmedTimestamp = Stopwatch.GetTimestamp(),
             };
             e.TailEnd = () => FinishHeldUnkey(e, false);
@@ -215,7 +243,7 @@ namespace Radios
                 + delayMs.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
                 + " ms; the radio stays keyed until the drained tail is handed on plus "
                 + e.MarginMs + " ms, and at least " + hold + " ms; backstop " + e.BackstopMs + " ms at "
-                + CaptureCallbacksPerSecondNow + " callbacks a second", TraceLevel.Info);
+                + CaptureCallbacksPerSecondNow + " callbacks a second and " + CaptureLatencyMsNow + " ms of capture latency", TraceLevel.Info);
             scheduler?.Invoke(e.BackstopMs, e.BackstopEnd);
         }
 
@@ -296,16 +324,16 @@ namespace Radios
         /// Queue the hold's Mox off, bound to the connection the hold began on
         /// AND to its over: at its run it writes only if that radio is still this
         /// rig's, still connected, the rig is not disposed, and the radio has not
-        /// meanwhile reported its own unkey followed by a key-down that was not
-        /// ours (rulings repair 2, Codex's P2: a new over that began outside JJ
-        /// Flexible is not ended by an old over's unkey). It never dereferences
-        /// a radio that has gone.
+        /// meanwhile reported our over ended followed by a key-down nothing of
+        /// ours explains (rulings repair 2, Codex's P2; join repair 3, Codex's
+        /// P1: a report our own key request explains never counts). It never
+        /// dereferences a radio that has gone.
         /// </summary>
         private void EnqueueHeldUnkey(HeldUnkeyEpisode e)
         {
             var radio = e.Radio;
             string who = e.Who;
-            var over = CaptureTxOverToken();
+            var over = TxOverProvenanceNow.Capture();
             try
             {
                 q.Enqueue((FunctionDel)(() =>
@@ -316,21 +344,59 @@ namespace Radios
                         Tracing.TraceLine("FlexBase: the held unkey by " + who + " found its connection gone at its run; nothing sent", TraceLevel.Info);
                         return;
                     }
-                    if (TxOverEndedSince(over))
+                    if (TxOverProvenanceNow.OverEndedAndForeignBegunSince(over))
                     {
-                        Tracing.TraceLine("FlexBase: the held unkey by " + who + " found its over already ended by the radio and a new"
+                        Tracing.TraceLine("FlexBase: the held unkey by " + who + " found its over ended by the radio and a new"
                             + " one begun that JJ Flexible did not key; nothing sent", TraceLevel.Info);
                         return;
                     }
-                    int was = BeginOwnMoxWrite();
-                    try { radio.Mox = false; }
-                    finally { EndOwnMoxWrite(was); }
+                    WriteOwnUnkey(radio, "the held unkey by " + who);
                 }), "Mox");
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("FlexBase: the held unkey could not be sent: " + ex.Message, TraceLevel.Error);
             }
+        }
+
+        /// <summary>
+        /// Our own unkey write, from the command queue's thread (join repair 3,
+        /// invariant (c): our own over always gets our unkey). FlexLib's
+        /// <c>Mox</c> setter sends <c>xmit 0</c> only when its cached Mox
+        /// differs, and a STALE receive report (the radio before our key request
+        /// reached it) clears that cache while the radio is about to go on the
+        /// air for us. Then the setter would send nothing and our over would
+        /// stay keyed. So when the cache already says off but our key request is
+        /// still unconfirmed, the <c>xmit 0</c> is sent as a command of its own.
+        /// When the cache says off and nothing of ours is outstanding, the radio
+        /// is off and nothing is sent, as before.
+        /// </summary>
+        private void WriteOwnUnkey(Radio radio, string who)
+        {
+            var before = TxOverProvenanceNow.Now;
+            int was = BeginOwnMoxWrite(false);
+            try
+            {
+                if (radio.Mox) radio.Mox = false;
+                else if (before == TxOverProvenance.Phase.KeyRequested || before == TxOverProvenance.Phase.OnAir)
+                {
+                    Tracing.TraceLine("FlexBase: " + who + ": the radio's last report said receive while our key request was"
+                        + " unconfirmed (a stale report); xmit 0 sent as its own command", TraceLevel.Warning);
+                    SendOwnUnkeyCommand(radio);
+                }
+            }
+            finally { EndOwnMoxWrite(was); }
+        }
+
+        /// <summary>Tests only: stands in for the radio's command path when an unkey is sent as its own command.</summary>
+        internal Action<Radio> OwnUnkeyCommandForTest { get; set; }
+
+        private void SendOwnUnkeyCommand(Radio radio)
+        {
+            var forTest = OwnUnkeyCommandForTest;
+            if (forTest != null) { forTest(radio); return; }
+            try { radio.SendReplyCommand((seq, code, reply) => { }, "xmit 0"); }
+            catch (Exception ex) { Tracing.TraceLine("FlexBase: xmit 0 could not be sent: " + ex.Message, TraceLevel.Error); }
         }
 
         private static void DisposeHeldUnkeyTimers(HeldUnkeyEpisode e)
@@ -402,52 +468,46 @@ namespace Radios
         /// <summary>The radio reported its Mox off. When we did not unkey it ourselves, a hold that was waiting is moot: nothing is written.</summary>
         private void NoteRadioUnkeyedForHold(string what) => CancelHeldUnkey("the radio reported " + what, unkeyNow: false);
 
-        // ── Rulings repair 2 (Codex's P2): a queued held unkey belongs to its over ──
+        // ── A queued held unkey belongs to its over (rulings repair 2, Codex's
+        // P2; join repair 3, Codex's P1) ──
         //
         // The command queue orders OUR writes, so a key-down of ours queued after
         // the unkey always runs after it. It does not order what the RADIO
         // reports: another client's MOX, or the radio itself, can end the over
         // and begin a new one while the unkey still waits in the queue. So the
         // queued unkey carries a token of the over it ends, and at its run it
-        // writes nothing if, since it was queued, the radio reported an unkey
-        // and THEN a key-down, neither of them caused by our own write.
+        // writes nothing only on positive evidence that the over is someone
+        // else's (TxOverProvenance).
         //
-        // WHICH EDGES ARE OURS. FlexLib's Mox setter raises its change on the
-        // writing thread, synchronously, before it returns (Radio.Mox), so an
-        // edge raised while one of our own writes is on the stack is ours; every
-        // other edge came from the radio's status. That attribution has no
-        // timing in it. A late echo of our own key-down would otherwise read as
-        // a new external over and leave OUR over keyed, which is the failure
-        // that must never happen; with this, the only unkey ever withheld is
-        // one whose over the radio itself has ended, and whose new over nobody
-        // here keyed.
+        // WHICH REPORTS ARE OURS. FlexLib's Mox setter raises its change on the
+        // writing thread, synchronously (Radio.Mox), so an edge raised while one
+        // of our own writes is on the stack is ours. That proves only the
+        // setter's own echo. A later STATUS can still be ours: FlexLib's
+        // InterlockState setter moves Mox too, and a stale receive followed by
+        // the Transmitting that confirms our own xmit 1 used to read as someone
+        // else's unkey and key-down, withholding our only unkey. Each status is
+        // now read against our latest request: a report our request explains
+        // (a stale receive, the confirmation, our unkey in progress) never
+        // counts. When in doubt, the unkey goes.
 
         private int _ownMoxWriteThread;
-        private long _externalUnkeyEdges;
-        private long _externalKeyDownEdges;
-        private long _unkeyEdgesAtLastExternalKeyDown;
+        private TxOverProvenance _txOverProvenanceObject;
 
-        /// <summary>The over a queued unkey belongs to: the radio's own edge counts when it was queued.</summary>
-        private readonly struct TxOverToken
+        /// <summary>Who caused what the radio reports. Made on first use, so an object built without its constructor (the windowless tests) still has one.</summary>
+        internal TxOverProvenance TxOverProvenanceNow =>
+            Volatile.Read(ref _txOverProvenanceObject)
+            ?? Interlocked.CompareExchange(ref _txOverProvenanceObject, new TxOverProvenance(), null)
+            ?? _txOverProvenanceObject;
+
+        /// <summary>
+        /// Mark our own Mox write as on the stack of this thread, and record it
+        /// as our request (a key-down opens our over's phase; an unkey asks for
+        /// its end). Returns what to restore.
+        /// </summary>
+        private int BeginOwnMoxWrite(bool keyDown)
         {
-            public TxOverToken(long unkeys, long keyDowns) { Unkeys = unkeys; KeyDowns = keyDowns; }
-            public long Unkeys { get; }
-            public long KeyDowns { get; }
-        }
-
-        private TxOverToken CaptureTxOverToken() =>
-            new TxOverToken(Interlocked.Read(ref _externalUnkeyEdges), Interlocked.Read(ref _externalKeyDownEdges));
-
-        /// <summary>True when, since <paramref name="token"/>, the radio reported an unkey and then a key-down, neither ours.</summary>
-        private bool TxOverEndedSince(TxOverToken token)
-        {
-            if (Interlocked.Read(ref _externalKeyDownEdges) == token.KeyDowns) return false;
-            return Interlocked.Read(ref _unkeyEdgesAtLastExternalKeyDown) > token.Unkeys;
-        }
-
-        /// <summary>Mark our own Mox write as on the stack of this thread; returns what to restore.</summary>
-        private int BeginOwnMoxWrite()
-        {
+            if (keyDown) TxOverProvenanceNow.OwnKeyDownWritten();
+            else TxOverProvenanceNow.OwnUnkeyWritten();
             int was = Volatile.Read(ref _ownMoxWriteThread);
             Volatile.Write(ref _ownMoxWriteThread, Environment.CurrentManagedThreadId);
             return was;
@@ -455,13 +515,73 @@ namespace Radios
 
         private void EndOwnMoxWrite(int was) => Volatile.Write(ref _ownMoxWriteThread, was);
 
-        /// <summary>From noteRadioMox, on a real edge: count it unless our own write raised it.</summary>
-        private void NoteTxMoxEdge(bool mox)
+        /// <summary>True while one of our own Mox writes is on this thread's stack: the change being raised is its echo.</summary>
+        private bool OwnMoxWriteOnThisThread => Volatile.Read(ref _ownMoxWriteThread) == Environment.CurrentManagedThreadId;
+
+        /// <summary>
+        /// From noteRadioMox, on a real edge: read it against our request unless
+        /// our own write raised it. Returns true when the edge is a receive
+        /// report our own unconfirmed key request explains (stale): it does not
+        /// end our over.
+        /// </summary>
+        private bool NoteTxMoxEdge(bool mox)
         {
-            if (Volatile.Read(ref _ownMoxWriteThread) == Environment.CurrentManagedThreadId) return; // our own write's synchronous change
-            if (!mox) { Interlocked.Increment(ref _externalUnkeyEdges); return; }
-            Interlocked.Exchange(ref _unkeyEdgesAtLastExternalKeyDown, Interlocked.Read(ref _externalUnkeyEdges));
-            Interlocked.Increment(ref _externalKeyDownEdges);
+            if (OwnMoxWriteOnThisThread) return false; // our own write's synchronous change
+            InterlockState state;
+            try { state = theRadio?.InterlockState ?? InterlockState.None; }
+            catch { state = InterlockState.None; }
+            var p = TxOverProvenanceNow;
+            bool stale = !mox && p.ReceiveReportIsStale(state);
+            var reading = p.MoxReported(mox, state);
+            if (stale)
+                Tracing.TraceLine("FlexBase: the radio reported its Mox off (interlock " + state + ") before confirming our key request;"
+                    + " a stale report, so our over carries on", TraceLevel.Info);
+            else if (reading != TxOverProvenance.Reading.Explained)
+                Tracing.TraceLine("FlexBase: the radio reported " + (mox ? "a key-down" : "an over ended")
+                    + " that JJ Flexible did not request (interlock " + state + ")", TraceLevel.Verbose);
+            return stale;
+        }
+
+        /// <summary>
+        /// The radio reported a change of its interlock state (the property
+        /// handler's InterlockState case, extracted so it can be driven without
+        /// a radio). A restore withheld while keyed may go at receive (#835); a
+        /// receive report ends a held unkey, unkeying NOW (rulings repair 1,
+        /// Codex's P2), unless it is a stale report our own unconfirmed key
+        /// request explains (join repair 3): then our over carries on, and its
+        /// own unkey (or the backstop) ends it.
+        /// </summary>
+        private void noteRadioInterlock(InterlockState state)
+        {
+            var p = TxOverProvenanceNow;
+            bool stale = p.ReceiveReportIsStale(state);
+            p.InterlockReported(state);
+            if (TxOverProvenance.IsTransmitState(state)) return;
+            _checkRestorations?.Kick();
+            if (stale)
+            {
+                Tracing.TraceLine("FlexBase: interlock " + state + " reported before our key request was confirmed;"
+                    + " a stale report, so a held unkey carries on", TraceLevel.Info);
+                return;
+            }
+            CancelHeldUnkey("its interlock reported " + state, unkeyNow: true);
+        }
+
+        /// <summary>
+        /// The transmit chain's key: our Mox or the radio's interlock, and also,
+        /// while a held unkey's drain is in force, our own key request the radio
+        /// has not yet confirmed (join repair 3): a stale receive report must not
+        /// end the drain and let new microphone audio reach a radio that is about
+        /// to be on the air for our over. Lock-free: asked per buffer.
+        /// </summary>
+        private bool TransmitChainKeyed
+        {
+            get
+            {
+                if (TransmitKeyedOrInterlock) return true;
+                var cond = txConditioner;
+                return cond != null && cond.DrainInput && TxOverProvenanceNow.OwnKeyUnconfirmed;
+            }
         }
     }
 }

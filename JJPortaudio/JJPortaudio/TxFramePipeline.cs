@@ -148,6 +148,29 @@ namespace JJPortaudio
         /// <summary>Stage exceptions caught since this pipeline was made: injection, conditioning or metering threw and the frame went out without that stage.</summary>
         public long StageFailures { get; private set; }
 
+        private int _captureLatencyMs;
+
+        /// <summary>
+        /// The most device latency beyond a block's own length that the capture
+        /// clock has believed on this stream, in milliseconds (0 when it never
+        /// reported one it believed; at most
+        /// <see cref="TxCaptureClock.MaxTrustedInputLatencyMs"/>). A held
+        /// unkey's backstop allows this much for the block holding the release
+        /// to be delivered (Sprint 49 Track H2, join repair 3, Codex's P1).
+        /// </summary>
+        public int CaptureLatencyMs => System.Threading.Volatile.Read(ref _captureLatencyMs);
+
+        /// <summary>
+        /// The capture callback, once per block: the latency
+        /// <see cref="TxCaptureClock.TrustedExcessLatencyMs"/> believed for it.
+        /// Keeps the largest. No allocation, no lock.
+        /// </summary>
+        public void NoteCaptureLatency(int latencyMs)
+        {
+            if (latencyMs > System.Threading.Volatile.Read(ref _captureLatencyMs))
+                System.Threading.Volatile.Write(ref _captureLatencyMs, Math.Min(latencyMs, TxCaptureClock.MaxTrustedInputLatencyMs));
+        }
+
         /// <summary>Frames that went out with at least one stage skipped because it had faulted.</summary>
         public long FramesWithStageSkipped { get; private set; }
 
@@ -213,7 +236,9 @@ namespace JJPortaudio
         /// <see cref="Stopwatch"/> timestamp (<see cref="TxCaptureClock"/>);
         /// zero when the producer does not know (the self-clocked source), which
         /// counts as captured now. A held unkey keeps what was captured before
-        /// its release and silences the rest.
+        /// its release and silences the rest. It describes the MICROPHONE's
+        /// samples only: when an injection source is in flight for this buffer,
+        /// the buffer is generated audio and is taken as captured now.
         /// </param>
         /// <returns>
         /// True when a frame was handed to the handler. False means the frame
@@ -244,11 +269,22 @@ namespace JJPortaudio
             skipped |= _sourceFaulted && Source != null;
             if (source != null)
             {
+                // A source in flight (engaged, ramping in, or ramping out) before
+                // or after this call wrote into the buffer: what it holds now is
+                // generated audio, made NOW, not the microphone's samples from
+                // the callback's capture time (join repair 3, Codex's P2). So the
+                // release boundary below reads it as captured now. An idle source
+                // leaves the microphone untouched, and its capture time stands.
+                bool inFlight = !source.Idle || source.Engaged;
                 var before = Snapshot(buffer, floatCount, ref _beforeSource);
-                try { source.Process(buffer, floatCount, sampleRate); }
+                try
+                {
+                    source.Process(buffer, floatCount, sampleRate);
+                    if (inFlight || !source.Idle || source.Engaged) captureTimestamp = 0;
+                }
                 catch (Exception ex)
                 {
-                    Array.Copy(before, buffer, floatCount); // the microphone as captured
+                    Array.Copy(before, buffer, floatCount); // the microphone as captured: its capture time stands
                     _sourceFaulted = true;
                     source = null;
                     skipped = true;

@@ -184,6 +184,7 @@ namespace Radios
             public string Why = "";
             public object Channel;
             public RemoteAudioWake Wake;         // the run that asked; the only one it may signal or publish into
+            public long Server;                  // the audio server it was started under (Audio.ServerGeneration); the only one it may open or close on
             public long KeyDownsAtStart;
             public long OpenMs;
             public JJAudioStream Stream;
@@ -217,10 +218,17 @@ namespace Radios
         }
 
         /// <summary>
-        /// The teardown's wait (rulings repair 2, Codex's join list): no open or
-        /// close on a worker may outlive the run into Audio.Terminate or a later
-        /// run's Audio.Initialize. Bounded; a worker still out at the bound is
-        /// traced and left (its thread is background).
+        /// The teardown's courtesy wait for opens and closes still on their
+        /// workers, so they can finish and close what they opened in the
+        /// ordinary way. It is NOT the barrier (join repair 3, Codex's P2: a
+        /// worker left behind at a timed bound could start another open after
+        /// it). The barrier is the audio server's gate
+        /// (<see cref="JJPortaudio.Audio.RunOnServer"/>): every worker operation
+        /// runs under it, only against the server it was started under, and
+        /// only while still wanted, and Audio.Terminate and Audio.Initialize
+        /// take the same gate. So whatever this wait leaves behind can finish
+        /// its one operation in progress on its own server before that server
+        /// ends, and can begin nothing afterwards.
         /// </summary>
         private void WaitForTxCaptureWorkers(string why)
         {
@@ -230,15 +238,41 @@ namespace Radios
             int left = System.Threading.Volatile.Read(ref _txCaptureWorkers);
             if (left > 0)
                 Tracing.TraceLine("TxCallbackRate: " + left + " microphone open or close still on its worker after "
-                    + TxCaptureWorkerDrainMs + " ms (" + why + "); not waited for any longer", TraceLevel.Error);
+                    + TxCaptureWorkerDrainMs + " ms (" + why + "); the audio server's end waits only for the operation in"
+                    + " progress, and nothing further can begin on it", TraceLevel.Warning);
         }
 
-        /// <summary>Close a stream nothing uses any more, off the loop (a close polls in 200 ms steps).</summary>
-        private void CloseTxStreamOffLoop(JJAudioStream stream)
+        /// <summary>
+        /// Close a stream nothing uses any more, off the loop (a close polls in
+        /// 200 ms steps), on the audio server it was opened under
+        /// (<paramref name="server"/>; by default the live one, read here on the
+        /// caller's thread). If that server has ended meanwhile, nothing is
+        /// posted: its end closed every stream it had (join repair 3).
+        /// </summary>
+        private void CloseTxStreamOffLoop(JJAudioStream stream, long? server = null)
         {
             if (stream == null) return;
-            RunTxCaptureWork("TxCaptureClose", () => { try { stream.Close(); } catch { } });
+            long on = server ?? JJPortaudio.Audio.ServerGeneration;
+            RunTxCaptureWork("TxCaptureClose", () =>
+            {
+                if (!JJPortaudio.Audio.RunOnServer(on, null, () => { try { stream.Close(); } catch { } }))
+                    Tracing.TraceLine("TxCallbackRate: a microphone stream's close found its audio server already ended;"
+                        + " nothing posted", TraceLevel.Info);
+            });
         }
+
+        /// <summary>
+        /// Whether a worker's job may still begin an operation (join repair 3,
+        /// Codex's P2 and the #1181 point): not abandoned, its run still the
+        /// current one, the remote audio not told to stop, and the connection
+        /// not disconnecting. Asked under the audio server's gate immediately
+        /// before every open, so a re-open never opens into a closing session.
+        /// </summary>
+        private bool TxOpenJobWanted(TxOpenJob job) =>
+            System.Threading.Volatile.Read(ref job.State) == 0
+            && ReferenceEquals(job.Wake, System.Threading.Volatile.Read(ref _remoteAudioWake))
+            && !stopRemoteAudio
+            && !Disconnecting;
 
         private void StartTxOpenJob(int rate, TxOpenKind kind, object channel, int secondRate = 0, string why = "")
         {
@@ -249,35 +283,64 @@ namespace Radios
                 // the worker signals only the run that asked, and a newer run's
                 // wake is never captured.
                 Wake = System.Threading.Volatile.Read(ref _remoteAudioWake),
+                // And this run's audio server (join repair 3): the worker's opens,
+                // and the close of anything it opened, run only on it.
+                Server = JJPortaudio.Audio.ServerGeneration,
                 KeyDownsAtStart = System.Threading.Interlocked.Read(ref _txKeyDownAdmissions),
             };
             _txOpenJob = job;
-            RunTxCaptureWork("TxCaptureOpen", () =>
+            RunTxCaptureWork("TxCaptureOpen", () => RunTxOpenJob(job));
+        }
+
+        /// <summary>
+        /// The worker's body (join repair 3, Codex's P2). Each open is ONE
+        /// operation under the audio server's gate, begun only if the job is
+        /// still wanted and its server still live; an open that completes after
+        /// its job was abandoned is closed in that same operation, on that same
+        /// server. A job that may no longer begin anything ends quietly: nothing
+        /// opened, nothing handed back, nothing said.
+        /// </summary>
+        private void RunTxOpenJob(TxOpenJob job)
+        {
+            long t0 = Environment.TickCount64;
+            JJAudioStream opened = null;
+            bool handedBack = false;
+            int second = job.SecondRate > 0 && job.SecondRate != job.Rate ? job.SecondRate : 0;
+            for (int attempt = 0; attempt < (second > 0 ? 2 : 1) && opened == null; attempt++)
             {
-                long t0 = Environment.TickCount64;
-                JJAudioStream opened = null;
-                int openedRate = rate;
-                try { opened = OpenTxCaptureAt(rate, job.Wake); }
-                catch (Exception ex) { Tracing.TraceLine("TxCallbackRate: the open threw: " + ex.Message, TraceLevel.Error); }
-                if (opened == null && job.SecondRate > 0 && job.SecondRate != rate)
+                int r = attempt == 0 ? job.Rate : second;
+                bool ran = JJPortaudio.Audio.RunOnServer(job.Server, () => TxOpenJobWanted(job), () =>
                 {
-                    openedRate = job.SecondRate;
-                    try { opened = OpenTxCaptureAt(openedRate, job.Wake); }
-                    catch (Exception ex) { Tracing.TraceLine("TxCallbackRate: the open threw: " + ex.Message, TraceLevel.Error); }
-                }
-                job.OpenMs = Environment.TickCount64 - t0;
-                job.OpenedRate = openedRate;
-                job.Stream = opened;
-                // Handed back only if nobody abandoned it meanwhile (the remote
-                // audio stopped, the stream died): then it is closed here.
-                if (System.Threading.Interlocked.CompareExchange(ref job.State, 1, 0) != 0)
+                    job.OpenedRate = r;
+                    try { opened = OpenTxCaptureAt(r, job.Wake); }
+                    catch (Exception ex) { Tracing.TraceLine("TxCallbackRate: the open threw: " + ex.Message, TraceLevel.Error); opened = null; }
+                    if (opened == null) return;
+                    job.OpenMs = Environment.TickCount64 - t0;
+                    job.Stream = opened;
+                    // Handed back only if nobody abandoned it while it opened (the
+                    // remote audio stopped, the stream died, the run ended); if
+                    // somebody did, it is closed here, on its own server.
+                    if (System.Threading.Interlocked.CompareExchange(ref job.State, 1, 0) == 0) handedBack = true;
+                    else { try { opened.Close(); } catch { } }
+                });
+                if (!ran)
                 {
-                    try { opened?.Close(); } catch { }
+                    System.Threading.Interlocked.CompareExchange(ref job.State, 3, 0);
+                    System.Threading.Interlocked.CompareExchange(ref _txOpenJob, null, job);
+                    Tracing.TraceLine("TxCallbackRate: the " + TxOpenName(job) + " open at " + r + " a second did not begin:"
+                        + " its job was abandoned, its run or audio server ended, or the session is closing", TraceLevel.Info);
                     return;
                 }
-                System.Threading.Volatile.Write(ref _txTryNextCheckTick, 0); // the loop's next look picks it up
-                job.Wake?.Signal();                                           // and that look comes now, not at the idle timeout
-            });
+            }
+            if (!handedBack)
+            {
+                if (opened != null) return; // opened, then abandoned: closed above
+                job.OpenMs = Environment.TickCount64 - t0;
+                job.Stream = null;
+                if (System.Threading.Interlocked.CompareExchange(ref job.State, 1, 0) != 0) return;
+            }
+            System.Threading.Volatile.Write(ref _txTryNextCheckTick, 0); // the loop's next look picks it up
+            job.Wake?.Signal();                                           // and that look comes now, not at the idle timeout
         }
 
         /// <summary>
@@ -285,12 +348,35 @@ namespace Radios
         /// Every look of the gate's start does this first (rulings repair 2), so
         /// a re-open publishes as soon as it is back, whatever the try is doing.
         /// </summary>
-        private void TakeReturnedTxOpen(audioChannelData channel)
+        private void TakeReturnedTxOpen(audioChannelData channel, bool replacementOnly = false)
         {
             var job = _txOpenJob;
-            if (job == null || System.Threading.Interlocked.CompareExchange(ref job.State, 2, 1) != 1) return;
+            if (job == null) return;
+            if (replacementOnly && job.Kind != TxOpenKind.Replace) return;
+            if (System.Threading.Interlocked.CompareExchange(ref job.State, 2, 1) != 1) return;
             _txOpenJob = null;
             TxOpenReturned(job, channel);
+        }
+
+        /// <summary>
+        /// On the loop, once every pass and at the top of BOTH producers' starts
+        /// (join repair 3, Codex's P2): a re-open that is back from its worker is
+        /// published whatever producer the gate is about to select. It used to
+        /// be taken only by the microphone's start, so when the gate started a
+        /// file or the tone on the self-clock instead, the opened stream sat in
+        /// its job and the self-clock found no stream to run on. Publishing a
+        /// re-open puts a stream where there was none and starts nothing, so the
+        /// single-producer order (stop the capture, then start the self-clock)
+        /// is untouched. A try's or fall back's open is a SWAP of the running
+        /// capture, admitted only while the microphone is the producer, so it
+        /// still waits for the microphone's start.
+        /// </summary>
+        private void TakeReturnedTxReplacement()
+        {
+            if (!opusInputAvailable) return;
+            var channel = opusInputChannel;
+            if (channel == null) return;
+            TakeReturnedTxOpen(channel, replacementOnly: true);
         }
 
         /// <summary>
@@ -303,7 +389,7 @@ namespace Radios
             var job = System.Threading.Interlocked.Exchange(ref _txOpenJob, null);
             if (job == null) return;
             int was = System.Threading.Interlocked.Exchange(ref job.State, 3);
-            if (was == 1) CloseTxStreamOffLoop(job.Stream);
+            if (was == 1) CloseTxStreamOffLoop(job.Stream, job.Server);
             if (was == 0 || was == 1)
                 Tracing.TraceLine("TxCallbackRate: the " + TxOpenName(job) + " open at " + job.Rate
                     + " a second was abandoned: " + why, TraceLevel.Info);
@@ -385,7 +471,7 @@ namespace Radios
             // an open from an ended run never publishes into a later one.
             if (!ReferenceEquals(job.Channel, channel) || !ReferenceEquals(job.Wake, System.Threading.Volatile.Read(ref _remoteAudioWake)))
             {
-                CloseTxStreamOffLoop(fresh); // a different connection now; its own try state was reset
+                CloseTxStreamOffLoop(fresh, job.Server); // a different connection now; its own try state was reset
                 return;
             }
             if (job.Kind == TxOpenKind.Replace)
@@ -425,7 +511,7 @@ namespace Radios
             var result = SwapTxCaptureStreamAdmitted(fresh, job.Rate, why, job.KeyDownsAtStart, out string refusal);
             if (result == TxSwapResult.Refused)
             {
-                CloseTxStreamOffLoop(fresh);
+                CloseTxStreamOffLoop(fresh, job.Server);
                 Tracing.TraceLine("TxCallbackRate: the " + (job.Fallback ? "fall back" : "automatic try") + " at " + job.Rate
                     + " a second opened (" + job.OpenMs + " ms) but was not swapped in: " + refusal
                     + "; the microphone carries on as it was, and it is asked again at the next unkeyed moment", TraceLevel.Info);

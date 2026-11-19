@@ -5097,13 +5097,13 @@ namespace Radios
                     {
                         Tracing.TraceLine("InterlockState:" + r.InterlockState.ToString(), TraceLevel.Info);
                         // A restore withheld while the radio reported keyed can
-                        // go the moment it reports receive (#835).
-                        if (!RadioInterlockReportsTransmit) _checkRestorations?.Kick();
-                        // S16, rulings repair 1 (Codex's P2): the interlock at
-                        // receive ends a held unkey, unkeying NOW, so a radio that
-                        // resumes can never be left keyed with nothing waiting to
-                        // unkey it; it also ends any drain.
-                        if (!RadioInterlockReportsTransmit) CancelHeldUnkey("its interlock reported " + r.InterlockState, unkeyNow: true);
+                        // go the moment it reports receive (#835). S16, rulings
+                        // repair 1 (Codex's P2): the interlock at receive ends a
+                        // held unkey, unkeying NOW, and any drain; join repair 3
+                        // (Codex's P1): unless the report is stale, explained by
+                        // our own unconfirmed key request. Extracted so it can be
+                        // driven without a radio (FlexBase.HeldUnkey.cs).
+                        noteRadioInterlock(r.InterlockState);
                     }
                     break;
                 case "IsMuteLocalAudioWhenRemoteOn":
@@ -7739,12 +7739,16 @@ namespace Radios
             bool oldTransmit = _Transmit;
             // Rulings repair 2 (Codex's P2): an edge the radio reported, not
             // one our own write raised, is what a queued held unkey checks its
-            // over against (FlexBase.HeldUnkey.cs, NoteTxMoxEdge).
-            if (mox != oldTransmit) NoteTxMoxEdge(mox);
+            // over against (FlexBase.HeldUnkey.cs, NoteTxMoxEdge). Join repair 3
+            // (Codex's P1): read against our own key request, so a stale
+            // receive report is not the end of our over.
+            bool staleReceive = mox != oldTransmit && NoteTxMoxEdge(mox);
             // S16, rulings repair 1 (Codex's P2): the radio says it is off the
             // air, so a held unkey still waiting is moot (nothing is written),
-            // and a drain left on after our own held unkey ends here.
-            if (!mox) NoteRadioUnkeyedForHold("its Mox off");
+            // and a drain left on after our own held unkey ends here. Not for a
+            // stale report: our over is about to be on the air, and its own
+            // unkey (or the backstop) must still end it.
+            if (!mox && !staleReceive) NoteRadioUnkeyedForHold("its Mox off");
             if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
             if (mox && !oldTransmit && TxReferenceArmed)
                 txFilePlayer.RestartOnNextBuffer();
@@ -8230,7 +8234,12 @@ namespace Radios
                     if (value && TeardownHeldSilently("transmit")) return;
                     // Our own write: the edge it raises is ours, not the radio's
                     // (rulings repair 2; see FlexBase.HeldUnkey.cs).
-                    int ownWrite = BeginOwnMoxWrite();
+                    // An unkey goes through WriteOwnUnkey (join repair 3): when a
+                    // stale receive report has already cleared FlexLib's cached
+                    // Mox, the setter would send nothing and our over would stay
+                    // keyed.
+                    if (!value) { WriteOwnUnkey(theRadio, "the unkey"); return; }
+                    int ownWrite = BeginOwnMoxWrite(true);
                     try { theRadio.Mox = value; }
                     finally { EndOwnMoxWrite(ownWrite); }
                 }), "Mox");

@@ -72,6 +72,27 @@ namespace JJPortaudio
             return callbackTimestamp - blockTicks;
         }
 
+        /// <summary>
+        /// The device latency, beyond the block's own length, that
+        /// <see cref="BlockStartTimestamp"/> believes for this block, in whole
+        /// milliseconds rounded up: zero when it falls back (not reported, not
+        /// believable), never more than <see cref="MaxTrustedInputLatencyMs"/>.
+        /// The held unkey's backstop budgets this much for the delivery of the
+        /// block holding the release (Sprint 49 Track H2, join repair 3, Codex's
+        /// P1), so the timing the clock accepts never runs into the backstop.
+        /// </summary>
+        public static int TrustedExcessLatencyMs(double adcAgeSeconds, long blockFrames, uint sampleRate)
+        {
+            if (double.IsNaN(adcAgeSeconds) || double.IsInfinity(adcAgeSeconds) || adcAgeSeconds <= 0) return 0;
+            long freq = Stopwatch.Frequency;
+            long blockTicks = FrameOffsetTicks(blockFrames, sampleRate);
+            long ageTicks = (long)(adcAgeSeconds * freq);
+            long maxTicks = blockTicks + MaxTrustedInputLatencyMs * freq / 1000;
+            if (ageTicks < blockTicks || ageTicks > maxTicks) return 0;
+            long excess = ageTicks - blockTicks;
+            return (int)Math.Min(MaxTrustedInputLatencyMs, (excess * 1000 + freq - 1) / freq);
+        }
+
         /// <summary>Stopwatch ticks spanned by <paramref name="frames"/> sample frames at <paramref name="sampleRate"/>.</summary>
         public static long FrameOffsetTicks(long frames, uint sampleRate) =>
             sampleRate == 0 || frames <= 0 ? 0 : frames * Stopwatch.Frequency / sampleRate;

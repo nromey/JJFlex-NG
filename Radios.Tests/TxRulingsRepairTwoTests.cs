@@ -329,9 +329,14 @@ namespace Radios.Tests
                 x.B.Transmit = true;
                 var down = x.B.q.Dequeue(); ((FlexBase.FunctionDel)down.Item)();
                 Assert.True(radio.Mox); Assert.True(x.B.Transmit);
-                Assert.Equal(0L, (long)Get(x.B, "_externalKeyDownEdges")!); // our write: not the radio's over
+                Assert.Equal(0L, x.B.TxOverProvenanceNow.CountedKeyDowns); // our write: not the radio's over
+                // Join repair 3: the radio's report of the over ending counts once
+                // the radio has CONFIRMED our key request; before that it would be
+                // a stale report (TxJoinRepairThreeTests pins that half).
+                Call(x.B, "noteRadioInterlock", InterlockState.Transmitting);
+                Set(radio, "_interlockState", InterlockState.Receive); Set(radio, "_mox", false);
                 Call(x.B, "noteRadioMox", false);                            // the radio's own report
-                Assert.Equal(1L, (long)Get(x.B, "_externalUnkeyEdges")!);
+                Assert.Equal(1L, x.B.TxOverProvenanceNow.CountedEnds);
             }
             finally { radio.PropertyChanged -= h; Set(x.B, "theRadio", null); }
         }
@@ -416,9 +421,10 @@ namespace Radios.Tests
             Assert.True((bool)Get(x.B, "_txTryFallbackDue")!);
             Assert.Null(Get(x.B, "_txOpenJob"));
             Assert.True((bool)Get(x.B, "_micRestartPending")!); // tier 1 as before
-            var stray = new Fake(); x.B.TxCaptureOpenForTest = _ => stray;
-            jobs[0]();                                           // the abandoned open returns: closed, not used
-            Assert.Equal(1, stray.Closes);
+            var stray = new Fake(); int strayOpens = 0; x.B.TxCaptureOpenForTest = _ => { strayOpens++; return stray; };
+            jobs[0]();                                           // join repair 3: the abandoned job begins no open at all
+            Assert.Equal(0, strayOpens);
+            Assert.Null(Get(x.B, "_txOpenJob"));
         }
 
         [Fact]
@@ -510,10 +516,13 @@ namespace Radios.Tests
             using var oldWake = new RemoteAudioWake(); using var newWake = new RemoteAudioWake();
             Set(x.B, "_remoteAudioWake", oldWake);
             var jobs = new List<Action>(); x.B.TxCaptureWorkerForTest = a => jobs.Add(a);
-            var fresh = new Fake(); x.B.TxCaptureOpenForTest = _ => fresh;
+            var fresh = new Fake();
+            // Join repair 3: a job whose run has already ended begins no open
+            // (TxJoinRepairThreeTests); so here the new run takes the loop WHILE
+            // the old run's open is in progress, and the open completes.
+            x.B.TxCaptureOpenForTest = _ => { Set(x.B, "_remoteAudioWake", newWake); return fresh; };
             Call(x.B, "RecoverMicStream"); dead.Result = false; Start(x); // a re-open, asked by the old run
-            Set(x.B, "_remoteAudioWake", newWake);                       // a new run now owns the loop
-            jobs[0]();
+            jobs[0]();                                                   // a new run took the loop as it opened
             Start(x);
             foreach (var close in jobs.Skip(1).ToList()) close();        // its close, off the loop
             var channel = (FlexBase.audioChannelData)Get(x.B, "opusInputChannel")!;
@@ -567,8 +576,10 @@ namespace Radios.Tests
             string text = FlexBasePartials.JoinedText();
             int at = text.IndexOf("private void noteRadioMox(bool mox)", StringComparison.Ordinal);
             string body = text.Substring(at, text.IndexOf("raiseTransmitChange(_Transmit);", at, StringComparison.Ordinal) - at);
-            Assert.Contains("if (mox != oldTransmit) NoteTxMoxEdge(mox);", body);
-            Assert.Contains("if (!mox) NoteRadioUnkeyedForHold(\"its Mox off\");", body);
+            // Join repair 3: the edge is read against our own key request, and a
+            // stale receive report does not end the hold.
+            Assert.Contains("bool staleReceive = mox != oldTransmit && NoteTxMoxEdge(mox);", body);
+            Assert.Contains("if (!mox && !staleReceive) NoteRadioUnkeyedForHold(\"its Mox off\");", body);
             Assert.Contains("SignalRemoteAudioWake();", body);
         }
 
