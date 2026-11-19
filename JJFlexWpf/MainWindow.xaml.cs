@@ -2252,16 +2252,30 @@ public partial class MainWindow : UserControl
     /// What a memory recall from the Memories window asked the radio for
     /// (#1131): the frequency in hertz, the mode, and when. The landing after
     /// the window closes speaks these rather than the radio's pre-answer state.
+    /// Choice is the recall's identity: the mode choice its own request counted
+    /// (<see cref="ModeChoices"/>), so a later choice of any kind supersedes it.
     /// </summary>
-    private (ulong FrequencyHz, string Mode, long At)? _recallAskedFor;
+    private (ulong FrequencyHz, string Mode, long At, int Choice)? _recallAskedFor;
+
+    /// <summary>
+    /// How long a recall counts as the radio's pending answer: the landing uses
+    /// its values only inside it, and its status allows the radio's separate
+    /// frequency and mode reports on the way there only inside it (Sprint 49
+    /// Track N2 repair 1).
+    /// </summary>
+    private const long RecallAskLifetimeMs = 5000;
 
     /// <summary>The recall's asked-for values, once, and only for a recall made in the last few seconds; otherwise null.</summary>
-    private (ulong FrequencyHz, string Mode)? TakeRecallAskedFor()
+    private Radios.StatusAsk? TakeRecallAskedFor()
     {
         var asked = _recallAskedFor;
         _recallAskedFor = null;
-        if (asked is not { } a || Environment.TickCount64 - a.At > 5000) return null;
-        return (a.FrequencyHz, a.Mode);
+        if (asked is not { } a || Environment.TickCount64 - a.At > RecallAskLifetimeMs) return null;
+        // Still pending while inside its lifetime and still the latest mode
+        // choice: another recall, a mode key or a band jump after it is a new
+        // request, and the radio's answer to that is not this recall's.
+        return new Radios.StatusAsk(a.FrequencyHz, a.Mode,
+            () => Environment.TickCount64 - a.At <= RecallAskLifetimeMs && ModeChoices == a.Choice);
     }
 
     /// <summary>
@@ -2346,14 +2360,15 @@ public partial class MainWindow : UserControl
             // While slices are absent the connect flow owns the narration;
             // once they exist, this is real information about where the
             // operator returned to.
-            string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig, asked?.FrequencyHz, asked?.Mode);
             // Queued as before, and carrying its own answer to "is this still
             // where the radio is": a copy cut before it was heard is dropped
             // rather than salvaged once the radio has moved (Sprint 49 Track N2;
             // the integration walk heard "Listening on 10.125 megahertz, 30
-            // meter band" 2.5 s after a band change to 20 meters).
-            Radios.ScreenReaderOutput.Speak(status, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Chatty,
-                stillValid: Radios.RadioStatusBuilder.StillDescribes(rig, asked?.FrequencyHz, asked?.Mode));
+            // meter band" 2.5 s after a band change to 20 meters). The text and
+            // its answer come from one reading of the radio (repair 1).
+            var status = Radios.RadioStatusBuilder.CaptureSpokenStatus(rig, asked);
+            Radios.ScreenReaderOutput.Speak(status.Text, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Chatty,
+                stillValid: status.StillValid);
         }
         else if (rig == null)
         {
@@ -6177,9 +6192,12 @@ public partial class MainWindow : UserControl
             {
                 // The landing after this window closes says what was asked for,
                 // not what the radio reports before it has answered (#1131).
-                _recallAskedFor = ((ulong)Math.Round(mem.Freq * 1e6), mem.Mode ?? "", Environment.TickCount64);
+                _recallAskedFor = ((ulong)Math.Round(mem.Freq * 1e6), mem.Mode ?? "", Environment.TickCount64, -1);
                 // A memory carries its mode: a mode request like any other (#1117).
                 AskRadioForMode(() => mem.Select());
+                // Its identity is the mode choice that request just counted (Sprint 49 Track N2 repair 1).
+                if (_recallAskedFor is { } recorded)
+                    _recallAskedFor = (recorded.FrequencyHz, recorded.Mode, recorded.At, ModeChoices);
             }
         };
 

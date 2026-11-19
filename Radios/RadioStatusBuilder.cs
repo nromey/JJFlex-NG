@@ -97,6 +97,12 @@ namespace Radios
 
             var snap = BuildDetailedStatus(radio);
             ApplyAskedFor(snap, askedFrequencyHz, askedMode);
+            return SpokenText(snap);
+        }
+
+        /// <summary>The concise spoken status, from one reading and nothing else.</summary>
+        internal static string SpokenText(RadioStatusSnapshot snap)
+        {
             if (!snap.IsConnected)
                 return "No radio connected";
 
@@ -109,8 +115,9 @@ namespace Radios
                 // to the operator by the post-dialog status path (#348).
                 // MyNumSlices > 0 is the same test SpeakConnectStatus applies
                 // before trusting slice facts; until it passes, say only what
-                // is known: the connection itself.
-                return radio.MyNumSlices > 0
+                // is known: the connection itself. Read into the snapshot with
+                // everything else (Sprint 49 Track N2 repair 1).
+                return snap.SliceCount > 0
                     ? $"Connected to {snap.RadioModel}, no active slice"
                     : $"Connected to {snap.RadioModel}";
             }
@@ -143,6 +150,7 @@ namespace Radios
             snap.IsRemote = radio.RemoteRig;
             snap.IsTransmitting = radio.Transmit;
             snap.HasActiveSlice = radio.HasActiveSlice;
+            snap.SliceCount = radio.MyNumSlices;
 
             if (!snap.HasActiveSlice)
                 return snap;
@@ -185,27 +193,86 @@ namespace Radios
         }
 
         /// <summary>
-        /// The producer's answer for a spoken status, for the speech arbiter to
-        /// ask before replaying an unheard copy (Sprint 49 Track N2): true while
-        /// the radio still reports what the sentence says, or still reports what
-        /// it reported when the sentence was built (a memory recall the radio has
-        /// not answered yet, whose sentence names the asked-for frequency).
-        /// False once the radio has moved anywhere else, so "Listening on 10.125
-        /// megahertz, 30 meter band" is not replayed after a band change to 20
-        /// meters. The signal reading is not part of the claim.
+        /// A spoken status and its own answer to "is this still where the
+        /// radio is", for the speech arbiter to ask before replaying an unheard
+        /// copy (Sprint 49 Track N2). The text and the answer come from ONE
+        /// reading of the radio (repair 1, Codex's F1): building the text and
+        /// then reading the radio again for its answer let a status report
+        /// arriving between the two certify a sentence it never described.
         /// </summary>
-        public static System.Func<bool> StillDescribes(FlexBase radio, ulong? askedFrequencyHz, string? askedMode)
+        /// <param name="ask">What a memory recall asked the radio for (#1131), or null: the text names it, and the answer allows the radio's way there.</param>
+        public static SpokenStatus CaptureSpokenStatus(FlexBase radio, StatusAsk? ask) =>
+            CaptureSpokenStatus(() => BuildDetailedStatus(radio), ask);
+
+        /// <summary>As above, reading the radio through <paramref name="read"/>: called once now, and once at every later question.</summary>
+        internal static SpokenStatus CaptureSpokenStatus(System.Func<RadioStatusSnapshot> read, StatusAsk? ask)
         {
-            var built = BuildDetailedStatus(radio);
-            string reported = StatedPart(built);
-            ApplyAskedFor(built, askedFrequencyHz, askedMode);
-            string said = StatedPart(built);
-            return () => StillDescribes(said, reported, StatedPart(BuildDetailedStatus(radio)));
+            var reported = read();
+            var said = reported.Copy();
+            ApplyAskedFor(said, ask?.FrequencyHz, ask?.Mode);
+            var claim = new StatusClaim(said, reported, ask?.StillPending);
+            return new SpokenStatus(SpokenText(said), () => claim.Holds(read()));
         }
 
-        /// <summary>The rule <see cref="StillDescribes(FlexBase, ulong?, string?)"/> applies, on the stated parts.</summary>
-        internal static bool StillDescribes(string said, string reportedWhenSaid, string now) =>
-            now == said || now == reportedWhenSaid;
+        /// <summary>
+        /// What one spoken status claims, and the rule for whether the radio
+        /// still bears it out. It holds while the radio reports what it says;
+        /// the signal reading is not part of the claim.
+        ///
+        /// A memory recall's sentence names the asked-for frequency and mode
+        /// before the radio has answered (#1131), and the radio answers them as
+        /// separate status reports, in either order. So while that recall is
+        /// still pending (inside its lifetime, and no later mode choice has
+        /// superseded it), each of those two parts may be either what was asked
+        /// or what the radio reported when the sentence was built; everything
+        /// else (receiving or transmitting, the slice, the connection) must be
+        /// as said. A part seen at its asked value never goes back to its old
+        /// one, and once the whole sentence has been seen true, or the recall
+        /// is no longer pending, only the sentence itself holds (repair 1,
+        /// Codex's F2).
+        /// </summary>
+        internal sealed class StatusClaim
+        {
+            private readonly object _gate = new();
+            private readonly string _said;
+            private readonly RadioStatusSnapshot _saidSnap, _before;
+            private System.Func<bool>? _pending;
+            private bool _frequencyArrived, _modeArrived;
+
+            internal StatusClaim(RadioStatusSnapshot said, RadioStatusSnapshot reportedWhenSaid, System.Func<bool>? askPending)
+            {
+                _saidSnap = said;
+                _before = reportedWhenSaid;
+                _said = StatedPart(said);
+                // A sentence naming nothing the radio had not already reported has no recall to wait for.
+                _pending = _said == StatedPart(reportedWhenSaid) ? null : askPending;
+            }
+
+            internal bool Holds(RadioStatusSnapshot now)
+            {
+                lock (_gate)
+                {
+                    if (StatedPart(now) == _said) { _pending = null; return true; }
+                    if (_pending == null) return false;
+                    if (!_pending()) { _pending = null; return false; }
+                    if (RestOf(now) != RestOf(_saidSnap)) return false;
+                    bool frequencyAsked = FrequencyOf(now) == FrequencyOf(_saidSnap);
+                    bool modeAsked = now.Mode == _saidSnap.Mode;
+                    _frequencyArrived |= frequencyAsked;
+                    _modeArrived |= modeAsked;
+                    bool frequencyOk = frequencyAsked || (!_frequencyArrived && FrequencyOf(now) == FrequencyOf(_before));
+                    bool modeOk = modeAsked || (!_modeArrived && now.Mode == _before.Mode);
+                    return frequencyOk && modeOk;
+                }
+            }
+
+            /// <summary>The frequency and the band it puts the slice in: a recall changes them together.</summary>
+            private static string FrequencyOf(RadioStatusSnapshot s) => s.FrequencySpoken + "|" + s.BandSpoken;
+
+            /// <summary>Everything a recall does not change.</summary>
+            private static string RestOf(RadioStatusSnapshot s) =>
+                string.Join("|", s.IsConnected, s.HasActiveSlice, s.IsTransmitting, s.SliceLetter, s.RadioModel);
+        }
 
         /// <summary>
         /// What a spoken status states, as one comparable value: receiving or

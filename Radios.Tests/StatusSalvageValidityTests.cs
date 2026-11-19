@@ -132,24 +132,146 @@ namespace Radios.Tests
             Assert.NotEqual(RadioStatusBuilder.StatedPart(a), RadioStatusBuilder.StatedPart(keyed));
         }
 
-        [Fact]
-        public void A_status_holds_while_the_radio_reports_what_it_said_or_has_not_yet_answered_what_was_asked()
+        /// <summary>A radio read through a test: each read returns <see cref="Now"/>'s copy and is counted.</summary>
+        private sealed class Reading
         {
-            string said30 = RadioStatusBuilder.StatedPart(At("10.125 megahertz", "30 meter"));
-            string at20 = RadioStatusBuilder.StatedPart(At("14.100 megahertz", "20 meter"));
-            // The walk: said 30 meters, the radio moved to 20.
-            Assert.True(RadioStatusBuilder.StillDescribes(said30, said30, said30));
-            Assert.False(RadioStatusBuilder.StillDescribes(said30, said30, at20));
+            public RadioStatusSnapshot Now;
+            public int Reads;
+            public Reading(RadioStatusSnapshot now) => Now = now;
+            public RadioStatusSnapshot Read() { Reads++; return Now.Copy(); }
+        }
 
-            // A recall (#1131): the sentence names the asked-for 40 meter CW
-            // memory while the radio still reports 20 meters USB. True before the
-            // radio answers, true after it lands there, false if it went elsewhere.
-            var asked = At("14.100 megahertz", "20 meter");
-            RadioStatusBuilder.ApplyAskedFor(asked, 7_030_000, "CW");
-            string saidRecall = RadioStatusBuilder.StatedPart(asked);
-            Assert.True(RadioStatusBuilder.StillDescribes(saidRecall, at20, at20));
-            Assert.True(RadioStatusBuilder.StillDescribes(saidRecall, at20, saidRecall));
-            Assert.False(RadioStatusBuilder.StillDescribes(saidRecall, at20, said30));
+        /// <summary>A snapshot from hertz, as BuildDetailedStatus would make it.</summary>
+        private static RadioStatusSnapshot AtHz(ulong hz, string mode, string slice = "A")
+        {
+            var s = At(RadioStatusBuilder.FrequencyToSpoken(hz), "", mode);
+            s.SliceLetter = slice;
+            s.SliceCount = 1;
+            RadioStatusBuilder.ApplyAskedFor(s, hz, null);
+            return s;
+        }
+
+        [Fact]
+        public void The_text_and_its_answer_come_from_one_reading()
+        {
+            // Codex's F1, made deterministic: the radio reads 10.125 when the
+            // status is captured and 14.100 at every read after. One capture
+            // must not certify 14.100 for a sentence saying 10.125.
+            int calls = 0;
+            RadioStatusSnapshot Read() => ++calls == 1 ? AtHz(10_125_000, "USB") : AtHz(14_100_000, "USB");
+            var status = RadioStatusBuilder.CaptureSpokenStatus(Read, null);
+            Assert.Equal(1, calls);
+            Assert.Contains("10.125 megahertz", status.Text);
+            Assert.False(status.StillValid());
+        }
+
+        [Fact]
+        public void A_status_holds_while_the_radio_reports_what_it_said()
+        {
+            // The walk: said 30 meters, the radio moved to 20. And the positive
+            // control: unchanged, read again at every question.
+            var radio = new Reading(AtHz(10_125_000, "USB"));
+            var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, null);
+            Assert.Equal("Listening on 10.125 megahertz, USB, 30 meter band, slice A", status.Text);
+            Assert.True(status.StillValid());
+            radio.Now.SignalDisplay = "S9";
+            Assert.True(status.StillValid());
+            Assert.Equal(3, radio.Reads);
+            radio.Now = AtHz(14_100_000, "USB");
+            Assert.False(status.StillValid());
+            // A status naming nothing it was not already reported has no recall to wait for.
+            radio.Now = AtHz(10_125_000, "USB");
+            var same = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(10_125_000, "USB", () => throw new InvalidOperationException("never asked")));
+            radio.Now = AtHz(14_100_000, "USB");
+            Assert.False(same.StillValid());
+        }
+
+        [Fact]
+        public void A_recall_status_allows_each_of_its_two_answers_in_either_order_while_pending()
+        {
+            // #1131 with Codex's F2: 14.100 USB, a recall of 7.030 CW. The radio
+            // answers frequency and mode as separate reports.
+            foreach (bool frequencyFirst in new[] { true, false })
+            {
+                var radio = new Reading(AtHz(14_100_000, "USB"));
+                var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", () => true));
+                Assert.Equal("Listening on 7.030 megahertz, CW, 40 meter band, slice A", status.Text);
+                Assert.True(status.StillValid(), "before the radio answers");
+                radio.Now = frequencyFirst ? AtHz(7_030_000, "USB") : AtHz(14_100_000, "CW");
+                Assert.True(status.StillValid(), "half answered, frequency first: " + frequencyFirst);
+                radio.Now = AtHz(7_030_000, "CW");
+                Assert.True(status.StillValid(), "fully answered");
+            }
+        }
+
+        [Fact]
+        public void A_recall_status_refuses_what_the_recall_did_not_ask_for()
+        {
+            var ask = new StatusAsk(7_030_000, "CW", () => true);
+            RadioStatusSnapshot[] unrelated =
+            {
+                AtHz(10_125_000, "USB"),   // a frequency neither asked nor before
+                AtHz(7_030_000, "LSB"),    // a mode neither asked nor before
+                AtHz(14_100_000, "USB", "B"), // another slice
+            };
+            foreach (var now in unrelated)
+            {
+                var radio = new Reading(AtHz(14_100_000, "USB"));
+                var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, ask);
+                radio.Now = now;
+                Assert.False(status.StillValid(), RadioStatusBuilder.StatedPart(now));
+            }
+            var keyed = new Reading(AtHz(14_100_000, "USB"));
+            var whileListening = RadioStatusBuilder.CaptureSpokenStatus(keyed.Read, ask);
+            keyed.Now.IsTransmitting = true;
+            Assert.False(whileListening.StillValid(), "transmitting");
+        }
+
+        [Fact]
+        public void A_recall_part_that_has_arrived_never_goes_back()
+        {
+            // Frequency seen at the asked 7.030, then 14.100 again: that is a
+            // new change, not the recall's way there.
+            var radio = new Reading(AtHz(14_100_000, "USB"));
+            var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", () => true));
+            radio.Now = AtHz(7_030_000, "USB");
+            Assert.True(status.StillValid());
+            radio.Now = AtHz(14_100_000, "USB");
+            Assert.False(status.StillValid());
+
+            // Fully answered once, then back: only the sentence holds from then on.
+            var again = new Reading(AtHz(14_100_000, "USB"));
+            var full = RadioStatusBuilder.CaptureSpokenStatus(again.Read, new StatusAsk(7_030_000, "CW", () => true));
+            again.Now = AtHz(7_030_000, "CW");
+            Assert.True(full.StillValid());
+            again.Now = AtHz(7_030_000, "USB");
+            Assert.False(full.StillValid());
+        }
+
+        [Fact]
+        public void A_recall_no_longer_pending_allows_only_the_sentence()
+        {
+            // Superseded by a later mode choice, or past its lifetime.
+            bool pending = true;
+            var radio = new Reading(AtHz(14_100_000, "USB"));
+            var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", () => pending));
+            Assert.True(status.StillValid());
+            pending = false;
+            Assert.False(status.StillValid(), "the old state, for a recall no longer pending");
+            pending = true;
+            Assert.False(status.StillValid(), "once retired, it stays retired");
+            radio.Now = AtHz(7_030_000, "CW");
+            Assert.True(status.StillValid(), "the sentence itself still holds");
+        }
+
+        [Fact]
+        public void The_no_slice_wording_comes_from_the_same_reading()
+        {
+            var connecting = new RadioStatusSnapshot { IsConnected = true, RadioModel = "FLEX-6300", SliceCount = 0 };
+            Assert.Equal("Connected to FLEX-6300", RadioStatusBuilder.SpokenText(connecting));
+            connecting.SliceCount = 2;
+            Assert.Equal("Connected to FLEX-6300, no active slice", RadioStatusBuilder.SpokenText(connecting));
+            Assert.Equal("No radio connected", RadioStatusBuilder.SpokenText(new RadioStatusSnapshot()));
         }
 
         [Fact]
@@ -160,8 +282,9 @@ namespace Radios.Tests
             int landing = main.IndexOf("private void RunReturnToAppLanding(", StringComparison.Ordinal);
             Assert.True(landing >= 0);
             string land = main.Substring(landing, 7000);
-            Assert.Contains("Radios.ScreenReaderOutput.Speak(status, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Chatty,", land);
-            Assert.Contains("stillValid: Radios.RadioStatusBuilder.StillDescribes(rig, asked?.FrequencyHz, asked?.Mode)", land);
+            Assert.Contains("var status = Radios.RadioStatusBuilder.CaptureSpokenStatus(rig, asked);", land);
+            Assert.Contains("Radios.ScreenReaderOutput.Speak(status.Text, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Chatty,", land);
+            Assert.Contains("stillValid: status.StillValid);", land);
             string sro = Source("Radios", "ScreenReaderOutput.cs");
             Assert.Contains("_arbiter.EmitQueuedWhileTrue(message, intent, level, origin, subject, additive, stillValid);", sro);
             // Emit keeps its signature: tests reach it by reflection with a fixed argument count.

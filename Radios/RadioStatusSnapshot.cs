@@ -29,5 +29,16 @@ namespace Radios
 
         /// <summary>Signal display: "S7" when receiving, "100W" when transmitting</summary>
         public string SignalDisplay { get; set; } = "";
+
+        /// <summary>
+        /// This client's slices when the snapshot was read: whether the slice
+        /// census has arrived, which decides between "no active slice" and
+        /// saying only the connection (#348). Read with the rest, so a spoken
+        /// status built from the snapshot needs no second look at the radio.
+        /// </summary>
+        public int SliceCount { get; set; }
+
+        /// <summary>A copy, for a caller that changes one reading and keeps the other (Sprint 49 Track N2).</summary>
+        internal RadioStatusSnapshot Copy() => (RadioStatusSnapshot)MemberwiseClone();
     }
 }

@@ -62,7 +62,8 @@ namespace Radios.Tests
             int take = land.IndexOf("var asked = TakeRecallAskedFor();", StringComparison.Ordinal);
             int firstReturn = land.IndexOf("return;", StringComparison.Ordinal);
             Assert.True(take >= 0 && take < firstReturn, "taken before any guard can return");
-            Assert.Contains("BuildSpokenStatus(rig, asked?.FrequencyHz, asked?.Mode)", land);
+            // One capture builds the text and its replay answer (Sprint 49 Track N2 repair 1).
+            Assert.Contains("CaptureSpokenStatus(rig, asked)", land);
         }
 
         private static string Source(params string[] path)
