@@ -2724,6 +2724,8 @@ namespace Radios.Tests
                 "audio.audition.recording",
                 "audio.audition.recording_purpose",
                 "audio.audition.another_recording",
+                // Sprint 49 Track Q2 repair 2: a radio playback that would not stop keeps the take shut.
+                "audio.audition.not_quiet",
                 "audio.audition.unreadable",
                 "audio.audition.verdict.too_short",
                 "audio.audition.verdict.no_speech",

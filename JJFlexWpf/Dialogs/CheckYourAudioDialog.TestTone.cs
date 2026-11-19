@@ -576,7 +576,9 @@ public partial class CheckYourAudioDialog
     {
         var rig = _rig;
         bool shouldSound = rig != null && rig.TxToneEngaged && rig.Transmit
-            && _toneMonitorCheck?.IsChecked == true;
+            && _toneMonitorCheck?.IsChecked == true
+            // Never into an audition take: nothing of ours sounds while one records (repair 2).
+            && !AuditionRecording;
         if (shouldSound && !_toneMonitorSounding)
         {
             _toneMonitorProvider = EarconPlayer.StartTxToneMonitor(rig!.TxToneFrequency);

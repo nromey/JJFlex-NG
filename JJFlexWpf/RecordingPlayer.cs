@@ -379,7 +379,15 @@ public static class RecordingPlayer
     /// </summary>
     public static void StopWithoutSpeaking() => End(spokenReason: "");
 
-    private static void End(string spokenReason, bool confirmTone = false, EndOfFileSampleProvider? expected = null)
+    /// <summary>
+    /// Stop playback saying nothing at all, the limiter notice included,
+    /// because a microphone is about to open: anything queued now would be
+    /// recorded (Check your audio's audition, Sprint 49 Track Q2 repair 2).
+    /// </summary>
+    public static void StopForCapture() => End(spokenReason: "", sayLimited: false);
+
+    private static void End(string spokenReason, bool confirmTone = false, EndOfFileSampleProvider? expected = null,
+        bool sayLimited = true)
     {
         WaveStream? reader;
         EndOfFileSampleProvider? provider;
@@ -421,7 +429,7 @@ public static class RecordingPlayer
         if (confirmTone) EarconPlayer.ConfirmTone();
         if (!string.IsNullOrEmpty(spokenReason))
             ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
-        if (limited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
+        if (limited && sayLimited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
         if (expected != null) PlaybackCompleted?.Invoke(completedPath);
     }
 

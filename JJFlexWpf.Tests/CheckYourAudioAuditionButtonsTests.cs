@@ -68,6 +68,31 @@ public sealed class CheckYourAudioAuditionButtonsTests : IDisposable
     }
 
     [Fact]
+    public void ThePlayButtonsAndKeepGoFromThePressThatStartsATakeAndComeBackIfItIsCalledOff()
+    {
+        // Track Q2 repair 2: they used to go only when capture opened, so focus
+        // on one of them moved to Start inside the take and the screen reader
+        // said so into it. Now they go at the press, before the countdown, and
+        // nothing has to move once the microphone is open.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Run(() =>
+        {
+            var dialog = Dialog(AudioCheckListenMethods.Audition);
+            Put(dialog, "_audition", ReadyTake(new HalvingChain()));
+            Invoke(dialog, "SyncAuditionButtons");
+            Assert.Equal(new[] { "cleaned", "raw", "removed", "keep" }, Visible(dialog));   // positive control
+
+            Put(dialog, "_auditionStartPending", true);   // the press admitted a start; the count runs
+            Invoke(dialog, "SyncAuditionButtons");
+            Assert.Empty(Visible(dialog));
+
+            Put(dialog, "_auditionStartPending", false);  // the count was called off: the take is still there
+            Invoke(dialog, "SyncAuditionButtons");
+            Assert.Equal(new[] { "cleaned", "raw", "removed", "keep" }, Visible(dialog));
+        });
+    }
+
+    [Fact]
     public void WithAChainTheyComeCleanedFirstThenRawThenWhatWasRemovedThenKeep()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
@@ -128,6 +153,33 @@ public sealed class CheckYourAudioAuditionButtonsTests : IDisposable
             Select(dialog, AudioCheckListenMethods.ComputerMic);
             Invoke(dialog, "UpdateMicReading");
             Assert.NotEqual("a verdict", box.Text);
+        });
+    }
+
+    [Fact]
+    public void WithNoRadioTheAuditionsAboutLineIsItsOwnAndNotNoRadioConnected()
+    {
+        // Track Q2: the audition is offered with no radio (Noel 2026-11-19
+        // 12:23: "this auditions on PC noise reduction and transmit, no radio
+        // required"), so its line must not say a radio is missing. The dialog
+        // here has no radio: its constructor never ran, so _rig is null.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Run(() =>
+        {
+            var dialog = (CheckYourAudioDialog)RuntimeHelpers.GetUninitializedObject(typeof(CheckYourAudioDialog));
+            var offered = new List<AudioCheckListenMethods>(AudioCheckMethods.Offered(false, false, "no-radio", false));
+            var control = new CycleFieldControl();
+            control.Setup("Method", CheckYourAudioDialog.MethodNames(offered), offered.IndexOf(AudioCheckListenMethods.Audition));
+            Put(dialog, "_offered", offered);
+            Put(dialog, "_listenMethodControl", control);
+            var status = new TextBox();
+            Put(dialog, "_methodStatus", status);
+            Put(dialog, "_offAirStatus", "");
+            Assert.Null(Get(dialog, "_rig"));
+
+            Invoke(dialog, "UpdateMethodStatus");
+            Assert.Equal(AudioCheckMethods.About(AudioCheckListenMethods.Audition), status.Text);
+            Assert.NotEqual(Lexicon.Get("audio.no_radio_connected") + ".", status.Text);
         });
     }
 

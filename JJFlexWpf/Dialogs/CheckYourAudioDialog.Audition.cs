@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
@@ -65,8 +67,14 @@ public partial class CheckYourAudioDialog
     /// <summary>True while the audition is recording the microphone.</summary>
     internal bool AuditionRecording => _audition?.IsRecording == true;
 
+    /// <summary>
+    /// The take, marked at its start by the computer microphone check's own
+    /// start tone and settle (Track Q2): the same sound, and the same moment
+    /// after it that the check is listened to from.
+    /// </summary>
     private ChainAuditionTake Audition => _audition ??= new ChainAuditionTake(ChainAuditionFolder.DefaultPath,
-        new NarratorRecorder(), AuditionProcessorSource(), LoadAuditionTake);
+        new NarratorRecorder(), AuditionProcessorSource(), LoadAuditionTake,
+        startMarker: EarconPlayer.RecorderStartBeep, markerSettle: StartToneSettle);
 
     /// <summary>
     /// The audition's buttons, in the Results section, in the ruled order:
@@ -168,25 +176,108 @@ public partial class CheckYourAudioDialog
     /// get to the microphone. It takes the same start admission as every
     /// method, so Start, Ctrl+Enter and Escape during the count cancel it.
     /// </summary>
+    /// <remarks>
+    /// <b>Started the way the computer microphone check starts</b> (Track Q2,
+    /// Noel 2026-11-19 12:22): the microphone opens only once the countdown has
+    /// been said in full, it opens saying nothing, and the take is marked by
+    /// the check's start tone. Nothing is spoken while it records; the reading
+    /// box says it is recording, and it is not a live region.
+    /// </remarks>
     private async Task StartAuditionAsync()
     {
         using var start = _checkStarts.TryBegin();
         if (start == null) return;
+        // A render asked for before this press is void (repair 3): its click
+        // is still sounding, and it must not start playing over the count.
+        VoidAuditionPlaybackRequests();
         SetStartButtonLabel("Stop Audio Check");
+        // The play buttons and Keep go NOW, before the count (repair 2): they
+        // would go when capture opens, and focus on one of them would then move
+        // to Start inside the take, with the screen reader saying so. Moved
+        // here, the move and its announcement come before the countdown, whose
+        // gate waits for its own words. They come back if the start is called off.
+        _auditionStartPending = true;
+        SyncAuditionButtons();
         BeginStartCountdown(AudioCheckListenMethods.Audition);
         try
         {
-            if (!await CountdownLetsKeyAsync() || !start.IsCurrent || _closing) return;
-            // A render still playing is a file in the folder the new take empties.
-            StopAuditionPlayback();
-            if (Audition.Start(DateTime.Now)) ShowAuditionReading(Lexicon.Get("audio.audition.recording"));
+            bool opened = await Audition.StartAfterAsync(CountedThenRadioPlaysStoppedAsync,
+                stillWanted: () => start.IsCurrent && !_closing,
+                localNow: () => DateTime.Now,
+                // The last act before the microphone opens, in the same step as
+                // the open: everything of ours still sounding stops, saying nothing.
+                beforeOpening: QuietBeforeTake);
+            _auditionStartPending = false;
+            if (_closing) return;
+            if (opened) ShowAuditionReading(Lexicon.Get("audio.audition.recording"));
             SyncAuditionButtons();
         }
         finally
         {
+            _auditionStartPending = false;
             EndStartCountdown();
             if (!AuditionRecording) SetStartButtonLabel("Start Audio Check");
         }
+    }
+
+    /// <summary>True from the press that admits an audition start until its count ends: the take's buttons are hidden for it.</summary>
+    private bool _auditionStartPending;
+
+    /// <summary>
+    /// The countdown's gate, then the radio's playbacks this window started
+    /// (a Record yourself take playing on a slice) asked to stop, and waited
+    /// for, so the radio has stopped before the microphone opens. A stop the
+    /// radio refuses is said by the recorder controls, before anything opens.
+    /// </summary>
+    private async Task<bool> CountedThenRadioPlaysStoppedAsync()
+    {
+        if (!await CountdownLetsKeyAsync()) return false;
+        // A playback still waiting for the radio's answer is not on the list
+        // below yet (repair 4): wait for it, void, first.
+        await RadioPlayRequestsAnsweredAsync();
+        if (_rig is { } rig && _checkPlayTargets is { Count: > 0 })
+        {
+            foreach (var target in new List<SliceRecorderTarget>(_checkPlayTargets))
+            {
+                if (rig.IsSlicePlaying(target))
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
+                // Only a playback the radio has stopped leaves the list; one
+                // still playing keeps the take from opening.
+                if (!rig.IsSlicePlaying(target)) _checkPlayTargets.Remove(target);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The audition opens capture only when nothing of ours is sounding (Noel
+    /// 2026-11-19 12:22; repair 2). Run in the same synchronous step as the
+    /// open, so nothing can start between the two: every playback on this
+    /// computer stops (a render of the last take, an Off the air take, any
+    /// other), and the transmit tone's monitor, all saying nothing. A radio
+    /// playback that would not stop keeps the take shut, and says so: nothing
+    /// is recording yet, so that sentence cannot be in a take. So does a radio
+    /// playback request still waiting for the radio's answer (repair 4).
+    /// </summary>
+    private bool QuietBeforeTake()
+    {
+        // Every render request still waiting for its click is void (repair 3),
+        // so none starts, or refuses aloud, once the microphone is open.
+        VoidAuditionPlaybackRequests();
+        RecordingPlayer.StopForCapture();
+        if (_toneMonitorSounding)
+        {
+            // It stays off while the take records: SyncToneMonitor asks.
+            EarconPlayer.StopTxToneMonitor();
+            _toneMonitorSounding = false;
+            _toneMonitorProvider = null;
+        }
+        // A radio playback asked for after the gate waited, and still waiting
+        // for its answer, keeps the take shut as one playing does (repair 4).
+        if (!CheckPlaybackRunning && !RadioPlayRequested) return true;
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.audition.not_quiet"), Radios.Speech.SpeechIntent.Queue,
+            VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.ComputerRecorder);
+        return false;
     }
 
     /// <summary>
@@ -272,7 +363,34 @@ public partial class CheckYourAudioDialog
         }
         double seconds = (audition!.Result?.Render(render)?.Length ?? 0) / (double)Math.Max(1, audition.Result?.SampleRate ?? 1);
         string announcement = Lexicon.Get(PlayingKey(render), ("length", RecordingStore.DescribeLength(seconds)));
-        _ = ListenbackTakes.PlayAfterClickAsync(path, announcement, _rig, rig => !_closing && ReferenceEquals(rig, _rig));
+        _ = ListenbackTakes.PlayAfterClickAsync(path, announcement, _rig, AuditionPlaybackStillWanted());
+    }
+
+    /// <summary>
+    /// Counts the moments a render's playback request stops being wanted: a
+    /// take start admitted, and the microphone about to open (repair 3,
+    /// Codex's re-check of <c>f9b67186</c>). A request waits 240 ms for its
+    /// confirmation click before it plays, and stopping what is playing cannot
+    /// see one still waiting: Play then Start inside the click let it start,
+    /// or refuse with a sound and a sentence, after capture had opened. A radio
+    /// playback request (<see cref="PlayRadioTakeAsync"/>) reads the same count
+    /// from repair 4, and the gate also advances it while it waits for one.
+    /// </summary>
+    private int _auditionPlaybackGeneration;
+
+    /// <summary>Make every render request, and every radio playback request, made before now void.</summary>
+    private void VoidAuditionPlaybackRequests() => Interlocked.Increment(ref _auditionPlaybackGeneration);
+
+    /// <summary>
+    /// The question a render's playback asks after its click: still wanted
+    /// only if the window is open, the radio is the same, and no take start
+    /// has been admitted since the press.
+    /// </summary>
+    private Func<FlexBase?, bool> AuditionPlaybackStillWanted()
+    {
+        int asked = Volatile.Read(ref _auditionPlaybackGeneration);
+        return rig => !_closing && ReferenceEquals(rig, _rig)
+            && asked == Volatile.Read(ref _auditionPlaybackGeneration);
     }
 
     /// <summary>
@@ -301,10 +419,15 @@ public partial class CheckYourAudioDialog
         SyncAuditionButtons();
     }
 
-    /// <summary>Stop a render of ours that is playing, before its file goes.</summary>
+    /// <summary>
+    /// Stop a render of ours that is playing, before its file goes, saying
+    /// nothing. Used as the window closes, after its own playback has stopped.
+    /// A new take does not use this: <see cref="QuietBeforeTake"/> stops every
+    /// playback, not only a render of ours (repair 2).
+    /// </summary>
     private void StopAuditionPlayback()
     {
-        if (RecordingPlayer.IsPlaying && InAuditionFolder(RecordingPlayer.CurrentPath)) RecordingPlayer.Stop();
+        if (RecordingPlayer.IsPlaying && InAuditionFolder(RecordingPlayer.CurrentPath)) RecordingPlayer.StopWithoutSpeaking();
     }
 
     /// <summary>
@@ -334,7 +457,10 @@ public partial class CheckYourAudioDialog
     {
         if (_auditionCleanedButton == null) return;
         var audition = _audition;
-        bool shown = SelectedMethod == AudioCheckListenMethods.Audition && audition?.State == AuditionTakeState.Ready;
+        // Hidden from the press that starts a take (repair 2), so no focus
+        // has to move once capture opens.
+        bool shown = !_auditionStartPending
+            && SelectedMethod == AudioCheckListenMethods.Audition && audition?.State == AuditionTakeState.Ready;
         bool focusLost = false;
         foreach (var render in ChainAudition.PlayOrder)
         {
@@ -352,7 +478,8 @@ public partial class CheckYourAudioDialog
         bool keep = shown && !audition!.Kept;
         if (!keep && _auditionKeepButton!.IsKeyboardFocusWithin) focusLost = true;
         _auditionKeepButton!.Visibility = keep ? Visibility.Visible : Visibility.Collapsed;
-        if (focusLost) _startCheckButton?.Focus();
+        // Never during a take: the screen reader would announce the move into it.
+        if (focusLost && !AuditionRecording) _startCheckButton?.Focus();
         SyncResultsSection();
     }
 
@@ -383,7 +510,12 @@ public partial class CheckYourAudioDialog
 
     // ── The recorder and the loader the take is handed ───────────────────
 
-    /// <summary>The take's recorder: <see cref="RecordingNarrator"/>, which announces every start and stop itself.</summary>
+    /// <summary>
+    /// The take's recorder: <see cref="RecordingNarrator"/>, still the one place
+    /// a recording starts or stops, in its check form: it opens saying nothing
+    /// (the countdown before it and the start tone after it are the
+    /// announcement), refuses aloud as ever, and says the stop as ever.
+    /// </summary>
     private sealed class NarratorRecorder : IAuditionRecorder
     {
         public bool IsRunning => RecordingNarrator.IsRunning;
@@ -391,11 +523,7 @@ public partial class CheckYourAudioDialog
         public bool IsRecordingTo(string path) =>
             RecordingNarrator.IsRunning && SamePath(RecordingNarrator.CurrentPath, path);
 
-        public bool Start(string path)
-        {
-            RecordingNarrator.Start(Lexicon.Get("audio.audition.recording_purpose"), path);
-            return IsRecordingTo(path);
-        }
+        public bool Start(string path) => RecordingNarrator.StartForCheck(path) && IsRecordingTo(path);
 
         public void Stop() => RecordingNarrator.Stop();
     }

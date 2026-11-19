@@ -36,7 +36,7 @@ public sealed class CheckYourAudioComputerMicStateTests
     private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
 
     [Fact]
-    public void ADisconnectWhileTheComputerCheckListensLeavesOnlyThatMethodOfferedAndKeepsListening()
+    public void ADisconnectWhileTheComputerCheckListensLeavesOnlyTheNoRadioMethodsOfferedAndKeepsListening()
     {
         Run(() =>
         {
@@ -48,10 +48,12 @@ public sealed class CheckYourAudioComputerMicStateTests
             // The radio goes: SetRig(null) left _rig null and asked for the offer again.
             Invoke(dialog, "RefreshOfferedMethods");
 
+            // With no radio: this computer's microphone and the audition (Noel
+            // 2026-11-19 12:23: the audition needs no radio).
             var offered = (List<AudioCheckListenMethods>)Get(dialog, "_offered")!;
-            Assert.Equal(new[] { AudioCheckListenMethods.ComputerMic }, offered);
+            Assert.Equal(new[] { AudioCheckListenMethods.ComputerMic, AudioCheckListenMethods.Audition }, offered);
             var control = (CycleFieldControl)Get(dialog, "_listenMethodControl")!;
-            Assert.Equal(1, control.Options.Length);
+            Assert.Equal(2, control.Options.Length);
             Assert.Equal(0, control.SelectedIndex);
             // And it is still listening: a disconnect is not the operator stopping it.
             Assert.Same(probe, Get(dialog, "_computerMicProbe"));

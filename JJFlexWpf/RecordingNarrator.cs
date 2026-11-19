@@ -130,6 +130,57 @@ public static class RecordingNarrator
             ? Lexicon.Get("audio.recording.default_purpose")
             : purpose.Trim();
 
+        if (!Open(path, quiet: false)) return;
+
+        EarconPlayer.ConfirmTone();
+        Speak(Lexicon.Get("audio.recording.started", ("purpose", _purpose)), interrupt: true);
+    }
+
+    /// <summary>
+    /// Begin a recording for a Check your audio method, which has ALREADY
+    /// announced it: its countdown has been said in full before this is
+    /// called, and the caller sounds the check's start tone the moment this
+    /// returns (Sprint 49 Track Q2, Noel 2026-11-19 12:22: <i>"start recording
+    /// after speech is done, start it with a beep or count it down like we've
+    /// done in all the other stuff"</i>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Nothing is spoken while this records.</b> The take is the operator's
+    /// voice, and on speakers the microphone hears the screen reader: a
+    /// sentence said as capture opens, or the elapsed time said half a minute
+    /// in, would be in the take. So there is no start sentence and no confirm
+    /// tone here (the check's countdown and its start tone are the
+    /// announcement, as for the computer microphone check), and neither the
+    /// elapsed time nor the length-cap warning is spoken while it runs. The
+    /// window it is started from shows that it is recording and stops it on
+    /// Start, Ctrl+Enter or Escape, so it cannot run on unnoticed.
+    /// </para>
+    /// <para>
+    /// <b>Everything else is <see cref="Start"/>'s, unchanged:</b> the same
+    /// refusals, said aloud (no capture has opened, so they cannot be in a
+    /// take), and the same stop, with its tone and its sentence, said once the
+    /// file is closed. The record key's recording is untouched by this.
+    /// </para>
+    /// </remarks>
+    /// <param name="path">Where to write it.</param>
+    /// <returns>True when the microphone is open and recording to <paramref name="path"/>.</returns>
+    public static bool StartForCheck(string path)
+    {
+        if (IsRunning || string.IsNullOrWhiteSpace(path)) return false;
+        _purpose = "";
+        return Open(path, quiet: true);
+    }
+
+    /// <summary>True while the recording in flight was started for a check, so nothing is spoken until it stops.</summary>
+    private static bool _quiet;
+
+    /// <summary>
+    /// Resolve the microphone, refuse aloud if it cannot record, and open the
+    /// recorder. Says nothing on success; the caller announces.
+    /// </summary>
+    private static bool Open(string? path, bool quiet)
+    {
         // The microphone the operator already chose. Asking again here would
         // be a second place to configure the same thing, and the two would
         // drift apart the first time somebody changed one of them.
@@ -137,7 +188,7 @@ public static class RecordingNarrator
         if (device == null)
         {
             Refuse(trouble);
-            return;
+            return false;
         }
 
         // Windows can be handing desktop applications silence while its own
@@ -148,7 +199,7 @@ public static class RecordingNarrator
         if (MicrophonePrivacy.IsBlocked(access))
         {
             Refuse(privacyExplanation);
-            return;
+            return false;
         }
 
         _startedLocal = DateTime.Now;
@@ -164,7 +215,7 @@ public static class RecordingNarrator
         {
             Trace.WriteLine($"RecordingNarrator: cannot create the recordings folder: {ex.Message}");
             Refuse(Lexicon.Get("audio.recording.folder_not_created", ("reason", ex.Message)));
-            return;
+            return false;
         }
 
         var recorder = new MicRecorder();
@@ -173,10 +224,11 @@ public static class RecordingNarrator
         {
             recorder.Dispose();
             Refuse(failure);
-            return;
+            return false;
         }
 
         _recorder = recorder;
+        _quiet = quiet;
         _lastSpokenInterval = 0;
         _capWarned = false;
 
@@ -184,9 +236,7 @@ public static class RecordingNarrator
         _timer.Tick += OnTick;
         _timer.Start();
         StateChanged?.Invoke();
-
-        EarconPlayer.ConfirmTone();
-        Speak(Lexicon.Get("audio.recording.started", ("purpose", _purpose)), interrupt: true);
+        return true;
     }
 
     /// <summary>
@@ -205,6 +255,7 @@ public static class RecordingNarrator
         string fault = recorder.FaultMessage;
         recorder.Dispose();
         _recorder = null;
+        _quiet = false;
         StateChanged?.Invoke();
 
         if (reason == MicRecorder.StopReason.Faulted)
@@ -305,6 +356,9 @@ public static class RecordingNarrator
             Stop();
             return;
         }
+
+        // A check's recording speaks nothing while it runs: it would be in the take.
+        if (_quiet) return;
 
         double seconds = recorder.Seconds;
 
