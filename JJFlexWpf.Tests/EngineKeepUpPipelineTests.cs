@@ -311,11 +311,14 @@ public sealed class EngineKeepUpPipelineTests
     }
 
     /// <summary>A helper channel for the real meter, open and answered once at this figure.</summary>
-    private static WdspChannel AnsweredChannel(long nanos)
+    private static WdspChannel AnsweredChannel(long nanos) => AnsweredChannel(nanos, Stopwatch.GetTimestamp());
+
+    /// <summary>The same, answered at a given time, for a test that drives the meter's clock itself.</summary>
+    private static WdspChannel AnsweredChannel(long nanos, long at)
     {
         // The constructor only stores the engine and the connection; the meter reads neither.
         var ch = new WdspChannel(null!, null!, 1, 2, Array.Empty<int>(), offline: false) { Opened = true };
-        ch.RecordAnswer(nanos, Stopwatch.GetTimestamp());
+        ch.RecordAnswer(nanos, at);
         return ch;
     }
 
@@ -503,6 +506,92 @@ public sealed class EngineKeepUpPipelineTests
         Assert.True(rig.Has("fakehelper", EngineKeepUpChange.FellBehind), "the same measured work did not reach the same fall");
     }
 
+    /// <summary>
+    /// Repair 4, adopted from Codex's third re-check (2026-11-19,
+    /// <c>CodexTrackLRecheck3Tests.Retained_work_reaches_recovery_after_the_other_channel_expires</c>):
+    /// every frame the meter forwards reaches the rule, however many arrive at
+    /// once. Settled on fast stereo answers; then 800 buffers where the left
+    /// answers twice and the right once, every answer 6 ms, so the stereo rule
+    /// falls behind and the left keeps 800 surplus answers. The right stops; once
+    /// its second of freshness has passed, the left answers once, and the meter
+    /// forwards all 801 left answers at 6 ms, which is keeping up. Repair 3's
+    /// pipeline judged 100 of them and discarded 701, so with no answers after
+    /// it the engine stayed behind. The positive control feeds the same rule the
+    /// omitted 701 by hand; after the fix the pipeline gets there by itself and
+    /// the control changes nothing.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_batch_of_retained_answers_larger_than_the_window_all_reach_the_rule_and_it_recovers(bool feedTheOmittedByHand)
+    {
+        using var rig = new Rig();
+        long time = Stopwatch.GetTimestamp();
+        var a = AnsweredChannel(1_000_000, time);
+        var b = AnsweredChannel(1_000_000, time);
+        var channels = new[] { a, b };
+        rig.Pipeline.HelperService = (_, meter, _) => meter.Read(channels, time);
+        rig.BeforeBuffer = () => { a.RecordAnswer(1_700_000, time); b.RecordAnswer(1_700_000, time); };
+        rig.Choose("fakehelper"); rig.UntilRunning("fakehelper");
+        Assert.True(rig.PumpUntil("fakehelper", EngineKeepUpChange.KeepingUp, 300));
+        rig.BeforeBuffer = null;
+        for (int i = 0; i < 800; i++)
+        {
+            time += Stopwatch.Frequency / 100;
+            a.RecordAnswer(6_000_000, time); a.RecordAnswer(6_000_000, time); b.RecordAnswer(6_000_000, time);
+            rig.Pump();
+        }
+        var rule = rig.Pipeline.KeepUpRuleFor(DenoiseFamily.Neural);
+        Assert.True(rule.Behind, "the 12 ms stereo frames never fell behind, so the recovery below proves nothing");
+        time += Stopwatch.Frequency + 1;
+        a.RecordAnswer(6_000_000, time);
+        rig.Pump();      // B has expired: the meter forwards 801 fast mono frames.
+        rig.Pump(10);    // No new answers: nothing more to judge.
+        _out.WriteLine($"801 retained mono frames at 6 ms: behind={rule.Behind}, late={rule.LateInWindow}, filled={rule.Filled}");
+        if (feedTheOmittedByHand)
+        {
+            // Codex's positive control: the same rule given the 701 a window-sized pipeline omitted.
+            for (int i = 0; i < 701; i++) rule.Observe(false);
+            _out.WriteLine($"after 701 more fast frames by hand: behind={rule.Behind}");
+        }
+        Assert.False(rule.Behind, "the meter forwarded 801 answers but they did not all reach the rule");
+    }
+
+    /// <summary>
+    /// Repair 4, the warm-up path Codex named beside it: a helper engine whose
+    /// warm-up is reported as one batch of 301 slow frames (12 ms each) has
+    /// spent more than the stuck mark warming slowly, and warns. Repair 3 judged
+    /// 100 of them and, with no answers after, never did. The positive control
+    /// is the same 301 slow frames one per buffer.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_warm_up_reported_in_one_large_batch_of_slow_frames_warns_like_one_reported_frame_by_frame(bool oneAtATime)
+    {
+        using var rig = new Rig();
+        var ch = AnsweredChannel(Rig.FastService);
+        var channels = new[] { ch };
+        rig.Pipeline.HelperService = (_, meter, now) => meter.Read(channels, now);
+        rig.Choose("stuckhelper");
+        rig.UntilDelivered("stuckhelper");
+        rig.Pump(5);
+        int slow = EngineKeepUpRule.DefaultStuckWarmup + 1;
+        if (oneAtATime)
+        {
+            for (int i = 0; i < slow; i++) { ch.RecordAnswer(Rig.SlowService, Stopwatch.GetTimestamp()); rig.Pump(); }
+        }
+        else
+        {
+            long n = Stopwatch.GetTimestamp();
+            for (int i = 0; i < slow; i++) ch.RecordAnswer(Rig.SlowService, n);
+            rig.Pump();
+        }
+        rig.Pump(10);
+        Thread.Sleep(100);
+        Assert.True(rig.Has("stuckhelper", EngineKeepUpChange.FellBehind), $"{slow} slow warm-up frames did not all reach the rule");
+    }
+
     [Fact]
     public void An_engine_switch_is_not_counted_and_the_new_engine_starts_its_own_count()
     {
@@ -569,7 +658,16 @@ public sealed class EngineKeepUpPipelineTests
             Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio);
         }
         long staggered = GC.GetAllocatedBytesForCurrentThread() - before;
-        _out.WriteLine($"Managed bytes on the audio thread: {steady} over 300 buffers keeping up, {delivery} over 100 buffers of late answers, {falling} over 100 buffers falling behind, {metered} over 100 buffers read by the real meter over four channels, {stalled} over 100 with no new answers, {staggered} over 100 with the channels answering unequally.");
+        // Repair 4: batches far larger than the window, every frame judged.
+        before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10; i++)
+        {
+            long n = Stopwatch.GetTimestamp();
+            foreach (var c in channels) for (int k = 0; k < 500; k++) c.RecordAnswer(i % 2 == 0 ? Rig.SlowService : Rig.FastService, n);
+            Array.Fill(audio, 0.1f); rig.Pipeline.Process(audio);
+        }
+        long batched = GC.GetAllocatedBytesForCurrentThread() - before;
+        _out.WriteLine($"Managed bytes on the audio thread: {steady} over 300 buffers keeping up, {delivery} over 100 buffers of late answers, {falling} over 100 buffers falling behind, {metered} over 100 buffers read by the real meter over four channels, {stalled} over 100 with no new answers, {staggered} over 100 with the channels answering unequally, {batched} over 10 buffers each judging a batch of 500 frames.");
         Assert.Equal(0, steady);
         Assert.Equal(0, delivery);
         Assert.Equal(0, falling);

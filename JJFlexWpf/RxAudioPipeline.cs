@@ -434,15 +434,11 @@ namespace JJFlexWpf
                         _helper = true;
                         var service = _owner.HelperService(slot.RunningBank, Meter, now);
                         // Each frame of new work is one warm-up buffer judged; no new answers, none (repair 2).
+                        // Every frame the meter forwarded is judged, however many (repair 4): the meter has
+                        // already moved past them, so a frame not judged now is never judged.
                         bool late = HelperServiceTime.Late(service.PerFrameNanos);
-                        int frames = Math.Min(service.Frames, Rule.Window);
-                        change = Rule.Warming(chosen, false);
-                        for (int i = 0; i < frames; i++)
-                        {
-                            AverageHelper(service.PerFrameNanos);
-                            var c = Rule.Warming(chosen, late);
-                            if (c != EngineKeepUpChange.None) change = c;
-                        }
+                        AverageHelper(service.PerFrameNanos, service.Frames);
+                        change = Rule.Warming(chosen, late, service.Frames);
                         missed = Missed.Warming(chosen);
                     }
                     else { Rule.Gap(); Missed.Gap(); Meter.Forget(); _averageTicks = 0; }
@@ -471,15 +467,15 @@ namespace JJFlexWpf
                         // answer on every served channel judges nothing, so a
                         // stall in delivery cannot repeat one slow answer, and a
                         // burst after it counts each answer once.
+                        // Every frame the meter forwarded reaches the rule, however
+                        // many (repair 4, after Codex's third re-check): repair 3's
+                        // meter can forward hundreds at once when a channel leaves
+                        // the round, and judging only a window of them lost the
+                        // rest. The rule's batch form is exact and bounded in time.
                         var service = _owner.HelperService(bank, Meter, now);
                         bool late = HelperServiceTime.Late(service.PerFrameNanos);
-                        int frames = Math.Min(service.Frames, Rule.Window);
-                        for (int i = 0; i < frames; i++)
-                        {
-                            AverageHelper(service.PerFrameNanos);
-                            var c = Rule.Observe(late);
-                            if (c != EngineKeepUpChange.None) change = c;
-                        }
+                        AverageHelper(service.PerFrameNanos, service.Frames);
+                        change = Rule.Observe(late, service.Frames);
                         missed = Missed.Observe(bank.LateFrames != lateBefore);
                     }
                     else
@@ -503,8 +499,20 @@ namespace JJFlexWpf
                 }
             }
 
-            private void AverageHelper(long serviceNanos) =>
-                Average(serviceNanos <= 0 ? 0 : serviceNanos * HelperFrameTicks / HelperServiceTime.FrameNanos, HelperFrameTicks);
+            /// <summary>
+            /// <paramref name="frames"/> helper frames at one cost into the trace's
+            /// running average: exactly <see cref="Average"/> that many times, in
+            /// closed form (repair 4), so a large batch costs the audio thread nothing more.
+            /// </summary>
+            private void AverageHelper(long serviceNanos, int frames)
+            {
+                if (frames <= 0) return;
+                double sample = serviceNanos <= 0 ? 0 : serviceNanos * HelperFrameTicks / HelperServiceTime.FrameNanos;
+                _averageTicks = _averageTicks == 0
+                    ? sample
+                    : sample + (_averageTicks - sample) * Math.Pow(1 - 1.0 / Rule.Window, frames);
+                _bufferTicks = HelperFrameTicks;
+            }
 
             private void Average(double sampleTicks, double bufferTicks)
             {

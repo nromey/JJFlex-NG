@@ -146,6 +146,107 @@ public sealed class EngineKeepUpRuleTests
         Assert.Equal(2 * EngineKeepUpRule.DefaultStuckWarmup - 2, Array.IndexOf(mixed, EngineKeepUpChange.FellBehind));
     }
 
+    /// <summary>
+    /// Repair 4, after Codex's third re-check: a batch of buffers sharing one
+    /// lateness is exactly that many buffers fed one at a time. Random batches,
+    /// from none to several thousand, with gaps and restarts among them, on the
+    /// default rule and on a small one that settles quickly; after each batch the
+    /// returned change and every visible figure agree, and at the end both rules
+    /// are fed the same single buffers and must answer alike, which they cannot
+    /// if the batch left the ring's position or the recovery hold different.
+    /// </summary>
+    [Theory]
+    [InlineData("default")]
+    [InlineData("small")]
+    [InlineData("long grace")]
+    public void A_batch_of_buffers_is_exactly_that_many_buffers_one_at_a_time(string shape)
+    {
+        // "long grace" has a grace longer than the recovery hold, so a batch that
+        // starts in the grace needs the grace in its bound as well as the window.
+        EngineKeepUpRule Make() => shape switch
+        {
+            "small" => new EngineKeepUpRule(window: 10, fallAt: 4, recoverAt: 1, grace: 3, stuckWarmup: 7, recoverHold: 5),
+            "long grace" => new EngineKeepUpRule(window: 10, fallAt: 4, recoverAt: 1, grace: 40, stuckWarmup: 7, recoverHold: 2),
+            _ => new EngineKeepUpRule(),
+        };
+        var batch = Make();
+        var one = Make();
+        batch.Restart("nnr"); one.Restart("nnr");
+        var seen = new System.Collections.Generic.HashSet<EngineKeepUpChange>();
+        var random = new Random(4866);
+        for (int step = 0; step < 400; step++)
+        {
+            int kind = random.Next(20);
+            if (kind == 0) { batch.Gap(); one.Gap(); continue; }
+            if (kind == 1) { batch.Restart("nnr"); one.Restart("nnr"); continue; }
+            bool late = random.Next(3) == 0;
+            int count = random.Next(4) switch { 0 => 0, 1 => random.Next(1, 5), 2 => random.Next(5, 200), _ => random.Next(200, 3000) };
+            var expected = EngineKeepUpChange.None;
+            for (int i = 0; i < count; i++) { var c = one.Observe(late); if (c != EngineKeepUpChange.None) expected = c; }
+            Assert.Equal(expected, batch.Observe(late, count));
+            Assert.Equal((one.Behind, one.LateInWindow, one.Filled), (batch.Behind, batch.LateInWindow, batch.Filled));
+            seen.Add(expected);
+        }
+        // The sequence reached a fall and a recovery, or the comparison proved little.
+        Assert.Contains(EngineKeepUpChange.FellBehind, seen);
+        Assert.Contains(EngineKeepUpChange.Recovered, seen);
+        for (int i = 0; i < 2000; i++)
+        {
+            bool late = random.Next(4) == 0;
+            Assert.Equal(one.Observe(late), batch.Observe(late));
+            Assert.Equal((one.Behind, one.LateInWindow), (batch.Behind, batch.LateInWindow));
+        }
+    }
+
+    /// <summary>Repair 4: the batch form of a helper warm-up is that many warm-up buffers one at a time, an engine change included.</summary>
+    [Fact]
+    public void A_batch_of_warm_up_buffers_is_exactly_that_many_one_at_a_time()
+    {
+        var batch = new EngineKeepUpRule();
+        var one = new EngineKeepUpRule();
+        var random = new Random(1866);
+        int falls = 0;
+        for (int step = 0; step < 600; step++)
+        {
+            string id = random.Next(30) == 0 ? "nr2" : "nnr";
+            bool late = random.Next(3) != 0;
+            int count = random.Next(3) switch { 0 => 0, 1 => random.Next(1, 40), _ => random.Next(40, 700) };
+            var expected = one.Warming(id, false);
+            for (int i = 0; i < count; i++) { var c = one.Warming(id, late); if (c != EngineKeepUpChange.None) expected = c; }
+            Assert.Equal(expected, batch.Warming(id, late, count));
+            Assert.Equal((one.Behind, one.EngineId), (batch.Behind, batch.EngineId));
+            if (expected == EngineKeepUpChange.FellBehind) falls++;
+            if (random.Next(10) == 0) { one.Restart(id); batch.Restart(id); }
+        }
+        // The sequence fell more than once, or the comparison proved little; and the stuck mark exactly.
+        Assert.True(falls > 1, $"only {falls} falls");
+        var fresh = new EngineKeepUpRule();
+        Assert.Equal(EngineKeepUpChange.FellBehind, fresh.Warming("nnr", true, EngineKeepUpRule.DefaultStuckWarmup));
+        var under = new EngineKeepUpRule();
+        Assert.Equal(EngineKeepUpChange.None, under.Warming("nnr", true, EngineKeepUpRule.DefaultStuckWarmup - 1));
+        Assert.Equal(EngineKeepUpChange.FellBehind, under.Warming("nnr", true, 1));
+    }
+
+    /// <summary>
+    /// Repair 4: the batch form is bounded in time on the audio thread. The
+    /// largest count a meter can report is judged in a few hundred steps, not
+    /// two billion, and still arrives at the recovery it describes.
+    /// </summary>
+    [Fact]
+    public void The_largest_batch_is_judged_in_bounded_time_and_still_recovers()
+    {
+        var rule = new EngineKeepUpRule();
+        rule.Restart("nnr");
+        Assert.Equal(EngineKeepUpChange.FellBehind, rule.Observe(true, 200));
+        var t = System.Diagnostics.Stopwatch.StartNew();
+        var change = rule.Observe(false, int.MaxValue);
+        t.Stop();
+        Assert.Equal(EngineKeepUpChange.Recovered, change);
+        Assert.False(rule.Behind);
+        Assert.True(t.ElapsedMilliseconds < 500, $"int.MaxValue buffers took {t.ElapsedMilliseconds} ms");
+        Assert.Equal(EngineKeepUpChange.None, rule.Observe(false, 0));
+    }
+
     [Fact]
     public void Every_threshold_is_checked_at_construction()
     {

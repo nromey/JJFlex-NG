@@ -229,6 +229,61 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// <paramref name="count"/> warm-up buffers of a helper engine, all with
+        /// the same lateness: exactly what <see cref="Warming(string, bool)"/>
+        /// called that many times would do, in constant time (repair 4). The
+        /// engine is restarted when it changes even when the count is zero.
+        /// Returns the change the last of them made, if any.
+        /// </summary>
+        public EngineKeepUpChange Warming(string engineId, bool late, int count)
+        {
+            engineId ??= "";
+            if (!string.Equals(engineId, EngineId, StringComparison.Ordinal)) Restart(engineId);
+            if (Behind || !late || count <= 0) return EngineKeepUpChange.None;
+            if ((long)_warming + count < StuckWarmup) { _warming += count; return EngineKeepUpChange.None; }
+            _warming = StuckWarmup;
+            Behind = true;
+            _knownGood = false;
+            return EngineKeepUpChange.FellBehind;
+        }
+
+        /// <summary>
+        /// <paramref name="count"/> processed buffers, all with the same
+        /// lateness: exactly what <see cref="Observe(bool)"/> called that many
+        /// times would do, and bounded in time however large the count (repair
+        /// 4, after Codex's third re-check). A helper engine's work arrives in
+        /// batches of frames that share one cost, and a batch can be hundreds of
+        /// frames after a channel leaves the round; repair 3's pipeline judged
+        /// at most a window of them and discarded the rest, so an engine that
+        /// had recovered could stay behind.
+        /// </summary>
+        /// <remarks>
+        /// After the grace still to run, one window and the recovery hold (plus
+        /// one) of identical buffers, the rule has settled: the window holds
+        /// nothing but this lateness, the fall or the recovery has happened, and
+        /// a further identical buffer changes nothing but where the ring
+        /// writes next. So it observes at most that many (551 with the
+        /// defaults) and moves the ring's position for the rest, which on a
+        /// uniform window cannot matter but keeps the state exactly what the
+        /// one-at-a-time calls leave. Returns the last change any of them made.
+        /// No allocation.
+        /// </remarks>
+        public EngineKeepUpChange Observe(bool late, int count)
+        {
+            if (count <= 0) return EngineKeepUpChange.None;
+            long settle = (long)_graceLeft + Window + RecoverHold + 1;
+            int run = count < settle ? count : (int)settle;
+            var change = EngineKeepUpChange.None;
+            for (int i = 0; i < run; i++)
+            {
+                var c = Observe(late);
+                if (c != EngineKeepUpChange.None) change = c;
+            }
+            if (count > run) _at = (int)((_at + (long)(count - run)) % Window);
+            return change;
+        }
+
+        /// <summary>
         /// One processed buffer of the engine being counted.
         /// </summary>
         /// <param name="late">Whether this buffer was late, as the caller defines it (see the remarks).</param>
