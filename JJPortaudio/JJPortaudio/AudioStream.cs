@@ -267,7 +267,7 @@ namespace JJPortaudio
         /// Start an open audio device.
         /// </summary>
         /// <returns>True on success</returns>
-        public bool StartAudio()
+        public virtual bool StartAudio()
         {
             Tracing.TraceLine("audioStream.Start", TraceLevel.Info);
             bool rv = aud.Start();
@@ -329,7 +329,7 @@ namespace JJPortaudio
         /// Stop an open audio device.
         /// </summary>
         /// <returns>True on success</returns>
-        public bool StopAudio()
+        public virtual bool StopAudio()
         {
             Tracing.TraceLine("audioStream.Stop", TraceLevel.Info);
             aud.Stop();
@@ -403,7 +403,7 @@ namespace JJPortaudio
         /// <summary>
         /// Cleanup
         /// </summary>
-        public void Close()
+        public virtual void Close()
         {
             if (aud != null) aud.Finished();
         }

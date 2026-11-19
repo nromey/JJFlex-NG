@@ -895,7 +895,13 @@ namespace JJPortaudio
                 int key;
                 do
                 {
-                    key = rand.Next();
+                    // Locked (Sprint 49 Track H2, rulings repair 1): System.Random
+                    // is not thread-safe, and two threads in Next at once can
+                    // corrupt it into returning 0 forever, which would spin this
+                    // loop. The transmit capture's automatic try now opens a
+                    // stream on a worker thread while other threads may open
+                    // theirs.
+                    lock (rand) key = rand.Next();
                 } while (!Qs.TryAdd(key, new StreamCB()));
                 return key;
             }
@@ -1067,12 +1073,73 @@ namespace JJPortaudio
         /// <param name="outDev">the output Devices.Device to use</param>
         public static void Initialize(Devices.Device inDev, Devices.Device outDev)
         {
-            AudioAnchor.Init(inDev, outDev);
+            lock (s_serverGate)
+            {
+                AudioAnchor.Init(inDev, outDev);
+                Interlocked.Increment(ref s_serverGeneration);
+            }
         }
 
         public static void Terminate()
         {
-            AudioAnchor.Term();
+            lock (s_serverGate)
+            {
+                Interlocked.Increment(ref s_serverGeneration);
+                AudioAnchor.Term();
+            }
+        }
+
+        // ── The audio server's lifetime as a barrier (Sprint 49 Track H2, join
+        // repair 3, Codex's P2) ──
+        //
+        // The server (AudioAnchor's thread and work queue) is process-global and
+        // replaced at every Initialize. Work that runs OFF the thread that owns
+        // the server's lifetime (the transmit microphone's opens and closes on
+        // their workers) must never post into a server that has been terminated,
+        // or into a later run's server. A timed wait for those workers is not a
+        // barrier: a worker left behind at its bound could start another open
+        // after the teardown had returned.
+        //
+        // So the server has a generation, bumped at Initialize and at Terminate,
+        // and one gate. Initialize and Terminate hold the gate; so does every
+        // piece of such work, for the length of one operation, and it runs only
+        // if the server it was started under is still the live one. Work already
+        // in progress therefore finishes, or closes what it opened, on its own
+        // server before that server can be terminated or a new one made; work
+        // not yet begun finds the generation moved and does nothing.
+        private static readonly object s_serverGate = new object();
+        private static long s_serverGeneration;
+
+        /// <summary>
+        /// The live audio server's generation: read it where the work is asked
+        /// for, and hand it to <see cref="RunOnServer"/> when the work runs.
+        /// Moves at every <see cref="Initialize"/> and <see cref="Terminate"/>.
+        /// </summary>
+        public static long ServerGeneration => Interlocked.Read(ref s_serverGeneration);
+
+        /// <summary>Tests only: what Terminate does to the gate and the generation, without touching a server.</summary>
+        internal static void MoveServerGenerationForTest()
+        {
+            lock (s_serverGate) Interlocked.Increment(ref s_serverGeneration);
+        }
+
+        /// <summary>
+        /// Run one operation against the audio server, but only if
+        /// <paramref name="generation"/> is still the live server and
+        /// <paramref name="stillWanted"/> (asked under the gate, immediately
+        /// before) says yes. Holds the server's gate for the operation, so
+        /// <see cref="Terminate"/> and <see cref="Initialize"/> wait for it.
+        /// False when it did not run.
+        /// </summary>
+        public static bool RunOnServer(long generation, Func<bool> stillWanted, Action operation)
+        {
+            lock (s_serverGate)
+            {
+                if (Interlocked.Read(ref s_serverGeneration) != generation) return false;
+                if (stillWanted != null && !stillWanted()) return false;
+                operation();
+                return true;
+            }
         }
 
         /// <summary>
