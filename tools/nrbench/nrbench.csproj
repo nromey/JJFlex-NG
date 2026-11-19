@@ -44,6 +44,8 @@
     <Compile Include="..\..\JJFlexWpf\CapturedNoiseWolaEngine.cs" Link="src\CapturedNoiseWolaEngine.cs" />
     <Compile Include="..\..\JJFlexWpf\PerChannelDenoiserBank.cs" Link="src\PerChannelDenoiserBank.cs" />
     <Compile Include="..\..\JJFlexWpf\NoiseReductionProvider.cs" Link="src\NoiseReductionProvider.cs" />
+    <!-- Sprint 49 Track L (#866): the one measuring core, shared with the Audio Workshop's speed test. -->
+    <Compile Include="..\..\JJFlexWpf\EngineSpeedCore.cs" Link="src\EngineSpeedCore.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\runtimes\win-x64\native\deepfilter.dll;..\..\runtimes\win-x64\native\deepfilter.LICENSE-*.txt;..\..\runtimes\win-x64\native\DeepFilterNet3_onnx.tar.gz">

@@ -2,6 +2,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using System.Text;
+using JJFlexWpf;
 
 namespace NrBench;
 partial class BenchApp
@@ -44,21 +45,14 @@ partial class BenchApp
                     using var chain=new Chain(stages,channels,library);
                     Line($"{channels} channel(s): "+string.Join(" then ",stages.Select(s=>s.Words)));
                     Line($"Algorithmic latency: {chain.Latency} samples, {chain.Latency*1000.0/Rate:F3} ms.");
-                    var buffer=new float[Frame*channels];var times=new List<double>();
-                    using var process=Process.GetCurrentProcess();var cpuBefore=process.TotalProcessorTime;var wall=Stopwatch.StartNew();
-                    for(int pos=0;pos<mono.Length;pos+=Frame)
-                    {
-                        Array.Clear(buffer);int n=Math.Min(Frame,mono.Length-pos);
-                        for(int i=0;i<n;i++)for(int c=0;c<channels;c++)buffer[i*channels+c]=mono[pos+i];
-                        long t=Stopwatch.GetTimestamp();chain.Process(buffer,0,buffer.Length,channels);times.Add(Stopwatch.GetElapsedTime(t).TotalMilliseconds);
-                    }
-                    wall.Stop();var cpu=process.TotalProcessorTime-cpuBefore;chain.CheckHealth();
-                    double[] sorted=times.Order().ToArray();
-                    Line($"Per 10 ms frame: mean {times.Average():F4} ms; 99th percentile {sorted[Math.Max(0,(int)Math.Ceiling(sorted.Length*.99)-1)]:F4} ms; worst {sorted[^1]:F4} ms.");
-                    Line($"Frames over 5 ms: {times.Count(t=>t>5)} of {times.Count}. Frames over 10 ms: {times.Count(t=>t>10)}.");
-                    Line($"Real-time factor, processing only: {times.Sum()/(times.Count*10):F4}; wall interval over audio: {wall.Elapsed.TotalSeconds/(times.Count*.01):F4}.");
-                    Line($"Process CPU time {cpu.TotalSeconds:F3} seconds against wall time {wall.Elapsed.TotalSeconds:F3} seconds; CPU over wall {cpu.TotalSeconds/Math.Max(.0001,wall.Elapsed.TotalSeconds):F3}.");
-                    Line(times.Any(t=>t>10)?"FLAG: at least one frame missed the live 10 ms deadline.":"PASS: every measured frame met the live 10 ms deadline.");
+                    // The one measuring core, shared with the Audio Workshop's speed test (Sprint 49 Track L).
+                    var f=EngineSpeedCore.Time(mono,channels,buffer=>chain.Process(buffer,0,buffer.Length,channels));
+                    chain.CheckHealth();
+                    Line($"Per 10 ms frame: mean {f.MeanMs:F4} ms; 99th percentile {f.P99Ms:F4} ms; worst {f.WorstMs:F4} ms.");
+                    Line($"Frames over 5 ms: {f.Over5} of {f.Frames}. Frames over 10 ms: {f.Over10}.");
+                    Line($"Real-time factor, processing only: {f.ProcessingFactor:F4}; wall interval over audio: {f.WallFactor:F4}.");
+                    Line($"Process CPU time {f.CpuSeconds:F3} seconds against wall time {f.WallSeconds:F3} seconds; CPU over wall {f.CpuSeconds/Math.Max(.0001,f.WallSeconds):F3}.");
+                    Line(f.Over10>0?"FLAG: at least one frame missed the live 10 ms deadline.":"PASS: every measured frame met the live 10 ms deadline.");
                 }
                 catch(Exception ex){refused++;Line("REFUSED: "+ex.Message);}
             }
