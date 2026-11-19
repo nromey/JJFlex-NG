@@ -82,6 +82,10 @@ public sealed class NoiseSliceJumpSeamTests
         // globals (API.ProgramName, API.IsGUI, VitaSocket.TraceSink); captured
         // before it runs, put back in Dispose or if construction fails.
         private readonly FlexBaseGlobals _globals;
+
+        /// <summary>Test-only: throws during construction, after the FlexBase has
+        /// written its globals, to prove the failure path puts them back.</summary>
+        internal static Action? FaultAfterFlexBaseForTest;
         public readonly NoiseFixture F;
         public readonly FlexBase Rig;
         public readonly Radio Radio;
@@ -99,34 +103,47 @@ public sealed class NoiseSliceJumpSeamTests
             {
                 F = new NoiseFixture();
                 Rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+                FaultAfterFlexBaseForTest?.Invoke();
+                // Everything after the FlexBase can fail too, and a constructor that
+                // throws never hands back a Bench to dispose: so all of it sits inside
+                // the protected region, and the catch puts the globals back (Codex's
+                // isolation re-check, 2026-11-18).
+                Radio = (Radio)Activator.CreateInstance(typeof(Radio), Hidden, null, new object[] { false }, null)!;
+                Set(Radio, "_commandCommunication", Wire);
+                Slice NewSlice(int index, int level, bool active)
+                {
+                    var s = (Slice)Activator.CreateInstance(typeof(Slice), Hidden, null, new object[] { Radio }, null)!;
+                    Set(s, "_index", index); Set(s, "_nb_level", level); Set(s, "_active", active);
+                    Radio.SliceList.Add(s);
+                    return s;
+                }
+                A = NewSlice(0, 0, active: true);
+                B = NewSlice(1, 42, active: false);
+                Set(Rig, "theRadio", Radio);
+                var mine = (List<Slice>)Get(Rig, "mySlices");
+                mine.Add(A); mine.Add(B);
+                Set(Rig, "_RXVFO", 0);
+                _queue = Get(Rig, "q");
+                _queue.GetType().GetProperty("MainLoop")!.SetValue(_queue, true);
+                var adapter = new FlexNoiseRadio(Rig);
+                Noise = new NoiseController(F.Catalog, () => adapter, () => F.Pipeline, () => F.Config, () => { },
+                    F.Spoken, F.Held, F.Clock, F.Cost, clock: () => Now);
+                Noise.NoteActiveSlice(0);
+                Snap = Noise.TakeSnapshot();
             }
             catch
             {
-                try { F?.Dispose(); } finally { _globals.Dispose(); }
+                try
+                {
+                    if (Rig != null)
+                    {
+                        try { Set(Rig, "theRadio", null); Rig.Dispose(); } catch { }
+                    }
+                    F?.Dispose();
+                }
+                finally { _globals.Dispose(); }
                 throw;
             }
-            Radio = (Radio)Activator.CreateInstance(typeof(Radio), Hidden, null, new object[] { false }, null)!;
-            Set(Radio, "_commandCommunication", Wire);
-            Slice NewSlice(int index, int level, bool active)
-            {
-                var s = (Slice)Activator.CreateInstance(typeof(Slice), Hidden, null, new object[] { Radio }, null)!;
-                Set(s, "_index", index); Set(s, "_nb_level", level); Set(s, "_active", active);
-                Radio.SliceList.Add(s);
-                return s;
-            }
-            A = NewSlice(0, 0, active: true);
-            B = NewSlice(1, 42, active: false);
-            Set(Rig, "theRadio", Radio);
-            var mine = (List<Slice>)Get(Rig, "mySlices");
-            mine.Add(A); mine.Add(B);
-            Set(Rig, "_RXVFO", 0);
-            _queue = Get(Rig, "q");
-            _queue.GetType().GetProperty("MainLoop")!.SetValue(_queue, true);
-            var adapter = new FlexNoiseRadio(Rig);
-            Noise = new NoiseController(F.Catalog, () => adapter, () => F.Pipeline, () => F.Config, () => { },
-                F.Spoken, F.Held, F.Clock, F.Cost, clock: () => Now);
-            Noise.NoteActiveSlice(0);
-            Snap = Noise.TakeSnapshot();
         }
 
         /// <summary>Run the queued commands as the main loop would.</summary>
@@ -332,5 +349,44 @@ public sealed class NoiseSliceJumpSeamTests
         Set(b.A, "_nr_on", false);                        // the radio's own status: Standard NR off
         b.F.Clock.RunAll();
         Assert.Equal(StandardNrTurnedOff, b.F.Spoken.Last);
+    }
+
+    [Fact]
+    public void A_bench_that_fails_after_its_FlexBase_puts_back_the_globals_it_changed()
+    {
+        // Codex's isolation re-check, 2026-11-18: a constructor that throws never
+        // hands back a Bench to dispose, so its own catch must restore what the
+        // FlexBase constructor wrote.
+        var name = API.ProgramName;
+        var gui = API.IsGUI;
+        var sink = Vita.VitaSocket.TraceSink;
+        try
+        {
+            API.ProgramName = "isolation-sentinel";
+            API.IsGUI = false;
+            Action<string> sentinel = _ => { };
+            Vita.VitaSocket.TraceSink = sentinel;
+            bool reached = false;
+            Bench.FaultAfterFlexBaseForTest = () =>
+            {
+                reached = true;
+                Assert.True(API.IsGUI);                             // positive control: the FlexBase did change them
+                Assert.NotSame(sentinel, Vita.VitaSocket.TraceSink);
+                throw new InvalidOperationException("injected");
+            };
+            var ex = Assert.Throws<InvalidOperationException>(() => new Bench());
+            Assert.Equal("injected", ex.Message);
+            Assert.True(reached);
+            Assert.Equal("isolation-sentinel", API.ProgramName);
+            Assert.False(API.IsGUI);
+            Assert.Same(sentinel, Vita.VitaSocket.TraceSink);
+        }
+        finally
+        {
+            Bench.FaultAfterFlexBaseForTest = null;
+            API.ProgramName = name;
+            API.IsGUI = gui;
+            Vita.VitaSocket.TraceSink = sink;
+        }
     }
 }
