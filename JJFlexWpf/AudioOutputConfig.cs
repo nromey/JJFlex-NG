@@ -169,6 +169,16 @@ namespace JJFlexWpf
         public ReceiveDenoiseSlotConfig ReceiveSpectral { get; set; } = new();
 
         /// <summary>
+        /// The live transmit noise choices (S17, ruled 2026-11-18 21:35: "if
+        /// receive does it, it should operate the same way"): both slots' on,
+        /// engine and settings, and the gate, saved here beside the receive
+        /// slots above, in the same app-wide file. Null until the first transmit
+        /// choice is saved, which leaves the chain at its shipped start (both
+        /// slots off). <see cref="TransmitNoiseConfig"/> reads and writes it.
+        /// </summary>
+        public Radios.TxNoiseSetup? TransmitNoise { get; set; }
+
+        /// <summary>
         /// Noise favourites (Sprint 49 Track E): ONE ordered list across the
         /// radio and the computer and both subjects, app-wide. The list order
         /// is the bracket keys' order (Noel 2026-11-07 21:16: arrangeable); an

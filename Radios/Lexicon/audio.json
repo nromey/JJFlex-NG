@@ -547,6 +547,7 @@
   "audio.meters.tones_on": "Meter tones on",
   "audio.meters.tx_drive": "TX drive {drive} dBFS.",
   "audio.mic.could_not_open": "Your microphone could not be opened, so computer audio will not transmit. Receive audio is working. Check your input device in Audio Devices.",
+  "audio.mic.stopped_not_restarted": {"text": "WORDING PLACEHOLDER: the computer microphone stopped and could not be opened again, so computer audio will not transmit until PC audio is switched off and on or another input is chosen", "delivery": null},
   "audio.mic.diverged": "The radio switched its transmit audio to the {current} input while computer audio was running. Setting it back to PC.",
   "audio.mic.diverged_not_ours": { "text": "The radio's microphone input changed to {current}, so the radio will not hear your transmitted audio. Use Switch Mic Input Back to PC, found in the Radio menu, to put it back.", "delivery": { "shelfLife": "forgettable", "validity": "request-scoped", "receipt": "warning" } },
   "audio.mic.label_last_transmit": "Mic audio last transmit",

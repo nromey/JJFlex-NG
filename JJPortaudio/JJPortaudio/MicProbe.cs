@@ -255,7 +255,7 @@ namespace JJPortaudio
             // call for this stream comes from one thread, but the CALLER needs
             // the outcome, so the thread reports back through this gate.
             var gate = new StartGate();
-            var t = new Thread(() => CaptureProc(device, gate))
+            var t = new Thread(() => CountedCaptureProc(device, gate))
             {
                 // Background: a wedged driver must never be able to hold the
                 // process alive after the window is gone. The orderly path
@@ -400,6 +400,26 @@ namespace JJPortaudio
         }
 
         // ------------------------------------------------------------ capture
+
+        private static int _activeCaptures;
+
+        /// <summary>
+        /// How many probes hold a capture device open right now, across the
+        /// process: every microphone check and microphone recording (a
+        /// <see cref="MicRecorder"/> runs one of these). Sprint 49 Track H2's
+        /// automatic faster-capture try (S13) waits while this is above zero,
+        /// because a second stream on the same device can cost the try its
+        /// dropout count, and the operator is listening to that microphone.
+        /// </summary>
+        public static int ActiveCaptures => System.Threading.Volatile.Read(ref _activeCaptures);
+
+        /// <summary>The capture thread's body, counted for <see cref="ActiveCaptures"/> from start to its last exit.</summary>
+        private void CountedCaptureProc(Devices.DeviceInfo device, StartGate gate)
+        {
+            System.Threading.Interlocked.Increment(ref _activeCaptures);
+            try { CaptureProc(device, gate); }
+            finally { System.Threading.Interlocked.Decrement(ref _activeCaptures); }
+        }
 
         private void CaptureProc(Devices.DeviceInfo device, StartGate gate)
         {

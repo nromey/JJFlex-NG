@@ -895,7 +895,13 @@ namespace JJPortaudio
                 int key;
                 do
                 {
-                    key = rand.Next();
+                    // Locked (Sprint 49 Track H2, rulings repair 1): System.Random
+                    // is not thread-safe, and two threads in Next at once can
+                    // corrupt it into returning 0 forever, which would spin this
+                    // loop. The transmit capture's automatic try now opens a
+                    // stream on a worker thread while other threads may open
+                    // theirs.
+                    lock (rand) key = rand.Next();
                 } while (!Qs.TryAdd(key, new StreamCB()));
                 return key;
             }

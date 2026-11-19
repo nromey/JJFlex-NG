@@ -379,7 +379,7 @@ namespace Radios.Tests
                 Body(src, "private void NoteRf()"));
             // Fed from the one RF command site, both ends of the external
             // watch, and the three notes the main window gives it.
-            string setTx = Body(src, "private void SetTx(bool on)");
+            string setTx = Body(src, "private void SetTx(bool on, string? heldBy = null)"); // Track H2 rulings round: an ordinary end names what released (S16)
             Assert.Contains("_rfCommandedOn = on;", setTx);
             Assert.Contains("NoteRf();", setTx);
             Assert.Contains("NoteRf();", Body(src, "public void BeginExternalTransmitWatch()"));
@@ -403,7 +403,7 @@ namespace Radios.Tests
             Assert.Contains("SetTx(true);", enterLocked);
             Assert.DoesNotContain("SetTx(false)", enterLocked);
             // Positive control: the method that ends a transmission does say off.
-            Assert.Contains("SetTx(false);", Body(src, "private void GoIdle(string speechMessage"));
+            Assert.Contains("SetTx(false, heldBy);", Body(src, "private void GoIdle(string speechMessage")); // S16: held only when heldBy names an ordinary end
         }
 
         [Fact]

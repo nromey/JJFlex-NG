@@ -881,13 +881,21 @@ namespace JJFlexWpf
         /// transmission by construction, and a future state that calls this
         /// cannot start a new episode by accident.
         /// </summary>
-        private void SetTx(bool on)
+        /// <param name="heldBy">
+        /// S16 (ruled 2026-11-18 21:34): an ordinary end of an over names what
+        /// released, and the rig holds the unkey for the transmit noise
+        /// reduction's delay plus 10% (<see cref="FlexBase.UnkeyAfterNoiseDelay"/>).
+        /// Null, the default, unkeys at once: every safety outcome passes null,
+        /// so a safety unkey can never wait.
+        /// </param>
+        private void SetTx(bool on, string? heldBy = null)
         {
             _rfCommandedOn = on;
             NoteRf();
             var rig = _getRigControl();
-            if (rig != null)
-                rig.Transmit = on;
+            if (rig == null) return;
+            if (!on && heldBy != null) rig.UnkeyAfterNoiseDelay(heldBy);
+            else rig.Transmit = on;
         }
 
         /// <summary>
@@ -961,7 +969,7 @@ namespace JJFlexWpf
                 // means the screen reader is synthesising pairs (#216). The
                 // release still happens — detection only, no behaviour change.
                 NotePttRelease();
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"), heldBy: "the hold key");
             }
             // If locked/warning, key-up does nothing (still locked)
         }
@@ -996,7 +1004,7 @@ namespace JJFlexWpf
             else
             {
                 // Any TX state — unlock
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"), heldBy: "the lock key");
             }
         }
 
@@ -1023,7 +1031,7 @@ namespace JJFlexWpf
         {
             if (State != PttState.Idle)
             {
-                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"), heldBy: "Escape");
             }
         }
 
@@ -1082,7 +1090,7 @@ namespace JJFlexWpf
         {
             if (State == PttState.Idle) return;
             if (!_config.ChirpEnabled) EarconPlayer.ConfirmTone();
-            GoIdle("Check stopped at the recorder's two-minute limit.", forceSpeech: true);
+            GoIdle("Check stopped at the recorder's two-minute limit.", forceSpeech: true, heldBy: "the recorder's planned stop");
         }
 
         // -------------------------------------------------------------------
@@ -1160,11 +1168,19 @@ namespace JJFlexWpf
         /// sentence is never binned by its length while the operator is still
         /// wondering why the transmission ended (#503, #571).
         /// </param>
-        private void GoIdle(string speechMessage, bool forceSpeech = false, string subject = null)
+        /// <param name="heldBy">
+        /// What released, for an ORDINARY end of an over (S16): the hold key, the
+        /// lock key, Escape, the transmit timeout's ordinary end, a check's
+        /// planned stop. The unkey is then held for the noise reduction's delay.
+        /// Null for every safety outcome (the 15-minute hard limit, the hard
+        /// kill, the silent-microphone release, the reflected-power cut), which
+        /// unkey at once.
+        /// </param>
+        private void GoIdle(string speechMessage, bool forceSpeech = false, string subject = null, string? heldBy = null)
         {
             var wasState = State;
             State = PttState.Idle;
-            SetTx(false);
+            SetTx(false, heldBy);
             ScreenReaderOutput.Supersede(KeyDownExtraSubject, "transmission ended");
             if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
 
@@ -1350,8 +1366,12 @@ namespace JJFlexWpf
             // The same owner as the "about to end" warning above: this is that
             // incident's outcome, and it covers the warning's fact rather than
             // queueing behind it.
+            // The transmit timeout's ORDINARY end (S16): the operator's own
+            // time limit, so the unkey is held for the noise reduction's delay
+            // like any other end of an over. The 15-minute hard limit below is
+            // not: it unkeys at once.
             GoIdle(Lexicon.Get("audio.ptt.timed_out"), forceSpeech: true,
-                   subject: Radios.Speech.SpeechSubject.TransmitTimeLimit);
+                   subject: Radios.Speech.SpeechSubject.TransmitTimeLimit, heldBy: "the transmit timeout");
         }
 
         private void BeepTimerTick(object? sender, EventArgs e)
@@ -1377,17 +1397,23 @@ namespace JJFlexWpf
             {
                 Interval = TimeSpan.FromSeconds(PttConfig.HardKillSeconds)
             };
-            _hardKillTimer.Tick += (s, e) =>
-            {
-                _hardKillTimer?.Stop();
-                if (State != PttState.Idle)
-                {
-                    Tracing.TraceLine("PTT: HARD KILL (15 min absolute)", TraceLevel.Warning);
-                    EarconPlayer.HardKillTone();
-                    GoIdle(Lexicon.Get("audio.ptt.hard_limit"), forceSpeech: true);
-                }
-            };
+            _hardKillTimer.Tick += (s, e) => HardLimitReached();
             _hardKillTimer.Start();
+        }
+
+        /// <summary>
+        /// The 15-minute absolute limit. A SAFETY unkey (S16): it goes at once,
+        /// never held for the noise reduction's delay.
+        /// </summary>
+        private void HardLimitReached()
+        {
+            _hardKillTimer?.Stop();
+            if (State != PttState.Idle)
+            {
+                Tracing.TraceLine("PTT: HARD KILL (15 min absolute)", TraceLevel.Warning);
+                EarconPlayer.HardKillTone();
+                GoIdle(Lexicon.Get("audio.ptt.hard_limit"), forceSpeech: true);
+            }
         }
 
         // -------------------------------------------------------------------
