@@ -1,0 +1,1 @@
+- The antenna tuner's progress tone and timeout now stop when you disconnect during a tune.

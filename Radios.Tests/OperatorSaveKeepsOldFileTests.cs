@@ -103,13 +103,112 @@ namespace Radios.Tests
             int end = src.IndexOf("End Function", start, StringComparison.Ordinal);
             string update = src.Substring(start, end - start);
             Assert.DoesNotContain("File.Delete", update, StringComparison.Ordinal);
-            Assert.Contains("SaveThenRetireOld(oldPath, theOp.pathName, Function() TryWrite(theOp))", update, StringComparison.Ordinal);
+            // #1175: the save goes through SaveThenReplace, which swaps the
+            // entry only after the save succeeds. Changed from a direct
+            // SaveThenRetireOld call that followed an in-memory swap.
+            Assert.Contains("If SaveThenReplace(ops, id, theOp, oldPath, theOp.pathName, Function() TryWrite(theOp)) Then", update, StringComparison.Ordinal);
+            Assert.DoesNotContain("ops.RemoveAt(id)", update, StringComparison.Ordinal);
+            Assert.DoesNotContain("ops.Insert(id, theOp)", update, StringComparison.Ordinal);
+            int save = update.IndexOf("If SaveThenReplace(", StringComparison.Ordinal);
+            Assert.True(update.IndexOf("DefaultID = id", StringComparison.Ordinal) > save, "the default moves only after the save succeeded");
+            Assert.True(update.IndexOf("reportEvent()", StringComparison.Ordinal) > save, "the change is reported only after the save succeeded");
             int tryWrite = src.IndexOf("Friend Function TryWrite(ByVal op As personal_v1) As Boolean", StringComparison.Ordinal);
             Assert.True(tryWrite > 0);
             string body = src.Substring(tryWrite, src.IndexOf("End Function", tryWrite, StringComparison.Ordinal) - tryWrite);
             int caught = body.IndexOf("Catch ex As Exception", StringComparison.Ordinal);
             Assert.True(caught > 0 && body.IndexOf("Return False", caught, StringComparison.Ordinal) > caught,
                 "a write that fails must say so");
+        }
+
+        // ---- #1175: the session keeps the old entry when the save fails ----
+
+        [Fact]
+        public void A_save_that_fails_keeps_the_old_entry_in_memory_and_its_file_on_disk()
+        {
+            string old = FileIn("OLD_Operator.xml", "the operator's record");
+            string renamed = FileIn("NEW_Operator.xml");
+            var entries = new System.Collections.Generic.List<string> { "someone else", "OLD", "a third" };
+            bool saved = Replace(entries, 1, "NEW", old, renamed, () => false);
+            Assert.False(saved);
+            Assert.Equal(new[] { "someone else", "OLD", "a third" }, entries);
+            Assert.True(File.Exists(old), "a failed save deleted the operator's only record");
+        }
+
+        [Fact]
+        public void A_save_that_works_replaces_the_entry_and_retires_the_old_file()
+        {
+            string old = FileIn("OLD_Operator.xml", "the operator's record");
+            string renamed = FileIn("NEW_Operator.xml");
+            var entries = new System.Collections.Generic.List<string> { "someone else", "OLD", "a third" };
+            bool saved = Replace(entries, 1, "NEW", old, renamed, () => { File.WriteAllText(renamed, "edited"); return true; });
+            Assert.True(saved);
+            Assert.Equal(new[] { "someone else", "NEW", "a third" }, entries);
+            Assert.False(File.Exists(old));
+        }
+
+        /// <summary>
+        /// The route Codex described: a rename whose save fails, then a good
+        /// save. With the entry swapped before the failed save, the good save
+        /// took the new path as the old one and left the old file behind, so
+        /// both files loaded at the next start.
+        /// </summary>
+        [Fact]
+        public void A_failed_rename_then_a_good_save_leaves_one_operator_file()
+        {
+            string old = FileIn("OLD_Operator.xml", "the operator's record");
+            string renamed = FileIn("NEW_Operator.xml");
+            var paths = new System.Collections.Generic.List<string> { old };   // the session's idea of where the operator lives
+
+            Assert.False(Replace(paths, 0, renamed, paths[0], renamed, () => false));
+            Assert.True(Replace(paths, 0, renamed, paths[0], renamed, () => { File.WriteAllText(renamed, "edited"); return true; }));
+
+            Assert.Equal(new[] { renamed }, paths);
+            Assert.False(File.Exists(old), "two operator files would load at the next start");
+            Assert.True(File.Exists(renamed));
+        }
+
+        private static bool Replace(System.Collections.Generic.List<string> entries, int id, string edited,
+                                    string oldPath, string newPath, Func<bool> save)
+        {
+            string? app = BuiltAppAssembly();
+            Assert.True(app != null,
+                "Build JJFlexRadio.vbproj (Debug, x64) first: this test calls the operator save step "
+                + "from the built app assembly.");
+            bool result = false;
+            WeakReference unloaded = ReplaceInIsolatedContext(app!, entries, id, edited, oldPath, newPath, save, r => result = r);
+            for (int i = 0; unloaded.IsAlive && i < 20; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static WeakReference ReplaceInIsolatedContext(string app, System.Collections.Generic.List<string> entries, int id, string edited,
+                                                              string oldPath, string newPath, Func<bool> save, Action<bool> report)
+        {
+            var context = new AssemblyLoadContext("operator-replace", isCollectible: true);
+            string folder = Path.GetDirectoryName(app)!;
+            context.Resolving += (ctx, name) =>
+            {
+                string candidate = Path.Combine(folder, name.Name + ".dll");
+                return File.Exists(candidate) ? ctx.LoadFromAssemblyPath(candidate) : null;
+            };
+            try
+            {
+                Assembly assembly = context.LoadFromAssemblyPath(app);
+                Type personal = assembly.GetTypes().Single(t => t.Name == "PersonalData");
+                MethodInfo? step = personal.GetMethod("SaveThenReplace", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                Assert.True(step != null, "PersonalData.SaveThenReplace is missing");
+                report((bool)step!.MakeGenericMethod(typeof(string))
+                    .Invoke(null, new object[] { entries, id, edited, oldPath, newPath, save })!);
+            }
+            finally
+            {
+                context.Unload();
+            }
+            return new WeakReference(context);
         }
 
         private static bool Run(string oldPath, string newPath, Func<bool> save)

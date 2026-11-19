@@ -10,10 +10,10 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// A fix the change-nothing hold refused is a refusal, not a failure, and
-    /// the Fix tool says nothing more about it (#486; #1022's leftover). The
-    /// hold spoke its one sentence when it refused; the tool used to add
-    /// "That fix did not succeed:" and the same sentence again.
+    /// A fix the change-nothing hold refused is a refusal, not a failure (#486;
+    /// #1022's leftover). The tool used to add "That fix did not succeed:" and
+    /// the hold's sentence again. Since #1043 F2 the hold is asked silently and
+    /// the tool says its sentence once, after the page re-renders.
     /// </summary>
     public sealed class FixerRefusedFixTests
     {

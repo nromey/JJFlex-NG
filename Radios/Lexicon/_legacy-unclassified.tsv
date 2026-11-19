@@ -854,7 +854,6 @@ audio.processor.name_normal	9a27adafe8f638c8
 audio.ptt.announce_locked	382e3a8a1907d773
 audio.ptt.announce_receiving	abc5efd0cb7a65fc
 audio.ptt.announce_transmitting	db739dcbbb5df859
-audio.ptt.blocked_by_license	4a40d921dbb8bff6
 audio.ptt.check_microphone	e85bd694e7356d83
 audio.ptt.display_locked	5fa5ad66695fd217
 audio.ptt.display_transmitting	db739dcbbb5df859
@@ -2168,7 +2167,6 @@ settings.band.select_band_required_classic	6efd4a063f6ef3a2
 settings.band.select_band_required_classic_title	0fb3be4f273d2d78
 settings.band.select_band_required_title	db97f048cd99aa64
 settings.band.subband_label	16d2e6761bb34213
-settings.band.tx_lockout_message	4a40d921dbb8bff6
 settings.build.spoken	106297cbd991a030
 settings.build.spoken_no_date	82afbb2aa3fb6d3b
 settings.build.unavailable	0074b31af600d909

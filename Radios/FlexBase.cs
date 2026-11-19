@@ -10358,21 +10358,12 @@ namespace Radios
                     case FlexTunerTypes.manual:
                         {
                             // Raise status if turning off so we can report the SWR.
-                            if (!value)
-                            {
-                                float highSWR;
-                                // Look for minimum SWR.
-                                do
-                                {
-                                    highSWR = _SWR;
-                                    Thread.Sleep(100);
-                                } while (highSWR > _SWR);
-                                // Report status.
-                                ATUTuneStatus stat = ATUTuneStatus.OK;
-                                RaiseFlexAntTuneStartStop(new FlexAntTunerArg
-                                    (FlexTunerType, stat, highSWR));
-                            }
-                            EnqueueTuneWrite(value, "antenna tuner", () => _FlexTunerOn = false);
+                            // #1163: the settle sleeps, so it runs off the caller's
+                            // thread (the UI thread, or FlexLib's read thread when an
+                            // ATU status ends the latch), and queues the carrier's
+                            // off itself once the SWR has settled.
+                            if (!value) SettleManualTuneThenRelease();
+                            else EnqueueTuneWrite(value, "antenna tuner", () => _FlexTunerOn = false);
                         }
                         break;
                     case FlexTunerTypes.auto:

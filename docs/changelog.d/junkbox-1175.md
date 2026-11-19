@@ -1,0 +1,1 @@
+- Your existing operator entry now stays in place if a change to its name or callsign cannot be saved.

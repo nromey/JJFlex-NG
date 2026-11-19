@@ -1,0 +1,1 @@
+- The TX band lockout now checks the transmit slice's frequency and receive filter when you operate split.

@@ -11,32 +11,21 @@ namespace Radios.Tests;
 /// 60 m frequency.
 /// </summary>
 /// <remarks>
-/// <see cref="Allowed"/> is the path <c>FreqOutHandlers.CanTransmitHere</c>
-/// takes (JJFlexWpf, which this project does not reference): the band by the
-/// signal's low edge, then that band's divisions for the license, then the
-/// whole signal inside one of them. The channel and segment rules are
-/// separate work (#1172, #1161); SixtyMeterChannels is not touched.
+/// <see cref="Allowed"/> calls <see cref="TransmitBandLockout.Allows"/>, the
+/// judgement <c>FreqOutHandlers.CanTransmitHere</c> itself calls since #1173,
+/// with no mode, which is the arithmetic the lockout always used: the band by
+/// the signal's low edge, then that band's divisions for the license, then the
+/// whole signal inside one of them. Until #1173 this was a retyped copy that
+/// could drift. The channel and segment rules are separate work (#1172,
+/// #1161); SixtyMeterChannels is not touched.
 /// </remarks>
 public sealed class SixtyMeterLockoutTests
 {
     /// <summary>USB with a 100 to 2,800 Hz filter, as a 60 m channel is worked.</summary>
     private static bool UsbAllowed(ulong dialHz, Bands.Licenses license) => Allowed(dialHz, 100, 2800, license);
 
-    private static bool Allowed(ulong freq, int filterLow, int filterHigh, Bands.Licenses license)
-    {
-        long signalLow = (long)freq + filterLow;
-        long signalHigh = (long)freq + filterHigh;
-        if (signalLow < 0) signalLow = 0;
-        if (signalHigh < 0) signalHigh = 0;
-
-        var bandInfo = Bands.Query((ulong)signalLow);
-        if (bandInfo == null) return false;
-        var licensedBand = Bands.Query(bandInfo.Band, license);
-        if (licensedBand?.Divisions == null) return false;
-        foreach (var div in licensedBand.Divisions)
-            if ((ulong)signalLow >= div.Low && (ulong)signalHigh <= div.High) return true;
-        return false;
-    }
+    private static bool Allowed(ulong freq, int filterLow, int filterHigh, Bands.Licenses license) =>
+        TransmitBandLockout.Allows(freq, null, filterLow, filterHigh, license);
 
     [Theory]
     [InlineData(Bands.Licenses.general)]

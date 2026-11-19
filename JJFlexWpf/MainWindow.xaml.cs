@@ -4641,6 +4641,7 @@ public partial class MainWindow : UserControl
         // restore is written immediately, not queued.
         ReleaseKeyForTeardown("radio events unwired");
         _pttController?.ReleaseRigForTeardown("radio events unwired");
+        EndAtuForTeardown();   // #1183
 
         // Then any check in Check your audio (#835), for the same reason: its
         // restoration (power, dummy load, monitor, the Loopback arrangement)
@@ -5820,7 +5821,21 @@ public partial class MainWindow : UserControl
             // thread is busy. Same wedge class as FeatureLicenseChanged
             // (#402). Queued is safe: tune progress display is
             // last-writer-wins.
-            Dispatcher.BeginInvoke(() => FlexAntTuneStartStopHandler(e));
+            // #1183: a status queued before the radio's events were unwired
+            // belongs to that connection. On the auto-connect retry path the
+            // next rig is already in RigControl when it runs, so without this
+            // an old cycle's InProgress could re-arm the ATU timer and note.
+            long wiring = System.Threading.Interlocked.Read(ref _atuEventWiring);
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (System.Threading.Interlocked.Read(ref _atuEventWiring) != wiring)
+                {
+                    Tracing.TraceLine("FlexAntTuneStartStop: a " + e.Status
+                        + " queued before the radio's events were unwired; dropped", TraceLevel.Info);
+                    return;
+                }
+                FlexAntTuneStartStopHandler(e);
+            });
             return;
         }
 
@@ -7766,7 +7781,10 @@ public partial class MainWindow : UserControl
         // #1127 (J4): what this press does, by tuner state (Radios.TunePress).
         // Out of automatic type, with or without an ATU, it is the tune
         // carrier's own key; automatic type is the ATU's tune, as before.
-        var outcome = Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType);
+        // #1164: "has an ATU" is the radio's own ATUEnabled (HasATU), the
+        // source the tune key's handler reads, never the ATGet capability,
+        // which lags it until the ATUEnabled handler has run.
+        var outcome = Radios.TunePress.For(RigControl.HasATU, RigControl.FlexTunerType);
         if (outcome == Radios.TunePressOutcome.NoTuner)
         {
             EarconPlayer.LeaderInvalidTone();
@@ -7867,6 +7885,12 @@ public partial class MainWindow : UserControl
             EarconPlayer.StopATUProgressEarcon();
             EarconPlayer.ATUFailTone();
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_timed_out"), VerbosityLevel.Critical, true);
+            // #1183, deliberately: the ATU note (_pttController.NoteAtuTuning)
+            // is NOT cleared here. This is a UI timer, and the radio may still
+            // be tuning when it fires; the note follows the radio's own ATU
+            // status (batch 14 repair round 4), so the radio's end status or
+            // its transmit-off clears it, and a disconnect does
+            // (EndAtuForTeardown).
         };
         _atuTuneTimer.Start();
     }
@@ -7876,6 +7900,31 @@ public partial class MainWindow : UserControl
         _atuTuneTimer?.Stop();
         _atuTuneTimer = null;
     }
+
+    /// <summary>
+    /// #1183: when the radio's events are unwired, an ATU cycle's 15 s
+    /// timer and its progress tone stop, and the transmit episode's ATU note
+    /// is reset, so nothing says "ATU tune timed out" about a radio that is
+    /// gone and no note outlives its connection. Also retires any ATU status
+    /// still queued from that connection (see
+    /// <see cref="FlexAntTuneStartStopHandler"/>).
+    /// </summary>
+    /// <remarks>
+    /// Called from <see cref="UnwireRadioEvents"/> right after the push-to-talk
+    /// controller lets go of the rig, and nowhere else; it makes no sound and
+    /// sends nothing to the radio.
+    /// </remarks>
+    private void EndAtuForTeardown()
+    {
+        System.Threading.Interlocked.Increment(ref _atuEventWiring);
+        StopATUTimeout();
+        EarconPlayer.StopATUProgressEarcon();
+        _pttController?.NoteAtuTuning(false);
+    }
+
+    /// <summary>Bumped each time the radio's events are unwired (#1183), so an ATU
+    /// status queued under an earlier wiring is dropped when it runs.</summary>
+    private long _atuEventWiring;
 
     /// <summary>
     /// Transmit button — toggles PTT.
