@@ -305,6 +305,34 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void When_both_streams_die_together_the_microphone_downtime_starts_when_they_were_noticed()
+        {
+            // Codex's check, 2026-11-19: the speaker is handled first, so the
+            // microphone's clock must not start after the speaker's recovery.
+            using var rig = new Rig("1145-BOTH-0001");
+            long noticed = rig.Now;
+            rig.StartTakesMs = 3_500;
+            rig.PlantSpeaker();
+            using var wake = new RemoteAudioWake();
+            rig.Call("RecoverSpeakerStream", wake);
+            Assert.Equal(noticed + 3_500, rig.Now);
+            var recover = typeof(FlexBase).GetMethod("RecoverMicStream",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                null, new[] { typeof(long) }, null);
+            Assert.NotNull(recover);
+            // The production check passes the time both deaths were noticed.
+            string source = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                AudioClosedStreamTests.RepoRoot(), "Radios", "FlexBase.RemoteAudio.cs"));
+            int check = source.IndexOf("private void CheckPcAudioStreamDeaths", StringComparison.Ordinal);
+            int end = source.IndexOf("private void RecoverMicStream", check, StringComparison.Ordinal);
+            string body = source.Substring(check, end - check);
+            int dated = body.IndexOf("long noticedAt = _streamRecoveryClock();", StringComparison.Ordinal);
+            Assert.True(dated > 0, "the deaths must be dated before either is handled");
+            Assert.True(dated < body.IndexOf("RecoverSpeakerStream(wake)", StringComparison.Ordinal));
+            Assert.Contains("RecoverMicStream(noticedAt)", body);
+        }
+
+        [Fact]
         public void A_dead_speaker_restarted_quickly_while_keyed_says_nothing()
         {
             using var rig = new Rig("1145-SPK-0005");
@@ -405,7 +433,7 @@ namespace Radios.Tests
             rig.Set("opusInputChannel", mic);
             rig.Set("opusInputAvailable", true);
 
-            rig.Call("RecoverMicStream");
+            rig.Call("RecoverMicStream", rig.Now);
             Assert.False(mic.Started);                      // stopped, so the gate's start restarts it
             Assert.True((bool)rig.Get("_micRestartPending")!);
             Assert.Null(rig.Report);                        // pending is not failure: CW mode never restarts it

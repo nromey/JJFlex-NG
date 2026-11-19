@@ -3320,13 +3320,19 @@ namespace Radios
                 }
                 return;
             }
+            // Both deaths are dated when they are noticed, before either is
+            // handled: a headset that drops both streams at once would
+            // otherwise have the microphone's downtime start only after the
+            // speaker's recovery, and a long outage would read as a short one
+            // (Codex's check of the three-second rule, 2026-11-19).
+            long noticedAt = _streamRecoveryClock();
             if (speakerDied) RecoverSpeakerStream(wake);
-            if (micDied) RecoverMicStream();
+            if (micDied) RecoverMicStream(noticedAt);
         }
 
-        private void RecoverMicStream()
+        /// <param name="now">When the death was noticed, before any other recovery ran.</param>
+        private void RecoverMicStream(long now)
         {
-            long now = _streamRecoveryClock();
             var decision = _micRecovery.OnDeath(now);
             string detail = opusInputChannel.PortAudioStream.StreamEndDetail;
             if (decision.Verdict != StreamRecoveryPolicy.Verdict.Recover)
