@@ -974,13 +974,142 @@ public sealed class TuneKeyCarrierTests : IDisposable
 
         int body = main.IndexOf("private void EndAtuForTeardown()", StringComparison.Ordinal);
         string teardown = main.Substring(body, main.IndexOf("\n    }\n", body, StringComparison.Ordinal) - body);
-        Assert.Contains("StopATUTimeout();", teardown);
-        Assert.Contains("EarconPlayer.StopATUProgressEarcon();", teardown);
+        // #1193: the timer and the progress tone stop through the one end of
+        // a cycle, which this pins as stopping both.
+        Assert.Contains("EndAtuCycle(AtuCycleEnd.Teardown);", teardown);
         Assert.Contains("_pttController?.NoteAtuTuning(false);", teardown);
+        string end1 = Member(main, "private void EndAtuCycle(AtuCycleEnd end)");
+        Assert.Contains("StopATUTimeout();", end1);
+        Assert.Contains("EarconPlayer.StopATUProgressEarcon();", end1);
+        Assert.DoesNotContain("NoteAtuTuning(", end1);
+        Assert.DoesNotContain("_atuEventWiring", end1);
 
         int start = main.IndexOf("private void StartATUTimeout()", StringComparison.Ordinal);
         string timeout = main.Substring(start, main.IndexOf("\n    }\n", start, StringComparison.Ordinal) - start);
         Assert.DoesNotContain("NoteAtuTuning(", timeout);
+        Assert.Contains("_atuTuneTimer.Tick += (s, e) => AtuTimedOut();", timeout);
+        Assert.DoesNotContain("NoteAtuTuning(", Member(main, "private void AtuTimedOut()"));
+    }
+
+    // ---- #1193: one end of an ATU cycle ----
+
+    /// <summary>The body of the member whose declaration line is <paramref name="signature"/>.</summary>
+    private static string Member(string src, string signature)
+    {
+        int at = src.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(at >= 0, signature + " is missing");
+        return src.Substring(at, src.IndexOf("\n    }\n", at, StringComparison.Ordinal) - at);
+    }
+
+    /// <summary>Which ends of a cycle put the Ant Tune button back to its own label.</summary>
+    [Fact]
+    public void Only_a_result_the_radio_reported_keeps_the_Ant_Tune_buttons_text()
+    {
+        Assert.False(MainWindow.AtuEndShowsNeutral(MainWindow.AtuCycleEnd.Result));
+        Assert.True(MainWindow.AtuEndShowsNeutral(MainWindow.AtuCycleEnd.TimedOut));
+        Assert.True(MainWindow.AtuEndShowsNeutral(MainWindow.AtuCycleEnd.Teardown));
+        Assert.True(MainWindow.AtuEndShowsNeutral(MainWindow.AtuCycleEnd.CarrierStopped));
+    }
+
+    /// <summary>
+    /// A real automatic cycle, then one end, on a private STA thread with an
+    /// unhosted button standing in for the Ant Tune button (no window, no
+    /// presentation source). Returns the button's text and accessible name.
+    /// </summary>
+    private (string Text, string Name) CycleThen(MainWindow main, Action<MainWindow> end)
+    {
+        string text = "", name = "";
+        OnSta(main, () =>
+        {
+            var button = new System.Windows.Controls.Button { Content = "Ant Tune" };
+            typeof(MainWindow).GetField("AntennaTuneButton", Any)!.SetValue(main, button);
+            var handler = typeof(MainWindow).GetMethod("FlexAntTuneStartStopHandler", Any)!;
+            RadioAtuStatus(Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress);
+            handler.Invoke(main, new object[] { new FlexBase.FlexAntTunerArg(FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress, 1.1f) });
+            Assert.Equal("InProgress", button.Content);   // positive control: the cycle's start shows
+            Assert.NotNull(AtuTimer(main));
+            end(main);
+            text = (string)button.Content;
+            name = System.Windows.Automation.AutomationProperties.GetName(button);
+        });
+        return (text, name);
+    }
+
+    /// <summary>
+    /// #1193, the case no bench can reach: the 15 s timeout ends the cycle and
+    /// the button no longer reads "InProgress"; the ATU note stays (#1183's choice).
+    /// </summary>
+    [Fact]
+    public void The_timeout_puts_the_Ant_Tune_button_back_and_leaves_the_ATU_note()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        var shown = CycleThen(main, m => typeof(MainWindow).GetMethod("AtuTimedOut", Any)!.Invoke(m, null));
+        Assert.Equal("Ant Tune", shown.Text);
+        Assert.Equal("Ant Tune", shown.Name);
+        Assert.Null(AtuTimer(main));
+        Assert.True(AtuNoted(), "the timeout does not clear the ATU note (#1183)");
+    }
+
+    /// <summary>#1193, seen on the bench: a disconnect mid-cycle left the button reading "InProgress".</summary>
+    [Fact]
+    public void A_disconnect_mid_cycle_puts_the_Ant_Tune_button_back()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        var shown = CycleThen(main, m => EndAtuForTeardown(m));
+        Assert.Equal("Ant Tune", shown.Text);
+        Assert.Null(AtuTimer(main));
+        Assert.False(AtuNoted());
+    }
+
+    /// <summary>Unchanged: a result the radio reports stays on the button in automatic type.</summary>
+    [Fact]
+    public void A_reported_result_stays_on_the_Ant_Tune_button()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        var shown = CycleThen(main, m =>
+        {
+            RadioAtuStatus(Flex.Smoothlake.FlexLib.ATUTuneStatus.Successful);
+            typeof(MainWindow).GetMethod("FlexAntTuneStartStopHandler", Any)!.Invoke(m, new object[]
+                { new FlexBase.FlexAntTunerArg(FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.Successful, 1.1f) });
+        });
+        Assert.Equal("Successful", shown.Text);
+        Assert.Null(AtuTimer(main));
+    }
+
+    /// <summary>Every end of a cycle goes through the one helper.</summary>
+    [Fact]
+    public void Every_end_of_an_ATU_cycle_goes_through_EndAtuCycle()
+    {
+        string main = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs")).Replace("\r\n", "\n");
+
+        string handler = Member(main, "private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)");
+        foreach (string label in new[] { "case \"Successful\":", "case \"FailBypass\":", "case \"ManualBypass\":", "case \"Aborted\":" })
+        {
+            int at = handler.IndexOf(label, StringComparison.Ordinal);
+            Assert.True(at > 0, label);
+            int brk = handler.IndexOf("break;", at, StringComparison.Ordinal);
+            Assert.Contains("EndAtuCycle(AtuCycleEnd.Result);", handler.Substring(at, brk - at));
+        }
+        Assert.DoesNotContain("StopATUTimeout();", handler);
+        Assert.DoesNotContain("StopATUProgressEarcon();", handler);
+
+        Assert.Contains("EndAtuCycle(AtuCycleEnd.TimedOut);", Member(main, "private void AtuTimedOut()"));
+        Assert.Contains("EndAtuCycle(AtuCycleEnd.Teardown);", Member(main, "private void EndAtuForTeardown()"));
+        Assert.Contains("EndAtuCycle(AtuCycleEnd.CarrierStopped);", Member(main, "private void TuneOffFeedback(float capturedSwr)"));
+        string press = Member(main, "private void TunePressFor(bool ours)");
+        int latch = press.IndexOf("RigControl.FlexTunerOn = false;", StringComparison.Ordinal);
+        Assert.True(latch > 0 && press.IndexOf("EndAtuCycle(AtuCycleEnd.CarrierStopped);", latch, StringComparison.Ordinal) > latch,
+            "the tune key's latch stop ends the cycle");
+
+        // Only the helper and the start stop the timer or the tone directly.
+        int direct = main.Split("EarconPlayer.StopATUProgressEarcon();").Length - 1;
+        Assert.Equal(1, direct);
     }
 
     /// <summary>
