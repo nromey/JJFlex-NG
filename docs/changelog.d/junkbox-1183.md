@@ -1,0 +1,1 @@
+- Disconnecting while the antenna tuner is in the middle of a tune now stops its progress tone, and you no longer hear "ATU tune timed out" about a radio you have already left.

@@ -865,6 +865,124 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Assert.False(AtuNoted(), "the cycle's end ends the ATU note");
     }
 
+    // ---- #1183: the ATU timer, progress and note at a disconnect ----
+
+    /// <summary>Run <paramref name="body"/> on a private STA thread whose own
+    /// dispatcher the (uninitialized) window answers to; nothing is shown.</summary>
+    private static void OnSta(MainWindow main, Action body)
+    {
+        Exception? failure = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                typeof(System.Windows.Threading.DispatcherObject).GetField("_dispatcher", Any)!
+                    .SetValue(main, System.Windows.Threading.Dispatcher.CurrentDispatcher);
+                body();
+            }
+            catch (Exception ex) { failure = ex is System.Reflection.TargetInvocationException t && t.InnerException != null ? t.InnerException : ex; }
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "the STA thread did not finish");
+        if (failure != null) throw failure;
+    }
+
+    private static void EndAtuForTeardown(MainWindow main) =>
+        typeof(MainWindow).GetMethod("EndAtuForTeardown", Any)!.Invoke(main, null);
+
+    /// <summary>
+    /// #1183: a disconnect during a real automatic cycle stops the 15 s
+    /// timer, so nothing says "ATU tune timed out" about a radio that is gone,
+    /// and resets the transmit episode's ATU note.
+    /// </summary>
+    [Fact]
+    public void A_disconnect_mid_cycle_stops_the_ATU_timer_and_resets_the_ATU_note()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        Handle(main, (Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress, FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress));
+        Assert.NotNull(AtuTimer(main));   // positive control: a real cycle armed it
+        Assert.True(AtuNoted());
+
+        OnSta(main, () => EndAtuForTeardown(main));
+
+        Assert.Null(AtuTimer(main));
+        Assert.False(AtuNoted(), "the ATU note must not outlive its connection");
+    }
+
+    /// <summary>
+    /// #1183: an ATU status raised on FlexLib's thread is queued to the UI
+    /// thread. Queued before the radio's events are unwired, it belongs to
+    /// that connection and must not re-arm the timer or the note when it runs
+    /// (the auto-connect retry path wires the next rig before it would run).
+    /// Without the unwire the same queued status arms both, the positive
+    /// control.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void An_ATU_status_queued_before_the_unwire_is_dropped_when_it_runs(bool unwiredBeforeItRuns)
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        RadioAtuStatus(Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress);
+        OnSta(main, () =>
+        {
+            var handler = typeof(MainWindow).GetMethod("FlexAntTuneStartStopHandler", Any)!;
+            var arg = new FlexBase.FlexAntTunerArg(FlexBase.FlexTunerTypes.auto, Flex.Smoothlake.FlexLib.ATUTuneStatus.InProgress, 1.1f);
+            // FlexLib's read thread: not the window's, so the handler queues itself.
+            var raiser = new System.Threading.Thread(() => handler.Invoke(main, new object[] { arg }));
+            raiser.Start();
+            Assert.True(raiser.Join(TimeSpan.FromSeconds(10)));
+            Assert.Null(AtuTimer(main));   // queued, not yet run
+            if (unwiredBeforeItRuns) EndAtuForTeardown(main);
+            // Let the queued call run.
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => { },
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        });
+        if (unwiredBeforeItRuns)
+        {
+            Assert.Null(AtuTimer(main));
+            Assert.False(AtuNoted());
+        }
+        else
+        {
+            Assert.NotNull(AtuTimer(main));
+            Assert.True(AtuNoted());
+        }
+    }
+
+    /// <summary>
+    /// #1183's wiring: the teardown sits right after the push-to-talk
+    /// controller lets go of the rig, with nothing reordered around it; and
+    /// the 15 s timeout deliberately does NOT clear the ATU note, because the
+    /// radio may still be tuning when a UI timer fires.
+    /// </summary>
+    [Fact]
+    public void The_unwire_ends_the_ATU_after_the_controller_lets_go_and_the_timeout_leaves_the_note()
+    {
+        string main = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs")).Replace("\r\n", "\n");
+        int unwire = main.IndexOf("public void UnwireRadioEvents()", StringComparison.Ordinal);
+        int release = main.IndexOf("_pttController?.ReleaseRigForTeardown(\"radio events unwired\");", unwire, StringComparison.Ordinal);
+        int end = main.IndexOf("EndAtuForTeardown();", unwire, StringComparison.Ordinal);
+        int check = main.IndexOf("Dialogs.CheckYourAudioDialog.EndCheckBeforeTeardown(RigControl);", unwire, StringComparison.Ordinal);
+        Assert.True(unwire > 0 && release > unwire && end > release && check > end,
+            "EndAtuForTeardown follows ReleaseRigForTeardown and precedes the Check your audio teardown");
+
+        int body = main.IndexOf("private void EndAtuForTeardown()", StringComparison.Ordinal);
+        string teardown = main.Substring(body, main.IndexOf("\n    }\n", body, StringComparison.Ordinal) - body);
+        Assert.Contains("StopATUTimeout();", teardown);
+        Assert.Contains("EarconPlayer.StopATUProgressEarcon();", teardown);
+        Assert.Contains("_pttController?.NoteAtuTuning(false);", teardown);
+
+        int start = main.IndexOf("private void StartATUTimeout()", StringComparison.Ordinal);
+        string timeout = main.Substring(start, main.IndexOf("\n    }\n", start, StringComparison.Ordinal) - start);
+        Assert.DoesNotContain("NoteAtuTuning(", timeout);
+    }
+
     /// <summary>
     /// A carrier's stop ends any ATU episode with it, by either stop: the
     /// tune key's and the carrier toggle's.
