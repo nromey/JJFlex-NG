@@ -3094,7 +3094,14 @@ public partial class MainWindow : UserControl
         if (DoCommandHandler != null)
         {
             var winFormsKey = WpfKeyConverter.ToWinFormsKeys(e);
-            if (winFormsKey != System.Windows.Forms.Keys.None && DoCommandHandler(winFormsKey))
+            // The registry takes the chord only, so the key event's repeat flag
+            // is held here for the tune key's press gate while the command runs
+            // (batch 14 repair 12): a genuine key repeat then does nothing.
+            bool handled;
+            _registryKeyIsRepeat = e.IsRepeat;
+            try { handled = winFormsKey != System.Windows.Forms.Keys.None && DoCommandHandler(winFormsKey); }
+            finally { _registryKeyIsRepeat = false; }
+            if (handled)
             {
                 e.Handled = true;
                 return;
@@ -7393,7 +7400,7 @@ public partial class MainWindow : UserControl
         if (!_tunePressDecided)
         {
             bool ours = RigControl.TuneAskedOrUp;
-            switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, ours, () => true))
+            switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: _registryKeyIsRepeat, ours, () => true))
             {
                 case Radios.PressAct.Stop:
                     Tracing.TraceLine("TuneToggle: our tune carrier is up or asked; the press turns it off", TraceLevel.Info);
@@ -7751,7 +7758,7 @@ public partial class MainWindow : UserControl
         // tuner latch is set. Read once, with the carrier flag the caller
         // passed in; the stop is decided from these alone.
         bool latched = RigControl.FlexTunerOn;
-        switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: false, ours || latched, () => true))
+        switch ((_tuneKeyPress ??= new Radios.FreshPressGate()).Decide(TuneKeyClock(), isRepeat: _registryKeyIsRepeat, ours || latched, () => true))
         {
             case Radios.PressAct.Stop:
                 Tracing.TraceLine("TuneKey: our tune carrier or ATU tune is up or asked; the tune key turns it off"
@@ -7815,6 +7822,19 @@ public partial class MainWindow : UserControl
 
     /// <summary>The tune key's press gate, for every type; see <see cref="TunePressFor"/>.</summary>
     private Radios.FreshPressGate? _tuneKeyPress;
+
+    /// <summary>
+    /// The repeat flag of the key event the command registry is running a
+    /// command for, false otherwise (batch 14 repair 12, Codex's F1 on
+    /// 961e5a9c). The registry route passes the chord alone, so the tune key's
+    /// gate saw every key-down as a fresh press: a held Ctrl+Shift+T stopped
+    /// its own carrier at the first repeat (the bench measured 519 ms). A
+    /// genuine repeat (NVDA's held key) now does nothing, so the carrier stays
+    /// up while the key is held. JAWS's down/up pairs carry no repeat flag and
+    /// cannot be told from a deliberate quick second press, and a stop is never
+    /// refused, so a pair still stops it.
+    /// </summary>
+    private bool _registryKeyIsRepeat;
 
     /// <summary>The clock the tune key's press gate reads; a test stands in for it.</summary>
     internal static Func<long> TuneKeyClock = () => Environment.TickCount64;

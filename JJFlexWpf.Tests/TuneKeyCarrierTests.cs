@@ -1135,7 +1135,7 @@ public sealed class TuneKeyCarrierTests : IDisposable
         int at = src.IndexOf("private void TunePressFor(bool ours)", StringComparison.Ordinal);
         string body = src.Substring(at, src.IndexOf("Radios.TunePress.For(", at, StringComparison.Ordinal) - at);
         Assert.Contains("bool latched = RigControl.FlexTunerOn;", body);
-        Assert.Contains(".Decide(TuneKeyClock(), isRepeat: false, ours || latched, () => true)", body);
+        Assert.Contains(".Decide(TuneKeyClock(), isRepeat: _registryKeyIsRepeat, ours || latched, () => true)", body);
         int stop = body.IndexOf("case Radios.PressAct.Stop:", StringComparison.Ordinal);
         string stopArm = body.Substring(stop, body.IndexOf("case Radios.PressAct.Nothing:", stop, StringComparison.Ordinal) - stop);
         Assert.Contains("RigControl.FlexTunerOn = false;", stopArm);
@@ -1158,20 +1158,70 @@ public sealed class TuneKeyCarrierTests : IDisposable
     }
 
     /// <summary>
-    /// A held Ctrl+Shift+T (or a held press on the Tune carrier button):
-    /// NVDA's repeat key-downs, the first at the keyboard's repeat delay, or
-    /// JAWS-style down/up pairs about 250 ms apart. The bench measured the
-    /// first repeat turning the carrier off at 0.52 s, and a longer hold
-    /// would go on keying and unkeying. Now it is the tune key's rule: the
-    /// press keys once, the first repeat stops it (the safe direction), and
-    /// nothing after that starts it again until the key has rested.
+    /// One key-down through the command registry's route, as MainWindow's key
+    /// handler runs it: the key event's repeat flag held for the command
+    /// (batch 14 repair 12).
+    /// </summary>
+    private static void KeyDown(MainWindow main, bool isRepeat, Action command)
+    {
+        var flag = typeof(MainWindow).GetField("_registryKeyIsRepeat", Any);
+        Assert.NotNull(flag);
+        flag!.SetValue(main, isRepeat);
+        try { Record.Exception(command); }
+        finally { flag.SetValue(main, false); }
+    }
+
+    /// <summary>
+    /// NVDA's held Ctrl+Shift+T: one key-down, then key-downs flagged as
+    /// repeats, the first at the keyboard's repeat delay. The carrier keys on
+    /// the press and STAYS UP while the key is held; the bench measured it
+    /// stopping at the first repeat (519 ms) before this repair. Released and
+    /// pressed again, the second press stops it.
+    /// </summary>
+    [Fact]
+    public void A_held_Ctrl_Shift_T_keeps_its_carrier_up_while_held_and_a_second_press_stops_it()
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        DebounceSpent(main);
+
+        KeyDown(main, isRepeat: false, main.ToggleTuneCarrier);
+        Assert.True(_rig.TuneAskedOrUp, "the press keys the carrier");
+
+        foreach (int gap in new[] { 512, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33 })
+        {
+            _now += gap;
+            DebounceSpent(main);   // the gate alone must hold
+            KeyDown(main, isRepeat: true, main.ToggleTuneCarrier);
+            Assert.True(_rig.TuneAskedOrUp, "a genuine repeat of the held key leaves the carrier up");
+            Assert.True(LastWriteWasOn());
+        }
+
+        // Released, then a deliberate second press: the stop.
+        _now += 300;
+        KeyDown(main, isRepeat: false, main.ToggleTuneCarrier);
+        Assert.False(_rig.TuneAskedOrUp, "a second press stops the carrier");
+
+        // Rested: a new press keys it again.
+        _now += FreshPressGate.SameChordWindowMs + 1;
+        DebounceSpent(main);
+        KeyDown(main, isRepeat: false, main.ToggleTuneCarrier);
+        Assert.True(_rig.TuneAskedOrUp, "positive control: a rested press keys the carrier");
+    }
+
+    /// <summary>
+    /// JAWS-style pairs (down/up about 250 ms apart, the first at the repeat
+    /// delay) carry no repeat flag and cannot be told from a deliberate quick
+    /// second press, and a stop is never refused. So, as decided for this
+    /// repair: the first pair stops the carrier, and no later pair keys it
+    /// again while the key is held. The same holds for the Tune carrier button,
+    /// which a reader or a held Enter reaches with no repeat flag.
     /// </summary>
     [Theory]
-    [InlineData(true, new[] { 512, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33 })]
-    [InlineData(true, new[] { 512, 250, 250, 250, 250, 250, 250 })]
-    [InlineData(false, new[] { 512, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33 })]
-    [InlineData(false, new[] { 512, 250, 250, 250, 250, 250, 250 })]
-    public void A_held_carrier_toggle_keys_once_and_never_keys_again_while_held(bool button, int[] gapsMs)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Pairs_with_no_repeat_flag_stop_the_carrier_at_the_first_pair_and_never_key_it_again(bool button)
     {
         RadioFor();
         ManualTypeWithNoAtu();
@@ -1179,30 +1229,68 @@ public sealed class TuneKeyCarrierTests : IDisposable
         DebounceSpent(main);
 
         ToggleBy(main, button);
-        Assert.True(_rig.TuneAskedOrUp, "the press keys the carrier");
-        Assert.True(LastWriteWasOn());
+        Assert.True(_rig.TuneAskedOrUp);
 
         int ons = 0, offs = 0;
         bool up = true;
-        foreach (int gap in gapsMs)
+        foreach (int gap in new[] { 512, 250, 250, 250, 250, 250, 250 })
         {
             _now += gap;
-            DebounceSpent(main);   // the toggle's own 500 ms debounce spent: the gate alone must hold
+            DebounceSpent(main);
             ToggleBy(main, button);
             bool nowUp = _rig.TuneAskedOrUp;
             if (nowUp && !up) ons++;
             if (!nowUp && up) offs++;
             up = nowUp;
         }
-        Assert.Equal(1, offs);   // the first repeat stops it: the safe direction
-        Assert.Equal(0, ons);    // and nothing keys it again while the key is held
-        Assert.False(_rig.TuneAskedOrUp);
+        Assert.Equal(1, offs);   // stop wins at the first pair
+        Assert.Equal(0, ons);    // and nothing keys it again while held
 
-        // Rested: a new press keys it again.
         _now += FreshPressGate.SameChordWindowMs + 1;
         DebounceSpent(main);
         ToggleBy(main, button);
         Assert.True(_rig.TuneAskedOrUp, "positive control: a rested press keys the carrier");
+    }
+
+    /// <summary>
+    /// The same flag reaches Ctrl+T: held from rest in automatic type, the
+    /// press starts the ATU tune and its genuine repeats leave it running
+    /// (they used to stop it at the first repeat). A second press stops it.
+    /// </summary>
+    [Fact]
+    public void A_held_Ctrl_T_from_rest_in_automatic_type_keeps_its_start()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+
+        KeyDown(main, isRepeat: false, main.StartATUTuneCycle);
+        Assert.True(_rig.FlexTunerOn, "the press starts the ATU tune");
+        RadioCarrierFlag(true);   // the radio raises its own carrier during the tune
+
+        foreach (int gap in new[] { 512, 33, 33, 33, 33, 33 })
+        {
+            _now += gap;
+            KeyDown(main, isRepeat: true, main.StartATUTuneCycle);
+            Assert.True(_rig.FlexTunerOn, "a genuine repeat leaves the ATU tune running");
+        }
+
+        _now += 300;
+        KeyDown(main, isRepeat: false, main.StartATUTuneCycle);
+        Assert.False(_rig.FlexTunerOn, "a second press stops it");
+    }
+
+    [Fact]
+    public void The_registry_route_carries_the_key_events_repeat_flag_to_the_gates()
+    {
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs"));
+        int at = src.IndexOf("// 4. Route through scope-aware KeyCommands registry", StringComparison.Ordinal);
+        string route = src.Substring(at, src.IndexOf("// 5. Fall through", at, StringComparison.Ordinal) - at);
+        Assert.Contains("_registryKeyIsRepeat = e.IsRepeat;", route);
+        Assert.Contains("finally { _registryKeyIsRepeat = false; }", route);
+        Assert.True(route.IndexOf("_registryKeyIsRepeat = e.IsRepeat;", StringComparison.Ordinal) < route.IndexOf("DoCommandHandler(winFormsKey)", StringComparison.Ordinal));
+        Assert.Equal(2, src.Split("isRepeat: _registryKeyIsRepeat,").Length - 1);   // TunePressFor and ToggleTuneCarrier
+        Assert.DoesNotContain(".Decide(TuneKeyClock(), isRepeat: false,", src);
     }
 
     /// <summary>A stop through the toggle is immediate: it is never refused, even a moment after the start.</summary>
@@ -1219,5 +1307,43 @@ public sealed class TuneKeyCarrierTests : IDisposable
         ToggleBy(main, button: false);
         Assert.False(_rig.TuneAskedOrUp, "the stop went through at once");
         Assert.False(LastWriteWasOn());
+    }
+
+    // ---- batch 14 repair 11 (Codex's B1 on db03106b: a stop revokes an automatic start not yet written) ----
+
+    private long AtuStartGeneration() => (long)typeof(FlexBase).GetField("_atuStartGen", Any)!.GetValue(_rig)!;
+
+    /// <summary>
+    /// Through each door (the Tune button, Ctrl+T, and the menu's Start tune,
+    /// which is Ctrl+T's entry), an automatic start then a stop: the stop moves
+    /// the automatic start's generation, which is what keeps its queued key
+    /// and "atu start" from being written (Radios.Tests' AtuStartRevokeTests
+    /// drains the real queue against the vendor transport to show that).
+    /// </summary>
+    [Theory]
+    [InlineData("button")]
+    [InlineData("ctrl+t")]
+    [InlineData("menu")]
+    public void Every_door_s_stop_revokes_the_automatic_start_it_follows(string door)
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        void Press_()
+        {
+            if (door == "button") ButtonClick(main);
+            else Record.Exception(main.StartATUTuneCycle);
+        }
+
+        long before = AtuStartGeneration();
+        Press_();
+        Assert.True(_rig.FlexTunerOn, "positive control: the press asked for an automatic start");
+        long start = AtuStartGeneration();
+        Assert.True(start > before, "the start took a generation");
+
+        _now += 200;   // inside the gate's window: a stop is never refused
+        Press_();
+        Assert.False(_rig.FlexTunerOn);
+        Assert.True(AtuStartGeneration() > start, "the stop revoked the start's writes not yet sent");
     }
 }
