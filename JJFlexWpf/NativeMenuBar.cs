@@ -1147,7 +1147,10 @@ public class NativeMenuBar : IDisposable
                 SayFilterWrite(newLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.range", ("low", l), ("high", h)));
             }
         });
-        AddWired(parent, "Shift Low Edge Up", () =>
+        // #960, Codex's words: a label that begins with a modifier word
+        // ("Shift Low Edge Up") is read by Windows' menu UI Automation as a
+        // shortcut, so its Name came out empty. "Move" is the plain verb.
+        AddWired(parent, "Move Low Edge Up", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             int newLow = Rig.FilterLow + filterStep;
@@ -1161,7 +1164,7 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.at_minimum"));
             }
         });
-        AddWired(parent, "Shift Low Edge Down", () =>
+        AddWired(parent, "Move Low Edge Down", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             var (lowMin, _) = GetFilterBounds();
@@ -1176,7 +1179,7 @@ public class NativeMenuBar : IDisposable
                 SayFilterWrite(newLow, Rig.FilterHigh, (l, h) => Radios.Lexicon.Get("audio.filter.low_edge", ("low", l)));
             }
         });
-        AddWired(parent, "Shift High Edge Up", () =>
+        AddWired(parent, "Move High Edge Up", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             var (_, highMax) = GetFilterBounds();
@@ -1191,7 +1194,7 @@ public class NativeMenuBar : IDisposable
                 SayFilterWrite(Rig.FilterLow, newHigh, (l, h) => Radios.Lexicon.Get("audio.filter.high_edge", ("high", h)));
             }
         });
-        AddWired(parent, "Shift High Edge Down", () =>
+        AddWired(parent, "Move High Edge Down", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             int low = Rig.FilterLow;
@@ -1219,15 +1222,16 @@ public class NativeMenuBar : IDisposable
             AddSep(parent);
             string mode = Rig.Mode ?? "USB";
             var presets = FilterPresets.GetPresetsForMode(mode);
-            int activeIdx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
 
             for (int i = 0; i < presets.Count; i++)
             {
                 var preset = presets[i];
-                string label = preset.FormatForDisplay();
-                if (i == activeIdx)
-                    label = $"\u2713 {label}"; // Unicode checkmark prefix
-                AddWired(parent, label, () =>
+                int index = i;
+                // #960: the active preset is checked natively, one of a group,
+                // read at the moment the menu opens. It was a literal check-mark
+                // character in the label, which a screen reader speaks, and
+                // which set no checked state at all.
+                AddRadioChecked(parent, preset.FormatForDisplay(), () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     string currentMode = Rig.Mode ?? "USB";
@@ -1235,7 +1239,7 @@ public class NativeMenuBar : IDisposable
                     // it, from what the filter became (#747 rounds four and five).
                     var rig = Rig;   // the originating rig, from the request (round eleven)
                     rig.ApplyFilterPreset(preset, currentMode, (said, applied) => SpeakAfterMenuClose(said, stillTrue: FilterStillIs(rig, applied)));
-                });
+                }, () => Rig != null && FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh) == index);   // the mode these rows were built for
             }
         }
 
