@@ -1069,4 +1069,42 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Assert.False(_rig.TuneAskedOrUp, "the stop went through at once");
         Assert.False(LastWriteWasOn());
     }
+
+    // ---- batch 14 repair 11 (Codex's B1 on db03106b: a stop revokes an automatic start not yet written) ----
+
+    private long AtuStartGeneration() => (long)typeof(FlexBase).GetField("_atuStartGen", Any)!.GetValue(_rig)!;
+
+    /// <summary>
+    /// Through each door (the Tune button, Ctrl+T, and the menu's Start tune,
+    /// which is Ctrl+T's entry), an automatic start then a stop: the stop moves
+    /// the automatic start's generation, which is what keeps its queued key
+    /// and "atu start" from being written (Radios.Tests' AtuStartRevokeTests
+    /// drains the real queue against the vendor transport to show that).
+    /// </summary>
+    [Theory]
+    [InlineData("button")]
+    [InlineData("ctrl+t")]
+    [InlineData("menu")]
+    public void Every_door_s_stop_revokes_the_automatic_start_it_follows(string door)
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+        void Press_()
+        {
+            if (door == "button") ButtonClick(main);
+            else Record.Exception(main.StartATUTuneCycle);
+        }
+
+        long before = AtuStartGeneration();
+        Press_();
+        Assert.True(_rig.FlexTunerOn, "positive control: the press asked for an automatic start");
+        long start = AtuStartGeneration();
+        Assert.True(start > before, "the start took a generation");
+
+        _now += 200;   // inside the gate's window: a stop is never refused
+        Press_();
+        Assert.False(_rig.FlexTunerOn);
+        Assert.True(AtuStartGeneration() > start, "the stop revoked the start's writes not yet sent");
+    }
 }

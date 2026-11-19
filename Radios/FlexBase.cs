@@ -10378,9 +10378,13 @@ namespace Radios
                     case FlexTunerTypes.auto:
                         {
                             // Normally tuning stops automatically when finished.
-                            q.Enqueue((FunctionDel)(() => { Transmit = value; }), "Transmit");
+                            // Batch 14 repair 11: a later change of the latch (a
+                            // stop) revokes this start's writes not yet sent
+                            // (FlexBase.AtuStartRevoke.cs). The unkey always goes.
+                            long atuGen = NextAtuStartGeneration();
                             if (value)
                             {
+                                q.Enqueue((FunctionDel)(() => WriteAtuStartIfCurrent(atuGen, "the key", () => { _atuKeyQueuedFor = atuGen; Transmit = true; })), "Transmit");
                                 q.Enqueue((FunctionDel)(() =>
                                 {
                                     if (TeardownHeldSilently("automatic tuner start"))
@@ -10388,9 +10392,10 @@ namespace Radios
                                         _FlexTunerOn = false;
                                         return;
                                     }
-                                    theRadio.ATUTuneStart();
+                                    WriteAtuStartIfCurrent(atuGen, "atu start", () => theRadio.ATUTuneStart());
                                 }), "ATUTuneStart");
                             }
+                            else q.Enqueue((FunctionDel)(() => { Transmit = false; }), "Transmit");
                         }
                         break;
                 }
