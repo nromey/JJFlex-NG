@@ -547,7 +547,9 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         string main = Source("JJFlexWpf", "MainWindow.xaml.cs");
         foreach (string signature in new[]
         {
-            "private void AntennaTuneButton_Click(object sender, RoutedEventArgs e)",
+            // #1144: the Tune button and the toolbar's ATU Tune share
+            // TuneDoorPress, whose automatic toggle asks before the latch.
+            "private void TuneDoorPress()",
             "public void StartATUTuneCycle()",
         })
         {
@@ -555,9 +557,16 @@ public sealed class ZeroPowerDoorsTests : IDisposable
             Assert.True(body.IndexOf("TunerStartRefused()", StringComparison.Ordinal) >= 0
                 && body.IndexOf("TunerStartRefused()", StringComparison.Ordinal) < body.IndexOf("RigControl.FlexTunerOn", StringComparison.Ordinal), signature);
         }
+        // Every other road from the two doors goes through StartATUTuneCycle,
+        // checked above; neither door touches the latch itself any more.
+        string button = Body(main, "private void AntennaTuneButton_Click(object sender, RoutedEventArgs e)");
+        Assert.Contains("TuneDoorPress();", button);
+        Assert.DoesNotContain("FlexTunerOn", button);
         string toolbar = Body(main, "private void ExecuteActionToolbarItem(string item)");
-        Assert.True(toolbar.IndexOf("if (TunerStartRefused()) break;", StringComparison.Ordinal)
-            < toolbar.IndexOf("RigControl.FlexTunerOn = !RigControl.FlexTunerOn;", StringComparison.Ordinal));
+        Assert.Contains("TuneDoorPress();", toolbar);
+        Assert.DoesNotContain("FlexTunerOn", toolbar);
+        string door = Body(main, "private void TuneDoorPress()");
+        Assert.True(door.IndexOf("StartATUTuneCycle();", StringComparison.Ordinal) > door.IndexOf("RigControl.FlexTunerOn = !RigControl.FlexTunerOn;", StringComparison.Ordinal));
     }
 
     [Fact]

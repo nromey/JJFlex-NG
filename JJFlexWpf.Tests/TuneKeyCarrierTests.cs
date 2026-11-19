@@ -332,4 +332,81 @@ public sealed class TuneKeyCarrierTests : IDisposable
         Assert.False(_rig.FlexTunerOn, "no tuner latch, so no ATU cycle was asked for");
         Assert.DoesNotContain(Lexicon.Get("audio.tune.atu_tuning"), said);
     }
+
+    private static void Door(MainWindow main) =>
+        Record.Exception(() => typeof(MainWindow).GetMethod("TuneDoorPress", Any)!.Invoke(main, null));
+
+    private static void Toolbar(MainWindow main) =>
+        Record.Exception(() => typeof(MainWindow).GetMethod("ExecuteActionToolbarItem", Any)!.Invoke(main, new object[] { "ATU Tune" }));
+
+    private void Automatic()
+    {
+        typeof(FlexBase).GetField("_FlexTunerType", Any)!.SetValue(_rig, FlexBase.FlexTunerTypes.auto);
+        _rig.MyCaps.getCaps = _rig.MyCaps.SetCap(_rig.MyCaps.getCaps, RigCaps.Caps.ATGet);
+    }
+
+    /// <summary>
+    /// #1144: out of automatic type the Tune button and the toolbar's ATU Tune
+    /// are the tune key's press: a plain tune carrier, no tuner latch, and the
+    /// next press turns it off. Until then both set the latch in manual type.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Out_of_automatic_type_both_tune_doors_are_the_tune_carrier_and_its_stop(bool button)
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+
+        if (button) Door(main); else Toolbar(main);
+        Assert.True(_rig.TuneAskedOrUp, "the door asks for a tune carrier");
+        Assert.False(_rig.FlexTunerOn, "and sets no tuner latch");
+        Assert.True(TuneCarrierNoted(), "through the toggle, which tells the transmit episode");
+
+        _now += 400;
+        if (button) Door(main); else Toolbar(main);
+        Assert.False(_rig.TuneAskedOrUp, "the next press turns it off");
+        Assert.False(_rig.FlexTunerOn);
+    }
+
+    /// <summary>
+    /// In automatic type the two doors keep the toggle they had: they are the
+    /// only screen controls that stop an ATU cycle (a press with the latch set
+    /// clears it, which queues the unkey).
+    /// </summary>
+    [Fact]
+    public void In_automatic_type_a_door_still_starts_and_stops_the_ATU_cycle()
+    {
+        RadioFor();
+        Automatic();
+        var main = Window();
+
+        Door(main);
+        Assert.True(_rig.FlexTunerOn, "a press starts the ATU cycle");
+        Assert.False(_rig.TuneAskedOrUp, "not a tune carrier");
+
+        Toolbar(main);
+        Assert.False(_rig.FlexTunerOn, "a press during the cycle stops it");
+    }
+
+    /// <summary>
+    /// In automatic type with our tune carrier up (Ctrl+Shift+T), a door stops
+    /// the carrier rather than starting an ATU cycle on top of it (#1141's rule).
+    /// </summary>
+    [Fact]
+    public void In_automatic_type_a_door_stops_our_carrier_before_anything_else()
+    {
+        RadioFor();
+        ManualTypeWithNoAtu();
+        var main = Window();
+        Press(main);
+        Assert.True(_rig.TuneAskedOrUp);
+        Automatic();
+
+        _now += 400;
+        Door(main);
+        Assert.False(_rig.TuneAskedOrUp);
+        Assert.False(_rig.FlexTunerOn);
+    }
 }

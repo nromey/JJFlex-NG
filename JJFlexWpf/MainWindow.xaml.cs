@@ -7222,7 +7222,7 @@ public partial class MainWindow : UserControl
     #region Radio Control Button Handlers — Phase 8.2
 
     /// <summary>
-    /// Antenna Tune button — toggles FlexTunerOn.
+    /// Antenna Tune button: the tune doors' one rule (<see cref="TuneDoorPress"/>).
     /// </summary>
     private void AntennaTuneButton_Click(object sender, RoutedEventArgs e)
     {
@@ -7231,9 +7231,39 @@ public partial class MainWindow : UserControl
             Tracing.TraceLine("antennaTune: no power", TraceLevel.Error);
             return;
         }
-        if (TunerStartRefused()) return;
-        _oldSwr = "";
-        RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
+        TuneDoorPress();
+    }
+
+    /// <summary>
+    /// The Tune button and the action toolbar's ATU Tune (#1144). Out of
+    /// automatic type, or with our tune carrier asked for or up, a press is the
+    /// tune key's own press (<see cref="StartATUTuneCycle"/>): a plain tune
+    /// carrier, which the next press turns off, as J4 ruled for Ctrl+T. Until
+    /// then these two doors still set the tuner latch in manual type, the
+    /// behaviour J4 and #327 ended for Ctrl+T.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Automatic type keeps the doors' toggle.</b> These two doors are
+    /// the only screen controls that can stop an ATU cycle: a press during one
+    /// clears the latch, which queues the unkey. The tune key answers a latched
+    /// press in automatic type with "already tuning" and sends nothing, so
+    /// routing these through it would leave a door that can start a cycle and
+    /// not stop it.</para>
+    /// <para>In manual type "ATU Tune" and "Start Tune Carrier" on the toolbar
+    /// are now one action. The <c>FlexBase.FlexTunerOn</c> manual branch is no
+    /// longer reached from the UI.</para>
+    /// </remarks>
+    private void TuneDoorPress()
+    {
+        var outcome = Radios.TunePress.For(RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet), RigControl.FlexTunerType);
+        if (outcome == Radios.TunePressOutcome.AtuTune && !RigControl.TuneAskedOrUp)
+        {
+            if (TunerStartRefused()) return;
+            _oldSwr = "";
+            RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
+            return;
+        }
+        StartATUTuneCycle();
     }
 
     /// <summary>
@@ -7774,8 +7804,7 @@ public partial class MainWindow : UserControl
         switch (item)
         {
             case "ATU Tune":
-                if (TunerStartRefused()) break;
-                RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
+                TuneDoorPress();   // #1144
                 break;
             case "Start Tune Carrier":
             case "Stop Tune Carrier":

@@ -1,0 +1,1 @@
+- The Tune button beside the frequency and the action list's ATU Tune now work like the tune key: with the radio's tuner bypassed, a press sends a plain tune carrier and the next press turns it off. With the tuner on automatic they start and stop the tuner's own tuning, as before.
