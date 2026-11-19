@@ -805,5 +805,25 @@ namespace Radios.Speech
 
         /// <summary>The noise layer's T: the keys now act on transmit, or on receive again. The newest covers an unheard older one.</summary>
         public const string NoiseLayerDirection = "noise-layer-direction";
+
+        // ── PC-audio streams that died on their own (#1145) ──
+
+        /// <summary>
+        /// The computer microphone's stream ended on its own and was restarted
+        /// (said only while keyed) or could not be restarted (said once). The
+        /// newest statement about the microphone stream covers an unheard
+        /// older one, so a "restarted" still queued never plays after "could
+        /// not be restarted". Separate from <see cref="PcAudio"/>, which says
+        /// whether PC audio is on at all, and that has not changed.
+        /// </summary>
+        public const string PcMicStream = "pc-mic-stream";
+
+        /// <summary>
+        /// The computer receive playback's stream ended on its own and was
+        /// restarted (said only while keyed) or could not be restarted (said
+        /// once). The receive twin of <see cref="PcMicStream"/>; neither covers
+        /// the other.
+        /// </summary>
+        public const string PcSpeakerStream = "pc-speaker-stream";
     }
 }

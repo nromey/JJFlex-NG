@@ -232,6 +232,14 @@ namespace POpusCodec
         [DllImport("libopus.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int opus_packet_get_nb_channels(byte[] data);
 
+        // #1155: read a packet's length and redundancy without decoding it.
+        // Both are exported by the shipped libopus.dll on x64 and x86.
+        [DllImport("libopus.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int opus_packet_get_nb_samples(byte[] packet, int len, int Fs);
+
+        [DllImport("libopus.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int opus_packet_has_lbrr(byte[] packet, int len);
+
         [DllImport("libopus.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern IntPtr opus_strerror(OpusStatusCode error);
 

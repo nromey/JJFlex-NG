@@ -38,11 +38,28 @@ namespace JJPortaudio
         public static bool IsOpusRate(uint rate) => AudioAnchor.isOpusRate(rate);
 
         /// <summary>
+        /// The receive tail every decoded buffer passes through, real packet,
+        /// concealed frame or FEC-recovered frame alike (#1155). The three
+        /// properties below are forwards to it, so their callers are
+        /// unchanged.
+        /// </summary>
+        private readonly RxOpusChain _rx;
+
+        public JJAudioStream()
+        {
+            _rx = new RxOpusChain(buf => aud.TheQ.Enqueue(buf), () => SampleRate);
+        }
+
+        /// <summary>
         /// Output gain scalar applied to decoded audio samples.
         /// 1.0 = unity (no change), 2.0 = +6dB boost, etc.
         /// Default is 1.0 (no gain applied).
         /// </summary>
-        public float OutputGain { get; set; } = 1.0f;
+        public float OutputGain
+        {
+            get { return _rx.OutputGain; }
+            set { _rx.OutputGain = value; }
+        }
 
         /// <summary>
         /// Optional audio processing delegate invoked on decoded PCM samples
@@ -51,10 +68,18 @@ namespace JJPortaudio
         /// The delegate receives the float[] buffer to process in-place.
         /// Called from the remoteAudioProc thread.
         /// </summary>
-        public Action<float[]>? PostDecodeProcessor { get; set; }
+        public Action<float[]>? PostDecodeProcessor
+        {
+            get { return _rx.PostDecodeProcessor; }
+            set { _rx.PostDecodeProcessor = value; }
+        }
 
         /// <summary>Observer of the final receive samples; it must return without blocking.</summary>
-        public Action<float[]>? PostOutputObserver { get; set; }
+        public Action<float[]>? PostOutputObserver
+        {
+            get { return _rx.PostOutputObserver; }
+            set { _rx.PostOutputObserver = value; }
+        }
 
         /// <summary>
         /// Audio Track C: optional TX injection source for input streams.
@@ -136,6 +161,36 @@ namespace JJPortaudio
         /// </summary>
         public static readonly uint[] OpusTxRates = { 48000, 24000, 16000, 12000, 8000 };
         /// <summary>
+        /// True while the stream is open in PortAudio. False before
+        /// <see cref="OpenOpus"/>, after a failed open, and after the stream was
+        /// closed, which a failed <see cref="StartAudio"/> does (#1145). Ask
+        /// this rather than finding out by exception.
+        /// </summary>
+        public bool IsOpen => aud != null && aud.IsOpen;
+
+        /// <summary>
+        /// True when the stream ended on its own since it last started: its
+        /// callback aborted, or the device or driver failed under it (#1145).
+        /// Cleared when it starts again.
+        /// </summary>
+        public bool StreamDied => aud != null && aud.Died;
+
+        private Action? _diedHook;
+        /// <summary>
+        /// Called on PortAudio's thread when the stream dies. It must only
+        /// signal (the remote-audio loop's wake): it must not block, and must
+        /// not call back into this stream. Kept across an open.
+        /// </summary>
+        public Action? StreamDiedHook
+        {
+            get { return _diedHook; }
+            set { _diedHook = value; if (aud != null) aud.DiedHook = value; }
+        }
+
+        /// <summary>What is known about how the stream ended, for a trace line.</summary>
+        public string StreamEndDetail => aud?.EndDetail ?? "the stream was never opened";
+
+        /// <summary>
         /// true if stream is active.
         /// </summary>
         public bool IsActive { get { return aud.IsActive; } }
@@ -161,6 +216,7 @@ namespace JJPortaudio
         {
             Tracing.TraceLine("audioStream.open:" + inOut.ToString() + ' ' + rate, TraceLevel.Info);
             aud = new Audio();
+            aud.DiedHook = _diedHook;
             aud.WavInputHandler = inCallback;
             bool rv = aud.Open(inOut, rate, false, audioCallback, cbPerSec, null, streamName);
             if (!rv)
@@ -197,6 +253,7 @@ namespace JJPortaudio
 
             // Open the device.
             aud = new Audio();
+            aud.DiedHook = _diedHook;
             aud.OpusInputHandler = inCallback;
             if (!aud.Open(inOut, sampleRate, true, audioCallback, cbPerSec, profile, streamName))
             {
@@ -214,7 +271,10 @@ namespace JJPortaudio
         {
             Tracing.TraceLine("audioStream.Start", TraceLevel.Info);
             bool rv = aud.Start();
-            if (!rv)
+            // A start that timed out on an open stream closes it, as it always
+            // did. One REFUSED because the stream is already closed has
+            // nothing to close (#1145).
+            if (!rv && aud.IsOpen)
             {
                 aud.Finished();
             }
@@ -289,7 +349,7 @@ namespace JJPortaudio
             //
             // Nothing is lost by moving it: workItems.start clears the queue
             // again on the way in, so a restart still cannot play stale audio.
-            aud.TheQ.Clear();
+            aud.TheQ?.Clear(); // null once the stream is closed (#1145)
             return true;
         }
 
@@ -306,130 +366,25 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// Write opus data
+        /// Decode one receive packet and play it, through the shared receive
+        /// tail (<see cref="RxOpusChain"/>): gain, clamp, processing, the heard
+        /// tap, the meters, the queue.
         /// </summary>
-        /// <param name="data">byte array</param>
-        private int _peakLogCounter = 0;
-        private float _peakSinceLastLog = 0f;
-        private float _postPeakSinceLastLog = 0f;
-        // Track B, 2026-08-18 (#17): RMS alongside the peaks. A peak says how
-        // hot the loudest instant was; RMS says how loud the stream actually
-        // IS, which is the number an operator's "it sounds quiet" can be
-        // compared against. Accumulated across the same ~5 s window the peak
-        // log uses, raw (pre-gain) and measured output (post-gain,
-        // post-processing) separately, so the two RMS figures bracket the
-        // gain stage exactly as the two peaks do.
-        private double _rawSquaresSinceLastLog;
-        private double _postSquaresSinceLastLog;
-        private long _meterSamplesSinceLastLog;
-        // Short-term LUFS of what is actually playing (post-gain,
-        // post-processing) — the perceptual companion to the RMS figure,
-        // read from the 3-second window so it is meaningful at the 5-second
-        // log cadence. ShortTermLufs is a lock-free read; the gated
-        // IntegratedLufs (which locks and copies) is deliberately not used
-        // here — this runs on the remote-audio thread every 10 ms packet.
-        private readonly LufsMeter _outputLufs = new LufsMeter();
+        /// <param name="data">one Opus packet from the radio</param>
         public void WriteOpus(byte[] data)
         {
-            float[] buf = aud.Decoder.DecodePacketFloat(data);
+            _rx.WritePacket(aud.Decoder, data);
+        }
 
-            // Track peak and RMS level before gain for diagnostics
-            float prePeak = 0f;
-            double preSquares = 0;
-            for (int i = 0; i < buf.Length; i++)
-            {
-                float s = buf[i];
-                float abs = Math.Abs(s);
-                if (abs > prePeak) prePeak = abs;
-                preSquares += (double)s * s;
-            }
-
-            if (OutputGain != 1.0f)
-            {
-                // Hard limit at full scale. The gain used to be a bare multiply
-                // with no bounds check — safe at the historical fixed 4x on
-                // observed material (raw peaks ~0.02-0.10), but the gain is
-                // operator-adjustable now (Audio Arc Track A, up to +24 dB),
-                // and an unclamped boost on a hot source would wrap into harsh
-                // digital garbage. Clamping turns overdrive into ordinary
-                // clipping instead.
-                for (int i = 0; i < buf.Length; i++)
-                {
-                    float s = buf[i] * OutputGain;
-                    if (s > 1.0f) s = 1.0f;
-                    else if (s < -1.0f) s = -1.0f;
-                    buf[i] = s;
-                }
-            }
-
-            if (prePeak > _peakSinceLastLog) _peakSinceLastLog = prePeak;
-
-            // PC-side audio processing (NR, spectral subtraction, etc.)
-            PostDecodeProcessor?.Invoke(buf);
-            PostOutputObserver?.Invoke(buf);
-
-            // Measure what is actually going to the speakers, AFTER the gain,
-            // the limiter and any noise reduction — rather than computing it
-            // from the raw peak, which is what this used to do.
-            //
-            // Track E, 2026-08-16. This line is the instrument for the standing
-            // "decoded PC audio arrives too quiet" report, so it has to be
-            // trustworthy before anyone re-measures with it. Computing
-            // raw x gain silently omitted PostDecodeProcessor, which is where
-            // JJ Neural NR and Spectral NR run and which can move the level by
-            // a great deal — so on a machine with either of those turned on,
-            // the "output peak" in the trace was a number that never existed.
-            // Chasing a quiet-audio report with an instrument that reports a
-            // level nothing produced is worse than having no instrument.
-            float postPeak = 0f;
-            double postSquares = 0;
-            for (int i = 0; i < buf.Length; i++)
-            {
-                float s = buf[i];
-                float abs = Math.Abs(s);
-                if (abs > postPeak) postPeak = abs;
-                postSquares += (double)s * s;
-            }
-            if (postPeak > _postPeakSinceLastLog) _postPeakSinceLastLog = postPeak;
-            _rawSquaresSinceLastLog += preSquares;
-            _postSquaresSinceLastLog += postSquares;
-            _meterSamplesSinceLastLog += buf.Length;
-
-            // Perceptual loudness of the same post-everything audio. The
-            // meter wants the stream's real rate; before the stream reports
-            // one (0), skip rather than feed a lie.
-            uint meterRate = aud.SampleRate;
-            if (meterRate > 0) _outputLufs.Process(buf, buf.Length, meterRate);
-
-            // Every ~5 seconds, at ~100 packets/sec.
-            if (++_peakLogCounter >= 500)
-            {
-                // The limiter caps at full scale, so a raw peak that would have
-                // exceeded it is the clipping test — the measured peak cannot
-                // report clipping on its own, because the clamp is exactly what
-                // stops it going above 1.0.
-                bool clipped = (_peakSinceLastLog * OutputGain) > 1.0f;
-                long n = Math.Max(_meterSamplesSinceLastLog, 1);
-                double rawRmsDb = 10 * Math.Log10(_rawSquaresSinceLastLog / n + 1e-20);
-                double postRmsDb = 10 * Math.Log10(_postSquaresSinceLastLog / n + 1e-20);
-                float lufs = _outputLufs.ShortTermLufs;
-                Tracing.TraceLine($"OpusAudio: raw peak={_peakSinceLastLog:F4} "
-                    + $"({20 * Math.Log10(_peakSinceLastLog + 1e-10):F1} dBFS), raw RMS={rawRmsDb:F1} dBFS, "
-                    + $"gain={OutputGain:F1}x, "
-                    + $"measured output peak={_postPeakSinceLastLog:F4} "
-                    + $"({20 * Math.Log10(_postPeakSinceLastLog + 1e-10):F1} dBFS), "
-                    + $"output RMS={postRmsDb:F1} dBFS, output loudness={lufs:F1} LUFS"
-                    + $"{(PostDecodeProcessor != null ? ", post-decode processing ON" : "")}"
-                    + $"{(clipped ? " CLIPPED" : "")}", TraceLevel.Info);
-                _peakLogCounter = 0;
-                _peakSinceLastLog = 0f;
-                _postPeakSinceLastLog = 0f;
-                _rawSquaresSinceLastLog = 0;
-                _postSquaresSinceLastLog = 0;
-                _meterSamplesSinceLastLog = 0;
-            }
-
-            aud.TheQ.Enqueue(buf);
+        /// <summary>
+        /// Fill a short gap of lost receive frames that ended at
+        /// <paramref name="next"/>, before the caller plays <paramref name="next"/>
+        /// itself (#1155). See <see cref="RxOpusChain.FillGap"/>.
+        /// </summary>
+        public (int Concealed, int Recovered) FillGap(byte[] next, int missingFrames,
+            Action<int>? beforeEachFrame = null)
+        {
+            return _rx.FillGap(aud.Decoder, next, missingFrames, beforeEachFrame);
         }
 
         public float[] OpusDecode(byte[] buf)

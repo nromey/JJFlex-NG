@@ -2665,6 +2665,12 @@ namespace Radios.Tests
                 "settings.radio.register.confirm_body",
                 "settings.radio.unregister.confirm_body",
                 "settings.radio.way_in.set",
+                // #1145, receive-audio track 2026-11-18: a PC-audio stream that
+                // died, restarted or given up. Draft prose, awaiting Noel.
+                "audio.pc_audio.mic_stream_restarted",
+                "audio.pc_audio.mic_stream_gave_up",
+                "audio.pc_audio.speaker_stream_restarted",
+                "audio.pc_audio.speaker_stream_gave_up",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

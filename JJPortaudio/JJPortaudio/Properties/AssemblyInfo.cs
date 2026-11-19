@@ -6,6 +6,9 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("JJPortaudio")]
+// #1145: the stream-ending and closed-stream tests reach the engine's internal
+// Audio class without opening any device (Radios.Tests, RemoteAudioStreamEndTests).
+[assembly: InternalsVisibleTo("Radios.Tests")]
 [assembly: AssemblyDescription("Portaudio routines for JJRadio")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("JJShaffer.com")]

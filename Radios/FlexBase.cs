@@ -7740,6 +7740,10 @@ namespace Radios
             }
             if (_Transmit != oldTransmit)
             {
+                // #1156: wake the remote-audio loop so the transmit gate sees
+                // the key edge at once. Signalled directly, before the event,
+                // so a subscriber that throws cannot stop it being delivered.
+                SignalRemoteAudioWake();
                 raiseTransmitChange(_Transmit);
             }
         }

@@ -528,6 +528,19 @@ namespace Radios
         // it as a parameter, so no field can move under it.
         private long _remoteAudioRun;
 
+        // ── What the remote-audio loop waits on (#1156) ──
+        //
+        // Each run makes its own wake in a LOCAL and publishes it here so the
+        // signallers that are not the loop (noteRadioMox, stopRemoteAudioThread,
+        // the tone and file engage and release) can reach it. A run clears this
+        // field only if it still holds that run's own wake, and disposes only
+        // its own local, so an abandoned earlier run can never null or dispose
+        // the current run's wake. The same discipline as _remoteAudioRun.
+        private RemoteAudioWake _remoteAudioWake;
+
+        /// <summary>Wake the current run's loop, if one is running. Never throws.</summary>
+        private void SignalRemoteAudioWake() => Volatile.Read(ref _remoteAudioWake)?.Signal();
+
         /// <summary>
         /// Why a finishing PC-audio run must NOT give the shack speaker back,
         /// or null when it may. Pure, so the interleaving that matters can be
@@ -615,6 +628,9 @@ namespace Radios
                 try
                 {
                     stopRemoteAudio = true;
+                    // #1156: the loop may be waiting for a packet; end the wait
+                    // so it sees the flag now rather than within one timeout.
+                    SignalRemoteAudioWake();
                     // Engine Track (2026-08-11): 10 s, up from 6. Teardown's
                     // waits are all bounded now, and the worst legitimate case
                     // (a wedged device: two ~2.2 s stream aborts inside the
@@ -765,14 +781,32 @@ namespace Radios
             // hundred lines by four spaces would make every one of them a
             // change in a file three other tracks are editing at the same time,
             // for a purely cosmetic gain. The guard is two inserted lines.
+            //
+            // #1156: this run's wake, made before anything can signal it and
+            // disposed at the very end, after everything that could signal it
+            // has been unhooked. The packet subscription is held in locals so
+            // the teardown unhooks THIS run's stream even if a newer run has
+            // already replaced rxStream and opusOutputChannel.
+            var wake = new RemoteAudioWake();
+            Volatile.Write(ref _remoteAudioWake, wake);
+            RXAudioStream rxForWake = null;
+            RXAudioStream.OpusPacketReceivedEventHandler packetWake = wake.Signal;
+            // #1155: this run's receive gap state, its one-time Opus census,
+            // and the test-only switches, read once per run.
+            ReceiveGapTracker rxGaps = null;
+            var rxCensus = new ReceiveOpusCensus();
             try
             {
+            var rxSwitches = ReceiveTestSwitches.ReadForRun();
+            rxGaps = new ReceiveGapTracker(rxSwitches.ConcealEnabled);
+            var rxDrop = new ReceiveDropTest(rxSwitches.DropEvery);
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
             BeginRemoteAudioRunMicState(run);
             opusOutputChannel = null;
             opusInputChannel = null;
             opusInputAvailable = false;
             _opusRxContinuity.Reset();
+            ResetStreamRecoveryForRun();
 #if CWMonitor
             CWMon = null;
 #endif
@@ -883,57 +917,17 @@ namespace Radios
                 theRadio.IsMuteLocalAudioWhenRemoteOn = true;
             }
             opusOutputChannel = new audioChannelData(rxStream, "JJFlexRadio.OpusOutputChan");
-            opusOutputChannel.PortAudioStream = new JJAudioStream();
-            // Track J (#462): the callback rate is passed rather than defaulted.
-            // It was a default argument nobody had ever supplied, which is how
-            // the largest term in the latency budget came to be a number no one
-            // had chosen. The value is still 10 — a 100 ms buffer, exactly what
-            // has always shipped — but it is now named at the call site and
-            // settable per direction.
-            //
-            // The SHIPPED profile here, deliberately, and never the transmit
-            // one (#460). The only thing a profile contributes to an output
-            // stream is the frame duration it sizes buffers from, and on
-            // receive that duration belongs to the RADIO — it sends 10 ms
-            // packets and our choice of transmit frame has nothing to say about
-            // it. Passing the transmit profile would compile, behave
-            // identically today, and quietly make a transmit setting reach into
-            // the receive path. Everything else in a profile is an encode
-            // parameter, and we do not encode on this side: an Opus packet
-            // carries its own channel count, bandwidth and frame size, so the
-            // decoder reads all three off the wire.
-            opusOutputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.output, opusRxSampleRate,
-                null, null, RxAudioCallbacksPerSecond, OpusEncodeProfile.Shipped);
-            // Boost Opus output to compensate for low remote audio levels.
-            // The Opus decode path bypasses FlexLib's RXGain scalar, so decoded audio
-            // is at raw codec level which is typically too quiet for laptop speakers
-            // (measured raw peaks ~0.02-0.10, about -35 to -20 dBFS).
-            // This was a hardcoded 4.0f until Audio Arc Track A (2026-08-11); it is
-            // now the operator's PC output volume — Audio menu > PC Audio, the Home
-            // audio expander, or Ctrl+J V P. Default +12 dB = the historical 4x.
-            //
-            // The bypass claim above was VERIFIED against FlexLib, Track B
-            // 2026-08-18 (#17), because it looked contradicted elsewhere: the
-            // RXGain scalar (RXRemoteAudioStream.RXGain, 0-100 mapped to
-            // -20..0 dB) is applied only in RXAudioStream.OnRXDataReady, on
-            // the UNCOMPRESSED DataReady path. We never subscribe to
-            // DataReady; the loop below polls _opusRXList — the raw VITA
-            // packet payloads, untouched by any gain — and decodes with our
-            // own codec. So RXGain genuinely cannot move our level in either
-            // direction. Where the level actually comes from: the radio mixes
-            // slices into the remote stream at each slice's radio-side
-            // audio_level (the AudioGain control, 0-100), and SmartSDR's own
-            // client expects to ATTENUATE what arrives (its RXGain spans
-            // -20..0 dB) — so a stream that decodes below full scale is the
-            // upstream design, not a defect on this side. The honest gain
-            // stages are: slice AudioGain at the radio first, PC output
-            // volume here second.
-            opusOutputChannel.PortAudioStream.OutputGain = PcOutputGainFactor;
-            // Wire PC-side audio processing if a pipeline has been configured
-            opusOutputChannel.PortAudioStream.PostDecodeProcessor = _audioPostProcessor;
-            opusOutputChannel.PortAudioStream.PostOutputObserver =
-                samples => (ComputerRecorder.Current as ComputerFlacRecorder)?.ReceiveHeard(this, samples);
-            Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain + ", PostDecodeProcessor=" + (_audioPostProcessor != null ? "yes" : "none"), TraceLevel.Info);
+            // #1156: a packet's arrival wakes the loop. Stock FlexLib raises
+            // this on its network thread after releasing the list lock, once
+            // per Opus packet (ListenbackIntegrityTests proves it fires).
+            rxForWake = rxStream;
+            rxForWake.OpusPacketReceived += packetWake;
+            // #1145: the open and wiring now live in buildSpeakerStream, which the
+            // speaker's re-open (tier 2) uses too, so the two cannot drift. Its
+            // result is ignored here exactly as the inline open's always was:
+            // startOpusOutputChannel below is what fails on a stream that did
+            // not open.
+            buildSpeakerStream(opusOutputChannel, wake);
 
             if (!startOpusOutputChannel())
             {
@@ -1087,6 +1081,12 @@ namespace Radios
             CWMonInit();
 #endif
 
+            // #1145: a microphone stream that ends on its own wakes the loop.
+            // Set here, after the transmit open path above, which is Sprint
+            // 49's; the loop also checks the flag on every pass without it.
+            if (opusInputChannel?.PortAudioStream != null)
+                opusInputChannel.PortAudioStream.StreamDiedHook = wake.Signal;
+
             // #473: say how long receive audio was silent waiting for the
             // transmit side to finish opening. It is silent for the whole of
             // it: the playback stream started before the transmit setup began
@@ -1104,15 +1104,26 @@ namespace Radios
                 rxPlaybackWaitMs > 500 ? TraceLevel.Error : TraceLevel.Info);
 
             // Main audio loop.
-            // Note that we must pole for opus output.
+            // It takes at most one receive packet per pass, and when none is
+            // waiting it WAITS on this run's wake (#1156) rather than spinning:
+            // a packet's arrival, a key edge, a stop request, a generated
+            // source engaging or releasing, and a stream that died all signal
+            // it, and anything else is noticed within
+            // RemoteAudioWake.IdleWakeMilliseconds.
             while (!stopRemoteAudio)
             {
+                // #1145: a PC-audio stream that ended on its own is restarted
+                // here, on this thread, before the gate looks at the
+                // microphone. Ignored, and traced once, while tearing down.
+                CheckPcAudioStreamDeaths(wake);
+
                 // Idle if disconnecting. Engine Track: this was a bare
                 // `continue` — a BUSY spin at Highest priority burning a full
                 // core for the whole disconnect window (up to the 30 s radio
-                // wait in Disconnect() before it flips PCAudio off). Sleep
-                // instead; nothing here is latency-sensitive once we're
-                // tearing down.
+                // wait in Disconnect() before it flips PCAudio off). It then
+                // slept 10 ms; it now waits 10 ms on the wake, so a stop
+                // request ends the wait early. Nothing here is
+                // latency-sensitive once we're tearing down.
                 if (Disconnecting)
                 {
                     // The gate below never runs while disconnecting, so stop
@@ -1121,7 +1132,7 @@ namespace Radios
                     // teardown path stops it again — belt and braces on the
                     // one thing that must not outlive the connection.
                     stopSelfClockedTxInput();
-                    Thread.Sleep(10);
+                    wake.WaitForWork(RemoteAudioWake.DisconnectingWaitMilliseconds);
                     continue;
                 }
 
@@ -1290,6 +1301,8 @@ namespace Radios
                 byte[] opusBuf = null;
                 double consumedTs = -1;
                 int consumedSequence = -1;
+                int seedSequence = -1;
+                double seedTs = -1;
                 lock (opusOutputChannel)
                 {
                     RXAudioStream stream = opusOutputChannel.OpusChannel;
@@ -1309,6 +1322,10 @@ namespace Radios
                                 opusOutputChannel.JustStarted = false;
                                 stream.LastOpusTimestampConsumed = stream._opusRXList.Keys[lastID];
                                 _opusRxContinuity.Rearm(); // the second we land in is partial
+                                // #1155: the next packet follows this one, so it
+                                // is not read as a gap.
+                                seedSequence = stream._opusRXList.Values[lastID].Header.packet_count;
+                                seedTs = stream._opusRXList.Keys[lastID];
                             }
                         }
                         else
@@ -1328,6 +1345,16 @@ namespace Radios
                         }
                     }
                 }
+                if (seedSequence >= 0) rxGaps.Seed(seedSequence, seedTs);
+                // JJFLEX_RX_DROP_TEST (#1155, test only): discard the packet
+                // before the continuity meter, the recorder and the gap
+                // tracker see it, so the drop looks like a real loss to all
+                // three. Then look again at once rather than waiting.
+                if (opusBuf != null && rxDrop.ShouldDrop())
+                {
+                    rxGaps.NoteDroppedForTest();
+                    continue;
+                }
                 if (opusBuf != null)
                 {
                     // Receive-continuity meter (#29, rewritten for #473): how
@@ -1335,17 +1362,41 @@ namespace Radios
                     // than differenced between timestamps. See
                     // ReceiveContinuityMeter for why the difference matters.
                     _opusRxContinuity.Consume(consumedTs);
-                    (ComputerRecorder.Current as ComputerFlacRecorder)?.Receive(this, opusBuf,
-                        consumedSequence, consumedTs, LocalReceiveMutedForTakePlayback);
+                    string census = rxCensus.Observe(opusBuf);
+                    if (census != null) Tracing.TraceLine("remoteAudioProc: " + census, TraceLevel.Info);
                     // Local take playback owns this computer-side gate. Keep
                     // consuming timestamps while muted; never send a radio
                     // mute command or make the receive stream fall behind.
-                    if (!LocalReceiveMutedForTakePlayback)
+                    bool rxMuted = LocalReceiveMutedForTakePlayback;
+                    var recorder = ComputerRecorder.Current as ComputerFlacRecorder;
+                    // #1155: a lost packet used to be SPLICED - the next one
+                    // was decoded straight after the last, and the step at the
+                    // join is a click. Every consumed packet, muted or not,
+                    // updates the gap state; a short gap is made up first,
+                    // one frame-length buffer at a time through the same tail
+                    // as a real packet, each stamped for the recorder's heard
+                    // tap with the sequence the lost packet carried.
+                    var gap = rxGaps.Observe(consumedSequence, consumedTs, rxMuted, out int missing);
+                    // #1145: a speaker given up keeps consuming, so the meters,
+                    // the raw recorder and the gap state stay right, but plays
+                    // nothing: its stream is closed.
+                    if (gap == ReceiveGapAction.Conceal && !_speakerGivenUp)
+                    {
+                        int prev = (consumedSequence - missing - 1) & 15;
+                        var filled = opusOutputChannel.PortAudioStream.FillGap(opusBuf, missing,
+                            i => recorder?.ReceiveConcealed(this, prev + i, consumedTs));
+                        rxGaps.NoteFilled(filled.Concealed, filled.Recovered);
+                    }
+                    recorder?.Receive(this, opusBuf, consumedSequence, consumedTs, rxMuted);
+                    if (!rxMuted && !_speakerGivenUp)
                         opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
                 }
                 else
                 {
-                    Thread.Yield();
+                    // Nothing to play: wait for a packet or another reason
+                    // to look again (#1156). This was Thread.Yield(), which
+                    // spun at Highest priority on a full core.
+                    wake.WaitForWork(RemoteAudioWake.IdleWakeMilliseconds);
                 }
             }
 
@@ -1379,10 +1430,28 @@ namespace Radios
             }
 
             remoteDone:
+            // #1156: unhook the packet wake FIRST, from this run's own locals,
+            // before any close that can take seconds. A newer run may already
+            // own rxStream and opusOutputChannel, so the fields are not used.
+            if (rxForWake != null)
+            {
+                try { rxForWake.OpusPacketReceived -= packetWake; }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("remoteAudioProc: unhooking the packet wake failed: " + ex.Message,
+                        TraceLevel.Error);
+                }
+                rxForWake = null;
+            }
             (ComputerRecorder.Current as ComputerFlacRecorder)?.ReceiveEnded(this);
             // Both exits pass through here, so the continuity totals are
             // reported for aborted runs too.
             TraceOpusRxContinuitySummary();
+            // #1155: once per run, what the gap path did, and the Opus census
+            // if the run ended before its 500th packet.
+            if (rxGaps != null && rxCensus.Packets > 0) Tracing.TraceLine("remoteAudioProc: " + rxGaps.Summary(), TraceLevel.Info);
+            string lateCensus = rxCensus.Report();
+            if (lateCensus != null) Tracing.TraceLine("remoteAudioProc: " + lateCensus, TraceLevel.Info);
             // Note that theRadio may be null here.
 #if CWMonitor
             if (useCWMon) CWMonDone();
@@ -1497,6 +1566,13 @@ namespace Radios
                 Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is — "
                     + speakerRefusal, TraceLevel.Info);
             }
+
+            // #1156: retire this run's wake last. The field is cleared only if
+            // it still holds THIS run's wake, and only the local is disposed,
+            // so an abandoned run finishing late cannot touch a newer run's.
+            // A signal racing the disposal is swallowed inside the wake.
+            Interlocked.CompareExchange(ref _remoteAudioWake, null, wake);
+            wake.Dispose();
 
             Tracing.TraceLine("remoteAudioProc exiting", TraceLevel.Info);
         }
@@ -1653,6 +1729,9 @@ namespace Radios
             {
                 Tracing.TraceLine("TxToneStart: " + txToneGen.Frequency + " Hz at " + txToneGen.LevelDb + " dBFS", TraceLevel.Info);
                 txToneGen.Start();
+                // #1156: the transmit gate swaps producers on this; tell the
+                // loop now rather than within one idle wait.
+                SignalRemoteAudioWake();
                 return true;
             }
             catch (Exception ex)
@@ -1669,6 +1748,7 @@ namespace Radios
             {
                 Tracing.TraceLine("TxToneStop", TraceLevel.Info);
                 txToneGen.Stop();
+                SignalRemoteAudioWake(); // #1156: the gate reacts to the release
                 var lease = _toneVoxLease;
                 _toneVoxLease = null;
                 if (lease == null) return false;
@@ -1853,6 +1933,7 @@ namespace Radios
                 + txFilePlayer.ContentSampleRate + " Hz", TraceLevel.Info);
             _txFileFlowsWhileReceiving = false;
             txFilePlayer.Start();
+            SignalRemoteAudioWake(); // #1156: the gate reacts to the engage
         }
 
         /// <summary>
@@ -1894,6 +1975,7 @@ namespace Radios
                 TraceLevel.Info);
             txFilePlayer.Start();
             _txFileFlowsWhileReceiving = true;
+            SignalRemoteAudioWake(); // #1156: the gate reacts to the engage
         }
 
         /// <summary>Stop transmitting the recording and restore the microphone.</summary>
@@ -1910,6 +1992,7 @@ namespace Radios
                 Tracing.TraceLine("TxFileStop", TraceLevel.Info);
                 _txFileFlowsWhileReceiving = false;
                 txFilePlayer.Stop();
+                SignalRemoteAudioWake(); // #1156: the gate reacts to the release
                 // A disarm during an owned transmission stops the samples
                 // immediately, but VOX remains paused until the radio reports
                 // receive. Restoring it on the unkey REQUEST could rekey from
@@ -2296,6 +2379,90 @@ namespace Radios
             _pcMicExpected = false;
             _pcMicDiverged = false;
             Volatile.Write(ref _pcMicSwitchQuietUntil, PcMicNoSwitchQuiet);
+        }
+
+        /// <summary>
+        /// Build the receive playback stream on <paramref name="channel"/>:
+        /// construct, publish, open, and wire gain, receive processing, the
+        /// recorder's heard tap and the stream-death wake. Used by the first
+        /// open in <c>remoteAudioProc</c> and by the speaker's re-open
+        /// (#1145, tier 2), so the two cannot drift. True when the stream
+        /// opened. Never starts it.
+        /// </summary>
+        /// <remarks>
+        /// The channel object itself is kept, never rebuilt: it carries
+        /// <c>Started</c>, which still means "this PC-audio session switched
+        /// the radio's mic input and owes it back", and it is the object the
+        /// loop locks.
+        /// </remarks>
+        private bool buildSpeakerStream(audioChannelData channel, RemoteAudioWake wake)
+        {
+            var stream = new JJAudioStream();
+            // Published FIRST, as the inline open always did, so a setter on
+            // another thread (AudioPostProcessor, PcOutputVolumeDb) that runs
+            // during the open writes to the new stream rather than the old.
+            channel.PortAudioStream = stream;
+            // Track J (#462): the callback rate is passed rather than defaulted.
+            // It was a default argument nobody had ever supplied, which is how
+            // the largest term in the latency budget came to be a number no one
+            // had chosen. The value is still 10 — a 100 ms buffer, exactly what
+            // has always shipped — but it is now named at the call site and
+            // settable per direction.
+            //
+            // The SHIPPED profile here, deliberately, and never the transmit
+            // one (#460). The only thing a profile contributes to an output
+            // stream is the frame duration it sizes buffers from, and on
+            // receive that duration belongs to the RADIO — it sends 10 ms
+            // packets and our choice of transmit frame has nothing to say about
+            // it. Passing the transmit profile would compile, behave
+            // identically today, and quietly make a transmit setting reach into
+            // the receive path. Everything else in a profile is an encode
+            // parameter, and we do not encode on this side: an Opus packet
+            // carries its own channel count, bandwidth and frame size, so the
+            // decoder reads all three off the wire.
+            bool opened = stream.OpenOpus(Devices.DeviceTypes.output, opusRxSampleRate,
+                null, null, RxAudioCallbacksPerSecond, OpusEncodeProfile.Shipped);
+            // Boost Opus output to compensate for low remote audio levels.
+            // The Opus decode path bypasses FlexLib's RXGain scalar, so decoded audio
+            // is at raw codec level which is typically too quiet for laptop speakers
+            // (measured raw peaks ~0.02-0.10, about -35 to -20 dBFS).
+            // This was a hardcoded 4.0f until Audio Arc Track A (2026-08-11); it is
+            // now the operator's PC output volume — Audio menu > PC Audio, the Home
+            // audio expander, or Ctrl+J V P. Default +12 dB = the historical 4x.
+            //
+            // The bypass claim above was VERIFIED against FlexLib, Track B
+            // 2026-08-18 (#17), because it looked contradicted elsewhere: the
+            // RXGain scalar (RXRemoteAudioStream.RXGain, 0-100 mapped to
+            // -20..0 dB) is applied only in RXAudioStream.OnRXDataReady, on
+            // the UNCOMPRESSED DataReady path. We never subscribe to
+            // DataReady; the remote-audio loop polls _opusRXList — the raw VITA
+            // packet payloads, untouched by any gain — and decodes with our
+            // own codec. So RXGain genuinely cannot move our level in either
+            // direction. Where the level actually comes from: the radio mixes
+            // slices into the remote stream at each slice's radio-side
+            // audio_level (the AudioGain control, 0-100), and SmartSDR's own
+            // client expects to ATTENUATE what arrives (its RXGain spans
+            // -20..0 dB) — so a stream that decodes below full scale is the
+            // upstream design, not a defect on this side. The honest gain
+            // stages are: slice AudioGain at the radio first, PC output
+            // volume here second.
+            stream.OutputGain = PcOutputGainFactor;
+            // Wire PC-side audio processing if a pipeline has been configured
+            stream.PostDecodeProcessor = _audioPostProcessor;
+            stream.PostOutputObserver =
+                samples => (ComputerRecorder.Current as ComputerFlacRecorder)?.ReceiveHeard(this, samples);
+            // #1145: a stream that ends on its own wakes this run's loop.
+            if (wake != null) stream.StreamDiedHook = wake.Signal;
+            // #1145: those two setters may have run on another thread between
+            // the publish and the two lines above, and then the older value
+            // just written would have overwritten theirs. Read the fields once
+            // more; the setters write the field before the stream, so this
+            // read sees the newest.
+            stream.OutputGain = PcOutputGainFactor;
+            stream.PostDecodeProcessor = _audioPostProcessor;
+            Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + channel.Name + " setup, OutputGain=" + stream.OutputGain + ", PostDecodeProcessor=" + (_audioPostProcessor != null ? "yes" : "none")
+                + (opened ? "" : ", the stream did NOT open"), TraceLevel.Info);
+            return opened;
         }
 
         /// <summary>
@@ -2965,10 +3132,16 @@ namespace Radios
         private bool startOpusInputChannel()
         {
             if (!opusInputAvailable) return false;
+            // #1145: a microphone stream that died and could not be restarted
+            // stays stopped for the rest of the run. Its stream is closed, so
+            // a start would only be refused.
+            if (_micGivenUp) return false;
             lock (opusInputChannel)
             {
                 if (opusInputChannel.Started) return true;
                 opusInputChannel.Started = opusInputChannel.PortAudioStream.StartAudio();
+                // #1145: this start is the tier-1 restart of a stream that died.
+                if (_micRestartPending) ResolveMicRestart(opusInputChannel.Started);
                 if (opusInputChannel.Started)
                 {
                     _opusInputStartFailed = false;
@@ -3004,8 +3177,10 @@ namespace Radios
             if (!opusInputAvailable || opusInputChannel == null) return false;
             JJPortaudio.JJAudioStream stream = opusInputChannel.PortAudioStream;
             if (stream == null) return false;
-            // Cheap first, and it is the answer on all but one poll in
-            // thousands — the loop spins on Thread.Yield().
+            // Cheap first, and it is the answer on nearly every pass — the
+            // loop runs once per receive packet, about a hundred times a
+            // second, plus a pass per wake (#1156; it used to spin on
+            // Thread.Yield()).
             if (stream.SelfClockedTxRunning) return true;
 
             bool started = stream.StartSelfClockedTx();
@@ -3056,6 +3231,273 @@ namespace Radios
                 opusInputChannel.Started = false;
             }
         }
+
+        #region PC-audio streams that die (#1145)
+        // A PortAudio stream can end on its own: its callback returns paAbort
+        // (an encoder failure on the microphone), or a failed WASAPI call, a
+        // device invalidated or unplugged, or ten seconds with no device event
+        // ends the host's processing thread. Before this, nothing noticed:
+        // Started stayed true, so the gate never restarted the microphone, and
+        // a dead speaker stream meant silence while the playback queue grew by
+        // about 384 KB a second. PortAudio's finished callback now sets the
+        // stream's died flag (Audio.streamFinished), and this run's loop
+        // restarts it here.
+        //
+        // TIER 1, both directions: restart the same stream. Microphone: the
+        // existing stopOpusInputChannel(), and the gate's existing start
+        // restarts it. Speaker: _stopOutputAudio then _startOutputAudio, the
+        // seams startOpusOutputChannel uses, but NOT that method or its stop,
+        // which move the radio's mic input and the stream's RxMute.
+        // TIER 2, speaker only: close, re-open and re-wire through
+        // buildSpeakerStream. The microphone's re-open runs through Sprint 49's
+        // transmit open path and is theirs (the Audio Processing window), so a
+        // microphone whose tier 1 fails goes straight to "could not be
+        // restarted". Re-enumerating devices (tier 3) is not built.
+        //
+        // "Started" keeps its old meaning on the receive channel, "this PC-audio
+        // session switched the mic input and owes it back": a given-up speaker
+        // leaves it true so remoteDone's stop still runs the put-back, and
+        // _speakerGivenUp says the stream itself is no longer playing. The
+        // stop and close it then reaches are null-safe (f3bb4624).
+
+        private StreamRecoveryPolicy _micRecovery = new StreamRecoveryPolicy();
+        private StreamRecoveryPolicy _speakerRecovery = new StreamRecoveryPolicy();
+        private bool _micGivenUp;
+        private bool _speakerGivenUp;
+        private bool _micRestartPending;
+        private long _micDiedAtMs;
+        private bool _micDiedKeyed;
+        private bool _micRestartSpeakable;
+        private bool _deathIgnoredTraced;
+
+        /// <summary>
+        /// The speaker's tier 2, a field only so a test can stand in for the
+        /// device as <see cref="_startOutputAudio"/> does. Null means the real
+        /// <see cref="reopenSpeakerStream"/>.
+        /// </summary>
+        private Func<audioChannelData, RemoteAudioWake, bool> _reopenOutputAudio;
+
+        /// <summary>The clock recovery is measured on; a field so a test can move it.</summary>
+        private Func<long> _streamRecoveryClock = () => Environment.TickCount64;
+
+        /// <summary>The last stream-recovery sentence handed to speech, set before the speech gate.</summary>
+        internal string LastStreamRecoveryReport { get; private set; }
+
+        /// <summary>How long the last speaker recovery held the loop, and so the transmit gate, in milliseconds.</summary>
+        internal long LastSpeakerRecoveryMilliseconds { get; private set; }
+
+        private void ResetStreamRecoveryForRun()
+        {
+            _micRecovery = new StreamRecoveryPolicy();
+            _speakerRecovery = new StreamRecoveryPolicy();
+            _micGivenUp = false;
+            _speakerGivenUp = false;
+            _micRestartPending = false;
+            _deathIgnoredTraced = false;
+            JJPortaudio.TestStreamAbort.ReadForRun();
+        }
+
+        /// <summary>
+        /// Called at the top of every loop pass. Cheap when nothing died: two
+        /// flag reads per direction.
+        /// </summary>
+        private void CheckPcAudioStreamDeaths(RemoteAudioWake wake)
+        {
+            var speaker = opusOutputChannel?.PortAudioStream;
+            bool speakerDied = !_speakerGivenUp && speaker != null && speaker.StreamDied;
+            var mic = opusInputChannel?.PortAudioStream;
+            bool micDied = !_micGivenUp && mic != null && opusInputChannel.Started && mic.StreamDied;
+            if (!speakerDied && !micDied) return;
+            if (Disconnecting || stopRemoteAudio)
+            {
+                // A stream ended by a closing connection is not restarted into
+                // a closing session.
+                if (!_deathIgnoredTraced)
+                {
+                    _deathIgnoredTraced = true;
+                    Tracing.TraceLine("remoteAudioProc: a PC-audio stream ended while PC audio is stopping or the"
+                        + " radio is disconnecting; not restarting it", TraceLevel.Info);
+                }
+                return;
+            }
+            if (speakerDied) RecoverSpeakerStream(wake);
+            if (micDied) RecoverMicStream();
+        }
+
+        private void RecoverMicStream()
+        {
+            long now = _streamRecoveryClock();
+            var decision = _micRecovery.OnDeath(now);
+            string detail = opusInputChannel.PortAudioStream.StreamEndDetail;
+            if (decision.Verdict != StreamRecoveryPolicy.Verdict.Recover)
+            {
+                Tracing.TraceLine("remoteAudioProc: the microphone stream died again (" + detail + "); "
+                    + StreamRecoveryPolicy.MaxRecoveries + " restarts in " + (StreamRecoveryPolicy.WindowMilliseconds / 1000)
+                    + " s already, giving up for this session", TraceLevel.Error);
+                GiveUpMicStream();
+                return;
+            }
+            Tracing.TraceLine("remoteAudioProc: the microphone stream died on its own (" + detail + ")"
+                + (Transmit ? " while keyed" : "") + "; tier 1, recovery " + decision.RecoveryInWindow + " of "
+                + StreamRecoveryPolicy.MaxRecoveries + " in " + (StreamRecoveryPolicy.WindowMilliseconds / 1000)
+                + " s: stopping it so the transmit gate restarts it", TraceLevel.Error);
+            _micDiedAtMs = now;
+            _micDiedKeyed = Transmit;
+            _micRestartSpeakable = decision.Speakable;
+            _micRestartPending = true;
+            stopOpusInputChannel();
+        }
+
+        /// <summary>
+        /// The gate's start after a tier-1 stop has run. Until it runs the
+        /// restart is pending and nothing is said: in CW mode, or with a
+        /// generated source engaged, the gate does not start the microphone,
+        /// and that is not a failure.
+        /// </summary>
+        private void ResolveMicRestart(bool started)
+        {
+            _micRestartPending = false;
+            long took = _streamRecoveryClock() - _micDiedAtMs;
+            if (started)
+            {
+                bool keyed = _micDiedKeyed || Transmit;
+                Tracing.TraceLine("remoteAudioProc: the microphone stream restarted (tier 1) " + took
+                    + " ms after it died" + (keyed ? "; the radio was keyed, so part of that transmission was silent" : ""),
+                    TraceLevel.Error);
+                if (StreamRecoveryPolicy.SpeakRestart(new StreamRecoveryPolicy.Decision(
+                        StreamRecoveryPolicy.Verdict.Recover, 1, _micRestartSpeakable), keyed))
+                    SayStreamRecovery("audio.pc_audio.mic_stream_restarted", Speech.SpeechSubject.PcMicStream);
+                return;
+            }
+            Tracing.TraceLine("remoteAudioProc: the microphone stream did not restart (tier 1 failed, " + took
+                + " ms after it died); re-opening the microphone belongs to the transmit open path and is not"
+                + " attempted here, so computer transmit audio is stopped for this session", TraceLevel.Error);
+            _micRecovery.GiveUpNow();
+            GiveUpMicStream();
+        }
+
+        private void GiveUpMicStream()
+        {
+            _micGivenUp = true;
+            _micRestartPending = false;
+            stopOpusInputChannel();
+            if (_micRecovery.TakeGiveUpSentence())
+                SayStreamRecovery("audio.pc_audio.mic_stream_gave_up", Speech.SpeechSubject.PcMicStream);
+        }
+
+        /// <summary>
+        /// Restart a receive playback stream that died: tier 1, then tier 2.
+        /// Runs on the loop, so the transmit gate waits for it; its duration
+        /// is traced (the brief's reading, finding 20).
+        /// </summary>
+        private void RecoverSpeakerStream(RemoteAudioWake wake)
+        {
+            long t0 = _streamRecoveryClock();
+            var decision = _speakerRecovery.OnDeath(t0);
+            string detail = opusOutputChannel.PortAudioStream.StreamEndDetail;
+            if (decision.Verdict != StreamRecoveryPolicy.Verdict.Recover)
+            {
+                Tracing.TraceLine("remoteAudioProc: the receive playback stream died again (" + detail + "); "
+                    + StreamRecoveryPolicy.MaxRecoveries + " restarts in " + (StreamRecoveryPolicy.WindowMilliseconds / 1000)
+                    + " s already, giving up for this session", TraceLevel.Error);
+                GiveUpSpeakerStream();
+                return;
+            }
+            bool keyed = Transmit;
+            Tracing.TraceLine("remoteAudioProc: the receive playback stream died on its own (" + detail + ")"
+                + (keyed ? " while keyed" : "") + "; recovery " + decision.RecoveryInWindow + " of "
+                + StreamRecoveryPolicy.MaxRecoveries + " in " + (StreamRecoveryPolicy.WindowMilliseconds / 1000) + " s",
+                TraceLevel.Error);
+            int tier = 1;
+            bool ok = false;
+            try
+            {
+                _stopOutputAudio(opusOutputChannel);
+                ok = _startOutputAudio(opusOutputChannel);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: restarting the receive playback stream threw: " + ex.Message,
+                    TraceLevel.Error);
+            }
+            if (!ok)
+            {
+                tier = 2;
+                try { ok = (_reopenOutputAudio ?? reopenSpeakerStream)(opusOutputChannel, wake); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("remoteAudioProc: re-opening the receive playback stream threw: " + ex.Message,
+                        TraceLevel.Error);
+                }
+            }
+            long took = _streamRecoveryClock() - t0;
+            LastSpeakerRecoveryMilliseconds = took;
+            if (!ok)
+            {
+                Tracing.TraceLine("remoteAudioProc: the receive playback stream could not be restarted (tiers 1 and 2"
+                    + " failed in " + took + " ms; the transmit gate did not run meanwhile)", TraceLevel.Error);
+                _speakerRecovery.GiveUpNow();
+                GiveUpSpeakerStream();
+                return;
+            }
+            // Playback restarts where the radio is now, not on the backlog
+            // FlexLib queued while the loop was here; the gap state is
+            // re-seeded from the packet it skips to.
+            lock (opusOutputChannel) opusOutputChannel.JustStarted = true;
+            Tracing.TraceLine("remoteAudioProc: the receive playback stream restarted at tier " + tier + " in " + took
+                + " ms; the transmit gate did not run meanwhile", TraceLevel.Error);
+            if (StreamRecoveryPolicy.SpeakRestart(decision, keyed))
+                SayStreamRecovery("audio.pc_audio.speaker_stream_restarted", Speech.SpeechSubject.PcSpeakerStream);
+        }
+
+        /// <summary>
+        /// Tier 2 for the speaker: close whatever is left, build a new stream
+        /// on the same channel through <see cref="buildSpeakerStream"/>, start
+        /// it. True when it is playing.
+        /// </summary>
+        private bool reopenSpeakerStream(audioChannelData channel, RemoteAudioWake wake)
+        {
+            var old = channel.PortAudioStream;
+            try { old?.Close(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: closing the dead receive playback stream failed: " + ex.Message,
+                    TraceLevel.Error);
+            }
+            if (!buildSpeakerStream(channel, wake)) return false;
+            return _startOutputAudio(channel);
+        }
+
+        private void GiveUpSpeakerStream()
+        {
+            _speakerGivenUp = true;
+            // The session's Started stays true: remoteDone's stop still owes
+            // the radio its mic input back. Only the stream is closed.
+            try { opusOutputChannel?.PortAudioStream?.Close(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: closing the given-up receive playback stream failed: " + ex.Message,
+                    TraceLevel.Error);
+            }
+            if (_speakerRecovery.TakeGiveUpSentence())
+                SayStreamRecovery("audio.pc_audio.speaker_stream_gave_up", Speech.SpeechSubject.PcSpeakerStream);
+        }
+
+        private void SayStreamRecovery(string key, string subject)
+        {
+            string text = Lexicon.Get(key);
+            LastStreamRecoveryReport = text;
+            if (SuppressSpeech) return;
+            try
+            {
+                ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical, subject: subject);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: could not announce a stream recovery: " + ex.Message, TraceLevel.Error);
+            }
+        }
+        #endregion
 
 #if CWMonitor
         // Remote CW monitor
