@@ -161,6 +161,14 @@ namespace JJPortaudio
         /// </summary>
         public static readonly uint[] OpusTxRates = { 48000, 24000, 16000, 12000, 8000 };
         /// <summary>
+        /// True while the stream is open in PortAudio. False before
+        /// <see cref="OpenOpus"/>, after a failed open, and after the stream was
+        /// closed, which a failed <see cref="StartAudio"/> does (#1145). Ask
+        /// this rather than finding out by exception.
+        /// </summary>
+        public bool IsOpen => aud != null && aud.IsOpen;
+
+        /// <summary>
         /// true if stream is active.
         /// </summary>
         public bool IsActive { get { return aud.IsActive; } }
@@ -239,7 +247,10 @@ namespace JJPortaudio
         {
             Tracing.TraceLine("audioStream.Start", TraceLevel.Info);
             bool rv = aud.Start();
-            if (!rv)
+            // A start that timed out on an open stream closes it, as it always
+            // did. One REFUSED because the stream is already closed has
+            // nothing to close (#1145).
+            if (!rv && aud.IsOpen)
             {
                 aud.Finished();
             }
@@ -314,7 +325,7 @@ namespace JJPortaudio
             //
             // Nothing is lost by moving it: workItems.start clears the queue
             // again on the way in, so a restart still cannot play stale audio.
-            aud.TheQ.Clear();
+            aud.TheQ?.Clear(); // null once the stream is closed (#1145)
             return true;
         }
 

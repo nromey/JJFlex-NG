@@ -252,6 +252,19 @@ namespace JJPortaudio
                     break;
                 }
 
+                // #1145 backstop. Every case but terminate dereferences the
+                // stream block, and this thread has no handler: a null here
+                // used to throw on the AudioServer thread and end the process.
+                // Audio.Start, Stop and Finished now refuse a closed stream
+                // before posting, so reaching this is a bug, said loudly and
+                // survived.
+                if (item.StreamBlock == null && item.Type != workItems.terminate)
+                {
+                    Tracing.TraceLine("AudioServer: a " + item.Type + " work item arrived for a stream that is"
+                        + " already closed; skipped", TraceLevel.Error);
+                    continue;
+                }
+
                 switch (item.Type)
                 {
                     case workItems.negotiate:
@@ -874,8 +887,33 @@ namespace JJPortaudio
         /// fact about the hardware, for reporting and tracing.
         /// </summary>
         public int Channels { get { return CBData?.Channels ?? Devices.StreamChannels; } }
-        internal OpusDecoder Decoder { get { return CBData.Decoder; } }
-        internal Queue TheQ { get { return CBData.Q; } }
+        internal OpusDecoder Decoder { get { return CBData?.Decoder; } }
+        /// <summary>The playback queue, or null once the stream is closed.</summary>
+        internal Queue TheQ { get { return CBData?.Q; } }
+
+        /// <summary>
+        /// True while this stream is still in the table and PortAudio opened
+        /// it. False after a failed open, and after a close: a start that
+        /// fails calls <see cref="Finished"/>, which removes the stream, so a
+        /// later start, stop or close would find nothing to act on (#1145).
+        /// </summary>
+        internal bool IsOpen { get { var cb = CBData; return cb != null && cb.Open; } }
+
+        // One trace line per stream for refusals of a closed stream, not one
+        // per call: a gate retrying a start every pass would flood.
+        private bool _closedRefusalTraced;
+        private bool RefuseClosed(StreamCB cb, string what)
+        {
+            if (cb != null) return false;
+            if (!_closedRefusalTraced)
+            {
+                _closedRefusalTraced = true;
+                Tracing.TraceLine("Audio." + what + ":qkey:" + qKey + " refused, the stream is already closed"
+                    + " (a failed start closes it); further refusals on this stream are not traced",
+                    TraceLevel.Error);
+            }
+            return true;
+        }
         internal WavCallback WavInputHandler
         {
             get { return CBData.WavInputHandler; }
@@ -1190,20 +1228,26 @@ namespace JJPortaudio
         /// <returns>true on success</returns>
         internal bool Start()
         {
+            // #1145: a start after a failed one used to post a null stream
+            // block, which the AudioServer dereferenced on a thread with no
+            // handler, ending the process. Refuse instead, and wait on the
+            // block captured here, never on CBData, which a close can null.
+            StreamCB cb = CBData;
+            if (RefuseClosed(cb, "Start")) return false;
             Tracing.TraceLine("Audio.Start:qkey:" + qKey, TraceLevel.Info);
-            bool rv = false;
-            AudioAnchor.workItem item = new AudioAnchor.workItem(AudioAnchor.workItems.start, CBData);
+            AudioAnchor.workItem item = new AudioAnchor.workItem(AudioAnchor.workItems.start, cb);
             AudioAnchor.work.Add(item);
-            rv = Tracing.await(() => { return CBData.Started; }, 1000);
-            return rv;
+            return Tracing.await(() => { return cb.Started; }, 1000);
         }
 
         internal void Stop()
         {
+            StreamCB cb = CBData;
+            if (RefuseClosed(cb, "Stop")) return;
             Tracing.TraceLine("Audio.Stop:qkey:" + qKey, TraceLevel.Info);
-            AudioAnchor.workItem item = new AudioAnchor.workItem(AudioAnchor.workItems.stop, CBData);
+            AudioAnchor.workItem item = new AudioAnchor.workItem(AudioAnchor.workItems.stop, cb);
             AudioAnchor.work.Add(item);
-            Tracing.await(() => { return !CBData.Started; }, 5000);
+            Tracing.await(() => { return !cb.Started; }, 5000);
         }
 
         #region Self-clocked transmit (#208)
@@ -1283,8 +1327,13 @@ namespace JJPortaudio
             // Nothing may still be feeding the encoder when the stream closes
             // and the encoder is disposed underneath it.
             StopSelfClockedTx();
+            // #1145: a stream already closed (a failed start closes it) has
+            // nothing to close, and posting its null block would end the
+            // process on the AudioServer thread.
+            StreamCB cb = CBData;
+            if (RefuseClosed(cb, "Finished")) return;
             Tracing.TraceLine("Audio.Finished", TraceLevel.Info);
-            AudioAnchor.workItem item = new AudioAnchor.workItem(AudioAnchor.workItems.close, CBData);
+            AudioAnchor.workItem item = new AudioAnchor.workItem(AudioAnchor.workItems.close, cb);
             AudioAnchor.work.Add(item);
             Tracing.TraceLine("Audio.Finished:waiting for close", TraceLevel.Info);
             // Engine Track (2026-08-11): this "timeout loop" could never time
