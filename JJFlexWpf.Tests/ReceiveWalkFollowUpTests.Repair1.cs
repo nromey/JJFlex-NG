@@ -58,7 +58,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         using var bench = NewStatusBench(out var rig);
         Put(rig, "_RXFrequency", 14_100_000UL);
         Put(rig, "_RXMode", "USB");
-        var status = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", () => true));
+        var status = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", RadioStatusBuilder.BuildDetailedStatus(rig), () => true));
         Assert.Contains("7.030", status.Text);
         Assert.Contains("CW", status.Text);
         Assert.True(status.StillValid());
@@ -74,7 +74,7 @@ public sealed partial class ReceiveWalkFollowUpTests
         using var bench = NewStatusBench(out var rig);
         Put(rig, "_RXFrequency", 14_100_000UL);
         Put(rig, "_RXMode", "USB");
-        var status = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", () => true));
+        var status = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", RadioStatusBuilder.BuildDetailedStatus(rig), () => true));
         Put(rig, "_RXMode", "CW");
         Assert.True(status.StillValid(), "the requested mode with the old frequency, mid-recall");
         Put(rig, "_RXFrequency", 7_030_000UL);
@@ -87,12 +87,12 @@ public sealed partial class ReceiveWalkFollowUpTests
         using var bench = NewStatusBench(out var rig);
         Put(rig, "_RXFrequency", 14_100_000UL);
         Put(rig, "_RXMode", "USB");
-        var elsewhere = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", () => true));
+        var elsewhere = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", RadioStatusBuilder.BuildDetailedStatus(rig), () => true));
         Put(rig, "_RXFrequency", 10_125_000UL);
         Assert.False(elsewhere.StillValid(), "a frequency neither asked for nor reported before");
 
         Put(rig, "_RXFrequency", 14_100_000UL);
-        var otherMode = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", () => true));
+        var otherMode = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", RadioStatusBuilder.BuildDetailedStatus(rig), () => true));
         Put(rig, "_RXFrequency", 7_030_000UL);
         Put(rig, "_RXMode", "LSB");
         Assert.False(otherMode.StillValid(), "a mode neither asked for nor reported before");
@@ -105,18 +105,23 @@ public sealed partial class ReceiveWalkFollowUpTests
         Put(rig, "_RXFrequency", 14_100_000UL);
         Put(rig, "_RXMode", "USB");
         bool pending = true;
-        var status = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", () => pending));
+        var status = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(7_030_000, "CW", RadioStatusBuilder.BuildDetailedStatus(rig), () => pending));
         Put(rig, "_RXFrequency", 7_030_000UL);
         Assert.True(status.StillValid());
         // A later mode choice (another recall, a mode key) or the recall's lifetime ending.
         pending = false;
         Assert.False(status.StillValid(), "half a recall that is no longer the live request");
 
-        var outlived = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(3_573_000, "DIGU", () => false));
-        Assert.False(outlived.StillValid(), "the old state, for a recall no longer pending");
+        // A recall already outlived when the landing runs is not spoken at all
+        // (repair 2, Codex's R1): the producer asks before the first sentence,
+        // so the landing says where the radio reports it is.
+        var outlived = RadioStatusBuilder.CaptureSpokenStatus(rig, new StatusAsk(3_573_000, "DIGU", RadioStatusBuilder.BuildDetailedStatus(rig), () => false));
+        Assert.DoesNotContain("3.573", outlived.Text);
+        Assert.Equal(RadioStatusBuilder.BuildSpokenStatus(rig), outlived.Text);
+        Assert.True(outlived.StillValid(), "the radio's own report, still where it is");
         Put(rig, "_RXFrequency", 3_573_000UL);
         Put(rig, "_RXMode", "DIGU");
-        Assert.True(outlived.StillValid(), "the sentence itself still holds");
+        Assert.False(outlived.StillValid(), "the outlived recall's values arriving later are a change to that sentence");
     }
 
     // ── F3: Return to defaults says why the CW model rule chose ──
@@ -200,12 +205,19 @@ public sealed partial class ReceiveWalkFollowUpTests
         Assert.Contains("stillValid: status.StillValid);", land);
         Assert.DoesNotContain("BuildSpokenStatus(", land);
         Assert.DoesNotContain("StillDescribes(", land);
+        // Repair 2 (Codex's R1): the recall is bound to the action. Its before
+        // is read ahead of the request, its marks after it, and the landing
+        // takes it only while it still owns the radio.
         string take = Body(main, "private Radios.StatusAsk? TakeRecallAskedFor()", "private void RunReturnToAppLanding(");
-        Assert.Contains("Environment.TickCount64 - a.At <= RecallAskLifetimeMs && ModeChoices == a.Choice", take);
+        Assert.Contains("return recall?.AskIfStillOwned(RecallMarksNow, () => Environment.TickCount64);", take);
+        string marks = Body(main, "private Radios.RecallMarks RecallMarksNow()", "private Radios.StatusAsk? TakeRecallAskedFor()");
+        Assert.Contains("new Radios.RecallMarks(rig, rig?.RXVFO ?? -1, ModeChoices, rig?.RXFrequencyRequests ?? -1)", marks);
         string select = Body(main, "dialog.SelectMemory = (memRef) =>", "dialog.FormatFrequency");
+        int before = select.IndexOf("var before = rig == null ? null : Radios.RadioStatusBuilder.BuildDetailedStatus(rig);", StringComparison.Ordinal);
         int ask = select.IndexOf("AskRadioForMode(() => mem.Select());", StringComparison.Ordinal);
-        int identity = select.IndexOf("_recallAskedFor = (recorded.FrequencyHz, recorded.Mode, recorded.At, ModeChoices);", StringComparison.Ordinal);
-        Assert.True(ask >= 0 && identity > ask, "the recall's identity is the choice its own request counted, read after it");
+        int bound = select.IndexOf("_pendingRecall = new Radios.PendingRecall((ulong)Math.Round(mem.Freq * 1e6), mem.Mode ?? \"\", before, at, RecallMarksNow());", StringComparison.Ordinal);
+        Assert.True(before >= 0 && ask > before, "the recall's before is the radio's reading at the action, ahead of its request");
+        Assert.True(bound > ask, "the recall's marks are taken after its own request, so its own mode choice is counted");
     }
 
     /// <summary>NNR's own name, as the defaults entry labels itself (its key read off the catalog).</summary>

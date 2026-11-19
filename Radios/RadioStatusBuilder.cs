@@ -208,10 +208,32 @@ namespace Radios
         internal static SpokenStatus CaptureSpokenStatus(System.Func<RadioStatusSnapshot> read, StatusAsk? ask)
         {
             var reported = read();
+            var claim = RecallClaim(reported, ask) ?? new StatusClaim(reported.Copy(), reported, null);
+            return new SpokenStatus(SpokenText(claim.Said), () => claim.Holds(read()));
+        }
+
+        /// <summary>
+        /// The claim of a sentence naming what a recall asked for, or null when
+        /// the ask must not be used and the sentence says what the radio reports
+        /// (Sprint 49 Track N2 repair 2, Codex's R1). The ask is used only while
+        /// it is still pending, asked HERE before the first sentence is built and
+        /// not only before a replay, and only while the radio is on the recall's
+        /// own way: everything a recall does not change as it was at the
+        /// operator's action, and each of frequency and mode either that action's
+        /// or the asked one. A tune or slice change made between the action and
+        /// this moment fails that, so it never becomes the old recall's "before".
+        /// </summary>
+        private static StatusClaim? RecallClaim(RadioStatusSnapshot reported, StatusAsk? ask)
+        {
+            if (ask == null) return null;
             var said = reported.Copy();
-            ApplyAskedFor(said, ask?.FrequencyHz, ask?.Mode);
-            var claim = new StatusClaim(said, reported, ask?.StillPending);
-            return new SpokenStatus(SpokenText(said), () => claim.Holds(read()));
+            ApplyAskedFor(said, ask.FrequencyHz, ask.Mode);
+            // A sentence naming nothing the radio has not already reported has no recall to wait for.
+            if (StatedPart(said) == StatedPart(reported)) return new StatusClaim(said, reported, null);
+            if (!ask.StillPending()) return null;
+            if (ask.Before == null || StatusClaim.RestOf(reported) != StatusClaim.RestOf(ask.Before)) return null;
+            var claim = new StatusClaim(said, ask.Before, ask.StillPending);
+            return claim.Holds(reported) ? claim : null;
         }
 
         /// <summary>
@@ -239,14 +261,20 @@ namespace Radios
             private System.Func<bool>? _pending;
             private bool _frequencyArrived, _modeArrived;
 
-            internal StatusClaim(RadioStatusSnapshot said, RadioStatusSnapshot reportedWhenSaid, System.Func<bool>? askPending)
+            /// <param name="said">What the sentence says.</param>
+            /// <param name="before">Where the radio's way to it starts: for a recall, what the radio reported at the operator's action (repair 2, Codex's R1); otherwise the reading the sentence was built from.</param>
+            /// <param name="askPending">The recall's pending answer, or null when only the sentence itself holds.</param>
+            internal StatusClaim(RadioStatusSnapshot said, RadioStatusSnapshot before, System.Func<bool>? askPending)
             {
                 _saidSnap = said;
-                _before = reportedWhenSaid;
+                _before = before;
                 _said = StatedPart(said);
-                // A sentence naming nothing the radio had not already reported has no recall to wait for.
-                _pending = _said == StatedPart(reportedWhenSaid) ? null : askPending;
+                // A sentence naming nothing it did not start from has no recall to wait for.
+                _pending = _said == StatedPart(before) ? null : askPending;
             }
+
+            /// <summary>What the sentence says.</summary>
+            internal RadioStatusSnapshot Said => _saidSnap;
 
             internal bool Holds(RadioStatusSnapshot now)
             {
@@ -270,20 +298,23 @@ namespace Radios
             private static string FrequencyOf(RadioStatusSnapshot s) => s.FrequencySpoken + "|" + s.BandSpoken;
 
             /// <summary>Everything a recall does not change.</summary>
-            private static string RestOf(RadioStatusSnapshot s) =>
+            internal static string RestOf(RadioStatusSnapshot s) =>
                 string.Join("|", s.IsConnected, s.HasActiveSlice, s.IsTransmitting, s.SliceLetter, s.RadioModel);
         }
 
         /// <summary>
         /// What a spoken status states, as one comparable value: receiving or
         /// transmitting, the spoken frequency, the mode, the band and the slice;
-        /// with no active slice, only that and the model. Never the signal
-        /// reading, which moves while the claim stays true.
+        /// with no active slice, the sentence itself, because whether the slice
+        /// census has arrived decides whether it asserts the absence at all, and
+        /// comparing the words keeps the claim from drifting from that rule
+        /// (repair 2, Codex's R2). Never the signal reading, which moves while
+        /// the claim stays true.
         /// </summary>
         internal static string StatedPart(RadioStatusSnapshot snap)
         {
             if (!snap.IsConnected) return "not connected";
-            if (!snap.HasActiveSlice) return "no active slice|" + snap.RadioModel;
+            if (!snap.HasActiveSlice) return "no active slice|" + SpokenText(snap);
             return string.Join("|", snap.IsTransmitting ? "transmitting" : "listening",
                 snap.FrequencySpoken, snap.Mode, snap.BandSpoken, snap.SliceLetter);
         }

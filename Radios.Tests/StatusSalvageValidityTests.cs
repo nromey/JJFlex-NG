@@ -181,7 +181,7 @@ namespace Radios.Tests
             Assert.False(status.StillValid());
             // A status naming nothing it was not already reported has no recall to wait for.
             radio.Now = AtHz(10_125_000, "USB");
-            var same = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(10_125_000, "USB", () => throw new InvalidOperationException("never asked")));
+            var same = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(10_125_000, "USB", radio.Now.Copy(), () => throw new InvalidOperationException("never asked")));
             radio.Now = AtHz(14_100_000, "USB");
             Assert.False(same.StillValid());
         }
@@ -194,7 +194,7 @@ namespace Radios.Tests
             foreach (bool frequencyFirst in new[] { true, false })
             {
                 var radio = new Reading(AtHz(14_100_000, "USB"));
-                var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", () => true));
+                var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", radio.Now.Copy(), () => true));
                 Assert.Equal("Listening on 7.030 megahertz, CW, 40 meter band, slice A", status.Text);
                 Assert.True(status.StillValid(), "before the radio answers");
                 radio.Now = frequencyFirst ? AtHz(7_030_000, "USB") : AtHz(14_100_000, "CW");
@@ -207,7 +207,7 @@ namespace Radios.Tests
         [Fact]
         public void A_recall_status_refuses_what_the_recall_did_not_ask_for()
         {
-            var ask = new StatusAsk(7_030_000, "CW", () => true);
+            var ask = new StatusAsk(7_030_000, "CW", AtHz(14_100_000, "USB"), () => true);
             RadioStatusSnapshot[] unrelated =
             {
                 AtHz(10_125_000, "USB"),   // a frequency neither asked nor before
@@ -233,7 +233,7 @@ namespace Radios.Tests
             // Frequency seen at the asked 7.030, then 14.100 again: that is a
             // new change, not the recall's way there.
             var radio = new Reading(AtHz(14_100_000, "USB"));
-            var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", () => true));
+            var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", radio.Now.Copy(), () => true));
             radio.Now = AtHz(7_030_000, "USB");
             Assert.True(status.StillValid());
             radio.Now = AtHz(14_100_000, "USB");
@@ -241,7 +241,7 @@ namespace Radios.Tests
 
             // Fully answered once, then back: only the sentence holds from then on.
             var again = new Reading(AtHz(14_100_000, "USB"));
-            var full = RadioStatusBuilder.CaptureSpokenStatus(again.Read, new StatusAsk(7_030_000, "CW", () => true));
+            var full = RadioStatusBuilder.CaptureSpokenStatus(again.Read, new StatusAsk(7_030_000, "CW", again.Now.Copy(), () => true));
             again.Now = AtHz(7_030_000, "CW");
             Assert.True(full.StillValid());
             again.Now = AtHz(7_030_000, "USB");
@@ -254,7 +254,7 @@ namespace Radios.Tests
             // Superseded by a later mode choice, or past its lifetime.
             bool pending = true;
             var radio = new Reading(AtHz(14_100_000, "USB"));
-            var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", () => pending));
+            var status = RadioStatusBuilder.CaptureSpokenStatus(radio.Read, new StatusAsk(7_030_000, "CW", radio.Now.Copy(), () => pending));
             Assert.True(status.StillValid());
             pending = false;
             Assert.False(status.StillValid(), "the old state, for a recall no longer pending");

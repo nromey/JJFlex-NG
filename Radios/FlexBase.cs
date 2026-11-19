@@ -9070,6 +9070,19 @@ namespace Radios
         private readonly FrequencyEchoGuard _rxFreqEcho = new FrequencyEchoGuard("RX");
         private readonly FrequencyEchoGuard _txFreqEcho = new FrequencyEchoGuard("TX");
 
+        private int _rxFrequencyRequests;
+
+        /// <summary>
+        /// How many times the app has asked for a receive frequency (every write
+        /// of <see cref="RXFrequency"/>, which <see cref="Frequency"/> and, while
+        /// it shows receive, <see cref="VirtualRXFrequency"/> reach), counted before anything
+        /// is sent. A pending memory recall is retired by any of them (Sprint 49
+        /// Track N2 repair 2, Codex's R1): a tune can leave no mark in the
+        /// radio's reported state, because the radio's later report of the
+        /// recall's own frequency overwrites the tune's cached value.
+        /// </summary>
+        public int RXFrequencyRequests => System.Threading.Volatile.Read(ref _rxFrequencyRequests);
+
         private ulong _RXFrequency;
         public ulong RXFrequency
         {
@@ -9079,6 +9092,7 @@ namespace Radios
             }
             set
             {
+                System.Threading.Interlocked.Increment(ref _rxFrequencyRequests);
                 ulong replaced = _RXFrequency;
                 _RXFrequency = value;
                 if (!ValidVFO(RXVFO))

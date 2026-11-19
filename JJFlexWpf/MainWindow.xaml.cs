@@ -2250,32 +2250,36 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// What a memory recall from the Memories window asked the radio for
-    /// (#1131): the frequency in hertz, the mode, and when. The landing after
-    /// the window closes speaks these rather than the radio's pre-answer state.
-    /// Choice is the recall's identity: the mode choice its own request counted
-    /// (<see cref="ModeChoices"/>), so a later choice of any kind supersedes it.
+    /// (#1131), bound to the operator's action that made it (Sprint 49 Track N2
+    /// repair 2, Codex's R1): the frequency and mode, what the radio reported
+    /// at that action, when, and the marks right after its own request. The
+    /// landing after the window closes speaks the asked values rather than the
+    /// radio's pre-answer state, but only while the recall still owns the radio.
     /// </summary>
-    private (ulong FrequencyHz, string Mode, long At, int Choice)? _recallAskedFor;
+    private Radios.PendingRecall? _pendingRecall;
 
     /// <summary>
-    /// How long a recall counts as the radio's pending answer: the landing uses
-    /// its values only inside it, and its status allows the radio's separate
-    /// frequency and mode reports on the way there only inside it (Sprint 49
-    /// Track N2 repair 1).
+    /// The marks a pending recall is compared against (<see cref="Radios.RecallMarks"/>):
+    /// this radio, its receive slice, the mode choices and the frequency
+    /// requests so far. A tune, a mode choice, a slice change or a disconnect
+    /// since the recall moves one of them and retires it.
     /// </summary>
-    private const long RecallAskLifetimeMs = 5000;
+    private Radios.RecallMarks RecallMarksNow()
+    {
+        var rig = RigControl;
+        return new Radios.RecallMarks(rig, rig?.RXVFO ?? -1, ModeChoices, rig?.RXFrequencyRequests ?? -1);
+    }
 
-    /// <summary>The recall's asked-for values, once, and only for a recall made in the last few seconds; otherwise null.</summary>
+    /// <summary>
+    /// The recall's ask, once, and only while that recall still owns the radio
+    /// (inside its lifetime, no choice made since its action); otherwise null.
+    /// Its pending answer asks the same question again before any replay.
+    /// </summary>
     private Radios.StatusAsk? TakeRecallAskedFor()
     {
-        var asked = _recallAskedFor;
-        _recallAskedFor = null;
-        if (asked is not { } a || Environment.TickCount64 - a.At > RecallAskLifetimeMs) return null;
-        // Still pending while inside its lifetime and still the latest mode
-        // choice: another recall, a mode key or a band jump after it is a new
-        // request, and the radio's answer to that is not this recall's.
-        return new Radios.StatusAsk(a.FrequencyHz, a.Mode,
-            () => Environment.TickCount64 - a.At <= RecallAskLifetimeMs && ModeChoices == a.Choice);
+        var recall = _pendingRecall;
+        _pendingRecall = null;
+        return recall?.AskIfStillOwned(RecallMarksNow, () => Environment.TickCount64);
     }
 
     /// <summary>
@@ -6192,12 +6196,22 @@ public partial class MainWindow : UserControl
             {
                 // The landing after this window closes says what was asked for,
                 // not what the radio reports before it has answered (#1131).
-                _recallAskedFor = ((ulong)Math.Round(mem.Freq * 1e6), mem.Mode ?? "", Environment.TickCount64, -1);
+                // The recall is bound to THIS action (Sprint 49 Track N2 repair
+                // 2, Codex's R1): its "before" is the radio's reading now, ahead
+                // of the request, never whatever the radio reports when the
+                // deferred landing runs.
+                _pendingRecall = null;
+                var rig = RigControl;
+                var before = rig == null ? null : Radios.RadioStatusBuilder.BuildDetailedStatus(rig);
+                long at = Environment.TickCount64;
                 // A memory carries its mode: a mode request like any other (#1117).
+                // The radio write stays here, at the operator's action.
                 AskRadioForMode(() => mem.Select());
-                // Its identity is the mode choice that request just counted (Sprint 49 Track N2 repair 1).
-                if (_recallAskedFor is { } recorded)
-                    _recallAskedFor = (recorded.FrequencyHz, recorded.Mode, recorded.At, ModeChoices);
+                // Its marks are taken after its own request, so the mode choice
+                // that request counted is the recall's own, and anything later
+                // is somebody else's.
+                if (before != null)
+                    _pendingRecall = new Radios.PendingRecall((ulong)Math.Round(mem.Freq * 1e6), mem.Mode ?? "", before, at, RecallMarksNow());
             }
         };
 
