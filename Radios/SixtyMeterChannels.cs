@@ -78,8 +78,8 @@ namespace Radios
 
         /// <summary>
         /// The US segment, 5351.5 to 5366.5 kHz, 9.15 W ERP (97.313(i)). Its
-        /// stop, 5357.0 kHz, keeps every allowed mode's emission inside the
-        /// edges (5354.2 to 5359.8 at its widest), so the stop does not move
+        /// stop, 5357.0 kHz, keeps every allowed mode's nominal emission inside
+        /// the edges (5354.0 to 5360.0 at its widest), so the stop does not move
         /// when the operator changes mode.
         /// </summary>
         public static readonly Segment USSegment = new(5.3515, 5.3665, 5.3570, 9.15);
@@ -146,19 +146,31 @@ namespace Radios
 
         /// <summary>
         /// The nominal emission of <paramref name="mode"/> relative to the
-        /// dial, in hertz: USB and DIGU from the dial to 2.8 kHz above it, LSB
-        /// and DIGL from 2.8 kHz below it to the dial, CW and RTTY 500 Hz
+        /// dial, in hertz: USB and DIGU from the dial to 3 kHz above it, LSB
+        /// and DIGL from 3 kHz below it to the dial, CW and RTTY 500 Hz
         /// centred on the dial. Null for a mode the segment does not keep.
         /// </summary>
         /// <remarks>
-        /// Nominal on purpose: this judges where a stop or a remembered dial
-        /// may sit, with no slice to read. The transmitted signal itself (the
-        /// slice's own filter) is the transmit-time check's to judge.
+        /// <para>Nominal on purpose: this judges where a stop or a remembered
+        /// dial may sit, with no slice to read. The transmitted signal itself
+        /// (the slice's own filter, which an operator may widen) is the
+        /// transmit-time check's to judge.</para>
+        /// <para><b>Why 3 kHz and not the rule's 2.8.</b> 2.8 kHz is a WIDTH,
+        /// not an offset. The app's default transmit filter
+        /// (<see cref="AudioChainPreset.TxFilterLow"/> to
+        /// <see cref="AudioChainPreset.TxFilterHigh"/>, 100 to 2,900 Hz) is
+        /// 2.8 kHz wide but reaches 2.9 kHz from the dial, so a sideband judged
+        /// as 0 to 2,800 Hz let a snap to a segment edge put the default signal
+        /// 100 Hz outside the segment (found by both checkers of the first
+        /// round). The sideband is the default filter plus 100 Hz of margin on
+        /// the outer edge, so every snap and every validity judgement here keeps
+        /// the default signal at least 100 Hz inside both edges. If the default
+        /// filter ever widens, widen this with it.</para>
         /// </remarks>
         public static (long Low, long High)? NominalEmission(string? mode) => Norm(mode) switch
         {
-            "USB" or "DIGU" => (0, 2_800),
-            "LSB" or "DIGL" => (-2_800, 0),
+            "USB" or "DIGU" => (0, 3_000),
+            "LSB" or "DIGL" => (-3_000, 0),
             "CW" or "RTTY" => (-250, 250),
             _ => null,
         };
