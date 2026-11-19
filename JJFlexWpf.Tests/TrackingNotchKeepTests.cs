@@ -96,7 +96,8 @@ public sealed class TrackingNotchKeepTests
         // The radio's report lags the ask, as a queued write does.
         dialog.GetTNFFrequencyHz = i => 14_200_000UL + (ulong)i * 1000;
         dialog.SetTNFFrequencyHz = (i, hz) => { moves.Add((i, hz)); return hz; };
-        dialog.FormatTNFFrequency = hz => (hz / 1_000_000.0).ToString("F6", System.Globalization.CultureInfo.InvariantCulture);
+        // The app's own format, not a stand-in: a stand-in hid repair 3's B1.
+        dialog.FormatTNFFrequency = ProductionFormat;
         list.SelectedIndex = 1;
         Invoke(dialog, "UpdateTNFProperties");
         var box = (TextBox)typeof(TNFDialog).GetField("FrequencyBox", Private | BindingFlags.Public)!.GetValue(dialog)!;
@@ -109,7 +110,7 @@ public sealed class TrackingNotchKeepTests
         Run(() =>
         {
             var (_, _, box, moves) = MoveDialog();
-            Assert.Equal("14.201000", box.Text);
+            Assert.Equal("14.201.000", box.Text);
             Assert.True(box.IsEnabled);
             Assert.Empty(moves);
         });
@@ -129,7 +130,7 @@ public sealed class TrackingNotchKeepTests
             dialog.StepFrequency(1, -TNFDialog.FrequencyFineStepHz);
 
             Assert.Equal(new[] { (1, 14_201_100UL), (1, 14_201_200UL), (1, 14_201_190UL) }, moves.ToArray());
-            Assert.Equal("14.201190", box.Text);
+            Assert.Equal("14.201.190", box.Text);
         });
     }
 
@@ -144,7 +145,7 @@ public sealed class TrackingNotchKeepTests
             box.Text = "14,203.5";
             dialog.ApplyTypedFrequency(1);
             Assert.Equal(new[] { (1, 14_210_500UL), (1, 14_203_500UL) }, moves.ToArray());
-            Assert.Equal("14.203500", list.Items[1]);
+            Assert.Equal("14.203.500", list.Items[1]);
         });
     }
 
@@ -173,7 +174,7 @@ public sealed class TrackingNotchKeepTests
             box.Text = "abc";
             dialog.ApplyTypedFrequency(1);
             Assert.Empty(moves);
-            Assert.Equal("14.201000", box.Text);
+            Assert.Equal("14.201.000", box.Text);
         });
     }
 
@@ -189,6 +190,88 @@ public sealed class TrackingNotchKeepTests
         Assert.Contains("ApplyTypedFrequency(idx);", keys);
         string xaml = System.IO.File.ReadAllText(System.IO.Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "TNFDialog.xaml"));
         Assert.Contains("PreviewKeyDown=\"FrequencyBox_PreviewKeyDown\" LostFocus=\"FrequencyBox_LostFocus\"", xaml);
+    }
+
+    /// <summary>
+    /// A copy of <c>globals.FormatFreqUlong</c> (the VB app's formatter, which
+    /// <c>OpenParms.FormatFreq</c> hands the radio layer), pinned to the
+    /// source by <see cref="TheCopyOfTheAppsFormatterIsTheAppsFormatter"/>.
+    /// </summary>
+    private static string ProductionFormat(ulong freq)
+    {
+        string str = freq.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        while (str.Length < 7) str = "0" + str;
+        int len = str.Length;
+        return str.Substring(0, len - 6) + "." + str.Substring(len - 6, 3) + "." + str.Substring(len - 3);
+    }
+
+    [Fact]
+    public void TheCopyOfTheAppsFormatterIsTheAppsFormatter()
+    {
+        string vb = System.IO.File.ReadAllText(System.IO.Path.Combine(Repo(), "globals.vb"));
+        int at = vb.IndexOf("Friend Function FormatFreqUlong(ByVal freq As ULong) As String", StringComparison.Ordinal);
+        Assert.True(at >= 0);
+        string body = vb.Substring(at, vb.IndexOf("End Function", at, StringComparison.Ordinal) - at);
+        Assert.Contains("For i As Integer = 0 To 6 - str.Length", body);
+        Assert.Contains("rv = str.Substring(0, len - 6) & \".\"c & str.Substring(len - 6, 3) &", body);
+        Assert.Contains("\".\"c & str.Substring(len - 3)", body);
+        Assert.Equal("14.201.000", ProductionFormat(14_201_000));
+        Assert.Equal("0.475.000", ProductionFormat(475_000));
+    }
+
+    /// <summary>
+    /// Batch 14 repair 3 (Codex's B1 on #773): every form the box shows reads
+    /// back as the same frequency, so an edit of the shown text works.
+    /// </summary>
+    [Theory]
+    [InlineData(30_000UL)]
+    [InlineData(475_000UL)]
+    [InlineData(1_800_000UL)]
+    [InlineData(7_074_123UL)]
+    [InlineData(14_201_000UL)]
+    [InlineData(14_201_190UL)]
+    [InlineData(54_000_000UL)]
+    public void EveryFormTheBoxShowsReadsBackAsTheSameFrequency(ulong hz) =>
+        Assert.Equal(hz, TNFDialog.ParseFrequencyHz(ProductionFormat(hz)));
+
+    [Theory]
+    [InlineData("14.2011", 14_201_100UL)]      // megahertz with a point
+    [InlineData("14,201.1", 14_201_100UL)]     // grouped kilohertz
+    [InlineData("14201", 14_201_000UL)]        // kilohertz
+    [InlineData("14.201.1", 14_201_100UL)]     // the shown form, its hertz shortened: a decimal of a kilohertz
+    public void TheOtherFormsReadAsTheTuningEntryReadsThem(string text, ulong hz)
+    {
+        Assert.Equal(hz, TNFDialog.ParseFrequencyHz(text));
+    }
+
+    [Theory]
+    [InlineData("14.21.000")]
+    [InlineData("14.201.0000")]
+    [InlineData(".201.000")]
+    [InlineData("14.2a1.000")]
+    [InlineData("abc")]
+    public void TextThatIsNotAFrequencyReadsAsNone(string text) =>
+        Assert.Null(TNFDialog.ParseFrequencyHz(text));
+
+    [Fact]
+    public void AnInPlaceEditOfTheShownFrequencyMovesTheNotch()
+    {
+        Run(() =>
+        {
+            var (dialog, _, box, moves) = MoveDialog();
+            Assert.Equal("14.201.000", box.Text);   // the shown form
+            box.Text = "14.201.100";                // its last three digits replaced
+            dialog.ApplyTypedFrequency(1);
+            Assert.Equal(new[] { (1, 14_201_100UL) }, moves.ToArray());
+            Assert.Equal("14.201.100", box.Text);
+        });
+    }
+
+    [Fact]
+    public void TheHelpTextCarriesNoSpokenMarker()
+    {
+        string xaml = System.IO.File.ReadAllText(System.IO.Path.Combine(Repo(), "JJFlexWpf", "Dialogs", "TNFDialog.xaml"));
+        Assert.DoesNotContain("=\"DRAFT", xaml);
     }
 
     private static RoutedEventHandler Handler(TNFDialog dialog, string name) =>

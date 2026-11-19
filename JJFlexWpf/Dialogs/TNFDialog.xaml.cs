@@ -365,24 +365,61 @@ public partial class TNFDialog : JJFlexDialog
     }
 
     /// <summary>
-    /// The typed frequency, read by the app's own typed-frequency parser
-    /// (<see cref="FreqOutHandlers.ParseQuickTypeFreq"/>, the tuning entry's):
-    /// digits with a point are megahertz, without one kilohertz, and a comma
-    /// groups kilohertz. Unchanged text writes nothing.
+    /// The typed frequency, read by <see cref="ParseFrequencyHz"/>: the shown
+    /// form edited in place, or anything the tuning entry's parser reads.
+    /// Unchanged text writes nothing.
     /// </summary>
     internal void ApplyTypedFrequency(int idx)
     {
         string typed = FrequencyBox.Text.Trim();
         if (typed == _freqShown.Trim()) return;
-        double? mhz = FreqOutHandlers.ParseQuickTypeFreq(typed);
-        if (mhz == null)
+        ulong? hz = ParseFrequencyHz(typed);
+        if (hz == null)
         {
             EarconPlayer.LeaderInvalidTone();
             Speak(Radios.Lexicon.Get("audio.tnf.frequency_invalid"));
             ShowFrequency(CurrentFrequencyHz(idx));
             return;
         }
-        MoveTo(idx, (ulong)Math.Round(mhz.Value * 1_000_000.0));
+        MoveTo(idx, hz.Value);
+    }
+
+    /// <summary>
+    /// What the Frequency box's text says, in Hz, or null (batch 14 repair 3,
+    /// Codex's B1 on #773). Every form the box shows reads back as the same
+    /// frequency, so an in-place edit of the shown value works.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The shown form.</b> The box shows the app's own frequency
+    /// format, megahertz, a point, three kilohertz digits, a point, three hertz
+    /// digits ("14.201.000", <c>globals.FormatFreqUlong</c>). The tuning
+    /// entry's parser reads a second point as nothing at all, so an edit of
+    /// that text was refused. Two points are therefore read here, exactly, in
+    /// whole hertz: megahertz, then kilohertz, then the rest read as a decimal
+    /// fraction of a kilohertz, so "14.201.1" is 14,201,100 Hz, as
+    /// "14.201.100" is.</para>
+    /// <para><b>Everything else</b> goes to the tuning entry's own parser,
+    /// <see cref="FreqOutHandlers.ParseQuickTypeFreq"/>: one point is
+    /// megahertz, no point kilohertz, and a comma groups kilohertz.</para>
+    /// </remarks>
+    internal static ulong? ParseFrequencyHz(string text)
+    {
+        text = text.Trim();
+        string[] parts = text.Split('.');
+        if (parts.Length == 3)
+        {
+            if (parts[0].Length == 0 || parts[1].Length != 3 || parts[2].Length == 0 || parts[2].Length > 3) return null;
+            foreach (string part in parts)
+                foreach (char c in part)
+                    if (c < '0' || c > '9') return null;
+            if (!ulong.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ulong mhz)
+                || mhz > 999) return null;
+            ulong khz = ulong.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+            ulong rest = ulong.Parse(parts[2].PadRight(3, '0'), System.Globalization.CultureInfo.InvariantCulture);
+            return mhz * 1_000_000UL + khz * 1_000UL + rest;
+        }
+        double? typedMhz = FreqOutHandlers.ParseQuickTypeFreq(text);
+        return typedMhz == null ? null : (ulong)Math.Round(typedMhz.Value * 1_000_000.0);
     }
 
     private void MoveTo(int idx, ulong hz)
