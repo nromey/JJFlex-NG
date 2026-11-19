@@ -2528,6 +2528,8 @@ namespace Radios.Tests
                 "audio.noise_surface.tx.no_engine_yet",
                 "audio.noise_layer.tx.switches_only",
                 "audio.noise_help.setups.rename",
+                // Track H2 split: PC audio refused to start because the previous audio server has not finished (placeholder for Codex).
+                "audio.pc_audio.previous_still_ending",
                 // Track H2 bench round: one notice for both slots, and the setups' confirmation question (placeholders for Codex).
                 "audio.denoise.tx.fell_back_both",
                 "audio.noise_setups.confirm_question",

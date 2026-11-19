@@ -1447,10 +1447,27 @@ public partial class NativeMenuBar : IDisposable
             // The last slice may be the active one: the same hold as Release
             // Active Slice (#1123, slice-mode round).
             var noiseAnswer = _window.Noise.HoldModeAnswer();
+            // #1177 (rulings repair 1): the radio refuses to release the active
+            // or the transmit slice, so move them off it first, exactly as
+            // Release Active Slice does; until now this row only said it failed.
+            MoveOffBeforeRelease(rig, toRemove);
             SaySliceAfterMenuClose(rig.RemoveSlice(toRemove)
                 ? Radios.Lexicon.Get("settings.slice.released", ("letter", letter), ("count", numSlices - 1))
                 : Radios.Lexicon.Get("settings.slice.release_failed"), rig, noiseAnswer);
         });
+    }
+
+    /// <summary>
+    /// #1177: before releasing <paramref name="toRemove"/>, move the transmit and
+    /// then the active slice off it (<see cref="SliceReleasePlan"/>), the
+    /// order Release Active Slice has always used.
+    /// </summary>
+    private static void MoveOffBeforeRelease(Radios.FlexBase rig, int toRemove)
+    {
+        var plan = SliceReleasePlan.Before(toRemove, rig.MyNumSlices, rig.RXVFO, rig.TXVFO, rig.CanTransmit);
+        if (plan is not var (active, transmit)) return;
+        if (rig.CanTransmit && transmit != rig.TXVFO) rig.TXVFO = transmit;
+        if (active != rig.RXVFO) rig.RXVFO = active;
     }
 
     /// <summary>
@@ -2333,12 +2350,7 @@ public partial class NativeMenuBar : IDisposable
                         SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.cannot_release_last"));
                         return;
                     }
-                    int switchTo = -1;
-                    for (int j = 0; j < Rig.MyNumSlices; j++)
-                    {
-                        if (j != toRemove) { switchTo = j; break; }
-                    }
-                    if (switchTo >= 0)
+                    if (SliceReleasePlan.MoveTo(toRemove, Rig.MyNumSlices) is int)
                     {
                         var rig = Rig;
                         string removedLetter = rig.VFOToLetter(toRemove);
@@ -2348,9 +2360,7 @@ public partial class NativeMenuBar : IDisposable
                         // click and joined to "Slice B released", as the Selection
                         // rows do; it was said before that sentence and again after.
                         var noiseAnswer = _window.Noise.HoldModeAnswer();
-                        if (rig.CanTransmit && toRemove == rig.TXVFO)
-                            rig.TXVFO = switchTo;
-                        rig.RXVFO = switchTo;
+                        MoveOffBeforeRelease(rig, toRemove);
                         SaySliceAfterMenuClose(rig.RemoveSlice(toRemove)
                             ? Radios.Lexicon.Get("settings.slice.released", ("letter", removedLetter), ("count", countBefore - 1))
                             : Radios.Lexicon.Get("settings.slice.cannot_release_this"), rig, noiseAnswer);

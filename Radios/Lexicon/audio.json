@@ -678,6 +678,7 @@
   "audio.pc_audio.on": "PC audio on",
   "audio.pc_audio.on_because": "PC audio on, {reason}.",
   "audio.pc_audio.on_home": "PC audio on.",
+  "audio.pc_audio.previous_still_ending": {"text": "WORDING PLACEHOLDER: PC audio could not start because the previous PC audio session has not finished closing (its audio driver has not let go); no computer audio is running although the PC audio setting still reads on; turning PC audio off and on again tries again, and if it keeps happening, restarting JJ Flexible clears it; the radio connection is unaffected", "delivery": null},
   "audio.pc_audio.reason_always_off": "always off for this radio",
   "audio.pc_audio.reason_always_on": "always on for this radio",
   "audio.pc_audio.reason_as_you_left_it": "as you left it",

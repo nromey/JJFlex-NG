@@ -8207,6 +8207,12 @@ namespace Radios
                 // admission, here and again when the queued write runs; an
                 // unkey never is. See FlexBase.CheckRestore.cs for the boundary.
                 if (value && RefusedForCheckTeardown("transmit")) return;
+                // Sprint 49 Track H2 (S13): our key-down is recorded, never held,
+                // so a transmit capture swap that has not yet begun its stop is
+                // refused rather than stopping the microphone under a new over.
+                // Bookkeeping only: what is written and when are unchanged
+                // (FlexBase.TxCaptureTry.cs).
+                if (value) NoteTxKeyDownAdmitted(); else NoteTxKeyUpRequested();
                 if (!value) CancelSlicePlayback();
                 if (value && TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
                 q.Enqueue((FunctionDel)(() =>

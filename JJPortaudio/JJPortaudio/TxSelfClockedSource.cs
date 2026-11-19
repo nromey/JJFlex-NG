@@ -134,13 +134,22 @@ namespace JJPortaudio
                     // the clock has already decided how many are owed and
                     // sleeping between them just makes the next call owe more.
                     //
-                    // Sleep(1) is nominal: Windows may hold us for up to about
-                    // 15 ms depending on the system timer resolution, which no
-                    // process should be raising on its own. That coarseness is
-                    // fine and is a tested property of the clock — a coarse
-                    // timer that averages the right rate is absorbed by the
-                    // radio's jitter buffer; a smooth one that averages the
-                    // wrong rate is not.
+                    // Sleep(1) is about 1 ms in practice while a WASAPI stream
+                    // is open in this process: PortAudio's WASAPI OpenStream
+                    // calls timeBeginPeriod(1) (pa_win_wasapi.c line 4131 at
+                    // the pinned a880212, through SystemTimer_SetGranularity)
+                    // and CloseStream restores it (line 4257). The capture
+                    // stream is only STOPPED while this pump runs, never
+                    // closed, so the request holds. It is not guaranteed: an
+                    // MME or DirectSound device raises nothing here, and
+                    // Microsoft documents that Windows 11 may not honour a
+                    // raised resolution for a process whose windows are all
+                    // minimized or hidden, which leaves the default of about
+                    // 15.6 ms. Either way the coarseness is fine and is a
+                    // tested property of the clock: a coarse timer that
+                    // averages the right rate is absorbed by the radio's
+                    // jitter buffer; a smooth one that averages the wrong rate
+                    // is not.
                     if (sent == 0) Thread.Sleep(1);
                 }
             }

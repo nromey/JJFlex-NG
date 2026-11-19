@@ -45,15 +45,116 @@ namespace JJPortaudio
         }
         static internal BlockingCollection<workItem> work;
 
-        public static void Init(Devices.Device inDev, Devices.Device outDev)
+        // ── A server that has not retired (Sprint 49 Track H2 split; Codex's
+        // P2 against a4018dfb) ──
+        //
+        // Term waits one second for the server to finish and then returns,
+        // because the app must be able to close with a wedged driver. Until
+        // this, that timed-out server was simply forgotten: the next Init
+        // replaced the process-global work queue and device fields while it
+        // was still alive, and since serverProc read the static `work` on every
+        // pass, the old server went on to take items from the NEW queue
+        // alongside the new server, and its own terminate (and Pa_Terminate)
+        // was never processed. Two threads making PortAudio calls at once is
+        // exactly what the single server exists to prevent.
+        //
+        // So each server now owns its own queue (serverProc is handed it), a
+        // server that did not retire at its Term is remembered, and no Init
+        // makes another while it is alive. The bounded wait in Term stays, so
+        // closing the app is never held.
+        //
+        // REPAIR 1 (Codex's P2 against 828e1a0e): remembering a server only
+        // after its Term timed out missed the server whose run had not even
+        // REACHED Term: a run abandoned by its ten-second stop join still owns
+        // a live, assigned server, and the next run's Init used to replace it.
+        // So an earlier server blocks Init for its whole life, whether it is
+        // still assigned (its run has not ended it yet) or was left running by
+        // its Term. Audio.Initialize waits for it, OUTSIDE the server gate so
+        // that its own run's Terminate can still take the gate and end it, for
+        // at most PreviousServerRetireMs, and then refuses with nothing
+        // replaced. And Audio.Terminate ends only the server whose generation
+        // the caller was given, so a late end can never reach a newer server.
+        private static Thread s_unretired;
+
+        /// <summary>
+        /// How long <see cref="Audio.Initialize"/> waits for an earlier audio
+        /// server that is still alive (still assigned to a run that has not ended
+        /// it, or left running by its <see cref="Term"/>) before refusing to
+        /// start another. Long enough for one operation the old server is inside
+        /// to finish (the audio server's own waits are five seconds). A field so
+        /// the windowless tests can shorten it.
+        /// </summary>
+        internal static int PreviousServerRetireMs = 5000;
+
+        /// <summary>
+        /// The earlier audio server that must end before another is made, or
+        /// null when there is none: the assigned server if its thread is still
+        /// alive (its run has not ended it), otherwise the one a timed-out
+        /// <see cref="Term"/> left running, if still alive. A remembered server
+        /// that has finished is forgotten here. Called under the server gate.
+        /// </summary>
+        internal static Thread EarlierServerStillAlive()
+        {
+            var assigned = server;
+            if (assigned != null && assigned.IsAlive) return assigned;
+            var old = s_unretired;
+            if (old == null) return null;
+            if (old.IsAlive) return old;
+            s_unretired = null;
+            Tracing.TraceLine("AudioAnchor: the previous audio server has finished, after its Terminate had stopped waiting for it", TraceLevel.Warning);
+            return null;
+        }
+
+        /// <summary>Tests only: makes the server thread Init starts, unstarted, for its queue, so no test ever reaches PortAudio. Null in the app.</summary>
+        internal static Func<BlockingCollection<workItem>, Thread> ServerThreadForTest;
+
+        /// <summary>Tests only: the server Term last stopped waiting for, or null.</summary>
+        internal static Thread UnretiredServerForTest => s_unretired;
+
+        /// <summary>Tests only: put a stand-in where the live server and its queue go, without starting PortAudio. Returns what was there.</summary>
+        internal static (Thread Server, BlockingCollection<workItem> Work, Thread Unretired) SwapServerForTest(Thread stand, BlockingCollection<workItem> queue, Thread unretired)
+        {
+            var was = (server, work, s_unretired);
+            server = stand; work = queue; s_unretired = unretired;
+            return was;
+        }
+
+        /// <summary>The refusal's trace line, said once per refused start by whoever refuses.</summary>
+        internal static void TraceRefusal(Thread earlier)
+        {
+            bool assigned = ReferenceEquals(earlier, server);
+            Tracing.TraceLine("AudioAnchor.init: REFUSED. The previous audio server is still running "
+                + PreviousServerRetireMs + " ms later ("
+                + (assigned ? "its run has not ended it yet" : "its Terminate stopped waiting for it")
+                + "), so a second one is not started alongside it; nothing was replaced", TraceLevel.Error);
+        }
+
+        /// <summary>
+        /// Start the audio server. False, with nothing replaced, when an earlier
+        /// server is still alive (<see cref="EarlierServerStillAlive"/>): this
+        /// never waits; <see cref="Audio.Initialize"/> does the bounded wait,
+        /// outside the server gate, before it calls this under the gate.
+        /// </summary>
+        public static bool Init(Devices.Device inDev, Devices.Device outDev)
         {
             Tracing.TraceLine("AudioAnchor.init:" +
                 (string)((inDev != null) ? inDev.Name : "") + ' ' +
                 (string)((outDev != null) ? outDev.Name : ""), TraceLevel.Info);
+            var earlier = EarlierServerStillAlive();
+            if (earlier != null)
+            {
+                TraceRefusal(earlier);
+                return false;
+            }
+            if (server != null)
+                Tracing.TraceLine("AudioAnchor.init: the previous audio server ended on its own before its run ended it;"
+                    + " a new one is made, and that run's end cannot reach it (it ends only its own generation)", TraceLevel.Warning);
             inDevice = inDev;
             outDevice = outDev;
-            work = new BlockingCollection<workItem>();
-            server = new Thread(serverProc);
+            var queue = new BlockingCollection<workItem>();
+            work = queue;
+            var forTest = ServerThreadForTest;
+            server = forTest != null ? forTest(queue) : new Thread(() => serverProc(queue));
             server.Name = "AudioServer";
             server.Priority = ThreadPriority.Normal;
             // Engine Track (2026-08-11): background, so a wedged PortAudio
@@ -68,18 +169,38 @@ namespace JJPortaudio
             server.Start();
             // Note the server does the Pa_Initialize().
             Thread.Yield();
+            return true;
         }
 
+        /// <summary>
+        /// End the audio server: its terminate goes on ITS queue, and this waits
+        /// one second for it (after <see cref="Audio.Terminate"/> has waited for
+        /// any operation in progress under the server gate, so one second is not
+        /// Terminate's whole bound). A server still running after that is
+        /// remembered, not forgotten, so the next start waits for it rather than
+        /// starting a second server beside it. Nothing to end (never started, or
+        /// already ended, or its Init was refused) does nothing.
+        /// </summary>
         public static void Term()
         {
             Tracing.TraceLine("AudioAnchor.Terminate", TraceLevel.Info);
+            var ending = server;
+            var queue = work;
+            if (ending == null)
+            {
+                Tracing.TraceLine("AudioAnchor.Terminate: no audio server is running; nothing to end", TraceLevel.Info);
+                return;
+            }
+            server = null;
             try
             {
                 workItem item = new workItem(workItems.terminate);
-                work.Add(item);
-                if (!server.Join(1000))
+                queue.Add(item);
+                if (!ending.Join(1000))
                 {
-                    Tracing.TraceLine("AudioAnchor.Terminate:server didn't terminate", TraceLevel.Error);
+                    s_unretired = ending;
+                    Tracing.TraceLine("AudioAnchor.Terminate:server didn't terminate within 1000 ms; it is"
+                        + " remembered, and the next start waits for it before making another", TraceLevel.Error);
                 }
             }
             catch (Exception ex)
@@ -290,7 +411,12 @@ namespace JJPortaudio
                 || rate == 24000 || rate == 48000;
         }
 
-        private static void serverProc()
+        /// <summary>
+        /// The server thread's body: PortAudio's initialisation, then this
+        /// server's OWN queue (<paramref name="queue"/>), never the static
+        /// <see cref="work"/>, which a later Init replaces (the H2 split).
+        /// </summary>
+        private static void serverProc(BlockingCollection<workItem> queue)
         {
             PortAudio.PaError erv;
             erv = PortAudio.Pa_Initialize();
@@ -299,11 +425,21 @@ namespace JJPortaudio
                 Tracing.TraceLine("Init error:" + PortAudio.Pa_GetErrorText(erv), TraceLevel.Error);
                 return;
             }
+            ServeQueue(queue);
+        }
 
-            while (!work.IsAddingCompleted)
+        /// <summary>
+        /// Take and run the items of one server's own queue until its terminate
+        /// completes it. Bound to that queue: a server left running by a timed
+        /// out Term can never take a later server's items.
+        /// </summary>
+        internal static void ServeQueue(BlockingCollection<workItem> queue)
+        {
+            PortAudio.PaError erv;
+            while (!queue.IsAddingCompleted)
             {
                 workItem item;
-                try { item = work.Take(); }
+                try { item = queue.Take(); }
                 catch (InvalidOperationException)
                 {
                     break;
@@ -636,7 +772,7 @@ namespace JJPortaudio
                             erv = PortAudio.Pa_Terminate();
                             if (erv == 0) Tracing.TraceLine("AudioServer:portAudio terminated", TraceLevel.Info);
                             else Tracing.TraceLine("Pa_Terminate returned: " + PortAudio.Pa_GetErrorText(erv), TraceLevel.Error);
-                            work.CompleteAdding(); // exit the loop
+                            queue.CompleteAdding(); // exit the loop
                         }
                         break;
                 }
@@ -667,6 +803,51 @@ namespace JJPortaudio
         public delegate void OpusCallback(byte[] data);
         public delegate void AudioSentCallback();
 
+        /// <summary>
+        /// Make before break for a transmit capture swap (Sprint 49 Track H2
+        /// split, repair 1). Two capture streams on one device share one of
+        /// these while one replaces the other, and exactly one of them, the
+        /// <see cref="Active"/> one, feeds the transmit chain (source mux,
+        /// conditioner, meter, encoder, send). The replacement is STARTED while
+        /// the running stream carries on, standing by: its callbacks feed
+        /// nothing. Once it is producing, the swap asks for it (<see cref="Next"/>),
+        /// and the running stream's own callback hands over at the END of the
+        /// buffer it is processing, so the replacement's next buffer is the
+        /// first it feeds and the microphone is never stopped first. If the
+        /// running stream has stopped producing, the swap takes over by force.
+        /// <para>
+        /// Repair 2: this object says only WHICH stream may feed the chain. It
+        /// no longer keeps the two callbacks apart; the chain's own
+        /// <see cref="TxChainGate"/> does that, for every callback of each
+        /// stream's life, including one already inside when this was made
+        /// (Codex's re-check). And a hand-over now has an outcome,
+        /// <see cref="State"/>: it completes once, or it is withdrawn once,
+        /// never both. A key-down withdraws it (the running stream simply
+        /// carries on), and so does a running stream that finds the radio keyed
+        /// at the end of its buffer, so no hand-over completes while keyed and
+        /// no captured audio is fed twice into an over.
+        /// </para>
+        /// No allocation on the callback.
+        /// </summary>
+        internal sealed class TxCaptureHandover
+        {
+            /// <summary>Nobody has asked yet.</summary>
+            public const int Idle = 0;
+            /// <summary><see cref="Next"/> asks to take over at the end of <see cref="Active"/>'s next buffer.</summary>
+            public const int Requested = 1;
+            /// <summary>Done: <see cref="Active"/> is (or, for a moment, is about to be) the replacement.</summary>
+            public const int TookOver = 2;
+            /// <summary>Withdrawn before it completed (a key-down, or the radio keyed): <see cref="Active"/> carries on, for good.</summary>
+            public const int Withdrawn = 3;
+
+            /// <summary>The one stream whose callback may feed the chain.</summary>
+            public StreamCB Active;
+            /// <summary>The replacement asking to take over; null when nobody is asking.</summary>
+            public StreamCB Next;
+            /// <summary><see cref="Idle"/>, <see cref="Requested"/>, <see cref="TookOver"/> or <see cref="Withdrawn"/>; moved only by compare-and-swap, so exactly one outcome wins.</summary>
+            public int State;
+        }
+
         internal class StreamCB
         {
             public Devices.Device Device;
@@ -686,6 +867,12 @@ namespace JJPortaudio
             public uint WasapiErrorId;
             /// <summary>JJFLEX_TEST_STREAM_ABORT: when this start aborts, on Environment.TickCount64; 0 for never.</summary>
             public long TestAbortDueTick;
+            /// <summary>
+            /// The capture hand-over this stream shares with the stream it is
+            /// replacing or was replaced by (the H2 split, repair 1), or null for
+            /// a stream that never took part in a swap. Read once per callback.
+            /// </summary>
+            public TxCaptureHandover Handover;
             public bool IsAlive
             {
                 get { return ((int)PortAudio.Pa_IsStreamActive(Stream) == 1); }
@@ -895,7 +1082,13 @@ namespace JJPortaudio
                 int key;
                 do
                 {
-                    key = rand.Next();
+                    // Locked (Sprint 49 Track H2, rulings repair 1): System.Random
+                    // is not thread-safe, and two threads in Next at once can
+                    // corrupt it into returning 0 forever, which would spin this
+                    // loop. The transmit capture's automatic try now opens a
+                    // stream on a worker thread while other threads may open
+                    // theirs.
+                    lock (rand) key = rand.Next();
                 } while (!Qs.TryAdd(key, new StreamCB()));
                 return key;
             }
@@ -941,6 +1134,127 @@ namespace JJPortaudio
         /// Track H, item D) reads these when the stream closes. Indexes follow
         /// <c>statusFlagBits</c>: 0 input underflow, 1 input overflow.
         /// </summary>
+        // ── Make before break (the H2 split, repair 1): see TxCaptureHandover ──
+
+        /// <summary>
+        /// Make this (opened, not yet started) stream the replacement of
+        /// <paramref name="running"/>: from its start it stands by, feeding
+        /// nothing, while <paramref name="running"/> carries on feeding the chain.
+        /// A null or closed <paramref name="running"/> leaves nobody to hand over,
+        /// and <see cref="ForceTakeOver"/> is then the only way in.
+        /// <para>
+        /// Repair 2: the two must feed one chain, so they must share its
+        /// <see cref="TxChainGate"/>. This stream is not started yet, so it
+        /// takes the running stream's gate here; a running stream with NO gate
+        /// was opened outside the transmit open path, its callbacks have never
+        /// taken one, and nothing done now could cover a callback of it already
+        /// in flight. That refuses (false), and the swap leaves it running.
+        /// </para>
+        /// </summary>
+        internal bool StandBeside(Audio running)
+        {
+            var cb = CBData;
+            if (cb == null) return false;
+            var runningCb = running?.CBData;
+            if (runningCb != null)
+            {
+                var gate = runningCb.TxPipeline.Gate;
+                if (gate == null)
+                {
+                    Tracing.TraceLine("audio: a capture stream cannot stand beside one that is not on a guarded transmit chain;"
+                        + " the running stream is left as it is", TraceLevel.Error);
+                    return false;
+                }
+                cb.TxPipeline.Gate = gate;
+            }
+            var handover = new TxCaptureHandover { Active = runningCb };
+            if (runningCb != null) System.Threading.Volatile.Write(ref runningCb.Handover, handover);
+            System.Threading.Volatile.Write(ref cb.Handover, handover);
+            return true;
+        }
+
+        /// <summary>Ask the running stream to hand over at the end of its next buffer. A hand-over already withdrawn stays withdrawn.</summary>
+        internal void RequestTakeOver()
+        {
+            var cb = CBData;
+            var handover = cb?.Handover;
+            if (handover == null || ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), cb)) return;
+            System.Threading.Volatile.Write(ref handover.Next, cb);
+            System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.Requested, TxCaptureHandover.Idle);
+        }
+
+        /// <summary>
+        /// Withdraw this stream's take-over before it completes (repair 2: a
+        /// key-down was admitted). True when it will now never complete (this
+        /// call withdrew it, or it was withdrawn already); false when it had
+        /// already completed, so this stream is the one feeding the chain.
+        /// One compare-and-swap; never waits.
+        /// </summary>
+        internal bool WithdrawTakeOver()
+        {
+            var cb = CBData;
+            var handover = cb?.Handover;
+            if (handover == null) return false;
+            while (true)
+            {
+                int s = System.Threading.Volatile.Read(ref handover.State);
+                if (s == TxCaptureHandover.Withdrawn) return true;
+                if (s == TxCaptureHandover.TookOver) return false;
+                if (System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.Withdrawn, s) == s)
+                {
+                    System.Threading.Interlocked.CompareExchange(ref handover.Next, null, cb);
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>True once this stream's take-over was withdrawn: it will never feed the chain.</summary>
+        internal bool TakeOverWithdrawn
+        {
+            get
+            {
+                var handover = CBData?.Handover;
+                return handover != null && System.Threading.Volatile.Read(ref handover.State) == TxCaptureHandover.Withdrawn;
+            }
+        }
+
+        /// <summary>True once this stream is the one feeding the chain (always, for a stream that never stood by).</summary>
+        internal bool TakenOver
+        {
+            get
+            {
+                var cb = CBData;
+                if (cb == null) return false;
+                var handover = cb.Handover;
+                return handover == null || ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), cb);
+            }
+        }
+
+        /// <summary>
+        /// Take over without the running stream's hand-over, because it has
+        /// stopped producing. Never two in the chain: a callback of the other
+        /// stream still inside holds the chain's <see cref="TxChainGate"/>, and
+        /// every buffer of this stream that arrives meanwhile finds it taken and
+        /// feeds nothing. That is as many buffers as the other callback stays
+        /// inside, NOT one (repair 2, Codex's characterization): the wait before
+        /// a force is bounded, the gap after it is not. A hand-over already
+        /// withdrawn is not forced.
+        /// </summary>
+        internal void ForceTakeOver()
+        {
+            var cb = CBData;
+            var handover = cb?.Handover;
+            if (handover == null) return;
+            while (true)
+            {
+                int s = System.Threading.Volatile.Read(ref handover.State);
+                if (s == TxCaptureHandover.Withdrawn || s == TxCaptureHandover.TookOver) return;
+                if (System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.TookOver, s) == s) break;
+            }
+            System.Threading.Volatile.Write(ref handover.Next, null);
+            System.Threading.Volatile.Write(ref handover.Active, cb);
+        }
+
         internal (long Callbacks, long Overflows, long Underflows) InputDropouts
         {
             get
@@ -1061,18 +1375,124 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// Initialize
+        /// Initialize: start the audio server.
         /// </summary>
         /// <param name="inDev">the input Devices.Device to use</param>
         /// <param name="outDev">the output Devices.Device to use</param>
-        public static void Initialize(Devices.Device inDev, Devices.Device outDev)
+        /// <param name="generation">
+        /// The generation of the server this started, which the caller owns and
+        /// hands to <see cref="Terminate"/> to end it; 0 when refused.
+        /// </param>
+        /// <returns>
+        /// False when it was refused, with nothing replaced: an earlier server is
+        /// still alive <see cref="AudioAnchor.PreviousServerRetireMs"/> later,
+        /// whether its run has not ended it yet or its Terminate stopped waiting
+        /// for it (the H2 split, and its repair 1). The generation moves only
+        /// when a server was started.
+        /// </returns>
+        public static bool Initialize(Devices.Device inDev, Devices.Device outDev, out long generation)
         {
-            AudioAnchor.Init(inDev, outDev);
+            generation = 0;
+            long until = Environment.TickCount64 + Math.Max(0, AudioAnchor.PreviousServerRetireMs);
+            while (true)
+            {
+                Thread earlier;
+                lock (s_serverGate)
+                {
+                    earlier = AudioAnchor.EarlierServerStillAlive();
+                    if (earlier == null)
+                    {
+                        if (!AudioAnchor.Init(inDev, outDev)) return false;
+                        generation = Interlocked.Increment(ref s_serverGeneration);
+                        return true;
+                    }
+                }
+                // Waited OUTSIDE the gate: the run that owns that server ends it
+                // through Terminate, which takes the gate.
+                long left = until - Environment.TickCount64;
+                if (left <= 0)
+                {
+                    AudioAnchor.TraceRefusal(earlier);
+                    return false;
+                }
+                earlier.Join((int)Math.Min(left, 100));
+            }
         }
 
-        public static void Terminate()
+        /// <summary>
+        /// End the audio server of <paramref name="generation"/>, the one the
+        /// caller's <see cref="Initialize"/> gave it, and only that one. When it
+        /// is no longer the live server (already ended, or the caller never
+        /// started one: 0), nothing is posted anywhere, so an abandoned run's
+        /// late end can never reach a newer run's server (repair 1, Codex's P2).
+        /// </summary>
+        public static void Terminate(long generation)
         {
-            AudioAnchor.Term();
+            lock (s_serverGate)
+            {
+                long live = Interlocked.Read(ref s_serverGeneration);
+                if (generation <= 0 || generation != live)
+                {
+                    Tracing.TraceLine("Audio.Terminate: server generation " + generation + " is not the live one ("
+                        + live + "); nothing ended", TraceLevel.Info);
+                    return;
+                }
+                Interlocked.Increment(ref s_serverGeneration);
+                AudioAnchor.Term();
+            }
+        }
+
+        // ── The audio server's lifetime as a barrier (Sprint 49 Track H2, join
+        // repair 3, Codex's P2) ──
+        //
+        // The server (AudioAnchor's thread and work queue) is process-global and
+        // replaced at every Initialize. Work that runs OFF the thread that owns
+        // the server's lifetime (the transmit microphone's opens and closes on
+        // their workers) must never post into a server that has been terminated,
+        // or into a later run's server. A timed wait for those workers is not a
+        // barrier: a worker left behind at its bound could start another open
+        // after the teardown had returned.
+        //
+        // So the server has a generation, bumped at Initialize and at Terminate,
+        // and one gate. Initialize and Terminate hold the gate; so does every
+        // piece of such work, for the length of one operation, and it runs only
+        // if the server it was started under is still the live one. Work already
+        // in progress therefore finishes, or closes what it opened, on its own
+        // server before that server can be terminated or a new one made; work
+        // not yet begun finds the generation moved and does nothing.
+        private static readonly object s_serverGate = new object();
+        private static long s_serverGeneration;
+
+        /// <summary>
+        /// The live audio server's generation: read it where the work is asked
+        /// for, and hand it to <see cref="RunOnServer"/> when the work runs.
+        /// Moves at every <see cref="Initialize"/> and <see cref="Terminate"/>.
+        /// </summary>
+        public static long ServerGeneration => Interlocked.Read(ref s_serverGeneration);
+
+        /// <summary>Tests only: what Terminate does to the gate and the generation, without touching a server.</summary>
+        internal static void MoveServerGenerationForTest()
+        {
+            lock (s_serverGate) Interlocked.Increment(ref s_serverGeneration);
+        }
+
+        /// <summary>
+        /// Run one operation against the audio server, but only if
+        /// <paramref name="generation"/> is still the live server and
+        /// <paramref name="stillWanted"/> (asked under the gate, immediately
+        /// before) says yes. Holds the server's gate for the operation, so
+        /// <see cref="Terminate"/> and <see cref="Initialize"/> wait for it.
+        /// False when it did not run.
+        /// </summary>
+        public static bool RunOnServer(long generation, Func<bool> stillWanted, Action operation)
+        {
+            lock (s_serverGate)
+            {
+                if (Interlocked.Read(ref s_serverGeneration) != generation) return false;
+                if (stillWanted != null && !stillWanted()) return false;
+                operation();
+                return true;
+            }
         }
 
         /// <summary>
@@ -1740,6 +2160,61 @@ namespace JJPortaudio
             }
         }
 
+        /// <summary>
+        /// A capture callback's way into the transmit chain (the H2 split,
+        /// repairs 1 and 2). With a hand-over (its stream takes part in a swap):
+        /// only the hand-over's Active stream. With a gate (every stream the
+        /// transmit open path opens, for its whole life): only while it holds
+        /// the gate. A stream standing by, or retired after handing over, or
+        /// meeting another producer inside the chain, gets false and feeds
+        /// nothing. Both null: true, nothing to share. No allocation.
+        /// </summary>
+        internal static bool EnterTxChain(TxCaptureHandover handover, TxChainGate gate, StreamCB data)
+        {
+            if (handover != null && !ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), data)) return false;
+            if (gate != null && !gate.TryEnter()) return false;
+            if (handover == null || ReferenceEquals(System.Threading.Volatile.Read(ref handover.Active), data)) return true;
+            gate?.Leave();
+            return false;
+        }
+
+        /// <summary>
+        /// The way out, for a callback <see cref="EnterTxChain"/> let in. When
+        /// <paramref name="mayHandOver"/> (the buffer ended normally) and a
+        /// replacement is asking, the hand-over is decided HERE, at the end of
+        /// this buffer and still holding the gate, by one compare-and-swap that
+        /// a key-down's withdrawal races fairly: if the radio is keyed now (this
+        /// stream's own key source: our Mox or the interlock), it is withdrawn
+        /// and this stream carries on; otherwise the replacement is made Active,
+        /// so its next buffer is the first it feeds. Then the gate is given back.
+        /// </summary>
+        internal static void LeaveTxChain(TxCaptureHandover handover, TxChainGate gate, StreamCB data, bool mayHandOver)
+        {
+            if (handover != null && mayHandOver
+                && System.Threading.Volatile.Read(ref handover.State) == TxCaptureHandover.Requested)
+            {
+                bool keyed = false;
+                var keySource = data?.TxPipeline.KeySource;
+                if (keySource != null)
+                {
+                    try { keyed = keySource(); }
+                    catch { keyed = true; }
+                }
+                if (keyed)
+                {
+                    System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.Withdrawn, TxCaptureHandover.Requested);
+                }
+                else if (System.Threading.Interlocked.CompareExchange(ref handover.State, TxCaptureHandover.TookOver, TxCaptureHandover.Requested)
+                         == TxCaptureHandover.Requested)
+                {
+                    StreamCB next = System.Threading.Volatile.Read(ref handover.Next);
+                    System.Threading.Volatile.Write(ref handover.Next, null);
+                    System.Threading.Volatile.Write(ref handover.Active, next);
+                }
+            }
+            gate?.Leave();
+        }
+
         private static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
                 IntPtr outbuf,
                 uint frameCount,
@@ -1758,6 +2233,28 @@ namespace JJPortaudio
             noteDeviceLatency(data, ref timeInfo, true);
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
+            // The H2 split, repairs 1 and 2: a stream taking part in a capture
+            // swap feeds the transmit chain only while it is the hand-over's
+            // Active one, and EVERY stream on a shared chain only while it holds
+            // the chain's gate, for the whole buffer. The gate was put on this
+            // stream's pipeline when it was opened, before its first callback,
+            // so no buffer of its life is outside it (repair 2: a guard made
+            // per swap missed a callback already inside). Standing by, retired,
+            // or meeting another producer inside, its buffer feeds nothing.
+            // Counted above, so a standing-by stream can be seen producing.
+            TxCaptureHandover handover = System.Threading.Volatile.Read(ref data.Handover);
+            TxChainGate gate = data.TxPipeline.Gate;
+            bool chainHeld = false;
+            if (handover != null || gate != null)
+            {
+                chainHeld = EnterTxChain(handover, gate, data);
+                if (!chainHeld)
+                {
+                    if (data.Active) return rv;
+                    rv = PortAudio.PaStreamCallbackResult.paComplete;
+                    goto inCallbackDone;
+                }
+            }
             // JJFLEX_TEST_STREAM_ABORT (#1145, test only): the encoder-failure
             // abort, on demand. Off, this costs one read of a static field.
             // The Audio Processing window's microphone re-open round reuses
@@ -1901,6 +2398,7 @@ namespace JJPortaudio
             }
 
             inCallbackDone:
+            if (chainHeld) LeaveTxChain(handover, gate, data, rv == PortAudio.PaStreamCallbackResult.paContinue);
             if (rv != PortAudio.PaStreamCallbackResult.paContinue)
             {
                 if (data.UseOpus) data.OpusInputHandler(new byte[0]);

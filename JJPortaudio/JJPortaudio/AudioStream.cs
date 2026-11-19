@@ -267,7 +267,7 @@ namespace JJPortaudio
         /// Start an open audio device.
         /// </summary>
         /// <returns>True on success</returns>
-        public bool StartAudio()
+        public virtual bool StartAudio()
         {
             Tracing.TraceLine("audioStream.Start", TraceLevel.Info);
             bool rv = aud.Start();
@@ -280,6 +280,59 @@ namespace JJPortaudio
             }
             return rv;
         }
+
+        // ── Make before break for a transmit capture swap (Sprint 49 Track H2
+        // split, repair 1). Virtual, like the start and stop, so the windowless
+        // tests can stand in for a device. ──
+
+        /// <summary>
+        /// Start this opened stream as the replacement of <paramref name="running"/>:
+        /// it runs, but feeds nothing, until it takes over, while
+        /// <paramref name="running"/> carries on feeding the transmit chain. False
+        /// (and, as <see cref="StartAudio"/>, closed) when it will not start.
+        /// </summary>
+        public virtual bool StartAudioBeside(JJAudioStream running)
+        {
+            // Repair 2: a running stream not on a guarded transmit chain cannot
+            // be stood beside (Audio.StandBeside), so this one is not started.
+            if (aud != null && !aud.StandBeside(running?.aud)) return false;
+            return StartAudio();
+        }
+
+        /// <summary>True once the device has delivered a buffer to this started stream, within <paramref name="timeoutMs"/>.</summary>
+        public virtual bool WaitUntilProducing(int timeoutMs)
+        {
+            var a = aud;
+            if (a == null) return false;
+            long until = Environment.TickCount64 + Math.Max(0, timeoutMs);
+            while (a.InputDropouts.Callbacks == 0)
+            {
+                if (StreamDied || Environment.TickCount64 >= until) return false;
+                Thread.Sleep(2);
+            }
+            return !StreamDied;
+        }
+
+        /// <summary>Ask the running stream to hand over to this one at the end of its next buffer.</summary>
+        public virtual void RequestTakeOver() => aud?.RequestTakeOver();
+
+        /// <summary>True once this stream is the one feeding the transmit chain.</summary>
+        public virtual bool HasTakenOver => aud != null && aud.TakenOver;
+
+        /// <summary>Take over without the running stream's hand-over (it has stopped producing). Never two in the chain at once. A withdrawn take-over is not forced.</summary>
+        public virtual void ForceTakeOver() => aud?.ForceTakeOver();
+
+        /// <summary>
+        /// Withdraw this stream's take-over before it completes (repair 2: a
+        /// key-down was admitted, so the running stream carries on). True when
+        /// it will now never take over; false when it already had. Never waits.
+        /// A stream with no audio block has no hand-over to race, so it answers
+        /// from <see cref="HasTakenOver"/>.
+        /// </summary>
+        public virtual bool WithdrawTakeOver() => aud != null ? aud.WithdrawTakeOver() : !HasTakenOver;
+
+        /// <summary>True once this stream's take-over was withdrawn: it will never feed the transmit chain.</summary>
+        public virtual bool TakeOverWithdrawn => aud != null && aud.TakeOverWithdrawn;
 
         /// <summary>
         /// Produce transmit frames from elapsed time instead of from the
@@ -329,7 +382,7 @@ namespace JJPortaudio
         /// Stop an open audio device.
         /// </summary>
         /// <returns>True on success</returns>
-        public bool StopAudio()
+        public virtual bool StopAudio()
         {
             Tracing.TraceLine("audioStream.Stop", TraceLevel.Info);
             aud.Stop();
@@ -403,7 +456,7 @@ namespace JJPortaudio
         /// <summary>
         /// Cleanup
         /// </summary>
-        public void Close()
+        public virtual void Close()
         {
             if (aud != null) aud.Finished();
         }
