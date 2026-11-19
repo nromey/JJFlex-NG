@@ -317,10 +317,18 @@ public partial class CheckYourAudioDialog
         SyncAuditionButtons();
     }
 
-    /// <summary>Stop a render of ours that is playing, before its file goes.</summary>
+    /// <summary>
+    /// Stop a render of ours that is playing, before its file goes, saying
+    /// nothing. It runs as the next take's microphone opens, after the
+    /// countdown's gate (Track Q2 repair 1): the player's ordinary stop queues
+    /// its stop sentence then, and that sentence would be recorded into the
+    /// take. The start tone that follows marks the moment instead. An audition
+    /// render plays at unity gain, so the player's limiter notice cannot be
+    /// due either. On close the window's own playback has already stopped.
+    /// </summary>
     private void StopAuditionPlayback()
     {
-        if (RecordingPlayer.IsPlaying && InAuditionFolder(RecordingPlayer.CurrentPath)) RecordingPlayer.Stop();
+        if (RecordingPlayer.IsPlaying && InAuditionFolder(RecordingPlayer.CurrentPath)) RecordingPlayer.StopWithoutSpeaking();
     }
 
     /// <summary>

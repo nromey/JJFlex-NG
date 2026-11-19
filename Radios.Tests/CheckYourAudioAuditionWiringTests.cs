@@ -117,6 +117,22 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_last_act_before_the_microphone_opens_stops_a_render_saying_nothing()
+        {
+            // Repair 1 (Codex's check of dd7c03b5): the window's last act before
+            // capture opens is stopping a render still playing, and the
+            // player's ordinary stop queues its sentence there, after the gate.
+            // The behaviour is AuditionNextTakeDuringPlaybackTests' (JJFlexWpf.Tests,
+            // the real player); this pins that it is the method the window passes.
+            string start = Body(Code(Dialog("CheckYourAudioDialog.Audition")), "private async Task StartAuditionAsync()");
+            Assert.Contains("beforeOpening: StopAuditionPlayback)", start);
+            string stop = Body(Code(Dialog("CheckYourAudioDialog.Audition")), "private void StopAuditionPlayback()");
+            Assert.Contains("RecordingPlayer.StopWithoutSpeaking();", stop);
+            Assert.DoesNotContain("RecordingPlayer.Stop();", stop);
+            Assert.DoesNotContain("Speak(", stop);
+        }
+
+        [Fact]
         public void The_take_is_marked_by_the_computer_microphone_checks_own_start_tone_and_settle()
         {
             string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
