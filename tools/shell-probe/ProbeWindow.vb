@@ -39,7 +39,13 @@ Friend NotInheritable Class ProbeWindow
 
         Body = New ProbeContent()
         Body.OwnerHandle = Function() _handle
-        Content = Body
+        If opts.ChildSource Then
+            ' Round 3, arm 3a: the content in its own child HWND (a child HwndSource
+            ' inside an HwndHost); this Window keeps the menu bar.
+            Content = New ContentHost(Body)
+        Else
+            Content = Body
+        End If
 
         ' The window's logical focus starts on the field, so activation lands
         ' there and not on the window's root.
@@ -110,6 +116,14 @@ Friend NotInheritable Class ProbeWindow
                          " GetFocus=" & Win32.Hex(Win32.GetFocus()))
         End If
         Select Case msg
+            Case Win32.WM_SETFOCUS
+                If _opts.ChildSource Then
+                    ' The Win32 focus landed on the top level; hand it to the field in the child HwndSource.
+                    Dispatcher.BeginInvoke(DispatcherPriority.Input, New Action(Sub()
+                                                                                    Dim ok = Body.Field.Focus()
+                                                                                    ProbeLog.Log("3a: top WM_SETFOCUS, field focus " & ok.ToString() & ", GetFocus=" & Win32.Hex(Win32.GetFocus()))
+                                                                                End Sub))
+                End If
             Case Win32.WM_COMMAND
                 If lParam = IntPtr.Zero Then
                     Dim id = Win32.Low(wParam)
@@ -128,7 +142,9 @@ Friend NotInheritable Class ProbeWindow
                                                Body.Field.Focus()
                                            End If
                                        End Sub)
-                If _opts.FocusAfterMenu Then
+                If _opts.FocusAfterMenu AndAlso _opts.ChildSource Then
+                    Dispatcher.BeginInvoke(DispatcherPriority.Input, New Action(Sub() ChildContent.RaiseFocusInPlace("3a")))
+                ElseIf _opts.FocusAfterMenu Then
                     Dispatcher.BeginInvoke(DispatcherPriority.Input, New Action(AddressOf RaiseFocusInPlace))
                 End If
         End Select

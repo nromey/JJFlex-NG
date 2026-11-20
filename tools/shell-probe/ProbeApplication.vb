@@ -23,6 +23,13 @@ Namespace My
     '''                       loop and no EnableModelessKeyboardInterop
     '''   --hybrid --nohop    control: the hybrid without ShellForm's menu-close hop
     '''   --raw               reference: a plain Win32 window and Edit on a bare loop
+    '''
+    ''' Round 3 (JAWS's silent menu-bar entry):
+    '''   --child-source      arm 3a: the WPF Window keeps the menu; its content is an
+    '''                       HwndHost holding a child HwndSource
+    '''   --raw --wpf-content arm 3b: the raw Win32 top level keeps the menu and hosts
+    '''                       the same content in a child HwndSource; its loop runs
+    '''                       ComponentDispatcher first, as WPF's own loop does
     ''' </summary>
     Partial Friend Class MyApplication
 
@@ -53,13 +60,14 @@ Namespace My
                 .KeyMenuFallback = HasArg("--keymenu-fallback"),
                 .NoDialogKeys = HasArg("--no-dialog-keys"),
                 .FocusAfterMenu = HasArg("--focus-after-menu"),
-                .DispatcherLoop = HasArg("--dispatcher-loop")}
+                .DispatcherLoop = HasArg("--dispatcher-loop"),
+                .ChildSource = HasArg("--child-source")}
             ProbeLog.Log("---- launch: " & If(hybrid, "HYBRID (WinForms form + ElementHost)", If(raw, "RAW Win32 window, bare loop", "WPF window, no main form")) &
                          ", args [" & String.Join(" ", Me.CommandLineArgs) & "]")
             AddHandler System.Windows.Forms.Application.ThreadException, Sub(s, e) ProbeLog.Log("ThreadException: " & e.Exception.ToString())
 
             If raw Then
-                _raw = New Global.ShellProbe.RawShell()
+                _raw = New Global.ShellProbe.RawShell(HasArg("--wpf-content"), opts.FocusAfterMenu)
                 _raw.Run()
                 Return
             End If
@@ -118,10 +126,11 @@ Namespace Global.ShellProbe
         Friend NoDialogKeys As Boolean
         Friend FocusAfterMenu As Boolean
         Friend DispatcherLoop As Boolean
+        Friend ChildSource As Boolean
 
         Friend Function Describe() As String
             Return "keymenu-fallback=" & KeyMenuFallback.ToString() & " no-dialog-keys=" & NoDialogKeys.ToString() &
-                   " focus-after-menu=" & FocusAfterMenu.ToString() & " dispatcher-loop=" & DispatcherLoop.ToString()
+                   " focus-after-menu=" & FocusAfterMenu.ToString() & " dispatcher-loop=" & DispatcherLoop.ToString() & " child-source=" & ChildSource.ToString()
         End Function
     End Class
 End Namespace

@@ -9,6 +9,13 @@ Imports System.Runtime.InteropServices
 ''' Win32 menu, so the WPF window is judged against Windows itself rather than
 ''' against the hybrid (which carries the hop and WinForms' UIA provider).
 ''' Menu only: Tab and dialogs are not part of this shell.
+'''
+''' Round 3, arm 3b (--raw --wpf-content): the same raw top level owns the menu
+''' and hosts the probe's WPF content in a child HwndSource instead of the Edit.
+''' The loop then runs ComponentDispatcher.RaiseThreadMessage before
+''' TranslateMessage and DispatchMessage, as WPF's own Dispatcher loop does, so
+''' WPF's keyboard preprocessing (mnemonics, accelerators) still runs; there is
+''' no IsDialogMessage anywhere.
 ''' </summary>
 Friend NotInheritable Class RawShell
     Private Delegate Function WndProcFn(hwnd As IntPtr, msg As Integer, wParam As IntPtr, lParam As IntPtr) As IntPtr
@@ -64,11 +71,24 @@ Friend NotInheritable Class RawShell
     Private Const ES_AUTOHSCROLL As Integer = &H80
     Private Const CW_USEDEFAULT As Integer = Integer.MinValue
     Private Const WM_DESTROY As Integer = &H2
+    Private Const WM_SIZE As Integer = &H5
 
     ' Held for the life of the process: the window class points at it.
     Private Shared _proc As WndProcFn
     Private _hwnd As IntPtr
     Private _edit As IntPtr
+    Private ReadOnly _wpfContent As Boolean
+    Private ReadOnly _focusAfterMenu As Boolean
+    Private _body As ProbeContent
+    Private _child As System.Windows.Interop.HwndSource
+
+    <DllImport("user32.dll")> Private Shared Function MoveWindow(h As IntPtr, x As Integer, y As Integer, w As Integer, ht As Integer, repaint As Boolean) As Boolean
+    End Function
+
+    Friend Sub New(wpfContent As Boolean, focusAfterMenu As Boolean)
+        _wpfContent = wpfContent
+        _focusAfterMenu = focusAfterMenu
+    End Sub
 
     Friend ReadOnly Property Handle As IntPtr
         Get
@@ -94,17 +114,32 @@ Friend NotInheritable Class RawShell
                                 CW_USEDEFAULT, CW_USEDEFAULT, 800, 600, IntPtr.Zero, IntPtr.Zero, inst, IntPtr.Zero)
         Dim menu As New NativeMenu()
         menu.AttachTo(_hwnd)
-        CreateWindowExW(0, "STATIC", "Home, frequency and VFO", WS_CHILD Or WS_VISIBLE,
-                        10, 10, 300, 20, _hwnd, IntPtr.Zero, inst, IntPtr.Zero)
-        _edit = CreateWindowExW(0, "EDIT", "A  14.100.000  USB  S5", WS_CHILD Or WS_VISIBLE Or WS_BORDER Or WS_TABSTOP Or ES_AUTOHSCROLL,
-                                10, 34, 300, 24, _hwnd, New IntPtr(1), inst, IntPtr.Zero)
-        ProbeLog.Log("RawShell: handle " & Win32.Hex(_hwnd) & ", edit " & Win32.Hex(_edit) & " (bare GetMessage loop, no IsDialogMessage)")
+        If _wpfContent Then
+            _body = New ProbeContent()
+            _body.OwnerHandle = Function() _hwnd
+            _child = ChildContent.Create(_hwnd, _body, 780, 540)
+            _edit = _child.Handle
+            ProbeLog.Log("RawShell (3b): handle " & Win32.Hex(_hwnd) & ", WPF content in child HwndSource " & Win32.Hex(_edit) &
+                         ", focus-after-menu " & _focusAfterMenu.ToString())
+        Else
+            CreateWindowExW(0, "STATIC", "Home, frequency and VFO", WS_CHILD Or WS_VISIBLE,
+                            10, 10, 300, 20, _hwnd, IntPtr.Zero, inst, IntPtr.Zero)
+            _edit = CreateWindowExW(0, "EDIT", "A  14.100.000  USB  S5", WS_CHILD Or WS_VISIBLE Or WS_BORDER Or WS_TABSTOP Or ES_AUTOHSCROLL,
+                                    10, 34, 300, 24, _hwnd, New IntPtr(1), inst, IntPtr.Zero)
+            ProbeLog.Log("RawShell: handle " & Win32.Hex(_hwnd) & ", edit " & Win32.Hex(_edit) & " (bare GetMessage loop, no IsDialogMessage)")
+        End If
         Win32.ShowWindow(_hwnd, 5)
         UpdateWindow(_hwnd)
         Win32.SetForegroundWindow(_hwnd)
 
         Dim m As NativeMsg
         While GetMessageW(m, IntPtr.Zero, 0, 0) > 0
+            If _wpfContent Then
+                Dim wm As New System.Windows.Interop.MSG() With {
+                    .hwnd = m.hwnd, .message = m.message, .wParam = m.wParam, .lParam = m.lParam,
+                    .time = m.time, .pt_x = m.ptX, .pt_y = m.ptY}
+                If System.Windows.Interop.ComponentDispatcher.RaiseThreadMessage(wm) Then Continue While
+            End If
             TranslateMessage(m)
             DispatchMessageW(m)
         End While
@@ -127,10 +162,35 @@ Friend NotInheritable Class RawShell
             Select Case msg
                 Case Win32.WM_SETFOCUS
                     If _edit <> IntPtr.Zero Then SetFocus(_edit)
+                    If _body IsNot Nothing Then
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
+                            System.Windows.Threading.DispatcherPriority.Input,
+                            New Action(Sub()
+                                           Dim ok = _body.Field.Focus()
+                                           ProbeLog.Log("3b: top WM_SETFOCUS, field focus " & ok.ToString() & ", GetFocus=" & Win32.Hex(Win32.GetFocus()))
+                                       End Sub))
+                    End If
                     Return IntPtr.Zero
+                Case WM_SIZE
+                    If _child IsNot Nothing Then
+                        Dim w = CInt(lParam.ToInt64() And &HFFFFL), h = CInt((lParam.ToInt64() >> 16) And &HFFFFL)
+                        MoveWindow(_child.Handle, 0, 0, w, h, True)
+                    End If
+                Case Win32.WM_EXITMENULOOP
+                    If _body IsNot Nothing AndAlso _focusAfterMenu Then
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
+                            System.Windows.Threading.DispatcherPriority.Input,
+                            New Action(Sub() ChildContent.RaiseFocusInPlace("3b")))
+                    End If
                 Case Win32.WM_COMMAND
                     If lParam = IntPtr.Zero Then
-                        RunCommand(Win32.Low(wParam))
+                        Dim id = Win32.Low(wParam)
+                        If _body IsNot Nothing Then
+                            ' As a menu command does: after the menu loop has unwound.
+                            System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(New Action(Sub() RunCommand(id)))
+                        Else
+                            RunCommand(id)
+                        End If
                         Return IntPtr.Zero
                     End If
                 Case WM_DESTROY
@@ -152,7 +212,11 @@ Friend NotInheritable Class RawShell
                 System.Windows.Forms.MessageBox.Show(New Win32Owner(_hwnd),
                     "This is the probe's message box. Press Enter to close it.", "Probe message box")
             Case NativeMenu.IdOpenDialog
-                ProbeLog.Log("Raw: no WPF dialog in the raw baseline")
+                If _body IsNot Nothing Then
+                    _body.OpenDialog()
+                Else
+                    ProbeLog.Log("Raw: no WPF dialog in the raw baseline")
+                End If
         End Select
     End Sub
 End Class

@@ -37,6 +37,8 @@
 ; header says so in its first line, either way.
 
 include "hjConst.jsh"
+include "UIA.jsh"
+include "MSAAConst.jsh"
 include "hjGlobal.jsh"
 include "common.jsm"
 
@@ -349,9 +351,11 @@ JjfCapEmit ("meta", "session", "capture session started",
 gJjfCapLastHistory = GetSpeechHistory (FALSE)
 gJjfCapLastSegments = StringSegmentCount (gJjfCapLastHistory, "\n")
 gJjfCapTimer = ScheduleFunction ("JjfCapPoll", JJFCAP_POLL_TENTHS)
+JjfMenuStart ()
 endFunction
 
 void function AutoFinishEvent ()
+JjfMenuStop ()
 if (gJjfCapTimer) then
     UnscheduleFunction (gJjfCapTimer)
     gJjfCapTimer = 0
@@ -409,8 +413,196 @@ Builtin::SayString (gJjfCapControlToken)
 EndScript
 
 ;=======================================================================
-; ROUND 2 INSTRUMENT (shell probe only; NOT in the readercapture original)
+; ROUND 2 INSTRUMENT AND ROUND 3 ARM 3c (shell probe only; NOT in the
+; readercapture original)
 ;=======================================================================
+
+; Round 2 measured that, for a native menu bar owned by a WPF window's own
+; HWND, JAWS's engine never raises MenuModeEvent(MENUBAR_ACTIVE): it drops the
+; MSAA menu events of a native UIA window and sees only the popups (#32768).
+; So Alt alone and F10 enter the bar in silence, and Right and Left along it
+; are silent too.
+;
+; Arm 3c: UIA still reports the bar. Its proxy raises a UIA focus change to the
+; bar item (MenuItem under MenuBar, framework Win32) on entry and on every move
+; along the bar, and candidate 2 of round 2 raises one on the focused field
+; after the menu loop ends. This script listens for UIA focus changes in its own
+; process (FreedomSci.UIA, the scripting API JAWS's own scripts use) and:
+;   - on a bar item while JAWS believes no menu is active, waits two tenths
+;     (so a popup opened by Alt plus a letter, which the engine DOES report, can
+;     claim it first), then raises MenuModeEvent with MENUBAR_ACTIVE through
+;     the default script, which says "Menu bar", and speaks the item unless
+;     JAWS has already spoken it;
+;   - on a bar item while that script-raised bar mode is active, speaks it
+;     unless JAWS already did;
+;   - on anything else in the process while that mode is active, raises
+;     MENU_INACTIVE through the default script ("Leaving menu bar" or "Leaving
+;     menus", by verbosity) and reads the focus unless JAWS already did.
+; Any MenuModeEvent the engine raises itself takes over and cancels the
+; script's state, so the hybrid and the raw window, where the engine works,
+; are left alone.
+;
+; It also swallows a focus event on the menu bar object itself (OBJID_MENU,
+; child 0) while no menu is active: that is the "Application", "Alt" round 2
+; heard before a menu command's result.
+
+globals
+    object gJjfMenuUIA,
+    object gJjfMenuWalker,
+    int gJjfMenuPid,
+    int gJjfBarActive,
+    int gJjfBarTimer,
+    int gJjfBarSynth,
+    string gJjfBarPending,
+    int gJjfLastFocusTick,
+    int gJjfLastMenuFocusTick,
+    int gJjfAfterTick,
+    int gJjfAfterTimer
+
+void function JjfMenuStart ()
+gJjfBarActive = FALSE
+gJjfBarTimer = 0
+gJjfAfterTimer = 0
+gJjfMenuUIA = CreateObjectEx ("FreedomSci.UIA", false, "UIAScriptAPI.x.manifest")
+if (!gJjfMenuUIA) then
+    JjfCapEmit ("meta", "menuuia", "3c: no FreedomSci.UIA object; arm inactive", "")
+    return
+endIf
+if (!ComAttachEvents (gJjfMenuUIA, "JjfMenuUIA")) then
+    JjfCapEmit ("meta", "menuuia", "3c: ComAttachEvents failed; arm inactive", "")
+    gJjfMenuUIA = Null ()
+    return
+endIf
+gJjfMenuWalker = gJjfMenuUIA.RawViewWalker ()
+gJjfMenuPid = gJjfMenuUIA.GetElementFromHandle (GetAppMainWindow (GetFocus ())).ProcessID
+if (!gJjfMenuUIA.AddFocusChangedEventHandler ()) then
+    JjfCapEmit ("meta", "menuuia", "3c: AddFocusChangedEventHandler failed; arm inactive", "")
+    gJjfMenuUIA = Null ()
+    return
+endIf
+JjfCapEmit ("meta", "menuuia", "3c: UIA focus listener on, pid " + IntToString (gJjfMenuPid), "")
+endFunction
+
+void function JjfMenuStop ()
+if (gJjfBarTimer) then
+    UnscheduleFunction (gJjfBarTimer)
+    gJjfBarTimer = 0
+endIf
+if (gJjfAfterTimer) then
+    UnscheduleFunction (gJjfAfterTimer)
+    gJjfAfterTimer = 0
+endIf
+gJjfBarActive = FALSE
+gJjfMenuWalker = Null ()
+gJjfMenuUIA = Null ()
+endFunction
+
+int function JjfIsBarItem (object element)
+if (element.ControlType != UIA_MenuItemControlTypeId) then
+    return FALSE
+endIf
+gJjfMenuWalker.currentElement = element
+if (!gJjfMenuWalker.gotoParent ()) then
+    return FALSE
+endIf
+if (gJjfMenuWalker.currentElement.ControlType == UIA_MenuBarControlTypeId) then
+    return TRUE
+endIf
+return FALSE
+endFunction
+
+; Raised through this script's own MenuModeEvent override, so the default
+; script does the speaking and JAWS's GlobalMenuMode stays consistent.
+void function JjfRaiseMenuMode (int mode)
+gJjfBarSynth = TRUE
+MenuModeEvent (GetFocus (), mode)
+gJjfBarSynth = FALSE
+endFunction
+
+void function JjfMenuBarEnter ()
+gJjfBarTimer = 0
+if (GlobalMenuMode != MENU_INACTIVE) then
+    JjfCapEmit ("meta", "menubar", "3c: entry for " + gJjfBarPending + " left to JAWS (mode "
+        + IntToString (GlobalMenuMode) + ")", "")
+    return
+endIf
+gJjfBarActive = TRUE
+gJjfAfterTick = GetTickCount ()
+JjfCapEmit ("meta", "menubar", "3c: script raises MENUBAR_ACTIVE for " + gJjfBarPending, "")
+JjfRaiseMenuMode (MENUBAR_ACTIVE)
+gJjfAfterTimer = ScheduleFunction ("JjfSayBarItemIfUnspoken", 2)
+endFunction
+
+void function JjfSayBarItemIfUnspoken ()
+gJjfAfterTimer = 0
+if (gJjfLastMenuFocusTick >= gJjfAfterTick) then
+    JjfCapEmit ("meta", "menubar", "3c: JAWS spoke the bar item itself", "")
+    return
+endIf
+JjfCapEmit ("meta", "menubar", "3c: script speaks bar item " + gJjfBarPending, "")
+Say (gJjfBarPending, OT_CONTROL_NAME)
+endFunction
+
+void function JjfSayFocusIfUnspoken ()
+gJjfAfterTimer = 0
+if (gJjfLastFocusTick >= gJjfAfterTick) then
+    JjfCapEmit ("meta", "menubar", "3c: JAWS read the focus itself after the bar", "")
+    return
+endIf
+JjfCapEmit ("meta", "menubar", "3c: script reads the focus after the bar", "")
+SayObjectTypeAndText ()
+endFunction
+
+void function JjfMenuUIAFocusChangedEvent (object element)
+var int nType
+if (!element) then
+    return
+endIf
+if (element.ProcessID != gJjfMenuPid) then
+    return
+endIf
+if (JjfIsBarItem (element)) then
+    gJjfBarPending = element.Name
+    if (gJjfBarActive) then
+        if (GlobalMenuMode == MENUBAR_ACTIVE) then
+            if (gJjfAfterTimer) then
+                UnscheduleFunction (gJjfAfterTimer)
+            endIf
+            gJjfAfterTick = GetTickCount ()
+            gJjfAfterTimer = ScheduleFunction ("JjfSayBarItemIfUnspoken", 2)
+        endIf
+        return
+    endIf
+    if (GlobalMenuMode == MENU_INACTIVE) then
+        if (!gJjfBarTimer) then
+            gJjfBarTimer = ScheduleFunction ("JjfMenuBarEnter", 2)
+        endIf
+    endIf
+    return
+endIf
+nType = element.ControlType
+if (nType == UIA_MenuBarControlTypeId || nType == UIA_MenuItemControlTypeId || nType == UIA_MenuControlTypeId) then
+    return
+endIf
+; Focus left the menus.
+if (gJjfBarTimer) then
+    UnscheduleFunction (gJjfBarTimer)
+    gJjfBarTimer = 0
+endIf
+if (gJjfBarActive) then
+    gJjfBarActive = FALSE
+    if (gJjfAfterTimer) then
+        UnscheduleFunction (gJjfAfterTimer)
+        gJjfAfterTimer = 0
+    endIf
+    if (GlobalMenuMode == MENUBAR_ACTIVE) then
+        gJjfAfterTick = GetTickCount ()
+        JjfCapEmit ("meta", "menubar", "3c: script raises MENU_INACTIVE (focus " + element.Name + ")", "")
+        JjfRaiseMenuMode (MENU_INACTIVE)
+        gJjfAfterTimer = ScheduleFunction ("JjfSayFocusIfUnspoken", 2)
+    endIf
+endIf
+endFunction
 
 ; JAWS speaks "Menu bar" and "Leaving menus" only from MenuModeEvent, which
 ; the JAWS engine raises; the default scripts merely react. Logging it here,
@@ -418,13 +610,26 @@ EndScript
 ; engine never reported menu mode" or "it reported it and the default script
 ; stayed quiet" (MenuInactiveProcessed is silent while the focus object is a
 ; descendant of a menu). Modes: 0 MENU_INACTIVE, 1 MENUBAR_ACTIVE, 2 MENU_ACTIVE.
+; Round 3: an engine-raised event (not the script's own) cancels arm 3c's state.
 Void Function MenuModeEvent (handle WinHandle, int mode)
-var int nPrev, int nDesc
+var int nPrev, int nDesc, string sFrom
 nPrev = GlobalMenuMode
 nDesc = IsFocusObjectDescendantOfmenu ()
+sFrom = "engine"
+if (gJjfBarSynth) then
+    sFrom = "script"
+endIf
 JjfCapEmit ("meta", "menumode",
     "MenuModeEvent mode=" + IntToString (mode) + " prev=" + IntToString (nPrev)
-    + " class=" + GetWindowClass (WinHandle) + " descOfMenu=" + IntToString (nDesc), "")
+    + " class=" + GetWindowClass (WinHandle) + " descOfMenu=" + IntToString (nDesc)
+    + " from=" + sFrom, "")
+if (!gJjfBarSynth) then
+    if (gJjfBarTimer) then
+        UnscheduleFunction (gJjfBarTimer)
+        gJjfBarTimer = 0
+    endIf
+    gJjfBarActive = FALSE
+endIf
 MenuModeEvent (WinHandle, mode)
 EndFunction
 
@@ -438,5 +643,14 @@ JjfCapEmit ("meta", "focus",
     "FocusChangedEventEx class=" + GetWindowClass (hwndFocus) + " obj=" + IntToString (nObject)
     + " child=" + IntToString (nChild) + " depth=" + IntToString (nChangeDepth)
     + " name=" + GetObjectName () + " menumode=" + IntToString (GlobalMenuMode), "")
+if (nObject == OBJID_MENU) then
+    if (nChild == 0 && GlobalMenuMode == MENU_INACTIVE) then
+        ; The menu bar object itself, after the menus closed: "Application", "Alt".
+        JjfCapEmit ("meta", "focus", "3c: swallowed focus on the menu bar object", "")
+        return
+    endIf
+    gJjfLastMenuFocusTick = GetTickCount ()
+endIf
+gJjfLastFocusTick = GetTickCount ()
 FocusChangedEventEx (hwndFocus, nObject, nChild, hwndPrevFocus, nPrevObject, nPrevChild, nChangeDepth)
 endFunction
