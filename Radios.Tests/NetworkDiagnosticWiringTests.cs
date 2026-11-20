@@ -265,6 +265,83 @@ namespace Radios.Tests
             Assert.DoesNotContain("report.ToMarkdown()", net);
         }
 
+        /// <summary>
+        /// Codex's check, B2, the Apply-and-stay transition: a saved change of
+        /// this radio's connection choice changes what the diagnostic composes
+        /// as "Policy as it stands now" (and Copy report), while the recorded
+        /// policy stays the last connect's. The two tests below this one pin
+        /// that the dialog recomputes its boxes on that save and on entering
+        /// their categories.
+        /// </summary>
+        [Fact]
+        public void A_saved_choice_moves_the_policy_now_and_leaves_the_recorded_policy_alone()
+        {
+            using var scope = new RadioConfigStaticsScope(nameof(NetworkDiagnosticWiringTests));
+            var rig = Rig();
+            // A radio id the profile store accepts (four groups of digits).
+            string serial = "4711-" + Random.Shared.Next(1000, 9999) + "-8600-" + Random.Shared.Next(1000, 9999);
+            var ports = new RadioPortReport(
+                new AdvertisedPortPair(PortPairSource.Manual, 4994, 4993, true),
+                new AdvertisedPortPair(PortPairSource.Upnp, -1, -1, false), false, true);
+            var input = new SmartLinkPolicyInput(SmartLinkConnectionMode.ManualPortForwardOnly, true, RadioConnectionPreference.Auto, false, ports);
+            Assert.True(SmartLinkConnectRecords.Store(SmartLinkConnectRecord.Begin(serial, "nobody-signed-in@example.invalid",
+                input, SmartLinkMethodPolicy.Decide(input), DateTime.UtcNow)));
+            string auto = NetworkDiagnosticComposer.ChoiceName(RadioConnectionPreference.Auto);
+            string forward = NetworkDiagnosticComposer.ChoiceName(RadioConnectionPreference.ForwardOnly);
+            string NowChoice(string name) => Lexicon.Get("settings.network.diag.policy_choice", ("choiceName", name));
+            string Recorded(string name) => Lexicon.Get("settings.network.diag.recorded_choice", ("choiceName", name));
+
+            var before = rig.NetworkDiagnosticFor(serial);
+            Assert.Contains(NowChoice(auto), before.PolicyNow.Lines);
+            Assert.Contains(Recorded(auto), before.PolicyAtLastConnect.Lines);
+
+            Assert.True(RadioConfig.Update(serial, c => c.ConnectionPreference = RadioConnectionPreference.ForwardOnly));
+
+            var after = rig.NetworkDiagnosticFor(serial);
+            Assert.Contains(NowChoice(forward), after.PolicyNow.Lines);
+            Assert.DoesNotContain(NowChoice(auto), after.PolicyNow.Lines);
+            Assert.Contains(Recorded(auto), after.PolicyAtLastConnect.Lines);
+            Assert.Contains(Lexicon.Get("settings.network.diag.recorded_changed_since"), after.PolicyAtLastConnect.Lines);
+        }
+
+        [Fact]
+        public void Apply_and_OK_recompute_both_diagnostic_boxes_after_a_successful_commit()
+        {
+            string net = Src("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs");
+            string commit = Body(net, "private bool ApplyAllSettings(bool closing)");
+            int profiles = commit.IndexOf("if (!CommitRadioProfiles(queued, applied, failed)) return false;", StringComparison.Ordinal);
+            int ports = commit.IndexOf("if (!CommitPortForwardIfDirty(", StringComparison.Ordinal);
+            int refresh = commit.IndexOf("RefreshNetworkDiagnosticSections();", StringComparison.Ordinal);
+            int done = commit.LastIndexOf("return true;", StringComparison.Ordinal);
+            Assert.True(profiles > 0 && ports > profiles, "the commit's saves moved; re-pin this test");
+            Assert.True(refresh > ports, "the boxes must be recomputed after the policy is saved");
+            Assert.True(done > refresh, "the boxes must be recomputed on the path that returns success");
+            // Both buttons go through that commit; Apply keeps the dialog open.
+            Assert.Contains("ApplyAllSettings(closing: false)", Body(net, "private void ApplyButton_Click("));
+            Assert.Contains("ApplyAllSettings(closing: true)", Body(net, "private void OkButton_Click("));
+            // The refresh recomputes from the saved settings, never a cached text.
+            Assert.Contains("NetworkDiagnosticFor(serial).ToText()", Body(net, "private void RefreshNetworkDiagnosticSections()"));
+        }
+
+        [Fact]
+        public void Entering_the_network_or_radio_setup_category_recomputes_both_boxes()
+        {
+            string net = Src("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs");
+            string watch = Body(net, "private void WatchDiagnosticCategories()");
+            Assert.Contains("SettingsTabs.SelectionChanged +=", watch);
+            Assert.Contains("ReferenceEquals(e.OriginalSource, SettingsTabs)", watch);
+            Assert.Contains("is \"Network\" or \"Radio Setup\"", watch);
+            Assert.Contains("RefreshNetworkDiagnosticSections();", watch);
+            // Wired once, in the constructor, beside the category list.
+            string ctor = Body(net, "public SettingsDialog(");
+            Assert.Contains("WatchDiagnosticCategories();", ctor);
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(net, @"WatchDiagnosticCategories\(\);"));
+            // Both headers are the tabs' real headers.
+            string xaml = Src("JJFlexWpf", "Dialogs", "SettingsDialog.xaml");
+            Assert.Contains("<TabItem Header=\"Network\"", xaml);
+            Assert.Contains("<TabItem Header=\"Radio Setup\"", xaml);
+        }
+
         [Fact]
         public void The_dialog_follows_the_record_through_the_follower_on_its_own_thread()
         {

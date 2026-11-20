@@ -161,6 +161,7 @@ namespace JJFlexWpf.Dialogs
             // constructor — or by SelectTabByHeader before the dialog is
             // shown — arrives with the list already tracking it.
             _categories = CategoryNavigator.Attach(this, SettingsTabs, CategoryListBox);
+            WatchDiagnosticCategories();   // the tiers work, Track C repair 1
 
             // Select all text when tabbing into any TextBox
             AddHandler(TextBox.GotKeyboardFocusEvent,
@@ -1291,6 +1292,24 @@ namespace JJFlexWpf.Dialogs
             if (SetupDiagnosticSectionsText != null) SetupDiagnosticSectionsText.Text = text;
         }
 
+        /// <summary>
+        /// The tiers work, Track C repair 1 (Codex's check, B2): entering the
+        /// Network or Radio Setup category recomputes both diagnostic boxes, so
+        /// a choice or tier saved elsewhere since they were last drawn is shown
+        /// as it stands now. Only the TabControl's own change counts; a combo
+        /// box on a page raises the same routed event.
+        /// </summary>
+        private void WatchDiagnosticCategories()
+        {
+            SettingsTabs.SelectionChanged += (s, e) =>
+            {
+                if (!ReferenceEquals(e.OriginalSource, SettingsTabs)) return;
+                if (SettingsTabs.SelectedItem is System.Windows.Controls.TabItem tab
+                    && (tab.Header as string) is "Network" or "Radio Setup")
+                    RefreshNetworkDiagnosticSections();
+            };
+        }
+
         private Radios.SmartLink.ConnectRecordFollower? _diagnosticFollower;
 
         /// <summary>
@@ -1851,6 +1870,14 @@ namespace JJFlexWpf.Dialogs
             if (licenseNote != null) failed.Add(licenseNote);
 
             SettingsApplied?.Invoke();
+
+            // The tiers work, Track C repair 1 (Codex's check, B2): a saved
+            // change to this radio's connection choice changes "Policy as it
+            // stands now", and Apply keeps the dialog open, so both diagnostic
+            // boxes are recomputed from the saved settings here, as Copy report
+            // already does. The recorded policy is the last connect's record and
+            // does not move.
+            RefreshNetworkDiagnosticSections();
 
             var said = CommitAnnouncement(closing, pttDropped, refused, queued, applied, failed);
             if (said.Advisory != null)
