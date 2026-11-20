@@ -44,6 +44,32 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_relocated_root_directly_inside_roaming_is_still_relocated()
+        {
+            // #937: JJFLEX_CONFIG_DIR=%AppData%\Something. Its parent IS roaming
+            // app data, and the old parent test called that ordinary, sending
+            // its local data to %LocalAppData%\Something, outside the tree.
+            string temp = Path.Combine(Roaming, "Other");
+            string root = LocalDataRoot.Resolve(temp, Roaming, Local);
+
+            Assert.Equal(Path.Combine(temp, LocalDataRoot.RelocatedFolderName), root);
+            Assert.DoesNotContain(Local, root, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void The_ordinary_folder_is_ordinary_whatever_its_case_or_trailing_separator()
+        {
+            // Positive control for the exact-folder test: Windows paths are
+            // case-insensitive, so a differently cased standard folder is still
+            // the operator's own, and keeps the local folder it always had.
+            Assert.Equal(Path.Combine(Local, "jjflexradio"),
+                         LocalDataRoot.Resolve(Path.Combine(Roaming, "jjflexradio"), Roaming, Local),
+                         StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(Path.Combine(Local, "JJFlexRadio"),
+                         LocalDataRoot.Resolve(Path.Combine(Roaming, "JJFlexRadio") + @"\", Roaming + @"\", Local));
+        }
+
+        [Fact]
         public void This_process_resolves_to_a_folder_under_its_own_roots()
         {
             // The live property, against the live settings root: either the
