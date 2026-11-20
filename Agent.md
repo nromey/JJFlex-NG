@@ -13,7 +13,7 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *2026-11-19 ran as a working day with a nap mode in the afternoon, then night mode from about 20:32. Noel said "morning" at 10:49 in the junk box window; the Audio Processing window replied received and wrapped up (nothing running). The recap is at the top of `for-noel/2026-11-19-night-status.md`; the still-open questions alone are in `for-noel/2026-11-20-open-questions.md`. Claude Code was updated mid-night (about 04:30) so agents could run Fable 5.2.*
 
-**Main (45 commits since the last seal, all unpushed with the 15 before them):**
+**Main (45 commits since the last seal; with this seal, main is 46 ahead of origin):**
 - Junk box batches 13 and 14 merged (`c9c17926`) and batch 15 (`ee46fd85`), each with Noel's approved words, heard on the harness. CLAUDE.md: `HeldSpeechLeakTests` joins the windowless filter (`a380ac78`); a new seal step 3c-quater moves week-old for-claude files to the NAS (`1e9e1671`).
 
 **Junk box (unmerged; batch 18 carries 16 and 17 underneath):**
