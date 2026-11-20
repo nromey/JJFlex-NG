@@ -115,8 +115,10 @@ namespace Radios
             // Never trigger a probe from a read surface: on a hole-punched
             // session the radio-side probe endangers the live connection
             // (the f842e93f gate), and an identity card must be safe to open
-            // in every state.
-            var probe = rig.LastNetworkReportFor(serial);
+            // in every state. The radio's own test from its own brokering
+            // account's session (the tiers work, Track C), never the active
+            // session's.
+            var probe = rig.NetworkReportFor(serial);
             if (probe == null)
             {
                 lines.Add("Reachability from the internet: not tested this session.");

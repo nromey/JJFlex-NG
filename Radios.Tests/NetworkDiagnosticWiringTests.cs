@@ -171,6 +171,14 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_network_identity_card_reads_the_radios_own_test()
+        {
+            string text = Src("Radios", "NetworkIdentityInfo.cs");
+            Assert.Contains("rig.NetworkReportFor(serial)", text);
+            Assert.DoesNotContain("LastNetworkReportFor(", text);
+        }
+
+        [Fact]
         public void No_product_code_explains_a_radio_with_the_newest_test_of_any_radio()
         {
             // Only the session and its runner, which keep the per-session
