@@ -251,7 +251,7 @@ namespace Radios.Tests
 
             int label = text.IndexOf("remoteDone:", exitLine, StringComparison.Ordinal);
             int markAtDone = text.IndexOf(mark, label, StringComparison.Ordinal);
-            int feed = text.IndexOf("AudioFeedEnded?.Invoke()", label, StringComparison.Ordinal);
+            int feed = text.IndexOf("CloseReceiveTallies(run);", label, StringComparison.Ordinal);
             int summary = text.IndexOf("TraceOpusRxContinuitySummary()", label, StringComparison.Ordinal);
             int monitor = text.IndexOf("CWMonDone()", label, StringComparison.Ordinal);
             int stop = text.IndexOf("stopOpusOutputChannel()", label, StringComparison.Ordinal);
@@ -260,8 +260,8 @@ namespace Radios.Tests
             Assert.True(feed < stop, "the pipeline hears of the end after the stream is stopped");
 
             // And the mark itself writes nothing on its way.
-            int body = text.IndexOf("private void MarkReceiveFeedEnded(long run)", StringComparison.Ordinal);
-            int bodyEnd = text.IndexOf("private void remoteAudioProc(long run)", body, StringComparison.Ordinal);
+            int body = text.IndexOf("void MarkReceiveFeedEnded(long run)", StringComparison.Ordinal);
+            int bodyEnd = text.IndexOf("void CloseReceiveTallies(long run)", body, StringComparison.Ordinal);
             string method = text.Substring(body, bodyEnd - body);
             int noted = method.IndexOf("NoteFeedEnded()", StringComparison.Ordinal);
             int firstTrace = method.IndexOf("Tracing.TraceLine", StringComparison.Ordinal);
