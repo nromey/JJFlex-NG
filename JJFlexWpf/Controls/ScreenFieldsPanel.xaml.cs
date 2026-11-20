@@ -253,6 +253,8 @@ public partial class ScreenFieldsPanel : UserControl
         _audioPipeline?.Dispose();
         _audioPipeline = new RxAudioPipeline();
         rig.AudioPostProcessor = _audioPipeline.Process;
+        // #1229: the slots' running tallies close and write a session total when PC audio goes off.
+        rig.AudioFeedEnded = _audioPipeline.FeedEnded;
         // The noise controller is the first listener for a slot's result
         // (Sprint 49 Track E, E5). Raised on a pool thread; spoken on the UI's.
         _audioPipeline.SelectionResult += (s, r) =>
@@ -293,6 +295,7 @@ public partial class ScreenFieldsPanel : UserControl
         {
             _rig.ModeChanged -= OnModeChanged;
             _rig.AudioPostProcessor = null;
+            _rig.AudioFeedEnded = null;
         }
         // Track I: unhook the TX conditioning chain alongside the RX pipeline.
         TxAudioConditioning.Detach();

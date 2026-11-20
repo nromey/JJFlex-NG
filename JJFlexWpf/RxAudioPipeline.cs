@@ -72,6 +72,13 @@ namespace JJFlexWpf
         /// Both providers are created in standalone mode (no ISampleProvider source).
         /// </summary>
         public RxAudioPipeline(int sampleRate = 48000, int channels = 2, DenoiseEngineCatalog? catalog = null)
+            : this(sampleRate, channels, catalog, 0) { }
+
+        /// <summary>
+        /// As above, with the running tally's period in stopwatch ticks (#1229):
+        /// one minute when 0. Tests shorten it so a period passes in a few buffers.
+        /// </summary>
+        internal RxAudioPipeline(int sampleRate, int channels, DenoiseEngineCatalog? catalog, long tallyPeriodTicks)
         {
             _channels = channels;
             _sampleRate = sampleRate;
@@ -83,8 +90,8 @@ namespace JJFlexWpf
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
             _processingCapture = _spectralSub;
             _prepareSpectral = PrepareSpectral;
-            _spectralKeepUp = new SlotKeepUp(this, DenoiseFamily.Spectral);
-            _neuralKeepUp = new SlotKeepUp(this, DenoiseFamily.Neural);
+            _spectralKeepUp = new SlotKeepUp(this, DenoiseFamily.Spectral, tallyPeriodTicks);
+            _neuralKeepUp = new SlotKeepUp(this, DenoiseFamily.Neural, tallyPeriodTicks);
             _keepUpRaiser = new KeepUpRaiser(this);
 
             Trace.WriteLine($"RxAudioPipeline: created ({sampleRate}Hz, {channels}ch)");
@@ -311,9 +318,53 @@ namespace JJFlexWpf
                 ThreadPool.UnsafeQueueUserWorkItem(_keepUpRaiser, preferLocal: false);
         }
 
+        /// <summary>
+        /// PC audio went off: the receive loop that calls <see cref="Process"/>
+        /// has ended (#1229). Called once, on that loop's own thread, before the
+        /// streams are stopped (<c>FlexBase.AudioFeedEnded</c>). Each slot's open
+        /// tally period is closed and its session total queued; the lines are
+        /// written off this thread, like every keep-up line.
+        /// </summary>
+        public void FeedEnded()
+        {
+            if (Volatile.Read(ref _disposed) != 0 || Interlocked.CompareExchange(ref _processMark, 1, 0) != 0) return;
+            try
+            {
+                long now = Stopwatch.GetTimestamp();
+                _spectralKeepUp.FeedEnded(now);
+                _neuralKeepUp.FeedEnded(now);
+            }
+            finally { Interlocked.Exchange(ref _processMark, 0); }
+            QueueKeepUpRaise();
+        }
+
+        /// <summary>
+        /// A tally line (#1229), raised off the audio thread after it is traced.
+        /// For tests: the trace is the record.
+        /// </summary>
+        internal event EventHandler<SlotTallyReport>? TallyWritten;
+
+        /// <summary>The running tally for one slot, for tests.</summary>
+        internal SlotTally TallyFor(DenoiseFamily family) =>
+            (family == DenoiseFamily.Spectral ? _spectralKeepUp : _neuralKeepUp).Tally;
+
+        private void WriteTallies(SlotKeepUp probe)
+        {
+            while (probe.Tally.TryTake(out var report))
+            {
+                Trace.WriteLine("RxAudioPipeline: tally " + report.Describe());
+                try { TallyWritten?.Invoke(this, report); }
+                catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a tally listener threw: " + ex.Message); }
+            }
+        }
+
         private void RaiseKeepUp()
         {
             Volatile.Write(ref _keepUpQueued, 0);
+            // Tally lines first and even after disposal: the session total is
+            // queued as PC audio goes off, which a disconnect can follow at once.
+            WriteTallies(_spectralKeepUp);
+            WriteTallies(_neuralKeepUp);
             if (Volatile.Read(ref _disposed) != 0) return;
             Raise(_spectralKeepUp);
             Raise(_neuralKeepUp);
@@ -409,11 +460,20 @@ namespace JJFlexWpf
             public readonly Mailbox Main = new(false), Delivery = new(true);
             /// <summary>The helper's new work since this slot last looked (repair 2): each answer counted once.</summary>
             public readonly HelperServiceMeter Meter = new();
+            /// <summary>The running tally (#1229): a line a minute, at a stop or change, and a session total at PC audio off.</summary>
+            public readonly SlotTally Tally;
             private PerChannelDenoiserBank? _bank;
             private bool _helper;
             private double _averageTicks, _bufferTicks;
 
-            public SlotKeepUp(RxAudioPipeline owner, DenoiseFamily family) { _owner = owner; Family = family; }
+            public SlotKeepUp(RxAudioPipeline owner, DenoiseFamily family, long tallyPeriodTicks)
+            {
+                _owner = owner; Family = family;
+                Tally = new SlotTally(family, Stopwatch.Frequency, tallyPeriodTicks);
+            }
+
+            /// <summary>PC audio went off: the open period and the session total are queued.</summary>
+            public void FeedEnded(long now) => Tally.FeedEnded(now);
 
             /// <summary>After the slot processed a buffer: what happened, told to the rules.</summary>
             public void After(PcDenoiseSlot slot, PerChannelDenoiserBank? bankBefore, long lateBefore, long elapsedTicks,
@@ -424,6 +484,7 @@ namespace JJFlexWpf
                 bool delivered = slot.BuildDelivered(chosen);
                 var change = EngineKeepUpChange.None;
                 var missed = EngineKeepUpChange.None;
+                bool tallied = false; // a tally line was queued by this buffer (#1229)
                 if (delivered || !string.Equals(chosen, slot.RunningEngineId, StringComparison.Ordinal))
                 {
                     // A switch or a warm-up: two banks may run, and what is heard
@@ -445,12 +506,15 @@ namespace JJFlexWpf
                     }
                     else { Rule.Gap(); Missed.Gap(); Meter.Forget(); _averageTicks = 0; }
                     _bank = null;
+                    // The tally counts only an engine running alone; through a
+                    // switch or warm-up its period stays open and only the minute is kept.
+                    tallied = Tally.Tick(now);
                 }
                 else
                 {
                     string processing = slot.ProcessingEngineId;
                     var bank = slot.RunningBank;
-                    if (processing.Length == 0 || bank == null) { Rule.Gap(); Missed.Gap(); Meter.Forget(); _bank = null; }
+                    if (processing.Length == 0 || bank == null) { Rule.Gap(); Missed.Gap(); Meter.Forget(); _bank = null; tallied = Tally.Idle(now); }
                     else if (!ReferenceEquals(bank, _bank) || !ReferenceEquals(bank, bankBefore)
                         || !string.Equals(processing, Rule.EngineId, StringComparison.Ordinal))
                     {
@@ -461,6 +525,8 @@ namespace JJFlexWpf
                         Rule.Restart(processing);
                         Missed.Restart(processing);
                         Meter.Forget();
+                        // Processed, but judged by nothing yet: counted as a buffer only.
+                        tallied = Tally.Buffer(processing, _helper, now, 0, 0, false, 0, 0);
                     }
                     else if (_helper)
                     {
@@ -477,16 +543,24 @@ namespace JJFlexWpf
                         var service = _owner.HelperService(bank, Meter, now);
                         bool late = HelperServiceTime.Late(service.PerFrameNanos);
                         AverageHelper(service.PerFrameNanos, service.Frames);
+                        bool missedNow = bank.LateFrames != lateBefore;
                         change = Rule.Observe(late, service.Frames);
-                        missed = Missed.Observe(bank.LateFrames != lateBefore);
+                        missed = Missed.Observe(missedNow);
+                        int frames = service.Frames > 0 ? service.Frames : 0;
+                        tallied = Tally.Buffer(processing, true, now, frames, late ? frames : 0, missedNow,
+                            frames > 0 && service.PerFrameNanos > 0 ? (double)service.PerFrameNanos * frames * Stopwatch.Frequency / 1e9 : 0,
+                            frames * HelperFrameTicks);
+                        if (missed == EngineKeepUpChange.FellBehind) Tally.Dip();
                     }
                     else
                     {
                         bool late = bufferTicks > 0 && elapsedTicks > bufferTicks;
                         Average(elapsedTicks, bufferTicks);
                         change = Rule.Observe(late);
+                        tallied = Tally.Buffer(processing, false, now, 1, late ? 1 : 0, false, elapsedTicks, bufferTicks);
                     }
                 }
+                if (tallied) _owner.QueueKeepUpRaise();
                 // The delivery diagnostic is traced when it falls behind or comes
                 // back; its KeepingUp would only be noise in the log.
                 if (missed is EngineKeepUpChange.FellBehind or EngineKeepUpChange.Recovered)

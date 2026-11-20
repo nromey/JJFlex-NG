@@ -1537,6 +1537,24 @@ namespace Radios
             }
 
             remoteDone:
+            // #1229: the feed has ended. Said first, before anything that takes
+            // time, because the receive stream plays on until it is stopped
+            // below (about 560 ms later on the 2026-11-19 bench) and its queue
+            // runs dry in between: that was being counted as a mid-stream gap
+            // on every PC-audio-off. Only for the current run's own stream.
+            if (run == Interlocked.Read(ref _remoteAudioRun))
+            {
+                try
+                {
+                    opusOutputChannel?.PortAudioStream?.NoteFeedEnded();
+                    AudioFeedEnded?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("remoteAudioProc: noting the end of the receive feed failed: " + ex.Message,
+                        TraceLevel.Error);
+                }
+            }
             // #1156: unhook the packet wake FIRST, from this run's own locals,
             // before any close that can take seconds. A newer run may already
             // own rxStream and opusOutputChannel, so the fields are not used.

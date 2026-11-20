@@ -1113,6 +1113,16 @@ namespace JJPortaudio
         /// true if stream is active
         /// </summary>
         internal bool IsActive { get { return CBData.IsAlive; } }
+
+        /// <summary>
+        /// The producer has stopped feeding this output stream for good, ahead
+        /// of the stream being stopped (#1229). See
+        /// <see cref="RxPlaybackQueue.NoteFeedEnded"/>. Safe on a closed stream.
+        /// </summary>
+        internal void NoteFeedEnded()
+        {
+            CBData?.Playback?.NoteFeedEnded();
+        }
         /// <summary>
         /// buffer size in use
         /// </summary>
