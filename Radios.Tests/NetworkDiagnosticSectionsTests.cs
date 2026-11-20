@@ -424,6 +424,44 @@ namespace Radios.Tests
             Assert.Equal(new[] { D("outcome_no_attempt", ("time", NetworkDiagnosticComposer.FormatTime(When))) }, s.Outcome.Lines);
         }
 
+        /// <summary>
+        /// Codex's check, B1: a try that ends Dialled is a handoff. Its open is
+        /// said only as the record has it, and the handed-off method is said
+        /// to have made the connection in use only when its try was proven.
+        /// </summary>
+        [Fact]
+        public void A_handoff_is_said_only_as_far_as_the_record_shows_it_went()
+        {
+            SmartLinkConnectRecord Handed(bool? opened, SmartLinkAttemptEnd end = SmartLinkAttemptEnd.Dialled) =>
+                Record(SmartLinkConnectionMode.ManualPortForwardOnly, true, RadioConnectionPreference.Auto, Ports(ManualOk, UpnpNone))
+                    .WithAttempt(SmartLinkAttemptRecord.ForPorts(SmartLinkMethod.ManualPorts, ManualOk) with
+                        { HandleArrived = true, OpenSucceeded = opened, End = end })
+                    .WithMethodUsed(SmartLinkMethod.ManualPorts);
+            IReadOnlyList<string> Said(SmartLinkConnectRecord r) =>
+                NetworkDiagnosticComposer.Compose(Inputs(ports: Ports(ManualOk, UpnpNone), last: r)).Outcome.Lines;
+            string Try(string endKey) => D("outcome_attempt_ports", ("n", 1), ("method", D("method_manual")),
+                ("tcp", 4994), ("udp", 4993), ("end", D(endKey)));
+            string used = D("outcome_used", ("method", D("method_manual")));
+            string handed = D("outcome_handed_unconfirmed", ("method", D("method_manual")));
+
+            Assert.Equal(new[] { Try("end_dialled"), handed }, Said(Handed(null)));
+            Assert.Equal(new[] { Try("end_dialled_opened"), handed }, Said(Handed(true)));
+            Assert.Equal(new[] { Try("end_dialled_not_opened"), handed }, Said(Handed(false)));
+            // A failure filed later (the attempt walk) is never a connection in use either.
+            Assert.Equal(new[] { Try("end_open_failed"), handed }, Said(Handed(false, SmartLinkAttemptEnd.OpenFailed)));
+            // Only a proven try earns the claim.
+            Assert.Equal(new[] { Try("end_proven"), used }, Said(Handed(true, SmartLinkAttemptEnd.Proven)));
+
+            // The three handoff sentences are distinct from each other and from every other end.
+            var all = Enum.GetValues(typeof(SmartLinkAttemptEnd)).Cast<SmartLinkAttemptEnd>()
+                .Select(NetworkDiagnosticComposer.EndSentence)
+                .Concat(new[] { D("end_dialled_opened"), D("end_dialled_not_opened") }).ToList();
+            Assert.Equal(all.Count, all.Distinct().Count());
+            // An unconfirmed handoff claims no opened radio and no live connection.
+            Assert.DoesNotContain("was opened", D("end_dialled"), StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("in use", handed, StringComparison.OrdinalIgnoreCase);
+        }
+
         // ── Rendering ───────────────────────────────────────────────────
 
         private static IEnumerable<NetworkDiagnosticSections> Variety()

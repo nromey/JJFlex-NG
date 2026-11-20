@@ -373,7 +373,7 @@ namespace Radios.SmartLink
             {
                 var a = rec.Attempts[i];
                 int n = a.Sequence > 0 ? a.Sequence : i + 1;
-                string end = EndSentence(a.End);
+                string end = EndSentence(a);
                 lines.Add(a.Method == SmartLinkMethod.HolePunch
                     ? Lexicon.Get("settings.network.diag.outcome_attempt_punch",
                         ("n", n), ("method", MethodName(a.Method)), ("port", a.PunchPortSent), ("end", end))
@@ -388,11 +388,46 @@ namespace Radios.SmartLink
                     exportDetails.Add(Lexicon.Get("settings.network.diag.export_attempt_detail", ("n", n), ("detail", a.EndDetail)));
             }
 
-            lines.Add(rec.MethodUsed is SmartLinkMethod used
-                ? Lexicon.Get("settings.network.diag.outcome_used", ("method", MethodName(used)))
-                : Lexicon.Get("settings.network.diag.outcome_none_used"));
+            lines.Add(UsedSentence(rec));
             return new DiagnosticPart(Lexicon.Get("settings.network.diag.outcome_heading"), lines);
         }
+
+        /// <summary>
+        /// The outcome's closing line. A method is said to have made the
+        /// connection in use ONLY when the record shows that method's try
+        /// succeeded (<see cref="SmartLinkAttemptEnd.Proven"/>). Track A files
+        /// <see cref="SmartLinkConnectRecord.MethodUsed"/> the moment the
+        /// broker's handle arrives, before the radio is opened, and nothing
+        /// updates the record if the open then fails, so a handed-off method on
+        /// its own is a handoff, never a live connection (Codex's check, B1).
+        /// Track B files the real open, proof and end; this then follows it.
+        /// </summary>
+        public static string UsedSentence(SmartLinkConnectRecord rec)
+        {
+            if (rec.MethodUsed is not SmartLinkMethod used)
+                return Lexicon.Get("settings.network.diag.outcome_none_used");
+            SmartLinkAttemptRecord? tried = null;
+            foreach (var a in rec.Attempts)
+                if (a.Method == used) tried = a;
+            return tried?.End == SmartLinkAttemptEnd.Proven
+                ? Lexicon.Get("settings.network.diag.outcome_used", ("method", MethodName(used)))
+                : Lexicon.Get("settings.network.diag.outcome_handed_unconfirmed", ("method", MethodName(used)));
+        }
+
+        /// <summary>
+        /// One attempt's end, reading the open's result where the record has
+        /// it: a <see cref="SmartLinkAttemptEnd.Dialled"/> try is a handoff
+        /// whose open is unconfirmed unless <see cref="SmartLinkAttemptRecord.OpenSucceeded"/>
+        /// says otherwise (Codex's check, B1).
+        /// </summary>
+        public static string EndSentence(SmartLinkAttemptRecord attempt) =>
+            attempt.End != SmartLinkAttemptEnd.Dialled ? EndSentence(attempt.End)
+            : attempt.OpenSucceeded switch
+            {
+                true => Lexicon.Get("settings.network.diag.end_dialled_opened"),
+                false => Lexicon.Get("settings.network.diag.end_dialled_not_opened"),
+                _ => EndSentence(SmartLinkAttemptEnd.Dialled),
+            };
 
         /// <summary>One sentence per way an attempt can end; every value of <see cref="SmartLinkAttemptEnd"/> has its own.</summary>
         public static string EndSentence(SmartLinkAttemptEnd end) => Lexicon.Get(end switch
