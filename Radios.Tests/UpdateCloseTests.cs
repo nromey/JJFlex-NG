@@ -199,5 +199,40 @@ namespace Radios.Tests
             string take1 = Body(Source("JJFlexWpf/MainWindow.AutoUpdate.cs"), "public bool TakeExitQuestionsAnswered(");
             Assert.Contains("_exitQuestionsAnswered = false;", take1, StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// Any close of the update dialog cancels its download (#1216), and
+        /// once the window has closed the download's end touches neither the
+        /// result nor a box. Escape closes the window from the base dialog's
+        /// own handler and never clicks Cancel, so the cancel has to live in
+        /// the close itself.
+        /// </summary>
+        [Fact]
+        public void Any_close_of_the_update_dialog_cancels_the_download_and_reports_nothing_after()
+        {
+            string dialog = Source("JJFlexWpf/Dialogs/UpdateAvailableDialog.xaml.cs");
+            string closed = Body(dialog, "protected override void OnClosed(");
+            Assert.Contains("_windowClosed = true;", closed, StringComparison.Ordinal);
+            Assert.Contains("_cts?.Cancel();", closed, StringComparison.Ordinal);
+
+            string click = Body(dialog, "private async void DownloadAndInstallButton_Click(");
+            // Every end of the download asks first, before the result or a box.
+            Assert.True(Count(click, "if (EndAfterClose()) return;") >= 4, "every end of the download checks for a closed window");
+            int prepared = click.IndexOf(".PrepareAsync(plan, _sink, _cts.Token)", StringComparison.Ordinal);
+            int check = click.IndexOf("if (EndAfterClose()) return;", prepared, StringComparison.Ordinal);
+            int result = click.IndexOf("DialogResult = true;", StringComparison.Ordinal);
+            Assert.True(prepared > 0 && check > prepared && result > check, "the closed check sits between the download and the result");
+            int failed = click.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+            int failedCheck = click.IndexOf("if (EndAfterClose()) return;", failed, StringComparison.Ordinal);
+            int box = click.IndexOf("AdvisoryDialog.Show(", failed, StringComparison.Ordinal);
+            Assert.True(failed > 0 && failedCheck > failed && box > failedCheck, "the closed check comes before the failure box");
+
+            // Fixed in this dialog, not in the base class every dialog shares.
+            string baseDialog = Source("JJFlexWpf/JJFlexDialog.cs");
+            Assert.Contains("private void JJFlexDialog_PreviewKeyDown(", baseDialog, StringComparison.Ordinal);
+            Assert.DoesNotContain("_cts", baseDialog, StringComparison.Ordinal);
+            // Positive control: the Cancel button still cancels as it did.
+            Assert.Contains("_cts?.Cancel();", Body(dialog, "private void CancelButton_Click("), StringComparison.Ordinal);
+        }
     }
 }

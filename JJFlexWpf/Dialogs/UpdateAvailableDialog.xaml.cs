@@ -32,6 +32,13 @@ public partial class UpdateAvailableDialog : JJFlexDialog
     private CancellationTokenSource? _cts;
 
     /// <summary>
+    /// True once the window has closed, by any route: Cancel, Escape, Alt+F4
+    /// or the title bar. Set in <see cref="OnClosed"/>, on the UI thread, as
+    /// the download is cancelled.
+    /// </summary>
+    private bool _windowClosed;
+
+    /// <summary>
     /// The downloaded, staged and NOT launched update, set when the dialog
     /// closes with a true result. The caller launches it only after the exit
     /// questions are answered (MainWindow.InstallDownloadedUpdate).
@@ -95,6 +102,7 @@ public partial class UpdateAvailableDialog : JJFlexDialog
 
             if (plan is null)
             {
+                if (EndAfterClose()) return;
                 ProgressText.Text = Lexicon.Get("connect.update.up_to_date_status");
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("connect.update.up_to_date_speech"),
@@ -115,6 +123,11 @@ public partial class UpdateAvailableDialog : JJFlexDialog
                 .PrepareAsync(plan, _sink, _cts.Token)
                 .ConfigureAwait(true);
 
+            // Closed while the last of the download finished: the operator
+            // asked to cancel, so nothing is reported and the caller, which
+            // saw a false result, installs nothing.
+            if (EndAfterClose()) return;
+
             // Success is reported, never acted on here. This used to ask the
             // WPF Application to shut down, which does nothing in this app:
             // there is no WPF Application.
@@ -123,6 +136,7 @@ public partial class UpdateAvailableDialog : JJFlexDialog
         }
         catch (OperationCanceledException)
         {
+            if (EndAfterClose()) return;
             ProgressText.Text = Lexicon.Get("connect.update.cancelled_status");
             ScreenReaderOutput.Speak(Lexicon.Get("connect.update.cancelled_speech"),
                 VerbosityLevel.Terse, interrupt: true);
@@ -130,6 +144,10 @@ public partial class UpdateAvailableDialog : JJFlexDialog
         }
         catch (Exception ex)
         {
+            // A failure after a close is not reported either: the operator
+            // asked to cancel, and an "Update failed" box minutes later, over
+            // whatever they are doing, would say something untrue.
+            if (EndAfterClose()) return;
             ProgressText.Text = Lexicon.Get("connect.update.failed_status", ("message", ex.Message));
             // Speak the reason itself — "the crash report mentions why" is a
             // dead end for a screen reader user (item 17 rule). The advisory
@@ -161,6 +179,53 @@ public partial class UpdateAvailableDialog : JJFlexDialog
         _cts?.Cancel();
         DialogResult = false;
         Close();
+    }
+
+    /// <summary>
+    /// Any close cancels a running download, the way the Cancel button does
+    /// (#1216). Escape never clicks the Cancel button: the base dialog's
+    /// window-level Escape handler closes the window itself, so before this
+    /// the download ran on behind a closed window. Done here, not in
+    /// <see cref="JJFlexDialog"/>, whose Escape handling every dialog shares.
+    /// </summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        _windowClosed = true;
+        _cts?.Cancel();
+        base.OnClosed(e);
+    }
+
+    /// <summary>What the download's continuation does once the download ends.</summary>
+    internal enum DownloadEndAnswer
+    {
+        /// <summary>The window is open: report the outcome as before.</summary>
+        Report,
+
+        /// <summary>The window has closed: say only "Update cancelled.", and touch neither the result nor any box.</summary>
+        SayCancelledOnly,
+    }
+
+    /// <summary>
+    /// The one decision behind <see cref="EndAfterClose"/>: once the window
+    /// has closed, whatever the download did (finished, was cancelled, or
+    /// failed), the operator asked to cancel, so the end says the cancelled
+    /// sentence and nothing else. Setting the result on a closed window
+    /// throws, and that throw used to land in the failure path and open an
+    /// "Update failed" box.
+    /// </summary>
+    internal static DownloadEndAnswer AfterDownload(bool windowClosed) =>
+        windowClosed ? DownloadEndAnswer.SayCancelledOnly : DownloadEndAnswer.Report;
+
+    /// <summary>
+    /// True, having said "Update cancelled.", when the window has already
+    /// closed; false when the caller should report as before.
+    /// </summary>
+    private bool EndAfterClose()
+    {
+        if (AfterDownload(_windowClosed) != DownloadEndAnswer.SayCancelledOnly) return false;
+        ScreenReaderOutput.Speak(Lexicon.Get("connect.update.cancelled_speech"),
+            VerbosityLevel.Terse, interrupt: true);
+        return true;
     }
 
     private void ChangelogHyperlink_Click(object sender, RoutedEventArgs e)

@@ -225,6 +225,26 @@ public sealed class UpdateExitCancelledTests : IDisposable
         Assert.DoesNotContain(Ready, said);
     }
 
+    /// <summary>
+    /// The update dialog's end-of-download decision (#1216): once its window
+    /// has closed (Cancel, Escape, Alt+F4, the title bar), a download that
+    /// finishes, is cancelled or fails says only "Update cancelled."; with
+    /// the window open it reports as before. Called statically: no dialog is
+    /// built.
+    /// </summary>
+    [Fact]
+    public void A_download_ending_after_the_dialog_closed_says_only_that_it_was_cancelled()
+    {
+        Assert.Equal(UpdateAvailableDialog.DownloadEndAnswer.SayCancelledOnly,
+            UpdateAvailableDialog.AfterDownload(windowClosed: true));
+        // Positive control: an open window reports, so the answer above is not the only one.
+        Assert.Equal(UpdateAvailableDialog.DownloadEndAnswer.Report,
+            UpdateAvailableDialog.AfterDownload(windowClosed: false));
+        string cancelled = Lexicon.Get("connect.update.cancelled_speech");
+        Assert.False(string.IsNullOrWhiteSpace(cancelled));
+        Assert.NotEqual("connect.update.cancelled_speech", cancelled);
+    }
+
     [Fact]
     public void The_sentences_are_real_entries()
     {
