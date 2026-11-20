@@ -52,9 +52,69 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void No_saves_Tier_1()
+        public void No_keeps_a_Tier_1_account_at_Tier_1()
         {
-            Assert.Equal(SmartLinkConnectionMode.ManualPortForwardOnly, SmartLinkTierOffers.TierOnNo);
+            var offer = SmartLinkTierOffers.For(Planned(SmartLinkConnectionMode.ManualPortForwardOnly, false, RadioConnectionPreference.Auto, Report(false, true)), accountIsSaved: true)!;
+            Assert.Equal(SmartLinkConnectionMode.ManualPortForwardOnly, SmartLinkTierOffers.TierOnNo(offer));
+            Assert.Equal(SmartLinkConnectionMode.ManualPortForwardOnly, SmartLinkTierOffers.TierFor(offer, yes: false));
+        }
+
+        /// <summary>
+        /// RULED by Noel 2026-11-19 20:34, amending decision 6: No keeps the
+        /// account's CURRENT tier, marked chosen, so declining never lowers an
+        /// account. A Tier 2 account saved before this build loads as never
+        /// chosen; offered Tier 3 and answering No, it stays Tier 2, chosen, and
+        /// its next refused connect earns no offer.
+        /// </summary>
+        [Fact]
+        public void A_never_chosen_Tier_2_account_answering_No_stays_Tier_2_chosen_and_is_not_asked_again()
+        {
+            const string oldJson = @"{ ""friendlyName"": ""Legacy"", ""email"": ""owner@example.invalid"", ""connectionMode"": ""ManualPlusUpnp"" }";
+            var account = JsonSerializer.Deserialize<SmartLinkAccountManager.StoredAccount>(oldJson)!.ToSmartLinkAccount();
+            Assert.False(account.TierChosen);
+
+            var offer = SmartLinkTierOffers.For(Planned(account.ConnectionMode, account.TierChosen, RadioConnectionPreference.Auto, Report(false, false)), accountIsSaved: true);
+            Assert.NotNull(offer);
+            Assert.Equal(SmartLinkConnectionMode.AutomaticHolePunch, offer!.OfferedTier);
+            Assert.Equal(SmartLinkConnectionMode.ManualPlusUpnp, offer.CurrentTier);
+
+            // What AnswerTierOffer saves on No, applied in memory (no test saves accounts).
+            SmartLinkAccountManager.ApplyOperatorChoice(account, SmartLinkTierOffers.TierFor(offer, yes: false));
+            Assert.Equal(SmartLinkConnectionMode.ManualPlusUpnp, account.ConnectionMode);
+            Assert.True(account.TierChosen);
+
+            // Not asked again: the same radio, and a UPnP-only radio Tier 2 still admits.
+            Assert.Null(SmartLinkTierOffers.For(Planned(account.ConnectionMode, account.TierChosen, RadioConnectionPreference.Auto, Report(false, false)), accountIsSaved: true));
+            var upnpOnly = SmartLinkMethodPolicy.Decide(new SmartLinkPolicyInput(account.ConnectionMode, account.TierChosen, RadioConnectionPreference.Auto, false, Report(false, true)));
+            Assert.Equal(new[] { SmartLinkMethod.UpnpPorts }, upnpOnly.Methods);
+        }
+
+        [Fact]
+        public void Yes_saves_the_offered_tier_whatever_the_current_one()
+        {
+            var offer = SmartLinkTierOffers.For(Planned(SmartLinkConnectionMode.ManualPlusUpnp, false, RadioConnectionPreference.Auto, Report(false, false)), accountIsSaved: true)!;
+            Assert.Equal(SmartLinkConnectionMode.AutomaticHolePunch, SmartLinkTierOffers.TierFor(offer, yes: true));
+        }
+
+        [Fact]
+        public void AnswerTierOffer_saves_what_TierFor_says()
+        {
+            // The one writer of the answer must not decide the tier itself.
+            string src = Src("Radios", "FlexBase.ConnectTiers.cs");
+            int start = src.IndexOf("public SmartLinkConnectionMode? AnswerTierOffer(", StringComparison.Ordinal);
+            Assert.True(start > 0);
+            string body = src.Substring(start, src.IndexOf("\n        }", start, StringComparison.Ordinal) - start);
+            Assert.Contains("SmartLinkTierOffers.TierFor(offer, yes)", body);
+            Assert.DoesNotContain("ManualPortForwardOnly", body);
+        }
+
+        [Fact]
+        public void The_offer_words_never_say_No_keeps_forwarded_ports_only()
+        {
+            var upnp = new SmartLinkTierOffer("s", "o@example.invalid", SmartLinkConnectionMode.ManualPlusUpnp,
+                SmartLinkConnectionMode.ManualPortForwardOnly, SmartLinkRefusal.TierForbidsWhatTheRadioOffers);
+            foreach (var o in new[] { upnp, upnp with { OfferedTier = SmartLinkConnectionMode.AutomaticHolePunch } })
+                Assert.DoesNotContain("forwarded ports only", SmartLinkTierOffers.Question(o, "R"));
         }
 
         [Fact]
@@ -83,7 +143,8 @@ namespace Radios.Tests
         [Fact]
         public void The_offer_and_the_refusals_have_words_naming_the_radio_and_account_and_the_offer_says_every_radio()
         {
-            var upnp = new SmartLinkTierOffer("4711-1111-2222-3333", "owner@example.invalid", SmartLinkConnectionMode.ManualPlusUpnp);
+            var upnp = new SmartLinkTierOffer("4711-1111-2222-3333", "owner@example.invalid", SmartLinkConnectionMode.ManualPlusUpnp,
+                SmartLinkConnectionMode.ManualPortForwardOnly, SmartLinkRefusal.TierForbidsWhatTheRadioOffers);
             var punch = upnp with { OfferedTier = SmartLinkConnectionMode.AutomaticHolePunch };
             foreach (var o in new[] { upnp, punch })
             {

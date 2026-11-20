@@ -5230,8 +5230,8 @@ Module globals
     ''' decisions 6 and 7). Asks only when <paramref name="rig"/>'s last
     ''' SmartLink dial earned an offer: refused because the tier forbids what
     ''' the radio needs, on an account whose tier was never chosen. Yes saves
-    ''' the offered tier as chosen; No saves Tier 1 as chosen and the account
-    ''' is never asked again; Cancel or Escape decides nothing and saves
+    ''' the offered tier as chosen; No saves the account's CURRENT tier as
+    ''' chosen (never lowering it) and the account is never asked again; Cancel or Escape decides nothing and saves
     ''' nothing. Writes only our own accounts file, never a radio.
     ''' Returns True only when Yes was answered and saved, so the caller plans
     ''' the connect again.

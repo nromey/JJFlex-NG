@@ -88,7 +88,8 @@ namespace Radios
 
         /// <summary>
         /// The operator answered the offer. Yes saves the offered tier as
-        /// chosen; No saves Tier 1 as chosen. Writes only our own accounts
+        /// chosen; No saves the account's CURRENT tier as chosen, so declining
+        /// never lowers an account (Noel, 2026-11-19 20:34). Writes only our own accounts
         /// file, never a radio. Returns the tier saved, or null when the
         /// account is no longer saved here. A cancelled offer is not an answer
         /// and must not reach this method.
@@ -96,7 +97,7 @@ namespace Radios
         public SmartLinkConnectionMode? AnswerTierOffer(SmartLinkTierOffer offer, bool yes)
         {
             if (offer == null) return null;
-            var tier = yes ? SmartLinkTierOffers.TierOnYes(offer) : SmartLinkTierOffers.TierOnNo;
+            var tier = SmartLinkTierOffers.TierFor(offer, yes);
             bool saved = AccountManager.ChooseConnectionMode(offer.AccountEmail, tier);
             Tracing.TraceLine(
                 $"AnswerTierOffer: {(yes ? "yes" : "no")} for {offer.AccountEmail} (radio {offer.Serial}): tier {(int)tier + 1} saved as chosen={saved}",

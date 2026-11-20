@@ -10,20 +10,29 @@ namespace Radios.SmartLink
     /// </summary>
     /// <param name="Serial">The radio the refused connect was for.</param>
     /// <param name="AccountEmail">The account whose tier refused it (the brokering account).</param>
-    /// <param name="OfferedTier">The LOWEST tier that admits what the radio offers: Tier 2 for a UPnP-only radio, Tier 3 for one that can be reached only by a punch.</param>
-    public sealed record SmartLinkTierOffer(string Serial, string AccountEmail, SmartLinkConnectionMode OfferedTier);
+    /// <param name="OfferedTier">The LOWEST tier that admits what the radio needs: Tier 2 for a UPnP-only radio, Tier 3 for one that can be reached only by a punch or is set to "Hole punch always".</param>
+    /// <param name="CurrentTier">The account's tier when it refused: what a No keeps (Noel, 2026-11-19 20:34).</param>
+    /// <param name="Refusal">The refusal that earned the offer; it picks the question's words.</param>
+    public sealed record SmartLinkTierOffer(string Serial, string AccountEmail, SmartLinkConnectionMode OfferedTier,
+        SmartLinkConnectionMode CurrentTier, SmartLinkRefusal Refusal);
 
     /// <summary>
     /// When the offer is made, what each answer saves, and the refusal sentences.
     /// Pure, apart from reading the lexicon for words.
     /// <list type="bullet">
     /// <item>Only when the connect failed because the tier forbids a method the
-    /// radio needs, never on any other failure.</item>
+    /// radio needs: what it offers (<see cref="SmartLinkRefusal.TierForbidsWhatTheRadioOffers"/>),
+    /// or the punch its "Hole punch always" choice demands
+    /// (<see cref="SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch"/>). Never
+    /// on any other failure, and never for "Forwarded ports only" with no usable
+    /// pair, which no tier would change.</item>
     /// <item>Only to an account whose tier was never chosen, and only one that is
     /// saved on this computer (an unsaved account has nowhere to keep an answer).</item>
-    /// <item>Yes saves the offered tier as chosen and re-plans; No saves Tier 1 as
-    /// chosen, and the account is never asked again. Either way the change covers
-    /// every radio on that account, and the words say so.</item>
+    /// <item>Yes saves the offered tier as chosen and re-plans; No saves the
+    /// account's CURRENT tier as chosen, so declining never lowers an account
+    /// (RULED by Noel 2026-11-19 20:34, amending decision 6, which said Tier 1),
+    /// and the account is never asked again. A Yes covers every radio on that
+    /// account, and the words say so.</item>
     /// <item>A chosen account gets the refusal sentence only.</item>
     /// </list>
     /// </summary>
@@ -33,18 +42,36 @@ namespace Radios.SmartLink
         public static SmartLinkTierOffer? For(SmartLinkConnectRecord record, bool accountIsSaved)
         {
             if (record == null) return null;
-            if (record.Refusal != SmartLinkRefusal.TierForbidsWhatTheRadioOffers) return null;
+            if (!EarnsAnOffer(record.Refusal)) return null;
             if (record.TierChosen || !accountIsSaved) return null;
             if (record.LowestAdmittingTier is not SmartLinkConnectionMode tier) return null;
+            if ((int)tier <= (int)record.Tier) return null;
             if (string.IsNullOrEmpty(record.BrokeringAccount)) return null;
-            return new SmartLinkTierOffer(record.Serial, record.BrokeringAccount, tier);
+            return new SmartLinkTierOffer(record.Serial, record.BrokeringAccount, tier, record.Tier, record.Refusal);
         }
+
+        /// <summary>
+        /// The refusals a higher tier would cure: the radio needs a method the
+        /// tier forbids. "Forwarded ports only" with no usable pair is not one:
+        /// no tier gives a radio a port it does not advertise.
+        /// </summary>
+        public static bool EarnsAnOffer(SmartLinkRefusal refusal) =>
+            refusal == SmartLinkRefusal.TierForbidsWhatTheRadioOffers;
 
         /// <summary>The tier a Yes saves, as chosen.</summary>
         public static SmartLinkConnectionMode TierOnYes(SmartLinkTierOffer offer) => offer.OfferedTier;
 
-        /// <summary>The tier a No saves, as chosen (decision 6: Tier 1).</summary>
-        public const SmartLinkConnectionMode TierOnNo = SmartLinkConnectionMode.ManualPortForwardOnly;
+        /// <summary>
+        /// The tier a No saves, as chosen: the account's CURRENT tier, so a No
+        /// never lowers an account (RULED by Noel 2026-11-19 20:34, amending
+        /// decision 6). A Tier 1 account stays Tier 1; a Tier 2 account
+        /// offered Tier 3 stays Tier 2.
+        /// </summary>
+        public static SmartLinkConnectionMode TierOnNo(SmartLinkTierOffer offer) => offer.CurrentTier;
+
+        /// <summary>What an answer saves, as chosen.</summary>
+        public static SmartLinkConnectionMode TierFor(SmartLinkTierOffer offer, bool yes) =>
+            yes ? TierOnYes(offer) : TierOnNo(offer);
 
         /// <summary>A tier's name, as the accounts dialog and the Network tab say it. DRAFT words (connect.json).</summary>
         public static string TierName(SmartLinkConnectionMode tier) => Lexicon.Get(tier switch
@@ -78,10 +105,12 @@ namespace Radios.SmartLink
 
         /// <summary>The offer's question. DRAFT words (connect.json).</summary>
         public static string Question(SmartLinkTierOffer offer, string radioName) =>
-            Lexicon.Get(offer.OfferedTier == SmartLinkConnectionMode.ManualPlusUpnp
-                    ? "connect.tier_offer.upnp"
-                    : "connect.tier_offer.punch",
-                ("radioName", radioName), ("email", offer.AccountEmail));
+            Lexicon.Get(QuestionKey(offer), ("radioName", radioName), ("email", offer.AccountEmail));
+
+        /// <summary>The question's lexicon key.</summary>
+        public static string QuestionKey(SmartLinkTierOffer offer) =>
+            offer.OfferedTier == SmartLinkConnectionMode.ManualPlusUpnp ? "connect.tier_offer.upnp"
+            : "connect.tier_offer.punch";
 
         /// <summary>
         /// The sentence a refused SmartLink leg files as its
