@@ -63,6 +63,14 @@ namespace Radios.SmartLink
         public string? ErrorDetail { get; init; }
 
         /// <summary>
+        /// True when the probe did not complete because SmartLink did not
+        /// answer within the wait, as distinct from any other failure. The
+        /// diagnostic keeps a timed-out test separate from one that never
+        /// produced a result for another reason (the tiers plan, section 5).
+        /// </summary>
+        public bool TimedOut { get; init; }
+
+        /// <summary>
         /// True when SmartLink returned a response and the probe populated its
         /// subtest fields. False when the probe timed out or errored out —
         /// check <see cref="ErrorDetail"/> for the reason.

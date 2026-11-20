@@ -198,6 +198,8 @@ namespace Radios.Tests
             Assert.NotNull(report.ErrorDetail);
             Assert.Contains("Timed out", report.ErrorDetail!);
             Assert.Null(report.UpnpTcpReachable);
+            // Track C: a timeout is kept apart from every other failure.
+            Assert.True(report.TimedOut);
         }
 
         [Fact]
