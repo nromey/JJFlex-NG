@@ -226,6 +226,19 @@ namespace JJPortaudio
         public Action<float[], int, int> FrameSink { get; set; }
 
         /// <summary>
+        /// The same tap, with what the capture thread knew about each block as
+        /// it handed it over (Sprint 49 Track Q3 repair 2, Codex's re-check of
+        /// ca39306c, C1b): when it arrived, stamped right after the read and
+        /// before any metering; how many frames were still waiting behind it,
+        /// as the device reports; whether input was lost before it; and when
+        /// the stream was asked to start, with how many frames it delivered
+        /// before this block. A recorder placing a moment on the capture needs
+        /// all of it; <see cref="FrameSink"/> callers need none of it, so it is
+        /// a separate tap, and the backlog is asked only while this one is set.
+        /// </summary>
+        internal Action<float[], int, int, CaptureBlockTiming> TimedFrameSink { get; set; }
+
+        /// <summary>
         /// Open the device and start listening.
         /// </summary>
         /// <param name="device">A live enumeration row, from <see cref="Devices.InputDevices"/>.</param>
@@ -514,6 +527,10 @@ namespace JJPortaudio
                     return;
                 }
 
+                // Taken just BEFORE the start: no frame of this stream can have
+                // been captured earlier, which makes it a lower bound a recorder
+                // can fall back on (Track Q3 repair 2).
+                long streamStartedAt = Stopwatch.GetTimestamp();
                 perr = PortAudio.Pa_StartStream(stream);
                 if (perr != 0)
                 {
@@ -557,10 +574,25 @@ namespace JJPortaudio
                 // long enough that the interop cost is nothing.
                 const uint chunkFrames = 1024;
                 var buffer = new float[chunkFrames * channels];
+                long streamFrames = 0;
 
                 while (!_stopRequested)
                 {
                     PortAudio.PaError rerr = PortAudio.Pa_ReadStream(stream, buffer, chunkFrames);
+                    // Track Q3 repair 2: the backlog behind this block, asked
+                    // BEFORE the arrival is stamped, so every frame it counts had
+                    // reached the host buffer by then. Negative: not reported.
+                    var timedSink = TimedFrameSink;
+                    long backlog = -1;
+                    if (timedSink != null)
+                    {
+                        try { backlog = PortAudio.Pa_GetStreamReadAvailable(stream); }
+                        catch (Exception) { backlog = -1; }
+                        if (backlog < 0) backlog = -1;
+                    }
+                    long arrival = Stopwatch.GetTimestamp();
+                    long framesBefore = streamFrames;
+                    streamFrames += chunkFrames;
                     if (rerr == PortAudio.PaError.paInputOverflowed)
                     {
                         // Non-fatal and expected on a busy machine: PortAudio
@@ -585,6 +617,24 @@ namespace JJPortaudio
                     // this line cannot null it between the test and the call.
                     // Deliberately AFTER metering, so a faulting sink can
                     // never cost the caller its level readings.
+                    if (timedSink != null)
+                    {
+                        try
+                        {
+                            timedSink(buffer, (int)chunkFrames * channels, (int)chunkFrames,
+                                new CaptureBlockTiming(arrival, backlog,
+                                    overflowed: rerr == PortAudio.PaError.paInputOverflowed,
+                                    streamStartedAt: streamStartedAt, streamFramesBefore: framesBefore));
+                        }
+                        catch (Exception sinkEx)
+                        {
+                            // As for the plain tap below: drop it, keep listening.
+                            TimedFrameSink = null;
+                            Tracing.TraceLine("MicProbe: timed frame sink faulted, tap removed — "
+                                + sinkEx.Message, TraceLevel.Error);
+                        }
+                    }
+
                     var sink = FrameSink;
                     if (sink != null)
                     {

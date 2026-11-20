@@ -174,6 +174,7 @@ namespace JJPortaudio
                 _finishedSeconds = 0;
                 _finishedCapturedSeconds = 0;
                 _stoppedBeforeFileBegan = false;
+                _stoppedDuringLead = false;
                 // Clear it here, not on stop: a later recording that fails
                 // must not be able to report the previous one's file.
                 LastSavedPath = "";
@@ -231,8 +232,10 @@ namespace JJPortaudio
             }
 
             // Installed only now that everything else is in place, so no block
-            // can arrive before there is somewhere to put it.
-            probe.FrameSink = OnFrames;
+            // can arrive before there is somewhere to put it. The timed tap
+            // (Track Q3 repair 2): each block comes with when it arrived, the
+            // backlog behind it and when the stream started.
+            probe.TimedFrameSink = OnFrames;
 
             Tracing.TraceLine("MicRecorder: recording \"" + device.Name + "\" at " + rate
                 + " Hz, " + channels + " channel(s) to " + path
@@ -266,6 +269,10 @@ namespace JJPortaudio
 
         private string StopInternal(StopReason reason, string fault)
         {
+            // When the stop was asked for, before anything is torn down: a stop
+            // before the file's start is the operator's, not the microphone's
+            // (Track Q3 repair 2, item 3).
+            long stoppedAt = Stopwatch.GetTimestamp();
             MicProbe probe;
             WavWriter writer;
             string path;
@@ -286,7 +293,7 @@ namespace JJPortaudio
 
             if (probe != null)
             {
-                probe.FrameSink = null;
+                probe.TimedFrameSink = null;
                 probe.Stop();
                 probe.Dispose();
             }
@@ -301,6 +308,7 @@ namespace JJPortaudio
                 }
                 _finishedCapturedSeconds = SampleRate > 0 ? (double)fileStart.CapturedFrames / SampleRate : 0;
                 _stoppedBeforeFileBegan = !fileStart.FileBegan;
+                _stoppedDuringLead = _stoppedBeforeFileBegan && fileStart.StoppedDuringLead(stoppedAt);
                 if (_stoppedBeforeFileBegan)
                     Tracing.TraceLine("MicRecorder: stopped before the file began, "
                         + _finishedCapturedSeconds.ToString("F2") + " s captured and none of it the file's",
@@ -341,20 +349,20 @@ namespace JJPortaudio
         }
 
         /// <summary>Capture thread. Write the block, and enforce the cap.</summary>
-        private void OnFrames(float[] buffer, int count, int frames)
+        private void OnFrames(float[] buffer, int count, int frames, CaptureBlockTiming timing)
         {
             WavWriter w = _writer;
             if (w == null) return;
 
-            // Taken first: when the block reached us is what maps a moment onto
-            // the capture (CaptureFileStart).
-            long arrival = Stopwatch.GetTimestamp();
+            // The block's timing was taken by the probe the moment its read
+            // returned, before metering (Track Q3 repair 2): that is what maps a
+            // moment onto the capture (CaptureFileStart).
             var fileStart = _fileStart;
             try
             {
                 // Every block reaches the file through the file start, and only
                 // through it: it is set before the sink is installed.
-                if (fileStart != null && fileStart.Block(w, buffer, count, frames, arrival)) TraceFileBegan(fileStart);
+                if (fileStart != null && fileStart.Block(w, buffer, count, frames, timing)) TraceFileBegan(fileStart);
             }
             catch (Exception ex)
             {
@@ -427,13 +435,27 @@ namespace JJPortaudio
         /// </summary>
         public bool StoppedBeforeFileBegan => _stoppedBeforeFileBegan;
 
+        /// <summary>
+        /// True when the last recording was stopped during its lead (Track Q3
+        /// repair 2, Codex's re-check of ca39306c, item 3): its file was held
+        /// for a start that had not come yet, either because the start tone's
+        /// end was not known or because the stop came before it. This holds
+        /// even when the microphone had not delivered its first block: the
+        /// device opened, and the operator stopped before the take could
+        /// begin, which says nothing about the microphone.
+        /// </summary>
+        public bool StoppedDuringLead => _stoppedDuringLead;
+
+        private bool _stoppedDuringLead;
+
         private void TraceFileBegan(CaptureFileStart fileStart)
         {
             if (_beganTraced) return;
             _beganTraced = true;
             long frame = fileStart.BoundaryFrame;
             Tracing.TraceLine("MicRecorder: the file began at frame " + frame + " of the capture ("
-                + (SampleRate > 0 ? (frame * 1000L / SampleRate) + " ms in" : "rate unknown") + ")"
+                + (SampleRate > 0 ? (frame * 1000L / SampleRate) + " ms in" : "rate unknown") + "), placed "
+                + fileStart.HowPlaced
                 + (fileStart.DroppedFrames > 0 ? ", " + fileStart.DroppedFrames + " held frame(s) were let go first" : ""),
                 fileStart.DroppedFrames > 0 ? TraceLevel.Warning : TraceLevel.Info);
         }

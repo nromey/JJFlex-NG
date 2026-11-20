@@ -202,7 +202,9 @@ namespace Radios
         /// start tone, the computer microphone check's own. It completes with
         /// the moment its tone is audibly over, on the
         /// <see cref="System.Diagnostics.Stopwatch"/> clock, or with null when
-        /// no tone sounded. Null only in tests that are not about the start.
+        /// no tone sounded, including one the output never took and that was
+        /// withdrawn so it can never sound (Track Q3 repair 2): the file then
+        /// begins at its first frame. Null only in tests that are not about the start.
         /// </param>
         /// <param name="markerSounds">
         /// Asked as each take starts: whether the marker will be heard. In the
@@ -362,7 +364,7 @@ namespace Radios
                 if (end.Result is long audibleEnd) BeginFileAt(path, FileStartAfterTone(audibleEnd));
                 else
                 {
-                    Tracing.TraceLine("Check your audio audition: no start tone sounded after all, so the file starts at once",
+                    Tracing.TraceLine("Check your audio audition: no start tone sounded after all (or it was withdrawn unheard), so the file starts at once",
                         System.Diagnostics.TraceLevel.Info);
                     BeginFileAt(path, null);
                 }

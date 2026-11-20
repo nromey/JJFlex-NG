@@ -495,7 +495,9 @@ namespace Radios.Tests
                     long arrival = origin + Ticks((at + n) * 1000.0 / rate + latency * 1000 + jitterMs[k % jitterMs.Length]);
                     // The moment is learnt part-way through, as the output reports it.
                     if (k == 3) start.BeginAt(moment);
-                    start.Block(w, buf, n * channels, n, arrival);
+                    // Repair 2: a block on time reports no backlog; a late one does not say.
+                    int jitter = jitterMs[k % jitterMs.Length];
+                    start.Block(w, buf, n * channels, n, new CaptureBlockTiming(arrival, jitter == 0 ? 0 : -1, streamStartedAt: origin - Ticks(5)));
                 }
                 Assert.False(start.Finish(w));
                 Assert.True(start.FileBegan);
@@ -520,19 +522,19 @@ namespace Radios.Tests
             {
                 var open = new CaptureFileStart(1000, hold: false, 0, Freq);
                 Assert.True(open.FileBegan);
-                open.Block(w, new float[100], 100, 100, Ticks(100));
+                open.Block(w, new float[100], 100, 100, OnTime(Ticks(100)));
                 Assert.Equal(100, w.Frames);
                 Assert.Equal(0, open.BoundaryFrame);
             }
             using (var w = new WavWriter(Path.Combine(_folder, "held.wav"), 1000, 1))
             {
                 var held = new CaptureFileStart(1000, hold: true, 0, Freq);
-                held.Block(w, new float[100], 100, 100, Ticks(100));
+                held.Block(w, new float[100], 100, 100, OnTime(Ticks(100)));
                 Assert.Equal(0, w.Frames);
                 Assert.False(held.FileBegan);
                 held.BeginAt(null);       // no tone sounded
                 held.BeginAt(Ticks(50));  // only the first call counts
-                held.Block(w, new float[100], 100, 100, Ticks(200));
+                held.Block(w, new float[100], 100, 100, OnTime(Ticks(200)));
                 Assert.Equal(200, w.Frames);
                 Assert.Equal(0, held.BoundaryFrame);
             }
@@ -544,9 +546,9 @@ namespace Radios.Tests
             Directory.CreateDirectory(_folder);
             using var w = new WavWriter(Path.Combine(_folder, "early.wav"), 1000, 1);
             var start = new CaptureFileStart(1000, hold: true, 0, Freq);
-            start.Block(w, new float[100], 100, 100, Ticks(100));
+            start.Block(w, new float[100], 100, 100, OnTime(Ticks(100)));
             start.BeginAt(Ticks(450));
-            start.Block(w, new float[100], 100, 100, Ticks(200));
+            start.Block(w, new float[100], 100, 100, OnTime(Ticks(200)));
             Assert.False(start.Finish(w));
             Assert.False(start.FileBegan);
             Assert.Equal(0, w.Frames);
@@ -559,7 +561,7 @@ namespace Radios.Tests
             Directory.CreateDirectory(_folder);
             using var w = new WavWriter(Path.Combine(_folder, "late.wav"), 1000, 1);
             var start = new CaptureFileStart(1000, hold: true, 0, Freq);
-            for (int k = 1; k <= 5; k++) start.Block(w, new float[100], 100, 100, Ticks(k * 100));
+            for (int k = 1; k <= 5; k++) start.Block(w, new float[100], 100, 100, OnTime(Ticks(k * 100)));
             start.BeginAt(Ticks(320));
             Assert.True(start.Finish(w));
             Assert.InRange(start.BoundaryFrame, 320, 321);
@@ -572,14 +574,146 @@ namespace Radios.Tests
             Directory.CreateDirectory(_folder);
             using var w = new WavWriter(Path.Combine(_folder, "cap.wav"), 1000, 1);
             var start = new CaptureFileStart(1000, hold: true, 0, Freq);
-            for (int k = 1; k <= 12; k++) start.Block(w, new float[1000], 1000, 1000, Ticks(k * 1000));
+            for (int k = 1; k <= 12; k++) start.Block(w, new float[1000], 1000, 1000, OnTime(Ticks(k * 1000)));
             Assert.Equal(2000, start.DroppedFrames);
             start.BeginAt(null);
             Assert.True(start.Finish(w));
             Assert.Equal((long)(CaptureFileStart.MaxHeldSeconds * 1000), w.Frames);
         }
 
+        // ── Repair 2: the capture's timing must be established (C1b) ────
+
+        /// <summary>
+        /// A take at 1 kHz for arithmetic that reads: frame 0 captured at
+        /// <c>origin</c>, 100-frame blocks, no input latency, the moment at
+        /// 337 ms, so the true file start is frame 337. The reader is
+        /// <paramref name="lagMs"/> behind while <paramref name="behind"/> says
+        /// so; <paramref name="backlog"/> says what each block reports.
+        /// </summary>
+        private static CaptureFileStart Run(int lagMs, Func<int, bool> behind, Func<int, int, long> backlog,
+            long? streamStartedAt, int totalFrames, out long written, Action<CaptureFileStart, int>? afterBlock = null)
+        {
+            const int rate = 1000, block = 100;
+            long origin = Ticks(10_000);
+            var start = new CaptureFileStart(rate, hold: true, 0, Freq);
+            start.BeginAt(origin + Ticks(337));
+            string path = Path.Combine(Path.GetTempPath(), "jjflex-q3r2-" + Guid.NewGuid().ToString("N") + ".wav");
+            try
+            {
+                using var w = new WavWriter(path, rate, 1);
+                for (int at = 0, k = 0; at < totalFrames; at += block, k++)
+                {
+                    int lag = behind(at) ? lagMs : 0;
+                    long arrival = origin + Ticks(at + block + lag);
+                    start.Block(w, new float[block], block, block,
+                        new CaptureBlockTiming(arrival, backlog(at, lag), streamStartedAt: streamStartedAt.HasValue ? origin + streamStartedAt.Value : null));
+                    afterBlock?.Invoke(start, at + block);
+                }
+                start.Finish(w);
+                written = w.Frames;
+            }
+            finally { try { File.Delete(path); } catch (IOException) { } }
+            return start;
+        }
+
+        [Fact]
+        public void A_reader_behind_through_the_lead_waits_for_a_block_that_establishes_the_timing()
+        {
+            // Behind by 120 ms for the first half second, saying nothing about
+            // it; caught up after. Repair 1 placed the file by the loose bound,
+            // 120 ms early. Now nothing is written until a caught-up block
+            // establishes the timing, and the file begins at the true frame.
+            bool begunBeforeEstablished = false;
+            var start = Run(120, at => at < 500, (at, lag) => lag == 0 ? 0 : -1, streamStartedAt: Ticks(-10), totalFrames: 2000,
+                out long written, (s, through) => { if (s.FileBegan && !s.TimingEstablished) begunBeforeEstablished = true; });
+            Assert.False(begunBeforeEstablished);
+            Assert.True(start.TimingEstablished);
+            Assert.Equal(337, start.BoundaryFrame);
+            Assert.Equal(2000 - 337, written);
+        }
+
+        [Fact]
+        public void A_backlog_the_device_reports_comes_off_its_blocks_bound()
+        {
+            // Behind by 120 ms throughout, and the device says so on every
+            // block. No block arrives caught up, so the timing never counts as
+            // established; the file begins by the stream's start. The known
+            // backlog also comes off each bound: with it ignored, the precise
+            // reading would sit 120 ms late (positive control below).
+            var start = Run(120, at => true, (at, lag) => lag, streamStartedAt: Ticks(-10), totalFrames: 3000, out _);
+            Assert.False(start.TimingEstablished);
+            Assert.Equal(347, start.BoundaryFrame);   // 10 ms after the truth, by the stream's start
+            // The backlog taken off: the precise reading is exact.
+            Assert.Equal(337, start.FrameAt(Ticks(10_000) + Ticks(337)));
+        }
+
+        [Fact]
+        public void A_small_reported_backlog_establishes_the_timing_and_is_taken_off_its_bound()
+        {
+            // Every block 20 ms late with its 20 frames reported waiting behind
+            // it: smaller than the block, so each establishes the timing, and
+            // taking the backlog off makes the reading exact. Ignoring it would
+            // start the file 20 ms early.
+            var start = Run(20, at => true, (at, lag) => lag, streamStartedAt: Ticks(-10), totalFrames: 2000, out _);
+            Assert.True(start.TimingEstablished);
+            Assert.Equal(337, start.BoundaryFrame);
+        }
+
+        [Fact]
+        public void Never_established_the_file_begins_by_the_streams_start_later_never_earlier_and_only_after_the_wait()
+        {
+            // Behind by 120 ms throughout and never saying so: every upper bound
+            // is 120 ms late. The file begins by the lower bound (the stream
+            // started 10 ms before frame 0), so 10 ms LATE rather than 120 ms
+            // early, and only once a further second has been captured for a
+            // block that never came.
+            long firstWrittenAt = -1;
+            var start = Run(120, at => true, (at, lag) => -1, streamStartedAt: Ticks(-10), totalFrames: 3000,
+                out long written, (s, through) => { if (firstWrittenAt < 0 && s.FileBegan) firstWrittenAt = through; });
+            Assert.False(start.TimingEstablished);
+            Assert.Equal(347, start.BoundaryFrame);
+            Assert.Equal(3000 - 347, written);
+            Assert.True(firstWrittenAt >= 347 + CaptureFileStart.EstablishWithinSeconds * 1000,
+                "the file began before the wait for an establishing block was over: " + firstWrittenAt);
+            // The precise reading it refused: 120 ms early.
+            Assert.Equal(217, start.FrameAt(Ticks(10_000) + Ticks(337)));
+        }
+
+        [Fact]
+        public void Never_established_a_recording_stopped_within_the_wait_still_begins_by_the_streams_start()
+        {
+            var start = Run(120, at => true, (at, lag) => -1, streamStartedAt: Ticks(-10), totalFrames: 600, out long written);
+            Assert.True(start.FileBegan);
+            Assert.Equal(347, start.BoundaryFrame);
+            Assert.Equal(600 - 347, written);
+        }
+
+        [Fact]
+        public void Never_established_and_with_no_lower_bound_the_file_does_not_begin()
+        {
+            // Nothing but upper bounds, none established: there is no reading
+            // that keeps the file from starting early, so it does not start.
+            var start = Run(120, at => true, (at, lag) => -1, streamStartedAt: null, totalFrames: 3000, out long written);
+            Assert.False(start.FileBegan);
+            Assert.Equal(0, written);
+        }
+
+        [Fact]
+        public void A_block_after_lost_input_does_not_establish_the_timing()
+        {
+            Directory.CreateDirectory(_folder);
+            using var w = new WavWriter(Path.Combine(_folder, "overflow.wav"), 1000, 1);
+            var start = new CaptureFileStart(1000, hold: true, 0, Freq);
+            start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(100), 0, overflowed: true, streamStartedAt: 0));
+            Assert.False(start.TimingEstablished);
+            start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(200), 0));
+            Assert.True(start.TimingEstablished);
+        }
+
         // ── Helpers ──────────────────────────────────────────────────────
+
+        /// <summary>A block that arrived with no backlog behind it, as the device reports.</summary>
+        private static CaptureBlockTiming OnTime(long arrival) => new CaptureBlockTiming(arrival, 0);
 
         private const int Rate = ChainAuditionAnalysisTests.Rate;
         private static readonly long Freq = System.Diagnostics.Stopwatch.Frequency;
@@ -704,7 +838,7 @@ namespace Radios.Tests
                         int n = Math.Min(block, Samples.Length - at);
                         var buf = new float[n];
                         Array.Copy(Samples, at, buf, 0, n);
-                        start.Block(w, buf, n, n, Ticks((at + n) * 1000.0 / Rate));
+                        start.Block(w, buf, n, n, OnTime(Ticks((at + n) * 1000.0 / Rate)));
                     }
                     start.Finish(w);
                     BoundaryFrame = start.BoundaryFrame;

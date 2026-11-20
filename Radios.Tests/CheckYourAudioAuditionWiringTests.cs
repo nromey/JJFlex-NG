@@ -333,9 +333,21 @@ namespace Radios.Tests
             Assert.Contains("recorder.BeginFileAt(stopwatchTimestamp);", Body(narrator, "public static void BeginCheckFileAt(string path, long? stopwatchTimestamp)"));
 
             string recorder = Code(Source("JJPortaudio/JJPortaudio/MicRecorder.cs"));
-            string frames = Body(recorder, "private void OnFrames(float[] buffer, int count, int frames)");
-            Assert.Contains("long arrival = Stopwatch.GetTimestamp();", frames);
-            Assert.Contains("fileStart.Block(w, buffer, count, frames, arrival)", frames);
+            string frames = Body(recorder, "private void OnFrames(float[] buffer, int count, int frames, CaptureBlockTiming timing)");
+            Assert.Contains("fileStart.Block(w, buffer, count, frames, timing)", frames);
+            // Repair 2 (C1b): the timed tap, stamped by the probe right after the
+            // read and the backlog, before any metering.
+            Assert.Contains("probe.TimedFrameSink = OnFrames;", recorder);
+            Assert.DoesNotContain("probe.FrameSink = OnFrames;", recorder);
+            string probe = Code(Source("JJPortaudio/JJPortaudio/MicProbe.cs"));
+            int read = probe.IndexOf("PortAudio.Pa_ReadStream(stream, buffer, chunkFrames);", StringComparison.Ordinal);
+            int backlog = probe.IndexOf("backlog = PortAudio.Pa_GetStreamReadAvailable(stream);", StringComparison.Ordinal);
+            int arrival = probe.IndexOf("long arrival = Stopwatch.GetTimestamp();", StringComparison.Ordinal);
+            int meter = probe.IndexOf("Accumulate(buffer, (int)chunkFrames * channels, (int)chunkFrames);", StringComparison.Ordinal);
+            Assert.True(read > 0 && read < backlog && backlog < arrival && arrival < meter, "read, then backlog, then the arrival stamp, then metering");
+            int started = probe.IndexOf("long streamStartedAt = Stopwatch.GetTimestamp();", StringComparison.Ordinal);
+            Assert.True(started > 0 && started < probe.IndexOf("perr = PortAudio.Pa_StartStream(stream);", StringComparison.Ordinal),
+                "the stream's start is stamped before it is asked to start");
             Assert.DoesNotContain(".Write(", frames);   // no block reaches the file around the file start
             string start = Body(recorder, "public StartOutcome Start(Devices.DeviceInfo device, string path, bool holdFileStart, out string message)");
             Assert.Contains("_fileStart = new CaptureFileStart(rate, holdFileStart, inputLatency, Stopwatch.Frequency);", start);
@@ -358,11 +370,16 @@ namespace Radios.Tests
             string narrator = Code(Source("JJFlexWpf/RecordingNarrator.cs"));
             string stop = Body(narrator, "public static void Stop()");
             Assert.Contains("double captured = recorder.CapturedSeconds;", stop);
-            Assert.Contains("switch (StopKind(reason == MicRecorder.StopReason.Faulted, !string.IsNullOrEmpty(saved), captured, stoppedTooSoon != null))", stop);
+            Assert.Contains("bool duringLead = recorder.StoppedDuringLead;", stop);
+            Assert.Contains("switch (StopKind(reason == MicRecorder.StopReason.Faulted, !string.IsNullOrEmpty(saved), captured, stoppedTooSoon != null, duringLead))", stop);
             Assert.Contains("Speak(stoppedTooSoon!(seconds), interrupt: true);", stop);
-            // The microphone sentence is said only for a microphone that delivered nothing.
-            Assert.Contains("return checkHasWords && capturedSeconds > 0 ? StopSaying.StoppedTooSoon : StopSaying.NothingCaptured;",
-                Body(narrator, "internal static StopSaying StopKind(bool faulted, bool fileSaved, double capturedSeconds, bool checkHasWords)"));
+            // The microphone sentence is said only for a genuine capture fault;
+            // a stop during the held lead is the operator's (repair 2, item 3).
+            Assert.Contains("return checkHasWords && (capturedSeconds > 0 || stoppedDuringLead) ? StopSaying.StoppedTooSoon : StopSaying.NothingCaptured;",
+                Body(narrator, "internal static StopSaying StopKind(bool faulted, bool fileSaved, double capturedSeconds, bool checkHasWords,"));
+            string recorder = Code(Source("JJPortaudio/JJPortaudio/MicRecorder.cs"));
+            Assert.Contains("_stoppedDuringLead = _stoppedBeforeFileBegan && fileStart.StoppedDuringLead(stoppedAt);",
+                Body(recorder, "private string StopInternal(StopReason reason, string fault)"));
             // The audition's own existing too-short words, no new ones.
             string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
             Assert.Contains("ChainAudition.TooShortSentence)", audition);

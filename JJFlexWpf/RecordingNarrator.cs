@@ -224,16 +224,27 @@ public static class RecordingNarrator
 
     /// <summary>
     /// Which sentence a stop says (Track Q3 repair 1). "Nothing was captured,
-    /// check the microphone" is said only when the microphone delivered
-    /// nothing; a check recording stopped before its file began, or with too
-    /// little kept, while the microphone was delivering, says the check's own
-    /// words instead, because the operator stopped it, not the microphone.
+    /// check the microphone" is said only for a genuine capture fault; a check
+    /// recording stopped before its file began, or with too little kept, says
+    /// the check's own words instead, because the operator stopped it, not the
+    /// microphone.
     /// </summary>
-    internal static StopSaying StopKind(bool faulted, bool fileSaved, double capturedSeconds, bool checkHasWords)
+    /// <remarks>
+    /// <b>A stop during the held lead (repair 2, Codex's re-check of ca39306c,
+    /// item 3).</b> The microphone reports itself open before its first block
+    /// is read, so a stop pressed at once can come before anything was
+    /// delivered. When the file was still held for a start that had not come
+    /// (<paramref name="stoppedDuringLead"/>), that stop is the operator's
+    /// even with nothing captured. A microphone that delivered nothing past
+    /// the moment the file was to begin, or with no lead at all, is still a
+    /// capture fault and still says so.
+    /// </remarks>
+    internal static StopSaying StopKind(bool faulted, bool fileSaved, double capturedSeconds, bool checkHasWords,
+        bool stoppedDuringLead)
     {
         if (faulted) return StopSaying.Faulted;
         if (fileSaved) return StopSaying.Saved;
-        return checkHasWords && capturedSeconds > 0 ? StopSaying.StoppedTooSoon : StopSaying.NothingCaptured;
+        return checkHasWords && (capturedSeconds > 0 || stoppedDuringLead) ? StopSaying.StoppedTooSoon : StopSaying.NothingCaptured;
     }
 
     /// <summary>
@@ -316,6 +327,7 @@ public static class RecordingNarrator
         string saved = recorder.Stop();
         double seconds = recorder.Seconds;
         double captured = recorder.CapturedSeconds;
+        bool duringLead = recorder.StoppedDuringLead;
         MicRecorder.StopReason reason = recorder.LastStopReason;
         string fault = recorder.FaultMessage;
         var stoppedTooSoon = _stoppedTooSoon;
@@ -325,7 +337,7 @@ public static class RecordingNarrator
         _stoppedTooSoon = null;
         StateChanged?.Invoke();
 
-        switch (StopKind(reason == MicRecorder.StopReason.Faulted, !string.IsNullOrEmpty(saved), captured, stoppedTooSoon != null))
+        switch (StopKind(reason == MicRecorder.StopReason.Faulted, !string.IsNullOrEmpty(saved), captured, stoppedTooSoon != null, duringLead))
         {
             case StopSaying.Faulted:
                 EarconPlayer.LeaderInvalidTone();
@@ -342,7 +354,8 @@ public static class RecordingNarrator
                 // its take was kept (Track Q3 repair 1). Its own words, not
                 // "check the microphone".
                 EarconPlayer.LeaderCancelTone();
-                Trace.WriteLine($"RecordingNarrator: check recording stopped too soon, {captured:F2} s captured and {seconds:F2} s kept");
+                Trace.WriteLine($"RecordingNarrator: check recording stopped too soon, {captured:F2} s captured and {seconds:F2} s kept"
+                    + (duringLead ? ", stopped during the lead before its file's start" : ""));
                 Speak(stoppedTooSoon!(seconds), interrupt: true);
                 return;
         }
