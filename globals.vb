@@ -4163,24 +4163,33 @@ Module globals
             ' only when no report was filed.
             ' The one-time SmartLink tier offer comes first (the tiers work):
             ' a Yes is a Try Again under the newly saved tier.
-            Dim dialogResult = If(OfferHigherSmartLinkTier(RigControl),
+            Dim dialogResult = If(OfferHigherSmartLinkTier(RigControl, "startup auto-connect"),
                 Radios.AutoConnectFailedResult.TryAgain,
                 Radios.AutoConnectFailedDialog.ShowDialog(
                     Nothing, _autoConnectConfig.RadioName, RigControl?.LastConnectFailureAdvice))
 
             Select Case dialogResult
                 Case Radios.AutoConnectFailedResult.TryAgain
-                    NewRigControl("startup auto-connect, try again")
-                    Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
-                    ShowConnectingFormOnOwnThread(_autoConnectConfig.RadioName, Radios.ConnectionProfiler.Current)
-                    Dim tryAgainRig = RigControl
-                    connected = RunConnectPhaseOffUiThread("StartupAutoConnectRetry", Function() tryAgainRig.TryAutoConnect(_autoConnectConfig))
-                    If connected Then
-                        ' Stays up through the open, as above.
-                        Return AutoConnectStartupResult.Connected
-                    End If
-                    _connectingForm?.CloseForm()
-                    _connectingForm = Nothing
+                    ' Repair round 1 (Codex's B2): the Try Again is a walk of
+                    ' its own, and when it gives up on a tier refusal the
+                    ' once-per-connect offer is put here; a Yes tries once
+                    ' more under the raised tier, on a fresh radio object.
+                    Dim tierRaised As Boolean
+                    Do
+                        If tierRaised Then Tracing.TraceLine("startup auto-connect: trying again under the raised tier", TraceLevel.Info)
+                        NewRigControl("startup auto-connect, try again")
+                        Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+                        ShowConnectingFormOnOwnThread(_autoConnectConfig.RadioName, Radios.ConnectionProfiler.Current)
+                        Dim tryAgainRig = RigControl
+                        connected = RunConnectPhaseOffUiThread("StartupAutoConnectRetry", Function() tryAgainRig.TryAutoConnect(_autoConnectConfig))
+                        If connected Then
+                            ' Stays up through the open, as above.
+                            Return AutoConnectStartupResult.Connected
+                        End If
+                        _connectingForm?.CloseForm()
+                        _connectingForm = Nothing
+                        tierRaised = OfferHigherSmartLinkTier(tryAgainRig, "startup auto-connect, try again")
+                    Loop While tierRaised
                     RigControl.Dispose()
                     RigControl = Nothing
                     Return AutoConnectStartupResult.Failed
@@ -4235,6 +4244,16 @@ Module globals
     ''' with it.</para>
     ''' </summary>
     Private _pendingWalk As Radios.ConnectWalk
+
+    ''' <summary>
+    ''' The one-time SmartLink tier offer has been put to the operator on this
+    ''' connect (the tiers work, repair round 1). Reset where openTheRadioCore
+    ''' begins a connect; set by <see cref="OfferHigherSmartLinkTier"/>. A
+    ''' refusal can be reached at several walk ends on one connect (the
+    ''' selector's walk, the walk resumed after a failed open, the retry
+    ''' ladders), and the operator is asked once, at the first.
+    ''' </summary>
+    Private _tierOfferAskedThisConnect As Boolean
 
     ''' <summary>
     ''' Handler for FlexBase.RadioFound events, dispatches to the WPF dialog.
@@ -5110,24 +5129,11 @@ Module globals
             ' tier was never chosen. Yes saves the offered tier for every radio
             ' on the account and plans the SmartLink connect again under it.
             ' THE ATTEMPT WALK MUST KEEP THIS: whatever replaces the loop above
-            ' asks RigControl.PendingTierOffer once the walk is exhausted and
-            ' not cancelled, and re-plans on Yes.
-            If Not connectOk AndAlso Not RigControl.CancelRequested AndAlso
-               OfferHigherSmartLinkTier(RigControl) Then
-                Tracing.TraceLine("wpfSelectorProc: tier raised by the operator — planning the SmartLink connect again", TraceLevel.Info)
-                Dim offerSw = System.Diagnostics.Stopwatch.StartNew()
-                RigControl.SmartLinkPathForced = pathForced
-                connectOk = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=True, allowInteractiveLogin:=True)
-                offerSw.Stop()
-                If connectOk Then
-                    Radios.ConnectionHistory.ArmPendingOutcome(serial,
-                        Radios.ConnectPathKind.SmartLink.ToString(), offerSw.ElapsedMilliseconds,
-                        pathForced)
-                Else
-                    Radios.ConnectionHistory.Record(serial, Radios.ConnectPathKind.SmartLink.ToString(),
-                        If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed"),
-                        offerSw.ElapsedMilliseconds, pathForced)
-                End If
+            ' asks RigControl.PendingTierOffer once the walk is exhausted (a
+            ' cancel clears it instead), and re-plans on Yes. So must every
+            ' other place a walk gives up: see OfferHigherSmartLinkTier.
+            If Not connectOk Then
+                connectOk = OfferTierAndReplanSmartLink(serial, lowBW, pathForced, "wpfSelectorProc")
             End If
 
             If Not connectOk Then
@@ -5235,16 +5241,44 @@ Module globals
     ''' nothing. Writes only our own accounts file, never a radio.
     ''' Returns True only when Yes was answered and saved, so the caller plans
     ''' the connect again.
+    '''
+    ''' <para>Called at EVERY point where a connect's walk gives up (repair
+    ''' round 1, Codex's B2): the selector's walk end, the walk resumed after a
+    ''' failed open, the remote retry ladder, the auto-connect retry and the
+    ''' startup Try Again. Asked at most once per connect
+    ''' (<see cref="_tierOfferAskedThisConnect"/>); a pending offer that is not
+    ''' asked, because the operator cancelled the connect or it was already
+    ''' asked, is cleared with a trace line saying why. Cancel clears it too.</para>
     ''' </summary>
-    Private Function OfferHigherSmartLinkTier(rig As FlexBase) As Boolean
+    Private Function OfferHigherSmartLinkTier(rig As FlexBase, where As String) As Boolean
         Dim offer = rig?.PendingTierOffer
         If offer Is Nothing Then Return False
-        Tracing.TraceLine($"OfferHigherSmartLinkTier: offering tier {CInt(offer.OfferedTier) + 1} to {offer.AccountEmail} for {offer.Serial}", TraceLevel.Info)
+        If rig.CancelRequested Then
+            rig.DismissTierOffer($"{where}: the operator cancelled the connect")
+            Return False
+        End If
+        If _tierOfferAskedThisConnect Then
+            rig.DismissTierOffer($"{where}: already asked once on this connect")
+            Return False
+        End If
+        _tierOfferAskedThisConnect = True
+        Tracing.TraceLine($"OfferHigherSmartLinkTier ({where}): offering tier {CInt(offer.OfferedTier) + 1} to {offer.AccountEmail} for {offer.Serial}", TraceLevel.Info)
         ' Yes, No and Cancel, so Escape closes it (Cancel); the default is
         ' Cancel, so a stray Enter decides nothing.
-        Dim answer = MessageBox.Show(AppShellForm, rig.TierOfferQuestion(offer),
-            Radios.SmartLink.SmartLinkTierOffers.Title(),
-            MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button3)
+        '
+        ' The attention claim, as ShowErrorCallback takes it (#331): this box
+        ' can be raised while the connecting window is still up, TopMost and
+        ' reclaiming the foreground five times a second, and without the
+        ' claim the operator has a question they cannot reach.
+        Dim answer As DialogResult
+        Radios.WindowFocusForcer.PushAttentionWindow()
+        Try
+            answer = MessageBox.Show(AppShellForm, rig.TierOfferQuestion(offer),
+                Radios.SmartLink.SmartLinkTierOffers.Title(),
+                MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button3)
+        Finally
+            Radios.WindowFocusForcer.PopAttentionWindow()
+        End Try
         Select Case answer
             Case DialogResult.Yes
                 Return rig.AnswerTierOffer(offer, True).HasValue
@@ -5252,9 +5286,36 @@ Module globals
                 rig.AnswerTierOffer(offer, False)
                 Return False
             Case Else
-                Tracing.TraceLine("OfferHigherSmartLinkTier: cancelled — nothing saved, the account may be offered again", TraceLevel.Info)
+                rig.DismissTierOffer($"{where}: answered Cancel — nothing saved, the account may be offered on a later connect")
                 Return False
         End Select
+    End Function
+
+    ''' <summary>
+    ''' A walk has given up: put the pending tier offer, and on Yes plan the
+    ''' SmartLink connect again under the newly saved tier, for the same radio
+    ''' and through the same brokering lookup (sendRemoteConnect re-reads the
+    ''' account from the shared manager). Returns True when the SmartLink
+    ''' session came up; the open is the caller's. Shared by the selector's
+    ''' walk end and the walk resumed after a failed open (repair round 1).
+    ''' </summary>
+    Private Function OfferTierAndReplanSmartLink(serial As String, lowBW As Boolean, pathForced As Boolean, where As String) As Boolean
+        If Not OfferHigherSmartLinkTier(RigControl, where) Then Return False
+        Tracing.TraceLine($"{where}: tier raised by the operator — planning the SmartLink connect again", TraceLevel.Info)
+        Dim offerSw = System.Diagnostics.Stopwatch.StartNew()
+        RigControl.SmartLinkPathForced = pathForced
+        Dim ok = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=True, allowInteractiveLogin:=True)
+        offerSw.Stop()
+        If ok Then
+            Radios.ConnectionHistory.ArmPendingOutcome(serial,
+                Radios.ConnectPathKind.SmartLink.ToString(), offerSw.ElapsedMilliseconds,
+                pathForced)
+        Else
+            Radios.ConnectionHistory.Record(serial, Radios.ConnectPathKind.SmartLink.ToString(),
+                If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed"),
+                offerSw.ElapsedMilliseconds, pathForced)
+        End If
+        Return ok
     End Function
 
     ''' <summary>The operator-facing name of one leg.</summary>
@@ -5397,12 +5458,38 @@ Module globals
             Return False
         End If
 
+        Dim suppressedAuthFailure As Boolean = False
+        Dim opened As Boolean = False
+
         If Not walk.HasNextLeg Then
             Tracing.TraceLine($"connect walk: open failed on {walk.Current} and the itinerary [{walk.Describe()}] is exhausted", TraceLevel.Info)
-            Return False
+        Else
+            opened = WalkOnAfterFailedOpen(walk, suppressedAuthFailure)
         End If
 
-        Dim suppressedAuthFailure As Boolean = False
+        ' The walk gives up HERE, not in wpfSelectorProc (repair round 1,
+        ' Codex's B2): a SmartLink leg refused by its tier, before or after the
+        ' failed open, left an offer nobody had put. The same once-per-connect
+        ' offer; on Yes the SmartLink connect is planned again and opened.
+        If Not opened Then
+            If OfferTierAndReplanSmartLink(walk.Serial, walk.LowBW, walk.Forced, "connect walk (after failed open)") Then
+                Dim tierRig = RigControl
+                opened = RunConnectPhaseOffUiThread("TierOfferStart", Function() tierRig.Start())
+                Radios.ConnectionHistory.CommitPendingOutcome(opened)
+                Tracing.TraceLine($"connect walk: SmartLink under the raised tier {If(opened, "opened", "did not open")}", If(opened, TraceLevel.Info, TraceLevel.Warning))
+            End If
+        End If
+
+        Return opened
+    End Function
+
+    ''' <summary>
+    ''' The legs of <see cref="ResumeWalkAfterFailedOpen"/> after the failed
+    ''' one, in order, until one opens or the operator cancels. Split out
+    ''' unchanged (repair round 1) so the resumed walk has one end, where the
+    ''' tier offer is put.
+    ''' </summary>
+    Private Function WalkOnAfterFailedOpen(walk As Radios.ConnectWalk, ByRef suppressedAuthFailure As Boolean) As Boolean
         Dim opened As Boolean = False
 
         Do
@@ -5465,6 +5552,8 @@ Module globals
             ' from an earlier attempt must not be inherited by it.
             _pendingWalk = Nothing
             Radios.ConnectionHistory.DiscardPendingOutcome()
+            ' A new connect: the one-time tier offer may be put once on it.
+            _tierOfferAskedThisConnect = False
             OpenParms = New FlexBase.OpenParms()
             OpenParms.ProgramName = ProgramName
             OpenParms.ParentWindow = AppShellForm
@@ -5745,6 +5834,25 @@ RadioConnected:
                             End If
                         Next
 
+                        ' Repair round 1 (Codex's B2): a RetryConnect plans the
+                        ' SmartLink connect afresh, so it can be refused by the
+                        ' tier too. The ladder gives up here: the once-per-
+                        ' connect offer, and on Yes one more retry under the
+                        ' raised tier.
+                        Dim tierRig = RigControl
+                        If Not rv AndAlso tierRig IsNot Nothing AndAlso
+                           OfferHigherSmartLinkTier(tierRig, "OpenTheRadio remote retry") Then
+                            Dim tierSw = System.Diagnostics.Stopwatch.StartNew()
+                            If RunConnectPhaseOffUiThread("TierOfferRetryConnect", Function() tierRig.RetryConnect()) Then
+                                tierSw.Stop()
+                                Radios.ConnectionHistory.ArmPendingOutcome(retrySerial,
+                                    Radios.ConnectPathKind.SmartLink.ToString(),
+                                    tierSw.ElapsedMilliseconds)
+                                rv = RunConnectPhaseOffUiThread("TierOfferRetryStart", Function() tierRig.Start())
+                            End If
+                            Tracing.TraceLine($"OpenTheRadio: retry under the raised tier {If(rv, "opened", "did not open")}", If(rv, TraceLevel.Info, TraceLevel.Error))
+                        End If
+
                         If Not rv Then
                             Tracing.TraceLine("OpenTheRadio:all retry attempts failed", TraceLevel.Error)
                             TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryFailed,
@@ -5781,24 +5889,33 @@ RadioConnected:
                             Radios.ConnectionHistory.CommitPendingOutcome(False)
                         End If
 
-                        WpfMainWindow?.UnwireRadioEvents()
-                        NewRigControl("auto-connect retry")
-                        WpfMainWindow.RigControl = RigControl
+                        ' Repair round 1 (Codex's B2): the auto-connect retry
+                        ' is a walk of its own. When it gives up on a tier
+                        ' refusal the once-per-connect offer is put, and a Yes
+                        ' runs the retry once more under the raised tier.
+                        Dim autoTierRaised As Boolean
+                        Do
+                            WpfMainWindow?.UnwireRadioEvents()
+                            If autoTierRaised Then Tracing.TraceLine("OpenTheRadio: auto-connect retry again under the raised tier", TraceLevel.Info)
+                            NewRigControl("auto-connect retry")
+                            WpfMainWindow.RigControl = RigControl
 
-                        ' Captured, and both blocking halves run off the UI
-                        ' thread (#402); the WPF wiring between them stays on
-                        ' the UI thread where it belongs.
-                        Dim autoRetryRig = RigControl
-                        If RunConnectPhaseOffUiThread("AutoConnectRetry", Function() autoRetryRig.TryAutoConnect(_autoConnectConfig)) Then
-                            WpfMainWindow.WireRadioEvents()
-                            Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
-                            rv = RunConnectPhaseOffUiThread("AutoRetryStart", Function() autoRetryRig.Start())
-                            If rv Then
-                                TraceSessionContext.AddKeyEvent("as_retry_then_success_autoconnect")
-                                TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryThenSuccess,
-                                    "Auto-connect retry succeeded")
+                            ' Captured, and both blocking halves run off the UI
+                            ' thread (#402); the WPF wiring between them stays on
+                            ' the UI thread where it belongs.
+                            Dim autoRetryRig = RigControl
+                            If RunConnectPhaseOffUiThread("AutoConnectRetry", Function() autoRetryRig.TryAutoConnect(_autoConnectConfig)) Then
+                                WpfMainWindow.WireRadioEvents()
+                                Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
+                                rv = RunConnectPhaseOffUiThread("AutoRetryStart", Function() autoRetryRig.Start())
+                                If rv Then
+                                    TraceSessionContext.AddKeyEvent("as_retry_then_success_autoconnect")
+                                    TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryThenSuccess,
+                                        "Auto-connect retry succeeded")
+                                End If
                             End If
-                        End If
+                            autoTierRaised = Not rv AndAlso OfferHigherSmartLinkTier(autoRetryRig, "OpenTheRadio auto-connect retry")
+                        Loop While autoTierRaised
 
                         If Not rv Then
                             Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
@@ -5824,6 +5941,15 @@ RadioConnected:
                     radioSelected = DialogResult.Abort
                 End If
             End If
+
+            ' Repair round 1: every walk end above has put or cleared a tier
+            ' offer. One still pending here was earned by a SmartLink leg the
+            ' connect then left by another path: the radio opened that way, or
+            ' the open failed on a path with no SmartLink re-plan here (Start
+            ' failed with the connection still up). Say so, and drop it.
+            RigControl?.DismissTierOffer(If(rv,
+                "the radio opened over another path",
+                "the connect ended after the walk ends had run (no SmartLink re-plan on this path)"))
 
             ' Close the connecting window - onto the shell, which the form
             ' hands the foreground to as it goes (#545).

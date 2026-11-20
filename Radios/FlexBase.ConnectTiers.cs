@@ -106,6 +106,22 @@ namespace Radios
             return saved ? tier : null;
         }
 
+        /// <summary>
+        /// Clears a pending offer that is not going to be presented, saying why
+        /// in the trace (the radio opened over another path, the operator
+        /// cancelled, it was already asked on this connect, or it was answered
+        /// with Cancel). Saves nothing. A no-op, and silent, when none is pending.
+        /// </summary>
+        public void DismissTierOffer(string why)
+        {
+            var offer = PendingTierOffer;
+            if (offer == null) return;
+            PendingTierOffer = null;
+            Tracing.TraceLine(
+                $"DismissTierOffer: the tier {(int)offer.OfferedTier + 1} offer to {offer.AccountEmail} for {offer.Serial} is not presented: {why}",
+                TraceLevel.Info);
+        }
+
         /// <summary>The offer's question, naming the radio the operator's way. DRAFT words.</summary>
         public string TierOfferQuestion(SmartLinkTierOffer offer) =>
             SmartLinkTierOffers.Question(offer, RadioNameForSpeech(offer.Serial));
