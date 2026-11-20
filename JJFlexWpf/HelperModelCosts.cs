@@ -322,7 +322,8 @@ namespace JJFlexWpf
     /// median of its 99th percentile over the measurements the store keeps
     /// for this architecture (Sprint 49 Track K2, ruled 2026-11-19, X11: "the
     /// middle of the last few measurements", so one busy moment does not
-    /// decide it). A measurement in which Premium CW was not measured gives no
+    /// decide it; with an even count, the lower of the middle two, Sprint 49
+    /// Track K3, see <see cref="Median"/>). A measurement in which Premium CW was not measured gives no
     /// figure and is not counted. None at all is null, which keeps the ruled
     /// unmeasured default.
     /// </summary>
@@ -347,14 +348,19 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// The middle figure; with an even count, halfway between the two middle
-        /// ones (the ordinary median).
+        /// The middle figure; with an even count, the LOWER of the two middle
+        /// ones, not their average (Sprint 49 Track K3, Noel 2026-11-19, Q6:
+        /// "agreed"). A busy moment reads high, so taking the lower one keeps
+        /// one busy start from deciding on a machine's second measurement (4 ms
+        /// and 788 ms give 4 ms, not 396 ms) and lets a two-versus-two split
+        /// keep the ruled default, Premium CW. This leans optimistic and can
+        /// delay recognising a real slowdown by one measurement; the live
+        /// "can't keep up" warning is the safety net. Odd counts are unchanged.
         /// </summary>
         internal static double Median(IReadOnlyList<double> figures)
         {
             var sorted = figures.OrderBy(f => f).ToList();
-            int mid = sorted.Count / 2;
-            return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            return sorted[(sorted.Count - 1) / 2];
         }
     }
 }
