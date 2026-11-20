@@ -14,6 +14,7 @@ namespace Radios.Tests
     /// <see cref="SessionStatusMessages.HelpDocFor"/> outputs so Track D.3's
     /// UI buttons can trust the filename mapping.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public class SessionStatusMessagesTests
     {
         private static NetworkDiagnosticReport ReportWith(

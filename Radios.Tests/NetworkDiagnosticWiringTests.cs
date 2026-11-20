@@ -18,6 +18,7 @@ namespace Radios.Tests
     /// without a window, so its wiring is pinned at the source, and FlexBase's
     /// half is driven for real.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class NetworkDiagnosticWiringTests
     {
         private static string Src(params string[] parts) =>

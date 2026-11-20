@@ -144,8 +144,6 @@ namespace Radios.SmartLink
     /// </summary>
     public static class NetworkDiagnosticComposer
     {
-        private const string K = "settings.network.diag.";
-
         /// <summary>The time a diagnostic line shows: local, to the second.</summary>
         public static string FormatTime(DateTime utc) =>
             (utc.Kind == DateTimeKind.Local ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime())
@@ -208,63 +206,63 @@ namespace Radios.SmartLink
                 lines.Add(pairing.Kind switch
                 {
                     DiagnosticPairingKind.NoBrokeringAccount =>
-                        Lexicon.Get(K + "pairing_no_account", ("radioName", input.RadioName)),
+                        Lexicon.Get("settings.network.diag.pairing_no_account", ("radioName", input.RadioName)),
                     DiagnosticPairingKind.AccountNotSignedIn =>
-                        Lexicon.Get(K + "pairing_not_signed_in", ("email", pairing.Account), ("radioName", input.RadioName)),
-                    _ => Lexicon.Get(K + "capability_not_run", ("radioName", input.RadioName), ("email", pairing.Account)),
+                        Lexicon.Get("settings.network.diag.pairing_not_signed_in", ("email", pairing.Account), ("radioName", input.RadioName)),
+                    _ => Lexicon.Get("settings.network.diag.capability_not_run", ("radioName", input.RadioName), ("email", pairing.Account)),
                 });
             }
             else if (!probe.ProbeCompleted)
             {
                 lines.Add(probe.TimedOut
-                    ? Lexicon.Get(K + "capability_timed_out", ("time", FormatTime(probe.TimestampUtc)))
-                    : Lexicon.Get(K + "capability_did_not_complete",
+                    ? Lexicon.Get("settings.network.diag.capability_timed_out", ("time", FormatTime(probe.TimestampUtc)))
+                    : Lexicon.Get("settings.network.diag.capability_did_not_complete",
                         ("time", FormatTime(probe.TimestampUtc)), ("detail", probe.ErrorDetail ?? "")));
             }
             else
             {
-                lines.Add(Lexicon.Get(K + "capability_tested_at",
+                lines.Add(Lexicon.Get("settings.network.diag.capability_tested_at",
                     ("time", FormatTime(probe.TimestampUtc)), ("email", pairing.Account)));
                 if (summaryLine != null) lines.Add(summaryLine);
-                lines.Add(Lexicon.Get(K + "capability_forwarded",
+                lines.Add(Lexicon.Get("settings.network.diag.capability_forwarded",
                     ("tcp", Reach(probe.ManualForwardTcpReachable)), ("udp", Reach(probe.ManualForwardUdpReachable))));
-                lines.Add(Lexicon.Get(K + "capability_upnp",
+                lines.Add(Lexicon.Get("settings.network.diag.capability_upnp",
                     ("tcp", Reach(probe.UpnpTcpReachable)), ("udp", Reach(probe.UpnpUdpReachable))));
-                lines.Add(Lexicon.Get(K + "capability_punch", ("state", YesNo(probe.NatSupportsHolePunch))));
+                lines.Add(Lexicon.Get("settings.network.diag.capability_punch", ("state", YesNo(probe.NatSupportsHolePunch))));
                 lines.Add(input.RadioForwardingOn switch
                 {
-                    true => Lexicon.Get(K + "capability_forwarding_on"),
-                    false => Lexicon.Get(K + "capability_forwarding_off"),
-                    null => Lexicon.Get(K + "capability_forwarding_unknown"),
+                    true => Lexicon.Get("settings.network.diag.capability_forwarding_on"),
+                    false => Lexicon.Get("settings.network.diag.capability_forwarding_off"),
+                    null => Lexicon.Get("settings.network.diag.capability_forwarding_unknown"),
                 });
             }
             // The label rule: this is the RADIO's site, never the operator's.
-            lines.Add(Lexicon.Get(K + "capability_scope"));
-            return new DiagnosticPart(Lexicon.Get(K + "capability_heading"), lines);
+            lines.Add(Lexicon.Get("settings.network.diag.capability_scope"));
+            return new DiagnosticPart(Lexicon.Get("settings.network.diag.capability_heading"), lines);
         }
 
         private static string SummaryLine(CapabilitySummary summary, bool? forwardingOn) => summary switch
         {
             CapabilitySummary.ReachableByPorts => forwardingOn == true
-                ? Lexicon.Get(K + "summary_reachable_forwarded")
-                : Lexicon.Get(K + "summary_reachable_upnp"),
-            CapabilitySummary.PossibleByHolePunch => Lexicon.Get(K + "summary_possible_punch"),
-            CapabilitySummary.NotReachable => Lexicon.Get(K + "summary_not_reachable"),
-            _ => Lexicon.Get(K + "summary_unknown"),
+                ? Lexicon.Get("settings.network.diag.summary_reachable_forwarded")
+                : Lexicon.Get("settings.network.diag.summary_reachable_upnp"),
+            CapabilitySummary.PossibleByHolePunch => Lexicon.Get("settings.network.diag.summary_possible_punch"),
+            CapabilitySummary.NotReachable => Lexicon.Get("settings.network.diag.summary_not_reachable"),
+            _ => Lexicon.Get("settings.network.diag.summary_unknown"),
         };
 
         private static string Reach(bool? v) => v switch
         {
-            true => Lexicon.Get(K + "state_reachable"),
-            false => Lexicon.Get(K + "state_not_reachable"),
-            null => Lexicon.Get(K + "state_unknown"),
+            true => Lexicon.Get("settings.network.diag.state_reachable"),
+            false => Lexicon.Get("settings.network.diag.state_not_reachable"),
+            null => Lexicon.Get("settings.network.diag.state_unknown"),
         };
 
         private static string YesNo(bool? v) => v switch
         {
-            true => Lexicon.Get(K + "state_yes"),
-            false => Lexicon.Get(K + "state_no"),
-            null => Lexicon.Get(K + "state_unknown"),
+            true => Lexicon.Get("settings.network.diag.state_yes"),
+            false => Lexicon.Get("settings.network.diag.state_no"),
+            null => Lexicon.Get("settings.network.diag.state_unknown"),
         };
 
         // ── Policy, as it stands now ─────────────────────────────────────
@@ -274,38 +272,38 @@ namespace Radios.SmartLink
             var lines = new List<string>();
             if (input.Pairing.Kind == DiagnosticPairingKind.NoBrokeringAccount)
             {
-                lines.Add(Lexicon.Get(K + "policy_no_account", ("radioName", input.RadioName)));
-                return new DiagnosticPart(Lexicon.Get(K + "policy_now_heading"), lines);
+                lines.Add(Lexicon.Get("settings.network.diag.policy_no_account", ("radioName", input.RadioName)));
+                return new DiagnosticPart(Lexicon.Get("settings.network.diag.policy_now_heading"), lines);
             }
 
-            lines.Add(Lexicon.Get(input.TierChosen ? K + "policy_account_chosen" : K + "policy_account_not_chosen",
+            lines.Add(Lexicon.Get(input.TierChosen ? "settings.network.diag.policy_account_chosen" : "settings.network.diag.policy_account_not_chosen",
                 ("email", input.Pairing.Account), ("radioName", input.RadioName),
                 ("tierName", SmartLinkTierOffers.TierName(input.Tier))));
-            lines.Add(Lexicon.Get(K + "policy_choice", ("choiceName", ChoiceName(input.Choice))));
+            lines.Add(Lexicon.Get("settings.network.diag.policy_choice", ("choiceName", ChoiceName(input.Choice))));
 
             if (input.PortsNow == null)
             {
-                lines.Add(Lexicon.Get(K + "policy_ports_unknown", ("radioName", input.RadioName)));
-                return new DiagnosticPart(Lexicon.Get(K + "policy_now_heading"), lines);
+                lines.Add(Lexicon.Get("settings.network.diag.policy_ports_unknown", ("radioName", input.RadioName)));
+                return new DiagnosticPart(Lexicon.Get("settings.network.diag.policy_now_heading"), lines);
             }
 
-            lines.Add(Lexicon.Get(input.PortsFromLastConnect ? K + "policy_advertised_at_last_connect" : K + "policy_advertised",
+            lines.Add(Lexicon.Get(input.PortsFromLastConnect ? "settings.network.diag.policy_advertised_at_last_connect" : "settings.network.diag.policy_advertised",
                 ("manual", PairPhrase(input.PortsNow.Manual)), ("upnp", PairPhrase(input.PortsNow.Upnp))));
 
             var decision = SmartLinkMethodPolicy.Decide(new SmartLinkPolicyInput(
                 input.Tier, input.TierChosen, input.Choice, ForcedPath: false, input.PortsNow));
             if (decision.IsRefused)
             {
-                lines.Add(Lexicon.Get(K + "policy_refused",
+                lines.Add(Lexicon.Get("settings.network.diag.policy_refused",
                     ("reason", RefusalReason(decision.Refusal, input.Tier, decision.LowestAdmittingTier))));
             }
             else
             {
-                lines.Add(Lexicon.Get(K + "policy_methods", ("methods", MethodList(decision.Methods))));
-                if (decision.PunchWithheldUntilGate) lines.Add(Lexicon.Get(K + "policy_punch_withheld"));
+                lines.Add(Lexicon.Get("settings.network.diag.policy_methods", ("methods", MethodList(decision.Methods))));
+                if (decision.PunchWithheldUntilGate) lines.Add(Lexicon.Get("settings.network.diag.policy_punch_withheld"));
             }
-            lines.Add(Lexicon.Get(K + "policy_smartlink_only"));
-            return new DiagnosticPart(Lexicon.Get(K + "policy_now_heading"), lines);
+            lines.Add(Lexicon.Get("settings.network.diag.policy_smartlink_only"));
+            return new DiagnosticPart(Lexicon.Get("settings.network.diag.policy_now_heading"), lines);
         }
 
         // ── Policy, as recorded at the last connect ──────────────────────
@@ -316,26 +314,26 @@ namespace Radios.SmartLink
             var rec = input.LastConnect;
             if (rec == null)
             {
-                lines.Add(Lexicon.Get(K + "no_connect_recorded", ("radioName", input.RadioName)));
-                return new DiagnosticPart(Lexicon.Get(K + "policy_recorded_heading"), lines);
+                lines.Add(Lexicon.Get("settings.network.diag.no_connect_recorded", ("radioName", input.RadioName)));
+                return new DiagnosticPart(Lexicon.Get("settings.network.diag.policy_recorded_heading"), lines);
             }
 
-            lines.Add(Lexicon.Get(K + "recorded_when", ("time", FormatTime(rec.StartedUtc))));
-            lines.Add(Lexicon.Get(rec.TierChosen ? K + "recorded_account_chosen" : K + "recorded_account_not_chosen",
+            lines.Add(Lexicon.Get("settings.network.diag.recorded_when", ("time", FormatTime(rec.StartedUtc))));
+            lines.Add(Lexicon.Get(rec.TierChosen ? "settings.network.diag.recorded_account_chosen" : "settings.network.diag.recorded_account_not_chosen",
                 ("email", rec.BrokeringAccount), ("tierName", SmartLinkTierOffers.TierName(rec.Tier))));
-            lines.Add(Lexicon.Get(K + "recorded_choice", ("choiceName", ChoiceName(rec.PerRadioChoice))));
-            if (rec.ForcedPath) lines.Add(Lexicon.Get(K + "recorded_forced_path"));
-            lines.Add(Lexicon.Get(K + "recorded_advertised",
+            lines.Add(Lexicon.Get("settings.network.diag.recorded_choice", ("choiceName", ChoiceName(rec.PerRadioChoice))));
+            if (rec.ForcedPath) lines.Add(Lexicon.Get("settings.network.diag.recorded_forced_path"));
+            lines.Add(Lexicon.Get("settings.network.diag.recorded_advertised",
                 ("manual", PairPhrase(rec.Report.Manual)), ("upnp", PairPhrase(rec.Report.Upnp))));
             if (rec.IsRefused)
             {
-                lines.Add(Lexicon.Get(K + "recorded_refused",
+                lines.Add(Lexicon.Get("settings.network.diag.recorded_refused",
                     ("reason", RefusalReason(rec.Refusal, rec.Tier, rec.LowestAdmittingTier))));
             }
             else
             {
-                lines.Add(Lexicon.Get(K + "recorded_methods", ("methods", MethodList(rec.MethodOrder))));
-                if (rec.PunchWithheldUntilGate) lines.Add(Lexicon.Get(K + "recorded_punch_withheld"));
+                lines.Add(Lexicon.Get("settings.network.diag.recorded_methods", ("methods", MethodList(rec.MethodOrder))));
+                if (rec.PunchWithheldUntilGate) lines.Add(Lexicon.Get("settings.network.diag.recorded_punch_withheld"));
             }
 
             // A changed tier, chosen flag or choice since then is said, so the
@@ -344,9 +342,9 @@ namespace Radios.SmartLink
                 && (!string.Equals(rec.BrokeringAccount, input.Pairing.Account, StringComparison.OrdinalIgnoreCase)
                     || rec.Tier != input.Tier || rec.TierChosen != input.TierChosen || rec.PerRadioChoice != input.Choice))
             {
-                lines.Add(Lexicon.Get(K + "recorded_changed_since"));
+                lines.Add(Lexicon.Get("settings.network.diag.recorded_changed_since"));
             }
-            return new DiagnosticPart(Lexicon.Get(K + "policy_recorded_heading"), lines);
+            return new DiagnosticPart(Lexicon.Get("settings.network.diag.policy_recorded_heading"), lines);
         }
 
         // ── Outcome ──────────────────────────────────────────────────────
@@ -357,18 +355,18 @@ namespace Radios.SmartLink
             var rec = input.LastConnect;
             if (rec == null)
             {
-                lines.Add(Lexicon.Get(K + "no_connect_recorded", ("radioName", input.RadioName)));
-                return new DiagnosticPart(Lexicon.Get(K + "outcome_heading"), lines);
+                lines.Add(Lexicon.Get("settings.network.diag.no_connect_recorded", ("radioName", input.RadioName)));
+                return new DiagnosticPart(Lexicon.Get("settings.network.diag.outcome_heading"), lines);
             }
             if (rec.IsRefused)
             {
-                lines.Add(Lexicon.Get(K + "outcome_refused", ("time", FormatTime(rec.StartedUtc))));
-                return new DiagnosticPart(Lexicon.Get(K + "outcome_heading"), lines);
+                lines.Add(Lexicon.Get("settings.network.diag.outcome_refused", ("time", FormatTime(rec.StartedUtc))));
+                return new DiagnosticPart(Lexicon.Get("settings.network.diag.outcome_heading"), lines);
             }
             if (rec.Attempts.Count == 0)
             {
-                lines.Add(Lexicon.Get(K + "outcome_no_attempt", ("time", FormatTime(rec.StartedUtc))));
-                return new DiagnosticPart(Lexicon.Get(K + "outcome_heading"), lines);
+                lines.Add(Lexicon.Get("settings.network.diag.outcome_no_attempt", ("time", FormatTime(rec.StartedUtc))));
+                return new DiagnosticPart(Lexicon.Get("settings.network.diag.outcome_heading"), lines);
             }
 
             for (int i = 0; i < rec.Attempts.Count; i++)
@@ -377,77 +375,77 @@ namespace Radios.SmartLink
                 int n = a.Sequence > 0 ? a.Sequence : i + 1;
                 string end = EndSentence(a.End);
                 lines.Add(a.Method == SmartLinkMethod.HolePunch
-                    ? Lexicon.Get(K + "outcome_attempt_punch",
+                    ? Lexicon.Get("settings.network.diag.outcome_attempt_punch",
                         ("n", n), ("method", MethodName(a.Method)), ("port", a.PunchPortSent), ("end", end))
-                    : Lexicon.Get(K + "outcome_attempt_ports",
+                    : Lexicon.Get("settings.network.diag.outcome_attempt_ports",
                         ("n", n), ("method", MethodName(a.Method)), ("tcp", a.TlsPortSent), ("udp", a.UdpPortSent), ("end", end)));
                 if (a.QualifiedUdpAfter is TimeSpan q)
-                    lines.Add(Lexicon.Get(K + "outcome_first_udp",
+                    lines.Add(Lexicon.Get("settings.network.diag.outcome_first_udp",
                         ("n", n), ("ms", ((long)q.TotalMilliseconds).ToString(CultureInfo.InvariantCulture))));
                 // EndDetail is plain words for the trace; never shown or spoken
                 // as-is (the frozen record's contract), so the export carries it.
                 if (!string.IsNullOrWhiteSpace(a.EndDetail))
-                    exportDetails.Add(Lexicon.Get(K + "export_attempt_detail", ("n", n), ("detail", a.EndDetail)));
+                    exportDetails.Add(Lexicon.Get("settings.network.diag.export_attempt_detail", ("n", n), ("detail", a.EndDetail)));
             }
 
             lines.Add(rec.MethodUsed is SmartLinkMethod used
-                ? Lexicon.Get(K + "outcome_used", ("method", MethodName(used)))
-                : Lexicon.Get(K + "outcome_none_used"));
-            return new DiagnosticPart(Lexicon.Get(K + "outcome_heading"), lines);
+                ? Lexicon.Get("settings.network.diag.outcome_used", ("method", MethodName(used)))
+                : Lexicon.Get("settings.network.diag.outcome_none_used"));
+            return new DiagnosticPart(Lexicon.Get("settings.network.diag.outcome_heading"), lines);
         }
 
         /// <summary>One sentence per way an attempt can end; every value of <see cref="SmartLinkAttemptEnd"/> has its own.</summary>
         public static string EndSentence(SmartLinkAttemptEnd end) => Lexicon.Get(end switch
         {
-            SmartLinkAttemptEnd.Pending => K + "end_pending",
-            SmartLinkAttemptEnd.Proven => K + "end_proven",
-            SmartLinkAttemptEnd.Dialled => K + "end_dialled",
-            SmartLinkAttemptEnd.NoHandle => K + "end_no_handle",
-            SmartLinkAttemptEnd.NullHandle => K + "end_null_handle",
-            SmartLinkAttemptEnd.ConnectFailed => K + "end_connect_failed",
-            SmartLinkAttemptEnd.OpenFailed => K + "end_open_failed",
-            SmartLinkAttemptEnd.CommandConnectionLost => K + "end_command_lost",
-            SmartLinkAttemptEnd.NoQualifiedUdp => K + "end_no_udp",
-            SmartLinkAttemptEnd.Cancelled => K + "end_cancelled",
-            SmartLinkAttemptEnd.NotSent => K + "end_not_sent",
-            _ => K + "end_unknown",
+            SmartLinkAttemptEnd.Pending => "settings.network.diag.end_pending",
+            SmartLinkAttemptEnd.Proven => "settings.network.diag.end_proven",
+            SmartLinkAttemptEnd.Dialled => "settings.network.diag.end_dialled",
+            SmartLinkAttemptEnd.NoHandle => "settings.network.diag.end_no_handle",
+            SmartLinkAttemptEnd.NullHandle => "settings.network.diag.end_null_handle",
+            SmartLinkAttemptEnd.ConnectFailed => "settings.network.diag.end_connect_failed",
+            SmartLinkAttemptEnd.OpenFailed => "settings.network.diag.end_open_failed",
+            SmartLinkAttemptEnd.CommandConnectionLost => "settings.network.diag.end_command_lost",
+            SmartLinkAttemptEnd.NoQualifiedUdp => "settings.network.diag.end_no_udp",
+            SmartLinkAttemptEnd.Cancelled => "settings.network.diag.end_cancelled",
+            SmartLinkAttemptEnd.NotSent => "settings.network.diag.end_not_sent",
+            _ => "settings.network.diag.end_unknown",
         });
 
         // ── Shared phrases ───────────────────────────────────────────────
 
         public static string ChoiceName(RadioConnectionPreference choice) => Lexicon.Get(choice switch
         {
-            RadioConnectionPreference.ForwardOnly => K + "choice_forward_only",
-            RadioConnectionPreference.HolePunch => K + "choice_hole_punch",
-            _ => K + "choice_automatic",
+            RadioConnectionPreference.ForwardOnly => "settings.network.diag.choice_forward_only",
+            RadioConnectionPreference.HolePunch => "settings.network.diag.choice_hole_punch",
+            _ => "settings.network.diag.choice_automatic",
         });
 
         public static string MethodName(SmartLinkMethod method) => Lexicon.Get(method switch
         {
-            SmartLinkMethod.UpnpPorts => K + "method_upnp",
-            SmartLinkMethod.HolePunch => K + "method_punch",
-            _ => K + "method_manual",
+            SmartLinkMethod.UpnpPorts => "settings.network.diag.method_upnp",
+            SmartLinkMethod.HolePunch => "settings.network.diag.method_punch",
+            _ => "settings.network.diag.method_manual",
         });
 
         private static string MethodList(IReadOnlyList<SmartLinkMethod> methods) =>
-            string.Join(Lexicon.Get(K + "method_then"), methods.Select(MethodName));
+            string.Join(Lexicon.Get("settings.network.diag.method_then"), methods.Select(MethodName));
 
         private static string PairPhrase(AdvertisedPortPair pair) => pair.IsUsable
-            ? Lexicon.Get(pair.Source == PortPairSource.Upnp ? K + "pair_upnp" : K + "pair_forwarded",
+            ? Lexicon.Get(pair.Source == PortPairSource.Upnp ? "settings.network.diag.pair_upnp" : "settings.network.diag.pair_forwarded",
                 ("tcp", pair.TlsPort), ("udp", pair.UdpPort))
-            : Lexicon.Get(pair.Source == PortPairSource.Upnp ? K + "pair_upnp_none" : K + "pair_forwarded_none");
+            : Lexicon.Get(pair.Source == PortPairSource.Upnp ? "settings.network.diag.pair_upnp_none" : "settings.network.diag.pair_forwarded_none");
 
         private static string RefusalReason(SmartLinkRefusal refusal, SmartLinkConnectionMode tier,
             SmartLinkConnectionMode? lowest) => refusal switch
         {
             SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch =>
-                Lexicon.Get(K + "reason_punch_always", ("tierName", SmartLinkTierOffers.TierName(tier))),
+                Lexicon.Get("settings.network.diag.reason_punch_always", ("tierName", SmartLinkTierOffers.TierName(tier))),
             SmartLinkRefusal.TierForbidsWhatTheRadioOffers when lowest is SmartLinkConnectionMode l =>
-                Lexicon.Get(K + "reason_tier", ("tierName", SmartLinkTierOffers.TierName(tier)),
+                Lexicon.Get("settings.network.diag.reason_tier", ("tierName", SmartLinkTierOffers.TierName(tier)),
                     ("lowestTierName", SmartLinkTierOffers.TierName(l))),
             SmartLinkRefusal.TierForbidsWhatTheRadioOffers =>
-                Lexicon.Get(K + "reason_tier_no_higher", ("tierName", SmartLinkTierOffers.TierName(tier))),
-            _ => Lexicon.Get(K + "reason_no_ports"),
+                Lexicon.Get("settings.network.diag.reason_tier_no_higher", ("tierName", SmartLinkTierOffers.TierName(tier))),
+            _ => Lexicon.Get("settings.network.diag.reason_no_ports"),
         };
     }
 }

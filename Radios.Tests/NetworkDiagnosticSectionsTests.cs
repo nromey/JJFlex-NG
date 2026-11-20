@@ -12,6 +12,7 @@ namespace Radios.Tests
     /// recorded at the last connect) and outcome, composed from fakes. The
     /// expectations are written from the plan's rules, not read off the code.
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class NetworkDiagnosticSectionsTests
     {
         private const string Account = "owner@example.invalid";
@@ -62,8 +63,10 @@ namespace Radios.Tests
             return SmartLinkConnectRecord.Begin(serial, Account, input, SmartLinkMethodPolicy.Decide(input), When);
         }
 
+        private const string DiagPrefix = "settings.network.diag.";
+
         private static string D(string key, params (string, object)[] args) =>
-            Lexicon.Get("settings.network.diag." + key, args);
+            Lexicon.Get(DiagPrefix + key, args);
 
         // ── The summary rule ────────────────────────────────────────────
 
