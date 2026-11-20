@@ -1,6 +1,9 @@
 using System;
 using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Windows.Forms;
 using Radios;
 using Xunit;
@@ -10,7 +13,8 @@ namespace Radios.Tests
     /// <summary>
     /// Escape in the browser sign-in form (#1222): Escape anywhere in the
     /// form, the web page included, closes it as Alt+F4 does, with
-    /// DialogResult.Cancel, so the caller's existing cancel path runs.
+    /// DialogResult.Cancel, so the caller's existing cancel path runs. A close
+    /// during the token exchange cancels the exchange.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -19,9 +23,19 @@ namespace Radios.Tests
     /// and the form had no Escape handling at all. Only Alt+F4 closed it.
     /// </para>
     /// <para>
-    /// <b>What these can see.</b> The decisions (which key, when a close is
-    /// refused) are run directly. The wiring is read from source, because no
-    /// test may construct the form: WebView2 needs a window.
+    /// <b>Repair 1.</b> The first build ignored Escape and Alt+F4 while the
+    /// token exchange ran. That broke the standing rule that a close during an
+    /// asynchronous wait cancels the wait: the exchange is a network request,
+    /// HttpClient's default timeout is about 100 seconds, and a stalled
+    /// endpoint left no way out. Now any close during the exchange cancels it,
+    /// and a cancelled exchange never lands afterwards.
+    /// </para>
+    /// <para>
+    /// <b>What these can see.</b> The key decision is run directly. The close
+    /// handlers are run on an UNINITIALIZED form (no constructor, so no
+    /// window, no handle, no WebView2), with the exchange's token source set
+    /// as it is while the exchange is awaited. The exchange itself makes a
+    /// network call, so its wiring is read from source.
     /// </para>
     /// <para>
     /// <b>What these cannot see.</b> That the WebView2 control really raises
@@ -51,6 +65,12 @@ namespace Radios.Tests
             throw new InvalidOperationException("unbalanced braces after " + signature);
         }
 
+        private const string ExchangeSignature =
+            "private async Task<bool> ExchangeCodeForTokens(string code, CancellationToken ct)";
+
+        private const string NavigationSignature =
+            "private async void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)";
+
         [Fact]
         public void Plain_Escape_is_the_cancel_key_and_nothing_else_is()
         {
@@ -61,15 +81,96 @@ namespace Radios.Tests
             Assert.False(AuthFormWebView2.IsCancelKey(Keys.F4 | Keys.Alt));
         }
 
-        [Fact]
-        public void A_persons_close_is_refused_only_while_the_token_exchange_runs()
+        // ---- The close handlers, run on a form that was never constructed ----
+
+        private const BindingFlags Instance = BindingFlags.Instance | BindingFlags.NonPublic;
+
+        /// <summary>
+        /// The form without its constructor: no handle, no window, no WebView2.
+        /// Its finalizer is suppressed, since Dispose on a never-built
+        /// control is not something to run on the finalizer thread.
+        /// </summary>
+        private static AuthFormWebView2 UnbuiltForm(CancellationTokenSource exchangeCts)
         {
-            Assert.True(AuthFormWebView2.RefusesUserClose(exchangeInFlight: true, CloseReason.UserClosing));
-            Assert.False(AuthFormWebView2.RefusesUserClose(exchangeInFlight: false, CloseReason.UserClosing));
-            // The form's own close (setting DialogResult) is never refused.
-            Assert.False(AuthFormWebView2.RefusesUserClose(exchangeInFlight: true, CloseReason.None));
-            Assert.False(AuthFormWebView2.RefusesUserClose(exchangeInFlight: true, CloseReason.ApplicationExitCall));
+            var form = (AuthFormWebView2)RuntimeHelpers.GetUninitializedObject(typeof(AuthFormWebView2));
+            GC.SuppressFinalize(form);
+            var field = typeof(AuthFormWebView2).GetField("_exchangeCts", Instance);
+            Assert.NotNull(field);
+            field.SetValue(form, exchangeCts);
+            return form;
         }
+
+        private static FormClosingEventArgs Close(AuthFormWebView2 form, CloseReason reason)
+        {
+            var handler = typeof(AuthFormWebView2).GetMethod("AuthFormWebView2_FormClosing", Instance);
+            Assert.NotNull(handler);
+            var e = new FormClosingEventArgs(reason, cancel: false);
+            handler.Invoke(form, new object[] { null, e });
+            return e;
+        }
+
+        private static void PressEscape(AuthFormWebView2 form)
+        {
+            var method = typeof(AuthFormWebView2).GetMethod("CancelFromEscape", Instance);
+            Assert.NotNull(method);
+            method.Invoke(form, new object[] { "test" });
+        }
+
+        [Theory]
+        [InlineData(CloseReason.UserClosing)]          // Alt+F4, the title bar
+        [InlineData(CloseReason.None)]                 // Escape's own close (setting DialogResult)
+        [InlineData(CloseReason.ApplicationExitCall)]
+        public void A_close_during_the_exchange_cancels_it_and_goes_ahead(CloseReason reason)
+        {
+            using var cts = new CancellationTokenSource();
+            var form = UnbuiltForm(cts);
+
+            var e = Close(form, reason);
+
+            Assert.True(cts.IsCancellationRequested, "a close during the exchange must cancel it");
+            Assert.False(e.Cancel, "no close is ever refused, the exchange included");
+        }
+
+        [Fact]
+        public void Escape_during_the_exchange_cancels_it_and_closes_with_Cancel()
+        {
+            using var cts = new CancellationTokenSource();
+            var form = UnbuiltForm(cts);
+
+            PressEscape(form);
+
+            Assert.True(cts.IsCancellationRequested, "Escape during the exchange must cancel it");
+            Assert.Equal(DialogResult.Cancel, form.DialogResult);
+        }
+
+        [Fact]
+        public void With_no_exchange_running_both_closes_go_ahead_exactly_as_before()
+        {
+            Assert.False(Close(UnbuiltForm(null), CloseReason.UserClosing).Cancel);
+
+            var form = UnbuiltForm(null);
+            PressEscape(form);
+            Assert.Equal(DialogResult.Cancel, form.DialogResult);
+        }
+
+        [Fact]
+        public void Positive_control_an_unbuilt_form_starts_with_no_result()
+        {
+            // If the unbuilt form already said Cancel, the Escape tests above
+            // would pass without Escape doing anything.
+            Assert.Equal(DialogResult.None, UnbuiltForm(null).DialogResult);
+        }
+
+        [Fact]
+        public void No_close_key_is_ignored_anywhere_in_the_form()
+        {
+            string s = Source();
+            Assert.DoesNotContain("e.Cancel = true", s);
+            Assert.DoesNotContain("RefusesUserClose", s);
+            Assert.DoesNotContain("ignored while the sign-in completes", s);
+        }
+
+        // ---- The wiring, read from source ----
 
         [Fact]
         public void Escape_in_the_page_reaches_the_close_through_the_controls_KeyDown_and_is_posted()
@@ -96,39 +197,78 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Escape_closes_with_Cancel_unless_the_exchange_runs_and_speaks_nothing()
+        public void Escape_speaks_nothing_of_its_own()
         {
-            string body = MethodBody(Source(), "private void CancelFromEscape(string route)");
-            Assert.Contains("RefusesUserClose(_exchangeInFlight, CloseReason.UserClosing)", body);
-            Assert.Contains("DialogResult = DialogResult.Cancel;", body);
-            // The refusal comes before the close.
-            Assert.True(body.IndexOf("RefusesUserClose", StringComparison.Ordinal)
-                        < body.IndexOf("DialogResult = DialogResult.Cancel;", StringComparison.Ordinal));
             // Escape and Alt+F4 stay identical: no sentence of its own.
+            string body = MethodBody(Source(), "private void CancelFromEscape(string route)");
             Assert.DoesNotContain("ScreenReaderOutput", body);
             Assert.DoesNotContain("Lexicon.Get", body);
         }
 
         [Fact]
-        public void Alt_F4_asks_the_same_question_while_the_exchange_runs()
+        public void Alt_F4_and_the_title_bar_reach_the_same_cancel()
         {
             string s = Source();
             Assert.Contains("this.FormClosing += AuthFormWebView2_FormClosing;", s);
             string body = MethodBody(s, "private void AuthFormWebView2_FormClosing(object sender, FormClosingEventArgs e)");
-            Assert.Contains("RefusesUserClose(_exchangeInFlight, e.CloseReason)", body);
-            Assert.Contains("e.Cancel = true;", body);
+            Assert.Contains("CancelExchange(", body);
         }
 
         [Fact]
-        public void The_exchange_flag_covers_exactly_the_awaited_exchange()
+        public void The_forms_token_reaches_every_awaited_call_in_the_exchange()
         {
-            string s = Source();
-            var m = Regex.Match(s,
-                @"_exchangeInFlight = true;\s*try\s*\{\s*success = await ExchangeCodeForTokens\(code\);\s*\}\s*finally\s*\{\s*_exchangeInFlight = false;\s*\}");
-            Assert.True(m.Success, "the in-flight flag must be set around the awaited exchange and cleared in a finally");
-            // The flag clears before the form sets its own result.
-            int cleared = m.Index + m.Length;
-            Assert.True(s.IndexOf("DialogResult = DialogResult.OK;", cleared, StringComparison.Ordinal) > cleared);
+            string body = MethodBody(Source(), ExchangeSignature);
+            Assert.Contains("client.PostAsync($\"https://{Auth0Domain}/oauth/token\", content, ct)", body);
+            Assert.Contains("ReadAsStringAsync(ct)", body);
+            var awaits = Regex.Matches(body, @"await [^;]*;");
+            Assert.True(awaits.Count >= 2, "the scan must see the exchange's awaits");
+            foreach (Match awaited in awaits)
+                Assert.Contains("ct)", awaited.Value);
+        }
+
+        [Fact]
+        public void Our_own_cancel_is_quiet_and_keeps_no_token()
+        {
+            string body = MethodBody(Source(), ExchangeSignature);
+
+            // A close that lands after the response arrived still wins, before
+            // any token is stored or any failure box shown.
+            int read = body.IndexOf("ReadAsStringAsync(ct)", StringComparison.Ordinal);
+            int check = body.IndexOf("ct.ThrowIfCancellationRequested();", read, StringComparison.Ordinal);
+            Assert.True(read >= 0 && check > read, "the token must be checked after the last await");
+            Assert.True(check < body.IndexOf("MessageBox.Show(", StringComparison.Ordinal));
+            Assert.True(check < body.IndexOf("IdToken = ", StringComparison.Ordinal));
+
+            // The quiet catch comes before the error box's catch, and shows nothing.
+            const string quiet = "catch (OperationCanceledException) when (ct.IsCancellationRequested)";
+            int q = body.IndexOf(quiet, StringComparison.Ordinal);
+            int general = body.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+            Assert.True(q >= 0 && q < general, "our own cancel must be caught before the general catch");
+            string quietBlock = MethodBody(body.Substring(q), quiet);
+            Assert.DoesNotContain("MessageBox", quietBlock);
+            Assert.Contains("return false;", quietBlock);
+        }
+
+        [Fact]
+        public void A_cancelled_exchange_never_lands_on_the_form()
+        {
+            string body = MethodBody(Source(), NavigationSignature);
+            var m = Regex.Match(body,
+                @"_exchangeCts = exchangeCts;\s*try\s*\{\s*success = await ExchangeCodeForTokens\(code, exchangeCts\.Token\);\s*\}\s*finally\s*\{\s*_exchangeCts = null;\s*cancelled = exchangeCts\.IsCancellationRequested;\s*exchangeCts\.Dispose\(\);\s*\}");
+            Assert.True(m.Success, "the token source must be set around the awaited exchange and cleared in a finally");
+
+            int after = m.Index + m.Length;
+            int guard = body.IndexOf("if (cancelled)", after, StringComparison.Ordinal);
+            Assert.True(guard > after, "a cancelled exchange must be checked after the await");
+            Assert.True(guard < body.IndexOf("DialogResult = DialogResult.OK;", after, StringComparison.Ordinal),
+                "the check comes before the form is given OK");
+            Assert.True(guard < body.IndexOf("DialogResult = DialogResult.Cancel;", after, StringComparison.Ordinal),
+                "and before the failed exchange's own Cancel");
+            string guardBlock = MethodBody(body.Substring(guard), "if (cancelled)");
+            Assert.Contains("return;", guardBlock);
+            Assert.DoesNotContain("DialogResult", guardBlock);
+            Assert.DoesNotContain("MessageBox", guardBlock);
+            Assert.DoesNotContain("Tokens", guardBlock);
         }
 
         [Fact]
@@ -137,8 +277,7 @@ namespace Radios.Tests
             // The error box, the state mismatch and the failed exchange each
             // already close with Cancel; if this count is wrong the scan is
             // not reading the file it thinks it is.
-            string body = MethodBody(Source(),
-                "private async void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)");
+            string body = MethodBody(Source(), NavigationSignature);
             Assert.Equal(3, Regex.Matches(body, @"DialogResult = DialogResult\.Cancel;").Count);
         }
     }

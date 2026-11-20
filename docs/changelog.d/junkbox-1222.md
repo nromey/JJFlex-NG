@@ -1,1 +1,1 @@
-- Escape now closes the SmartLink browser sign-in page, wherever you are on the page, just as Alt+F4 does. While the sign-in is completing, both wait until it finishes.
+- Escape now closes the SmartLink browser sign-in page, wherever you are on the page, just as Alt+F4 does. Either key also works while the sign-in is completing, and cancels it.

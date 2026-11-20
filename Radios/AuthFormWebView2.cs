@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 using System.Windows.Forms;
@@ -32,10 +33,11 @@ namespace Radios
         private bool isInitialized;
         private bool isExchangingCode;
 
-        // True only while the token exchange is awaited. isExchangingCode
-        // stays set for good once the exchange starts (it keeps later
-        // navigations from re-running it), so it cannot say "running now".
-        private bool _exchangeInFlight;
+        // Set only while the token exchange is awaited, and the way a close
+        // cancels it. isExchangingCode stays set for good once the exchange
+        // starts (it keeps later navigations from re-running it), so it
+        // cannot say "running now"; this can.
+        private CancellationTokenSource _exchangeCts;
 
         // One Escape closes once, whichever route saw it first.
         private bool _escapeClosing;
@@ -238,16 +240,31 @@ namespace Radios
         internal static bool IsCancelKey(Keys keyData) => keyData == Keys.Escape;
 
         /// <summary>
-        /// Whether a person's close (Alt+F4, the title bar's Close) is refused.
-        /// Only while the token exchange runs: it lasts a moment, says
-        /// "completing" on its own, and sets the form's result when it ends,
-        /// so a close in the middle would leave it reporting into a form that
-        /// has gone. Escape asks the same question, so the two stay alike.
-        /// A close the form makes itself (setting DialogResult) is never
-        /// refused.
+        /// A close while the token exchange is awaited cancels the exchange.
+        /// No close key is ever ignored: the exchange is a network request
+        /// with no deadline of its own beyond HttpClient's (about 100
+        /// seconds), so refusing the close would trap the operator for as
+        /// long as a stalled endpoint takes. A cancelled exchange never lands
+        /// afterwards: no OK, no token kept, no error box, nothing touches the
+        /// closed form. Nothing to do when no exchange is running.
         /// </summary>
-        internal static bool RefusesUserClose(bool exchangeInFlight, CloseReason reason)
-            => exchangeInFlight && reason == CloseReason.UserClosing;
+        private void CancelExchange(string why)
+        {
+            var cts = _exchangeCts;
+            if (cts == null) return;
+            try
+            {
+                if (!cts.IsCancellationRequested)
+                {
+                    cts.Cancel();
+                    Tracing.TraceLine($"AuthFormWebView2: {why} during the sign-in, cancelling it", TraceLevel.Info);
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // The exchange ended between the read and the cancel.
+            }
+        }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
@@ -279,28 +296,25 @@ namespace Radios
         /// <summary>
         /// Escape's close: the same result Alt+F4 gives a modal form
         /// (DialogResult.Cancel), so the caller's existing cancel path runs.
-        /// It speaks nothing of its own.
+        /// During the token exchange it cancels the exchange first, as any
+        /// close does. It speaks nothing of its own.
         /// </summary>
         private void CancelFromEscape(string route)
         {
             if (IsDisposed || _escapeClosing) return;
-            if (RefusesUserClose(_exchangeInFlight, CloseReason.UserClosing))
-            {
-                Tracing.TraceLine($"AuthFormWebView2: Escape ({route}) ignored while the sign-in completes", TraceLevel.Info);
-                return;
-            }
             _escapeClosing = true;
+            CancelExchange($"Escape ({route})");
             Tracing.TraceLine($"AuthFormWebView2: Escape ({route}), closing as cancelled", TraceLevel.Info);
             DialogResult = DialogResult.Cancel;
         }
 
+        /// <summary>
+        /// Any close (Alt+F4, the title bar, Escape's own close) cancels an
+        /// exchange still in flight, and the close goes ahead.
+        /// </summary>
         private void AuthFormWebView2_FormClosing(object sender, FormClosingEventArgs e)
         {
-            if (RefusesUserClose(_exchangeInFlight, e.CloseReason))
-            {
-                e.Cancel = true;
-                Tracing.TraceLine("AuthFormWebView2: close ignored while the sign-in completes", TraceLevel.Info);
-            }
+            CancelExchange($"close ({e.CloseReason})");
         }
 
         /// <summary>
@@ -526,14 +540,27 @@ namespace Radios
                         ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.browser.completing"), VerbosityLevel.Terse, true);
 
                         bool success;
-                        _exchangeInFlight = true;
+                        bool cancelled;
+                        var exchangeCts = new CancellationTokenSource();
+                        _exchangeCts = exchangeCts;
                         try
                         {
-                            success = await ExchangeCodeForTokens(code);
+                            success = await ExchangeCodeForTokens(code, exchangeCts.Token);
                         }
                         finally
                         {
-                            _exchangeInFlight = false;
+                            _exchangeCts = null;
+                            cancelled = exchangeCts.IsCancellationRequested;
+                            exchangeCts.Dispose();
+                        }
+
+                        // Closed during the exchange: the form is gone (or
+                        // going), and the caller has already taken Cancel.
+                        // Nothing here may land on it.
+                        if (cancelled)
+                        {
+                            Tracing.TraceLine("AuthFormWebView2: sign-in cancelled by the close; nothing kept", TraceLevel.Info);
+                            return;
                         }
 
                         if (success)
@@ -680,10 +707,11 @@ namespace Radios
             }
         }
 
-        private async Task<bool> ExchangeCodeForTokens(string code)
+        private async Task<bool> ExchangeCodeForTokens(string code, CancellationToken ct)
         {
             try
             {
+                ct.ThrowIfCancellationRequested();
                 using var client = new HttpClient();
                 var content = new FormUrlEncodedContent(new[]
                 {
@@ -694,8 +722,11 @@ namespace Radios
                     new KeyValuePair<string, string>("code_verifier", _codeVerifier)
                 });
 
-                var response = await client.PostAsync($"https://{Auth0Domain}/oauth/token", content);
-                var json = await response.Content.ReadAsStringAsync();
+                var response = await client.PostAsync($"https://{Auth0Domain}/oauth/token", content, ct);
+                var json = await response.Content.ReadAsStringAsync(ct);
+                // A close can land between the response arriving and this
+                // continuation running; the close wins.
+                ct.ThrowIfCancellationRequested();
 
                 Tracing.TraceLine($"Token exchange response: {response.StatusCode}", TraceLevel.Info);
 
@@ -727,6 +758,14 @@ namespace Radios
 
                 Tracing.TraceLine($"Token exchange successful - has refresh token: {!string.IsNullOrEmpty(RefreshToken)}, expires in: {ExpiresIn}s", TraceLevel.Info);
                 return true;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Our own cancel, from a close: a quiet cancel, not an error.
+                // HttpClient's own timeout is also an OperationCanceledException,
+                // but with this token untouched, so it still reaches the box.
+                Tracing.TraceLine("Token exchange cancelled by the close", TraceLevel.Info);
+                return false;
             }
             catch (Exception ex)
             {
@@ -864,6 +903,7 @@ namespace Radios
 
         private void DisposeOnUiThread()
         {
+            CancelExchange("dispose");
             _showTimer?.Stop();
             _showTimer?.Dispose();
             _showTimer = null;
