@@ -8499,7 +8499,9 @@ public partial class MainWindow : UserControl
                         LastUsed = a.LastUsed,
                         AccountData = a,
                         IsDefault = a.Email.Equals(defaultEmail, StringComparison.OrdinalIgnoreCase),
-                        AutoStartRemote = a.AutoStartRemote
+                        AutoStartRemote = a.AutoStartRemote,
+                        ConnectionTier = a.ConnectionMode,
+                        TierChosen = a.TierChosen
                     }).ToList(),
                 RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
                 DeleteAccount = (name) => { mgr.DeleteAccount(name); },
@@ -8517,7 +8519,10 @@ public partial class MainWindow : UserControl
                     acct.AutoStartRemote = enabled;
                     mgr.SaveAccounts();
                 },
-                ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
+                ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt),
+                // Each account's tier is edited here, offline (the tiers work,
+                // decision 8), through the shared manager, as the operator's choice.
+                SetConnectionTier = (email, tier) => mgr.ChooseConnectionMode(email, tier)
             };
 
             var dialog = new Dialogs.SmartLinkAccountDialog(callbacks);

@@ -3,12 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Select SmartLink Account"
-        Width="420" Height="440"
+        Width="420" Height="480"
         SizeToContent="Manual">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
@@ -94,5 +95,19 @@
                   AutomationProperties.AcceleratorKey="Alt+A"
                   Checked="AutoStartRemoteCheck_Changed"
                   Unchecked="AutoStartRemoteCheck_Changed"/>
+
+        <!-- The tiers work (decision 8): each account's SmartLink connection
+             tier is edited here, offline. Saved the moment it changes, and
+             recorded as the operator's choice. DRAFT words (label, name, help);
+             the three choices are connect.smartlink.account.tier_1 to tier_3. -->
+        <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,8,0,0">
+            <Label x:Name="TierLabel" Content="Connection _tier for this account:" Padding="0,0,0,2"
+                   Target="{Binding ElementName=TierCombo}"/>
+            <ComboBox x:Name="TierCombo" IsEnabled="False"
+                      AutomationProperties.Name="Connection tier for this account"
+                      AutomationProperties.AcceleratorKey="Alt+T"
+                      local:JJFlexHelp.Text="The SmartLink methods every radio on this account may use. Tier 1 uses the radio's forwarded ports only. Tier 2 also uses the ports the radio opened on its own router by UPnP. Tier 3 also allows a hole punch when the radio has no usable ports. A radio's own connection choice, in Settings under Per-radio settings, can narrow this but never widen it."
+                      SelectionChanged="TierCombo_SelectionChanged"/>
+        </StackPanel>
     </Grid>
 </local:JJFlexDialog>

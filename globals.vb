@@ -4593,7 +4593,9 @@ Module globals
                                                                  .Email = a.Email,
                                                                  .LastUsed = a.LastUsed,
                                                                  .AccountData = a,
-                                                                 .AutoStartRemote = a.AutoStartRemote
+                                                                 .AutoStartRemote = a.AutoStartRemote,
+                                                                 .ConnectionTier = a.ConnectionMode,
+                                                                 .TierChosen = a.TierChosen
                                                              }).ToList(),
                                                          .RenameAccount = Function(oldName, newName) mgr.RenameAccount(oldName, newName),
                                                          .DeleteAccount = Sub(name) mgr.DeleteAccount(name),
@@ -4604,7 +4606,8 @@ Module globals
                                                                                        mgr.SaveAccounts()
                                                                                    End If
                                                                                End Sub,
-                                                         .ScreenReaderSpeak = Sub(msg, interrupt) Radios.ScreenReaderOutput.Speak(msg, interrupt)
+                                                         .ScreenReaderSpeak = Sub(msg, interrupt) Radios.ScreenReaderOutput.Speak(msg, interrupt),
+                                                         .SetConnectionTier = Function(email, tier) mgr.ChooseConnectionMode(email, tier)
                                                      }
                                                      Dim dlg As New JJFlexWpf.Dialogs.SmartLinkAccountDialog(acctCallbacks)
                                                      Dim result = dlg.ShowDialog()

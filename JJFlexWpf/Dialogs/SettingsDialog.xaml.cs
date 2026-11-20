@@ -667,13 +667,11 @@ namespace JJFlexWpf.Dialogs
                 PortForwardSeparatePortsCheck.IsChecked = false;
                 PortForwardUdpBox.IsEnabled = false;
                 PortForwardTcpLabel.Text = Lexicon.Get("settings.network.port_label_shared");
-                // Sprint 27 Track F — without a connected radio, force Tier 1
-                // selection and disable Tier 2 / Tier 3. The radio group stays
-                // visible + focusable so screen-reader users can explore the
-                // choices; they just can't commit to 2/3 yet.
-                SetCurrentConnectionMode(SmartLinkConnectionMode.ManualPortForwardOnly);
-                if (Tier2Radio != null) Tier2Radio.IsEnabled = false;
-                if (Tier3Radio != null) Tier3Radio.IsEnabled = false;
+                // The tier is no longer edited here, connected or not (the
+                // tiers work, decision 8): this tab shows the in-use account's
+                // tier, read-only, and each account's tier is edited offline in
+                // Manage SmartLink Accounts.
+                ShowTierInUse();
                 return;
             }
 
@@ -699,12 +697,32 @@ namespace JJFlexWpf.Dialogs
                   + DescribeRouterMapping(tcp, udp)
                 : Lexicon.Get("settings.network.uses_upnp_or_hole_punch");
 
-            // Sprint 27 Track F — load the account's saved ConnectionMode into
-            // the 3-option radio group. Null → Tier 1 (safe default for accounts
-            // not yet bound to this session).
-            var mode = _rig.CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
-            SetCurrentConnectionMode(mode);
-            RecomputeConnectionModeAvailability();
+            ShowTierInUse();
+        }
+
+        /// <summary>
+        /// The in-use account's tier, shown read-only (the tiers work,
+        /// decisions 8 and 9). The three choices are display only: none of
+        /// them is enabled, so the tier cannot be changed here and no Apply
+        /// or OK on this tab writes it. With no account in use they show
+        /// Tier 1, the default, and the line says no account is in use.
+        /// </summary>
+        private void ShowTierInUse()
+        {
+            if (Tier1Radio == null || Tier2Radio == null || Tier3Radio == null) return;
+            var mode = _rig?.CurrentAccountConnectionMode;
+            SetCurrentConnectionMode(mode ?? SmartLinkConnectionMode.ManualPortForwardOnly);
+            Tier1Radio.IsEnabled = false;
+            Tier2Radio.IsEnabled = false;
+            Tier3Radio.IsEnabled = false;
+            if (TierInUseText != null)
+            {
+                TierInUseText.Text = mode is SmartLinkConnectionMode m
+                    ? Lexicon.Get("settings.network.tier_in_use",
+                        ("email", _rig!.CurrentSmartLinkAccountEmail),
+                        ("tierName", Radios.SmartLink.SmartLinkTierOffers.TierName(m)))
+                    : Lexicon.Get("settings.network.tier_no_account");
+            }
         }
 
         private bool _suppressConnectionModeAnnouncements;
@@ -713,7 +731,7 @@ namespace JJFlexWpf.Dialogs
         /// Sprint 27 Track F — programmatic setter for the radio group that
         /// suppresses the ConnectionModeRadio_Checked announcement. Used by
         /// RefreshNetworkTabFromRig (load-from-account) and by the fallback
-        /// path in RecomputeConnectionModeAvailability.
+        /// read-only display in ShowTierInUse.
         /// </summary>
         private void SetCurrentConnectionMode(SmartLinkConnectionMode mode)
         {
@@ -753,39 +771,14 @@ namespace JJFlexWpf.Dialogs
             return SmartLinkConnectionMode.ManualPortForwardOnly;
         }
 
-        /// <summary>
-        /// Sprint 27 Track F — Tier 2 / Tier 3 are gated on a valid Tier 1
-        /// port being entered. When gating kicks in, force the selection
-        /// back to Tier 1 so the UI is never showing a selected-but-inert
-        /// option.
-        /// </summary>
-        private void RecomputeConnectionModeAvailability()
-        {
-            if (Tier1Radio == null || Tier2Radio == null || Tier3Radio == null) return;
-
-            bool tier1On = PortForwardEnabledCheck?.IsChecked == true;
-            bool portValid = int.TryParse(PortForwardTcpBox?.Text, out int tcp)
-                             && SmartLinkAccountManager.IsValidPort(tcp);
-            bool higherTiersValid = tier1On && portValid;
-
-            // Tier 1 is always available (the mode's whole point is "always works").
-            Tier1Radio.IsEnabled = true;
-            Tier2Radio.IsEnabled = higherTiersValid;
-            Tier3Radio.IsEnabled = higherTiersValid;
-
-            if (!higherTiersValid && GetCurrentConnectionMode() != SmartLinkConnectionMode.ManualPortForwardOnly)
-            {
-                SetCurrentConnectionMode(SmartLinkConnectionMode.ManualPortForwardOnly);
-            }
-        }
-
-        /// <summary>
-        /// Sprint 27 Track F — re-evaluate radio-button enablement when the
-        /// user toggles Tier 1 port-forward on/off.
-        /// </summary>
+        // RecomputeConnectionModeAvailability WAS HERE (the tiers work,
+        // decision 8): it unlocked tiers 2 and 3 only with manual forwarding
+        // on and a valid port, and forced the selection back to Tier 1
+        // otherwise. Neither is true of the tiers now (Tier 2 uses the radio's
+        // own UPnP ports, Tier 3 a per-connect punch port), and the tier is no
+        // longer edited on this tab at all.
         private void PortForwardEnabledCheck_Click(object sender, RoutedEventArgs e)
         {
-            RecomputeConnectionModeAvailability();
         }
 
         /// <summary>
@@ -834,8 +827,6 @@ namespace JJFlexWpf.Dialogs
             if (PortForwardUdpBox == null || PortForwardSeparatePortsCheck == null) return;
             if (PortForwardSeparatePortsCheck.IsChecked != true)
                 PortForwardUdpBox.Text = PortForwardTcpBox.Text;
-            // Sprint 27 Track F — port validity feeds into the Tier 2 / Tier 3 gate.
-            RecomputeConnectionModeAvailability();
         }
 
         /// <summary>
@@ -953,20 +944,10 @@ namespace JJFlexWpf.Dialogs
                 }
             }
 
-            // The connection-mode ladder is an account preference, not radio
-            // state — it needs no authority gate, and before this it was only
-            // saved as a side effect of the port-forward button, so a
-            // tier-only change was discarded by OK. Same defect, same fix.
-            if (_rig.HasCurrentSmartLinkAccount)
-            {
-                var uiMode = GetCurrentConnectionMode();
-                if (_rig.CurrentAccountConnectionMode != uiMode
-                    && _rig.SaveCurrentAccountConnectionMode(uiMode))
-                {
-                    applied.Add(Lexicon.Get("settings.network.connection_mode_saved",
-                        ("email", _rig.CurrentSmartLinkAccountEmail)));
-                }
-            }
+            // The connection tier is NOT saved here any more (the tiers work,
+            // decisions 8 and 9): it is shown read-only on this tab and edited
+            // per account in Manage SmartLink Accounts, where saving it also
+            // records that the operator chose it.
             return true;
         }
 
@@ -1023,15 +1004,9 @@ namespace JJFlexWpf.Dialogs
                     int? preference = enabled ? (int?)tcp : null;
                     savedPreference = _rig.SaveCurrentAccountListenPort(preference);
 
-                    // Sprint 27 Track F / Phase F.1 — persist ConnectionMode as
-                    // selected in the 3-option radio group. If Tier 1 is being
-                    // disabled in this Apply (port forwarding off), force mode
-                    // to ManualPortForwardOnly regardless of radio selection
-                    // because higher tiers are meaningless without a port.
-                    var desiredMode = enabled
-                        ? GetCurrentConnectionMode()
-                        : SmartLinkConnectionMode.ManualPortForwardOnly;
-                    _rig.SaveCurrentAccountConnectionMode(desiredMode);
+                    // The forced downgrade to Tier 1 whenever forwarding is off
+                    // is gone (the tiers work, decision 8): an Apply writes the
+                    // radio's port and nothing else; the tier is the account's.
                 }
 
                 // Track C wording fix: the radio does NOT listen on the applied

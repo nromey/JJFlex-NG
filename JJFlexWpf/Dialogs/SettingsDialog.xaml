@@ -783,6 +783,15 @@
                                  and this text is the signpost to it. -->
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,4"
                                        Text="This ladder is your account-wide default, and tiers 2 and 3 unlock only after manual port forwarding above is enabled with a valid port, because they build on it. It cannot describe a radio that has no port forwarding at all. For that — or for any radio that should always hole punch — use Per-radio settings: the per-radio setting there outranks this ladder, needs no port-forward setup, and works without a connected radio."/>
+                            <!-- The tiers work (decision 8): the tier is edited per account,
+                                 offline, in Manage SmartLink Accounts. This tab shows the
+                                 in-use account's tier, read-only; the three choices below
+                                 are display only and are disabled in code. DRAFT words in
+                                 settings.network.tier_in_use and tier_no_account. -->
+                            <TextBox x:Name="TierInUseText"
+                                     IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
+                                     Background="Transparent" Margin="0,0,0,4"
+                                     AutomationProperties.Name="SmartLink connection tier in use"/>
                             <RadioButton x:Name="Tier1Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
