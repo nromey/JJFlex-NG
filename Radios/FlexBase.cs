@@ -5181,15 +5181,25 @@ namespace Radios
                                 // that ends in bypass is a result, said as one
                                 // (the FlexAntTuneStartStop event above), and no
                                 // longer turns automatic off. Off means only
-                                // that the operator bypassed the tuner. Fail,
-                                // below, is left as Jim wrote it, pending a
-                                // separate question.
+                                // that the operator bypassed the tuner.
                                 break;
                             case ATUTuneStatus.Fail:
-                                // bypass the tuner
-                                theRadio.ATUTuneBypass(); // will get manualBypass status
-                                                          // Turn autotune off
-                                setFlexTunerTypeNotAuto();
+                                // #1188 (ruled by Noel 2026-11-19 20:35, J1:
+                                // "yep the other case is fine"): a failed tune
+                                // is a result too, said as one by the event
+                                // above, and leaves the switch on Automatic.
+                                // Jim's code bypassed the tuner here and turned
+                                // automatic off. Not sending the bypass command
+                                // either is the orchestrator's decision, beyond
+                                // the ruling: SmartSDR 4.1.x sends nothing after
+                                // a failed tune (UpdateATUStatus sets display
+                                // flags only), and our bypass made the radio
+                                // remember TUNE_MANUAL_BYPASS, which the connect
+                                // rule above reads as the operator's own Off,
+                                // and which was spoken as "ATU bypassed" right
+                                // after the failure. So the radio keeps whatever
+                                // its tuner held after the failure, and the next
+                                // tune press runs another ATU cycle.
                                 break;
                             case ATUTuneStatus.FailBypass:
                                 // The radio has bypassed the tuner itself: no bypass

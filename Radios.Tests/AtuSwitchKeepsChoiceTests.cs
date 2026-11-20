@@ -16,12 +16,14 @@ namespace Radios.Tests;
 /// <remarks>
 /// Runs the real FlexBase on the vendor radio fixture, hearing the radio's
 /// property changes as <see cref="ManualTuneSettleTests"/> does, and drives it
-/// with the radio's own status lines. Built narrowly: a FAILED tune, where
-/// Jim's code bypasses the tuner itself and turns automatic off, is left as it
-/// was and pinned so here, pending its own question. Not built either: a
-/// manual bypass that arrives after the ATU is enabled has no case in the tune
-/// status switch, so in that order the type stays automatic, as before this
-/// change (a separate finding).
+/// with the radio's own status lines. A FAILED tune, where Jim's code bypassed
+/// the tuner itself and turned automatic off, followed in batch 17 (ruled by
+/// Noel 2026-11-19 20:35, J1): it too leaves the switch On, and no bypass
+/// command goes to the radio (the orchestrator's decision, matching SmartSDR).
+/// This class pinned the old Fail behaviour as correct until then. Not built:
+/// a manual bypass that arrives after the ATU is enabled has no case in the
+/// tune status switch, so in that order the type stays automatic, as before
+/// (a separate finding, #1220's; TuneTypeFlipTests pins it).
 /// </remarks>
 [Collection(RadioConfigStaticsCollection.Name)]
 public sealed class AtuSwitchKeepsChoiceTests : IDisposable
@@ -84,15 +86,52 @@ public sealed class AtuSwitchKeepsChoiceTests : IDisposable
         Assert.False(SwitchOn(c));
     }
 
-    /// <summary>Left as it was on purpose: a failed tune still bypasses and turns automatic off.</summary>
+    private static int Sent(RadioCase c, string fragment) =>
+        c.F.Vendor.Transport.Commands.Count(x => x.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// A failed automatic tune leaves the switch On, clears the latch, and
+    /// sends the radio no bypass. Until batch 17 this test was
+    /// <c>A_failed_tune_still_turns_automatic_off</c> and pinned the opposite.
+    /// </summary>
     [Fact]
-    public void A_failed_tune_still_turns_automatic_off()
+    public void A_failed_tune_leaves_the_switch_on_and_sends_no_bypass()
     {
         using var c = Hearing();
         c.F.Vendor.Status("atu atu_enabled=1");
-        Assert.True(SwitchOn(c));
+        Assert.True(SwitchOn(c));   // positive control: enabled and automatic
         c.F.Vendor.Status("atu status=TUNE_IN_PROGRESS");
         c.F.Vendor.Status("atu status=TUNE_FAIL");
-        Assert.False(SwitchOn(c));
+
+        Assert.Equal(FlexBase.FlexTunerTypes.auto, c.F.Rig.FlexTunerType);
+        Assert.True(SwitchOn(c));
+        Assert.False(c.F.Rig.FlexTunerOn, "a failed tune still ends the tune");
+        Assert.Equal(0, Sent(c, "atu bypass"));
+    }
+
+    /// <summary>
+    /// The next connect, after a failure: a new rig hears the radio's
+    /// remembered TUNE_FAIL, in either order with the ATU enabled, and the
+    /// switch reads On.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_remembered_failed_tune_at_connect_reads_on(bool statusFirst)
+    {
+        using var c = Hearing();
+        if (statusFirst)
+        {
+            c.F.Vendor.Status("atu status=TUNE_FAIL");
+            c.F.Vendor.Status("atu atu_enabled=1");
+        }
+        else
+        {
+            c.F.Vendor.Status("atu atu_enabled=1");
+            c.F.Vendor.Status("atu status=TUNE_FAIL");
+        }
+        Assert.Equal(FlexBase.FlexTunerTypes.auto, c.F.Rig.FlexTunerType);
+        Assert.True(SwitchOn(c));
+        Assert.Equal(0, Sent(c, "atu bypass"));
     }
 }
