@@ -100,6 +100,66 @@ namespace Radios.Tests
             Assert.Same(second, SmartLinkConnectRecords.For(serial.ToUpperInvariant()));
         }
 
+        // ---- Attempt identity (repair round 1, the Opus check's Noted 1) ----
+
+        [Fact]
+        public void Each_connect_gets_a_new_larger_identity_and_each_attempt_its_place()
+        {
+            var a = Begin("A-4");
+            var b = Begin("A-4");
+            Assert.True(b.ConnectId > a.ConnectId);
+
+            var two = a.WithAttempt(SmartLinkAttemptRecord.ForPorts(SmartLinkMethod.ManualPorts, Both.Manual))
+                       .WithAttempt(SmartLinkAttemptRecord.ForPorts(SmartLinkMethod.UpnpPorts, Both.Upnp))
+                       .WithLastAttempt(x => x with { End = SmartLinkAttemptEnd.Proven });
+            Assert.Equal(new[] { 1, 2 }, two.Attempts.Select(x => x.Sequence));
+            Assert.Equal(2, two.AttemptSequence);
+            Assert.Equal(a.ConnectId, two.ConnectId);
+            Assert.Contains($"connect#{a.ConnectId} ", two.Describe());
+            Assert.Contains("attempt2=[#2 UpnpPorts", two.Describe());
+        }
+
+        /// <summary>
+        /// The Opus check's sequence: attempt 1 times out on its handle, attempt
+        /// 2 begins and stores its record, and attempt 1's code path then stores
+        /// its own stale local. The store keeps attempt 2.
+        /// </summary>
+        [Fact]
+        public void A_late_write_from_an_older_attempt_cannot_replace_a_newer_one()
+        {
+            string serial = "attempt-" + Guid.NewGuid().ToString("N");
+            var planned = Begin(serial);
+            var attempt1 = planned.WithAttempt(SmartLinkAttemptRecord.ForPorts(SmartLinkMethod.ManualPorts, Both.Manual));
+            Assert.True(SmartLinkConnectRecords.Store(attempt1));
+            var attempt2 = attempt1.WithLastAttempt(x => x with { End = SmartLinkAttemptEnd.ConnectFailed })
+                                   .WithAttempt(SmartLinkAttemptRecord.ForPorts(SmartLinkMethod.UpnpPorts, Both.Upnp));
+            Assert.True(SmartLinkConnectRecords.Store(attempt2));
+
+            var late = attempt1.WithLastAttempt(x => x with { End = SmartLinkAttemptEnd.NoHandle });
+            Assert.False(SmartLinkConnectRecords.Store(late));
+            Assert.Same(attempt2, SmartLinkConnectRecords.For(serial));
+
+            // A write about the SAME attempt is not older: its end is kept.
+            var finished = attempt2.WithLastAttempt(x => x with { HandleArrived = true, End = SmartLinkAttemptEnd.Dialled });
+            Assert.True(SmartLinkConnectRecords.Store(finished));
+            Assert.Same(finished, SmartLinkConnectRecords.For(serial));
+        }
+
+        [Fact]
+        public void A_late_write_from_an_older_connect_cannot_replace_a_newer_one()
+        {
+            string serial = "connect-" + Guid.NewGuid().ToString("N");
+            var older = Begin(serial).WithAttempt(SmartLinkAttemptRecord.ForPorts(SmartLinkMethod.ManualPorts, Both.Manual))
+                                     .WithAttempt(SmartLinkAttemptRecord.ForPorts(SmartLinkMethod.UpnpPorts, Both.Upnp));
+            var newer = Begin(serial);
+            Assert.True(SmartLinkConnectRecords.Store(newer));
+            // More attempts, but an earlier connect: still refused.
+            Assert.False(SmartLinkConnectRecords.Store(older));
+            Assert.Same(newer, SmartLinkConnectRecords.For(serial));
+            Assert.True(SmartLinkConnectRecords.IsOlderThan(older, newer));
+            Assert.False(SmartLinkConnectRecords.IsOlderThan(newer, older));
+        }
+
         /// <summary>The frozen shape. Changing it is an agreement between tracks, not an edit.</summary>
         [Fact]
         public void The_frozen_shape_is_unchanged()
@@ -110,11 +170,12 @@ namespace Radios.Tests
             Assert.Equal(
                 "String Serial,String BrokeringAccount,SmartLinkConnectionMode Tier,Boolean TierChosen,RadioConnectionPreference PerRadioChoice," +
                 "Boolean ForcedPath,Boolean ForcedMethod,RadioPortReport Report,IReadOnlyList`1 MethodOrder,SmartLinkRefusal Refusal," +
-                "Nullable`1 LowestAdmittingTier,Boolean PunchWithheldUntilGate,IReadOnlyList`1 Attempts,Nullable`1 MethodUsed,DateTime StartedUtc",
+                "Nullable`1 LowestAdmittingTier,Boolean PunchWithheldUntilGate,IReadOnlyList`1 Attempts,Nullable`1 MethodUsed,DateTime StartedUtc," +
+                "Int64 ConnectId",
                 Shape(typeof(SmartLinkConnectRecord)));
             Assert.Equal(
                 "SmartLinkMethod Method,Int32 TlsPortSent,Int32 UdpPortSent,Int32 PunchPortSent,String PunchPortSource,Boolean HandleArrived," +
-                "Nullable`1 OpenSucceeded,Nullable`1 QualifiedUdpAfter,SmartLinkAttemptEnd End,String EndDetail",
+                "Nullable`1 OpenSucceeded,Nullable`1 QualifiedUdpAfter,SmartLinkAttemptEnd End,String EndDetail,Int32 Sequence",
                 Shape(typeof(SmartLinkAttemptRecord)));
             Assert.Equal(
                 "Pending,Proven,Dialled,NoHandle,NullHandle,ConnectFailed,OpenFailed,CommandConnectionLost,NoQualifiedUdp,Cancelled,NotSent",

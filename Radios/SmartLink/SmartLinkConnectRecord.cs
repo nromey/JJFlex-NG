@@ -3,8 +3,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using JJTrace;
 
 namespace Radios.SmartLink
 {
@@ -49,6 +52,7 @@ namespace Radios.SmartLink
     /// <param name="QualifiedUdpAfter">Time from this attempt's VITA socket creation to the first qualified UDP (MIGRATION.md item 30); null if none arrived.</param>
     /// <param name="End">How it ended.</param>
     /// <param name="EndDetail">The terminal reason in plain words for the trace and the diagnostic; never spoken as-is.</param>
+    /// <param name="Sequence">This attempt's place in its connect, from 1; 0 until <see cref="SmartLinkConnectRecord.WithAttempt"/> stamps it. With the connect's <see cref="SmartLinkConnectRecord.ConnectId"/> it is the attempt's identity (repair round 1).</param>
     public sealed record SmartLinkAttemptRecord(
         SmartLinkMethod Method,
         int TlsPortSent,
@@ -59,18 +63,19 @@ namespace Radios.SmartLink
         bool? OpenSucceeded,
         TimeSpan? QualifiedUdpAfter,
         SmartLinkAttemptEnd End,
-        string EndDetail)
+        string EndDetail,
+        int Sequence)
     {
-        /// <summary>A ports attempt about to be sent.</summary>
+        /// <summary>A ports attempt about to be sent. Its sequence is stamped when it joins a record.</summary>
         public static SmartLinkAttemptRecord ForPorts(SmartLinkMethod method, AdvertisedPortPair pair) =>
-            new(method, pair.TlsPort, pair.UdpPort, 0, "none", false, null, null, SmartLinkAttemptEnd.Pending, "");
+            new(method, pair.TlsPort, pair.UdpPort, 0, "none", false, null, null, SmartLinkAttemptEnd.Pending, "", 0);
 
-        /// <summary>A punch attempt about to be sent.</summary>
+        /// <summary>A punch attempt about to be sent. Its sequence is stamped when it joins a record.</summary>
         public static SmartLinkAttemptRecord ForPunch(int punchPort, string source) =>
-            new(SmartLinkMethod.HolePunch, -1, -1, punchPort, source, false, null, null, SmartLinkAttemptEnd.Pending, "");
+            new(SmartLinkMethod.HolePunch, -1, -1, punchPort, source, false, null, null, SmartLinkAttemptEnd.Pending, "", 0);
 
         public string Describe() =>
-            $"{Method} " + (Method == SmartLinkMethod.HolePunch
+            $"#{Sequence} {Method} " + (Method == SmartLinkMethod.HolePunch
                 ? $"punchPort={PunchPortSent}({PunchPortSource})"
                 : $"tls={TlsPortSent} udp={UdpPortSent}")
             + $" handle={(HandleArrived ? "yes" : "no")} open={(OpenSucceeded is bool o ? (o ? "ok" : "failed") : "unknown")}"
@@ -82,8 +87,11 @@ namespace Radios.SmartLink
     /// What one SmartLink connect to one radio decided and how each attempt
     /// ended. FROZEN on 2026-11-19 by the tiers work's Track A: Track B files
     /// it, Track C's diagnostic reads it. Immutable; every change returns a
-    /// new record, and <see cref="SmartLinkConnectRecords"/> holds the newest
-    /// per radio.
+    /// new record, and <see cref="SmartLinkConnectRecords"/> holds, per radio,
+    /// the record of the newest connect and its newest attempt: by identity
+    /// (<see cref="ConnectId"/>, then the attempt's
+    /// <see cref="SmartLinkAttemptRecord.Sequence"/>), never by whichever
+    /// write came last (repair round 1).
     /// </summary>
     /// <param name="Serial">The radio.</param>
     /// <param name="BrokeringAccount">The account whose session brokers this connect (#798), and whose tier is the ceiling.</param>
@@ -100,6 +108,7 @@ namespace Radios.SmartLink
     /// <param name="Attempts">Each method attempt, in order.</param>
     /// <param name="MethodUsed">The method of the connection actually in use; null until one is.</param>
     /// <param name="StartedUtc">When the connect was planned.</param>
+    /// <param name="ConnectId">This connect's identity: unique and increasing for this run of the app, given by <see cref="Begin"/>. A later connect always has a larger one.</param>
     public sealed record SmartLinkConnectRecord(
         string Serial,
         string BrokeringAccount,
@@ -115,23 +124,28 @@ namespace Radios.SmartLink
         bool PunchWithheldUntilGate,
         IReadOnlyList<SmartLinkAttemptRecord> Attempts,
         SmartLinkMethod? MethodUsed,
-        DateTime StartedUtc)
+        DateTime StartedUtc,
+        long ConnectId)
     {
-        /// <summary>A new record from the policy's input and answer, with no attempts yet.</summary>
+        /// <summary>A new record from the policy's input and answer, with no attempts yet, and a new connect identity.</summary>
         public static SmartLinkConnectRecord Begin(string serial, string brokeringAccount,
             SmartLinkPolicyInput input, SmartLinkPolicyDecision decision, DateTime nowUtc) =>
             new(serial ?? "", brokeringAccount ?? "", input.Tier, input.TierChosen, input.PerRadioChoice,
                 input.ForcedPath, input.ForcedMethod, input.Report,
                 decision.Methods.ToArray(), decision.Refusal, decision.LowestAdmittingTier, decision.PunchWithheldUntilGate,
-                Array.Empty<SmartLinkAttemptRecord>(), null, nowUtc);
+                Array.Empty<SmartLinkAttemptRecord>(), null, nowUtc, SmartLinkConnectRecords.NextConnectId());
 
         public bool IsRefused => Refusal != SmartLinkRefusal.None;
 
         /// <summary>The newest attempt, or null.</summary>
         public SmartLinkAttemptRecord? LastAttempt => Attempts.Count > 0 ? Attempts[Attempts.Count - 1] : null;
 
+        /// <summary>The newest attempt's sequence, or 0 before any attempt.</summary>
+        public int AttemptSequence => LastAttempt?.Sequence ?? 0;
+
+        /// <summary>Append an attempt, stamping its sequence (1 for the first).</summary>
         public SmartLinkConnectRecord WithAttempt(SmartLinkAttemptRecord attempt) =>
-            this with { Attempts = Attempts.Append(attempt).ToArray() };
+            this with { Attempts = Attempts.Append(attempt with { Sequence = Attempts.Count + 1 }).ToArray() };
 
         /// <summary>Replace the newest attempt (it must exist).</summary>
         public SmartLinkConnectRecord WithLastAttempt(Func<SmartLinkAttemptRecord, SmartLinkAttemptRecord> change)
@@ -148,7 +162,7 @@ namespace Radios.SmartLink
         public string Describe()
         {
             var sb = new StringBuilder();
-            sb.Append($"serial={Serial} account={BrokeringAccount} tier={(int)Tier + 1}{(TierChosen ? " chosen" : " not chosen")}");
+            sb.Append($"connect#{ConnectId} serial={Serial} account={BrokeringAccount} tier={(int)Tier + 1}{(TierChosen ? " chosen" : " not chosen")}");
             sb.Append($" choice={PerRadioChoice} forcedPath={ForcedPath} forcedMethod={ForcedMethod} report=[{Report}]");
             sb.Append(IsRefused
                 ? $" refused={Refusal}" + (LowestAdmittingTier is { } t ? $" lowestAdmittingTier={(int)t + 1}" : "")
@@ -159,20 +173,60 @@ namespace Radios.SmartLink
         }
     }
 
-    /// <summary>The newest <see cref="SmartLinkConnectRecord"/> per radio, for this run of the app.</summary>
+    /// <summary>
+    /// Per radio, the record of the newest connect at its newest attempt, for
+    /// this run of the app. Kept by identity, not by arrival: a late write
+    /// from an older connect, or from an older attempt of the same connect,
+    /// is refused and traced, so it can never replace a newer one (repair
+    /// round 1; the shape Track B's walk needs, where an abandoned attempt's
+    /// code path can still finish after the next attempt has begun).
+    /// </summary>
     public static class SmartLinkConnectRecords
     {
         private static readonly ConcurrentDictionary<string, SmartLinkConnectRecord> _bySerial =
             new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>Raised after a record is stored, on the storing thread.</summary>
+        private static long _lastConnectId;
+
+        /// <summary>Raised after a record is stored, on the storing thread. Not raised for a refused write.</summary>
         public static event Action<SmartLinkConnectRecord>? Changed;
 
-        public static void Store(SmartLinkConnectRecord record)
+        /// <summary>A new connect identity, larger than every earlier one in this run.</summary>
+        public static long NextConnectId() => Interlocked.Increment(ref _lastConnectId);
+
+        /// <summary>
+        /// Whether <paramref name="incoming"/> is older than <paramref name="stored"/>:
+        /// an earlier connect, or the same connect at an earlier attempt. A
+        /// write for the same attempt (its end, its open result) is not older.
+        /// </summary>
+        public static bool IsOlderThan(SmartLinkConnectRecord incoming, SmartLinkConnectRecord stored) =>
+            incoming.ConnectId < stored.ConnectId
+            || (incoming.ConnectId == stored.ConnectId && incoming.AttemptSequence < stored.AttemptSequence);
+
+        /// <summary>
+        /// Keep this record as the radio's, unless the one already kept is
+        /// newer (<see cref="IsOlderThan"/>). Returns false, and traces, when
+        /// the write is refused.
+        /// </summary>
+        public static bool Store(SmartLinkConnectRecord record)
         {
-            if (record == null || string.IsNullOrEmpty(record.Serial)) return;
-            _bySerial[record.Serial] = record;
+            if (record == null || string.IsNullOrEmpty(record.Serial)) return false;
+            SmartLinkConnectRecord? newer = null;
+            _bySerial.AddOrUpdate(record.Serial, record, (_, existing) =>
+            {
+                if (IsOlderThan(record, existing)) { newer = existing; return existing; }
+                newer = null;
+                return record;
+            });
+            if (newer != null)
+            {
+                Tracing.TraceLine(
+                    $"SmartLinkConnectRecords: refused a late write for {record.Serial} (connect#{record.ConnectId} attempt {record.AttemptSequence}); kept connect#{newer.ConnectId} attempt {newer.AttemptSequence}",
+                    TraceLevel.Info);
+                return false;
+            }
             try { Changed?.Invoke(record); } catch (Exception) { /* a reader's fault is not the connect's */ }
+            return true;
         }
 
         /// <summary>The newest record for this radio, or null when it has not been connected over SmartLink in this run.</summary>
