@@ -93,8 +93,14 @@ namespace Radios.Tests
             Assert.Contains("check your internet", msg);
         }
 
+        // The tiers work, Track C: these two pinned the untrue overlays ("Your
+        // NAT appears symmetric ... Manual port forwarding is the reliable
+        // path" and "UPnP mapping didn't take — falling back to your manual
+        // port forward"). The replacements say what the radio's site measured,
+        // never "your NAT" and never a fallback JJ Flexible does not do.
+
         [Fact]
-        public void ForStatusRich_Disconnected_SymmetricNatWithTier3_SaysSymmetric()
+        public void ForStatusRich_Disconnected_NoPunchAtTheRadiosSiteWithTier3_SaysSo()
         {
             string msg = SessionStatusMessages.ForStatusRich(
                 SessionStatus.Disconnected,
@@ -103,12 +109,13 @@ namespace Radios.Tests
                     upnpTcp: true, upnpUdp: true,
                     holePunch: false),
                 mode: SmartLinkConnectionMode.AutomaticHolePunch);
-            Assert.Contains("symmetric", msg);
-            Assert.Contains("Manual port forwarding is the reliable path", msg);
+            Assert.Contains(Lexicon.Get("connect.session_overlay.radio_site_no_punch"), msg);
+            Assert.DoesNotContain("symmetric", msg, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Your NAT", msg, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
-        public void ForStatusRich_Disconnected_UpnpFailWithTier2_SaysUpnpFellBack()
+        public void ForStatusRich_Disconnected_UpnpUnreachableWithTier2_SaysSoAndClaimsNoFallback()
         {
             string msg = SessionStatusMessages.ForStatusRich(
                 SessionStatus.Reconnecting,
@@ -116,7 +123,39 @@ namespace Radios.Tests
                     manualTcp: true, manualUdp: true,
                     upnpTcp: false, upnpUdp: false),
                 mode: SmartLinkConnectionMode.ManualPlusUpnp);
-            Assert.Contains("UPnP mapping didn't take", msg);
+            Assert.Contains(Lexicon.Get("connect.session_overlay.radio_site_upnp_unreachable"), msg);
+            Assert.DoesNotContain("UPnP mapping didn't take", msg);
+            Assert.DoesNotContain("falling back", msg, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void ForStatusRich_WithTheRadiosForwardingOn_NeitherTheUpnpNorThePunchOverlayApplies()
+        {
+            // A connect dials the forwarded ports first when the radio's
+            // forwarding is on, at every tier.
+            string punch = SessionStatusMessages.ForStatusRich(SessionStatus.Reconnecting,
+                networkReport: ReportWith(manualTcp: true, manualUdp: true, holePunch: false),
+                mode: SmartLinkConnectionMode.AutomaticHolePunch, radioForwardingOn: true);
+            string upnp = SessionStatusMessages.ForStatusRich(SessionStatus.Reconnecting,
+                networkReport: ReportWith(manualTcp: true, manualUdp: true, upnpTcp: false, upnpUdp: false),
+                mode: SmartLinkConnectionMode.ManualPlusUpnp, radioForwardingOn: true);
+            Assert.DoesNotContain(Lexicon.Get("connect.session_overlay.radio_site_no_punch"), punch);
+            Assert.DoesNotContain(Lexicon.Get("connect.session_overlay.radio_site_upnp_unreachable"), upnp);
+            // Forwarding known off keeps them.
+            Assert.Contains(Lexicon.Get("connect.session_overlay.radio_site_no_punch"),
+                SessionStatusMessages.ForStatusRich(SessionStatus.Reconnecting,
+                    networkReport: ReportWith(holePunch: false),
+                    mode: SmartLinkConnectionMode.AutomaticHolePunch, radioForwardingOn: false));
+        }
+
+        [Fact]
+        public void ForStatusRich_Tier1_NeverSpeaksTheUpnpOrPunchOverlay()
+        {
+            string msg = SessionStatusMessages.ForStatusRich(SessionStatus.Reconnecting,
+                networkReport: ReportWith(upnpTcp: false, upnpUdp: false, holePunch: false),
+                mode: SmartLinkConnectionMode.ManualPortForwardOnly, radioForwardingOn: false);
+            Assert.DoesNotContain(Lexicon.Get("connect.session_overlay.radio_site_no_punch"), msg);
+            Assert.DoesNotContain(Lexicon.Get("connect.session_overlay.radio_site_upnp_unreachable"), msg);
         }
 
         [Fact]
@@ -202,6 +241,94 @@ namespace Radios.Tests
                 SessionStatus.Disconnected,
                 report: null,
                 mode: SmartLinkConnectionMode.ManualPortForwardOnly));
+        }
+
+        // --- HelpDocFor following the tiers (the tiers work, Track C) ---
+
+        [Fact]
+        public void HelpDocFor_ForwardingOn_JudgesTheForwardedPortsAtEveryTier()
+        {
+            foreach (SmartLinkConnectionMode tier in Enum.GetValues(typeof(SmartLinkConnectionMode)))
+            {
+                Assert.Equal(SessionStatusMessages.HelpKeyManualPortForwarding, SessionStatusMessages.HelpDocFor(
+                    SessionStatus.Reconnecting, ReportWith(manualTcp: true, manualUdp: false), tier, radioForwardingOn: true));
+                // A failed UPnP or punch result is not the page: those are not used with forwarding on.
+                Assert.Equal(SessionStatusMessages.HelpKeyNetworkDiagnostics, SessionStatusMessages.HelpDocFor(
+                    SessionStatus.Reconnecting, ReportWith(manualTcp: true, manualUdp: true, upnpTcp: false, holePunch: false), tier, radioForwardingOn: true));
+            }
+        }
+
+        [Fact]
+        public void HelpDocFor_Tier1WithForwardingOff_PointsAtForwarding_TheOnlyMethodTier1Allows()
+        {
+            Assert.Equal(SessionStatusMessages.HelpKeyManualPortForwarding, SessionStatusMessages.HelpDocFor(
+                SessionStatus.Reconnecting, ReportWith(upnpTcp: true, upnpUdp: true), SmartLinkConnectionMode.ManualPortForwardOnly, radioForwardingOn: false));
+            // Tier 1 never points at the UPnP page.
+            Assert.NotEqual(SessionStatusMessages.HelpKeyUpnp, SessionStatusMessages.HelpDocFor(
+                SessionStatus.Reconnecting, ReportWith(upnpTcp: false), SmartLinkConnectionMode.ManualPortForwardOnly, radioForwardingOn: false));
+        }
+
+        [Fact]
+        public void HelpDocFor_ReturnsOnlyThePagesTheHelpBuilds_ForEveryInput()
+        {
+            var keys = new[] { null, SessionStatusMessages.HelpKeyNetworkDiagnostics,
+                SessionStatusMessages.HelpKeyManualPortForwarding, SessionStatusMessages.HelpKeyUpnp };
+            bool?[] tri = { null, false, true };
+            int checkedCount = 0;
+            foreach (SessionStatus status in Enum.GetValues(typeof(SessionStatus)))
+            foreach (SmartLinkConnectionMode tier in Enum.GetValues(typeof(SmartLinkConnectionMode)))
+            foreach (bool? fwd in tri)
+            foreach (bool? mTcp in tri)
+            foreach (bool? uTcp in tri)
+            foreach (bool? nat in tri)
+            {
+                foreach (var report in new[] { null, ReportWith(manualTcp: mTcp, upnpTcp: uTcp, holePunch: nat), ReportWith(errorDetail: "x") })
+                {
+                    Assert.Contains(SessionStatusMessages.HelpDocFor(status, report, tier, fwd), keys);
+                    checkedCount++;
+                }
+            }
+            Assert.True(checkedCount > 1000);
+        }
+
+        [Fact]
+        public void HelpDocFor_WithForwardingUnknown_IsTheThreeArgumentAnswer()
+        {
+            bool?[] tri = { null, false, true };
+            foreach (SmartLinkConnectionMode tier in Enum.GetValues(typeof(SmartLinkConnectionMode)))
+            foreach (bool? mTcp in tri)
+            foreach (bool? uTcp in tri)
+            foreach (bool? nat in tri)
+            {
+                var report = ReportWith(manualTcp: mTcp, upnpTcp: uTcp, holePunch: nat);
+                Assert.Equal(SessionStatusMessages.HelpDocFor(SessionStatus.Reconnecting, report, tier),
+                    SessionStatusMessages.HelpDocFor(SessionStatus.Reconnecting, report, tier, radioForwardingOn: null));
+            }
+        }
+
+        // --- The overlay's report is the radio's own, from its own account ---
+
+        [Fact]
+        public void The_overlay_uses_a_report_only_from_the_session_that_brokers_the_radio()
+        {
+            var mine = ReportWith(manualTcp: false);
+            var asked = new System.Collections.Generic.List<string>();
+            NetworkDiagnosticReport? Last(string s) { asked.Add(s); return mine; }
+
+            var brokered = new DiagnosticPairing(DiagnosticPairingKind.Paired, "Owner@x", "test");
+            Assert.Same(mine, SessionOverlayPairing.ReportFor("owner@x", "S-1", brokered, Last));
+            Assert.Equal(new[] { "S-1" }, asked);
+
+            // A reconnecting session is not signed in, and is still the radio's own.
+            var reconnecting = new DiagnosticPairing(DiagnosticPairingKind.AccountNotSignedIn, "owner@x", "test");
+            Assert.Same(mine, SessionOverlayPairing.ReportFor("owner@x", "S-1", reconnecting, Last));
+
+            // Another account's session, or a radio nothing attributes: no report at all.
+            Assert.Null(SessionOverlayPairing.ReportFor("other@x", "S-1", brokered, Last));
+            Assert.Null(SessionOverlayPairing.ReportFor("owner@x", "S-1", DiagnosticPairing.None, Last));
+            Assert.Null(SessionOverlayPairing.ReportFor("owner@x", "", brokered, Last));
+            Assert.Null(SessionOverlayPairing.ReportFor(null, "S-1", brokered, Last));
+            Assert.Equal(2, asked.Count);
         }
     }
 }

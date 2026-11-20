@@ -63,6 +63,31 @@ namespace Radios.SmartLink
         }
     }
 
+    /// <summary>
+    /// The spoken status overlay explains one SmartLink session's trouble.
+    /// It may use a radio's network test only when that session's account is
+    /// the one that brokers the radio, and then only that radio's own test
+    /// (the tiers work, Track C). Until this it used the session's newest
+    /// test of ANY radio.
+    /// </summary>
+    public static class SessionOverlayPairing
+    {
+        /// <param name="sessionAccount">The account of the session whose status changed.</param>
+        /// <param name="serial">The radio the diagnostic describes (connected, else selected).</param>
+        /// <param name="pairing">That radio's brokering account, signed in or not (a session that is reconnecting is not).</param>
+        /// <param name="lastReportOnThatSession">The session's cached test for a serial.</param>
+        public static NetworkDiagnosticReport? ReportFor(string? sessionAccount, string? serial,
+            DiagnosticPairing pairing, Func<string, NetworkDiagnosticReport?> lastReportOnThatSession)
+        {
+            if (string.IsNullOrWhiteSpace(sessionAccount) || string.IsNullOrWhiteSpace(serial) || pairing == null)
+                return null;
+            if (pairing.Kind == DiagnosticPairingKind.NoBrokeringAccount
+                || !string.Equals(pairing.Account, sessionAccount, StringComparison.OrdinalIgnoreCase))
+                return null;
+            return lastReportOnThatSession?.Invoke(serial!);
+        }
+    }
+
     /// <summary>What the network test's gate says before anything is sent.</summary>
     public enum NetworkTestGateAnswer
     {

@@ -2553,18 +2553,13 @@ namespace Radios
         /// session is Connected and working fine). Despite its name this is a
         /// key, not a filename, since the 2026-10-27 help rework (#826); the
         /// name is kept so a parallel branch using it still compiles.
+        /// <para>The tiers work, Track C: for the radio the diagnostic
+        /// describes, from that radio's own brokering account (its session's
+        /// status, the radio's own last test, that account's tier, the radio's
+        /// forwarding flag). Until then it read the active session's newest
+        /// test of ANY radio and the current account's tier.</para>
         /// </summary>
-        public string? CurrentHelpDocFileName
-        {
-            get
-            {
-                var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-                var status = session?.Status ?? Radios.SmartLink.SessionStatus.Disconnected;
-                var report = session?.MostRecentNetworkReport;
-                var mode = CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
-                return Radios.SmartLink.SessionStatusMessages.HelpDocFor(status, report, mode);
-            }
-        }
+        public string? CurrentHelpDocFileName => NetworkHelpKeyFor(DiagnosticRadioSerial);
 
         // RunNetworkDiagnosticAsync(bool) WAS HERE (Sprint 27 Track C): it
         // probed through the ACTIVE session. Replaced by the tiers work's

@@ -152,6 +152,43 @@ namespace Radios.Tests
             }
         }
 
+        [Fact]
+        public void The_spoken_overlay_and_the_help_button_are_paired_with_the_radios_own_account()
+        {
+            string main = Src("JJFlexWpf", "MainWindow.xaml.cs");
+            int at = main.IndexOf("SessionStatusMessages.ForStatusRich(", StringComparison.Ordinal);
+            Assert.True(at > 0);
+            string before = main.Substring(Math.Max(0, at - 1600), 1600);
+            Assert.Contains("RigControl.SessionOverlayInputs(session)", before);
+            Assert.DoesNotContain("MostRecentNetworkReport", before);
+            Assert.DoesNotContain("CurrentAccountConnectionMode", before);
+            Assert.Contains("overlay.Report, overlay.Tier, verbose, overlay.RadioForwardingOn)", main.Substring(at, 200));
+
+            Assert.Contains("public string? CurrentHelpDocFileName => NetworkHelpKeyFor(DiagnosticRadioSerial);", Src("Radios", "FlexBase.cs"));
+            string help = Body(Src("Radios", "FlexBase.NetworkDiagnostic.cs"), "public string? NetworkHelpKeyFor(string serial)");
+            Assert.Contains("NetworkDiagnosticPairingFor(serial)", help);
+            Assert.Contains("GetLastNetworkReport(serial)", help);
+        }
+
+        [Fact]
+        public void No_product_code_explains_a_radio_with_the_newest_test_of_any_radio()
+        {
+            // Only the session and its runner, which keep the per-session
+            // cache, may still name it.
+            var allowed = new[] { "IWanSessionOwner.cs", "WanSessionOwner.cs", "NetworkTestRunner.cs" };
+            foreach (var dir in new[] { "Radios", "JJFlexWpf" })
+            foreach (var file in Directory.GetFiles(Path.Combine(IntegrationPassTree.Root, dir), "*.cs", SearchOption.AllDirectories))
+            {
+                if (file.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)
+                    || file.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)
+                    || allowed.Contains(Path.GetFileName(file)))
+                    continue;
+                string text = File.ReadAllText(file);
+                Assert.False(Regex.IsMatch(text, @"\.MostRecentNetworkReport\b"),
+                    Path.GetFileName(file) + " reads the newest test of any radio");
+            }
+        }
+
         // ── The Settings dialog, at the source ──────────────────────────
 
         [Fact]

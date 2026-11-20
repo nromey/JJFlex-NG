@@ -1014,6 +1014,9 @@ namespace Radios.Tests
                 "settings.network.diag.export_written",
                 "settings.network.diag.export_attempt_detail",
                 "settings.network.diag.test_no_radio",
+                // Track C: the two replacement status overlays (DRAFT).
+                "connect.session_overlay.radio_site_no_punch",
+                "connect.session_overlay.radio_site_upnp_unreachable",
                 "settings.cw.vox_did_not_key",                        // Sprint 48 Track E, #151
                 "settings.systemwide_keys.leader_enabled",            // Sprint 48 Track E, #307 Item 4
                 "settings.systemwide_keys.leader_enabled_help",

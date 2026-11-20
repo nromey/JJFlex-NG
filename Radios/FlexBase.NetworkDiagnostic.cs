@@ -147,6 +147,65 @@ namespace Radios
         public NetworkDiagnosticSections NetworkDiagnosticFor(string serial) =>
             NetworkDiagnosticComposer.Compose(NetworkDiagnosticInputsFor(serial));
 
+        /// <summary>
+        /// What the spoken status overlay for <paramref name="session"/> may
+        /// explain itself with: the radio's own last test, only when this
+        /// session's account brokers that radio (else null); the tier of THIS
+        /// session's account (never the current account by habit); and the
+        /// radio's forwarding flag. The tiers work, Track C.
+        /// </summary>
+        public (NetworkDiagnosticReport? Report, SmartLinkConnectionMode Tier, bool? RadioForwardingOn) SessionOverlayInputs(
+            IWanSessionOwner? session)
+        {
+            try
+            {
+                string serial = DiagnosticRadioSerial;
+                var report = SessionOverlayPairing.ReportFor(session?.AccountId, serial,
+                    NetworkDiagnosticPairingFor(serial), s => session?.GetLastNetworkReport(s));
+                var tier = AccountWhoseTierGoverns(session?.AccountId, AccountManager.Accounts, _currentAccount)?.ConnectionMode
+                    ?? SmartLinkConnectionMode.ManualPortForwardOnly;
+                bool? forwarding = report == null ? null : findWanEntry(serial, out _)?.IsPortForwardOn;
+                return (report, tier, forwarding);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"SessionOverlayInputs: {ex.Message}", TraceLevel.Warning);
+                return (null, SmartLinkConnectionMode.ManualPortForwardOnly, null);
+            }
+        }
+
+        /// <summary>
+        /// The help key the Network tab's Help button opens for
+        /// <paramref name="serial"/>, from that radio's brokering account: its
+        /// session's status, the radio's own last test, that account's tier,
+        /// and the radio's forwarding flag. Only keys the help already builds
+        /// (<see cref="SessionStatusMessages.HelpDocFor(SessionStatus, NetworkDiagnosticReport?, SmartLinkConnectionMode, bool?)"/>).
+        /// </summary>
+        public string? NetworkHelpKeyFor(string serial)
+        {
+            try
+            {
+                var pairing = NetworkDiagnosticPairingFor(serial);
+                bool known = pairing.Kind != DiagnosticPairingKind.NoBrokeringAccount;
+                var session = known ? SmartLinkServices.Coordinator.GetSessionForAccount(pairing.Account) : null;
+                var tier = known
+                    ? AccountWhoseTierGoverns(pairing.Account, AccountManager.Accounts, _currentAccount)?.ConnectionMode
+                        ?? SmartLinkConnectionMode.ManualPortForwardOnly
+                    : SmartLinkConnectionMode.ManualPortForwardOnly;
+                bool? forwarding = string.IsNullOrWhiteSpace(serial) ? null : findWanEntry(serial, out _)?.IsPortForwardOn;
+                return SessionStatusMessages.HelpDocFor(
+                    session?.Status ?? SessionStatus.Disconnected,
+                    session?.GetLastNetworkReport(serial),
+                    tier,
+                    forwarding);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"NetworkHelpKeyFor({serial}): {ex.Message}", TraceLevel.Warning);
+                return SessionStatusMessages.HelpKeyNetworkDiagnostics;
+            }
+        }
+
         /// <summary>What happened when the network test was asked for.</summary>
         /// <param name="Gate">The gate's answer; anything but Run sent nothing.</param>
         /// <param name="Serial">The radio asked about.</param>

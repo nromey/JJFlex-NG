@@ -484,14 +484,19 @@ public partial class MainWindow : UserControl
             var lastErr = session?.LastError;
             // Sprint 27 Track D — pass NetworkTest context + account mode into
             // the richer message resolver so failure states get specific
-            // overlays ("UPnP didn't take", "NAT symmetric", etc.) instead of
-            // a generic "Reconnecting" line.
-            var report = session?.MostRecentNetworkReport;
-            var mode = RigControl?.CurrentAccountConnectionMode
-                       ?? Radios.SmartLinkConnectionMode.ManualPortForwardOnly;
+            // overlays instead of a generic "Reconnecting" line.
+            // The tiers work, Track C: PAIRED. The report is the radio's own
+            // last test, and only when this session's account brokers that
+            // radio; the tier is this session's account's, not the current
+            // account's. Until then this used the session's newest test of
+            // ANY radio, so one radio's trouble was explained by another's.
+            (Radios.SmartLink.NetworkDiagnosticReport? Report, Radios.SmartLinkConnectionMode Tier, bool? RadioForwardingOn) overlay =
+                RigControl != null
+                    ? RigControl.SessionOverlayInputs(session)
+                    : (null, Radios.SmartLinkConnectionMode.ManualPortForwardOnly, null);
             bool verbose = Radios.SmartLink.DiagnosticVerbosityPreference.Verbose;
             string message = Radios.SmartLink.SessionStatusMessages.ForStatusRich(
-                status, attempts, lastErr, report, mode, verbose);
+                status, attempts, lastErr, overlay.Report, overlay.Tier, verbose, overlay.RadioForwardingOn);
             // StatusChanged runs on the session monitor thread; marshal to UI.
             Dispatcher.BeginInvoke(new Action(() =>
             {

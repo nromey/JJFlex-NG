@@ -1013,6 +1013,17 @@ namespace Radios
                 // endanger, and eight seconds of waiting buys the difference
                 // between evidence and a shrug. Punch path: never — see the
                 // method doc.
+                //
+                // FOR TRACK B (the tiers work; left here by Track C, as
+                // settled): this probe, LastNetworkReportFor above, and the
+                // `punch` flag it gates on are still UNPAIRED. They read the
+                // ACTIVE session, which may not be the account that brokered
+                // this radio, and the radio's own RequiresHolePunch report
+                // rather than the method this attempt used. The diagnostic's
+                // pairing is FlexBase.NetworkDiagnosticPairingFor(serial) and
+                // FlexBase.NetworkReportFor(serial) (FlexBase.NetworkDiagnostic.cs);
+                // reuse them, never fall back to the active session, and gate
+                // on the attempt's own method when the walk owns this path.
                 try
                 {
                     var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
