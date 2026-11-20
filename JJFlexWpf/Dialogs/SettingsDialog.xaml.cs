@@ -652,6 +652,10 @@ namespace JJFlexWpf.Dialogs
                 VerboseDiagnosticsCheck.IsChecked = Radios.SmartLink.DiagnosticVerbosityPreference.Verbose;
             }
 
+            // The tiers work, Track C: the diagnostic describes the radio
+            // connected or selected, with or without a connection.
+            RefreshNetworkDiagnosticSections();
+
             if (_rig == null || !_rig.IsConnected)
             {
                 // QB Track C: the connect-first requirement is real for THIS tab —
@@ -1154,61 +1158,169 @@ namespace JJFlexWpf.Dialogs
 
         private async void TestNetworkButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_rig == null || !_rig.IsConnected)
+            await RunNetworkTestFlow(text => NetworkDiagnosticResultText.Text = text, NetworkTabTestWords);
+        }
+
+        /// <summary>
+        /// What a test button says at each step. The Network tab and Radio
+        /// Setup step 6 keep their own words; the flow is one.
+        /// </summary>
+        private sealed record NetworkTestWords(
+            string Probing, string ProbingSpoken, string PunchDeclined,
+            string FailedKey, string FailedSpoken, string IncompleteKey, string IncompleteSpoken);
+
+        private static readonly NetworkTestWords NetworkTabTestWords = new(
+            "settings.network.probing", "settings.network.probing_spoken", "settings.network.test_punched_declined",
+            "settings.network.probe_failed", "settings.network.probe_failed_spoken",
+            "settings.network.probe_incomplete", "settings.network.probe_incomplete_spoken");
+
+        /// <summary>
+        /// The tiers work, Track C: the one network test flow both buttons use.
+        /// The gate first (testing with no radio of ours connected is built but
+        /// switched off, <see cref="Radios.SmartLink.NetworkTestGate"/>), then
+        /// the punched-session warning, unchanged, then the test through the
+        /// radio's OWN brokering account's session or not at all
+        /// (<see cref="FlexBase.RunNetworkTestAsync"/>): never the active
+        /// session by fallback, never a sign-in. Returns the completed report,
+        /// or null when none completed; the status line says why.
+        /// </summary>
+        private async System.Threading.Tasks.Task<Radios.SmartLink.NetworkDiagnosticReport?> RunNetworkTestFlow(
+            Action<string> show, NetworkTestWords words)
+        {
+            string serial = _rig?.DiagnosticRadioSerial ?? "";
+            var gate = Radios.SmartLink.NetworkTestGate.Decide(_rig != null && _rig.IsConnected, serial);
+            if (_rig == null || gate == Radios.SmartLink.NetworkTestGateAnswer.NoRadio)
             {
-                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.test_needs_a_radio");
+                show(Lexicon.Get("settings.network.diag.test_no_radio"));
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
                     VerbosityLevel.Terse, interrupt: true);
-                return;
+                return null;
+            }
+            if (gate == Radios.SmartLink.NetworkTestGateAnswer.NeedsAConnectedRadio)
+            {
+                show(Lexicon.Get("settings.network.test_needs_a_radio"));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
+                    VerbosityLevel.Terse, interrupt: true);
+                return null;
             }
 
             if (!ConfirmNetworkTestOnPunchedSession())
             {
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.test_punched_declined");
-                return;
+                show(Lexicon.Get(words.PunchDeclined));
+                return null;
             }
 
-            NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.probing");
-            ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probing_spoken"),
+            show(Lexicon.Get(words.Probing));
+            ScreenReaderOutput.Speak(Lexicon.Get(words.ProbingSpoken),
                 VerbosityLevel.Terse, interrupt: true);
 
-            Radios.SmartLink.NetworkDiagnosticReport? report;
+            FlexBase.NetworkTestRun run;
             try
             {
-                report = await _rig.RunNetworkDiagnosticAsync(forceRefresh: true);
+                run = await _rig.RunNetworkTestAsync(forceRefresh: true);
             }
             catch (Exception ex)
             {
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.probe_failed", ("message", ex.Message));
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probe_failed_spoken"),
+                show(Lexicon.Get(words.FailedKey, ("message", ex.Message)));
+                ScreenReaderOutput.Speak(Lexicon.Get(words.FailedSpoken),
                     VerbosityLevel.Terse, interrupt: true);
-                return;
+                return null;
+            }
+            finally
+            {
+                RefreshNetworkDiagnosticSections();
             }
 
+            var report = run.Report;
             if (report == null)
             {
-                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_smartlink_session");
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.no_smartlink_session_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
-                return;
+                // Not sent: the radio's brokering account is unknown or not
+                // signed in. Said as such; no other account is tried.
+                string radioName = _rig.NetworkDiagnosticInputsFor(run.Serial).RadioName;
+                string why = run.Pairing.Kind == Radios.SmartLink.DiagnosticPairingKind.AccountNotSignedIn
+                    ? Lexicon.Get("settings.network.diag.pairing_not_signed_in",
+                        ("email", run.Pairing.Account), ("radioName", radioName))
+                    : Lexicon.Get("settings.network.diag.pairing_no_account", ("radioName", radioName));
+                show(why);
+                ScreenReaderOutput.Speak(why, VerbosityLevel.Terse, interrupt: true);
+                return null;
             }
 
             if (!report.ProbeCompleted)
             {
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.probe_incomplete", ("detail", report.ErrorDetail));
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probe_incomplete_spoken"),
+                show(Lexicon.Get(words.IncompleteKey, ("detail", report.ErrorDetail)));
+                ScreenReaderOutput.Speak(Lexicon.Get(words.IncompleteSpoken),
                     VerbosityLevel.Terse, interrupt: true);
-                return;
+                return null;
             }
 
-            // One-line summary for the dialog; Track D surfaces the full
-            // markdown report with copy-to-clipboard + save-to-file.
-            string summary = BuildNetworkDiagnosticSummary(report);
-            NetworkDiagnosticResultText.Text = summary;
+            // The summary by the one rule, then the five results, as before.
+            var sections = _rig.NetworkDiagnosticFor(run.Serial);
+            string summary = string.IsNullOrEmpty(sections.SummaryLine)
+                ? BuildNetworkDiagnosticSummary(report)
+                : sections.SummaryLine + " " + BuildNetworkDiagnosticSummary(report);
+            show(summary);
             ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
+            return report;
+        }
+
+        /// <summary>
+        /// The tiers work, Track C: the diagnostic's three parts for the radio
+        /// connected or selected, into BOTH the Network tab's box and Radio
+        /// Setup step 6's, from this one method, so the two never disagree.
+        /// </summary>
+        private void RefreshNetworkDiagnosticSections()
+        {
+            if (NetworkDiagnosticSectionsText == null && SetupDiagnosticSectionsText == null) return;
+            EnsureDiagnosticFollower();
+            string text;
+            try
+            {
+                string serial = _rig?.DiagnosticRadioSerial ?? "";
+                text = _rig == null || string.IsNullOrWhiteSpace(serial)
+                    ? Lexicon.Get("settings.network.diag.test_no_radio")
+                    : _rig.NetworkDiagnosticFor(serial).ToText();
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine($"RefreshNetworkDiagnosticSections: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return;
+            }
+            if (NetworkDiagnosticSectionsText != null) NetworkDiagnosticSectionsText.Text = text;
+            if (SetupDiagnosticSectionsText != null) SetupDiagnosticSectionsText.Text = text;
+        }
+
+        private Radios.SmartLink.ConnectRecordFollower? _diagnosticFollower;
+
+        /// <summary>
+        /// Refresh the diagnostic when a connect to THIS radio files its
+        /// record. The store's callbacks come on the connect's thread and can
+        /// arrive out of order, so the follower only asks "is this my radio?",
+        /// and the refresh, on this window's thread, re-reads the record.
+        /// </summary>
+        private void EnsureDiagnosticFollower()
+        {
+            if (_diagnosticFollower != null) return;
+            _diagnosticFollower = new Radios.SmartLink.ConnectRecordFollower(
+                () => _rig?.DiagnosticRadioSerial,
+                run => Dispatcher.BeginInvoke(run),
+                _ => RefreshNetworkDiagnosticSections());
+            Closed += (_, _) => _diagnosticFollower?.Dispose();
+        }
+
+        /// <summary>
+        /// The tiers work, Track C: Copy report and Save report export the
+        /// diagnostic's three parts for the radio connected or selected, as
+        /// prose and bullets. Null when no radio is known. Until this they
+        /// exported the newest test of ANY radio, alone.
+        /// </summary>
+        private string? DiagnosticExport(out DateTime writtenUtc)
+        {
+            writtenUtc = DateTime.UtcNow;
+            string serial = _rig?.DiagnosticRadioSerial ?? "";
+            if (_rig == null || string.IsNullOrWhiteSpace(serial)) return null;
+            return _rig.NetworkDiagnosticFor(serial).ToMarkdown(serial, writtenUtc);
         }
 
         private static string BuildNetworkDiagnosticSummary(Radios.SmartLink.NetworkDiagnosticReport r)
@@ -1235,17 +1347,17 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void CopyNetworkReportButton_Click(object sender, RoutedEventArgs e)
         {
-            var report = _rig?.MostRecentNetworkReport;
-            if (report == null)
+            string? markdown = DiagnosticExport(out _);
+            if (markdown == null)
             {
-                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_report_yet");
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.diag.test_no_radio");
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.no_report_to_copy_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
                 return;
             }
             try
             {
-                System.Windows.Clipboard.SetText(report.ToMarkdown());
+                System.Windows.Clipboard.SetText(markdown);
                 NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.report_copied");
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.report_copied_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
@@ -1266,10 +1378,10 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void SaveNetworkReportButton_Click(object sender, RoutedEventArgs e)
         {
-            var report = _rig?.MostRecentNetworkReport;
-            if (report == null)
+            string? markdown = DiagnosticExport(out DateTime writtenUtc);
+            if (markdown == null)
             {
-                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_report_yet");
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.diag.test_no_radio");
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.no_report_to_save_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
                 return;
@@ -1277,7 +1389,7 @@ namespace JJFlexWpf.Dialogs
 
             var dlg = new Microsoft.Win32.SaveFileDialog
             {
-                FileName = $"JJFlex-NetworkDiagnostic-{report.TimestampUtc:yyyy-MM-dd-HHmm}.md",
+                FileName = $"JJFlex-NetworkDiagnostic-{writtenUtc:yyyy-MM-dd-HHmm}.md",
                 DefaultExt = ".md",
                 Filter = Lexicon.Get("settings.network.save_report_filter"),
                 Title = Lexicon.Get("settings.network.save_report_title"),
@@ -1287,7 +1399,7 @@ namespace JJFlexWpf.Dialogs
 
             try
             {
-                System.IO.File.WriteAllText(dlg.FileName, report.ToMarkdown());
+                System.IO.File.WriteAllText(dlg.FileName, markdown);
                 NetworkDiagnosticResultText.Text =
                     Lexicon.Get("settings.network.report_saved", ("fileName", dlg.FileName));
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.report_saved_spoken"),

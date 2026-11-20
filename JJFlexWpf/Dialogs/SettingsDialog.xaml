@@ -908,6 +908,20 @@
                                        AutomationProperties.LiveSetting="Polite"
                                        TextWrapping="Wrap"/>
 
+                            <!-- The tiers work, Track C: the diagnostic's three separate
+                                 parts for THIS radio (capability, policy now and at the
+                                 last connect, outcome), from the same code as Radio
+                                 Setup step 6 (SettingsDialog.RefreshNetworkDiagnosticSections).
+                                 Read-only and in the tab order, so a screen reader can arrow
+                                 through it line by line. DRAFT words throughout: the lines
+                                 are settings.network.diag.*, and this accessible name is
+                                 DRAFT too. -->
+                            <TextBox x:Name="NetworkDiagnosticSectionsText"
+                                     IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto" MaxHeight="320"
+                                     Margin="0,0,0,8"
+                                     AutomationProperties.Name="Network diagnostic for this radio: capability, policy and outcome"/>
+
                             <!-- Sprint 27 Track D: Test / Copy / Save / Help row + Verbose toggle. -->
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                 <Button Content="Test _network"
@@ -1504,6 +1518,13 @@
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
                                        local:StatusTextName.Label="Outside check status"/>
+                            <!-- The tiers work, Track C: the same three parts as the
+                                 Network tab, from the same code, not a second copy. DRAFT. -->
+                            <TextBox x:Name="SetupDiagnosticSectionsText"
+                                     IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto" MaxHeight="320"
+                                     Margin="0,0,0,6"
+                                     AutomationProperties.Name="Network diagnostic for this radio: capability, policy and outcome"/>
                             <Button x:Name="SetupTestNetworkButton"
                                     Content="Run the network _test"
                                     HorizontalAlignment="Left" Padding="12,4"

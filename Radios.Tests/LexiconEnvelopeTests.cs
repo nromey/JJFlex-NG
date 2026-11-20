@@ -1014,7 +1014,6 @@ namespace Radios.Tests
                 "settings.network.diag.export_written",
                 "settings.network.diag.export_attempt_detail",
                 "settings.network.diag.test_no_radio",
-                "settings.network.diag.sections_name",
                 "settings.cw.vox_did_not_key",                        // Sprint 48 Track E, #151
                 "settings.systemwide_keys.leader_enabled",            // Sprint 48 Track E, #307 Item 4
                 "settings.systemwide_keys.leader_enabled_help",

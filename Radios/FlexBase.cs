@@ -2539,14 +2539,12 @@ namespace Radios
             return true;
         }
 
-        /// <summary>
-        /// Sprint 27 Track D. Most-recent NetworkTest report for the active
-        /// session (any radio, latest timestamp). Null if nothing cached.
-        /// Used by Settings > Network diagnostic Copy / Save buttons without
-        /// forcing a fresh probe.
-        /// </summary>
-        public Radios.SmartLink.NetworkDiagnosticReport? MostRecentNetworkReport =>
-            Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.MostRecentNetworkReport;
+        // MostRecentNetworkReport WAS HERE (Sprint 27 Track D): the active
+        // session's newest report for ANY radio, read by Copy, Save and Radio
+        // Setup. Removed by the tiers work's Track C, because with three
+        // accounts or MultiFlex it explained one radio with another's test.
+        // Readers ask NetworkReportFor(serial) (FlexBase.NetworkDiagnostic.cs),
+        // which reads only that radio's own brokering account's session.
 
         /// <summary>
         /// Sprint 27 Track D. The help key (for <c>HelpLauncher.ShowHelp</c>) of
@@ -2568,43 +2566,11 @@ namespace Radios
             }
         }
 
-        /// <summary>
-        /// Sprint 27 Track C / Phase C.3 — user-facing entry point for the
-        /// "Test network" button in Settings. Runs a NetworkTest probe
-        /// against the currently-connected radio via the active session's
-        /// runner. Returns null if no session is active or no radio is
-        /// connected (UI should display "no radio connected" in that case,
-        /// same pattern as Apply/TestPort buttons). <paramref name="forceRefresh"/>
-        /// true bypasses the runner's cache so the user always gets fresh data
-        /// when they click the button.
-        /// </summary>
-        public async System.Threading.Tasks.Task<Radios.SmartLink.NetworkDiagnosticReport?> RunNetworkDiagnosticAsync(bool forceRefresh = true)
-        {
-            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-            if (session == null)
-            {
-                Tracing.TraceLine("RunNetworkDiagnosticAsync: no SmartLink session; skipping", TraceLevel.Warning);
-                return null;
-            }
-
-            // The probe only needs a serial and a SmartLink session — it asks Flex's
-            // backend to look at the network from outside, which has nothing to do
-            // with whether we currently hold a connection to the radio.
-            //
-            // Requiring a connected radio made the diagnostic useless in the one
-            // case it exists for: you cannot connect, and you want to know why. So
-            // fall back to the serial of whichever radio was selected, which is what
-            // the discovery cache holds even when the connect attempt failed.
-            string serial = theRadio?.Serial ?? SelectedRadioSerial;
-            if (string.IsNullOrEmpty(serial))
-            {
-                Tracing.TraceLine("RunNetworkDiagnosticAsync: no radio serial available; skipping", TraceLevel.Warning);
-                return null;
-            }
-
-            Tracing.TraceLine($"RunNetworkDiagnosticAsync: probing serial={serial} (connected={theRadio != null})", TraceLevel.Info);
-            return await session.RunNetworkDiagnosticAsync(serial, forceRefresh).ConfigureAwait(false);
-        }
+        // RunNetworkDiagnosticAsync(bool) WAS HERE (Sprint 27 Track C): it
+        // probed through the ACTIVE session. Replaced by the tiers work's
+        // Track C with RunNetworkTestAsync (FlexBase.NetworkDiagnostic.cs),
+        // which tests through the radio's own brokering account's session or
+        // not at all, behind NetworkTestGate.
 
         /// <summary>
         /// Sprint 27 Track C / Phase C.3 — fire-and-forget post-connect
@@ -2614,12 +2580,24 @@ namespace Radios
         /// probing again. Any probe failure is swallowed here (logged only);
         /// UI consumers get the report via the runner's cache + event.
         /// </summary>
-        private static void KickPostConnectNetworkTest(string serial)
+        /// <remarks>
+        /// <para>Through the session of the account that brokered THIS radio
+        /// (the tiers work, Track C), never the active session by fallback, so
+        /// its cached report is that radio's own and lands where the
+        /// diagnostic reads it. The punched-session guard at the call site is
+        /// unchanged: it reads the method actually used.</para>
+        /// </remarks>
+        private void KickPostConnectNetworkTest(string serial)
         {
-            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-            if (session == null)
+            var pairing = NetworkDiagnosticPairingFor(serial);
+            var session = pairing.IsPaired
+                ? Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(pairing.Account)
+                : null;
+            if (session == null || !session.IsConnected)
             {
-                Tracing.TraceLine("KickPostConnectNetworkTest: no active session; skipping", TraceLevel.Info);
+                Tracing.TraceLine(
+                    $"KickPostConnectNetworkTest: skipping, serial={serial} pairing={pairing.Kind} account={pairing.Account}; no other account's session is used",
+                    TraceLevel.Info);
                 return;
             }
 
