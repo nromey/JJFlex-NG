@@ -1,0 +1,2 @@
+- SmartLink now tries the permitted manually forwarded ports and UPnP ports in order, and says when the connection method changes. A connection is confirmed only after radio setup completes and audio or data starts arriving; Automatic does not switch from failed port connections to hole punching.
+- A hole-punch port saved at account level by an older version is no longer used. Set a fixed port for an individual radio under Per-radio settings, or leave the field blank to let JJ Flexible choose a port for each attempt.
