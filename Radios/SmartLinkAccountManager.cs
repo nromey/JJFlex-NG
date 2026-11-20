@@ -1041,11 +1041,12 @@ namespace Radios
         /// above, and the CLIENT-side hole-punch port (when ConnectionMode was
         /// AutomaticHolePunch). The punch meaning moved to the per-radio store
         /// (<c>RadioConfig.FixedHolePunchPort</c>, Settings > Radios) and no UI
-        /// writes it here anymore. On-disk values written by older builds (or
-        /// by hand, the documented interim unblocker) keep working: when a
-        /// radio requires hole punch, has no per-radio fixed port, and this
-        /// account's mode is AutomaticHolePunch, sendRemoteConnect still uses
-        /// this value as the punch port. Per-radio always wins when set.</para>
+        /// writes it here anymore. RETIRED by the tiers work (decision 11,
+        /// ruled by Noel 2026-11-19, "definitely"): the connect no longer uses
+        /// this value as a punch port, and no longer advertises it on a connect
+        /// that does not punch. A value written as a forwarded port would
+        /// otherwise have become a punch port the moment its account reached
+        /// Tier 3.</para>
         /// </summary>
         public int? ConfiguredListenPort { get; set; }
 

@@ -2516,9 +2516,10 @@ namespace Radios
         /// port (Tier 1), written by the Network tab's port-forward Apply.
         /// The client-side hole-punch port, which an
         /// older build also wrote into this same field, lives per-radio in
-        /// <see cref="RadioConfig.FixedHolePunchPort"/> now. Legacy punch
-        /// values already on disk are still honored by sendRemoteConnect's
-        /// account fallback until a per-radio profile takes over.</para>
+        /// <see cref="RadioConfig.FixedHolePunchPort"/> now. A legacy punch
+        /// value already on disk is NEVER used as a punch port any more (the
+        /// tiers plan, decision 11): the connect picks a fresh random port, or
+        /// the per-radio fixed one.</para>
         /// </summary>
         public bool SaveCurrentAccountListenPort(int? port)
         {
@@ -2638,105 +2639,19 @@ namespace Radios
             });
         }
 
-        // Sprint 27 Track B — shared UPnP mapper instance (lazy). Per FlexBase
-        // instance so each connection owns its own; the underlying COM object
-        // is cheap to recreate and not worth pooling.
-        private UPnPPortMapper? _upnpMapper;
-        // Remember which ports we actually mapped so Disconnect can release them.
-        private int? _upnpMappedTcpPort;
-        private int? _upnpMappedUdpPort;
-
-        /// <summary>
-        /// Sprint 27 Track B / Phase B.3 — if the active account has Tier 2
-        /// UPnP opt-in enabled and a configured port, ask the local router via
-        /// UPnP to forward that port (TCP + UDP) to the radio's LAN IP.
-        /// Silent no-op in all the following cases (trace only):
-        /// no account, UPnP opt-in is false, no configured port, radio's IP
-        /// is not a private / LAN address (we're roaming — UPnP would target
-        /// the wrong router). Individual TCP / UDP failures don't disable the
-        /// other; each is attempted independently and its result remembered
-        /// for Disconnect cleanup.
-        /// </summary>
-        private void ApplyAccountUPnPPreferenceIfAny()
-        {
-            // A guarded radio's SITE is in the hold too: this writes a
-            // forward rule into the router in front of the radio, from an
-            // account-scoped value — the port incident's shape one box over
-            // (audit 1.9). First, before the tier checks, so the answer does
-            // not depend on which account happens to be current.
-            if (GuardSkips("UPnP router mapping on connect")) return;
-            if (_currentAccount == null || _currentAccount.ConnectionMode < SmartLinkConnectionMode.ManualPlusUpnp)
-            {
-                Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP tier not selected for this account", TraceLevel.Info);
-                return;
-            }
-            if (_currentAccount.ConfiguredListenPort == null)
-            {
-                Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP enabled but no port preference configured; skipping", TraceLevel.Warning);
-                return;
-            }
-            if (theRadio == null) return;
-
-            string radioIp = theRadio.IP?.ToString() ?? string.Empty;
-            if (!IsPrivateIPv4(radioIp))
-            {
-                Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: radio IP '{radioIp}' is not a private LAN address; UPnP not applicable from this network (roaming). Relying on manual port forward only.", TraceLevel.Info);
-                return;
-            }
-
-            int port = _currentAccount.ConfiguredListenPort.Value;
-            _upnpMapper ??= new UPnPPortMapper();
-
-            Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: attempting UPnP mapping port={port} radioIp={radioIp}", TraceLevel.Info);
-
-            bool tcpOk = _upnpMapper.TryAddMapping(port, UPnPProtocol.Tcp, port, radioIp, "JJFlexRadio SmartLink TCP");
-            if (tcpOk) _upnpMappedTcpPort = port;
-
-            bool udpOk = _upnpMapper.TryAddMapping(port, UPnPProtocol.Udp, port, radioIp, "JJFlexRadio SmartLink UDP");
-            if (udpOk) _upnpMappedUdpPort = port;
-
-            Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: tcpMapped={tcpOk} udpMapped={udpOk}", TraceLevel.Info);
-        }
-
-        /// <summary>
-        /// Sprint 27 Track B / Phase B.3 — release UPnP mappings we added in
-        /// <see cref="ApplyAccountUPnPPreferenceIfAny"/>. Called from
-        /// <see cref="Disconnect"/>. Safe to call when no mappings exist —
-        /// the per-port trackers are nulled out on success and checked here.
-        /// </summary>
-        private void ReleaseUPnPMappingsIfAny()
-        {
-            if (_upnpMapper == null) return;
-            if (_upnpMappedTcpPort is int tcp)
-            {
-                _upnpMapper.TryRemoveMapping(tcp, UPnPProtocol.Tcp);
-                _upnpMappedTcpPort = null;
-            }
-            if (_upnpMappedUdpPort is int udp)
-            {
-                _upnpMapper.TryRemoveMapping(udp, UPnPProtocol.Udp);
-                _upnpMappedUdpPort = null;
-            }
-        }
-
-        /// <summary>
-        /// Sprint 27 Track B — true only for RFC1918 IPv4 addresses (10/8,
-        /// 172.16/12, 192.168/16). We gate UPnP attempts on this so roaming
-        /// users don't have us punching holes in the wrong router; the
-        /// user's manual port forward (configured from home) still works
-        /// in that scenario.
-        /// </summary>
-        private static bool IsPrivateIPv4(string ip)
-        {
-            if (string.IsNullOrWhiteSpace(ip)) return false;
-            if (!System.Net.IPAddress.TryParse(ip, out var addr)) return false;
-            if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
-            byte[] b = addr.GetAddressBytes();
-            if (b[0] == 10) return true;
-            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
-            if (b[0] == 192 && b[1] == 168) return true;
-            return false;
-        }
+        // THE ACCOUNT UPnP HOOK WAS HERE AND IS RETIRED (the tiers plan,
+        // decision 2, ruled by Noel 2026-11-19): ApplyAccountUPnPPreferenceIfAny,
+        // ReleaseUPnPMappingsIfAny and IsPrivateIPv4. It could not fire on an
+        // ordinary SmartLink connection (it returned unless the radio's address
+        // was private, and a SmartLink radio's address is its public_ip), it
+        // would have mapped the wrong port (external P to the radio at P, while
+        // the radio listens on 4994 and 4993) on the wrong router (this
+        // computer's, not the radio's), and a mapping made after a connect
+        // cannot rescue that connect. Tier 2 now means the ports the RADIO
+        // mapped on its own router, read from the radio list. JJ Flexible
+        // makes, renews and releases no mapping, and NEVER removes an existing
+        // router mapping: there is no record of who made one. UPnPPortMapper
+        // stays, unused, for a future operator-authorized tool.
 
         private Thread mainThread;
 
@@ -3102,12 +3017,8 @@ namespace Radios
                     // described above. Do NOT re-add a port write here, or anywhere
                     // on the connect path, under any name.
 
-                    // Sprint 27 Track B / Phase B.3 — attempt UPnP mapping
-                    // for Tier 2 opt-in accounts. Silent no-op when UPnP is
-                    // not opted in, no port is configured, or the radio IP
-                    // isn't a private (LAN) address. Failures fall back to
-                    // Tier 1 behavior silently.
-                    ApplyAccountUPnPPreferenceIfAny();
+                    // No UPnP mapping is made on connect (the tiers plan,
+                    // decision 2): Tier 2 uses the radio's own UPnP ports.
 
                     // Sprint 27 Track C / Phase C.3 — kick a NetworkTest in
                     // the background so the diagnostic report is warm by the
@@ -4287,10 +4198,6 @@ namespace Radios
 
             if (theRadio.Connected)
             {
-                // Sprint 27 Track B / Phase B.3 — release any UPnP mappings
-                // we added in Connect before we lose the radio-IP context.
-                ReleaseUPnPMappingsIfAny();
-
                 theRadio.Disconnect();
                 if (!await(() =>
                 {

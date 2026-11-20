@@ -37,6 +37,15 @@ namespace Radios.SmartLink
     /// without invoking COM. Production wiring uses
     /// <see cref="ComUPnPBackend"/>.
     /// </para>
+    ///
+    /// <para>
+    /// <b>UNUSED since the SmartLink tiers work (2026-11-19).</b> Its only
+    /// caller, FlexBase's post-connect account UPnP hook, was retired (the
+    /// tiers plan, decision 2): Tier 2 now means the ports the radio mapped on
+    /// its own router. Kept, not deleted, because Noel did not rule on it and a
+    /// future operator-authorized "map my router from home" tool may want it.
+    /// Nothing on the connect path may call it; a test holds that.
+    /// </para>
     /// </summary>
     public sealed class UPnPPortMapper
     {
