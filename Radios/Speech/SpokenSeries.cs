@@ -45,10 +45,23 @@ namespace Radios.Speech
     /// is said, as nothing more of any queue is.
     /// </para>
     /// <para>
+    /// <b>A cut made outside the app pauses the series (repair 2, C1).</b>
+    /// When something that is not us (NVDA's own Ctrl, a focus change) cuts
+    /// the line being said, the pump gives back everything queued behind it
+    /// unspoken, and those lines wait for the app's own next interrupt to put
+    /// them back. The series waits for that same event whichever of its lines
+    /// was sounding, a lone line included, so nothing it holds is handed over
+    /// into the silence the reader was just given. A line cut part-way is not
+    /// said again; that is the arbiter's rule, unchanged.
+    /// </para>
+    /// <para>
     /// <b>Bounded.</b> If nothing it handed over is said or let go for
-    /// <see cref="StallMs"/> (a reader that refuses, or lines a foreign cancel
-    /// gave back and no later interrupt rescued), the series ends, takes back
-    /// what it handed over and drops the rest, and the trace says so.
+    /// <see cref="StallMs"/> (a reader that refuses, or a cut from outside that
+    /// no later interrupt of ours followed), the series ends, takes back what
+    /// it handed over and drops the rest, and the trace says so. The bound
+    /// watches every handed line until it is retired, the final batch
+    /// included (repair 2, C2), and is measured from the last line handed over
+    /// or retired.
     /// </para>
     /// </remarks>
     public sealed class SpokenSeries
@@ -63,7 +76,7 @@ namespace Radios.Speech
         /// </summary>
         internal const int BatchSize = 4;
 
-        /// <summary>How often a series with lines waiting looks at what it handed over.</summary>
+        /// <summary>How often a series with lines waiting, or handed over and still owed, looks at what it handed over.</summary>
         internal const int PollMs = 40;
 
         /// <summary>How long a series waits with nothing it handed over said or let go, before it ends.</summary>
@@ -185,11 +198,10 @@ namespace Radios.Speech
 
             long now = _nowMs();
             if (_handed.RemoveAll(Done) > 0) _lastProgressMs = now;
-            if (_waiting.Count == 0)
-            {
-                StopTimerLocked();
-                return;
-            }
+            // Anything handed over and still owed is watched, the final batch
+            // included: before repair 2 the watch stopped as soon as nothing
+            // was left waiting, so a last batch the reader never answered was
+            // owed for ever (Codex's re-check of 03280742, C2).
             if (_handed.Count > 0)
             {
                 if (now - _lastProgressMs >= StallMs)
@@ -198,6 +210,11 @@ namespace Radios.Speech
                     return;
                 }
                 StartTimerLocked();
+                return;
+            }
+            if (_waiting.Count == 0)
+            {
+                StopTimerLocked();
                 return;
             }
 
@@ -217,7 +234,9 @@ namespace Radios.Speech
                 if (piece != null) { _handed.Add(piece); _everHanded.Add(piece); }
             }
             _lastProgressMs = now;
-            if (_waiting.Count > 0) StartTimerLocked(); else StopTimerLocked();
+            // Watched until what was just handed over is retired (C2). With
+            // nothing handed (no reader reached), nothing is left waiting either.
+            if (_handed.Count > 0 || _waiting.Count > 0) StartTimerLocked(); else StopTimerLocked();
         }
 
         /// <summary>
@@ -225,17 +244,27 @@ namespace Radios.Speech
         /// said, taken back, let go, or discarded. A piece HELD for its
         /// put-back after an interrupt stands in the way, whatever its old
         /// estimate says, because anything handed over now would be said
-        /// before it.
+        /// before it. So does a piece cut by something outside the app, until
+        /// the app's own next interrupt or discard (repair 2, C1).
         /// </summary>
         private bool Done(SpeechArbiter.FollowedPiece piece)
         {
             var v = _arbiter.Inspect(piece);
             if (v.Superseded || !v.InLedger) return true;
             if (_arbiter.IsHeld(piece)) return false;
-            // Cut part-way by something that is not us (the operator's Ctrl, a
-            // focus change): the arbiter will not put it back on its own, and
-            // the reader is free.
-            if (v.State == SpeechArbiter.Owed.PausedUnknownCause) return true;
+            // Cut part-way by something that is not us (NVDA's own Ctrl, a
+            // focus change, another program): the reader was silenced, and the
+            // pump gave back everything queued behind it unspoken, to wait in
+            // the ledger for our next interrupt. This piece waits for the same
+            // event, and like them is let go if the ledger lets it go first
+            // (its lifetime, its cap: the line above), so ONE rule holds
+            // whichever of our lines was sounding and nothing new is handed
+            // over into that silence. Before repair 2 this read as done at
+            // once, so a lone line cut part-way restarted the list (Codex's
+            // re-check of 03280742, C1). The cut line itself is not put back
+            // by that interrupt; the arbiter's rule for a cut nobody can name
+            // is unchanged.
+            if (v.State == SpeechArbiter.Owed.PausedUnknownCause) return _arbiter.RecoveredSinceForeignCut(piece);
             if (v.Tracked) return false;   // the reader will say when it has finished
             if (v.State != SpeechArbiter.Owed.Pending) return false;
             return v.NowUtc >= v.EstFinishUtc;

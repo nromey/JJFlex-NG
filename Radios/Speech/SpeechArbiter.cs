@@ -725,6 +725,16 @@ namespace Radios.Speech
             public long QuietGeneration;
 
             /// <summary>
+            /// <see cref="_interruptsReached"/> as it stood when the reader
+            /// last reported this entry cut part-way by something that is not
+            /// us (<see cref="Owed.PausedUnknownCause"/>). A record only: it
+            /// changes nothing about the entry, and is read by
+            /// <see cref="RecoveredSinceForeignCut"/> (Sprint 49 Track L2
+            /// repair 2).
+            /// </summary>
+            public long ForeignCutAtInterrupt;
+
+            /// <summary>
             /// The producer's own answer to "is the state this sentence claims
             /// still the state", or null where the producer declared none. A
             /// PROTECTED sentence that claims a PRESENT state — "you are no
@@ -846,6 +856,15 @@ namespace Radios.Speech
         /// only that a hold happened and how long, but what went ahead.
         /// </summary>
         private readonly List<string> _wentFirst = new List<string>();
+
+        /// <summary>
+        /// How many ordinary interrupts of ours have reached the reader: each is
+        /// the occasion every owed entry is judged for its put-back, which is
+        /// what the lines a cut made outside the app gave back unspoken wait
+        /// for. A counter only, read by <see cref="RecoveredSinceForeignCut"/>;
+        /// no rule here reads it (Sprint 49 Track L2 repair 2).
+        /// </summary>
+        private long _interruptsReached;
 
         private readonly object _lock = new object();
 
@@ -1295,6 +1314,35 @@ namespace Radios.Speech
         internal bool IsHeld(FollowedPiece piece)
         {
             lock (_lock) return _held.Contains((BelievedQueued)piece.Entry);
+        }
+
+        /// <summary>
+        /// For a followed piece the reader last reported cut part-way by
+        /// something that is not us (<see cref="Owed.PausedUnknownCause"/>):
+        /// whether an ordinary interrupt of ours has reached the reader since.
+        /// False for a piece in any other state. Read-only.
+        /// </summary>
+        /// <remarks>
+        /// Added for <see cref="SpokenSeries"/> (Sprint 49 Track L2 repair 2;
+        /// Codex's re-check of 03280742, C1). A cut made outside the app gives
+        /// the pump's queued lines back unspoken, and they wait in the ledger
+        /// until our next interrupt puts them back; a series must wait for the
+        /// same event when its cut line was the only one, rather than hand its
+        /// next lines over into the silence. This answers only "has that event
+        /// happened since the cut". It does not say the cut line was heard,
+        /// and it changes no outcome, state or recovery rule: the cut line
+        /// itself is still not put back by an unrelated interrupt
+        /// (<see cref="RecoveryPermitted"/>). A discard of ordinary speech (an
+        /// urgent warning, an alarm) is not counted: it takes the cut entry out
+        /// of the ledger, which a caller sees through <see cref="Inspect"/>.
+        /// </remarks>
+        internal bool RecoveredSinceForeignCut(FollowedPiece piece)
+        {
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                return e.State == Owed.PausedUnknownCause && _interruptsReached > e.ForeignCutAtInterrupt;
+            }
         }
 
         /// <summary>
@@ -2480,6 +2528,7 @@ namespace Radios.Speech
             // protected retry that waits for the turn must not wait on an
             // attempt that is no longer sounding).
             _safety.NoteOrdinaryInterruptCutTheReader(now);
+            _interruptsReached++;
 
             // The interrupt flushed the reader. Everything believed unspoken
             // is gone from its queue and must be re-queued, in order, behind
@@ -3732,6 +3781,9 @@ namespace Radios.Speech
                             outcome.MarksReached == 0 ? Owed.NeverStarted
                             : outcome.CancelledByUs ? Owed.CutByUs
                             : Owed.PausedUnknownCause;
+                        // A record of when, for RecoveredSinceForeignCut; it
+                        // changes nothing above.
+                        if (entry.State == Owed.PausedUnknownCause) entry.ForeignCutAtInterrupt = _interruptsReached;
 
                         Tracing.TraceLine(
                             $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' is "

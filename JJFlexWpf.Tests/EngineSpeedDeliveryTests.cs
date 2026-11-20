@@ -16,7 +16,9 @@ namespace JJFlexWpf.Tests;
 /// Sprint 49 Track L2: the speed test's lines are heard and in order (the
 /// 2026-11-19 integration-day bench, findings 1 and 2), and, since repair 1,
 /// owned until said or taken back (Codex's check of 979bfa1f, B1 to B3, whose
-/// three reproductions are adopted here). The session runs on a private STA
+/// three reproductions are adopted here), and, since repair 2, paused by a cut
+/// made outside the app until the app's next interrupt (Codex's re-check of
+/// 03280742, C1). The session runs on a private STA
 /// thread's dispatcher with no window, started the way a click starts it (a
 /// Send-priority operation), and speaks through the REAL
 /// <c>SpeechArbiter</c> and a real <see cref="SpokenSeries"/>, into a delivery
@@ -133,6 +135,29 @@ public sealed class EngineSpeedDeliveryTests
             }
             Outcome(head.Ticket, head.Text, SpeechOutcome.Completed(1, 1, 0));
             return true;
+        }
+
+        /// <summary>
+        /// Something outside the app (NVDA's own Ctrl, a focus change) cuts the
+        /// line at the head of the queue, the one the reader is saying, after
+        /// <paramref name="marks"/> words, and the pump gives back everything
+        /// still queued, as <c>PacedSpeechDelivery</c> does: each queued line
+        /// first, at zero words and not by us, then the line that was sounding
+        /// (repair 2, Codex's re-check of 03280742, C1). The cut line is heard
+        /// only in part, so it is in neither the said nor the queued lines.
+        /// </summary>
+        public void CutHeadFromOutside(int marks)
+        {
+            (long Ticket, string Text) head;
+            List<(long Ticket, string Text)> queued;
+            lock (_sync)
+            {
+                head = _queue[0];
+                queued = _queue.Skip(1).ToList();
+                _queue.Clear();
+            }
+            foreach (var q in queued) Outcome(q.Ticket, q.Text, SpeechOutcome.Cancelled(0, 1, byUs: false, 0));
+            Outcome(head.Ticket, head.Text, SpeechOutcome.Cancelled(marks, 3, byUs: false, 0));
         }
 
         public string[] Queued() { lock (_sync) return _queue.Select(q => q.Text).ToArray(); }
@@ -367,6 +392,57 @@ public sealed class EngineSpeedDeliveryTests
         Assert.Empty(run.Speech.Withdrawn);
         Assert.Equal(saidFirst.Append(interrupter)
             .Concat(AllLines.Skip(saidFirst.Count - 1)).Append(L("audio.diagnostics.speed.finished")), run.Speech.Delivered());
+    }
+
+    /// <summary>
+    /// Repair 2, Codex's re-check of 03280742, C1, at the session: something
+    /// outside the app cuts the result being said part-way, while the rest of
+    /// the list (the helper burst and "finished" too) is still to come. Nothing
+    /// more of the list is handed over into that silence, whether the cut line
+    /// was alone (saidBefore 0: engine0) or the first of a batch (saidBefore 1:
+    /// engine1, with three more queued behind it). The app's next interrupt
+    /// lets the list carry on behind it: lines given back unspoken are put
+    /// back, the cut line is not repeated, and "finished" comes last. Before
+    /// repair 2 the lone case went straight on.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void A_cut_from_outside_holds_the_rest_until_our_next_interrupt_and_finished_still_comes_last(int saidBefore)
+    {
+        using var hold = new ManualResetEventSlim();
+        using var run = new Run(holdBeforeBurst: hold);
+        run.Press();
+        Assert.True(SpinWait.SpinUntil(() => run.BoxLines().Length == 1 + EngineLines, 10000), "the engine lines were never made");
+        Assert.True(run.Speech.SayOne());                    // "started"
+        run.WaitForQueuedLines(1);
+        var saidFirst = new List<string> { L("audio.diagnostics.speed.started") };
+        for (int i = 0; i < saidBefore; i++)
+        {
+            string line = "line engine" + i;
+            Assert.True(SpinWait.SpinUntil(() => run.Speech.Queued().FirstOrDefault() == line, 10000), line + " never reached the reader");
+            Assert.True(run.Speech.SayOne());
+            saidFirst.Add(line);
+        }
+        int owed = saidBefore == 0 ? 1 : Batch;
+        run.WaitForQueuedLines(owed);
+        Thread.Sleep(3 * 40);                                // a few of the series' polls
+        Assert.Equal(owed, run.Speech.Queued().Length);
+        Assert.Equal("line engine" + saidBefore, run.Speech.Queued()[0]);
+
+        run.Speech.CutHeadFromOutside(2);
+        hold.Set();                                          // the helper burst and "finished" are made meanwhile
+        run.WaitUntilDone();
+        Thread.Sleep(5 * 40);
+        Assert.Empty(run.Speech.Queued());                   // nothing handed over into the silence
+        Assert.True(run.Speaking);
+
+        run.Speech.OtherInterrupt("something else");
+        run.SayAll();
+
+        Assert.Empty(run.Speech.Withdrawn);
+        Assert.Equal(saidFirst.Append("something else")
+            .Concat(AllLines.Skip(saidBefore + 1)).Append(L("audio.diagnostics.speed.finished")), run.Speech.Delivered());
     }
 
     [Fact]
