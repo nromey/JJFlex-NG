@@ -57,6 +57,13 @@ namespace JJFlexWpf.Tests;
 /// inside the tone (C1b).
 /// </para>
 /// <para>
+/// <b>Repair 4 (Codex's re-check 3 of 46a481c7):</b> his final-mixer-read
+/// probe and both no-stall controls are adopted under "Repair 4", with the
+/// class behind it: a stall anywhere between the tone's last source read and
+/// the output's handoff must not publish the end. The timed-tone tests now
+/// read through the output's real handoff counter.
+/// </para>
+/// <para>
 /// Windowless and silent: the tone is rendered offline or into a mixer no
 /// device reads; the microphone is a float array; no file outside the temp
 /// folder is written. The no-alert-mixer path is only exercised with every
@@ -267,9 +274,11 @@ public sealed class AuditionToneEndTests
             var end = EarconPlayer.RecorderStartBeepTimed();
             Assert.Single(mixer.MixerInputs);
             Assert.False(end.IsCompleted, "the end was known before the output took the tone");
-            var (before, after, lastFrames) = ReadTheToneThrough(mixer, end);
+            var (before, after, _) = ReadTheToneThrough(mixer, end);
             long? at = await end.WaitAsync(TimeSpan.FromSeconds(10));
-            long span = (long)Math.Round((double)(queued + lastFrames) * Q / mixRate);
+            // Repair 4: settled at the output's handoff, where the device's own
+            // count already holds the last read, so nothing is added on top.
+            long span = (long)Math.Round((double)queued * Q / mixRate);
             Assert.NotNull(at);
             Assert.InRange(at!.Value, before + span - 1, after + span + 1);
         });
@@ -635,10 +644,12 @@ public sealed class AuditionToneEndTests
             EarconPlayer.RecorderBeepsEnabled = true;
             EarconPlayer.EarconsEnabled = true;
             EarconPlayer.TestAlertMixer = mixer;
+            var output = new EarconPlayer.CountingSampleProvider(mixer);
+            EarconPlayer.TestAlertCounter = output;   // repair 4: read through the output's handoff
             SoundTiming.AlertDevice = reportsPosition ? () => new SoundTiming.DeviceSnapshot(0, 0, 30, 3, rate) : null;
             var end = EarconPlayer.RecorderStartBeepTimed();
             var first = new float[(rate / 100) * 2];   // 10 ms of the actual 160 ms cue
-            mixer.Read(first);
+            output.Read(first);
             Assert.True(first.Any(x => Math.Abs(x) > .001f), "positive control: the first part played");
             Assert.False(end.IsCompleted, "the end was predicted at the first read");
             long boundary = ChainAuditionTake.FileStartAfterTone((await end.WaitAsync(TimeSpan.FromSeconds(10)))!.Value);
@@ -655,6 +666,7 @@ public sealed class AuditionToneEndTests
         finally
         {
             EarconPlayer.TestAlertMixer = null;
+            EarconPlayer.TestAlertCounter = null;
             SoundTiming.AlertDevice = savedDevice;
             EarconPlayer.RecorderBeepsEnabled = beeps;
             EarconPlayer.EarconsEnabled = master;
@@ -986,6 +998,276 @@ public sealed class AuditionToneEndTests
         public void Dispose() { InRead.Dispose(); Release.Dispose(); }
     }
 
+    // ── Repair 4: Codex's re-check 3 of 46a481c7, adopted ────────────
+
+    /// <summary>Holds the production "audibly over" trace line until released (Codex's gate).</summary>
+    private sealed class GateTrace : TraceListener
+    {
+        internal readonly ManualResetEventSlim Entered = new();
+        internal readonly ManualResetEventSlim Release = new();
+        public override void Write(string? message) { }
+        public override void WriteLine(string? message)
+        {
+            if (message?.StartsWith("EarconPlayer: the recorder's start tone is audibly over ") != true) return;
+            Entered.Set();
+            if (!Release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("review trace gate");
+        }
+    }
+
+    /// <summary>
+    /// A stage between the mixer and the output's counter that holds the read
+    /// carrying the tone's last frame (or, with <see cref="HoldFirst"/>, the
+    /// first read), after the mixer has returned it: what a stall in the
+    /// mixer's own return path, or anything between it and the handoff, does.
+    /// </summary>
+    private sealed class HoldingStage : ISampleProvider, IDisposable
+    {
+        private readonly ISampleProvider _source;
+        private readonly long _toneFrames;
+        private long _passed;
+        private bool _held;
+        public HoldingStage(ISampleProvider source, long toneFrames) { _source = source; _toneFrames = toneFrames; }
+        public bool Enabled;
+        public bool HoldFirst;
+        public ManualResetEventSlim Entered { get; } = new ManualResetEventSlim();
+        public ManualResetEventSlim Release { get; } = new ManualResetEventSlim();
+        public WaveFormat WaveFormat => _source.WaveFormat;
+        public int Read(Span<float> buffer)
+        {
+            int n = _source.Read(buffer);
+            _passed += n / WaveFormat.Channels;
+            if (Enabled && !_held && (HoldFirst || _passed >= _toneFrames))
+            {
+                _held = true;
+                Entered.Set();
+                Release.Wait(TimeSpan.FromSeconds(10));
+            }
+            return n;
+        }
+        public void Dispose() { Entered.Dispose(); Release.Dispose(); }
+    }
+
+    /// <summary>
+    /// C1a (Codex's <c>The_final_mixer_read_cannot_return_tone_samples_after_the_file_boundary</c>,
+    /// and its two no-stall controls): the REAL timed tone and REAL mixer, read
+    /// through the output's REAL handoff counter, the whole tone in one read or
+    /// at the ordinary 100 ms cadence. Codex held the end's own production trace
+    /// line; on 46a481c7 that held the final read inside our mixer after the end
+    /// was published, and it returned 9,572 tone samples (whole tone) or 3,928
+    /// (100 ms) about 120-130 ms AFTER the boundary. Adapted: the end is now
+    /// published at the handoff and its trace written off the output's thread,
+    /// so the positive control is that the trace line IS held, and the end and
+    /// the final read are not.
+    /// </summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(100, false)]
+    [InlineData(100, true)]
+    public async Task The_final_mixer_read_cannot_return_tone_samples_after_the_file_boundary(int readMs, bool pause)
+    {
+        AssertWindowless();
+        int rate = EarconPlayer.MixerSampleRate;
+        int toneFrames = EarconPlayer.RecorderStartBeepSamples().Length;
+        var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(rate, 2)) { ReadFully = true };
+        var output = new EarconPlayer.CountingSampleProvider(mixer);
+        bool beeps = EarconPlayer.RecorderBeepsEnabled, master = EarconPlayer.EarconsEnabled;
+        var oldDevice = SoundTiming.AlertDevice;
+        using var gate = new GateTrace();
+        Task<(long Returned, int Audible)>? reader = null;
+        try
+        {
+            EarconPlayer.RecorderBeepsEnabled = true;
+            EarconPlayer.EarconsEnabled = true;
+            EarconPlayer.TestAlertMixer = mixer;
+            EarconPlayer.TestAlertCounter = output;
+            SoundTiming.AlertDevice = () => new SoundTiming.DeviceSnapshot(0, 0, 30, 3, rate);
+            if (pause) Trace.Listeners.Add(gate);
+            Task<long?> end = EarconPlayer.RecorderStartBeepTimed();
+            int frames = readMs == 0 ? toneFrames : rate * readMs / 1000;
+            reader = Task.Run(() =>
+            {
+                var data = new float[frames * 2];
+                while (true)
+                {
+                    output.Read(data);
+                    if (end.IsCompleted) return (Stopwatch.GetTimestamp(), data.Count(x => Math.Abs(x) > .001f));
+                    Thread.Sleep(readMs);   // the ordinary device cadence, no audio device
+                }
+            });
+            long boundary = ChainAuditionTake.FileStartAfterTone((await end.WaitAsync(TimeSpan.FromSeconds(5)))!.Value);
+            if (pause)
+            {
+                Assert.True(gate.Entered.Wait(5000), "positive control: the production trace line was reached and is held");
+                await reader.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.False(gate.Release.IsSet, "positive control: the trace line was still held while the final read returned");
+                int ms = (int)Math.Max(1, (boundary - Stopwatch.GetTimestamp()) * 1000 / Stopwatch.Frequency + 120);
+                await Task.Delay(ms);
+                gate.Release.Set();
+            }
+            var result = await reader.WaitAsync(TimeSpan.FromSeconds(5));
+            _out.WriteLine($"Read {readMs} ms; pause={pause}; final mixer read returned {(result.Returned - boundary) * 1000.0 / Stopwatch.Frequency:F1} ms from the file boundary with {result.Audible} nontrivial tone samples");
+            Assert.True(result.Audible > 0, "positive control: the real tone was read");
+            Assert.True(result.Returned <= boundary, "the real mixer handed out the tone after the published file boundary");
+        }
+        finally
+        {
+            gate.Release.Set();
+            if (reader != null) await reader.WaitAsync(TimeSpan.FromSeconds(10));
+            Trace.Listeners.Remove(gate);
+            EarconPlayer.TestAlertMixer = null;
+            EarconPlayer.TestAlertCounter = null;
+            SoundTiming.AlertDevice = oldDevice;
+            EarconPlayer.RecorderBeepsEnabled = beeps;
+            EarconPlayer.EarconsEnabled = master;
+        }
+    }
+
+    /// <summary>
+    /// The CLASS behind Codex's probe: a stall ANYWHERE between the source's
+    /// final read and the output's handoff, not just in one trace line. A
+    /// stage between the mixer and the counter holds the read carrying the
+    /// tone's last frame after the mixer has returned it. The end must not be
+    /// published while it is held, and the final read must return before the
+    /// boundary. With no stall (the control) the same holds.
+    /// </summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(100, false)]
+    [InlineData(100, true)]
+    public async Task A_stall_between_the_last_source_read_and_the_handoff_cannot_publish_the_end_early(int readMs, bool stall)
+    {
+        AssertWindowless();
+        int rate = EarconPlayer.MixerSampleRate;
+        int toneFrames = EarconPlayer.RecorderStartBeepSamples().Length;
+        var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(rate, 2)) { ReadFully = true };
+        using var stage = new HoldingStage(mixer, toneFrames) { Enabled = stall };
+        var output = new EarconPlayer.CountingSampleProvider(stage);
+        bool beeps = EarconPlayer.RecorderBeepsEnabled, master = EarconPlayer.EarconsEnabled;
+        var oldDevice = SoundTiming.AlertDevice;
+        Task<(long Returned, int Audible)>? reader = null;
+        try
+        {
+            EarconPlayer.RecorderBeepsEnabled = true;
+            EarconPlayer.EarconsEnabled = true;
+            EarconPlayer.TestAlertMixer = mixer;
+            EarconPlayer.TestAlertCounter = output;
+            SoundTiming.AlertDevice = () => new SoundTiming.DeviceSnapshot(0, 0, 30, 3, rate);
+            Task<long?> end = EarconPlayer.RecorderStartBeepTimed();
+            int frames = readMs == 0 ? toneFrames : rate * readMs / 1000;
+            reader = Task.Run(() =>
+            {
+                var data = new float[frames * 2];
+                while (true)
+                {
+                    output.Read(data);
+                    if (end.IsCompleted) return (Stopwatch.GetTimestamp(), data.Count(x => Math.Abs(x) > .001f));
+                    Thread.Sleep(readMs);
+                }
+            });
+            if (stall)
+            {
+                Assert.True(stage.Entered.Wait(5000), "positive control: the read carrying the last frame is held after the mixer returned it");
+                bool publishedWhileHeld = await Task.WhenAny(end, Task.Delay(300)) == end;
+                if (publishedWhileHeld)
+                {
+                    // What a premature end does: the take begins its file, then the held tone leaves.
+                    long early = ChainAuditionTake.FileStartAfterTone(end.Result!.Value);
+                    await Task.Delay((int)Math.Max(1, (early - Stopwatch.GetTimestamp()) * 1000 / Stopwatch.Frequency + 120));
+                }
+                _out.WriteLine($"End published while the final read was held: {publishedWhileHeld}");
+                stage.Release.Set();
+            }
+            long boundary = ChainAuditionTake.FileStartAfterTone((await end.WaitAsync(TimeSpan.FromSeconds(5)))!.Value);
+            var result = await reader.WaitAsync(TimeSpan.FromSeconds(5));
+            _out.WriteLine($"Read {readMs} ms; stall={stall}; final read returned {(result.Returned - boundary) * 1000.0 / Stopwatch.Frequency:F1} ms from the boundary with {result.Audible} tone samples");
+            Assert.True(result.Audible > 0, "positive control: the real tone was read");
+            Assert.True(result.Returned <= boundary, "the final read returned after the published file boundary");
+        }
+        finally
+        {
+            stage.Release.Set();
+            if (reader != null) await reader.WaitAsync(TimeSpan.FromSeconds(10));
+            EarconPlayer.TestAlertMixer = null;
+            EarconPlayer.TestAlertCounter = null;
+            SoundTiming.AlertDevice = oldDevice;
+            EarconPlayer.RecorderBeepsEnabled = beeps;
+            EarconPlayer.EarconsEnabled = master;
+        }
+    }
+
+    /// <summary>
+    /// A cut made while a device read is in flight above the tone settles only
+    /// after that read has returned and been counted; nothing more of the tone
+    /// plays.
+    /// </summary>
+    [Fact]
+    public async Task A_cut_during_a_device_read_in_flight_is_published_only_after_that_handoff()
+    {
+        AssertWindowless();
+        int rate = EarconPlayer.MixerSampleRate;
+        float[] tone = EarconPlayer.RecorderStartBeepSamples();
+        int piece = rate / 100;
+        var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(rate, 2)) { ReadFully = true };
+        using var stage = new HoldingStage(mixer, tone.Length) { Enabled = true, HoldFirst = true };
+        var output = new EarconPlayer.CountingSampleProvider(stage);
+        var end = new EarconPlayer.ToneEnd(tone.Length, rate, 90, Stopwatch.GetTimestamp(), () => null, afterHandoff: output.AfterThisHandoff);
+        mixer.AddMixerInput(new MonoToStereoSampleProvider(new EarconPlayer.ToneEnd.Probe(new Samples(tone), end)));
+        var reader = Task.Run(() => output.Read(new float[piece * 2]));
+        Assert.True(stage.Entered.Wait(5000), "positive control: a device read carrying tone is in flight");
+        Assert.True(end.CutNow());
+        Assert.False(end.AudibleEnd.IsCompleted, "the cut was published before the read in flight returned");
+        long released = Stopwatch.GetTimestamp();
+        stage.Release.Set();
+        Assert.Equal(piece * 2, await reader.WaitAsync(TimeSpan.FromSeconds(5)));
+        long at = (await end.AudibleEnd.WaitAsync(TimeSpan.FromSeconds(5)))!.Value;
+        Assert.True(at >= released + Ticks(90) + (long)Math.Round((double)piece * Q / rate), "the cut's end counts from before the handoff");
+        var after = new float[piece * 2];
+        output.Read(after);
+        Assert.Equal(0, after.Count(x => x != 0));
+    }
+
+    /// <summary>
+    /// The handoff itself: with no device read in flight an action runs at
+    /// once; during one, it runs once the mixer has returned and the frames
+    /// are counted, and before the read returns to the device.
+    /// </summary>
+    [Fact]
+    public void The_output_handoff_runs_its_actions_after_the_mixer_has_returned_and_the_frames_are_counted()
+    {
+        AssertWindowless();
+        int rate = EarconPlayer.MixerSampleRate;
+        var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(rate, 2)) { ReadFully = true };
+        EarconPlayer.CountingSampleProvider? output = null;
+        long countedThen = -1;
+        bool ranInside = false;
+        var hook = new Hook(mixer, () => output!.AfterThisHandoff(() => countedThen = output.Frames), () => ranInside = countedThen >= 0);
+        output = new EarconPlayer.CountingSampleProvider(hook);
+        bool now = false;
+        output.AfterThisHandoff(() => now = true);
+        Assert.True(now, "with no read in flight the action runs at once");
+        Assert.Equal(882, output.Read(new float[882]));
+        Assert.False(ranInside, "the action ran inside the mixer's read");
+        Assert.Equal(441, countedThen);
+    }
+
+    /// <summary>Calls <c>during</c> inside the read and <c>afterwards</c> just before returning it.</summary>
+    private sealed class Hook : ISampleProvider
+    {
+        private readonly ISampleProvider _source;
+        private readonly Action _during, _afterwards;
+        public Hook(ISampleProvider source, Action during, Action afterwards) { _source = source; _during = during; _afterwards = afterwards; }
+        public WaveFormat WaveFormat => _source.WaveFormat;
+        public int Read(Span<float> buffer)
+        {
+            _during();
+            int n = _source.Read(buffer);
+            _afterwards();
+            return n;
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     /// <summary>A mono provider over fixed samples, as the timed tone's own is.</summary>
@@ -1012,6 +1294,7 @@ public sealed class AuditionToneEndTests
     private static (long before, long after, int lastFrames) ReadTheToneThrough(MixingSampleProvider mixer, Task<long?> end)
     {
         int frames = EarconPlayer.RecorderStartBeepSamples().Length;
+        ISampleProvider output = (ISampleProvider?)EarconPlayer.TestAlertCounter ?? mixer;
         var data = new float[2048];
         long before = 0, after = 0;
         int emitted = 0, last = 0;
@@ -1019,7 +1302,7 @@ public sealed class AuditionToneEndTests
         {
             Assert.False(end.IsCompleted, "the end was settled before the tone's last sample was emitted");
             before = Stopwatch.GetTimestamp();
-            mixer.Read(data.AsSpan());
+            output.Read(data.AsSpan());
             after = Stopwatch.GetTimestamp();
             last = Math.Min(1024, frames - emitted);
             emitted += last;
@@ -1038,12 +1321,14 @@ public sealed class AuditionToneEndTests
             EarconPlayer.RecorderBeepsEnabled = true;
             EarconPlayer.EarconsEnabled = true;
             EarconPlayer.TestAlertMixer = mixer;
+            EarconPlayer.TestAlertCounter = new EarconPlayer.CountingSampleProvider(mixer);   // repair 4
             SoundTiming.AlertDevice = device;
             await body(mixer);
         }
         finally
         {
             EarconPlayer.TestAlertMixer = null;
+            EarconPlayer.TestAlertCounter = null;
             SoundTiming.AlertDevice = savedDevice;
             EarconPlayer.RecorderBeepsEnabled = beeps;
             EarconPlayer.EarconsEnabled = master;

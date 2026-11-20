@@ -54,6 +54,13 @@ namespace JJFlexWpf
         /// <see cref="ToneEnd"/>.
         /// </para>
         /// <para>
+        /// <b>The end is published at the output's handoff (repair 4, Codex's
+        /// re-check 3 of 46a481c7, C1a)</b>: only once the device read that
+        /// carried the tone's last sample (or its cut) has returned from the
+        /// mixer and been counted, never from inside the mixer's read. See
+        /// <see cref="CountingSampleProvider"/>.
+        /// </para>
+        /// <para>
         /// <b>A tone the mixer never takes is WITHDRAWN, never assumed over
         /// (repair 2, Codex's re-check of ca39306c, C1a).</b> Repair 1 published
         /// an assumed end after a grace period and left the tone in the mixer,
@@ -95,7 +102,7 @@ namespace JJFlexWpf
             }
             BeginUngated(nameof(RecorderStartBeep));
             var end = new ToneEnd(buffer.Length, SampleRate, AlertOutputLatencyMs, Stopwatch.GetTimestamp(),
-                () => SoundTiming.AlertDevice?.Invoke());
+                () => SoundTiming.AlertDevice?.Invoke(), afterHandoff: AlertHandoff);
             try
             {
                 AddToMixer(new ToneEnd.Probe(new RenderedSampleProvider(buffer), end));
@@ -135,6 +142,18 @@ namespace JJFlexWpf
         /// output's position FIRST and the clock after it, so a pause between
         /// the two can only make the end later, never earlier.
         /// </para>
+        /// <para>
+        /// <b>Repair 4 (Codex's re-check 3 of 46a481c7, C1a).</b> Repair 3
+        /// published the end inside the source's read, before the samples went
+        /// back up through the mixer, so a stall there (Codex held the end's
+        /// own trace line) let 3,928 tone samples leave our mixer 130 ms after
+        /// the boundary. Now neither the last read nor the cut publishes: each
+        /// hands the settling to the output's handoff, which runs it once the
+        /// device read in flight has returned and been counted, or at once
+        /// when none is. Nothing between the final source read and that
+        /// handoff publishes, and the end's trace line is written off the
+        /// output's thread, after the end is published.
+        /// </para>
         /// </remarks>
         internal sealed class ToneEnd
         {
@@ -154,6 +173,7 @@ namespace JJFlexWpf
             private readonly long _handedOver;
             private readonly Func<SoundTiming.DeviceSnapshot?> _device;
             private readonly Func<long> _clock;
+            private readonly Action<Action>? _afterHandoff;
             private readonly TaskCompletionSource<long?> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
             private Timer? _noRead;
 
@@ -163,9 +183,17 @@ namespace JJFlexWpf
             /// <param name="handedOver">When the tone was handed to the mixer, on the Stopwatch clock.</param>
             /// <param name="device">The output's state at a mixer read; null when it has none.</param>
             /// <param name="clock">The Stopwatch clock; a test may give a fixed one.</param>
+            /// <param name="afterHandoff">
+            /// The output's handoff (<see cref="CountingSampleProvider.AfterThisHandoff"/>):
+            /// the end is settled through it, once the read in flight has returned
+            /// and been counted. Null when no output layer can be watched (an
+            /// offline render, or a test reading the mixer bare): the end is then
+            /// settled at once, with the last read's frames added on top.
+            /// </param>
             internal ToneEnd(int toneFrames, int rate, int assumedLatencyMs, long handedOver, Func<SoundTiming.DeviceSnapshot?> device,
-                Func<long>? clock = null)
+                Func<long>? clock = null, Action<Action>? afterHandoff = null)
             {
+                _afterHandoff = afterHandoff;
                 _toneFrames = Math.Max(0, toneFrames);
                 _rate = rate > 0 ? rate : SampleRate;
                 _assumedLatencyMs = Math.Max(0, assumedLatencyMs);
@@ -234,7 +262,8 @@ namespace JJFlexWpf
                     last = _emittedFrames >= _toneFrames || n < buffer.Length;
                     if (last) _state = Finished;
                 }
-                if (last) SettleAfter(frames, "at the read that emitted its last sample");
+                // Repair 4: never published from here, inside the mixer's read.
+                if (last) Publish(frames, "after the read that emitted its last sample");
                 return n;
             }
 
@@ -269,7 +298,7 @@ namespace JJFlexWpf
                     _state = Cut;
                     frames = _lastReadFrames;
                 }
-                SettleAfter(frames, "CUT: its last sample had not been emitted in time, so the output plays nothing more of it, and the end counts from the cut");
+                Publish(frames, "CUT: its last sample had not been emitted in time, so the output plays nothing more of it, and the end counts from the cut");
                 return true;
             }
 
@@ -280,14 +309,26 @@ namespace JJFlexWpf
             internal bool IsCut { get { lock (_gate) return _state == Cut; } }
 
             /// <summary>
+            /// No tone sample can be handed out any more: settle the end at the
+            /// output's handoff, once the device read in flight has returned and
+            /// been counted (repair 4), or at once when no output layer is watched.
+            /// </summary>
+            private void Publish(int lastFrames, string at)
+            {
+                if (_afterHandoff is { } after) after(() => SettleAfter(lastFrames, at + ", at the output's handoff", counted: true));
+                else SettleAfter(lastFrames, at, counted: false);
+            }
+
+            /// <summary>
             /// Settle the end once no tone sample can be handed out any more (its
             /// last read has returned, or the cut is made); the most recent read
             /// handed out <paramref name="lastFrames"/>. The output's position is
             /// read FIRST and the clock AFTER it: whatever the device plays
             /// between the two only shortens what it holds, so the pair can only
-            /// put the end later.
+            /// put the end later. <paramref name="counted"/>: the output has
+            /// already counted those frames, so its position includes them.
             /// </summary>
-            private void SettleAfter(int lastFrames, string at)
+            private void SettleAfter(int lastFrames, string at, bool counted)
             {
                 long end;
                 string how;
@@ -299,10 +340,10 @@ namespace JJFlexWpf
                     if (snap is { } s && s.PlayedFrames >= 0 && s.ProducedFrames >= s.PlayedFrames)
                     {
                         long queued = s.ProducedFrames - s.PlayedFrames;
-                        // The most recent read's own frames are counted on top: a
-                        // read still on its way through the mixer is not yet in
-                        // what the device was handed. Later, never earlier.
-                        end = FromDevice(now, queued, lastFrames, _rate, Stopwatch.Frequency);
+                        // Settled at the handoff, the last read's frames are in
+                        // what the device was handed. Otherwise they are counted on
+                        // top: later, never earlier.
+                        end = FromDevice(now, queued, counted ? 0 : lastFrames, _rate, Stopwatch.Frequency);
                         how = at + ", from the output's position, " + (queued * 1000 / _rate) + " ms queued ahead of it";
                     }
                     else
@@ -369,15 +410,19 @@ namespace JJFlexWpf
             {
                 if (!_done.TrySetResult(end)) return;
                 _noRead?.Dispose();
-                if (end is not long e)
+                // The trace line is written off this thread (repair 4): settling
+                // can run on the output's thread, and nothing may hold the
+                // device's read once its end is published.
+                string line;
+                if (end is not long e) line = "EarconPlayer: the recorder's start tone was " + how;
+                else
                 {
-                    Trace.WriteLine("EarconPlayer: the recorder's start tone was " + how);
-                    return;
+                    long now = Stopwatch.GetTimestamp();
+                    line = "EarconPlayer: the recorder's start tone is audibly over "
+                        + (e >= now ? (e - now) * 1000 / Stopwatch.Frequency + " ms from now" : (now - e) * 1000 / Stopwatch.Frequency + " ms ago")
+                        + ", " + how;
                 }
-                long now = Stopwatch.GetTimestamp();
-                Trace.WriteLine("EarconPlayer: the recorder's start tone is audibly over "
-                    + (e >= now ? (e - now) * 1000 / Stopwatch.Frequency + " ms from now" : (now - e) * 1000 / Stopwatch.Frequency + " ms ago")
-                    + ", " + how);
+                ThreadPool.QueueUserWorkItem(static l => { try { Trace.WriteLine((string)l!); } catch { } }, line);
             }
 
             /// <summary>

@@ -172,6 +172,31 @@ namespace JJFlexWpf
         internal static MixingSampleProvider? TestAlertMixer { get; set; }
 
         /// <summary>
+        /// Test seam beside <see cref="TestAlertMixer"/>: the output layer a
+        /// test reads that mixer through, standing in for the alert channel's
+        /// own handoff counter (Track Q3 repair 4). Null in production.
+        /// </summary>
+        internal static CountingSampleProvider? TestAlertCounter { get; set; }
+
+        /// <summary>
+        /// The alert output's handoff (Track Q3 repair 4): runs an action once
+        /// the device read in flight, if any, has returned from the mixer and
+        /// been counted. Null when there is no output layer to watch: an
+        /// offline render, or a test mixer read bare.
+        /// </summary>
+        internal static Action<Action>? AlertHandoff
+        {
+            get
+            {
+                CountingSampleProvider? counter =
+                    TestAlertMixer != null ? TestAlertCounter
+                    : _captureMixer != null ? null
+                    : _alertChannel?.Counter;
+                return counter == null ? null : counter.AfterThisHandoff;
+            }
+        }
+
+        /// <summary>
         /// Whether the operator's switches — master and category — let a
         /// sound in this category through. The same answer <see cref="On"/>
         /// gives the sounds themselves, published for a caller that has to
@@ -4257,6 +4282,9 @@ namespace JJFlexWpf
 
             public MixingSampleProvider? Mixer { get; private set; }
 
+            /// <summary>The handoff counter the device reads through (Track Q3 repair 4).</summary>
+            public CountingSampleProvider? Counter => _counter;
+
             public float Volume
             {
                 get => _volume?.Volume ?? 1.0f;
@@ -4414,12 +4442,49 @@ namespace JJFlexWpf
         /// handed to the device (#855), so a sound's timing probe can say how
         /// much audio was queued ahead of it. One add per device buffer.
         /// </summary>
-        private sealed class CountingSampleProvider : ISampleProvider
+        /// <remarks>
+        /// <b>It is also the outermost handoff we control (Track Q3 repair 4,
+        /// Codex's re-check 3 of 46a481c7, C1a).</b> The device reads the whole
+        /// channel through this one call, so once it has returned from the
+        /// mixer and counted the frames, nothing of ours still holds them.
+        /// <see cref="AfterThisHandoff"/> runs an action at exactly that point
+        /// for the read in flight, or at once when none is; the start tone's
+        /// end is published there, never from inside the mixer's read.
+        /// </remarks>
+        internal sealed class CountingSampleProvider : ISampleProvider
         {
             private readonly ISampleProvider _source;
             private long _frames;
+            private readonly object _gate = new object();
+            private bool _inRead;
+            private List<Action>? _afterRead;
 
             public CountingSampleProvider(ISampleProvider source) { _source = source; }
+
+            /// <summary>
+            /// Run <paramref name="action"/> once the read in flight has
+            /// returned from the mixer and its frames are counted; at once
+            /// when no read is in flight, since everything handed out has then
+            /// been counted already.
+            /// </summary>
+            public void AfterThisHandoff(Action action)
+            {
+                lock (_gate)
+                {
+                    if (_inRead)
+                    {
+                        (_afterRead ??= new List<Action>()).Add(action);
+                        return;
+                    }
+                }
+                RunAfter(action);
+            }
+
+            private static void RunAfter(Action action)
+            {
+                try { action(); }
+                catch (Exception ex) { Trace.WriteLine("EarconPlayer: an action after the output's handoff failed: " + ex.Message); }
+            }
 
             public WaveFormat WaveFormat => _source.WaveFormat;
 
@@ -4431,8 +4496,27 @@ namespace JJFlexWpf
 
             public int Read(Span<float> buffer)
             {
-                int n = _source.Read(buffer);
-                if (n > 0) System.Threading.Interlocked.Add(ref _frames, n / WaveFormat.Channels);
+                lock (_gate) _inRead = true;
+                int n = 0;
+                List<Action>? after;
+                try
+                {
+                    n = _source.Read(buffer);
+                    if (n > 0) System.Threading.Interlocked.Add(ref _frames, n / WaveFormat.Channels);
+                }
+                finally
+                {
+                    lock (_gate)
+                    {
+                        _inRead = false;
+                        after = _afterRead;
+                        _afterRead = null;
+                    }
+                }
+                // The mixer has returned and the frames are counted: nothing of
+                // ours holds them any more. What waited on this handoff runs now.
+                if (after != null)
+                    foreach (var action in after) RunAfter(action);
                 return n;
             }
         }
