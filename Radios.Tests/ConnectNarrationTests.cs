@@ -711,7 +711,7 @@ namespace Radios.Tests
             Assert.Contains("Lexicon.Get(\"connect.connecting.phase_radio_answered\"", source);
             // The old key is gone from the store (removed with the approved words,
             // 2026-11-20), so the guard names it without the call around it: the
-            // key coverage sweep reads a quoted key after Lexicon.Get( as a key to
+            // key coverage sweep reads any quoted key after the Get call as a key to
             // verify. Stricter than before: the narrator may not name it at all.
             Assert.DoesNotContain("phase_slice_wait", source);
         }

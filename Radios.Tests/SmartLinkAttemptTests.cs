@@ -185,7 +185,7 @@ namespace Radios.Tests
             _now += 1;
             Assert.Equal(SmartLinkAttemptEnd.NoQualifiedUdp, a.Poll());
             Assert.True(a.HasFailed);
-            Assert.Contains("no audio or data", a.EndDetail);
+            Assert.Equal("No audio or data arrived from the radio within " + (SmartLinkProofRules.DefaultWindowMs / 1000) + " seconds after the command connection was established", a.EndDetail);
         }
 
         [Fact]

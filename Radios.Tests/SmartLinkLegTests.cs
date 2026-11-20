@@ -654,7 +654,7 @@ namespace Radios.Tests
             Assert.DoesNotContain("prepare:UpnpPorts", world.Log);
             Assert.Equal(SmartLinkAttemptEnd.NotSent, leg.Record.Attempts[1].End);
             Assert.Equal(SmartLinkMethod.UpnpPorts, leg.Record.Attempts[1].Method);
-            Assert.Contains("no longer allows", leg.Record.Attempts[1].EndDetail);
+            Assert.Equal("The current policy check did not permit this method", leg.Record.Attempts[1].EndDetail);
             Assert.True(leg.Ended);
             Assert.Empty(world.Moves);        // a method that is never tried is never announced as being tried
         }
