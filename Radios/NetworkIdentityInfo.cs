@@ -89,7 +89,9 @@ namespace Radios
             string publicIp = rig.CurrentRadioIP?.ToString() ?? "unknown";
             lines.Add($"Radio's public address: {publicIp}.");
 
-            if (rig.RadioRequiresHolePunch)
+            // How THIS connection was made (the tiers work), not the radio's
+            // punch flag: "Hole punch always" punches a radio that advertises ports.
+            if (rig.ConnectedByHolePunch)
             {
                 lines.Add(PathLine(holePunch: true, rig.RadioPublicTlsPort, rig.RadioPublicUdpPort,
                     rig.RadioPortForwardActive, rig.LastHolePunchPort));

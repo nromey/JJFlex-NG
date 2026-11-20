@@ -3228,6 +3228,7 @@ namespace Radios
             });
 
             _dialRefusedReport = null;
+            ResetConnectTierState();
             var session = BrokeringSessionForConnect(r.Serial, out bool viaOwningAccount, out string plannedAccount);
             if (session == null && plannedAccount != null)
             {
@@ -3261,158 +3262,145 @@ namespace Radios
                 return false;
             }
 
-            // Hole-punch port selection.
+            return DialSmartLink(r, session, RadioConfig.LoadForRadio(r.Serial));
+        }
+
+        /// <summary>
+        /// Plan and send one SmartLink connect for <paramref name="r"/> through
+        /// <paramref name="session"/>, the session that brokers it, under the
+        /// radio's own profile. Split from <see cref="sendRemoteConnect"/> so a
+        /// test can hand it a session and a profile without the process-wide
+        /// coordinator.
+        /// </summary>
+        internal bool DialSmartLink(Radio r, Radios.SmartLink.IWanSessionOwner session, RadioConfig radioProfile)
+        {
+            // WHICH METHOD (the tiers plan, ruled by Noel 2026-11-19). The
+            // brokering account's tier is the ceiling; the radio's own
+            // connection choice orders or narrows inside it; the radio's
+            // report (both advertised pairs, MIGRATION.md item 29) says what
+            // is possible. One pure function decides, and its answer and every
+            // attempt are kept in the frozen record the diagnostic reads.
             //
-            // The radio itself tells us whether hole punch is required — SmartLink
-            // sets Radio.RequiresHolePunch in the radio-list message. That flag, not
-            // our local account config, is the authority: a network that needs hole
-            // punch needs it regardless of which tier the user picked.
+            // The tier comes from the account whose session BROKERS this
+            // connect (#798), never from _currentAccount by habit: a radio on
+            // another account is dialled through that account's session, and
+            // that account's tier governs it.
             //
-            // IMPORTANT — "NegotiatedHolePunchPort" is a misnomer in FlexLib. Nothing
-            // ever assigns it: it's initialised to -1 in WanServer's radio-list parse
-            // and read (never written) by Radio.Connect and the VitaSocket ctor, in
-            // both 4.0.1 and 4.2.20. Picking the port is the CLIENT's job. SmartSDR
-            // does exactly this — `if (radio.RequiresHolePunch)
-            // radio.NegotiatedHolePunchPort = random.Next(25000, 65000);` — then
-            // advertises the same number. If we leave it at -1, FlexLib calls
-            // Connect(ip, -1, -1) and the connect cannot succeed.
+            // INTERIM, until the attempt walk lands: this carries out the FIRST
+            // method of the list only, and refuses, saying why, when the list
+            // is empty. Nothing falls back to another method yet.
             //
-            // A FRESH port per connect is deliberate, not lazy: reusing a port risks
-            // colliding with a stale NAT mapping from a previous session, which makes
-            // hole punch fail intermittently and unreproducibly.
-            //
-            // A configured listen port is for the port-FORWARD path (Tier 1/2), where
-            // the user has told their router about a specific stable port. When
-            // forwarding works SmartLink reports RequiresHolePunch = false, so the two
-            // paths are mutually exclusive in practice. We honour an explicit
-            // configured port if one exists, and randomise otherwise.
-            // Per-radio profile (barefoot-punch-pathfinder Phase 1a). Reachability
-            // is a property of the radio's SITE, not the operator's account —
-            // Don's radio is forwarded while the 8600 needs punch, and one
-            // account-level tier can't describe both. The serial-keyed profile
-            // therefore outranks the account fields. Auto (the default, and the
-            // state of every radio without a saved profile) follows the
-            // radio-reported RequiresHolePunch flag exactly as before, so
-            // pre-profile behavior is unchanged.
-            var radioProfile = RadioConfig.LoadForRadio(r.Serial);
-            if (radioProfile.ConnectionPreference == RadioConnectionPreference.HolePunch
-                && !r.RequiresHolePunch)
+            // NegotiatedHolePunchPort is a misnomer in FlexLib: nothing assigns
+            // it, and picking the punch port is the CLIENT's job, as SmartSDR
+            // does (a fresh random port per connect, so a stale NAT mapping
+            // from an earlier session cannot collide). A per-radio fixed port
+            // (Settings, Radios) wins when set. The account's saved listen port
+            // is NEVER a punch port any more (decision 11): that field holds a
+            // forwarded port, and the two branches that used it as a punch port
+            // or advertised it on a connect that did not punch are retired.
+            var tierAccount = AccountWhoseTierGoverns(session.AccountId, AccountManager.Accounts, _currentAccount);
+            var policyInput = new Radios.SmartLink.SmartLinkPolicyInput(
+                tierAccount?.ConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly,
+                tierAccount?.TierChosen ?? false,
+                radioProfile.ConnectionPreference,
+                SmartLinkPathForced,
+                Radios.SmartLink.RadioPortReport.FromRadio(r));
+            var decision = Radios.SmartLink.SmartLinkMethodPolicy.Decide(policyInput);
+            var record = Radios.SmartLink.SmartLinkConnectRecord.Begin(r.Serial, session.AccountId ?? "", policyInput, decision, DateTime.UtcNow);
+            Tracing.TraceLine(
+                $"sendRemoteConnect: policy tierAccount={(tierAccount?.Email ?? "none, Tier 1 default")} {decision.Describe()} | {record.Describe()}",
+                TraceLevel.Info);
+            ConnectionProfiler.Current?.RecordEvent("smartlink_policy", new Dictionary<string, object>
             {
-                Tracing.TraceLine(
-                    "sendRemoteConnect: per-radio profile FORCES hole punch (radio reported RequiresHolePunch=false)",
-                    TraceLevel.Warning);
-                r.RequiresHolePunch = true;
-            }
-            else if (radioProfile.ConnectionPreference == RadioConnectionPreference.ForwardOnly
-                && r.RequiresHolePunch)
+                { "serial", r.Serial },
+                { "account", session.AccountId ?? "" },
+                { "tier", (int)policyInput.Tier + 1 },
+                { "tierChosen", policyInput.TierChosen },
+                { "radioChoice", policyInput.PerRadioChoice.ToString() },
+                { "forcedPath", policyInput.ForcedPath },
+                { "decision", decision.Describe() },
+            });
+
+            if (decision.IsRefused)
             {
-                if (r.PublicTlsPort <= 0)
+                // Refused before anything is sent, and nothing is written
+                // anywhere. The sentence names the two settings; the walk moves
+                // on to Local if this radio's path chain has it.
+                Radios.SmartLink.SmartLinkConnectRecords.Store(record);
+                PendingTierOffer = Radios.SmartLink.SmartLinkTierOffers.For(record,
+                    accountIsSaved: tierAccount != null && AccountManager.GetAccountByEmail(tierAccount.Email) != null);
+                RecordConnectFailure(new ConnectFailureReport
                 {
-                    // Fail fast (QB Track C item 6): ForwardOnly forbids the punch
-                    // path, and SmartLink advertises no public port for this radio —
-                    // there is literally no address:port a forwarded connect could
-                    // try. Attempting anyway is the old behavior: tens of seconds of
-                    // silent grinding ending in a bare "connection failed". Refuse
-                    // up front and say why, filed as a pre-attempt refusal in
-                    // Track D's failure classification.
-                    RecordConnectFailure(new ConnectFailureReport
-                    {
-                        Class = ConnectFailureClass.PreflightRefused,
-                        SpokenSummary =
-                            "JJ Flexible Radio Access cannot connect to this radio. It is set to use forwarded ports only, " +
-                            "but SmartLink reports no reachable forwarded port. " +
-                            "Set up port forwarding at the radio's site, or change this radio's connection setting " +
-                            "in Settings, under Per-radio settings. Hole punch does not require port forwarding.",
-                    });
-                    Tracing.TraceLine(
-                        "sendRemoteConnect: FAIL FAST — per-radio profile is ForwardOnly, radio reported RequiresHolePunch=true and no public TLS port; refusing the doomed attempt",
-                        TraceLevel.Error);
-                    ConnectionProfiler.Current?.RecordEvent("forward_only_fail_fast", new Dictionary<string, object>
-                    {
-                        { "serial", r.Serial },
-                        { "publicTlsPort", r.PublicTlsPort },
-                        { "publicUdpPort", r.PublicUdpPort }
-                    });
-                    return false;
-                }
-
-                // Public ports ARE advertised — the user said the radio's punch
-                // flag is wrong and there is a real address:port to try, which is
-                // exactly the escape hatch the mode's description promises.
-                Tracing.TraceLine(
-                    $"sendRemoteConnect: per-radio profile FORCES forwarded path (radio reported RequiresHolePunch=true, PublicTlsPort={r.PublicTlsPort}) — connect will fail if the radio has no reachable public ports",
-                    TraceLevel.Warning);
-                r.RequiresHolePunch = false;
+                    Class = ConnectFailureClass.PreflightRefused,
+                    SpokenSummary = Radios.SmartLink.SmartLinkTierOffers.RefusalSentence(record, RadioNameForSpeech(r.Serial)),
+                });
+                // Kept, so the network evidence composed after a failed dial
+                // does not replace the reason (the same seam as B1-R above).
+                _dialRefusedReport = LastConnectFailureReport;
+                ConnectionProfiler.Current?.RecordEvent("smartlink_policy_refused", new Dictionary<string, object>
+                {
+                    { "serial", r.Serial },
+                    { "refusal", decision.Refusal.ToString() },
+                    { "offer", PendingTierOffer?.OfferedTier.ToString() ?? "none" },
+                });
+                return false;
             }
 
+            var method = decision.First.Value;
             int holePunchPort = 0;
             string holePunchPortSource = "none";
-            if (r.RequiresHolePunch)
+            Radios.SmartLink.SmartLinkAttemptRecord attempt;
+            if (method == Radios.SmartLink.SmartLinkMethod.HolePunch)
             {
                 if (radioProfile.FixedHolePunchPort > 0)
                 {
                     holePunchPort = radioProfile.FixedHolePunchPort;
                     holePunchPortSource = "radioProfile";
-                    Tracing.TraceLine(
-                        $"sendRemoteConnect: hole punch required — using per-radio fixed port {holePunchPort}",
-                        TraceLevel.Info);
-                }
-                else if (_currentAccount != null
-                    && _currentAccount.ConnectionMode == SmartLinkConnectionMode.AutomaticHolePunch
-                    && _currentAccount.ConfiguredListenPort.HasValue)
-                {
-                    // Legacy account-level pin, kept as a fallback for configs
-                    // written before per-radio profiles existed — including the
-                    // documented hand-edit interim unblocker (connectionMode 2 +
-                    // configuredListenPort in SmartLinkAccounts.json). No UI
-                    // writes this meaning anymore (QB Track C untangle); the
-                    // per-radio FixedHolePunchPort above outranks it whenever
-                    // set. Known wart, accepted: a value written by port-forward
-                    // Apply (the field's forward meaning) can land here as a
-                    // punch port if the router rule later breaks — semantically
-                    // wrong but functionally harmless, since any port number
-                    // punches equally well.
-                    holePunchPort = _currentAccount.ConfiguredListenPort.Value;
-                    holePunchPortSource = "account";
-                    Tracing.TraceLine(
-                        $"sendRemoteConnect: hole punch required — using configured port {holePunchPort}",
-                        TraceLevel.Info);
                 }
                 else
                 {
                     holePunchPort = System.Random.Shared.Next(25000, 65000);
                     holePunchPortSource = "random";
-                    Tracing.TraceLine(
-                        $"sendRemoteConnect: hole punch required — auto-assigned port {holePunchPort}",
-                        TraceLevel.Info);
                 }
-
-                // The value FlexLib actually reads at connect time. Without this the
-                // whole hole-punch path is dead.
+                // FlexLib's Radio.Connect reads RequiresHolePunch to choose the
+                // transport, so a punch must set it. It is written ONLY when it
+                // differs, which is only "Hole punch always" on a radio that
+                // advertises ports. The radio's own report is not lost: it is
+                // kept in AdvertisedPorts (item 29), and every reader that asks
+                // "is this session punched?" reads the method actually used
+                // (ConnectedByHolePunch), never this flag.
+                if (!r.RequiresHolePunch) r.RequiresHolePunch = true;
+                // The value FlexLib actually reads at connect time. Without this
+                // the whole hole-punch path is dead.
                 r.NegotiatedHolePunchPort = holePunchPort;
+                attempt = Radios.SmartLink.SmartLinkAttemptRecord.ForPunch(holePunchPort, holePunchPortSource);
             }
-
-            else if (_currentAccount != null
-                && _currentAccount.ConnectionMode == SmartLinkConnectionMode.AutomaticHolePunch
-                && _currentAccount.ConfiguredListenPort.HasValue)
+            else
             {
-                // Tier 3 selected by the user but the radio didn't ask for hole punch.
-                // Advertise the configured port anyway — harmless, and preserves the
-                // Sprint 27 Track F behaviour.
-                holePunchPort = _currentAccount.ConfiguredListenPort.Value;
-                Tracing.TraceLine(
-                    $"sendRemoteConnect: Tier 3 mode, radio did not require hole punch — advertising {holePunchPort}",
-                    TraceLevel.Info);
+                // A ports method dials the pair it names, which is not always
+                // the one FlexLib's parse kept (a UPnP pair beside a manual one).
+                var pair = policyInput.Report.PairFor(method);
+                if (r.PublicTlsPort != pair.TlsPort) r.PublicTlsPort = pair.TlsPort;
+                if (r.PublicUdpPort != pair.UdpPort) r.PublicUdpPort = pair.UdpPort;
+                // A usable pair means the radio's flag already says no punch
+                // (stock sets it only when no pair is advertised); the check
+                // stays so a cached radio cannot dial a pair as a punch.
+                if (r.RequiresHolePunch) r.RequiresHolePunch = false;
+                attempt = Radios.SmartLink.SmartLinkAttemptRecord.ForPorts(method, pair);
             }
+            Tracing.TraceLine(
+                $"sendRemoteConnect: carrying out {attempt.Describe()}, the first of [{string.Join(",", decision.Methods)}]; no fallback until the attempt walk lands",
+                TraceLevel.Info);
+            record = record.WithAttempt(attempt);
+            Radios.SmartLink.SmartLinkConnectRecords.Store(record);
 
             // Record what actually happened so the UI can report the real port
-            // rather than the configured one — the two differ whenever the radio
-            // did not ask for a hole-punch.
+            // rather than the configured one.
             LastHolePunchPort = holePunchPort;
 
             ConnectionProfiler.Current?.RecordEvent("hole_punch_port_selected", new Dictionary<string, object>
             {
-                { "requiresHolePunch", r.RequiresHolePunch },
+                { "method", method.ToString() },
                 { "holePunchPort", holePunchPort },
                 { "portSource", holePunchPortSource },
                 { "radioProfilePreference", radioProfile.ConnectionPreference.ToString() }
@@ -3429,6 +3417,11 @@ namespace Radios
                 {
                     { "serial", r.Serial }
                 });
+                Radios.SmartLink.SmartLinkConnectRecords.Store(record.WithLastAttempt(a => a with
+                {
+                    End = Radios.SmartLink.SmartLinkAttemptEnd.NoHandle,
+                    EndDetail = "the radio did not answer the connect request within 5 seconds",
+                }));
                 return false;
             }
 
@@ -3436,8 +3429,25 @@ namespace Radios
             if (string.IsNullOrEmpty(handle))
             {
                 Tracing.TraceLine("sendRemoteConnect:Radio connect returned null handle.", TraceLevel.Error);
+                Radios.SmartLink.SmartLinkConnectRecords.Store(record.WithLastAttempt(a => a with
+                {
+                    End = Radios.SmartLink.SmartLinkAttemptEnd.NullHandle,
+                    EndDetail = "the connect request came back without a handle",
+                }));
                 return false;
             }
+
+            // The method actually used on this connect: what both punched-
+            // session guards and the network identity read (ConnectedByHolePunch).
+            SmartLinkMethodInUse = method;
+            Radios.SmartLink.SmartLinkConnectRecords.Store(record
+                .WithLastAttempt(a => a with
+                {
+                    HandleArrived = true,
+                    End = Radios.SmartLink.SmartLinkAttemptEnd.Dialled,
+                    EndDetail = "handed to the open; not yet proven",
+                })
+                .WithMethodUsed(method));
 
             r.WANConnectionHandle = handle;
             rememberCommandRoute(r, handle, session.AccountId);

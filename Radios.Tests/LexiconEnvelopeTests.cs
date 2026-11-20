@@ -908,6 +908,21 @@ namespace Radios.Tests
             var classifiedOutsideFacts = new[]
             {
                 "audio.reference.armed", // Round 8: direct answer to the operator's arm request.
+                // SmartLink connection tiers, Track A (2026-11-19): the refusals and the
+                // one-time tier offer. DRAFT prose, for Codex to word.
+                "connect.failure.smartlink_forward_only_no_ports",
+                "connect.failure.smartlink_tier_no_ports",
+                "connect.failure.smartlink_tier_punch_always",
+                "connect.failure.smartlink_tier_upnp_only",
+                "connect.tier_offer.punch",
+                "connect.tier_offer.title",
+                "connect.tier_offer.upnp",
+                "connect.smartlink.account.tier_1",
+                "connect.smartlink.account.tier_2",
+                "connect.smartlink.account.tier_3",
+                "settings.network.tier_in_use",
+                "settings.network.tier_no_account",
+                "settings.profile.choice_would_be_refused",
                 "settings.cw.vox_did_not_key",                        // Sprint 48 Track E, #151
                 "settings.systemwide_keys.leader_enabled",            // Sprint 48 Track E, #307 Item 4
                 "settings.systemwide_keys.leader_enabled_help",

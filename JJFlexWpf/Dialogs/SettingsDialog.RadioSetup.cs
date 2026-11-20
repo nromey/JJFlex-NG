@@ -1182,7 +1182,7 @@ namespace JJFlexWpf.Dialogs
                         : Lexicon.Get("settings.network.reachability.port_none"))));
             }
 
-            if (_rig.RadioRequiresHolePunch)
+            if (_rig.ConnectedByHolePunch) // the method used, not the radio's flag (the tiers work)
             {
                 parts.Add(Lexicon.Get("settings.network.reachability.needs_hole_punch"));
             }

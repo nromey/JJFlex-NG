@@ -814,17 +814,25 @@ namespace Radios
         #region SmartLink reachability — what the radio and SmartLink actually report
 
         /// <summary>
-        /// True when SmartLink has told us this radio needs a UDP hole-punch,
-        /// meaning neither a forwarded port nor UPnP gave it a way in.
-        ///
-        /// This is the flag that decides whether a hole-punch port gets chosen at
-        /// connect time — not the user's tier preference. See
-        /// <c>sendRemoteConnect</c> and the note there about
-        /// <c>NegotiatedHolePunchPort</c> being a value the client supplies.
+        /// True when SmartLink's list said this radio needs a UDP hole-punch,
+        /// meaning neither a forwarded port nor UPnP gave it a way in: the
+        /// RADIO'S REPORT, as the list parse computed it (MIGRATION.md item 29),
+        /// not how this connection was made. A guard that protects a punched
+        /// session asks <see cref="ConnectedByHolePunch"/> instead; the method
+        /// is decided by the account tier and the radio's connection choice
+        /// (<see cref="Radios.SmartLink.SmartLinkMethodPolicy"/>).
         /// </summary>
         public bool RadioRequiresHolePunch
         {
-            get { try { return theRadio != null && theRadio.RequiresHolePunch; } catch { return false; } }
+            get
+            {
+                try
+                {
+                    if (theRadio == null) return false;
+                    return theRadio.AdvertisedPorts?.RequiresHolePunch ?? theRadio.RequiresHolePunch;
+                }
+                catch { return false; }
+            }
         }
 
         /// <summary>True when the radio reports a forwarded port is in play.</summary>

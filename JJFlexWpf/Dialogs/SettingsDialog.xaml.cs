@@ -1153,7 +1153,8 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private bool ConfirmNetworkTestOnPunchedSession()
         {
-            if (_rig == null || !_rig.IsConnected || !_rig.IsWanConnection || !_rig.RadioRequiresHolePunch)
+            // The method this connect used, not the radio's punch flag (the tiers work).
+            if (_rig == null || !_rig.IsConnected || !_rig.IsWanConnection || !_rig.ConnectedByHolePunch)
                 return true; // not a punched session — nothing to warn about
 
             var confirm = new ConfirmActionDialog(

@@ -4161,8 +4161,12 @@ Module globals
             ' QB Track L: hand the dialog the classified failure evidence
             ' (Track D's report) so it states WHY, not just who. Bare wording
             ' only when no report was filed.
-            Dim dialogResult = Radios.AutoConnectFailedDialog.ShowDialog(
-                Nothing, _autoConnectConfig.RadioName, RigControl?.LastConnectFailureAdvice)
+            ' The one-time SmartLink tier offer comes first (the tiers work):
+            ' a Yes is a Try Again under the newly saved tier.
+            Dim dialogResult = If(OfferHigherSmartLinkTier(RigControl),
+                Radios.AutoConnectFailedResult.TryAgain,
+                Radios.AutoConnectFailedDialog.ShowDialog(
+                    Nothing, _autoConnectConfig.RadioName, RigControl?.LastConnectFailureAdvice))
 
             Select Case dialogResult
                 Case Radios.AutoConnectFailedResult.TryAgain
@@ -5096,6 +5100,33 @@ Module globals
                 End If
             End If
 
+            ' The one-time SmartLink tier offer (the tiers work, decisions 6
+            ' and 7). Only here, at the walk's end, so every other permitted
+            ' path has already failed; only when the SmartLink leg was refused
+            ' because the account's tier forbids what the radio needs and that
+            ' tier was never chosen. Yes saves the offered tier for every radio
+            ' on the account and plans the SmartLink connect again under it.
+            ' THE ATTEMPT WALK MUST KEEP THIS: whatever replaces the loop above
+            ' asks RigControl.PendingTierOffer once the walk is exhausted and
+            ' not cancelled, and re-plans on Yes.
+            If Not connectOk AndAlso Not RigControl.CancelRequested AndAlso
+               OfferHigherSmartLinkTier(RigControl) Then
+                Tracing.TraceLine("wpfSelectorProc: tier raised by the operator — planning the SmartLink connect again", TraceLevel.Info)
+                Dim offerSw = System.Diagnostics.Stopwatch.StartNew()
+                RigControl.SmartLinkPathForced = pathForced
+                connectOk = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=True, allowInteractiveLogin:=True)
+                offerSw.Stop()
+                If connectOk Then
+                    Radios.ConnectionHistory.ArmPendingOutcome(serial,
+                        Radios.ConnectPathKind.SmartLink.ToString(), offerSw.ElapsedMilliseconds,
+                        pathForced)
+                Else
+                    Radios.ConnectionHistory.Record(serial, Radios.ConnectPathKind.SmartLink.ToString(),
+                        If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed"),
+                        offerSw.ElapsedMilliseconds, pathForced)
+                End If
+            End If
+
             If Not connectOk Then
                 _pendingWalk = Nothing
                 Radios.ConnectionHistory.DiscardPendingOutcome()
@@ -5191,6 +5222,38 @@ Module globals
         End If
     End Sub
 
+    ''' <summary>
+    ''' The one-time offer to raise a SmartLink account's tier (the tiers work,
+    ''' decisions 6 and 7). Asks only when <paramref name="rig"/>'s last
+    ''' SmartLink dial earned an offer: refused because the tier forbids what
+    ''' the radio needs, on an account whose tier was never chosen. Yes saves
+    ''' the offered tier as chosen; No saves Tier 1 as chosen and the account
+    ''' is never asked again; Cancel or Escape decides nothing and saves
+    ''' nothing. Writes only our own accounts file, never a radio.
+    ''' Returns True only when Yes was answered and saved, so the caller plans
+    ''' the connect again.
+    ''' </summary>
+    Private Function OfferHigherSmartLinkTier(rig As FlexBase) As Boolean
+        Dim offer = rig?.PendingTierOffer
+        If offer Is Nothing Then Return False
+        Tracing.TraceLine($"OfferHigherSmartLinkTier: offering tier {CInt(offer.OfferedTier) + 1} to {offer.AccountEmail} for {offer.Serial}", TraceLevel.Info)
+        ' Yes, No and Cancel, so Escape closes it (Cancel); the default is
+        ' Cancel, so a stray Enter decides nothing.
+        Dim answer = MessageBox.Show(AppShellForm, rig.TierOfferQuestion(offer),
+            Radios.SmartLink.SmartLinkTierOffers.Title(),
+            MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button3)
+        Select Case answer
+            Case DialogResult.Yes
+                Return rig.AnswerTierOffer(offer, True).HasValue
+            Case DialogResult.No
+                rig.AnswerTierOffer(offer, False)
+                Return False
+            Case Else
+                Tracing.TraceLine("OfferHigherSmartLinkTier: cancelled — nothing saved, the account may be offered again", TraceLevel.Info)
+                Return False
+        End Select
+    End Function
+
     ''' <summary>The operator-facing name of one leg.</summary>
     Private Function WalkLegName(path As Radios.ConnectPathKind) As String
         Return If(path = Radios.ConnectPathKind.SmartLink,
@@ -5251,6 +5314,9 @@ Module globals
             ' dual-homed radio here would make the announcement a lie (#85).
             ' Reading it as a compulsion is what produced a trace carrying
             ' forced=False and forceWanPath=True one line apart (#284).
+            ' The forced PATH is recorded in the SmartLink connect record; it
+            ' never changes the methods the tier allows (the tiers work).
+            RigControl.SmartLinkPathForced = walk.Forced
             connectOk = RigControl.ReconnectRemote(serial, lowBW,
                 forceWanPath:=True,
                 allowInteractiveLogin:=lastLeg)

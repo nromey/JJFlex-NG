@@ -3122,7 +3122,10 @@ namespace Radios
                     // and UPnP paths survive the probe; punch does not. Same
                     // family as registration/firmware needing a detached
                     // client. See research-queue "HOLE PUNCH" section.
-                    if (theRadio.RequiresHolePunch)
+                    // The METHOD this connect used, not the radio's punch flag
+                    // (the tiers work): a "Hole punch always" connect to a radio
+                    // that advertises ports is punched, and is guarded.
+                    if (ConnectedByHolePunch)
                     {
                         Tracing.TraceLine(
                             "KickPostConnectNetworkTest: skipped — hole-punched session, radio-side probe would kill it",
