@@ -497,7 +497,9 @@ namespace Radios.Tests
                     if (k == 3) start.BeginAt(moment);
                     // Repair 2: a block on time reports no backlog; a late one does not say.
                     int jitter = jitterMs[k % jitterMs.Length];
-                    start.Block(w, buf, n * channels, n, new CaptureBlockTiming(arrival, jitter == 0 ? 0 : -1, streamStartedAt: origin - Ticks(5)));
+                    // Repair 3: an on-time block's answer comes at once after its stamp.
+                    start.Block(w, buf, n * channels, n, new CaptureBlockTiming(arrival, jitter == 0 ? 0 : -1, streamStartedAt: origin - Ticks(5),
+                        backlogAnsweredAt: jitter == 0 ? arrival : null));
                 }
                 Assert.False(start.Finish(w));
                 Assert.True(start.FileBegan);
@@ -605,8 +607,11 @@ namespace Radios.Tests
                 {
                     int lag = behind(at) ? lagMs : 0;
                     long arrival = origin + Ticks(at + block + lag);
+                    // Repair 3: a reported backlog's answer comes at once after the stamp.
+                    long reported = backlog(at, lag);
                     start.Block(w, new float[block], block, block,
-                        new CaptureBlockTiming(arrival, backlog(at, lag), streamStartedAt: streamStartedAt.HasValue ? origin + streamStartedAt.Value : null));
+                        new CaptureBlockTiming(arrival, reported, streamStartedAt: streamStartedAt.HasValue ? origin + streamStartedAt.Value : null,
+                            backlogAnsweredAt: reported >= 0 ? arrival : null));
                     afterBlock?.Invoke(start, at + block);
                 }
                 start.Finish(w);
@@ -704,16 +709,121 @@ namespace Radios.Tests
             Directory.CreateDirectory(_folder);
             using var w = new WavWriter(Path.Combine(_folder, "overflow.wav"), 1000, 1);
             var start = new CaptureFileStart(1000, hold: true, 0, Freq);
-            start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(100), 0, overflowed: true, streamStartedAt: 0));
+            start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(100), 0, overflowed: true, streamStartedAt: 0, backlogAnsweredAt: Ticks(100)));
             Assert.False(start.TimingEstablished);
-            start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(200), 0));
+            start.Block(w, new float[100], 100, 100, OnTime(Ticks(200)));
             Assert.True(start.TimingEstablished);
+        }
+
+        // -- Repair 3 (Codex's re-check of b6543ac1, C1b) --------------------
+
+        /// <summary>
+        /// A backlog is paired with the clock reading taken BEFORE it was asked,
+        /// and only when its answer came within the block's own duration. One
+        /// true capture (frame 0 at 10 s, 100-frame blocks at 1 kHz, no input
+        /// latency, the moment at 337 ms) and an honest device: every backlog is
+        /// what was waiting when it was asked. One 500 ms thread pause on the
+        /// first block, at each place it can fall; afterwards the reader catches
+        /// up, reading back to back. Nowhere may the file begin before frame 337.
+        /// </summary>
+        [Theory]
+        [InlineData("none")]
+        [InlineData("before the stamp")]
+        [InlineData("between the stamp and the answer")]
+        [InlineData("after the answer, before its reading")]
+        [InlineData("repair 2's order, no answer time")]
+        public void A_pause_anywhere_around_the_backlog_question_cannot_start_the_file_early(string where)
+        {
+            const int rate = 1000, block = 100;
+            long origin = Ticks(10_000), pause = Ticks(500);
+            var start = new CaptureFileStart(rate, hold: true, 0, Freq);
+            start.BeginAt(origin + Ticks(337));
+            Directory.CreateDirectory(_folder);
+            using var w = new WavWriter(Path.Combine(_folder, "pause-" + Guid.NewGuid().ToString("N") + ".wav"), rate, 1);
+            long previous = 0;
+            for (int at = 0; at < 3000; at += block)
+            {
+                long readReturned = Math.Max(origin + Ticks(at + block), previous + Ticks(0.1));
+                long stamp = readReturned, asked = readReturned, answered = readReturned;
+                bool answerKnown = true;
+                if (at == 0)
+                {
+                    switch (where)
+                    {
+                        case "before the stamp": stamp = asked = answered = readReturned + pause; break;
+                        case "between the stamp and the answer": asked = answered = readReturned + pause; break;
+                        case "after the answer, before its reading": answered = readReturned + pause; break;
+                        // Repair 2 asked first and stamped after; the pause sat between them, unseen.
+                        case "repair 2's order, no answer time": stamp = readReturned + pause; answerKnown = false; break;
+                    }
+                }
+                else if (where == "repair 2's order, no answer time") answerKnown = false;
+                long backlog = Math.Max(0, (asked - origin) * rate / Freq - (at + block));
+                start.Block(w, new float[block], block, block,
+                    new CaptureBlockTiming(stamp, backlog, streamStartedAt: origin - Ticks(10),
+                        backlogAnsweredAt: answerKnown ? answered : null));
+                previous = Math.Max(stamp, answered);
+            }
+            start.Finish(w);
+            Assert.True(start.FileBegan);
+            Assert.True(start.BoundaryFrame >= 337, where + ": the file began at " + start.BoundaryFrame + ", before frame 337");
+            if (where.StartsWith("repair 2"))
+            {
+                // With no answer time nothing establishes; the stream's start places it, 10 ms late.
+                Assert.False(start.TimingEstablished);
+                Assert.Equal(347, start.BoundaryFrame);
+            }
+            else
+            {
+                // Positive control: once caught up, a block establishes the timing, and the file begins exactly.
+                Assert.True(start.TimingEstablished, where);
+                Assert.Equal(337, start.BoundaryFrame);
+            }
+        }
+
+        /// <summary>
+        /// The two cases repair 3 refuses to establish from, by themselves: a
+        /// backlog answered later than its block's duration after the stamp,
+        /// and a backlog with no answer time. Either way the block's bound
+        /// still counts (a true bound), and the stream's start places the file.
+        /// </summary>
+        [Fact]
+        public void A_backlog_answered_late_or_at_no_known_time_does_not_establish_the_timing()
+        {
+            Directory.CreateDirectory(_folder);
+            using var w = new WavWriter(Path.Combine(_folder, "late-answer.wav"), 1000, 1);
+            var late = new CaptureFileStart(1000, hold: true, 0, Freq);
+            late.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(100), 0, streamStartedAt: 0, backlogAnsweredAt: Ticks(100) + Ticks(101)));
+            Assert.False(late.TimingEstablished);
+            late.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(200), 0, backlogAnsweredAt: Ticks(200) - 1));
+            Assert.False(late.TimingEstablished);   // an answer before its stamp is no pairing either
+            late.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(300), 0));
+            Assert.False(late.TimingEstablished);
+            // Positive control: answered within the block's 100 ms, it establishes.
+            late.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(400), 0, backlogAnsweredAt: Ticks(400) + Ticks(100)));
+            Assert.True(late.TimingEstablished);
+        }
+
+        /// <summary>
+        /// A backlog answered too late is not taken off its block's bound: that
+        /// count could hold frames that arrived long after the stamp, and the
+        /// block's delivered frames alone are a true bound.
+        /// </summary>
+        [Fact]
+        public void A_backlog_answered_too_late_is_not_taken_off_its_blocks_bound()
+        {
+            Directory.CreateDirectory(_folder);
+            using var w = new WavWriter(Path.Combine(_folder, "late-backlog.wav"), 1000, 1);
+            var start = new CaptureFileStart(1000, hold: true, 0, Freq);
+            // On time, but the answer came 500 ms later and counts the 500 frames that arrived meanwhile.
+            start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(100), 500, backlogAnsweredAt: Ticks(600)));
+            Assert.Equal(337, start.FrameAt(Ticks(337)));
         }
 
         // ── Helpers ──────────────────────────────────────────────────────
 
         /// <summary>A block that arrived with no backlog behind it, as the device reports.</summary>
-        private static CaptureBlockTiming OnTime(long arrival) => new CaptureBlockTiming(arrival, 0);
+        private static CaptureBlockTiming OnTime(long arrival) => new CaptureBlockTiming(arrival, 0, backlogAnsweredAt: arrival);
 
         private const int Rate = ChainAuditionAnalysisTests.Rate;
         private static readonly long Freq = System.Diagnostics.Stopwatch.Frequency;

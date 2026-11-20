@@ -1,8 +1,11 @@
 #nullable enable
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using JJPortaudio;
 using NAudio.Wave;
@@ -45,6 +48,13 @@ namespace JJFlexWpf.Tests;
 /// sound after the file began (C1a), a late first read with no position (C1a),
 /// a capture reader behind through the lead (C1b, with his no-backlog control),
 /// and a stop before the first block (item 3).
+/// </para>
+/// <para>
+/// <b>Repair 3 (Codex's re-check of b6543ac1):</b> his final probes are
+/// adopted with their positive controls, under "Repair 3" below: a partly
+/// read tone that stalls must not resume into the file (C1a), and a thread
+/// pause around the capture's backlog question must not establish a file
+/// inside the tone (C1b).
 /// </para>
 /// <para>
 /// Windowless and silent: the tone is rendered offline or into a mixer no
@@ -106,8 +116,11 @@ public sealed class AuditionToneEndTests
         long queued = (long)Math.Round((trueLagMs - 7) * mixRate / 1000.0);
 
         var end = new EarconPlayer.ToneEnd(tone.Length, mixRate, configuredLatencyMs, handedOver,
-            () => new SoundTiming.DeviceSnapshot(1_000_000 + queued, outputReportsPosition ? 1_000_000 : -1, 30, 3, mixRate));
-        end.FirstRead(mixRead);
+            () => new SoundTiming.DeviceSnapshot(1_000_000 + queued, outputReportsPosition ? 1_000_000 : -1, 30, 3, mixRate),
+            clock: () => mixRead);
+        // Repair 3: the end is settled by the read that emits the tone's last
+        // sample; here the output takes the whole tone in that one read.
+        Assert.Equal(tone.Length, new EarconPlayer.ToneEnd.Probe(new Samples(tone), end).Read(new float[tone.Length]));
         Assert.True(end.AudibleEnd.IsCompleted);
         long fileStartsAt = ChainAuditionTake.FileStartAfterTone(end.AudibleEnd.Result!.Value);
 
@@ -160,7 +173,8 @@ public sealed class AuditionToneEndTests
                     // backlog is not reported; the stream started 5 ms before frame 0.
                     int jitter = jitterMs[k % jitterMs.Length];
                     start.Block(w, heard.Skip(at).Take(n).ToArray(), n, n,
-                        new CaptureBlockTiming(arrival, jitter == 0 ? 0 : -1, streamStartedAt: origin - Ticks(5)));
+                        new CaptureBlockTiming(arrival, jitter == 0 ? 0 : -1, streamStartedAt: origin - Ticks(5),
+                            backlogAnsweredAt: jitter == 0 ? arrival : null));
                 }
                 if (!told) start.BeginAt(fileStartsAt);
                 start.Finish(w);
@@ -243,7 +257,7 @@ public sealed class AuditionToneEndTests
     }
 
     [Fact]
-    public async Task The_timed_tone_reads_its_end_from_the_outputs_position_at_the_mixers_first_read()
+    public async Task The_timed_tone_reads_its_end_from_the_outputs_position_at_the_read_that_emits_its_last_sample()
     {
         AssertWindowless();
         int mixRate = EarconPlayer.MixerSampleRate;
@@ -253,31 +267,27 @@ public sealed class AuditionToneEndTests
             var end = EarconPlayer.RecorderStartBeepTimed();
             Assert.Single(mixer.MixerInputs);
             Assert.False(end.IsCompleted, "the end was known before the output took the tone");
-            long before = Stopwatch.GetTimestamp();
-            mixer.Read(new float[2048].AsSpan());
-            long after = Stopwatch.GetTimestamp();
+            var (before, after, lastFrames) = ReadTheToneThrough(mixer, end);
             long? at = await end.WaitAsync(TimeSpan.FromSeconds(10));
-            long span = (long)Math.Round((double)(queued + EarconPlayer.RecorderStartBeepSamples().Length) * Q / mixRate);
+            long span = (long)Math.Round((double)(queued + lastFrames) * Q / mixRate);
             Assert.NotNull(at);
             Assert.InRange(at!.Value, before + span - 1, after + span + 1);
         });
     }
 
     [Fact]
-    public async Task The_timed_tone_estimates_the_whole_chain_from_its_first_read_when_the_output_will_not_say_its_position()
+    public async Task The_timed_tone_estimates_the_whole_chain_from_its_last_read_when_the_output_will_not_say_its_position()
     {
-        // Repair 2: from the mixer's first READ, never from the hand-over.
+        // Repair 2: from a READ, never from the hand-over. Repair 3: from the
+        // read that emits the last sample, never predicted at the first.
         AssertWindowless();
         int mixRate = EarconPlayer.MixerSampleRate;
         await WithMixer(() => new SoundTiming.DeviceSnapshot(5000, -1, 50, 4, mixRate), async mixer =>
         {
             var end = EarconPlayer.RecorderStartBeepTimed();
-            long before = Stopwatch.GetTimestamp();
-            mixer.Read(new float[2048].AsSpan());
-            long after = Stopwatch.GetTimestamp();
+            var (before, after, lastFrames) = ReadTheToneThrough(mixer, end);
             long? at = await end.WaitAsync(TimeSpan.FromSeconds(10));
-            long span = Ticks(EarconPlayer.AlertOutputLatencyMs)
-                + (long)Math.Round((double)EarconPlayer.RecorderStartBeepSamples().Length * Q / mixRate);
+            long span = Ticks(EarconPlayer.AlertOutputLatencyMs) + (long)Math.Round((double)lastFrames * Q / mixRate);
             Assert.InRange(at!.Value, before + span - 1, after + span + 1);
         });
     }
@@ -393,12 +403,18 @@ public sealed class AuditionToneEndTests
         Assert.True(a.Withdraw());
         Assert.False(a.Take(Ticks(1100)));
         Assert.Null(await a.AudibleEnd);
-        // Read first: the withdrawal does nothing, and the end is the read's.
-        var b = new EarconPlayer.ToneEnd(frames, rate, 90, Ticks(1000), () => null);
+        // Read first: the withdrawal does nothing. Repair 3: taking it settles
+        // nothing; only the read of its last sample, or a cut, does.
+        var b = new EarconPlayer.ToneEnd(frames, rate, 90, Ticks(1000), () => null, clock: () => Ticks(1300));
         Assert.True(b.Take(Ticks(1100)));
         Assert.False(b.Withdraw());
         Assert.True(b.Take(Ticks(1110)));   // later reads still play
-        Assert.Equal(EarconPlayer.ToneEnd.Estimated(Ticks(1100), 90, frames, rate, Q), await b.AudibleEnd);
+        Assert.False(b.AudibleEnd.IsCompleted, "taking the tone predicted its end");
+        Assert.True(b.CutNow());
+        Assert.Equal(EarconPlayer.ToneEnd.Estimated(Ticks(1300), 90, 0, rate, Q), await b.AudibleEnd);
+        Assert.False(b.Take(Ticks(1400)));  // cut: nothing more of it plays
+        Assert.False(b.Withdraw());
+        Assert.False(b.CutNow());
     }
 
     /// <summary>
@@ -414,8 +430,8 @@ public sealed class AuditionToneEndTests
         int rate = EarconPlayer.MixerSampleRate;
         int frames = EarconPlayer.RecorderStartBeepSamples().Length;
         long handed = Ticks(1000), read = Ticks(1400);
-        var end = new EarconPlayer.ToneEnd(frames, rate, 90, handed, () => null);
-        end.FirstRead(read);
+        var end = new EarconPlayer.ToneEnd(frames, rate, 90, handed, () => null, clock: () => read);
+        Assert.Equal(frames, new EarconPlayer.ToneEnd.Probe(new Samples(EarconPlayer.RecorderStartBeepSamples()), end).Read(new float[frames]));
         long begin = ChainAuditionTake.FileStartAfterTone(end.AudibleEnd.Result!.Value);
         long earliestEnd = read + (long)Math.Round((double)frames * Q / rate);
         _out.WriteLine($"File start {(begin - handed) * 1000.0 / Q:F3} ms after handoff; earliest tone end {(earliestEnd - handed) * 1000.0 / Q:F3} ms");
@@ -524,7 +540,8 @@ public sealed class AuditionToneEndTests
                     long backlog = reported ? waiting : -1;
                     // The stream started 10 ms before frame 0 was captured.
                     start.Block(writer, heard.Skip(i).Take(n).ToArray(), n, n,
-                        new CaptureBlockTiming(arrival, backlog, streamStartedAt: origin - Ticks(10)));
+                        new CaptureBlockTiming(arrival, backlog, streamStartedAt: origin - Ticks(10),
+                            backlogAnsweredAt: backlog >= 0 ? arrival : null));
                 }
                 start.Finish(writer);
             }
@@ -572,7 +589,443 @@ public sealed class AuditionToneEndTests
         Assert.False(new CaptureFileStart(CaptureRate, hold: false, InputLatencySeconds, Q).StoppedDuringLead(Ticks(10)));
     }
 
+    // ── Repair 3: Codex's re-check of b6543ac1, adopted ──────────────
+
+    /// <summary>
+    /// Codex's positive control (<c>An_uninterrupted_tone_is_exhausted_before_its_predicted_boundary</c>):
+    /// a tone read whole in one read is settled by that read, its boundary is
+    /// still ahead, and nothing of it is left to play.
+    /// </summary>
+    [Fact]
+    public async Task An_uninterrupted_tone_is_exhausted_before_its_boundary()
+    {
+        AssertWindowless();
+        float[] tone = EarconPlayer.RecorderStartBeepSamples();
+        var end = new EarconPlayer.ToneEnd(tone.Length, EarconPlayer.MixerSampleRate, 90, Stopwatch.GetTimestamp(), () => null);
+        var probe = new EarconPlayer.ToneEnd.Probe(new Samples(tone), end);
+        var output = new float[tone.Length];
+        Assert.Equal(tone.Length, probe.Read(output));
+        Assert.True(output.Any(x => Math.Abs(x) > .001f));
+        long boundary = ChainAuditionTake.FileStartAfterTone((await end.AudibleEnd)!.Value);
+        Assert.True(Stopwatch.GetTimestamp() < boundary);
+        Assert.Equal(0, probe.Read(output));
+    }
+
+    /// <summary>
+    /// C1a (Codex's <c>A_partly_read_tone_must_not_resume_into_the_file_after_a_stall</c>):
+    /// the REAL timed tone and the REAL mixer read 10 ms of the cue, then no
+    /// reads until after the boundary. On b6543ac1 the end was predicted at
+    /// that first read, and the recovering mixer emitted 8,714 tone samples
+    /// about 125 ms after the boundary, with a position report and without.
+    /// Now nothing settles the end until the tone's last sample or its cut;
+    /// the stalled tone is cut, and the late read emits none of it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_partly_read_tone_must_not_resume_into_the_file_after_a_stall(bool reportsPosition)
+    {
+        AssertWindowless();
+        int rate = EarconPlayer.MixerSampleRate;
+        var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(rate, 2)) { ReadFully = true };
+        bool beeps = EarconPlayer.RecorderBeepsEnabled, master = EarconPlayer.EarconsEnabled;
+        var savedDevice = SoundTiming.AlertDevice;
+        try
+        {
+            EarconPlayer.RecorderBeepsEnabled = true;
+            EarconPlayer.EarconsEnabled = true;
+            EarconPlayer.TestAlertMixer = mixer;
+            SoundTiming.AlertDevice = reportsPosition ? () => new SoundTiming.DeviceSnapshot(0, 0, 30, 3, rate) : null;
+            var end = EarconPlayer.RecorderStartBeepTimed();
+            var first = new float[(rate / 100) * 2];   // 10 ms of the actual 160 ms cue
+            mixer.Read(first);
+            Assert.True(first.Any(x => Math.Abs(x) > .001f), "positive control: the first part played");
+            Assert.False(end.IsCompleted, "the end was predicted at the first read");
+            long boundary = ChainAuditionTake.FileStartAfterTone((await end.WaitAsync(TimeSpan.FromSeconds(10)))!.Value);
+            int wait = (int)Math.Max(1, (boundary - Stopwatch.GetTimestamp()) * 1000 / Stopwatch.Frequency + 120);
+            await Task.Delay(wait);   // no output reads during a device or thread stall
+            long resumed = Stopwatch.GetTimestamp();
+            Assert.True(resumed > boundary);
+            var rest = new float[EarconPlayer.RecorderStartBeepSamples().Length * 2];
+            mixer.Read(rest);
+            int audible = rest.Count(x => Math.Abs(x) > .001f);
+            _out.WriteLine($"Position={reportsPosition}; real mixer resumed {(resumed - boundary) * 1000.0 / Stopwatch.Frequency:F1} ms after boundary; late stereo tone samples={audible}");
+            Assert.Equal(0, audible);
+        }
+        finally
+        {
+            EarconPlayer.TestAlertMixer = null;
+            SoundTiming.AlertDevice = savedDevice;
+            EarconPlayer.RecorderBeepsEnabled = beeps;
+            EarconPlayer.EarconsEnabled = master;
+        }
+    }
+
+    /// <summary>
+    /// The cut and a read are one choice: a cut waits for a read already in
+    /// flight, and its end counts from after that read's samples were handed
+    /// out, never from before; after it, nothing more of the tone plays.
+    /// </summary>
+    [Fact]
+    public async Task A_cut_waits_for_a_read_in_flight_and_counts_its_end_from_after_that_read()
+    {
+        AssertWindowless();
+        int rate = EarconPlayer.MixerSampleRate;
+        float[] tone = EarconPlayer.RecorderStartBeepSamples();
+        int piece = rate / 100;
+        using var source = new GatedSamples(tone);
+        var end = new EarconPlayer.ToneEnd(tone.Length, rate, 90, Stopwatch.GetTimestamp(), () => null);
+        var probe = new EarconPlayer.ToneEnd.Probe(source, end);
+        Assert.Equal(piece, probe.Read(new float[piece]));   // taken, not finished
+        source.GateNext = true;
+        var reader = Task.Run(() => probe.Read(new float[piece]));
+        Assert.True(source.InRead.Wait(5000), "positive control: the read is in flight");
+        var cutter = Task.Run(() => end.CutNow());
+        await Task.Delay(100);
+        Assert.False(cutter.IsCompleted, "the cut did not wait for the read in flight");
+        long released = Stopwatch.GetTimestamp();
+        source.Release.Set();
+        Assert.Equal(piece, await reader.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(await cutter.WaitAsync(TimeSpan.FromSeconds(5)));
+        long at = (await end.AudibleEnd)!.Value;
+        long least = released + Ticks(90) + (long)Math.Round((double)piece * Q / rate);
+        _out.WriteLine($"Cut's end {(at - released) * 1000.0 / Q:F1} ms after the read in flight was released; at least {(least - released) * 1000.0 / Q:F1}");
+        Assert.True(at >= least, "the cut's end counts from before the read in flight handed out its samples");
+        var after = new float[piece];
+        Assert.Equal(0, probe.Read(after));
+        Assert.Equal(0, after.Count(x => x != 0));
+    }
+
+    /// <summary>
+    /// A taken tone is cut only once the bound after its FIRST READ has
+    /// passed (not the hand-over's, which a late read could already have
+    /// passed), and the cut's end counts from the cut, plus the chain, plus
+    /// the frames of the read before it.
+    /// </summary>
+    [Fact]
+    public async Task A_taken_tone_is_cut_only_once_its_bound_after_the_first_read_has_passed()
+    {
+        AssertWindowless();
+        int rate = EarconPlayer.MixerSampleRate;
+        float[] tone = EarconPlayer.RecorderStartBeepSamples();
+        int piece = rate / 100;
+        long now = Ticks(1000);
+        var end = new EarconPlayer.ToneEnd(tone.Length, rate, 90, Ticks(1000), () => null, clock: () => now);
+        var probe = new EarconPlayer.ToneEnd.Probe(new Samples(tone), end);
+        long boundMs = 90 + (long)tone.Length * 1000 / rate + EarconPlayer.ToneEnd.NoReadGraceMs;
+        now = Ticks(1400);
+        Assert.Equal(piece, probe.Read(new float[piece]));   // first read, 400 ms late
+        Assert.False(end.AudibleEnd.IsCompleted);
+        now = Ticks(1000 + boundMs) + 1;   // the hand-over's bound has passed; the read's has not
+        end.Expire();
+        Assert.False(end.IsCut);
+        Assert.False(end.AudibleEnd.IsCompleted);
+        now = Ticks(1400 + boundMs) + 1;
+        end.Expire();
+        Assert.True(end.IsCut);
+        Assert.Equal(EarconPlayer.ToneEnd.Estimated(now, 90, piece, rate, Q), await end.AudibleEnd);
+        Assert.Equal(0, probe.Read(new float[piece]));
+    }
+
+    /// <summary>
+    /// The end reads the output's position FIRST and the clock AFTER it. The
+    /// device here plays in real time, and every clock reading is followed by
+    /// a 200 ms pause: the end must still be no earlier than the moment the
+    /// tone's last sample is really heard.
+    /// </summary>
+    [Fact]
+    public async Task The_end_reads_the_outputs_position_before_the_clock_so_a_pause_between_them_only_makes_it_later()
+    {
+        AssertWindowless();
+        int rate = EarconPlayer.MixerSampleRate;
+        float[] tone = EarconPlayer.RecorderStartBeepSamples();
+        long now = Ticks(2000), playingFrom = Ticks(1000), produced = 2L * rate;
+        long Clock() { long t = now; now += Ticks(200); return t; }
+        SoundTiming.DeviceSnapshot? Device() => new SoundTiming.DeviceSnapshot(produced, (now - playingFrom) * rate / Q, 30, 3, rate);
+        var end = new EarconPlayer.ToneEnd(tone.Length, rate, 90, Ticks(1000), Device, clock: Clock);
+        Assert.Equal(tone.Length, new EarconPlayer.ToneEnd.Probe(new Samples(tone), end).Read(new float[tone.Length]));
+        // Everything the device holds is heard by playingFrom + produced; the tone's frames follow.
+        long heard = playingFrom + (long)Math.Round((double)(produced + tone.Length) * Q / rate);
+        long at = (await end.AudibleEnd)!.Value;
+        _out.WriteLine($"End {(at - heard) * 1000.0 / Q:F1} ms from when the tone's last sample is heard");
+        Assert.True(at >= heard - 1, "the end was put before the tone's last sample is heard");
+    }
+
+    /// <summary>
+    /// Codex's control (<c>A_wholly_withdrawn_tone_is_silent_and_continuing_from_frame_zero_is_safe</c>):
+    /// a tone withdrawn before the mixer took it is silent, so continuing the
+    /// take from frame zero, with no new words, is safe.
+    /// </summary>
+    [Fact]
+    public async Task A_wholly_withdrawn_tone_is_silent_and_continuing_from_frame_zero_is_safe()
+    {
+        AssertWindowless();
+        float[] tone = EarconPlayer.RecorderStartBeepSamples();
+        var end = new EarconPlayer.ToneEnd(tone.Length, EarconPlayer.MixerSampleRate, 90, 0, () => null);
+        var probe = new EarconPlayer.ToneEnd.Probe(new Samples(tone), end);
+        Assert.True(end.Withdraw());
+        Assert.Null(await end.AudibleEnd);
+        Assert.Equal(0, probe.Read(new float[tone.Length]));
+        string path = Path.Combine(Path.GetTempPath(), "q3r3-" + Guid.NewGuid().ToString("N") + ".wav");
+        try
+        {
+            using var w = new WavWriter(path, 1000, 1);
+            var start = new CaptureFileStart(1000, true, 0, Q);
+            start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(Ticks(200), -1, streamStartedAt: Ticks(0)));
+            start.BeginAt(null);
+            start.Finish(w);
+            Assert.Equal(0, start.BoundaryFrame);
+            Assert.Equal(100, w.Frames);
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// Codex's controls (<c>A_capture_behind_from_its_first_block_and_never_caught_up_cannot_start_early</c>):
+    /// a reader behind from its first block that never catches up, its backlog
+    /// unreported or larger than a block, never establishes; the stream's
+    /// start places the file at or after the true frame 337.
+    /// </summary>
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(120, 0)]
+    [InlineData(-1, 100)]
+    public void A_capture_behind_from_its_first_block_and_never_caught_up_cannot_start_early(int reported, int startupMs)
+    {
+        AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "q3r3-" + Guid.NewGuid().ToString("N") + ".wav");
+        try
+        {
+            using var w = new WavWriter(path, 1000, 1);
+            var start = new CaptureFileStart(1000, true, 0, Q);
+            long origin = Ticks(10000), moment = origin + Ticks(337);
+            start.BeginAt(moment);
+            for (int at = 0; at < 2000; at += 100)
+            {
+                long arrival = origin + Ticks(at + 100 + 120);
+                start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(arrival, reported,
+                    streamStartedAt: origin - Ticks(startupMs), backlogAnsweredAt: reported >= 0 ? arrival : null));
+            }
+            start.Finish(w);
+            Assert.False(start.TimingEstablished);
+            Assert.True(start.FileBegan);
+            _out.WriteLine($"backlog report={reported}; stream start {startupMs} ms early; boundary={start.BoundaryFrame}; true boundary=337; frames={w.Frames}");
+            Assert.True(start.BoundaryFrame >= 337);
+            Assert.Equal(337 + startupMs, start.BoundaryFrame);
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// C1b (Codex's <c>A_thread_pause_after_the_backlog_query_must_not_establish_a_file_inside_the_tone</c>):
+    /// the REAL tone, 48 kHz, 1024-frame reads, 30 ms of input latency, an
+    /// honest device (every backlog is what was waiting when it was asked).
+    /// One 500 ms thread pause on the first block. On b6543ac1, which asked the
+    /// backlog and then read the clock, the pause between them established
+    /// the file at frame 0 and kept all 5,207 tone samples. "repair 2's order"
+    /// is Codex's input verbatim: a backlog with no answer time no longer
+    /// establishes. The other places are where the pause can fall now that the
+    /// clock is read before the backlog is asked and again after the answer.
+    /// The positive control is "none": the timing is still established, and
+    /// the file begins exactly at the margin after the tone (335.042 ms).
+    /// </summary>
+    [Theory]
+    [InlineData(0, "repair 2's order")]
+    [InlineData(500, "repair 2's order")]
+    [InlineData(0, "none")]
+    [InlineData(500, "before the stamp")]
+    [InlineData(500, "between the stamp and the answer")]
+    [InlineData(500, "after the answer, before its reading")]
+    public void A_thread_pause_around_the_backlog_question_must_not_establish_a_file_inside_the_tone(int pauseMs, string where)
+    {
+        AssertWindowless();
+        int rate = 48000, mixRate = EarconPlayer.MixerSampleRate;
+        float[] tone = EarconPlayer.RecorderStartBeepSamples();
+        long origin = Ticks(1000000), toneFrom = origin + Ticks(115);
+        long toneEnd = toneFrom + (long)Math.Round((double)tone.Length * Q / mixRate);
+        var heard = new float[rate];
+        for (int i = 0; i < heard.Length; i++)
+        {
+            long when = origin + (long)Math.Round((double)i * Q / rate);
+            long j = (long)Math.Floor((double)(when - toneFrom) * mixRate / Q);
+            if (j >= 0 && j < tone.Length) heard[i] = tone[j];
+        }
+        string path = Path.Combine(Path.GetTempPath(), "q3r3-" + Guid.NewGuid().ToString("N") + ".wav");
+        long begin = ChainAuditionTake.FileStartAfterTone(toneEnd);
+        var start = new CaptureFileStart(rate, true, .030, Q);
+        start.BeginAt(begin);
+        bool answerKnown = where != "repair 2's order";
+        long pause = Ticks(pauseMs);
+        try
+        {
+            using (var writer = new WavWriter(path, rate, 1))
+            {
+                long previous = 0;
+                for (int at = 0; at < heard.Length; at += 1024)
+                {
+                    int n = Math.Min(1024, heard.Length - at);
+                    long onTime = origin + (long)Math.Round((double)(at + n) * Q / rate) + Ticks(30);
+                    long returned = at == 0 ? onTime : Math.Max(onTime, previous + Ticks(.1));
+                    long stamp = returned, asked = returned, answered = returned;
+                    if (at == 0)
+                    {
+                        switch (where)
+                        {
+                            // Codex's: the backlog asked first, then the pause, then the clock.
+                            case "repair 2's order": stamp = returned + pause; break;
+                            case "before the stamp": stamp = asked = answered = returned + pause; break;
+                            case "between the stamp and the answer": asked = answered = returned + pause; break;
+                            case "after the answer, before its reading": answered = returned + pause; break;
+                        }
+                    }
+                    long backlog = Math.Max(0, (long)Math.Floor((double)(asked - Ticks(30) - origin) * rate / Q) - (at + n));
+                    start.Block(writer, heard.Skip(at).Take(n).ToArray(), n, n,
+                        new CaptureBlockTiming(stamp, backlog, streamStartedAt: origin - Ticks(10),
+                            backlogAnsweredAt: answerKnown ? answered : null));
+                    previous = Math.Max(stamp, answered);
+                }
+                start.Finish(writer);
+            }
+            Assert.True(start.FileBegan);
+            int kept = heard.Skip((int)start.BoundaryFrame).Count(x => Math.Abs(x) > .001f);
+            _out.WriteLine($"One {pauseMs} ms pause, {where}: established={start.TimingEstablished}; boundary={start.BoundaryFrame * 1000.0 / rate:F3} ms ({start.HowPlaced}); real tone samples retained={kept}");
+            Assert.Equal(0, kept);
+            long exact = (long)Math.Ceiling((double)(begin - origin) * rate / Q);
+            // The device counts whole frames, so a block's bound is tight to
+            // within one frame (21 microseconds), which the margin covers.
+            Assert.True(start.BoundaryFrame >= exact - 1, "the file began before the margin after the tone");
+            if (answerKnown)
+            {
+                Assert.True(start.TimingEstablished, "positive control: a caught-up block still establishes the timing");
+                if (where == "none") Assert.Equal(exact, start.BoundaryFrame);
+            }
+            else Assert.False(start.TimingEstablished);
+        }
+        finally { File.Delete(path); }
+    }
+
+    private static void SetField(object target, string name, object value) =>
+        target.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(target, value);
+
+    /// <summary>
+    /// Codex's control (<c>A_fallback_beyond_the_stopped_capture_yields_no_file_and_the_too_short_answer</c>):
+    /// a file start beyond what was captured when Stop runs begins no file,
+    /// deletes the empty one, and the check says its too-short words.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_fallback_beyond_the_stopped_capture_yields_no_file_and_the_too_short_answer(bool zeroBlocks)
+    {
+        AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "q3r3-" + Guid.NewGuid().ToString("N") + ".wav");
+        using var rec = new MicRecorder();
+        var w = new WavWriter(path, 1000, 1);
+        var start = new CaptureFileStart(1000, true, 0, Q);
+        long now = Stopwatch.GetTimestamp();
+        start.BeginAt(now + Ticks(zeroBlocks ? 200 : -200));
+        if (!zeroBlocks)
+            start.Block(w, new float[100], 100, 100, new CaptureBlockTiming(now + Ticks(100), -1, streamStartedAt: now - Ticks(1000)));
+        SetField(rec, "_writer", w);
+        SetField(rec, "_fileStart", start);
+        SetField(rec, "<Path>k__BackingField", path);
+        SetField(rec, "<SampleRate>k__BackingField", 1000);
+        Assert.Equal("", rec.Stop());
+        Assert.False(File.Exists(path));
+        Assert.True(rec.StoppedBeforeFileBegan);
+        Assert.Equal(zeroBlocks, rec.StoppedDuringLead);
+        Assert.Equal(MicRecorder.StopReason.Requested, rec.LastStopReason);
+        Assert.Equal(RecordingNarrator.StopSaying.StoppedTooSoon,
+            RecordingNarrator.StopKind(false, false, rec.CapturedSeconds, true, rec.StoppedDuringLead));
+    }
+
+    /// <summary>Codex's race (<c>Arming_the_watch_and_the_first_read_must_not_throw</c>): arming the bound and the first take, 30,000 times at once.</summary>
+    [Fact]
+    public void Arming_the_watch_and_the_first_read_must_not_throw()
+    {
+        AssertWindowless();
+        var errors = new ConcurrentQueue<Exception>();
+        var ends = new ConcurrentBag<EarconPlayer.ToneEnd>();
+        Parallel.For(0, 30000, i =>
+        {
+            var end = new EarconPlayer.ToneEnd(7000, 44100, 90, Stopwatch.GetTimestamp(), () => null);
+            ends.Add(end);
+            Parallel.Invoke(
+                () => { try { end.WatchForNoRead(); } catch (Exception ex) { errors.Enqueue(ex); } },
+                () => { if ((i & 1) == 0) Thread.SpinWait(15); end.Take(Stopwatch.GetTimestamp()); });
+        });
+        // Settle them now, so no timer outlives the test.
+        foreach (var end in ends) end.CutNow();
+        _out.WriteLine($"Watch/read races threw {errors.Count} exceptions: {string.Join(", ", errors.Select(e => e.GetType().Name).Distinct())}");
+        Assert.Empty(errors);
+    }
+
+    /// <summary>A mono source that, when asked, blocks inside its next read until released.</summary>
+    private sealed class GatedSamples : ISampleProvider, IDisposable
+    {
+        private readonly float[] _data;
+        private int _at;
+        public GatedSamples(float[] data) => _data = data;
+        public volatile bool GateNext;
+        public ManualResetEventSlim InRead { get; } = new ManualResetEventSlim();
+        public ManualResetEventSlim Release { get; } = new ManualResetEventSlim();
+        public WaveFormat WaveFormat => WaveFormat.CreateIeeeFloatWaveFormat(EarconPlayer.MixerSampleRate, 1);
+        public int Read(Span<float> buffer)
+        {
+            if (GateNext)
+            {
+                GateNext = false;
+                InRead.Set();
+                Release.Wait(TimeSpan.FromSeconds(10));
+            }
+            int n = Math.Min(buffer.Length, _data.Length - _at);
+            _data.AsSpan(_at, n).CopyTo(buffer);
+            _at += n;
+            return n;
+        }
+        public void Dispose() { InRead.Dispose(); Release.Dispose(); }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
+
+    /// <summary>A mono provider over fixed samples, as the timed tone's own is.</summary>
+    private sealed class Samples : ISampleProvider
+    {
+        private readonly float[] _data;
+        private int _at;
+        public Samples(float[] data) => _data = data;
+        public WaveFormat WaveFormat => WaveFormat.CreateIeeeFloatWaveFormat(EarconPlayer.MixerSampleRate, 1);
+        public int Read(Span<float> buffer)
+        {
+            int n = Math.Min(buffer.Length, _data.Length - _at);
+            _data.AsSpan(_at, n).CopyTo(buffer);
+            _at += n;
+            return n;
+        }
+    }
+
+    /// <summary>
+    /// Read the mixer, 1024 stereo frames at a time, until the timed tone's
+    /// last sample is out; the end must not be settled before that read.
+    /// Returns when that last read began and ended, and the tone frames it emitted.
+    /// </summary>
+    private static (long before, long after, int lastFrames) ReadTheToneThrough(MixingSampleProvider mixer, Task<long?> end)
+    {
+        int frames = EarconPlayer.RecorderStartBeepSamples().Length;
+        var data = new float[2048];
+        long before = 0, after = 0;
+        int emitted = 0, last = 0;
+        while (emitted < frames)
+        {
+            Assert.False(end.IsCompleted, "the end was settled before the tone's last sample was emitted");
+            before = Stopwatch.GetTimestamp();
+            mixer.Read(data.AsSpan());
+            after = Stopwatch.GetTimestamp();
+            last = Math.Min(1024, frames - emitted);
+            emitted += last;
+        }
+        return (before, after, last);
+    }
 
     /// <summary>A mixer standing in for the alert channel's (no device reads it), with the output's state stubbed; every switch restored.</summary>
     private static async Task WithMixer(Func<SoundTiming.DeviceSnapshot> device, Func<MixingSampleProvider, Task> body)

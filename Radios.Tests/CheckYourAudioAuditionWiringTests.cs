@@ -335,16 +335,22 @@ namespace Radios.Tests
             string recorder = Code(Source("JJPortaudio/JJPortaudio/MicRecorder.cs"));
             string frames = Body(recorder, "private void OnFrames(float[] buffer, int count, int frames, CaptureBlockTiming timing)");
             Assert.Contains("fileStart.Block(w, buffer, count, frames, timing)", frames);
-            // Repair 2 (C1b): the timed tap, stamped by the probe right after the
-            // read and the backlog, before any metering.
+            // Repair 2 (C1b): the timed tap. Repair 3 (Codex's re-check of
+            // b6543ac1, C1b): the clock is read BEFORE the backlog is asked and
+            // again after the answer, before any metering, so the pair can only
+            // put the file's start later (CaptureBlockTiming derives why).
             Assert.Contains("probe.TimedFrameSink = OnFrames;", recorder);
             Assert.DoesNotContain("probe.FrameSink = OnFrames;", recorder);
             string probe = Code(Source("JJPortaudio/JJPortaudio/MicProbe.cs"));
             int read = probe.IndexOf("PortAudio.Pa_ReadStream(stream, buffer, chunkFrames);", StringComparison.Ordinal);
             int backlog = probe.IndexOf("backlog = PortAudio.Pa_GetStreamReadAvailable(stream);", StringComparison.Ordinal);
             int arrival = probe.IndexOf("long arrival = Stopwatch.GetTimestamp();", StringComparison.Ordinal);
+            int answered = probe.IndexOf("long answered = Stopwatch.GetTimestamp();", StringComparison.Ordinal);
             int meter = probe.IndexOf("Accumulate(buffer, (int)chunkFrames * channels, (int)chunkFrames);", StringComparison.Ordinal);
-            Assert.True(read > 0 && read < backlog && backlog < arrival && arrival < meter, "read, then backlog, then the arrival stamp, then metering");
+            Assert.True(read > 0 && read < arrival && arrival < backlog && backlog < answered && answered < meter,
+                "read, then the arrival stamp, then the backlog, then the answer's stamp, then metering");
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(probe, "Pa_GetStreamReadAvailable").Count);
+            Assert.Contains("backlogAnsweredAt: answeredAt", probe);
             int started = probe.IndexOf("long streamStartedAt = Stopwatch.GetTimestamp();", StringComparison.Ordinal);
             Assert.True(started > 0 && started < probe.IndexOf("perr = PortAudio.Pa_StartStream(stream);", StringComparison.Ordinal),
                 "the stream's start is stamped before it is asked to start");

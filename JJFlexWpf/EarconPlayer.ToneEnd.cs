@@ -32,21 +32,26 @@ namespace JJFlexWpf
         /// An audition take's file begins once this tone is over, and when that
         /// is depends on the alert output: its buffers hold 90 ms by default and
         /// up to 800 ms. So the end is read from the OUTPUT'S OWN POSITION, the
-        /// way the sound timing lines read it (#855): at the mixer's first read
-        /// of the tone, the audio the device already holds ahead of it is what
-        /// it has been handed less what it reports played, and the tone's first
-        /// sample is heard that long after the read; its last, the tone's
-        /// length after that.
+        /// way the sound timing lines read it (#855): at the read that emits
+        /// the tone's LAST sample (repair 3; repair 2 predicted the whole tone
+        /// at the first read), the audio the device already holds ahead of it
+        /// is what it has been handed less what it reports played, and that
+        /// read's samples are heard after it.
         /// </para>
         /// <para>
         /// When the device will not report its position, the end is ESTIMATED
-        /// from the configured buffer, counted from the mixer's first read of
-        /// the tone (repair 2; repair 1 counted from the hand-over, so a read
-        /// that came late put the end before the tone could even begin): the
-        /// read, plus the whole buffer chain, plus its length. That is the
-        /// latest the chain lets it be heard, so it keeps the tone out of a file
-        /// at the cost of up to one buffer of what follows. The trace calls it
-        /// an estimate.
+        /// from the configured buffer, counted from that same last read (repair
+        /// 1 counted from the hand-over, so a read that came late put the end
+        /// before the tone could even begin): the read, plus the whole buffer
+        /// chain, plus what it emitted. That is the latest the chain lets it be
+        /// heard, so it keeps the tone out of a file at the cost of up to one
+        /// buffer of what follows. The trace calls it an estimate.
+        /// </para>
+        /// <para>
+        /// <b>A tone taken but not finished in time is CUT (repair 3, Codex's
+        /// re-check of b6543ac1, C1a)</b>, so a stalled output can never resume
+        /// it into the take; the end then counts from the cut. See
+        /// <see cref="ToneEnd"/>.
         /// </para>
         /// <para>
         /// <b>A tone the mixer never takes is WITHDRAWN, never assumed over
@@ -59,7 +64,8 @@ namespace JJFlexWpf
         /// never sound. The end is then reported as NO tone, so the file begins
         /// at its first frame and nothing the operator said is lost. The
         /// withdrawal and the mixer's first read are one atomic choice, so the
-        /// tone is either withdrawn whole or timed from its read.
+        /// tone is either withdrawn whole or taken, and a taken tone is timed
+        /// from its last read or its cut.
         /// </para>
         /// <para>
         /// <b>With no alert mixer at all</b>, the plain beep's fallback (a
@@ -104,23 +110,50 @@ namespace JJFlexWpf
 
         /// <summary>
         /// When one tone handed to the alert mixer is audibly over (Track Q3
-        /// repair 1). Settled once: at the mixer's first read of it, or, when
-        /// the mixer never reads it in time, by withdrawing it, which reports no
-        /// tone (repair 2).
+        /// repair 1). Settled once: by the read that emits its LAST sample; by
+        /// cutting it when that has not happened in time (repair 3); or, when
+        /// the mixer never reads it in time, by withdrawing it, which reports
+        /// no tone (repair 2).
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Repair 3 (Codex's re-check of b6543ac1, C1a).</b> Repair 2 settled
+        /// the end at the mixer's FIRST read, as a prediction for the whole tone,
+        /// and a taken tone could not be withdrawn; so a read of 10 ms followed by
+        /// a stall left the rest in this provider, and the mixer emitted 8,714
+        /// tone samples about 125 ms after the file had begun. Now the end counts
+        /// only from the provider's own final sample: it is settled by the read
+        /// that emits it, never before. A tone that has not emitted its last
+        /// sample by the chain, its length and <see cref="NoReadGraceMs"/> after
+        /// its first read is CUT: from then on it reads as finished, and the end
+        /// counts from the cut plus the same output allowance.
+        /// </para>
+        /// <para>
+        /// A read and a cut are one choice under one lock, so a cut waits for a
+        /// read already in flight and reads the clock only after it: every tone
+        /// sample was handed out before that reading. Each end reads the
+        /// output's position FIRST and the clock after it, so a pause between
+        /// the two can only make the end later, never earlier.
+        /// </para>
+        /// </remarks>
         internal sealed class ToneEnd
         {
-            /// <summary>How long, past the chain and the tone's length, a tone the mixer has not read is waited for before it is withdrawn.</summary>
+            /// <summary>How long, past the chain and the tone's length, a tone is waited for: unread, before it is withdrawn; partly read, before it is cut.</summary>
             internal const int NoReadGraceMs = 500;
 
-            private const int Pending = 0, Taken = 1, Withdrawn = 2;
-            private int _state;
+            private const int Pending = 0, Taken = 1, Withdrawn = 2, Finished = 3, Cut = 4;
+            private readonly object _gate = new object();
+            private int _state;              // under _gate
+            private long _firstRead;         // under _gate
+            private long _emittedFrames;     // under _gate
+            private int _lastReadFrames;     // under _gate: the frames of the most recent read that emitted any
 
             private readonly int _toneFrames;
             private readonly int _rate;
             private readonly int _assumedLatencyMs;
             private readonly long _handedOver;
             private readonly Func<SoundTiming.DeviceSnapshot?> _device;
+            private readonly Func<long> _clock;
             private readonly TaskCompletionSource<long?> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
             private Timer? _noRead;
 
@@ -129,13 +162,16 @@ namespace JJFlexWpf
             /// <param name="assumedLatencyMs">The output's configured buffer chain, for the fallback.</param>
             /// <param name="handedOver">When the tone was handed to the mixer, on the Stopwatch clock.</param>
             /// <param name="device">The output's state at a mixer read; null when it has none.</param>
-            internal ToneEnd(int toneFrames, int rate, int assumedLatencyMs, long handedOver, Func<SoundTiming.DeviceSnapshot?> device)
+            /// <param name="clock">The Stopwatch clock; a test may give a fixed one.</param>
+            internal ToneEnd(int toneFrames, int rate, int assumedLatencyMs, long handedOver, Func<SoundTiming.DeviceSnapshot?> device,
+                Func<long>? clock = null)
             {
                 _toneFrames = Math.Max(0, toneFrames);
                 _rate = rate > 0 ? rate : SampleRate;
                 _assumedLatencyMs = Math.Max(0, assumedLatencyMs);
                 _handedOver = handedOver;
                 _device = device;
+                _clock = clock ?? Stopwatch.GetTimestamp;
             }
 
             /// <summary>Completes with the moment the tone is audibly over.</summary>
@@ -143,96 +179,190 @@ namespace JJFlexWpf
 
             /// <summary>
             /// The end read from the output's position: <paramref name="queuedFrames"/>
-            /// of audio were ahead of the tone when the mixer first read it at
-            /// <paramref name="read"/>, so it is heard from then on for its length.
+            /// of audio were ahead of the tone's last samples at <paramref name="read"/>,
+            /// and those <paramref name="lastFrames"/> are heard after them.
             /// </summary>
-            internal static long FromDevice(long read, long queuedFrames, int toneFrames, int rate, long frequency) =>
-                read + (long)Math.Round((double)(Math.Max(0, queuedFrames) + toneFrames) * frequency / rate);
+            internal static long FromDevice(long read, long queuedFrames, int lastFrames, int rate, long frequency) =>
+                read + (long)Math.Round((double)(Math.Max(0, queuedFrames) + lastFrames) * frequency / rate);
 
             /// <summary>
             /// The end estimated from the configured chain when the output
-            /// reports no position: from the mixer's first READ of the tone
-            /// (never from the hand-over, which can be long before it), plus the
-            /// whole chain, plus the tone.
+            /// reports no position: from the read that handed out the tone's last
+            /// samples (or the cut), plus the whole chain, plus those samples.
             /// </summary>
-            internal static long Estimated(long read, int latencyMs, int toneFrames, int rate, long frequency) =>
-                read + (long)latencyMs * frequency / 1000 + (long)Math.Round((double)toneFrames * frequency / rate);
+            internal static long Estimated(long read, int latencyMs, int lastFrames, int rate, long frequency) =>
+                read + (long)latencyMs * frequency / 1000 + (long)Math.Round((double)lastFrames * frequency / rate);
 
             /// <summary>The plain beep's end, which cannot be read: <see cref="Radios.ChainAuditionTake.UnknownToneEndMs"/> after it was asked for.</summary>
             internal static long PlainBeepEstimate(long asked, long frequency) =>
                 asked + (long)Radios.ChainAuditionTake.UnknownToneEndMs * frequency / 1000;
 
             /// <summary>
-            /// The mixer is reading the tone, on the output's thread. True to
-            /// play it; false when it was withdrawn, so it plays nothing. The
-            /// first true read settles its end.
+            /// The mixer is about to read the tone. True to play it; false once
+            /// it was withdrawn, cut or finished, so it plays nothing. The first
+            /// true answer makes it taken: it can no longer be withdrawn, only
+            /// finished or cut. Settles nothing (repair 3).
             /// </summary>
             internal bool Take(long read)
             {
-                int prior = Interlocked.CompareExchange(ref _state, Taken, Pending);
-                if (prior == Withdrawn) return false;
-                if (prior == Pending)
+                lock (_gate) return TakeLocked(read);
+            }
+
+            private bool TakeLocked(long read)
+            {
+                if (_state == Pending) { _state = Taken; _firstRead = read; return true; }
+                return _state == Taken;
+            }
+
+            /// <summary>
+            /// One read of the tone, on the output's thread, under the same lock
+            /// as a cut: plays nothing once the tone is withdrawn, cut or
+            /// finished, and settles the end at the read that emits its last
+            /// sample.
+            /// </summary>
+            internal int Read(ISampleProvider source, Span<float> buffer)
+            {
+                int n, frames;
+                bool last;
+                lock (_gate)
                 {
-                    // The end must be settled whatever happens here: once taken,
-                    // the tone can no longer be withdrawn, so nothing else would.
-                    try { FirstRead(read); }
-                    catch (Exception)
-                    {
-                        Settle(Estimated(read, _assumedLatencyMs, _toneFrames, _rate, Stopwatch.Frequency),
-                            "ESTIMATED from the buffer chain after the first read faulted");
-                    }
+                    if (!TakeLocked(_clock())) return 0;
+                    n = source.Read(buffer);
+                    frames = n / Math.Max(1, source.WaveFormat.Channels);
+                    _emittedFrames += frames;
+                    if (frames > 0) _lastReadFrames = frames;
+                    last = _emittedFrames >= _toneFrames || n < buffer.Length;
+                    if (last) _state = Finished;
                 }
-                return true;
+                if (last) SettleAfter(frames, "at the read that emitted its last sample");
+                return n;
             }
 
             /// <summary>
             /// Withdraw the tone if the mixer has not read any of it: it then
             /// can never sound, and its end is reported as no tone. False when
-            /// the mixer already took it (its read settles the end).
+            /// the mixer already took it.
             /// </summary>
             internal bool Withdraw()
             {
-                if (Interlocked.CompareExchange(ref _state, Withdrawn, Pending) != Pending) return false;
+                lock (_gate)
+                {
+                    if (_state != Pending) return false;
+                    _state = Withdrawn;
+                }
                 Settle(null, "withdrawn: the mixer never took it, so it can never sound, and no tone is reported");
                 return true;
             }
 
-            /// <summary>True once the tone was withdrawn.</summary>
-            internal bool IsWithdrawn => Volatile.Read(ref _state) == Withdrawn;
+            /// <summary>
+            /// Cut a tone the mixer took but has not finished (repair 3): from
+            /// now on it reads as finished, so nothing more of it can sound, and
+            /// the end counts from this cut. Waits for a read in flight. False
+            /// when it was not taken, or already finished.
+            /// </summary>
+            internal bool CutNow()
+            {
+                int frames;
+                lock (_gate)
+                {
+                    if (_state != Taken) return false;
+                    _state = Cut;
+                    frames = _lastReadFrames;
+                }
+                SettleAfter(frames, "CUT: its last sample had not been emitted in time, so the output plays nothing more of it, and the end counts from the cut");
+                return true;
+            }
 
-            /// <summary>The mixer read the tone for the first time, on the output's thread.</summary>
-            internal void FirstRead(long read)
+            /// <summary>True once the tone was withdrawn.</summary>
+            internal bool IsWithdrawn { get { lock (_gate) return _state == Withdrawn; } }
+
+            /// <summary>True once the tone was cut.</summary>
+            internal bool IsCut { get { lock (_gate) return _state == Cut; } }
+
+            /// <summary>
+            /// Settle the end once no tone sample can be handed out any more (its
+            /// last read has returned, or the cut is made); the most recent read
+            /// handed out <paramref name="lastFrames"/>. The output's position is
+            /// read FIRST and the clock AFTER it: whatever the device plays
+            /// between the two only shortens what it holds, so the pair can only
+            /// put the end later.
+            /// </summary>
+            private void SettleAfter(int lastFrames, string at)
             {
                 long end;
                 string how;
-                SoundTiming.DeviceSnapshot? snap = null;
-                try { snap = _device(); } catch { }
-                if (snap is { } s && s.PlayedFrames >= 0 && s.ProducedFrames >= s.PlayedFrames)
+                try
                 {
-                    long queued = s.ProducedFrames - s.PlayedFrames;
-                    end = FromDevice(read, queued, _toneFrames, _rate, Stopwatch.Frequency);
-                    how = "from the output's position, " + (queued * 1000 / _rate) + " ms queued ahead of it";
+                    SoundTiming.DeviceSnapshot? snap = null;
+                    try { snap = _device(); } catch { }
+                    long now = _clock();
+                    if (snap is { } s && s.PlayedFrames >= 0 && s.ProducedFrames >= s.PlayedFrames)
+                    {
+                        long queued = s.ProducedFrames - s.PlayedFrames;
+                        // The most recent read's own frames are counted on top: a
+                        // read still on its way through the mixer is not yet in
+                        // what the device was handed. Later, never earlier.
+                        end = FromDevice(now, queued, lastFrames, _rate, Stopwatch.Frequency);
+                        how = at + ", from the output's position, " + (queued * 1000 / _rate) + " ms queued ahead of it";
+                    }
+                    else
+                    {
+                        end = Estimated(now, _assumedLatencyMs, lastFrames, _rate, Stopwatch.Frequency);
+                        how = at + ", ESTIMATED from the " + _assumedLatencyMs + " ms buffer chain (the output reports no position)";
+                    }
+                    long first;
+                    lock (_gate) first = _firstRead;
+                    how += "; its first read came " + ((first - _handedOver) * 1000 / Stopwatch.Frequency) + " ms after it was handed over";
                 }
-                else
+                catch (Exception)
                 {
-                    end = Estimated(read, _assumedLatencyMs, _toneFrames, _rate, Stopwatch.Frequency);
-                    how = "ESTIMATED from the " + _assumedLatencyMs + " ms buffer chain after the mixer's first read"
-                        + " (the output reports no position), " + ((read - _handedOver) * 1000 / Stopwatch.Frequency) + " ms after it was handed over";
+                    end = Estimated(_clock(), _assumedLatencyMs, lastFrames, _rate, Stopwatch.Frequency);
+                    how = at + ", ESTIMATED from the buffer chain after reading the output faulted";
                 }
                 Settle(end, how);
             }
 
+            /// <summary>Waited from the hand-over (unread) or from the first read (taken), before a withdrawal or a cut.</summary>
+            private long BoundTicks =>
+                ((long)_assumedLatencyMs + (long)_toneFrames * 1000 / _rate + NoReadGraceMs) * Stopwatch.Frequency / 1000;
+
             /// <summary>
-            /// Withdraw the tone if the mixer has not read it within the chain,
-            /// its length and <see cref="NoReadGraceMs"/> (repair 2).
+            /// Arm the bound: a tone the mixer has not read by the chain, its
+            /// length and <see cref="NoReadGraceMs"/> after the hand-over is
+            /// withdrawn (repair 2); one it took but has not finished by the same
+            /// span after its first read is cut (repair 3).
             /// </summary>
             internal void WatchForNoRead()
             {
                 if (_done.Task.IsCompleted) return;
-                int wait = _assumedLatencyMs + (int)((long)_toneFrames * 1000 / _rate) + NoReadGraceMs;
-                var timer = new Timer(_ => Withdraw(), null, Timeout.Infinite, Timeout.Infinite);
+                var timer = new Timer(_ => Expire(), null, Timeout.Infinite, Timeout.Infinite);
                 _noRead = timer;
-                timer.Change(wait, Timeout.Infinite);
+                Arm(timer, _handedOver + BoundTicks);
+                if (_done.Task.IsCompleted) timer.Dispose();   // settled while it was being armed
+            }
+
+            private void Arm(Timer timer, long due)
+            {
+                long ms = Math.Max(1, (due - _clock()) * 1000 / Stopwatch.Frequency + 1);
+                try { timer.Change(ms, Timeout.Infinite); } catch (ObjectDisposedException) { }
+            }
+
+            /// <summary>The bound came: withdraw an unread tone, cut a taken one, or wait on for one taken late.</summary>
+            internal void Expire()
+            {
+                if (Withdraw()) return;
+                long due;
+                lock (_gate)
+                {
+                    if (_state != Taken) return;
+                    due = _firstRead + BoundTicks;
+                }
+                if (_clock() < due)
+                {
+                    if (_noRead is { } timer) Arm(timer, due);
+                    return;
+                }
+                CutNow();
             }
 
             private void Settle(long? end, string how)
@@ -251,9 +381,9 @@ namespace JJFlexWpf
             }
 
             /// <summary>
-            /// Passes the tone through untouched, and tells its
-            /// <see cref="ToneEnd"/> of the mixer's first read; once the tone is
-            /// withdrawn, it reads as finished, so the mixer drops it unheard.
+            /// Passes the tone through untouched, through its
+            /// <see cref="ToneEnd"/>: once the tone is withdrawn, cut or
+            /// finished, it reads as finished, so the mixer drops it.
             /// </summary>
             internal sealed class Probe : ISampleProvider
             {
@@ -268,13 +398,7 @@ namespace JJFlexWpf
 
                 public WaveFormat WaveFormat => _source.WaveFormat;
 
-                public int Read(Span<float> buffer)
-                {
-                    bool play;
-                    try { play = _end.Take(Stopwatch.GetTimestamp()); }
-                    catch { play = !_end.IsWithdrawn; }
-                    return play ? _source.Read(buffer) : 0;
-                }
+                public int Read(Span<float> buffer) => _end.Read(_source, buffer);
             }
         }
     }

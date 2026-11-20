@@ -579,18 +579,30 @@ namespace JJPortaudio
                 while (!_stopRequested)
                 {
                     PortAudio.PaError rerr = PortAudio.Pa_ReadStream(stream, buffer, chunkFrames);
-                    // Track Q3 repair 2: the backlog behind this block, asked
-                    // BEFORE the arrival is stamped, so every frame it counts had
-                    // reached the host buffer by then. Negative: not reported.
+                    // Track Q3 repair 3 (Codex's re-check of b6543ac1, C1b): the
+                    // clock is read FIRST, then the backlog behind this block is
+                    // asked, then the clock again. Every frame in the host buffer
+                    // at the first reading is still there when the backlog is
+                    // asked, so the count can only be too large, by frames that
+                    // arrived after the stamp, which puts the file's start LATER,
+                    // never earlier; a pause before the stamp is counted in the
+                    // backlog itself. (Repair 2 asked first and stamped after, so
+                    // a pause between the two claimed a catch-up that never
+                    // happened.) The second reading bounds the gap: the recorder
+                    // establishes its timing only from a backlog answered within
+                    // the block's own duration. Negative: not reported.
+                    long arrival = Stopwatch.GetTimestamp();
                     var timedSink = TimedFrameSink;
                     long backlog = -1;
+                    long? answeredAt = null;
                     if (timedSink != null)
                     {
                         try { backlog = PortAudio.Pa_GetStreamReadAvailable(stream); }
                         catch (Exception) { backlog = -1; }
+                        long answered = Stopwatch.GetTimestamp();
                         if (backlog < 0) backlog = -1;
+                        else answeredAt = answered;
                     }
-                    long arrival = Stopwatch.GetTimestamp();
                     long framesBefore = streamFrames;
                     streamFrames += chunkFrames;
                     if (rerr == PortAudio.PaError.paInputOverflowed)
@@ -624,7 +636,8 @@ namespace JJPortaudio
                             timedSink(buffer, (int)chunkFrames * channels, (int)chunkFrames,
                                 new CaptureBlockTiming(arrival, backlog,
                                     overflowed: rerr == PortAudio.PaError.paInputOverflowed,
-                                    streamStartedAt: streamStartedAt, streamFramesBefore: framesBefore));
+                                    streamStartedAt: streamStartedAt, streamFramesBefore: framesBefore,
+                                    backlogAnsweredAt: answeredAt));
                         }
                         catch (Exception sinkEx)
                         {

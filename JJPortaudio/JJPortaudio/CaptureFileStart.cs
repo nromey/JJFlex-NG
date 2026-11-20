@@ -8,9 +8,38 @@ namespace JJPortaudio
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <see cref="Arrival"/> is stamped right after the read returned and the
-    /// backlog was asked, before any metering, so every frame counted in
-    /// <see cref="BacklogFrames"/> had reached the host buffer by then.
+    /// <b>The clock is read BEFORE the backlog is asked (repair 3, Codex's
+    /// re-check of b6543ac1, C1b).</b> <see cref="Arrival"/> is stamped right
+    /// after the read returned and before the backlog is asked;
+    /// <see cref="BacklogAnsweredAt"/> right after the answer. Repair 2 asked
+    /// first and stamped after, so a thread paused between the two (Codex: one
+    /// 500 ms pause) paired a truthful small backlog with a late clock reading,
+    /// claimed a catch-up that never happened, and began the file at frame 0
+    /// with all of the tone in it.
+    /// </para>
+    /// <para>
+    /// <b>The direction, derived.</b> A block's bound on when frame 0 was
+    /// captured is <c>Arrival - (framesThroughIt + backlog) / rate - latency</c>.
+    /// Every frame that had reached the host buffer by <see cref="Arrival"/> is
+    /// either delivered (through it) or still waiting, and still waiting when
+    /// the backlog is asked, since nothing reads in between; so the count can
+    /// only be too LARGE, by frames that arrived after the stamp. Too large a
+    /// count puts frame 0 earlier than the truth, so every later moment maps to
+    /// a LATER frame: the file can only begin later. A pause anywhere in the
+    /// sequence is safe: before the stamp, the frames it let in are counted in
+    /// the backlog, so the bound stays tight; between the stamp and the answer,
+    /// they make the count too large, so the file begins later. A pause after
+    /// the answer touches neither reading.
+    /// </para>
+    /// <para>
+    /// <b>The gap between the two readings is bounded.</b> The pair counts
+    /// toward establishing the timing only when the answer came within the
+    /// block's own duration of the stamp. Otherwise the backlog is not paired
+    /// with the stamp at all: the block's bound uses only the frames delivered
+    /// through it, which is a true bound by itself, and it does not establish.
+    /// With no answer time (a source that cannot say), the backlog is still
+    /// taken off, which is safe in either order, but the block never
+    /// establishes, so the stream-start fallback places the file.
     /// </para>
     /// <para>
     /// <see cref="StreamStartedAt"/> and <see cref="StreamFramesBefore"/> give a
@@ -22,15 +51,17 @@ namespace JJPortaudio
     /// </remarks>
     internal readonly struct CaptureBlockTiming
     {
-        /// <param name="arrival">When the block reached the recorder, on the clock <see cref="CaptureFileStart"/> was given.</param>
-        /// <param name="backlogFrames">Frames still waiting to be read when the block arrived; -1 when the device would not say.</param>
+        /// <param name="arrival">When the block reached the recorder, read BEFORE the backlog was asked, on the clock <see cref="CaptureFileStart"/> was given.</param>
+        /// <param name="backlogFrames">Frames still waiting to be read when the backlog was asked; -1 when the device would not say.</param>
         /// <param name="overflowed">True when the device reported input lost before this block.</param>
         /// <param name="streamStartedAt">When the stream was asked to start, on the same clock; null when unknown.</param>
         /// <param name="streamFramesBefore">Frames the stream delivered before this block, whether or not the recorder was listening.</param>
+        /// <param name="backlogAnsweredAt">When the backlog's answer came, read right after it on the same clock; null when not known.</param>
         internal CaptureBlockTiming(long arrival, long backlogFrames, bool overflowed = false,
-            long? streamStartedAt = null, long streamFramesBefore = 0)
+            long? streamStartedAt = null, long streamFramesBefore = 0, long? backlogAnsweredAt = null)
         {
             Arrival = arrival;
+            BacklogAnsweredAt = backlogAnsweredAt;
             BacklogFrames = backlogFrames;
             Overflowed = overflowed;
             StreamStartedAt = streamStartedAt;
@@ -42,6 +73,7 @@ namespace JJPortaudio
         internal bool Overflowed { get; }
         internal long? StreamStartedAt { get; }
         internal long StreamFramesBefore { get; }
+        internal long? BacklogAnsweredAt { get; }
     }
 
     /// <summary>
@@ -78,8 +110,10 @@ namespace JJPortaudio
     /// behind through the whole lead froze the file's start inside the tone
     /// (Codex measured 2,137 tone samples kept) before a tighter block could
     /// arrive. Now the reading counts as established only after a block arrives
-    /// with a backlog the device itself reported as smaller than that block, and
-    /// no input lost: such a block was waited for, so its bound is tight. Every
+    /// with a backlog the device itself reported as smaller than that block,
+    /// answered within that block's duration of the block's clock reading
+    /// (repair 3, <see cref="CaptureBlockTiming"/>), and no input lost: such a
+    /// block was waited for, so its bound is tight. Every
     /// known backlog is also taken off its block's bound, which only ever makes
     /// the file start later. If no such block comes within
     /// <see cref="EstablishWithinSeconds"/> of capture past the moment, or the
@@ -216,10 +250,16 @@ namespace JJPortaudio
                         _lowerFrame0 = started + FramesToTicks(timing.StreamFramesBefore);
                 }
                 long after = _captured + frames;
-                long backlog = timing.BacklogFrames > 0 ? timing.BacklogFrames : 0;
+                // Repair 3: the backlog pairs with the clock reading taken before
+                // it was asked, and only when its answer came within this block's
+                // own duration (CaptureBlockTiming says why either way is safe).
+                bool answerKnown = timing.BacklogAnsweredAt.HasValue;
+                long gap = answerKnown ? timing.BacklogAnsweredAt!.Value - timing.Arrival : 0;
+                bool paired = answerKnown && gap >= 0 && gap <= FramesToTicks(frames);
+                long backlog = timing.BacklogFrames > 0 && (paired || !answerKnown) ? timing.BacklogFrames : 0;
                 long bound = timing.Arrival - FramesToTicks(after + backlog);
                 if (bound < _anchor) _anchor = bound;
-                if (timing.BacklogFrames >= 0 && timing.BacklogFrames < frames && !timing.Overflowed) _established = true;
+                if (paired && timing.BacklogFrames >= 0 && timing.BacklogFrames < frames && !timing.Overflowed) _established = true;
                 _perFrame = Math.Max(1, count / frames);
                 if (!_holding)
                 {
