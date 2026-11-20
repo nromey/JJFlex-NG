@@ -504,6 +504,33 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     logs these through `Trace` itself or parses the power family as a
     fraction.
 
+30. **Qualified-UDP observation (2026-11-19, the SmartLink connection tiers
+    work; number 29 is that work's radio-list parse patch)**: keep the new
+    file `FlexLib_API/FlexLib/QualifiedUdpObservation.cs` (`QualifiedUdpWatch`
+    and `QualifiedUdpObservation`) and the comment-marked JJFlex patches in
+    `FlexLib_API/FlexLib/Radio.cs`: the `_openStartedTimestamp` stamp at the
+    top of `Connect`, `WatchedUdpCallback` passed instead of
+    `UdpDataReceivedCallback` at BOTH `VitaSocket` constructions
+    (`StartEarlyHolePunch` and `StartUdp`), and the block beside
+    `_udpSuccessfulRegistration` (`ObserveUdp`, `QualifiedUdpObserved`,
+    `VitaSocketGeneration`, `IsCurrentVitaSocket`). Each VITA socket gets a
+    watch before it can receive, and the watch sees every datagram before
+    the `_connected` gate in `UdpDataReceivedCallback`, so it starts at socket
+    creation. The first Flex VITA packet whose SOURCE ADDRESS is the radio's
+    (`IP` when the socket was made; the port may differ, as the source latch
+    allows) is traced through `VitaSocket.TraceSink` as a `QualifiedUdp:`
+    line (socket generation, matched, source, expected address, ms since the
+    socket was created, ms since `Connect` began, whether the open had
+    completed, the command connection) and raises `QualifiedUdpObserved` off
+    the receive thread. The first Flex VITA packet from any other address is
+    traced with `matched=false` and raises nothing. **Purely additive:**
+    `_udpSuccessfulRegistration` still flips on any Flex-OUI packet from any
+    sender, and no packet is dropped, delayed or reordered. Stock FlexLib
+    checks nothing about who sent a VITA packet, which is why a connect
+    cannot be proven from its flag or from a byte counter that includes TCP.
+    Pinned by `Radios.Tests/QualifiedUdpObservationTests`. Remove it only if
+    FlexLib gains its own per-socket, source-checked arrival report.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the
