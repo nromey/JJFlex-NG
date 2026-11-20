@@ -340,7 +340,7 @@ namespace Radios.SmartLink
             && _world.StillPermitted(_methods[_index + 1]);
 
         /// <summary>The plain reason a SmartLink answered with no handle. One home: the leg and the radio layer both say it from here.</summary>
-        public const string NoHandleInAnswer = "the connect request came back without a handle";
+        public const string NoHandleInAnswer = "SmartLink returned no usable connection details";
 
         /// <summary>An attempt's detail, with the note about its answer kept on the end.</summary>
         private string Detail(string detail) =>
@@ -386,7 +386,7 @@ namespace Radios.SmartLink
                         {
                             HandleArrived = true,
                             End = SmartLinkAttemptEnd.Dialled,
-                            EndDetail = Detail("handed to the open; not yet proven"),
+                            EndDetail = Detail("SmartLink supplied connection details; radio setup and incoming data have not yet confirmed a working connection"),
                         })
                         .WithMethodUsed(method);
                     _world.Store(_record);
@@ -410,7 +410,7 @@ namespace Radios.SmartLink
                 default:
                     attempt.SettleRequest(handleArrived: false);
                     return EndAttempt(attempt, SmartLinkAttemptEnd.NoHandle,
-                        string.IsNullOrEmpty(answer.Detail) ? "the radio did not answer the connect request in time" : answer.Detail);
+                        string.IsNullOrEmpty(answer.Detail) ? "SmartLink did not return connection details in time" : answer.Detail);
             }
         }
 
@@ -492,7 +492,7 @@ namespace Radios.SmartLink
             // FlexLib's connect returned false (or the connection fell at
             // once): a method failure. Its pieces go before anything else
             // starts.
-            EndIfUndecided(attempt, SmartLinkAttemptEnd.ConnectFailed, "the radio did not answer on this path (the TCP or TLS stage failed)");
+            EndIfUndecided(attempt, SmartLinkAttemptEnd.ConnectFailed, "The TCP connection or TLS handshake could not be completed");
             _world.Teardown(attempt, "the connection to the radio could not be made");
             tryNext = MoveOnAfter(attempt);
             return false;
@@ -659,7 +659,7 @@ namespace Radios.SmartLink
                 _record = _record.WithAttempt(NotSentLine(to) with
                 {
                     End = SmartLinkAttemptEnd.NotSent,
-                    EndDetail = "the account's tier or this radio's connection choice changed, and no longer allows this method",
+                    EndDetail = "The current policy check did not permit this method",
                 });
                 _world.Store(_record);
                 Ended = true;

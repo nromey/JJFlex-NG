@@ -344,7 +344,7 @@ namespace Radios.SmartLink
                 if (_qualifiedUdpAfter == null && now >= _proofDeadlineMs)
                 {
                     EndLocked(SmartLinkAttemptEnd.NoQualifiedUdp,
-                        $"the connection was made, but no audio or data came from the radio within {_rules.WindowMs / 1000} seconds");
+                        $"No audio or data arrived from the radio within {_rules.WindowMs / 1000} seconds after the command connection was established");
                     return _end;
                 }
                 EvaluateLocked();
@@ -364,7 +364,7 @@ namespace Radios.SmartLink
             if (_rules.SurvivalMs <= 0 || _nowMs() >= _evidenceCompleteAtMs + _rules.SurvivalMs)
             {
                 EndLocked(SmartLinkAttemptEnd.Proven,
-                    "the radio opened, and its audio and data arrived on this connection");
+                    "Radio setup completed and audio or data began arriving on this connection");
             }
         }
 

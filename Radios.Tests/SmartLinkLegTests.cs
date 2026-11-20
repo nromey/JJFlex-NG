@@ -674,7 +674,7 @@ namespace Radios.Tests
             // "Ready" names a radio, not a request. When an answer may have
             // been meant for an earlier request the record keeps saying so,
             // proven or failed, and not only while the attempt is in flight.
-            const string note = "An earlier request to this radio went unanswered 7 seconds before, so this answer may have been meant for it";
+            const string note = "An earlier request to this radio went unanswered 7 seconds before this reply; the reply may belong to that earlier request";
             var (proven, world) = TwoMethods();
             world.OnRequest = _ => new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Arrived, note);
             Assert.True(proven.RunConnectStage());
@@ -682,7 +682,7 @@ namespace Radios.Tests
             Assert.True(proven.RunOpenStage());
             Assert.Equal(SmartLinkAttemptEnd.Proven, proven.Record.LastAttempt!.End);
             Assert.EndsWith(note, proven.Record.LastAttempt.EndDetail);
-            Assert.StartsWith("the radio opened", proven.Record.LastAttempt.EndDetail);
+            Assert.StartsWith("Radio setup completed and audio or data began arriving on this connection", proven.Record.LastAttempt.EndDetail);
 
             var (failed, failedWorld) = Leg(SmartLinkMethod.ManualPorts);
             failedWorld.OnRequest = _ => new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Arrived, note);

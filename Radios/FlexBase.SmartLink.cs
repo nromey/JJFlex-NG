@@ -1071,15 +1071,11 @@ namespace Radios
             if (punch)
             {
                 cls = ConnectFailureClass.TransportFailed;
-                spoken = "Could not open a hole-punched connection to the radio. "
-                    + "The radio has no forwarded ports, so the connection depends on both routers allowing the punch, and some networks never will.";
+                spoken = "JJ Flexible Radio Access could not establish a SmartLink hole-punched connection to the radio.";
                 if (probe?.ProbeCompleted == true && probe.NatSupportsHolePunch == false)
                 {
-                    spoken += " SmartLink's own network test reports this network does not support hole punch — a forwarded port on the radio's router is the reliable path.";
-                }
-                else
-                {
-                    spoken += " Trying again sometimes wins the timing; a forwarded port on the radio's router is the reliable fix.";
+                    // The same sentence as the session overlay's, read from its one home.
+                    spoken += " " + Lexicon.Get("connect.session_overlay.radio_site_no_punch");
                 }
                 // A rule is still worth stating on the punch path when the
                 // radio advertises nothing: the fix IS creating the rule.
@@ -1090,36 +1086,35 @@ namespace Radios
             else if (tcp != null && tcp.Outcome == TcpProbeOutcome.Refused)
             {
                 cls = ConnectFailureClass.TransportRefused;
-                spoken = $"The radio's router answered on port {tlsPort} and refused the connection after {tcp.ElapsedMs} milliseconds — "
-                    + "the port forward reaches the router, but nothing is listening behind the rule. "
-                    + "The rule may point at the wrong LAN address, or the radio may be off.";
+                spoken = $"This computer's TCP connection to the radio's public port {tlsPort} was refused after {tcp.ElapsedMs} milliseconds. "
+                    + "Check the radio's address and the forwarding rule at the radio's network location.";
             }
             else if (tcp != null && (tcp.Outcome == TcpProbeOutcome.TimedOut || tcp.Outcome == TcpProbeOutcome.Unreachable))
             {
                 cls = ConnectFailureClass.TransportTimedOut;
-                spoken = $"Connection attempts to the radio's public port {tlsPort} got no answer at all — the packets never arrived. "
-                    + "That usually means the router rule is missing, a firewall is dropping them, or the radio's public address has changed.";
+                spoken = $"This computer received no reply to its TCP check of the radio's public port {tlsPort}. "
+                    + "Check the radio's address, the forwarding rule at the radio's network location and the networks at both ends.";
                 if (probe?.ProbeCompleted == true && probe.ManualForwardTcpReachable == false)
                 {
-                    spoken = $"SmartLink tested the radio's forwarded TCP port from the internet and could not reach it, and this computer's own check got no answer either. "
-                        + "The router rule is the likely problem.";
+                    spoken = "SmartLink's last test could not reach the radio's manually forwarded TCP port. "
+                        + "This computer's TCP check also received no reply.";
                 }
             }
             else if (probe?.ProbeCompleted == true && probe.ManualForwardTcpReachable == false && RadioPortForwardActive)
             {
                 cls = ConnectFailureClass.TransportFailed;
-                spoken = "The radio reports its forwarded TCP port is not reachable from the internet — SmartLink tested it from outside. Check the router rule.";
+                spoken = "SmartLink's last test could not reach the radio's manually forwarded TCP port. Check the forwarding rule at the radio's network location.";
             }
             else if (remoteHandshakeFailed)
             {
                 cls = ConnectFailureClass.RemoteHandshakeFailed;
-                spoken = "SmartLink accepted the request, but the radio never reported ready to connect. The radio may be busy, restarting, or just dropped off the network. Trying again usually works.";
+                spoken = "The SmartLink connection request did not return usable connection details. Try again or review the radio's network diagnostic.";
                 ruleText = null; // no evidence pointing at the router — don't send anyone there
             }
             else if (tcp != null && tcp.Outcome == TcpProbeOutcome.Connected)
             {
                 cls = ConnectFailureClass.TransportFailed;
-                spoken = $"The radio's public port {tlsPort} answers from here, so the router rule looks right — the failure happened after the port, most likely in the secure handshake with the radio. Trying again usually works.";
+                spoken = $"The radio's public TCP port {tlsPort} answered this computer's check, but the SmartLink connection did not complete.";
                 ruleText = null; // the rule is demonstrably fine
             }
             else
@@ -1129,7 +1124,7 @@ namespace Radios
                 if (probe?.ProbeCompleted == true
                     && (probe.ManualForwardTcpReachable == true || probe.UpnpTcpReachable == true))
                 {
-                    spoken += " SmartLink's network test says the radio's port is reachable from the internet, so this looks like a passing problem — trying again usually works.";
+                    spoken += " SmartLink's last test reached a TCP port at the radio's network location.";
                     ruleText = null;
                 }
             }

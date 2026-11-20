@@ -219,21 +219,21 @@ namespace Radios.Tests
 
             var record = SmartLinkConnectRecords.For(serial)!;
             Assert.True(record.LastAttempt!.HandleArrived);
-            Assert.Contains("may have been meant for it", record.LastAttempt.EndDetail);
+            Assert.Contains("the reply may belong to that earlier request", record.LastAttempt.EndDetail);
 
             // The mark outlives the attempt's interim state: whatever the
             // attempt ends as, the record still says its answer was in doubt.
             Assert.False(rig.SmartLinkLegInFlight!.ContinueAfterTransport(false, out _));
             var ended = SmartLinkConnectRecords.For(serial)!.LastAttempt!;
             Assert.Equal(SmartLinkAttemptEnd.ConnectFailed, ended.End);
-            Assert.Contains("may have been meant for it", ended.EndDetail);
+            Assert.Contains("the reply may belong to that earlier request", ended.EndDetail);
 
             // Control: with no unanswered request before it, the answer carries no such mark.
             string other = Serial();
             var ready2 = AnswerReady(wan, times: 3);
             Assert.True(rig.DialSmartLink(WanRadio(other, ManualOnly), owner, new RadioConfig()));
             ready2.Wait(1000);
-            Assert.DoesNotContain("may have been meant", SmartLinkConnectRecords.For(other)!.LastAttempt!.EndDetail);
+            Assert.DoesNotContain("may belong to that earlier request", SmartLinkConnectRecords.For(other)!.LastAttempt!.EndDetail);
         }
 
         [Fact]

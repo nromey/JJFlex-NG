@@ -384,9 +384,9 @@ namespace Radios
             if (end == SmartLinkAttemptEnd.NoQualifiedUdp)
                 LastStartFailureReason = Lexicon.Get("connect.start.no_audio_or_data");
             else if (end == SmartLinkAttemptEnd.CommandConnectionLost || end == SmartLinkAttemptEnd.ConnectFailed)
-                LastStartFailureReason = "Connection lost during setup";
+                LastStartFailureReason = Lexicon.Get("connect.start.connection_unconfirmed");
             else if (end == SmartLinkAttemptEnd.Cancelled)
-                LastStartFailureReason = "Cancelled by user";
+                LastStartFailureReason = Lexicon.Get("connect.start.attempt_cancelled");
             else if (string.IsNullOrEmpty(LastStartFailureReason))
                 LastStartFailureReason = leg.Current?.EndDetail;
             Tracing.TraceLine(
@@ -406,7 +406,7 @@ namespace Radios
         {
             var end = attempt.End;
             LastStartFailureReason = end == SmartLinkAttemptEnd.CommandConnectionLost
-                ? "Connection lost during setup"
+                ? Lexicon.Get("connect.start.connection_unconfirmed")
                 : Lexicon.Get("connect.start.no_audio_or_data");
             Tracing.TraceLine($"start: stopped {where} because {attempt} failed its proof ({attempt.EndDetail})", TraceLevel.Warning);
             ConnectionProfiler.Current?.RecordEvent("start_attempt_failed", new Dictionary<string, object>
@@ -612,7 +612,7 @@ namespace Radios
                                 { "serial", r.Serial },
                             });
                             return new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.NoAnswer,
-                                $"the radio did not answer the connect request within {Math.Max(1, waitMs / 1000)} seconds");
+                                $"SmartLink did not return connection details within {Math.Max(1, waitMs / 1000)} seconds");
                         }
                     }
 
@@ -651,7 +651,7 @@ namespace Radios
                             $"sendRemoteConnect: a connect request for {r.Serial} went unanswered {age} ms ago; this answer may belong to it, and nothing on the wire can tell",
                             TraceLevel.Warning);
                         return new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Arrived,
-                            $"An earlier request to this radio went unanswered {age / 1000} seconds before, so this answer may have been meant for it");
+                            $"An earlier request to this radio went unanswered {age / 1000} seconds before this reply; the reply may belong to that earlier request");
                     }
                     return SmartLinkHandleAnswer.Arrived;
                 }
