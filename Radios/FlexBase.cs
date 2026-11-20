@@ -5950,6 +5950,9 @@ namespace Radios
             _cancelRequested = true;
             Tracing.TraceLine("RequestCancel: cancel flag set", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("cancel_requested");
+            // A SmartLink transport still waiting on its TCP connect or TLS
+            // handshake is ended now, not when its timeout runs out.
+            AbortTransportEstablishmentOnCancel();
         }
 
         /// <summary>

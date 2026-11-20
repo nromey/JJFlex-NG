@@ -144,6 +144,131 @@ namespace Radios
             rememberCommandRoute(r, handle, session.AccountId);
         }
 
+        // ── Ending a transport that is still being established ─────────────
+
+        /// <summary>
+        /// One attempt's transport while FlexLib is still establishing it (the
+        /// TCP connect and the TLS handshake, each of which can wait fifteen
+        /// seconds, twice over when TLS 1.3 is refused). It names the attempt
+        /// and the radio object the establishment belongs to, so ending it can
+        /// only ever end THAT one.
+        /// </summary>
+        private sealed class TransportEstablishment
+        {
+            public TransportEstablishment(SmartLinkAttempt attempt, Radio radio) { Attempt = attempt; Radio = radio; }
+            public readonly SmartLinkAttempt Attempt;
+            public readonly Radio Radio;
+            /// <summary>FlexLib's connect has returned. Nothing may end this establishment after that.</summary>
+            public bool Finished;
+            /// <summary>It was ended from outside while it was still waiting.</summary>
+            public bool Aborted;
+            public string AbortedBecause = "";
+            public CancellationTokenRegistration AttemptEnded;
+        }
+
+        private TransportEstablishment? _establishing;
+
+        /// <summary>
+        /// FlexLib's connect is about to be called for this attempt. From here
+        /// until <see cref="EndTransportEstablishment"/>, the operator's Escape
+        /// and the attempt's own end both stop the wait.
+        /// </summary>
+        private void BeginTransportEstablishment(SmartLinkAttempt attempt, Radio radio)
+        {
+            var establishment = new TransportEstablishment(attempt, radio);
+            Volatile.Write(ref _establishing, establishment);
+            // The attempt ended from outside (a new dial, the rig disconnecting).
+            establishment.AttemptEnded = attempt.EndedToken.Register(
+                () => QueueAbortOfTransportEstablishment(establishment, "its attempt ended"));
+            // Escape pressed a moment before this began is not lost.
+            if (_cancelRequested) QueueAbortOfTransportEstablishment(establishment, "the operator had already cancelled");
+        }
+
+        /// <summary>
+        /// FlexLib's connect has returned. True when this establishment was
+        /// ended from outside while it waited; its result is then "not up",
+        /// whatever FlexLib returned in the same instant.
+        /// </summary>
+        private bool EndTransportEstablishment(SmartLinkAttempt attempt)
+        {
+            var establishment = Volatile.Read(ref _establishing);
+            if (establishment == null || !ReferenceEquals(establishment.Attempt, attempt)) return false;
+            bool aborted;
+            // The same lock the abort holds while it closes the transport: an
+            // abort either ran completely before this line, or will not run.
+            lock (establishment)
+            {
+                establishment.Finished = true;
+                aborted = establishment.Aborted;
+            }
+            establishment.AttemptEnded.Dispose();
+            Interlocked.CompareExchange(ref _establishing, null, establishment);
+            return aborted;
+        }
+
+        /// <summary>
+        /// Off the caller's thread: Escape arrives on the connecting window's
+        /// own thread, which must stay free, and an attempt's end can arrive
+        /// under that attempt's lock.
+        /// </summary>
+        private void QueueAbortOfTransportEstablishment(TransportEstablishment establishment, string why) =>
+            ThreadPool.QueueUserWorkItem(_ => AbortTransportEstablishment(establishment, why));
+
+        /// <summary>
+        /// End an establishment that is still waiting, by closing ITS radio
+        /// object's command connection: FlexLib's own disconnect, which cancels
+        /// the TLS wrapper's TCP connect and handshake waits, so the blocked
+        /// connect returns at once instead of running out its fifteen seconds.
+        /// Marked as our own disconnect, so the removal it raises is not read
+        /// as the radio leaving the network.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>It can only ever end the establishment it was given.</b> It
+        /// acts on that establishment's own radio object, under that
+        /// establishment's lock, and does nothing once that establishment has
+        /// finished. So an abort that runs late, after the connect returned and
+        /// the next attempt began, finds its own establishment finished and
+        /// touches nothing: it can never close the next attempt's transport.</para>
+        /// <para><b>Nothing is left running in the background.</b> The connect
+        /// stays a synchronous call on the thread that made it; ending the wait
+        /// makes that call return. The TLS wrapper refuses to mark a cancelled
+        /// client connected, and FlexLib refuses to initialize a transport that
+        /// is no longer the current one, so a cancelled establishment cannot
+        /// complete later.</para>
+        /// </remarks>
+        /// <returns>True when a waiting establishment was ended.</returns>
+        private bool AbortTransportEstablishment(TransportEstablishment establishment, string why)
+        {
+            lock (establishment)
+            {
+                if (establishment.Finished || establishment.Aborted) return false;
+                establishment.Aborted = true;
+                establishment.AbortedBecause = why;
+                Tracing.TraceLine(
+                    $"SmartLink leg: {establishment.Attempt}: ending its transport while it is still being established: {why}",
+                    TraceLevel.Info);
+                Interlocked.Increment(ref _selfDisconnects);
+                try { establishment.Radio.Disconnect(); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"SmartLink leg: {establishment.Attempt}: ending its transport: {ex.Message}", TraceLevel.Warning);
+                }
+                finally { Interlocked.Decrement(ref _selfDisconnects); }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The operator asked to stop (<see cref="RequestCancel"/>): if a
+        /// SmartLink transport is being established right now, end that wait.
+        /// A no-op otherwise. Never blocks the caller.
+        /// </summary>
+        private void AbortTransportEstablishmentOnCancel()
+        {
+            var establishment = Volatile.Read(ref _establishing);
+            if (establishment != null) QueueAbortOfTransportEstablishment(establishment, "the operator cancelled");
+        }
+
         // ── The first attempt's transport, made by Connect or RetryConnect ──
 
         /// <summary>
@@ -160,6 +285,9 @@ namespace Radios
             var attempt = continuing ?? leg.Current;
             if (attempt == null || attempt.IsOver || !attempt.HandleArrived || attempt.TransportUp) return null;
             world.Watch(attempt);
+            // From here FlexLib's connect can wait on TCP and TLS; Escape and
+            // the attempt's own end both stop that wait.
+            BeginTransportEstablishment(attempt, theRadio!);
             return attempt;
         }
 
@@ -175,6 +303,12 @@ namespace Radios
         {
             movedOn = false;
             if (attempt == null) return up;
+            // An establishment that was ended while it waited is never "up".
+            if (EndTransportEstablishment(attempt))
+            {
+                Tracing.TraceLine($"SmartLink leg: {attempt}: its transport was ended while it was being established; FlexLib's connect returned {up}", TraceLevel.Info);
+                up = false;
+            }
             var radio = theRadio;
             if (up && radio != null)
             {

@@ -587,6 +587,213 @@ namespace Radios.Tests
             Assert.Equal(ConnectSetupWait.End.Ready, untouched.Ended);
         }
 
+        // ── Escape during the TCP and TLS stage ─────────────────────────────
+
+        /// <summary>
+        /// A peer on the loopback address that accepts a TCP connection and
+        /// then says nothing: a TLS handshake against it waits for a ServerHello
+        /// that never comes, which is a real blocked establishment with no
+        /// radio, no network and nothing leaving this machine.
+        /// </summary>
+        private sealed class SilentTlsPeer : IDisposable
+        {
+            private readonly System.Net.Sockets.TcpListener _listener = new(IPAddress.Loopback, 0);
+            private readonly List<System.Net.Sockets.TcpClient> _clients = new();
+            private readonly ManualResetEventSlim _accepted = new(false);
+            private readonly ManualResetEventSlim _closed = new(false);
+            private int _acceptedCount;
+
+            public SilentTlsPeer()
+            {
+                _listener.Start();
+                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+                _ = AcceptLoop();
+            }
+
+            public int Port { get; }
+            public int Accepted => Volatile.Read(ref _acceptedCount);
+            public bool WaitForClient(int ms) => _accepted.Wait(ms);
+            /// <summary>True once a client that connected has closed its side.</summary>
+            public bool WaitForClientClosed(int ms) => _closed.Wait(ms);
+
+            private async Task AcceptLoop()
+            {
+                try
+                {
+                    while (true)
+                    {
+                        var client = await _listener.AcceptTcpClientAsync();
+                        lock (_clients) _clients.Add(client);
+                        Interlocked.Increment(ref _acceptedCount);
+                        _accepted.Set();
+                        _ = Drain(client);
+                    }
+                }
+                catch (Exception) { /* the listener was stopped */ }
+            }
+
+            private async Task Drain(System.Net.Sockets.TcpClient client)
+            {
+                var buffer = new byte[4096];
+                try { while (await client.GetStream().ReadAsync(buffer) > 0) { } }
+                catch (Exception) { }
+                _closed.Set();
+            }
+
+            public void Dispose()
+            {
+                try { _listener.Stop(); } catch { }
+                lock (_clients) foreach (var c in _clients) { try { c.Dispose(); } catch { } }
+            }
+        }
+
+        /// <summary>A dialled attempt whose radio's forwarded TCP port is the silent peer.</summary>
+        private (FlexBase rig, Radio radio, SmartLinkLeg leg, SmartLinkAttempt attempt, List<CommandConnectionState> states) DialledAt(SilentTlsPeer peer)
+        {
+            var (rig, wan, owner) = Setup(SmartLinkConnectionMode.ManualPortForwardOnly);
+            var radio = WanRadio(Serial(), new AdvertisedPorts(peer.Port, 4993, false, -1, -1, false));
+            typeof(Radio).GetField("_ip", Private)!.SetValue(radio, IPAddress.Loopback);
+            var ready = AnswerReady(wan);
+            Assert.True(rig.DialSmartLink(radio, owner, new RadioConfig()));
+            ready.Wait(1000);
+            rig.theRadio = radio;
+            var states = new List<CommandConnectionState>();
+            radio.CommandConnectionChanged += report => { lock (states) states.Add(report.State); };
+            var leg = rig.SmartLinkLegInFlight!;
+            return (rig, radio, leg, leg.Current!, states);
+        }
+
+        /// <summary>The bound an Escape must be answered within. The stage's own timeout is 15 seconds, twice over.</summary>
+        private const int CancelToReturnBoundMs = 3000;
+
+        [Fact]
+        public void Escape_during_a_blocked_TLS_handshake_ends_the_connect_promptly_and_nothing_completes_later()
+        {
+            using var peer = new SilentTlsPeer();
+            var (rig, radio, leg, attempt, states) = DialledAt(peer);
+
+            // The production call for a method's transport: FlexLib's own
+            // connect, through the real TLS wrapper, on this thread's task.
+            var connect = Task.Run(() => leg.RunConnectStage());
+            Assert.True(peer.WaitForClient(5000), "the TCP connect never reached the peer");
+            // POSITIVE CONTROL: it really is blocked in the handshake.
+            Assert.False(connect.Wait(800), "the establishment was not blocked, so this test proves nothing");
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            rig.RequestCancel();                                    // Escape
+            Assert.True(connect.Wait(CancelToReturnBoundMs),
+                "Escape did not end the TLS wait: the connect was still blocked " + CancelToReturnBoundMs + " ms later");
+            sw.Stop();
+
+            Assert.False(connect.Result);
+            Assert.True(leg.Cancelled);                             // recorded as a cancel, and nothing is walked on
+            Assert.Equal(SmartLinkAttemptEnd.Cancelled, attempt.End);
+            Assert.False(attempt.TransportUp);
+            Assert.False(radio.Connected);
+            Assert.InRange(sw.ElapsedMilliseconds, 0, CancelToReturnBoundMs);
+
+            // Nothing completes in the background: our socket is closed, the
+            // TLS 1.2 fallback did not dial a second one, and no "connected"
+            // is ever reported for this radio object.
+            Assert.True(peer.WaitForClientClosed(3000), "the cancelled attempt's socket was left open");
+            Thread.Sleep(400);
+            Assert.Equal(1, peer.Accepted);
+            lock (states) Assert.DoesNotContain(CommandConnectionState.Connected, states);
+            Assert.False(radio.Connected);
+            Assert.Equal(SmartLinkAttemptEnd.Cancelled, SmartLinkConnectRecords.For(radio.Serial)!.LastAttempt!.End);
+        }
+
+        [Fact]
+        public void An_attempt_ended_from_outside_during_its_TLS_wait_ends_that_wait_too()
+        {
+            // The attempt's own cancellation, not the operator's: a new dial on
+            // the rig, or the rig being disconnected, while FlexLib's connect
+            // is still waiting. The wait must not outlive its attempt.
+            using var peer = new SilentTlsPeer();
+            var (rig, radio, leg, attempt, states) = DialledAt(peer);
+
+            var connect = Task.Run(() => leg.RunConnectStage());
+            Assert.True(peer.WaitForClient(5000));
+            Assert.False(connect.Wait(800));
+
+            leg.Abandon(operatorCancelled: false, "the rig was disconnected");
+            Assert.True(connect.Wait(CancelToReturnBoundMs), "the connect outlived its attempt");
+
+            Assert.False(connect.Result);
+            Assert.False(rig.CancelRequested);                      // not an operator cancel
+            Assert.False(attempt.TransportUp);
+            Assert.False(radio.Connected);
+            Assert.True(peer.WaitForClientClosed(3000));
+            Thread.Sleep(300);
+            Assert.Equal(1, peer.Accepted);
+            lock (states) Assert.DoesNotContain(CommandConnectionState.Connected, states);
+        }
+
+        [Fact]
+        public void An_abort_that_arrives_after_the_connect_returned_touches_nothing()
+        {
+            // The guard against a late abort closing the NEXT attempt's
+            // transport: an establishment that has finished cannot be ended.
+            var (rig, radio, attempt, _) = AttemptWithTransportUp(SmartLinkConnectionMode.ManualPortForwardOnly, ManualOnly);
+            radio.VitaSock = null;
+            Assert.True(radio.Connected);
+
+            // No establishment is in flight: Escape now is only the flag.
+            rig.RequestCancel();
+            Thread.Sleep(300);
+            Assert.True(radio.Connected, "Escape with no establishment in flight closed a live connection");
+
+            // And an establishment object that has finished refuses to be ended.
+            var begin = typeof(FlexBase).GetMethod("BeginTransportEstablishment", Private)!;
+            var end = typeof(FlexBase).GetMethod("EndTransportEstablishment", Private)!;
+            var abort = typeof(FlexBase).GetMethod("AbortTransportEstablishment", Private)!;
+            var field = typeof(FlexBase).GetField("_establishing", Private)!;
+            typeof(FlexBase).GetField("_cancelRequested", Private)!.SetValue(rig, false);
+
+            var second = new SmartLinkAttempt(1, 2, SmartLinkMethod.UpnpPorts, 0, () => Environment.TickCount64);
+            begin.Invoke(rig, new object[] { second, radio });
+            object establishment = field.GetValue(rig)!;
+            Assert.False((bool)end.Invoke(rig, new object[] { second })!);        // finished, and it was not aborted
+            Assert.Null(field.GetValue(rig));
+            Assert.False((bool)abort.Invoke(rig, new object[] { establishment, "a late abort" })!);
+            Assert.True(radio.Connected, "a late abort closed a connection that was no longer its own");
+
+            // Control: the same call on an establishment still waiting does end it.
+            var third = new SmartLinkAttempt(1, 3, SmartLinkMethod.UpnpPorts, 0, () => Environment.TickCount64);
+            begin.Invoke(rig, new object[] { third, radio });
+            object waiting = field.GetValue(rig)!;
+            Assert.True((bool)abort.Invoke(rig, new object[] { waiting, "ended while waiting" })!);
+            Assert.False(radio.Connected);
+            Assert.True((bool)end.Invoke(rig, new object[] { third })!);          // and the connect is told it was ended
+        }
+
+        [Fact]
+        public void Both_vendor_connects_are_inside_an_establishment_that_Escape_can_end()
+        {
+            string attempts = Src("Radios", "FlexBase.SmartLinkAttempts.cs");
+            // Begun where the proof watch is subscribed, which both vendor
+            // connects call just before (pinned in the test above this one)...
+            string watch = Body(attempts, "private SmartLinkAttempt? WatchSmartLinkAttemptBeforeTransport(", "private bool SmartLinkTransportResult(");
+            Assert.Contains("BeginTransportEstablishment(attempt, theRadio!);", watch);
+            // ...and ended first thing where both hand their result over.
+            string result = Body(attempts, "private bool SmartLinkTransportResult(", "private bool SmartLinkLegEndedAtTheRequest()");
+            Assert.True(result.IndexOf("EndTransportEstablishment(attempt)", StringComparison.Ordinal)
+                        < result.IndexOf("attempt.NoteTransportUp(", StringComparison.Ordinal),
+                "an establishment that was ended must be known before the transport is called up");
+            // Escape reaches it, off the caller's thread.
+            string cancel = Body(Src("Radios", "FlexBase.cs"), "public void RequestCancel()", "public event Action? GuiClientChanged;");
+            Assert.Contains("AbortTransportEstablishmentOnCancel();", cancel);
+            string abort = Body(attempts, "private bool AbortTransportEstablishment(", "private void AbortTransportEstablishmentOnCancel()");
+            Assert.Contains("if (establishment.Finished || establishment.Aborted) return false;", abort);
+            Assert.Contains("establishment.Radio.Disconnect();", abort);      // its own radio object, never "the current one"
+            Assert.DoesNotContain("theRadio", abort);
+            // The TLS wrapper's two waits both end with its client's cancellation.
+            string tls = Src("FlexLib_API", "FlexLib", "SslClientTls12.cs");
+            Assert.Contains("CreateLinkedTokenSource(connectTimeoutCts.Token, _cts.Token)", tls);
+            Assert.Contains("CreateLinkedTokenSource(authenticationTimeoutCts.Token, _cts.Token)", tls);
+            Assert.Contains("_cts.Token.ThrowIfCancellationRequested();", tls);
+        }
+
         // ── Source pins: the wiring that cannot be run from here ────────────
 
         private static string Src(params string[] parts) =>
