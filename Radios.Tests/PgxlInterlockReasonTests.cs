@@ -30,6 +30,7 @@ namespace Radios.Tests
     /// FlexLib's own special case for it, not a captured line.
     /// </para>
     /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class PgxlInterlockReasonTests
     {
         private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
