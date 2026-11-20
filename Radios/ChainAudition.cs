@@ -571,7 +571,7 @@ namespace Radios
             switch (result.Speech)
             {
                 case AuditionSpeech.TooShort:
-                    parts.Add(Lexicon.Get("audio.audition.verdict.too_short", ("length", Number(result.Seconds))));
+                    parts.Add(TooShortSentence(result.Seconds));
                     break;
                 case AuditionSpeech.NoSpeech:
                     parts.Add(Lexicon.Get("audio.audition.verdict.no_speech"));
@@ -646,6 +646,18 @@ namespace Radios
                 : ", chain not available");
 
         private static string Number(double v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// The audition's words for a take too short to measure, at
+        /// <paramref name="seconds"/> long. Also what a take stopped before its
+        /// file began, or with too little of it kept, says (Sprint 49 Track Q3
+        /// repair 1): the microphone worked, and the operator stopped the take
+        /// too soon, which is exactly what these words describe; before Track
+        /// Q3 such a take reached this verdict, and "nothing was captured, check
+        /// the microphone" blamed the wrong thing.
+        /// </summary>
+        public static string TooShortSentence(double seconds) =>
+            Lexicon.Get("audio.audition.verdict.too_short", ("length", Number(Math.Max(0, seconds))));
 
         private static string Optional(float? v) => v is float x ? Number(x) : "none";
 

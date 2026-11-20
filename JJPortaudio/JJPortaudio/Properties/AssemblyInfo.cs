@@ -9,6 +9,10 @@ using System.Runtime.InteropServices;
 // #1145: the stream-ending and closed-stream tests reach the engine's internal
 // Audio class without opening any device (Radios.Tests, RemoteAudioStreamEndTests).
 [assembly: InternalsVisibleTo("Radios.Tests")]
+// Sprint 49 Track Q3 repair 1: the audition's start-tone test drives the
+// recorder's own file start (CaptureFileStart) with the real rendered tone,
+// which only JJFlexWpf can render. No device is opened.
+[assembly: InternalsVisibleTo("JJFlexWpf.Tests")]
 [assembly: AssemblyDescription("Portaudio routines for JJRadio")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("JJShaffer.com")]

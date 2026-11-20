@@ -134,6 +134,13 @@ namespace JJPortaudio
             public string HostApiName { get; init; }
             /// <summary>How many reads reported dropped input. Not fatal, worth tracing.</summary>
             public long Overflows { get; init; }
+            /// <summary>
+            /// The input latency PortAudio reports for the open stream, in
+            /// seconds; zero before it opens or when it would not say. A claim
+            /// by the driver, not a measurement. Read by the recorder to map a
+            /// moment onto the capture (Sprint 49 Track Q3 repair 1).
+            /// </summary>
+            public double InputLatencySeconds { get; init; }
         }
 
         /// <summary>
@@ -178,6 +185,7 @@ namespace JJPortaudio
         private int _channels;
         private int _sampleRate;
         private string _hostApiName = "";
+        private double _inputLatency;
         private bool _faulted;
         private string _faultMessage = "";
 
@@ -218,6 +226,19 @@ namespace JJPortaudio
         public Action<float[], int, int> FrameSink { get; set; }
 
         /// <summary>
+        /// The same tap, with what the capture thread knew about each block as
+        /// it handed it over (Sprint 49 Track Q3 repair 2, Codex's re-check of
+        /// ca39306c, C1b): when it arrived, stamped right after the read and
+        /// before any metering; how many frames were still waiting behind it,
+        /// as the device reports; whether input was lost before it; and when
+        /// the stream was asked to start, with how many frames it delivered
+        /// before this block. A recorder placing a moment on the capture needs
+        /// all of it; <see cref="FrameSink"/> callers need none of it, so it is
+        /// a separate tap, and the backlog is asked only while this one is set.
+        /// </summary>
+        internal Action<float[], int, int, CaptureBlockTiming> TimedFrameSink { get; set; }
+
+        /// <summary>
         /// Open the device and start listening.
         /// </summary>
         /// <param name="device">A live enumeration row, from <see cref="Devices.InputDevices"/>.</param>
@@ -246,6 +267,7 @@ namespace JJPortaudio
                 _channels = 0;
                 _sampleRate = 0;
                 _hostApiName = "";
+                _inputLatency = 0;
                 _faulted = false;
                 _faultMessage = "";
                 Device = device;
@@ -347,7 +369,8 @@ namespace JJPortaudio
                     Channels = _channels,
                     SampleRate = _sampleRate,
                     HostApiName = _hostApiName,
-                    Overflows = _overflows
+                    Overflows = _overflows,
+                    InputLatencySeconds = _inputLatency
                 };
             }
         }
@@ -504,6 +527,10 @@ namespace JJPortaudio
                     return;
                 }
 
+                // Taken just BEFORE the start: no frame of this stream can have
+                // been captured earlier, which makes it a lower bound a recorder
+                // can fall back on (Track Q3 repair 2).
+                long streamStartedAt = Stopwatch.GetTimestamp();
                 perr = PortAudio.Pa_StartStream(stream);
                 if (perr != 0)
                 {
@@ -516,11 +543,23 @@ namespace JJPortaudio
                 }
                 started = true;
 
+                // What the driver says its input latency is, for a recorder that
+                // must map a moment onto this capture (Track Q3 repair 1). Never
+                // fail an open over it.
+                double inputLatency = 0;
+                try { inputLatency = PortAudio.Pa_GetStreamInfo(stream).inputLatency; }
+                catch (Exception latencyEx)
+                {
+                    Tracing.TraceLine("MicProbe: Pa_GetStreamInfo failed, input latency unknown: "
+                        + latencyEx.Message, TraceLevel.Info);
+                }
+
                 lock (_sync)
                 {
                     _channels = channels;
                     _sampleRate = (int)rate;
                     _hostApiName = openedApi;
+                    _inputLatency = inputLatency > 0 && inputLatency < 2 ? inputLatency : 0;
                 }
 
                 Tracing.TraceLine("MicProbe: listening to \"" + device.Name + "\" ("
@@ -535,10 +574,37 @@ namespace JJPortaudio
                 // long enough that the interop cost is nothing.
                 const uint chunkFrames = 1024;
                 var buffer = new float[chunkFrames * channels];
+                long streamFrames = 0;
 
                 while (!_stopRequested)
                 {
                     PortAudio.PaError rerr = PortAudio.Pa_ReadStream(stream, buffer, chunkFrames);
+                    // Track Q3 repair 3 (Codex's re-check of b6543ac1, C1b): the
+                    // clock is read FIRST, then the backlog behind this block is
+                    // asked, then the clock again. Every frame in the host buffer
+                    // at the first reading is still there when the backlog is
+                    // asked, so the count can only be too large, by frames that
+                    // arrived after the stamp, which puts the file's start LATER,
+                    // never earlier; a pause before the stamp is counted in the
+                    // backlog itself. (Repair 2 asked first and stamped after, so
+                    // a pause between the two claimed a catch-up that never
+                    // happened.) The second reading bounds the gap: the recorder
+                    // establishes its timing only from a backlog answered within
+                    // the block's own duration. Negative: not reported.
+                    long arrival = Stopwatch.GetTimestamp();
+                    var timedSink = TimedFrameSink;
+                    long backlog = -1;
+                    long? answeredAt = null;
+                    if (timedSink != null)
+                    {
+                        try { backlog = PortAudio.Pa_GetStreamReadAvailable(stream); }
+                        catch (Exception) { backlog = -1; }
+                        long answered = Stopwatch.GetTimestamp();
+                        if (backlog < 0) backlog = -1;
+                        else answeredAt = answered;
+                    }
+                    long framesBefore = streamFrames;
+                    streamFrames += chunkFrames;
                     if (rerr == PortAudio.PaError.paInputOverflowed)
                     {
                         // Non-fatal and expected on a busy machine: PortAudio
@@ -563,6 +629,25 @@ namespace JJPortaudio
                     // this line cannot null it between the test and the call.
                     // Deliberately AFTER metering, so a faulting sink can
                     // never cost the caller its level readings.
+                    if (timedSink != null)
+                    {
+                        try
+                        {
+                            timedSink(buffer, (int)chunkFrames * channels, (int)chunkFrames,
+                                new CaptureBlockTiming(arrival, backlog,
+                                    overflowed: rerr == PortAudio.PaError.paInputOverflowed,
+                                    streamStartedAt: streamStartedAt, streamFramesBefore: framesBefore,
+                                    backlogAnsweredAt: answeredAt));
+                        }
+                        catch (Exception sinkEx)
+                        {
+                            // As for the plain tap below: drop it, keep listening.
+                            TimedFrameSink = null;
+                            Tracing.TraceLine("MicProbe: timed frame sink faulted, tap removed — "
+                                + sinkEx.Message, TraceLevel.Error);
+                        }
+                    }
+
                     var sink = FrameSink;
                     if (sink != null)
                     {

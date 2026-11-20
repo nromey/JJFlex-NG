@@ -47,7 +47,7 @@ namespace Radios.Tests
             public bool IsRunning => Running || OtherRecording;
             public bool IsRecordingTo(string path) => Running && string.Equals(Path, path, StringComparison.OrdinalIgnoreCase);
 
-            public bool Start(string path)
+            public bool Start(string path, bool holdFileStart)
             {
                 Starts++;
                 if (Refuse) return false;
@@ -55,6 +55,8 @@ namespace Radios.Tests
                 Running = true;
                 return true;
             }
+
+            public void BeginFileAt(string path, long? stopwatchTimestamp) { }
 
             public void Stop()
             {

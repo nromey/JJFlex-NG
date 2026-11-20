@@ -1299,6 +1299,32 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// For a followed piece: whether the reader has reported it COMPLETED
+        /// (not cut, not withdrawn, not let go), and whether it was ever cut
+        /// part-way, by us or by anything else, at any attempt. Read-only.
+        /// </summary>
+        /// <remarks>
+        /// Added for the audition's "Recording" (Sprint 49 Track Q3 repair 1;
+        /// Codex's check of 83932446, C2), which must be heard IN FULL before
+        /// the microphone opens. <see cref="Inspect"/> answers what the
+        /// countdown needs, and the countdown deliberately counts a one-word
+        /// number cut part-way as heard; that policy is unchanged, and this
+        /// answers the stricter question beside it. A cut is remembered across
+        /// a put-back (<c>MarksReachedEver</c>, which only a cut part-way
+        /// raises), so a word cut and then said again whole is still reported
+        /// as having been cut.
+        /// </remarks>
+        internal (bool Completed, bool EverCut) Completion(FollowedPiece piece)
+        {
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                bool everCut = e.MarksReachedEver > 0 || e.State == Owed.CutByUs || e.State == Owed.PausedUnknownCause;
+                return (e.LastOutcome == SpeechOutcomeKind.Completed, everCut);
+            }
+        }
+
+        /// <summary>
         /// Whether a followed piece is waiting in the held set for its put-back
         /// after an interrupt, rather than in the reader's queue. Read-only.
         /// </summary>

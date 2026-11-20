@@ -208,7 +208,8 @@ public sealed class AuditionPendingPlaybackTests : IDisposable
     {
         public bool IsRunning { get; private set; }
         public bool IsRecordingTo(string path) => IsRunning;
-        public bool Start(string path) { IsRunning = true; return true; }
+        public bool Start(string path, bool holdFileStart) { IsRunning = true; return true; }
+        public void BeginFileAt(string path, long? stopwatchTimestamp) { }
         public void Stop() => IsRunning = false;
     }
 }
