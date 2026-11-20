@@ -56,7 +56,8 @@ namespace Radios.SmartLink
         /// no tier gives a radio a port it does not advertise.
         /// </summary>
         public static bool EarnsAnOffer(SmartLinkRefusal refusal) =>
-            refusal == SmartLinkRefusal.TierForbidsWhatTheRadioOffers;
+            refusal == SmartLinkRefusal.TierForbidsWhatTheRadioOffers
+            || refusal == SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch;
 
         /// <summary>The tier a Yes saves, as chosen.</summary>
         public static SmartLinkConnectionMode TierOnYes(SmartLinkTierOffer offer) => offer.OfferedTier;
@@ -107,9 +108,15 @@ namespace Radios.SmartLink
         public static string Question(SmartLinkTierOffer offer, string radioName) =>
             Lexicon.Get(QuestionKey(offer), ("radioName", radioName), ("email", offer.AccountEmail));
 
-        /// <summary>The question's lexicon key.</summary>
+        /// <summary>
+        /// The question's lexicon key. A "Hole punch always" radio gets its own
+        /// words: it is refused because its choice demands a punch, which is not
+        /// the same as a radio that can be reached in no other way, and the
+        /// operator may rather change the radio's choice than the account.
+        /// </summary>
         public static string QuestionKey(SmartLinkTierOffer offer) =>
-            offer.OfferedTier == SmartLinkConnectionMode.ManualPlusUpnp ? "connect.tier_offer.upnp"
+            offer.Refusal == SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch ? "connect.tier_offer.punch_always"
+            : offer.OfferedTier == SmartLinkConnectionMode.ManualPlusUpnp ? "connect.tier_offer.upnp"
             : "connect.tier_offer.punch";
 
         /// <summary>

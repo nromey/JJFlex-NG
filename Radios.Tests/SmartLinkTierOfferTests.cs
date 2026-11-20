@@ -113,7 +113,8 @@ namespace Radios.Tests
         {
             var upnp = new SmartLinkTierOffer("s", "o@example.invalid", SmartLinkConnectionMode.ManualPlusUpnp,
                 SmartLinkConnectionMode.ManualPortForwardOnly, SmartLinkRefusal.TierForbidsWhatTheRadioOffers);
-            foreach (var o in new[] { upnp, upnp with { OfferedTier = SmartLinkConnectionMode.AutomaticHolePunch } })
+            foreach (var o in new[] { upnp, upnp with { OfferedTier = SmartLinkConnectionMode.AutomaticHolePunch },
+                         upnp with { OfferedTier = SmartLinkConnectionMode.AutomaticHolePunch, Refusal = SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch } })
                 Assert.DoesNotContain("forwarded ports only", SmartLinkTierOffers.Question(o, "R"));
         }
 
@@ -130,14 +131,70 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Only_a_tier_refusal_earns_an_offer()
+        public void Only_a_refusal_a_higher_tier_cures_earns_an_offer()
         {
-            // Hole punch always under Tier 1: the radio needs nothing the tier forbids; the choice demands it.
-            Assert.Null(SmartLinkTierOffers.For(Planned(SmartLinkConnectionMode.ManualPortForwardOnly, false, RadioConnectionPreference.HolePunch, Report(true, false)), true));
+            // Repair round 1 (Codex's B1): this test said "Only_a_tier_refusal_earns_an_offer"
+            // and pinned "Hole punch always" under Tier 1 as earning NO offer. That is now
+            // an offer (the next two tests); only the two cases below stay offerless.
             // Forwarded ports only with nothing usable: no tier would help.
             Assert.Null(SmartLinkTierOffers.For(Planned(SmartLinkConnectionMode.ManualPortForwardOnly, false, RadioConnectionPreference.ForwardOnly, Report(false, false)), true));
             // Not refused at all.
             Assert.Null(SmartLinkTierOffers.For(Planned(SmartLinkConnectionMode.ManualPortForwardOnly, false, RadioConnectionPreference.Auto, Report(true, false)), true));
+        }
+
+        /// <summary>
+        /// Codex's B1: a radio advertising no usable pair, set to "Hole punch
+        /// always", under a never-chosen Tier 1 or Tier 2 account. It could punch
+        /// before this build; the policy now refuses it with
+        /// HolePunchAlwaysButTierForbidsPunch, and that refusal earns the offer,
+        /// naming Tier 3, the lowest tier that admits the punch the choice demands.
+        /// </summary>
+        [Fact]
+        public void A_punch_only_radio_set_to_Hole_punch_always_is_offered_Tier_3()
+        {
+            foreach (var tier in new[] { SmartLinkConnectionMode.ManualPortForwardOnly, SmartLinkConnectionMode.ManualPlusUpnp })
+            {
+                var rec = Planned(tier, false, RadioConnectionPreference.HolePunch, Report(false, false));
+                Assert.Equal(SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch, rec.Refusal);
+                var offer = SmartLinkTierOffers.For(rec, accountIsSaved: true);
+                Assert.NotNull(offer);
+                Assert.Equal(SmartLinkConnectionMode.AutomaticHolePunch, offer!.OfferedTier);
+                Assert.Equal(tier, offer.CurrentTier);
+                Assert.Equal(SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch, offer.Refusal);
+                Assert.Equal("connect.tier_offer.punch_always", SmartLinkTierOffers.QuestionKey(offer));
+                Assert.Equal(tier, SmartLinkTierOffers.TierFor(offer, yes: false));
+            }
+        }
+
+        /// <summary>
+        /// The same refusal on a radio that DOES advertise ports earns the offer
+        /// too (the repair brief: both refusals produce it), and keeps its own
+        /// words, because the punch is demanded by the radio's choice rather than
+        /// needed by the radio; the other refusal keeps the punch words.
+        /// </summary>
+        [Fact]
+        public void Both_tier_refusals_earn_the_offer_with_their_own_words()
+        {
+            var forced = SmartLinkTierOffers.For(Planned(SmartLinkConnectionMode.ManualPortForwardOnly, false, RadioConnectionPreference.HolePunch, Report(true, false)), true);
+            Assert.NotNull(forced);
+            Assert.Equal(SmartLinkConnectionMode.AutomaticHolePunch, forced!.OfferedTier);
+            Assert.Equal("connect.tier_offer.punch_always", SmartLinkTierOffers.QuestionKey(forced));
+
+            var needed = SmartLinkTierOffers.For(Planned(SmartLinkConnectionMode.ManualPortForwardOnly, false, RadioConnectionPreference.Auto, Report(false, false)), true);
+            Assert.NotNull(needed);
+            Assert.Equal(SmartLinkRefusal.TierForbidsWhatTheRadioOffers, needed!.Refusal);
+            Assert.Equal("connect.tier_offer.punch", SmartLinkTierOffers.QuestionKey(needed));
+
+            Assert.True(SmartLinkTierOffers.EarnsAnOffer(SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch));
+            Assert.True(SmartLinkTierOffers.EarnsAnOffer(SmartLinkRefusal.TierForbidsWhatTheRadioOffers));
+            Assert.False(SmartLinkTierOffers.EarnsAnOffer(SmartLinkRefusal.ForwardedOnlyButNoUsablePortPair));
+            Assert.False(SmartLinkTierOffers.EarnsAnOffer(SmartLinkRefusal.None));
+        }
+
+        [Fact]
+        public void A_chosen_Hole_punch_always_account_gets_the_refusal_only()
+        {
+            Assert.Null(SmartLinkTierOffers.For(Planned(SmartLinkConnectionMode.ManualPlusUpnp, true, RadioConnectionPreference.HolePunch, Report(false, false)), true));
         }
 
         [Fact]
@@ -146,7 +203,8 @@ namespace Radios.Tests
             var upnp = new SmartLinkTierOffer("4711-1111-2222-3333", "owner@example.invalid", SmartLinkConnectionMode.ManualPlusUpnp,
                 SmartLinkConnectionMode.ManualPortForwardOnly, SmartLinkRefusal.TierForbidsWhatTheRadioOffers);
             var punch = upnp with { OfferedTier = SmartLinkConnectionMode.AutomaticHolePunch };
-            foreach (var o in new[] { upnp, punch })
+            var punchAlways = punch with { Refusal = SmartLinkRefusal.HolePunchAlwaysButTierForbidsPunch };
+            foreach (var o in new[] { upnp, punch, punchAlways })
             {
                 string q = SmartLinkTierOffers.Question(o, "Bench 8600");
                 Assert.Contains("Bench 8600", q);

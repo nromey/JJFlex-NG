@@ -915,6 +915,7 @@ namespace Radios.Tests
                 "connect.failure.smartlink_tier_punch_always",
                 "connect.failure.smartlink_tier_upnp_only",
                 "connect.tier_offer.punch",
+                "connect.tier_offer.punch_always",
                 "connect.tier_offer.title",
                 "connect.tier_offer.upnp",
                 "connect.smartlink.account.tier_1",
