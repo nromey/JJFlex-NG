@@ -457,7 +457,8 @@ globals
     int gJjfLastFocusTick,
     int gJjfLastMenuFocusTick,
     int gJjfAfterTick,
-    int gJjfAfterTimer
+    int gJjfAfterTimer,
+    int gJjfSwallowTick
 
 void function JjfMenuStart ()
 gJjfBarActive = FALSE
@@ -530,6 +531,9 @@ gJjfBarActive = TRUE
 gJjfAfterTick = GetTickCount ()
 JjfCapEmit ("meta", "menubar", "3c: script raises MENUBAR_ACTIVE for " + gJjfBarPending, "")
 JjfRaiseMenuMode (MENUBAR_ACTIVE)
+; The default's IndicateControlType (WT_MENUBAR) said nothing when raised this
+; way (first 3c run, 00:37:33: no "Menu bar" in the capture), so say it here.
+Say (cmsg46_L, OT_CONTROL_TYPE)
 gJjfAfterTimer = ScheduleFunction ("JjfSayBarItemIfUnspoken", 2)
 endFunction
 
@@ -647,10 +651,22 @@ if (nObject == OBJID_MENU) then
     if (nChild == 0 && GlobalMenuMode == MENU_INACTIVE) then
         ; The menu bar object itself, after the menus closed: "Application", "Alt".
         JjfCapEmit ("meta", "focus", "3c: swallowed focus on the menu bar object", "")
+        gJjfSwallowTick = GetTickCount ()
         return
     endIf
     gJjfLastMenuFocusTick = GetTickCount ()
 endIf
 gJjfLastFocusTick = GetTickCount ()
 FocusChangedEventEx (hwndFocus, nObject, nChild, hwndPrevFocus, nPrevObject, nPrevChild, nChangeDepth)
+endFunction
+
+; The bar object's access key ("Alt") still came after the swallowed focus
+; (first 3c run, 00:38:16): it is spoken from TutorMessageEvent. Skip it within
+; a second and a half of a swallowed bar-object focus; otherwise the default.
+void function TutorMessageEvent (handle hwndFocus, int nMenuMode)
+if (gJjfSwallowTick && GetTickCount () - gJjfSwallowTick < 1500) then
+    JjfCapEmit ("meta", "focus", "3c: skipped the access key after the swallowed bar focus", "")
+    return
+endIf
+TutorMessageEvent (hwndFocus, nMenuMode)
 endFunction
