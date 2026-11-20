@@ -424,11 +424,22 @@ public sealed class HelperModelCostTests : IDisposable
     // busy moment does not decide. Saved oldest first; the last figure is the
     // newest. Each row is chosen so the newest alone, or the mean, would decide
     // differently from the median.
+    //
+    // Sprint 49 Track K3 (Noel, 2026-11-19 20:29, Q6: "agreed"): an even count
+    // takes the LOWER of the two middle figures, not their average, so one busy
+    // start cannot decide on a machine's second measurement and a two-versus-two
+    // split keeps the ruled default, Premium CW. The even rows below are chosen
+    // so the average of the middle two, the newest alone, the smallest figure or
+    // the upper middle would each decide differently somewhere.
     [Theory]
     [InlineData(new[] { 4.0, 4.5, 788.0 }, 4.5, 3, "premium_cw")]                  // one busy start: the newest alone would say Standard
     [InlineData(new[] { 5.2, 8.2, 4.0, 80.0, 4.1 }, 5.2, 5, "standard_cw")]        // three of five busy: the newest alone would say Premium
     [InlineData(new[] { 9.0, 9.0, 9.0, 4.0, 4.0, 4.0, 9.0 }, 4.0, 5, "premium_cw")] // only the last five count
-    [InlineData(new[] { 4.0, 6.0 }, 5.0, 2, "standard_cw")]                        // an even count: halfway between the middle two
+    [InlineData(new[] { 4.0, 6.0 }, 4.0, 2, "premium_cw")]                         // an even count: the lower middle; the average (5.0) would say Standard
+    [InlineData(new[] { 4.0, 788.0 }, 4.0, 2, "premium_cw")]                       // two, one busy: the lower middle; the average (396) would say Standard
+    [InlineData(new[] { 788.0, 4.0 }, 4.0, 2, "premium_cw")]                       // the same, the busy one older: order does not matter
+    [InlineData(new[] { 4.0, 788.0, 4.2, 80.0 }, 4.2, 4, "premium_cw")]            // four, split two and two: Premium; the average (42.1) or the newest would say Standard
+    [InlineData(new[] { 5.2, 8.2, 80.0, 4.0 }, 5.2, 4, "standard_cw")]             // four, three busy: Standard; the smallest (4.0) or the newest would say Premium
     [InlineData(new[] { 4.2 }, 4.2, 1, "premium_cw")]
     public void The_rule_reads_the_median_of_the_kept_measurements(double[] p99Ms, double median, int count, string model)
     {
