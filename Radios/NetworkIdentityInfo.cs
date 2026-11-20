@@ -326,8 +326,8 @@ namespace Radios
         {
             if (holePunch)
                 return punchPort > 0
-                    ? $"Path: hole punch, negotiated on port {punchPort} this session. No forwarded ports are configured at the radio's site."
-                    : "Path: hole punch. No forwarded ports are configured at the radio's site.";
+                    ? $"Path: hole punch, negotiated on port {punchPort} this session. No forwarded ports are configured at the radio's network location."
+                    : "Path: hole punch. No forwarded ports are configured at the radio's network location.";
             string fwdState = forwardOn ? "on" : "off";
             return $"Path: forwarded ports — external TCP {tcp}, external UDP {udp}. Radio reports port forwarding {fwdState}.";
         }
