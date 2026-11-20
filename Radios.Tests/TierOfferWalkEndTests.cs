@@ -51,8 +51,10 @@ namespace Radios.Tests
             Assert.Contains("OfferHigherSmartLinkTier(tryAgainRig, \"startup auto-connect, try again\")", g);
             Assert.Contains("OfferHigherSmartLinkTier(tierRig, \"OpenTheRadio remote retry\")", g);
             Assert.Contains("OfferHigherSmartLinkTier(autoRetryRig, \"OpenTheRadio auto-connect retry\")", g);
-            // Six callers in all, and no other: a new walk end must be named here.
-            Assert.Equal(6, g.Split("OfferHigherSmartLinkTier(").Length - 1 - 1 /* the declaration */
+            // The last walk end, after every ladder (repair round 2): see TierOfferAtGiveUpTests.
+            Assert.Contains("OfferTierAndReplanSmartLink(offer.Serial, giveUpRig.ConnectedLowBW", g);
+            // Seven callers in all, and no other: a new walk end must be named here.
+            Assert.Equal(7, g.Split("OfferHigherSmartLinkTier(").Length - 1 - 1 /* the declaration */
                 + g.Split("OfferTierAndReplanSmartLink(").Length - 1 - 1 /* its declaration */
                 - 1 /* OfferTierAndReplanSmartLink's own call to OfferHigherSmartLinkTier */);
         }

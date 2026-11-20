@@ -159,10 +159,15 @@ namespace Radios
             }
         }
 
-        /// <summary>Clears what one SmartLink dial decides, at its start.</summary>
+        /// <summary>
+        /// Clears what one SmartLink dial decides, at its start. An offer an
+        /// earlier dial left unshown is cleared through
+        /// <see cref="DismissTierOffer"/>, so the trace says so (repair round
+        /// 2, from Codex's re-check); the new dial earns its own or none.
+        /// </summary>
         private void ResetConnectTierState()
         {
-            PendingTierOffer = null;
+            DismissTierOffer("a new SmartLink dial on this rig starts, and decides its own offer");
             SmartLinkMethodInUse = null;
         }
     }

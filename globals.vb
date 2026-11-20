@@ -5932,6 +5932,26 @@ RadioConnected:
                     End If
                 End If
 
+                ' Repair round 2 (Codex's re-check): the last walk end. Startup
+                ' auto-connect leaves no walk for ResumeWalkAfterFailedOpen, and
+                ' the ladders above run only once the transport has fallen, so a
+                ' SmartLink leg refused by its tier, followed by a Local leg
+                ' whose session came up and whose open then failed with the
+                ' command connection still up, reached the sweep below with its
+                ' offer unshown. Put it here, whatever the transport's state and
+                ' whether or not a walk ran: once per connect, a cancel still
+                ' dismissed, and nothing at all when no offer is pending.
+                If Not rv AndAlso RigControl IsNot Nothing Then
+                    Dim giveUpRig = RigControl
+                    rv = Radios.SmartLink.TierOfferAtGiveUp.RecoverAfterFailedOpen(
+                        giveUpRig.PendingTierOffer, giveUpRig.CancelRequested, giveUpRig.IsConnected,
+                        Function(offer) OfferTierAndReplanSmartLink(offer.Serial, giveUpRig.ConnectedLowBW,
+                            giveUpRig.SmartLinkPathForced, "OpenTheRadio (failed open, before giving up)"),
+                        Function() RunConnectPhaseOffUiThread("TierOfferGiveUpStart", Function() giveUpRig.Start()),
+                        Sub(opened) Radios.ConnectionHistory.CommitPendingOutcome(opened),
+                        Sub(why) giveUpRig.DismissTierOffer(why))
+                End If
+
                 ' Whatever the ladder armed — a RetryConnect that came up, or an
                 ' auto-connect retry's leg — resolves here. A no-op when nothing
                 ' is armed, which is the ordinary case.
@@ -5942,14 +5962,15 @@ RadioConnected:
                 End If
             End If
 
-            ' Repair round 1: every walk end above has put or cleared a tier
-            ' offer. One still pending here was earned by a SmartLink leg the
-            ' connect then left by another path: the radio opened that way, or
-            ' the open failed on a path with no SmartLink re-plan here (Start
-            ' failed with the connection still up). Say so, and drop it.
+            ' Repair rounds 1 and 2: every walk end above, the last one included,
+            ' has put or cleared a tier offer on a failed open. One still
+            ' pending here was earned by a SmartLink leg the connect then left
+            ' by another path, and the radio opened that way. Say so, and drop
+            ' it. (On a failed open this is a no-op since repair round 2; the
+            ' reason is kept for a rig the last walk end did not see.)
             RigControl?.DismissTierOffer(If(rv,
                 "the radio opened over another path",
-                "the connect ended after the walk ends had run (no SmartLink re-plan on this path)"))
+                "the connect ended with an offer the last walk end did not see"))
 
             ' Close the connecting window - onto the shell, which the form
             ' hands the foreground to as it goes (#545).
