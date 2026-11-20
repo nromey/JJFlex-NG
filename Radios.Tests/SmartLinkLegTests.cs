@@ -91,6 +91,8 @@ namespace Radios.Tests
                 return new SmartLinkOpenAnswer(SmartLinkOpenAnswerKind.Completed, "");
             }
 
+            public int ProofWaits;
+            public void ProofWaitBegan(SmartLinkAttempt attempt) => ProofWaits++;
             public void CommitOpen(SmartLinkAttempt attempt) { Commits++; Log.Add("commit:" + attempt.Method); }
             public void Teardown(SmartLinkAttempt attempt, string why) => Log.Add("teardown:" + attempt.Method);
             public void AnnounceMove(SmartLinkMethod from, SmartLinkMethod to)
@@ -664,6 +666,84 @@ namespace Radios.Tests
             world.NoLongerPermitted.Add(SmartLinkMethod.ManualPorts);
             Assert.True(leg.RunConnectStage());
             Assert.Contains("request:ManualPorts", world.Log);
+        }
+
+        [Fact]
+        public void A_note_on_the_answer_stays_on_the_attempt_through_its_final_end()
+        {
+            // "Ready" names a radio, not a request. When an answer may have
+            // been meant for an earlier request the record keeps saying so,
+            // proven or failed, and not only while the attempt is in flight.
+            const string note = "An earlier request to this radio went unanswered 7 seconds before, so this answer may have been meant for it";
+            var (proven, world) = TwoMethods();
+            world.OnRequest = _ => new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Arrived, note);
+            Assert.True(proven.RunConnectStage());
+            Assert.EndsWith(note, proven.Record.LastAttempt!.EndDetail);
+            Assert.True(proven.RunOpenStage());
+            Assert.Equal(SmartLinkAttemptEnd.Proven, proven.Record.LastAttempt!.End);
+            Assert.EndsWith(note, proven.Record.LastAttempt.EndDetail);
+            Assert.StartsWith("the radio opened", proven.Record.LastAttempt.EndDetail);
+
+            var (failed, failedWorld) = Leg(SmartLinkMethod.ManualPorts);
+            failedWorld.OnRequest = _ => new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Arrived, note);
+            failedWorld.OnConnect = _ => false;
+            Assert.False(failed.RunConnectStage());
+            Assert.Equal(SmartLinkAttemptEnd.ConnectFailed, failed.Record.LastAttempt!.End);
+            Assert.EndsWith(note, failed.Record.LastAttempt.EndDetail);
+
+            // And it is one attempt's note, not the next one's.
+            var (two, twoWorld) = TwoMethods();
+            twoWorld.OnRequest = a => new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Arrived,
+                a.Method == SmartLinkMethod.ManualPorts ? note : "");
+            twoWorld.OnConnect = a => a.Method != SmartLinkMethod.ManualPorts && twoWorld.TransportComesUp(a);
+            Assert.True(two.RunConnectStage());
+            Assert.EndsWith(note, two.Record.Attempts[0].EndDetail);
+            Assert.DoesNotContain("earlier request", two.Record.Attempts[1].EndDetail);
+        }
+
+        [Fact]
+        public void The_wait_for_proof_is_announced_to_the_world_only_when_there_is_one()
+        {
+            var (early, earlyWorld) = TwoMethods();          // the data arrives during the open
+            Assert.True(early.RunConnectStage());
+            Assert.True(early.RunOpenStage());
+            Assert.Equal(0, earlyWorld.ProofWaits);
+
+            var (late, lateWorld) = TwoMethods();            // the open finishes first
+            lateWorld.OnOpen = _ => Completed;
+            int sleeps = 0;
+            lateWorld.OnSleep = a => { if (++sleeps == 4) lateWorld.Sight(a!); };
+            Assert.True(late.RunConnectStage());
+            Assert.True(late.RunOpenStage());
+            Assert.Equal(1, lateWorld.ProofWaits);
+        }
+
+        [Fact]
+        public void Whether_the_leg_will_move_on_is_asked_of_the_policy_too()
+        {
+            var (leg, world) = TwoMethods();
+            Assert.True(leg.RunConnectStage());
+            Assert.True(leg.WillMoveOnAfter(SmartLinkAttemptEnd.CommandConnectionLost));
+            Assert.False(leg.WillMoveOnAfter(SmartLinkAttemptEnd.OpenFailed));
+
+            world.NoLongerPermitted.Add(SmartLinkMethod.UpnpPorts);
+            Assert.False(leg.WillMoveOnAfter(SmartLinkAttemptEnd.CommandConnectionLost));   // no move will be said, so nothing is withheld for it
+        }
+
+        [Fact]
+        public void An_attempt_ended_unproven_signals_whoever_is_making_its_transport()
+        {
+            var (leg, world) = TwoMethods();
+            Assert.True(leg.DialCurrent());
+            var attempt = world.Attempts[0];
+            Assert.False(attempt.EndedToken.IsCancellationRequested);
+            leg.Abandon(operatorCancelled: false, "a new dial began on this rig");
+            Assert.True(attempt.EndedToken.IsCancellationRequested);
+
+            var (proven, provenWorld) = TwoMethods();
+            Assert.True(proven.RunConnectStage());
+            Assert.True(proven.RunOpenStage());
+            Assert.False(provenWorld.Attempts[0].EndedToken.IsCancellationRequested);     // a proven attempt's transport is kept
         }
 
         // ── Abandoned from outside ──────────────────────────────────────────

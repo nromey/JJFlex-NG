@@ -243,6 +243,12 @@ namespace Radios.SmartLink
         bool ConnectTransport(SmartLinkAttempt attempt);
         /// <summary>The open, up to but not including its commit. It must stop when the attempt fails.</summary>
         SmartLinkOpenAnswer Open(SmartLinkAttempt attempt);
+        /// <summary>
+        /// The open completed and the proof is not in yet: the wait for the
+        /// radio's audio and data has begun. Called at most once per attempt,
+        /// and not at all when the data arrived before the open finished.
+        /// </summary>
+        void ProofWaitBegan(SmartLinkAttempt attempt);
         /// <summary>The attempt is proven: finish the open (what must not start before proof).</summary>
         void CommitOpen(SmartLinkAttempt attempt);
         /// <summary>
@@ -288,6 +294,8 @@ namespace Radios.SmartLink
         private SmartLinkConnectRecord _record;
         private int _index;
         private SmartLinkAttempt? _current;
+        /// <summary>What must stay said about the current attempt's answer, whatever it ends as (a possibly late answer).</summary>
+        private string _answerNote = "";
 
         public const int ProofPollMs = 25;
 
@@ -326,7 +334,17 @@ namespace Radios.SmartLink
         /// </summary>
         public bool WillMoveOnAfter(SmartLinkAttemptEnd end) =>
             !Cancelled && !_world.OperatorCancelled
-            && SmartLinkAttemptRules.After(end, HasNextMethod) == SmartLinkLegNext.NextMethod;
+            && SmartLinkAttemptRules.After(end, HasNextMethod) == SmartLinkLegNext.NextMethod
+            // ...and the next method is still allowed: one the policy has
+            // stopped allowing ends the leg, with no move to announce.
+            && _world.StillPermitted(_methods[_index + 1]);
+
+        /// <summary>The plain reason a SmartLink answered with no handle. One home: the leg and the radio layer both say it from here.</summary>
+        public const string NoHandleInAnswer = "the connect request came back without a handle";
+
+        /// <summary>An attempt's detail, with the note about its answer kept on the end.</summary>
+        private string Detail(string detail) =>
+            string.IsNullOrEmpty(_answerNote) ? detail : detail + ". " + _answerNote;
 
         /// <summary>
         /// Send the current method's connect request and wait for its handle.
@@ -349,6 +367,7 @@ namespace Radios.SmartLink
             var attempt = new SmartLinkAttempt(_record.ConnectId, _record.Attempts.Count + 1, method,
                 _world.VitaSocketGeneration, () => _world.NowMs, _rules);
             _current = attempt;
+            _answerNote = "";
 
             _record = _record.WithAttempt(_world.Prepare(attempt));
             _world.Store(_record);
@@ -358,12 +377,16 @@ namespace Radios.SmartLink
             {
                 case SmartLinkHandleAnswerKind.Arrived:
                     attempt.SettleRequest(handleArrived: true);
+                    // A note on an answer that arrived (it may have been meant
+                    // for an earlier request) stays on this attempt's detail
+                    // through every later state, its final end included.
+                    _answerNote = answer.Detail ?? "";
                     _record = _record
                         .WithLastAttempt(a => a with
                         {
                             HandleArrived = true,
                             End = SmartLinkAttemptEnd.Dialled,
-                            EndDetail = string.IsNullOrEmpty(answer.Detail) ? "handed to the open; not yet proven" : answer.Detail,
+                            EndDetail = Detail("handed to the open; not yet proven"),
                         })
                         .WithMethodUsed(method);
                     _world.Store(_record);
@@ -377,7 +400,7 @@ namespace Radios.SmartLink
                 case SmartLinkHandleAnswerKind.Empty:
                     attempt.SettleRequest(handleArrived: false);
                     return EndAttempt(attempt, SmartLinkAttemptEnd.NullHandle,
-                        string.IsNullOrEmpty(answer.Detail) ? "the connect request came back without a handle" : answer.Detail);
+                        string.IsNullOrEmpty(answer.Detail) ? NoHandleInAnswer : answer.Detail);
 
                 case SmartLinkHandleAnswerKind.NotSent:
                     attempt.SettleRequest(handleArrived: false);
@@ -505,6 +528,7 @@ namespace Radios.SmartLink
                         {
                             _record = _record.WithLastAttempt(a => a with { OpenSucceeded = true });
                             _world.Store(_record);
+                            _world.ProofWaitBegan(attempt);
                         }
                         WaitForProof(attempt);
                         break;
@@ -538,7 +562,7 @@ namespace Radios.SmartLink
                             OpenSucceeded = true,
                             QualifiedUdpAfter = attempt.QualifiedUdpAfter,
                             End = SmartLinkAttemptEnd.Proven,
-                            EndDetail = attempt.EndDetail,
+                            EndDetail = Detail(attempt.EndDetail),
                         })
                         .WithMethodUsed(attempt.Method);
                     _world.Store(_record);
@@ -598,7 +622,7 @@ namespace Radios.SmartLink
                     OpenSucceeded = openResult ?? a.OpenSucceeded,
                     QualifiedUdpAfter = attempt.QualifiedUdpAfter ?? a.QualifiedUdpAfter,
                     End = end,
-                    EndDetail = attempt.EndDetail,
+                    EndDetail = Detail(attempt.EndDetail),
                 })
                 .WithMethodUsed(null);
             _world.Store(_record);
@@ -670,7 +694,7 @@ namespace Radios.SmartLink
             if (attempt == null || attempt.IsOver) { Ended = true; return; }
             attempt.TryEnd(operatorCancelled ? SmartLinkAttemptEnd.Cancelled : SmartLinkAttemptEnd.OpenFailed, why);
             _record = _record
-                .WithLastAttempt(a => a with { End = attempt.End, EndDetail = attempt.EndDetail })
+                .WithLastAttempt(a => a with { End = attempt.End, EndDetail = Detail(attempt.EndDetail) })
                 .WithMethodUsed(null);
             _world.Store(_record);
             _world.MethodInFlight(null);

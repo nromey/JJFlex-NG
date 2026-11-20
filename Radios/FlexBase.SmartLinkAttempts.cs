@@ -335,12 +335,22 @@ namespace Radios
             public void Store(SmartLinkConnectRecord record) => SmartLinkConnectRecords.Store(record);
             public void MethodInFlight(SmartLinkMethod? method) => _rig.SmartLinkMethodInUse = method;
 
+            /// <summary>
+            /// What the radio advertises now: the newest list's report when one
+            /// has described this radio object, else the plan's. The permission
+            /// for a later method and the pair it dials are both read from
+            /// this, so a list refreshed mid-walk cannot permit by one report
+            /// and dial by another.
+            /// </summary>
+            private RadioPortReport ReportNow() =>
+                _radio.AdvertisedPorts != null ? RadioPortReport.FromAdvertised(_radio.AdvertisedPorts) : _plannedReport;
+
             public bool StillPermitted(SmartLinkMethod method)
             {
                 try
                 {
                     var account = AccountWhoseTierGoverns(_session.AccountId, AccountManager.Accounts, _rig._currentAccount);
-                    var report = _radio.AdvertisedPorts != null ? RadioPortReport.FromAdvertised(_radio.AdvertisedPorts) : _plannedReport;
+                    var report = ReportNow();
                     var input = new SmartLinkPolicyInput(
                         account?.ConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly,
                         account?.TierChosen ?? false,
@@ -395,7 +405,7 @@ namespace Radios
                     // A ports method dials the pair it names, which is not
                     // always the one FlexLib's parse kept (a UPnP pair beside
                     // a manual one).
-                    var pair = _plannedReport.PairFor(method);
+                    var pair = ReportNow().PairFor(method);
                     if (r.PublicTlsPort != pair.TlsPort) r.PublicTlsPort = pair.TlsPort;
                     if (r.PublicUdpPort != pair.UdpPort) r.PublicUdpPort = pair.UdpPort;
                     if (r.RequiresHolePunch) r.RequiresHolePunch = false;
@@ -467,7 +477,7 @@ namespace Radios
                     {
                         attempt.SettleRequest(handleArrived: false);
                         Tracing.TraceLine("sendRemoteConnect:Radio connect returned null handle.", TraceLevel.Error);
-                        return new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Empty, "the connect request came back without a handle");
+                        return new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Empty, SmartLinkLeg.NoHandleInAnswer);
                     }
 
                     answered = true;
@@ -497,7 +507,7 @@ namespace Radios
                             $"sendRemoteConnect: a connect request for {r.Serial} went unanswered {age} ms ago; this answer may belong to it, and nothing on the wire can tell",
                             TraceLevel.Warning);
                         return new SmartLinkHandleAnswer(SmartLinkHandleAnswerKind.Arrived,
-                            $"handed to the open; not yet proven. An earlier request to this radio went unanswered {age / 1000} seconds before, so this answer may have been meant for it");
+                            $"An earlier request to this radio went unanswered {age / 1000} seconds before, so this answer may have been meant for it");
                     }
                     return SmartLinkHandleAnswer.Arrived;
                 }
@@ -519,6 +529,18 @@ namespace Radios
             {
                 bool opened = _rig.startOpenPhase(attempt, out var kind);
                 return new SmartLinkOpenAnswer(opened ? SmartLinkOpenAnswerKind.Completed : kind, _rig.LastStartFailureReason ?? "");
+            }
+
+            public void ProofWaitBegan(SmartLinkAttempt attempt)
+            {
+                // For the connecting window: the open is done, and what is
+                // being waited for now is the radio's audio and data.
+                ConnectionProfiler.Current?.RecordEvent("smartlink_proof_wait", new Dictionary<string, object>
+                {
+                    { "method", attempt.Method.ToString() },
+                    { "attempt", attempt.Sequence },
+                    { "windowMs", _rig.SmartLinkProofRulesInUse.WindowMs },
+                });
             }
 
             public void CommitOpen(SmartLinkAttempt attempt)

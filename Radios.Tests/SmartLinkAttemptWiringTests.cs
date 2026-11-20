@@ -205,6 +205,13 @@ namespace Radios.Tests
             Assert.True(record.LastAttempt!.HandleArrived);
             Assert.Contains("may have been meant for it", record.LastAttempt.EndDetail);
 
+            // The mark outlives the attempt's interim state: whatever the
+            // attempt ends as, the record still says its answer was in doubt.
+            Assert.False(rig.SmartLinkLegInFlight!.ContinueAfterTransport(false, out _));
+            var ended = SmartLinkConnectRecords.For(serial)!.LastAttempt!;
+            Assert.Equal(SmartLinkAttemptEnd.ConnectFailed, ended.End);
+            Assert.Contains("may have been meant for it", ended.EndDetail);
+
             // Control: with no unanswered request before it, the answer carries no such mark.
             string other = Serial();
             var ready2 = AnswerReady(wan, times: 3);

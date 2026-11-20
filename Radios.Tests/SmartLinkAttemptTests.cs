@@ -202,6 +202,26 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_recorded_first_data_time_counts_from_the_socket_and_the_window_from_the_transport()
+        {
+            // Two clocks, on purpose. A hole punch makes its socket before the
+            // TCP and TLS stage: here that stage took twenty seconds, and the
+            // radio's data came one second after the transport was up. The
+            // window (15 s from the transport) is not exceeded; the record's
+            // time (from the socket, as its doc says) is twenty-one seconds.
+            var a = Attempt();
+            a.SettleRequest(true);
+            _now += 20_000;
+            a.NoteTransportUp(_connection, 5);
+            _now += 1_000;
+            Assert.Equal(SightingVerdict.Counted, a.NoteSighting(5, _connection, Ms(21_000), true));
+            a.NoteOpenCompleted();
+            Assert.True(a.IsProven);
+            Assert.Equal(Ms(21_000), a.QualifiedUdpAfter);
+            Assert.True(a.QualifiedUdpAfter!.Value.TotalMilliseconds > SmartLinkProofRules.DefaultWindowMs);
+        }
+
+        [Fact]
         public void Losing_its_own_command_connection_before_proof_fails_it()
         {
             var a = Up();

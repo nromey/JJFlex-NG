@@ -106,6 +106,7 @@ namespace Radios.SmartLink
         private readonly Func<long> _nowMs;
         private readonly SmartLinkProofRules _rules;
         private readonly CancellationTokenSource _request = new();
+        private readonly CancellationTokenSource _endedUnproven = new();
         private readonly List<(int Generation, object? Connection, TimeSpan SinceSocket, bool SocketCurrent)> _heldSightings = new();
         private readonly List<object> _heldLosses = new();
 
@@ -151,6 +152,15 @@ namespace Radios.SmartLink
         /// listening for its answer.
         /// </summary>
         public CancellationToken RequestToken => _request.Token;
+
+        /// <summary>
+        /// Cancelled when this attempt ends without being proven. Whoever is
+        /// making this attempt's transport listens to it, so an attempt that is
+        /// ended from outside while its TCP or TLS stage is still waiting (a
+        /// new dial, the rig disconnecting) ends that wait too, instead of
+        /// leaving a connect running for an attempt that no longer exists.
+        /// </summary>
+        public CancellationToken EndedToken => _endedUnproven.Token;
 
         public bool RequestSettled { get { lock (_gate) return _requestSettled; } }
         public bool HandleArrived { get { lock (_gate) return _handleArrived; } }
@@ -207,6 +217,15 @@ namespace Radios.SmartLink
                 // A socket not newer than the floor was made by an earlier
                 // attempt: this attempt has none, and can never be proven.
                 _socketGeneration = socketGeneration > SocketGenerationFloor ? socketGeneration : 0;
+                // TWO CLOCKS, on purpose. The WINDOW (this deadline) runs from
+                // now, the transport coming up. QualifiedUdpAfter, which the
+                // record keeps, is measured from the SOCKET's creation, as the
+                // record's own doc says. On a ports method those are the same
+                // instant. On a hole punch the socket is made before the TCP
+                // and TLS stage, so QualifiedUdpAfter can legitimately be
+                // longer than the window: a punch whose TCP took twenty
+                // seconds and whose data came one second after it was up is
+                // proven, with a QualifiedUdpAfter of twenty-one seconds.
                 _proofDeadlineMs = _nowMs() + _rules.WindowMs;
 
                 foreach (object lost in _heldLosses)
@@ -378,6 +397,13 @@ namespace Radios.SmartLink
                 // Outside the lock would be tidier, but a token's callbacks
                 // here only complete a waiting task; nothing re-enters.
                 CancelRequestToken();
+            }
+            if (end != SmartLinkAttemptEnd.Proven)
+            {
+                // Listeners only queue work; nothing re-enters this attempt.
+                try { _endedUnproven.Cancel(); }
+                catch (ObjectDisposedException) { }
+                catch (AggregateException) { /* a listener's fault is not the attempt's */ }
             }
         }
 
