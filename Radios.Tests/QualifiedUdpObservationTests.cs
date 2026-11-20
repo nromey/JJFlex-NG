@@ -67,9 +67,61 @@ namespace Radios.Tests
             Assert.False(obs.OpenCompleted);
             Assert.True(watch.HasMatched);
 
-            // Once per socket: the receive thread pays nothing after the first match.
+            // Once per socket and command connection: under the same
+            // connection (here none), nothing more is reported.
             Assert.Null(watch.Observe(new IPEndPoint(Radio_, 7604), FlexVita(), 16, Later(created, 200), openStarted, true, null));
             Assert.Null(watch.Observe(new IPEndPoint(Stranger, 4993), FlexVita(), 16, Later(created, 200), openStarted, true, null));
+        }
+
+        private static CommandConnection NewConnection() =>
+            (CommandConnection)Activator.CreateInstance(typeof(CommandConnection), nonPublic: true)!;
+
+        [Fact]
+        public void A_later_packet_under_another_command_connection_is_a_new_sighting()
+        {
+            // MIGRATION.md item 31. A hole punch makes its socket before the
+            // command connection that will own it: a packet in that gap is
+            // sighted under the previous connection (or none), and the proof
+            // refuses it. The packet that arrives under the attempt's own
+            // connection must still be reported, or the socket could never
+            // prove itself.
+            var watch = Watch(out long created);
+            var earlier = NewConnection();
+            var own = NewConnection();
+            var radio = new IPEndPoint(Radio_, 7604);
+
+            var inTheGap = watch.Observe(radio, FlexVita(), 16, Later(created, 5), 0, false, earlier);
+            Assert.NotNull(inTheGap);
+            Assert.Same(earlier, inTheGap!.Connection);
+
+            // The same connection again: not news.
+            Assert.Null(watch.Observe(radio, FlexVita(), 16, Later(created, 6), 0, false, earlier));
+
+            var underOwn = watch.Observe(radio, FlexVita(), 16, Later(created, 900), 0, true, own);
+            Assert.NotNull(underOwn);
+            Assert.True(underOwn!.Matched);
+            Assert.Same(own, underOwn.Connection);
+            Assert.Equal(7, underOwn.SocketGeneration);
+            Assert.InRange(underOwn.SinceSocketCreated.TotalMilliseconds, 899, 901);
+
+            // ...and under that one, again, nothing.
+            Assert.Null(watch.Observe(radio, FlexVita(), 16, Later(created, 950), 0, true, own));
+        }
+
+        [Fact]
+        public void No_connection_then_a_connection_is_two_sightings_and_a_stranger_is_still_traced_once()
+        {
+            var watch = Watch(out long created);
+            var own = NewConnection();
+            Assert.NotNull(watch.Observe(new IPEndPoint(Radio_, 4993), FlexVita(), 16, Later(created, 1), 0, false, null));
+            Assert.NotNull(watch.Observe(new IPEndPoint(Radio_, 4993), FlexVita(), 16, Later(created, 2), 0, false, own));
+
+            // Another address never qualifies, under any connection, and is
+            // reported once per socket as before.
+            var stranger = watch.Observe(new IPEndPoint(Stranger, 4993), FlexVita(), 16, Later(created, 3), 0, false, NewConnection());
+            Assert.NotNull(stranger);
+            Assert.False(stranger!.Matched);
+            Assert.Null(watch.Observe(new IPEndPoint(Stranger, 4993), FlexVita(), 16, Later(created, 4), 0, false, NewConnection()));
         }
 
         [Fact]
@@ -214,6 +266,17 @@ namespace Radios.Tests
         public void Migration_lists_the_patch_as_item_30()
         {
             Assert.Contains("30. **Qualified-UDP observation", Src("MIGRATION.md"));
+        }
+
+        [Fact]
+        public void Migration_lists_the_per_connection_sighting_as_item_31_and_the_source_is_marked()
+        {
+            Assert.Contains("31. **Qualified-UDP observation, once per socket AND command connection", Src("MIGRATION.md"));
+            string watch = Src("FlexLib_API", "FlexLib", "QualifiedUdpObservation.cs");
+            Assert.Contains("JJFlex patch (MIGRATION.md item 31)", watch);
+            Assert.Contains("JJFlex patch (item 31)", watch);
+            Assert.Contains("ReferenceEquals(Volatile.Read(ref _matchedUnder), under)", watch);
+            Assert.Contains("items 30 and 31", Src("FlexLib_API", "FlexLib", "Radio.cs"));
         }
     }
 }

@@ -555,6 +555,33 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     Pinned by `Radios.Tests/QualifiedUdpObservationTests`. Remove it only if
     FlexLib gains its own per-socket, source-checked arrival report.
 
+31. **Qualified-UDP observation, once per socket AND command connection
+    (2026-11-20, the SmartLink connection tiers work, the attempt walk)**:
+    in `FlexLib_API/FlexLib/QualifiedUdpObservation.cs`, keep
+    `QualifiedUdpWatch`'s `_matchedUnder` field and the three lines of
+    `Observe` that use it, and the two reworded comments beside
+    `QualifiedUdpObserved` in `FlexLib_API/FlexLib/Radio.cs`. Item 30 raised
+    a matched observation once per VITA socket. On a hole punch the socket is
+    made (`StartEarlyHolePunch`) BEFORE the command connection that will own
+    it, so the first packet from the radio's address can arrive under the
+    PREVIOUS command connection, or none: for example the tail of an earlier
+    session's stream reaching the same fixed punch port. The connect proof
+    rightly refuses a sighting that did not arrive under its own attempt's
+    command connection; with one sighting per socket, refusing that one meant
+    the socket could never prove itself, and a working connection would have
+    been torn down as unproven. The watch now reports the first matched packet
+    under EACH command connection (compared by reference; no connection yet
+    counts as one more case), so a later packet under the right connection is
+    still seen. A packet under the same connection as the last sighting costs
+    the receive thread one reference comparison and is not reported again.
+    Nothing else changes: unmatched addresses are still traced once per
+    socket, `_udpSuccessfulRegistration` is untouched, and no packet is
+    dropped, delayed or reordered. Pinned by
+    `QualifiedUdpObservationTests.A_later_packet_under_another_command_connection_is_a_new_sighting`
+    and its neighbours. **Numbering:** this is 31 on the tiers branches; a
+    junk box batch in flight carries its own 31 and `sprint49/integration` its
+    own 21, so the numbers are settled when they merge.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

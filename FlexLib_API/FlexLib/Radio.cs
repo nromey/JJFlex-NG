@@ -15581,15 +15581,16 @@ namespace Flex.Smoothlake.FlexLib
         // below, so the watch starts at socket creation. It changes nothing FlexLib
         // does: _udpSuccessfulRegistration still flips on any Flex-OUI packet from
         // any sender. A Flex VITA packet whose source address is the radio's (the
-        // port may differ) raises QualifiedUdpObserved once per socket; the first
-        // one from any other address is traced only. Both are traced, so the bench
-        // can read them in the diagnostic log.
+        // port may differ) raises QualifiedUdpObserved once per socket and command
+        // connection (item 31); the first one from any other address is traced
+        // only. Both are traced, so the bench can read them in the diagnostic log.
         private QualifiedUdpWatch _udpWatch;
         private int _udpWatchGeneration;
         private long _openStartedTimestamp;
 
-        /// <summary>JJFlex patch (item 30): raised once per VITA socket, off the receive thread,
-        /// when Flex VITA arrives from the radio's own address.</summary>
+        /// <summary>JJFlex patch (items 30 and 31): raised off the receive thread when Flex VITA
+        /// arrives from the radio's own address: once per VITA socket for each command
+        /// connection it arrives under.</summary>
         public event Action<QualifiedUdpObservation> QualifiedUdpObserved;
 
         /// <summary>JJFlex patch (item 30): the generation of the newest VITA socket's watch; 0 before any.</summary>

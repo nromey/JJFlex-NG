@@ -13,11 +13,19 @@ namespace Flex.Smoothlake.FlexLib;
 // changes no FlexLib state, and in particular never touches
 // _udpSuccessfulRegistration, which still flips on any Flex-OUI packet from
 // any sender, exactly as stock code does.
+//
+// JJFlex patch (MIGRATION.md item 31): a qualifying sighting is raised once per
+// socket AND command connection, not once per socket. On a hole punch the
+// socket exists before the command connection that will own it, so the first
+// qualifying packet can arrive under the previous connection (or none); with
+// one sighting per socket, a consumer that rightly refuses that one could never
+// be shown a later packet that arrived under the right connection.
 
 /// <summary>
 /// One sighting of Flex VITA traffic on one VITA socket. Raised (and traced)
-/// at most once per socket for the expected radio address, and traced at most
-/// once per socket for a Flex VITA packet from any other address.
+/// for the expected radio address at most once per socket for each command
+/// connection it arrives under (item 31), and traced at most once per socket
+/// for a Flex VITA packet from any other address.
 /// <para>Only <see cref="Matched"/> observations qualify. <see cref="Radio.QualifiedUdpObserved"/>
 /// raises matched ones only; unmatched ones reach the trace and nothing else.</para>
 /// </summary>
@@ -81,6 +89,10 @@ public sealed class QualifiedUdpWatch
 {
     private int _matchedSeen;
     private int _unmatchedSeen;
+    // JJFlex patch (item 31): the command connection the last qualifying
+    // sighting was reported under. NoConnection stands for "none existed".
+    private static readonly object NoConnection = new();
+    private object? _matchedUnder;
 
     public QualifiedUdpWatch(int generation, IPAddress? expectedAddress, long createdTimestamp)
     {
@@ -98,21 +110,27 @@ public sealed class QualifiedUdpWatch
 
     /// <summary>
     /// Returns an observation for the first Flex VITA packet from the expected
-    /// address, and for the first from any other address; null for everything
-    /// else, so the receive thread pays almost nothing after the first match.
+    /// address under each command connection (item 31: once per socket and
+    /// connection), and for the first from any other address; null for
+    /// everything else, so the receive thread pays one reference comparison
+    /// after a match while the connection stays the same.
     /// <paramref name="openStartedTimestamp"/> is 0 when no open has started.
     /// </summary>
     public QualifiedUdpObservation? Observe(IPEndPoint? source, byte[]? data, int bytes,
         long nowTimestamp, long openStartedTimestamp, bool openCompleted, CommandConnection? connection)
     {
-        if (Volatile.Read(ref _matchedSeen) != 0) return null;
+        object under = (object?)connection ?? NoConnection;
+        if (Volatile.Read(ref _matchedSeen) != 0 && ReferenceEquals(Volatile.Read(ref _matchedUnder), under)) return null;
         if (source == null || data == null || bytes < 16 || data.Length < 16) return null;
         if (!IsFlexVita(data)) return null;
 
         bool matched = ExpectedAddress != null && SameAddress(source.Address, ExpectedAddress);
         if (matched)
         {
-            if (Interlocked.Exchange(ref _matchedSeen, 1) != 0) return null;
+            // One sighting per connection: the same connection again is not news.
+            object? prior = Interlocked.Exchange(ref _matchedUnder, under);
+            bool first = Interlocked.Exchange(ref _matchedSeen, 1) == 0;
+            if (!first && ReferenceEquals(prior, under)) return null;
         }
         else
         {
