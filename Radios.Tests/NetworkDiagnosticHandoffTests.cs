@@ -44,8 +44,10 @@ namespace Radios.Tests
 
         private static string Serial() => "4711-" + Random.Shared.Next(1000, 9999) + "-8600-" + Random.Shared.Next(1000, 9999);
 
+        private const string DiagPrefix = "settings.network.diag.";
+
         private static string D(string key, params (string, object)[] args) =>
-            Lexicon.Get("settings.network.diag." + key, args);
+            Lexicon.Get(DiagPrefix + key, args);
 
         private static Radio WanRadio(string serial, AdvertisedPorts advertised)
         {
