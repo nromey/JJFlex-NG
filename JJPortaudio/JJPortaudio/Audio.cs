@@ -1123,6 +1123,16 @@ namespace JJPortaudio
         {
             CBData?.Playback?.NoteFeedEnded();
         }
+
+        /// <summary>
+        /// The receive loop's turn to have the playback queue's recorded timing
+        /// lines written, on the thread pool (#1229 repair 1): the callback only
+        /// records them. An interlocked read when there is nothing to write.
+        /// </summary>
+        internal void RequestPlaybackLineDrain()
+        {
+            CBData?.Playback?.RequestLineDrain();
+        }
         /// <summary>
         /// buffer size in use
         /// </summary>

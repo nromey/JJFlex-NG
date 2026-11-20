@@ -36,6 +36,7 @@ public sealed class ReceiveTallyPipelineTests
         public RxAudioPipeline Pipeline { get; }
         public ConcurrentQueue<SlotTallyReport> Tallies { get; } = new();
         public volatile bool HelperLate;
+        public volatile bool SlowNow;
         public long ServiceNanos = 3_400_000;
         private readonly float[] _audio = new float[960];
 
@@ -49,6 +50,7 @@ public sealed class ReceiveTallyPipelineTests
                 Row("fastspectral", DenoiseFamily.Spectral, () => new EngineKeepUpPipelineTests.Engine("fastspectral")),
                 Row("spectral_capture", DenoiseFamily.Spectral, () => new EngineKeepUpPipelineTests.Engine("spectral_capture")),
                 Row("rnnoise", DenoiseFamily.Neural, () => new EngineKeepUpPipelineTests.Engine("rnnoise")),
+                Row("switchable", DenoiseFamily.Neural, () => new EngineKeepUpPipelineTests.Engine("switchable", () => SlowNow ? 6 : 0)),
             };
             Pipeline = new RxAudioPipeline(48000, 2, new DenoiseEngineCatalog(rows), periodTicks)
             {
@@ -116,7 +118,8 @@ public sealed class ReceiveTallyPipelineTests
         var session = rig.Await(r => r.Reason == SlotTallyReason.Session && r.Family == DenoiseFamily.Neural).Single();
         _out.WriteLine(ended.Describe());
         _out.WriteLine(session.Describe());
-        Assert.True(ended.Late > 100, ended.Describe());
+        // Grace excluded (repair 1): of 130 buffers the rule judges at most 80, all late.
+        Assert.True(ended.Late >= 70 && ended.Late == ended.Judged && ended.Judged <= ended.Buffers - 51, ended.Describe());
         Assert.True(ended.AverageMsPer10 > 10, ended.Describe());
         Assert.True(ended.WorstSecondMsPer10 >= 10, ended.Describe());
         Assert.True(ended.Seconds >= 1);
@@ -160,7 +163,7 @@ public sealed class ReceiveTallyPipelineTests
         Assert.True(ended.Missed >= 150, ended.Describe());
         Assert.Equal(1, ended.DipsBegan);
         Assert.Equal(200, ended.Late);
-        Assert.True(ended.Judged >= 699, ended.Describe());
+        Assert.True(ended.Judged >= 649, ended.Describe());
         Assert.True(ended.WorstSecondMsPer10 >= 12 - 0.01, ended.Describe());
     }
 
@@ -177,6 +180,68 @@ public sealed class ReceiveTallyPipelineTests
         _out.WriteLine(stopped.Describe());
         Assert.True(stopped.Buffers >= 50);
         Assert.Equal("", rig.Pipeline.TallyFor(DenoiseFamily.Neural).EngineId);
+    }
+
+    [Fact]
+    public void Slow_buffers_inside_the_rules_grace_are_not_counted_as_judged_or_late()
+    {
+        // Codex's probe: the rule restarts (as after a gap), twenty slow
+        // buffers follow inside its grace, and the rule judges none of them.
+        // Until repair 1 the tally said 21 judged and 20 late.
+        using var rig = new Rig(0);
+        rig.Choose("switchable");
+        rig.Pump(100);                                   // past the grace, all fast
+        var rule = rig.Pipeline.KeepUpRuleFor(DenoiseFamily.Neural);
+        rule.Restart("switchable");
+        rig.SlowNow = true;
+        rig.Pump(20);
+        rig.SlowNow = false;
+        Assert.Equal(0, rule.Filled);
+        Assert.Equal(0, rule.LateInWindow);
+        rig.Pipeline.FeedEnded();
+        var ended = rig.Await(r => r.Reason == SlotTallyReason.FeedEnded && r.EngineId == "switchable").Single();
+        _out.WriteLine(ended.Describe());
+        Assert.Equal(0, ended.Late);
+        Assert.True(ended.Buffers >= 120);
+    }
+
+    [Fact]
+    public void Slow_buffers_after_the_grace_are_counted_exactly_as_the_rule_judged_them()
+    {
+        // The positive control for the test above, over the same buffers.
+        using var rig = new Rig(0);
+        rig.Choose("switchable");
+        rig.Pump(100);
+        var rule = rig.Pipeline.KeepUpRuleFor(DenoiseFamily.Neural);
+        rig.SlowNow = true;
+        rig.Pump(20);
+        rig.SlowNow = false;
+        Assert.Equal(20, rule.LateInWindow);
+        rig.Pipeline.FeedEnded();
+        var ended = rig.Await(r => r.Reason == SlotTallyReason.FeedEnded && r.EngineId == "switchable").Single();
+        _out.WriteLine(ended.Describe());
+        Assert.Equal(20, ended.Late);
+    }
+
+    [Fact]
+    public void A_helper_batch_that_crosses_the_end_of_the_grace_is_judged_only_in_part_as_the_rule_does()
+    {
+        using var rig = new Rig(0);
+        rig.Choose("fakehelper");
+        rig.Pump(100);                                   // past the grace, fast
+        var rule = rig.Pipeline.KeepUpRuleFor(DenoiseFamily.Neural);
+        rule.Restart("fakehelper");                      // fifty frames of grace again
+        int calls = 0;
+        rig.Pipeline.HelperService = (_, _, _) => Interlocked.Increment(ref calls) == 1
+            ? new HelperServiceReading(12_000_000, 70)  // one batch of 70 slow frames: 50 grace, 20 judged
+            : HelperServiceReading.NoNewWork;
+        rig.Pump(1);
+        Assert.Equal(20, rule.Filled);
+        Assert.Equal(20, rule.LateInWindow);
+        rig.Pipeline.FeedEnded();
+        var ended = rig.Await(r => r.Reason == SlotTallyReason.FeedEnded && r.EngineId == "fakehelper").Single();
+        _out.WriteLine(ended.Describe());
+        Assert.Equal(20, ended.Late);
     }
 
     [Fact]

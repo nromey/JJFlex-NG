@@ -427,6 +427,9 @@ namespace JJPortaudio
         public void WriteOpus(byte[] data)
         {
             _rx.WritePacket(aud.Decoder, data);
+            // #1229 repair 1: the playback callback only records its timing
+            // lines; they are handed to the thread pool from here.
+            aud.RequestPlaybackLineDrain();
         }
 
         /// <summary>

@@ -89,8 +89,7 @@ public sealed class SlotTallyTests
             bool missed = i % 10 == 0;
             // Two frames of new work on every other buffer, none on the rest.
             int frames = i % 2 == 0 ? 2 : 0;
-            t.Buffer("nnr", true, now, frames, slow ? frames : 0, missed, frames * (slow ? 12.0 : 4.8), frames * 10.0);
-            if (i == 50) t.Dip();
+            t.Buffer("nnr", true, now, frames, slow ? frames : 0, missed, frames * (slow ? 12.0 : 4.8), frames * 10.0, dipBegan: i == 50);
         }
         t.FeedEnded(now);
         var r = Take(t).First(x => x.Reason == SlotTallyReason.FeedEnded);
@@ -101,7 +100,7 @@ public sealed class SlotTallyTests
         Assert.Equal(50, r.Late);
         Assert.Equal(20, r.Missed);
         Assert.Equal(1, r.DipsBegan);
-        Assert.Contains("helper frames by the warning's rule", r.Describe());
+        Assert.Contains("helper frames judged by the warning's rule", r.Describe());
         Assert.Contains("1 delivery dip(s) began", r.Describe());
     }
 
@@ -136,9 +135,103 @@ public sealed class SlotTallyTests
         var r = Take(t).First(x => x.Reason == SlotTallyReason.FeedEnded);
         _out.WriteLine(r.Describe());
         Assert.Equal(0, r.Seconds);
-        Assert.Equal(3.0, r.WorstSecondMsPer10, 6);
+        Assert.True(r.WorstSecondMsPer10 < 0, "a part-second was reported as a whole-second worst");
+        Assert.Equal(3.0, r.PartSecondMsPer10, 6);
         Assert.Contains("less than a second of audio", r.Describe());
         Assert.DoesNotContain("whole second", r.Describe());
+    }
+
+    [Fact]
+    public void A_dip_that_begins_with_the_buffer_that_closes_a_minute_belongs_to_that_minute()
+    {
+        // Codex's probe, with the real delivery rule in the pipeline's order:
+        // the rule's fall is known before the buffer goes to the tally, and the
+        // buffer is what closes the minute. Until repair 1 the dip landed in
+        // the next period, a zero-buffer one if PC audio went off next.
+        var t = new SlotTally(DenoiseFamily.Neural, Tps, periodTicks: 100);
+        var delivery = new EngineKeepUpRule(window: 2, fallAt: 1, recoverAt: 0, grace: 0);
+        delivery.Observe(false);
+        t.Buffer("nnr", true, 1, 1, 0, false, 4, 10, dipBegan: false);
+        var change = delivery.Observe(true);
+        Assert.Equal(EngineKeepUpChange.FellBehind, change);
+        t.Buffer("nnr", true, 101, 1, 0, true, 4, 10, dipBegan: change == EngineKeepUpChange.FellBehind);
+        t.FeedEnded(102);
+        var reports = Take(t);
+        foreach (var r in reports) _out.WriteLine(r.Describe());
+        var minute = reports.Single(r => r.Reason == SlotTallyReason.Minute);
+        Assert.Equal(2, minute.Buffers);
+        Assert.Equal(1, minute.Missed);
+        Assert.Equal(1, minute.DipsBegan);
+        Assert.DoesNotContain(reports, r => r.Reason == SlotTallyReason.FeedEnded && r.DipsBegan != 0);
+        Assert.Equal(1, reports.Single(r => r.Reason == SlotTallyReason.Session).DipsBegan);
+    }
+
+    [Fact]
+    public void A_dip_with_a_change_of_engine_belongs_to_the_new_engines_period()
+    {
+        var t = new SlotTally(DenoiseFamily.Neural, Tps);
+        long now = Feed(t, "rnnoise", 1, 20, 1.0);
+        t.Buffer("nnr", true, now, 1, 0, true, 4, 10, dipBegan: true);
+        t.FeedEnded(now + 10);
+        var reports = Take(t);
+        Assert.Equal(0, reports.Single(r => r.Reason == SlotTallyReason.Changed).DipsBegan);
+        Assert.Equal(1, reports.Single(r => r.Reason == SlotTallyReason.FeedEnded).DipsBegan);
+    }
+
+    [Fact]
+    public void A_helper_batch_longer_than_a_second_completes_every_second_it_covers_at_its_own_cost()
+    {
+        // Codex's probe: 0.99 s at 2 ms, then one batch of 200 frames (2 s) at
+        // 12 ms. That is 2.99 s: the first second is 0.99 s at 2 and 0.01 s at
+        // 12, the second is all 12, and 0.99 s at 12 is left over. Until repair 1
+        // it reported one whole second, worst 8.69.
+        var t = new SlotTally(DenoiseFamily.Neural, Tps);
+        for (int i = 0; i < 99; i++) t.Buffer("nnr", true, i + 1, 1, 0, false, 2, 10);
+        t.Buffer("nnr", true, 100, 200, 200, false, 2400, 2000);
+        t.FeedEnded(101);
+        var r = Take(t).First(x => x.Reason == SlotTallyReason.FeedEnded);
+        _out.WriteLine(r.Describe());
+        Assert.Equal(2, r.Seconds);
+        Assert.Equal(12.0, r.WorstSecondMsPer10, 6);
+        Assert.Equal(12.0, r.PartSecondMsPer10, 6);
+        Assert.Equal((99 * 2.0 + 2400) / 2990 * 10, r.AverageMsPer10, 6);
+    }
+
+    [Fact]
+    public void A_batch_of_801_frames_spread_over_seconds_completes_eight_and_its_remainder_finishes_the_ninth()
+    {
+        // The size Track L's own pipeline test forwards in one batch.
+        var t = new SlotTally(DenoiseFamily.Neural, Tps);
+        t.Buffer("nnr", true, 1, 801, 0, false, 801 * 3.0, 8010);
+        t.Buffer("nnr", true, 11, 99, 0, false, 99 * 5.0, 990);
+        t.FeedEnded(12);
+        var r = Take(t).First(x => x.Reason == SlotTallyReason.FeedEnded);
+        _out.WriteLine(r.Describe());
+        Assert.Equal(9, r.Seconds);
+        // The ninth second is 0.01 s at 3 and 0.99 s at 5.
+        Assert.Equal(0.01 * 3 + 0.99 * 5, r.WorstSecondMsPer10, 6);
+        Assert.True(r.PartSecondMsPer10 < 0);
+    }
+
+    [Fact]
+    public void A_session_never_takes_a_part_second_as_its_worst_whole_second()
+    {
+        // Codex's probe: a 10 ms period at 100 ms per 10 ms, then a whole second
+        // at 2 ms. Until repair 1 the session said "worst second 100".
+        var t = new SlotTally(DenoiseFamily.Neural, Tps);
+        t.Buffer("rnnoise", false, 1, 1, 1, false, 100, 10);
+        for (int i = 0; i < 100; i++) t.Buffer("other", false, 2 + i, 1, 0, false, 2, 10);
+        t.FeedEnded(103);
+        var reports = Take(t);
+        foreach (var r in reports) _out.WriteLine(r.Describe());
+        var first = reports.First(r => r.Reason == SlotTallyReason.Changed);
+        Assert.Equal(0, first.Seconds);
+        Assert.Equal(100.0, first.PartSecondMsPer10, 6);   // the period's own line still shows it, as a part-second
+        var session = reports.Last();
+        Assert.Equal(SlotTallyReason.Session, session.Reason);
+        Assert.Equal(1, session.Seconds);
+        Assert.Equal(2.0, session.WorstSecondMsPer10, 6);
+        Assert.True(session.PartSecondMsPer10 < 0);
     }
 
     [Fact]
@@ -160,8 +253,9 @@ public sealed class SlotTallyTests
         var t = new SlotTally(DenoiseFamily.Neural, Tps);
         long now = Feed(t, "rnnoise", 1, 6000, 1.0);          // a minute
         now = Feed(t, "rnnoise", now, 1000, 1.0);             // closes it, then 10 s more
-        now = Feed(t, "deepfilternet3", now, 500, 6.0, late: false);
-        t.Dip();
+        now = Feed(t, "deepfilternet3", now, 499, 6.0, late: false);
+        t.Buffer("deepfilternet3", false, now, 1, 0, false, 6.0, 10, dipBegan: true);
+        now += 10;
         t.FeedEnded(now);
         var reports = Take(t);
         foreach (var r in reports) _out.WriteLine(r.Describe());

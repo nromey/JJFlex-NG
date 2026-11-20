@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using JJTrace;
 using JJPortaudio;
 using Xunit;
 using Xunit.Abstractions;
@@ -42,7 +45,14 @@ namespace Radios.Tests
                 Queue.LineObserver = l => Lines.Add((Queue.Callbacks, l));
             }
 
+            /// <summary>One callback, then the feeding side's drain (the receive loop hands it to the pool; here it is run in line).</summary>
             public void Callback(int arrivals)
+            {
+                CallbackOnly(arrivals);
+                Queue.DrainLines();
+            }
+
+            public void CallbackOnly(int arrivals)
             {
                 Depth += arrivals;
                 RxCallbackPlan plan = Queue.Begin(Depth, midBuffer: false);
@@ -95,7 +105,7 @@ namespace Radios.Tests
             Assert.Contains("1 starvation(s)", line.Line);
             Assert.Contains("in the second from callback " + lone, line.Line);
             Assert.Contains("running total 2", line.Line);
-            Assert.Contains("written at callback " + (lone + sim.Queue.WindowCallbacks), line.Line);
+            Assert.Contains("second closed at callback " + (lone + sim.Queue.WindowCallbacks), line.Line);
         }
 
         [Fact]
@@ -218,22 +228,218 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_receive_loop_says_the_feed_ended_before_it_stops_any_stream()
+        public void The_receive_loop_marks_the_feed_ended_before_anything_on_its_way_out_can_block()
         {
-            // The signal has to come first: the starvation happened 82 ms after
-            // the loop ended and about 480 ms before the receive stream was
-            // stopped, while the CW monitor's stream was being stopped.
+            // Repair 1: the mark comes before the loop's own exit line and before
+            // the exception path's line and announcement, any of which can block
+            // while the stream drains; and again first at remoteDone, for every
+            // goto. The first starvation came 82 ms after the loop ended.
             string text = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.RemoteAudio.cs"));
-            int label = text.IndexOf("remoteDone:", StringComparison.Ordinal);
-            Assert.True(label > 0);
-            int noted = text.IndexOf("NoteFeedEnded()", label, StringComparison.Ordinal);
+            const string mark = "MarkReceiveFeedEnded(run);";
+            int exitLine = text.IndexOf("Tracing.TraceLine(\"remoteAudioProc:stopping remote audio\"", StringComparison.Ordinal);
+            Assert.True(exitLine > 0);
+            int markBeforeExit = text.LastIndexOf(mark, exitLine, StringComparison.Ordinal);
+            int loopWait = text.LastIndexOf("wake.WaitForWork(RemoteAudioWake.IdleWakeMilliseconds);", exitLine, StringComparison.Ordinal);
+            Assert.True(markBeforeExit > loopWait && loopWait > 0, "the loop's exit does not mark the feed ended before its trace line");
+
+            int catchAt = text.IndexOf("catch (Exception ex)", exitLine, StringComparison.Ordinal);
+            int markInCatch = text.IndexOf(mark, catchAt, StringComparison.Ordinal);
+            int catchTrace = text.IndexOf("Tracing.TraceLine", catchAt, StringComparison.Ordinal);
+            int speak = text.IndexOf("ScreenReaderOutput.Speak", catchAt, StringComparison.Ordinal);
+            Assert.True(markInCatch > catchAt && markInCatch < catchTrace && markInCatch < speak,
+                "the exception path traces or speaks before it marks the feed ended");
+
+            int label = text.IndexOf("remoteDone:", exitLine, StringComparison.Ordinal);
+            int markAtDone = text.IndexOf(mark, label, StringComparison.Ordinal);
             int feed = text.IndexOf("AudioFeedEnded?.Invoke()", label, StringComparison.Ordinal);
+            int summary = text.IndexOf("TraceOpusRxContinuitySummary()", label, StringComparison.Ordinal);
             int monitor = text.IndexOf("CWMonDone()", label, StringComparison.Ordinal);
             int stop = text.IndexOf("stopOpusOutputChannel()", label, StringComparison.Ordinal);
-            int summary = text.IndexOf("TraceOpusRxContinuitySummary()", label, StringComparison.Ordinal);
-            Assert.True(noted > label && feed > label, "the feed-ended signal is not after remoteDone");
-            Assert.True(noted < summary && noted < monitor && noted < stop, "the feed-ended signal comes after work that takes time");
+            Assert.True(markAtDone > label && markAtDone < feed && markAtDone < summary && markAtDone < monitor && markAtDone < stop,
+                "remoteDone does work that takes time before it marks the feed ended");
             Assert.True(feed < stop, "the pipeline hears of the end after the stream is stopped");
+
+            // And the mark itself writes nothing on its way.
+            int body = text.IndexOf("private void MarkReceiveFeedEnded(long run)", StringComparison.Ordinal);
+            int bodyEnd = text.IndexOf("private void remoteAudioProc(long run)", body, StringComparison.Ordinal);
+            string method = text.Substring(body, bodyEnd - body);
+            int noted = method.IndexOf("NoteFeedEnded()", StringComparison.Ordinal);
+            int firstTrace = method.IndexOf("Tracing.TraceLine", StringComparison.Ordinal);
+            int catchInMethod = method.IndexOf("catch", StringComparison.Ordinal);
+            Assert.True(noted > 0 && firstTrace > catchInMethod, "the mark traces before or instead of marking");
+        }
+
+        // ── The boundary (repair 1): a callback is classified at its entry ──
+
+        [Fact]
+        public void A_shortage_found_by_a_callback_that_began_before_the_mark_is_a_gap_even_if_the_mark_lands_before_it_is_booked()
+        {
+            // Codex's interleaving: Begin while live, the callback finds the
+            // queue short, the producer marks the feed ended, then the shortage
+            // is booked. Until repair 1 it was filed "at stop" and vanished.
+            var q = new RxPlaybackQueue("receive", BuffersPerCallback, BufferMs, Rate, RxPlaybackQueue.DefaultReserveMilliseconds);
+            q.Begin(16, false); q.NotePlayed(10, 0);
+            q.Begin(0, false);
+            q.NoteFeedEnded();
+            q.NotePlayed(0, (long)BuffersPerCallback * FramesPerBuffer);
+            Assert.Equal(1, q.Starvations);
+            Assert.Equal(0, q.StopStarvations);
+        }
+
+        [Fact]
+        public void A_shortage_in_a_callback_that_began_after_the_mark_is_at_stop()
+        {
+            // The other way round, the positive control for the boundary.
+            var q = new RxPlaybackQueue("receive", BuffersPerCallback, BufferMs, Rate, RxPlaybackQueue.DefaultReserveMilliseconds);
+            q.Begin(16, false); q.NotePlayed(10, 0);
+            q.NoteFeedEnded();
+            q.Begin(0, false);
+            q.NotePlayed(0, (long)BuffersPerCallback * FramesPerBuffer);
+            Assert.Equal(0, q.Starvations);
+            Assert.Equal(1, q.StopStarvations);
+            // A hold that began before the mark is still a prime, not the stop's.
+            var r = new RxPlaybackQueue("receive", BuffersPerCallback, BufferMs, Rate, RxPlaybackQueue.DefaultReserveMilliseconds);
+            var plan = r.Begin(0, false);
+            Assert.True(plan.HoldForPrime);
+            r.NoteFeedEnded();
+            r.NotePrimingBuffer((long)BuffersPerCallback * FramesPerBuffer);
+            Assert.Equal(1, r.PrimeCallbacks);
+            Assert.Equal(0, r.StopSilentCallbacks);
+        }
+
+        // ── The callback writes no line (repair 1) ──
+
+        /// <summary>
+        /// Codex's sequence: a release, a first ceiling trim (its own record), a
+        /// second trim opening a window, nine quiet callbacks; the next Begin
+        /// closes that second. Returns the queue ready for that Begin.
+        /// </summary>
+        private static RxPlaybackQueue ReadyToCloseATrimSecond(string name)
+        {
+            var q = new RxPlaybackQueue(name, BuffersPerCallback, BufferMs, Rate, RxPlaybackQueue.DefaultReserveMilliseconds);
+            q.Begin(16, false); q.NotePlayed(10, 0);
+            q.Begin(40, false); q.NotePlayed(10, 0);
+            q.Begin(40, false); q.NotePlayed(10, 0);
+            for (int i = 0; i < 9; i++) { q.Begin(16, false); q.NotePlayed(10, 0); }
+            q.DrainLines();
+            return q;
+        }
+
+        private static (bool On, TraceSwitch Switch) TracingOn(bool on)
+        {
+            var saved = (Tracing.On, Tracing.TheSwitch);
+            Tracing.TheSwitch = new TraceSwitch("rxtiming", "rxtiming") { Level = TraceLevel.Verbose };
+            Tracing.On = on;
+            return saved;
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Closing_a_second_and_recording_a_trim_or_starvation_allocate_nothing_on_the_callback(bool tracingOn)
+        {
+            var saved = TracingOn(tracingOn);
+            try
+            {
+                // Warm every path once, so the JIT's own work is not counted.
+                var warm = ReadyToCloseATrimSecond("receive");
+                warm.Begin(16, false); warm.NotePlayed(10, 0);
+                warm.Begin(16, false); warm.NotePlayed(4, 6L * FramesPerBuffer);
+                warm.DrainLines();
+
+                var q = ReadyToCloseATrimSecond("receive");
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                q.Begin(16, false);                       // closes the trim's second
+                q.NotePlayed(10, 0);
+                long closing = GC.GetAllocatedBytesForCurrentThread() - before;
+
+                before = GC.GetAllocatedBytesForCurrentThread();
+                q.Begin(16, false);
+                q.NotePlayed(4, 6L * FramesPerBuffer);    // the stream's first starvation, its long line's record
+                long starving = GC.GetAllocatedBytesForCurrentThread() - before;
+
+                // Positive control: both really were recorded, and draining writes them.
+                Assert.True(q.LinesPending, "nothing was recorded, so the zero proves nothing");
+                var lines = new List<string>();
+                q.LineObserver = lines.Add;
+                q.DrainLines();
+                foreach (var l in lines) _out.WriteLine(l);
+                Assert.Contains(lines, l => l.Contains("1 trim(s) above the 26-buffer ceiling in the second from callback 3"));
+                Assert.Contains(lines, l => l.Contains("ran dry mid-stream at callback 14"));
+
+                Assert.Equal(0, closing);
+                Assert.Equal(0, starving);
+            }
+            finally { Tracing.On = saved.On; Tracing.TheSwitch = saved.Switch; }
+        }
+
+
+        private sealed class SlowListener : TraceListener
+        {
+            public int Calls;
+            public int Thread;
+            public override void Write(string message) { }
+            public override void WriteLine(string message)
+            {
+                if (message == null || !message.Contains("timing-probe")) return;
+                System.Threading.Thread.Sleep(150);
+                Thread = Environment.CurrentManagedThreadId;
+                Interlocked.Increment(ref Calls);
+            }
+        }
+
+        [Fact]
+        public void A_slow_trace_listener_never_holds_up_the_callback_and_the_lines_are_written_off_it()
+        {
+            var saved = TracingOn(true);
+            var listener = new SlowListener();
+            Trace.Listeners.Add(listener);
+            try
+            {
+                var q = ReadyToCloseATrimSecond("timing-probe");
+                Volatile.Write(ref listener.Calls, 0);          // the setup's drain wrote the first trim's line
+                var sw = Stopwatch.StartNew();
+                q.Begin(16, false);                            // closes the trim's second: until repair 1, 155 ms here
+                q.NotePlayed(10, 0);
+                sw.Stop();
+                _out.WriteLine($"Begin that closed a second: {sw.Elapsed.TotalMilliseconds:F2} ms; listener calls during it: {listener.Calls}");
+                Assert.Equal(0, Volatile.Read(ref listener.Calls));
+                Assert.True(sw.ElapsedMilliseconds < 50, $"the callback took {sw.Elapsed.TotalMilliseconds:F1} ms");
+
+                // Positive control: the feeding side hands the line to the pool,
+                // and it really goes through the slow listener, on another thread.
+                Assert.True(q.LinesPending);
+                q.RequestLineDrain();
+                var wait = Stopwatch.StartNew();
+                while (Volatile.Read(ref listener.Calls) == 0 && wait.ElapsedMilliseconds < 3000) System.Threading.Thread.Sleep(10);
+                Assert.Equal(1, Volatile.Read(ref listener.Calls));
+                Assert.NotEqual(Environment.CurrentManagedThreadId, listener.Thread);
+                Assert.False(q.LinesPending);
+            }
+            finally
+            {
+                Trace.Listeners.Remove(listener);
+                Tracing.On = saved.On; Tracing.TheSwitch = saved.Switch;
+            }
+        }
+
+        [Fact]
+        public void A_full_record_ring_drops_and_counts_and_the_summary_says_so()
+        {
+            var q = new RxPlaybackQueue("receive", BuffersPerCallback, BufferMs, Rate, RxPlaybackQueue.DefaultReserveMilliseconds);
+            var lines = new List<string>();
+            q.LineObserver = lines.Add;
+            q.Begin(16, false); q.NotePlayed(10, 0);
+            // Starve then refill, a second apart, many times, never draining.
+            for (int i = 0; i < 200; i++)
+            {
+                q.Begin(6, false); q.NotePlayed(6, 4L * FramesPerBuffer);
+                q.Begin(16, false); q.NotePlayed(10, 0);
+                for (int k = 0; k < 9; k++) { q.Begin(16, false); q.NotePlayed(10, 0); }
+            }
+            q.TraceSummary();
+            Assert.Contains(lines, l => l.Contains("timing line(s) were lost"));
+            Assert.Contains(lines, l => l.Contains("queue summary"));
         }
 
         private static string RepoRoot()

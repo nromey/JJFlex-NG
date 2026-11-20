@@ -544,20 +544,24 @@ namespace JJFlexWpf
                         bool late = HelperServiceTime.Late(service.PerFrameNanos);
                         AverageHelper(service.PerFrameNanos, service.Frames);
                         bool missedNow = bank.LateFrames != lateBefore;
+                        int frames = service.Frames > 0 ? service.Frames : 0;
+                        // The tally counts what the rule judges, not its grace (repair 1):
+                        // a batch that crosses the end of the grace is judged in part.
+                        int judged = Math.Max(0, frames - Rule.GraceLeft);
                         change = Rule.Observe(late, service.Frames);
                         missed = Missed.Observe(missedNow);
-                        int frames = service.Frames > 0 ? service.Frames : 0;
-                        tallied = Tally.Buffer(processing, true, now, frames, late ? frames : 0, missedNow,
+                        // The dip goes in with this buffer, before the buffer can close the minute (repair 1).
+                        tallied = Tally.Buffer(processing, true, now, judged, late ? judged : 0, missedNow,
                             frames > 0 && service.PerFrameNanos > 0 ? (double)service.PerFrameNanos * frames * Stopwatch.Frequency / 1e9 : 0,
-                            frames * HelperFrameTicks);
-                        if (missed == EngineKeepUpChange.FellBehind) Tally.Dip();
+                            frames * HelperFrameTicks, missed == EngineKeepUpChange.FellBehind);
                     }
                     else
                     {
                         bool late = bufferTicks > 0 && elapsedTicks > bufferTicks;
                         Average(elapsedTicks, bufferTicks);
+                        int judged = Rule.GraceLeft > 0 ? 0 : 1;
                         change = Rule.Observe(late);
-                        tallied = Tally.Buffer(processing, false, now, 1, late ? 1 : 0, false, elapsedTicks, bufferTicks);
+                        tallied = Tally.Buffer(processing, false, now, judged, late ? judged : 0, false, elapsedTicks, bufferTicks);
                     }
                 }
                 if (tallied) _owner.QueueKeepUpRaise();

@@ -33,9 +33,14 @@ namespace JJFlexWpf
         public readonly SlotTallyReason Reason;
         /// <summary>Receive buffers the slot processed with this engine.</summary>
         public readonly long Buffers;
-        /// <summary>What the warning's rule was told: buffers for an engine in this process, helper frames for a helper engine.</summary>
+        /// <summary>
+        /// What the warning's rule actually judged: buffers for an engine in this
+        /// process, helper frames for a helper engine. Not the rule's grace after
+        /// a start or a gap, which it discards (repair 1), and not a helper's
+        /// warm-up, during which the period's engine is the one being replaced.
+        /// </summary>
         public readonly long Judged;
-        /// <summary>Of <see cref="Judged"/>, late by the warning's rule (the grace after a start or a gap included).</summary>
+        /// <summary>Of <see cref="Judged"/>, late by the warning's rule.</summary>
         public readonly long Late;
         /// <summary>Buffers in which a helper frame missed its deadline (helper engines only).</summary>
         public readonly long Missed;
@@ -43,10 +48,20 @@ namespace JJFlexWpf
         public readonly long DipsBegan;
         /// <summary>Average processing time per 10 ms of audio, in milliseconds; negative when nothing was timed.</summary>
         public readonly double AverageMsPer10;
-        /// <summary>The worst one second's processing time per 10 ms of audio, in milliseconds; negative when nothing was timed.</summary>
+        /// <summary>
+        /// The worst whole second's processing time per 10 ms of audio, in
+        /// milliseconds; negative when the period (or session) held no whole
+        /// second of audio. A part-second never enters it (repair 1).
+        /// </summary>
         public readonly double WorstSecondMsPer10;
-        /// <summary>Whole seconds of audio the worst was taken over; 0 when the period held less than a second, and then the worst is that part-second's figure.</summary>
+        /// <summary>Whole seconds of audio, counted from the period's start; seconds never span periods.</summary>
         public readonly long Seconds;
+        /// <summary>
+        /// The period's trailing part-second, per 10 ms of audio, kept apart from
+        /// the whole seconds; negative when there is none, and always negative on
+        /// a session total, which adds up whole seconds only.
+        /// </summary>
+        public readonly double PartSecondMsPer10;
         /// <summary>The period's length on the clock, in seconds.</summary>
         public readonly double PeriodSeconds;
         /// <summary>For a session total: how many periods it adds up.</summary>
@@ -56,8 +71,10 @@ namespace JJFlexWpf
 
         public SlotTallyReport(DenoiseFamily family, string engineId, bool helper, SlotTallyReason reason,
             long buffers, long judged, long late, long missed, long dipsBegan,
-            double averageMsPer10, double worstSecondMsPer10, long seconds, double periodSeconds, long periods, long dropped)
+            double averageMsPer10, double worstSecondMsPer10, long seconds, double periodSeconds, long periods, long dropped,
+            double partSecondMsPer10 = -1)
         {
+            PartSecondMsPer10 = partSecondMsPer10;
             Family = family; EngineId = engineId ?? ""; Helper = helper; Reason = reason;
             Buffers = buffers; Judged = judged; Late = late; Missed = missed; DipsBegan = dipsBegan;
             AverageMsPer10 = averageMsPer10; WorstSecondMsPer10 = worstSecondMsPer10; Seconds = seconds;
@@ -84,17 +101,20 @@ namespace JJFlexWpf
             else head = string.Format(c, " {0}{1}{2}", EngineId, Helper ? " (helper)" : "", head);
             string unit = Reason == SlotTallyReason.Session ? "judged (buffers in this process, helper frames for a helper engine)"
                 : Helper ? "helper frames" : "buffers";
-            string s = string.Format(c, "{0} slot,{1} ({2:F1} s): {3} buffers processed; {4} late of {5} {6} by the warning's rule",
+            string s = string.Format(c, "{0} slot,{1} ({2:F1} s): {3} buffers processed; {4} late of {5} {6} judged by the warning's rule (its grace after a start or gap, and warm-ups, not judged)",
                 Family, head, PeriodSeconds, Buffers, Late, Judged, unit);
             if (Helper || Reason == SlotTallyReason.Session)
                 s += string.Format(c, "; {0} buffers with a helper frame missed at its deadline; {1} delivery dip(s) began", Missed, DipsBegan);
-            s += AverageMsPer10 < 0
-                ? "; no processing time measured"
-                : Seconds > 0
-                    ? string.Format(c, "; processing {0:F2} ms per 10 ms of audio on average, the worst second {1:F2} ms (over {2} whole second(s) of audio)",
-                        AverageMsPer10, WorstSecondMsPer10, Seconds)
-                    : string.Format(c, "; processing {0:F2} ms per 10 ms of audio on average (less than a second of audio, so no worst second; {1:F2} ms over that part-second)",
-                        AverageMsPer10, WorstSecondMsPer10);
+            if (AverageMsPer10 < 0) s += "; no processing time measured";
+            else
+            {
+                s += string.Format(c, "; processing {0:F2} ms per 10 ms of audio on average", AverageMsPer10);
+                if (Seconds > 0)
+                    s += string.Format(c, ", the worst whole second {0:F2} ms (of {1} whole second(s) of audio)", WorstSecondMsPer10, Seconds);
+                else if (PartSecondMsPer10 >= 0)
+                    s += string.Format(c, " (less than a second of audio, so no worst second; {0:F2} ms over that part-second)", PartSecondMsPer10);
+                else s += " (no whole second of audio)";
+            }
             if (Dropped > 0) s += string.Format(c, "; {0} earlier tally line(s) were lost because the reader fell behind", Dropped);
             return s;
         }
@@ -176,8 +196,10 @@ namespace JJFlexWpf
         /// <param name="missed">A helper frame missed its deadline in this buffer.</param>
         /// <param name="workTicks">Processing time this buffer accounted for, in clock ticks.</param>
         /// <param name="audioTicks">The audio that processing covered, in clock ticks; 0 when nothing was timed.</param>
+        /// <param name="dipBegan">A delivery dip began with this buffer: counted in the same update, so it lands in this buffer's period (repair 1).</param>
         /// <returns>True when a report was queued.</returns>
-        public bool Buffer(string engineId, bool helper, long now, int judged, int late, bool missed, double workTicks, double audioTicks)
+        public bool Buffer(string engineId, bool helper, long now, int judged, int late, bool missed, double workTicks, double audioTicks,
+            bool dipBegan = false)
         {
             engineId ??= "";
             bool published = false;
@@ -187,11 +209,9 @@ namespace JJFlexWpf
             _helper = helper;
             _idleSince = 0;
             _period.Add(judged, late, missed, workTicks, audioTicks, _ticksPerSecond);
+            if (dipBegan) _period.Dips++;
             return Tick(now) | published;
         }
-
-        /// <summary>A delivery dip began in the open period.</summary>
-        public void Dip() { if (_open) _period.Dips++; }
 
         /// <summary>The slot processed nothing in this buffer.</summary>
         /// <returns>True when a report was queued.</returns>
@@ -271,7 +291,7 @@ namespace JJFlexWpf
             if (_dropped > 0)
             {
                 r = new SlotTallyReport(r.Family, r.EngineId, r.Helper, r.Reason, r.Buffers, r.Judged, r.Late, r.Missed, r.DipsBegan,
-                    r.AverageMsPer10, r.WorstSecondMsPer10, r.Seconds, r.PeriodSeconds, r.Periods, _dropped);
+                    r.AverageMsPer10, r.WorstSecondMsPer10, r.Seconds, r.PeriodSeconds, r.Periods, _dropped, r.PartSecondMsPer10);
                 _dropped = 0;
             }
             _ring[head % Capacity] = r;
@@ -279,7 +299,19 @@ namespace JJFlexWpf
             return true;
         }
 
-        /// <summary>The counts for one period (or a session), with the one-second worst.</summary>
+        /// <summary>
+        /// The counts for one period (or a session), with the whole-second worst.
+        /// </summary>
+        /// <remarks>
+        /// <b>The policy for seconds (repair 1).</b> Seconds of audio are counted
+        /// from each period's start and never span periods. A buffer's audio is
+        /// spread at its own uniform cost across every second boundary it
+        /// crosses, so a helper batch of several seconds completes several
+        /// seconds and leaves its remainder in the next; this is constant time
+        /// however long the batch. A period's trailing part-second is reported
+        /// apart and never enters a whole-second maximum, in the period or the
+        /// session.
+        /// </remarks>
         private struct Acc
         {
             public long Buffers, Judged, Late, Missed, Dips, Seconds;
@@ -302,37 +334,54 @@ namespace JJFlexWpf
                 if (missed) Missed++;
                 if (audio <= 0) return;
                 Work += work; Audio += audio;
-                SecondWork += work; SecondAudio += audio;
-                if (SecondAudio >= ticksPerSecond)
+                double rate = work / audio;          // work per tick of audio, uniform across this buffer
+                double second = ticksPerSecond;
+                double slack = second * 1e-9;       // rounding in tick arithmetic, never a real fraction
+                double need = second - SecondAudio;
+                if (audio < need - slack)
                 {
-                    double perTen = SecondWork / SecondAudio * 10.0;
-                    if (perTen > Worst) Worst = perTen;
-                    Seconds++;
-                    SecondWork = SecondAudio = 0;
+                    SecondWork += audio * rate; SecondAudio += audio;
+                    return;
                 }
+                // This buffer finishes the second already begun...
+                CompleteSecond((SecondWork + need * rate) / second * 10.0);
+                double left = audio - need;
+                // ...then every whole second inside it, all at its own cost...
+                long whole = (long)Math.Floor((left + slack) / second);
+                if (whole > 0)
+                {
+                    Seconds += whole;
+                    if (rate * 10.0 > Worst) Worst = rate * 10.0;
+                    left -= whole * second;
+                }
+                // ...and the remainder begins the next.
+                if (left < slack) left = 0;
+                SecondWork = left * rate; SecondAudio = left;
             }
 
-            /// <summary>Folds a closed period into a session total.</summary>
+            private void CompleteSecond(double perTen)
+            {
+                if (perTen > Worst) Worst = perTen;
+                Seconds++;
+                SecondWork = SecondAudio = 0;
+            }
+
+            /// <summary>Folds a closed period into a session total: whole seconds only.</summary>
             public void Fold(ref Acc p, bool helper)
             {
                 Buffers += p.Buffers; Judged += p.Judged; Late += p.Late; Missed += p.Missed; Dips += p.Dips;
                 Work += p.Work; Audio += p.Audio;
-                double w = p.WorstWithPartial();
-                if (w > Worst) Worst = w;
+                if (p.Seconds > 0 && p.Worst > Worst) Worst = p.Worst;
                 Seconds += p.Seconds;
                 if (helper) HelperSeen = true;
             }
 
-            /// <summary>The worst second, or the partial second's figure when no whole second was completed.</summary>
-            public double WorstWithPartial() =>
-                Seconds == 0 && SecondAudio > 0 ? SecondWork / SecondAudio * 10.0 : Worst;
-
             public SlotTallyReport Report(DenoiseFamily family, string engine, bool helper, SlotTallyReason reason, double periodSeconds, long periods, long dropped)
             {
                 double average = Audio > 0 ? Work / Audio * 10.0 : -1;
-                double worst = WorstWithPartial();
+                double part = SecondAudio > 0 ? SecondWork / SecondAudio * 10.0 : -1;
                 return new SlotTallyReport(family, engine, helper, reason, Buffers, Judged, Late, Missed, Dips,
-                    average, average < 0 ? -1 : worst, Seconds, periodSeconds, periods, dropped);
+                    average, Seconds > 0 ? Worst : -1, Seconds, periodSeconds, periods, dropped, part);
             }
         }
     }

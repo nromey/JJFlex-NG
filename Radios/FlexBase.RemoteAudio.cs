@@ -867,6 +867,23 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The receive loop has stopped feeding the receive stream (#1229): its
+        /// playback queue counts what it plays from here until the stream stops
+        /// as the stream's end, not as gaps. Only for the current run's own
+        /// stream; safe to call more than once. Writes nothing unless it fails.
+        /// </summary>
+        private void MarkReceiveFeedEnded(long run)
+        {
+            if (run != Interlocked.Read(ref _remoteAudioRun)) return;
+            try { opusOutputChannel?.PortAudioStream?.NoteFeedEnded(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: noting the end of the receive feed failed: " + ex.Message,
+                    TraceLevel.Error);
+            }
+        }
+
         private void remoteAudioProc(long run)
         {
             // ── #422: the boundary catch for a bare thread ──────────────────
@@ -1507,10 +1524,16 @@ namespace Radios
                 }
             }
 
+            // #1229 repair 1: marked before the line below, because a trace
+            // write can block and the receive stream is draining meanwhile.
+            MarkReceiveFeedEnded(run);
             Tracing.TraceLine("remoteAudioProc:stopping remote audio", TraceLevel.Info);
             }
             catch (Exception ex)
             {
+                // #1229 repair 1: the feed has ended on this path too, before
+                // the trace and the announcement below, either of which can block.
+                MarkReceiveFeedEnded(run);
                 // ToString, not Message: this is the one record that will exist
                 // of a fault that used to kill the process silently, and the
                 // stack is the whole of its value.
@@ -1537,21 +1560,20 @@ namespace Radios
             }
 
             remoteDone:
-            // #1229: the feed has ended. Said first, before anything that takes
-            // time, because the receive stream plays on until it is stopped
-            // below (about 560 ms later on the 2026-11-19 bench) and its queue
-            // runs dry in between: that was being counted as a mid-stream gap
-            // on every PC-audio-off. Only for the current run's own stream.
+            // #1229: the feed has ended. Marked first, before anything that
+            // takes time, because the receive stream plays on until it is
+            // stopped below (about 560 ms later on the 2026-11-19 bench) and its
+            // queue runs dry in between: that was being counted as a mid-stream
+            // gap on every PC-audio-off. Already marked on the loop's own exits
+            // (repair 1); marked here for every goto, and harmless twice. The
+            // pipeline's closing tallies are asked for once, here.
+            MarkReceiveFeedEnded(run);
             if (run == Interlocked.Read(ref _remoteAudioRun))
             {
-                try
-                {
-                    opusOutputChannel?.PortAudioStream?.NoteFeedEnded();
-                    AudioFeedEnded?.Invoke();
-                }
+                try { AudioFeedEnded?.Invoke(); }
                 catch (Exception ex)
                 {
-                    Tracing.TraceLine("remoteAudioProc: noting the end of the receive feed failed: " + ex.Message,
+                    Tracing.TraceLine("remoteAudioProc: closing the receive tallies failed: " + ex.Message,
                         TraceLevel.Error);
                 }
             }
