@@ -80,12 +80,22 @@ namespace Radios
         /// <summary>
         /// Start recording to <paramref name="path"/>, SAYING NOTHING: the take
         /// sounds its own start marker once this returns, and nothing may be
-        /// spoken into the take. The microphone opens now, but the FILE begins
-        /// <paramref name="fileStartsAfter"/> later: what is captured before
-        /// then is never written (Track Q3). False when it refused (it says why
-        /// itself, before anything was captured).
+        /// spoken into the take. The microphone opens now. With
+        /// <paramref name="holdFileStart"/>, the FILE waits for
+        /// <see cref="BeginFileAt"/>: nothing captured before the moment it is
+        /// given is ever written (Track Q3 repair 1). False when it refused (it
+        /// says why itself, before anything was captured).
         /// </summary>
-        bool Start(string path, TimeSpan fileStartsAfter);
+        bool Start(string path, bool holdFileStart);
+
+        /// <summary>
+        /// For the recording to <paramref name="path"/> started with a held
+        /// file start: the file begins at the frame the microphone captured at
+        /// <paramref name="stopwatchTimestamp"/> (on the
+        /// <see cref="System.Diagnostics.Stopwatch"/> clock), or, when null, at
+        /// the first frame captured. Any thread; ignored for any other recording.
+        /// </summary>
+        void BeginFileAt(string path, long? stopwatchTimestamp);
 
         /// <summary>Stop the recording in flight.</summary>
         void Stop();
@@ -133,10 +143,21 @@ namespace Radios
     /// the countdown if it is on, then "Recording" said in full, then the start
     /// tone unless the recorder beeps are off, then the take. The microphone
     /// opens as the tone begins, so a slow device loses nothing, but the FILE
-    /// begins only once the tone has finished (<c>markerSettle</c> after it
-    /// opens); with no tone, it begins as soon as the microphone opens. So the
-    /// file is the take: nothing is trimmed afterwards, and what is measured,
-    /// what is played and what Keep saves are the same samples.
+    /// begins only once the tone has finished; with no tone, it begins as soon
+    /// as the microphone opens. So the file is the take: nothing is trimmed
+    /// afterwards, and what is measured, what is played and what Keep saves are
+    /// the same samples.
+    /// </para>
+    /// <para>
+    /// <b>"Finished" is the tone's real end, not a fixed time (repair 1;
+    /// Codex's check of 83932446, C1).</b> Track Q3 cut a fixed 450 ms of
+    /// capture. The tone is about 160 ms and reaches the speaker after whatever
+    /// the alert output holds ahead of it (90 ms by default, up to 800 ms by the
+    /// operator's setting), so with a fast output about 200 ms of the operator's
+    /// first words were lost and with a slow one the tone was in the file. The
+    /// marker now reports the moment the tone is audibly over, read from the
+    /// output's own play position; the file begins <see cref="ToneMarginMs"/>
+    /// after that moment, at the frame the microphone captured then.
     /// </para>
     /// </remarks>
     public sealed class ChainAuditionTake
@@ -145,9 +166,32 @@ namespace Radios
         private readonly IAuditionRecorder _recorder;
         private readonly IChainAuditionProcessor _processor;
         private readonly Func<string, (float[] Mono, int Rate)?> _load;
-        private readonly Action? _startMarker;
-        private readonly TimeSpan _markerSettle;
+        private readonly Func<Task<long?>>? _startMarker;
         private readonly Func<bool> _markerSounds;
+
+        /// <summary>
+        /// How long after the tone is audibly over the file begins, in
+        /// milliseconds. It covers what the tone's reported end cannot see: the
+        /// Windows audio engine and driver after the alert output's own buffers,
+        /// the room's echo of the last pip reaching the microphone, and the
+        /// slack in placing that moment on the capture. A person answers a tone
+        /// in no less than about 200 ms, so this costs none of what they say
+        /// after it (Track Q3 repair 1).
+        /// </summary>
+        public const int ToneMarginMs = 60;
+
+        /// <summary>
+        /// When the marker could not say when its tone ended (its report
+        /// faulted), the file begins this long after it was sounded: the
+        /// longest the tone could take, about 160 ms behind the longest alert
+        /// output, 800 ms, with room to spare. Losing a little of the take is
+        /// the price of keeping the tone out of it.
+        /// </summary>
+        public const int UnknownToneEndMs = 1200;
+
+        /// <summary>The moment the file begins for a tone audibly over at <paramref name="audibleEnd"/>, both on the Stopwatch clock.</summary>
+        public static long FileStartAfterTone(long audibleEnd) =>
+            audibleEnd + ToneMarginMs * System.Diagnostics.Stopwatch.Frequency / 1000;
 
         /// <param name="folder">The working folder; <see cref="ChainAuditionFolder.DefaultPath"/> in the app.</param>
         /// <param name="recorder">Records the microphone, saying nothing.</param>
@@ -155,14 +199,10 @@ namespace Radios
         /// <param name="load">Reads a recorded file to mono samples and their rate, or null when it cannot.</param>
         /// <param name="startMarker">
         /// Sounded once the recorder is open: in the window, the recorder's
-        /// start tone, the computer microphone check's own. Null only in tests
-        /// that are not about the start.
-        /// </param>
-        /// <param name="markerSettle">
-        /// How long after the microphone opens the file begins when the marker
-        /// sounds: the window passes the computer microphone check's own
-        /// settle, its measure of the tone having finished. Ignored when no
-        /// marker sounds.
+        /// start tone, the computer microphone check's own. It completes with
+        /// the moment its tone is audibly over, on the
+        /// <see cref="System.Diagnostics.Stopwatch"/> clock, or with null when
+        /// no tone sounded. Null only in tests that are not about the start.
         /// </param>
         /// <param name="markerSounds">
         /// Asked as each take starts: whether the marker will be heard. In the
@@ -170,7 +210,7 @@ namespace Radios
         /// then). Null means it always sounds when there is one.
         /// </param>
         public ChainAuditionTake(string folder, IAuditionRecorder recorder, IChainAuditionProcessor processor,
-            Func<string, (float[] Mono, int Rate)?> load, Action? startMarker = null, TimeSpan markerSettle = default,
+            Func<string, (float[] Mono, int Rate)?> load, Func<Task<long?>>? startMarker = null,
             Func<bool>? markerSounds = null)
         {
             _folder = folder ?? throw new ArgumentNullException(nameof(folder));
@@ -178,7 +218,6 @@ namespace Radios
             _processor = processor ?? throw new ArgumentNullException(nameof(processor));
             _load = load ?? throw new ArgumentNullException(nameof(load));
             _startMarker = startMarker;
-            _markerSettle = markerSettle < TimeSpan.Zero ? TimeSpan.Zero : markerSettle;
             _markerSounds = markerSounds ?? (() => true);
         }
 
@@ -220,22 +259,22 @@ namespace Radios
                 "audition-" + localNow.ToString("yyyy-MM-dd-HHmmss-fff", System.Globalization.CultureInfo.InvariantCulture) + ".wav");
             TakePath = path;
             Kept = false;
-            // Decided before the microphone opens, so the recorder knows where
-            // the file begins: after the tone when there is one, at once when not.
+            // Decided before the microphone opens, so the recorder knows whether
+            // to hold its file for the tone's end, or begin it at once.
             bool marking = _startMarker != null && MarkerWillSound();
-            TimeSpan fileStartsAfter = marking ? _markerSettle : TimeSpan.Zero;
-            if (!_recorder.Start(path, fileStartsAfter))
+            if (!_recorder.Start(path, holdFileStart: marking))
             {
                 TakePath = "";
                 return false;
             }
             State = AuditionTakeState.Recording;
-            // The capture is open: mark it, at once, with the check's start tone.
-            if (marking) SoundStartMarker();
             Tracing.TraceLine("Check your audio audition: take started, nothing keyed"
-                + (marking ? ", start tone sounded, the file starting " + (long)fileStartsAfter.TotalMilliseconds + " ms in"
+                + (marking ? ", start tone sounding, the file waiting for its end"
                            : ", no start tone, the file starting at once"),
                 System.Diagnostics.TraceLevel.Info);
+            // The capture is open: mark it, at once, with the check's start
+            // tone, and begin the file once the tone is audibly over.
+            if (marking) SoundStartMarker(path);
             return true;
         }
 
@@ -291,15 +330,56 @@ namespace Radios
             }
         }
 
-        /// <summary>Sound the start marker, guarded: a tone that throws must never cost the take.</summary>
-        private void SoundStartMarker()
+        /// <summary>
+        /// Sound the start marker, guarded, and tell the recorder where the
+        /// file begins once the marker says when its tone is audibly over. A
+        /// marker that throws must never cost the take: nothing sounded, so the
+        /// file begins at the first frame. One whose report faults leaves the
+        /// file beginning <see cref="UnknownToneEndMs"/> after it was sounded.
+        /// </summary>
+        private void SoundStartMarker(string path)
         {
             if (_startMarker == null) return;
-            try { _startMarker(); }
+            long asked = System.Diagnostics.Stopwatch.GetTimestamp();
+            Task<long?>? end;
+            try { end = _startMarker(); }
             catch (Exception ex)
             {
-                Tracing.TraceLine("Check your audio audition: the start tone threw and was ignored: " + ex.GetType().Name,
-                    System.Diagnostics.TraceLevel.Warning);
+                Tracing.TraceLine("Check your audio audition: the start tone threw and was ignored, so the file starts at once: "
+                    + ex.GetType().Name, System.Diagnostics.TraceLevel.Warning);
+                BeginFileAt(path, null);
+                return;
+            }
+            if (end == null) { BeginFileAt(path, null); return; }
+            if (end.IsCompleted) FileStartFrom(path, end, asked);
+            else end.ContinueWith(t => FileStartFrom(path, t, asked), TaskScheduler.Default);
+        }
+
+        private void FileStartFrom(string path, Task<long?> end, long asked)
+        {
+            if (end.Status == TaskStatus.RanToCompletion)
+            {
+                if (end.Result is long audibleEnd) BeginFileAt(path, FileStartAfterTone(audibleEnd));
+                else
+                {
+                    Tracing.TraceLine("Check your audio audition: no start tone sounded after all, so the file starts at once",
+                        System.Diagnostics.TraceLevel.Info);
+                    BeginFileAt(path, null);
+                }
+                return;
+            }
+            Tracing.TraceLine("Check your audio audition: the start tone could not say when it ended, so the file starts "
+                + UnknownToneEndMs + " ms after it sounded", System.Diagnostics.TraceLevel.Warning);
+            BeginFileAt(path, asked + UnknownToneEndMs * System.Diagnostics.Stopwatch.Frequency / 1000);
+        }
+
+        private void BeginFileAt(string path, long? stopwatchTimestamp)
+        {
+            try { _recorder.BeginFileAt(path, stopwatchTimestamp); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Check your audio audition: telling the recorder where the file begins threw: " + ex.GetType().Name,
+                    System.Diagnostics.TraceLevel.Error);
             }
         }
 

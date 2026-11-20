@@ -138,30 +138,29 @@ namespace JJPortaudio
         /// spoken as-is.
         /// </param>
         public StartOutcome Start(Devices.DeviceInfo device, string path, out string message) =>
-            Start(device, path, TimeSpan.Zero, out message);
+            Start(device, path, holdFileStart: false, out message);
 
         /// <summary>
         /// Start recording <paramref name="device"/> to <paramref name="path"/>,
-        /// with the FILE beginning <paramref name="fileStartsAfter"/> after the
-        /// microphone opens: what the device delivers before then is dropped and
-        /// never written.
+        /// and, when <paramref name="holdFileStart"/> is true, hold what the
+        /// device delivers until <see cref="BeginFileAt"/> says where the FILE
+        /// begins: nothing captured before that moment is ever written.
         /// </summary>
         /// <remarks>
-        /// <b>Sprint 49 Track Q3, Noel 2026-11-19 20:29.</b> A Check your audio
-        /// take opens the microphone and then sounds its start tone, so a slow
-        /// device loses nothing of the operator; but <i>"the file begins once
-        /// the tone has finished"</i>, so the tone, which the microphone hears
-        /// through speakers, is never in the take. Measured in the device's own
-        /// frames from the first one it delivers, so the cut is exact to the
-        /// sample and does not depend on when a block happens to arrive. Zero
-        /// keeps everything, as the record key always has.
+        /// <b>Sprint 49 Track Q3 repair 1</b> (Noel 2026-11-19 20:29: <i>"the file
+        /// begins once the tone has finished"</i>; Codex's check of 83932446, C1).
+        /// A Check your audio take opens the microphone, then sounds its start
+        /// tone, and says when that tone really ended once the output has taken
+        /// it. Track Q3 cut a fixed 450 ms instead, which kept the tone on a slow
+        /// output and threw away the operator's first words on a fast one. False
+        /// writes from the first frame, as the record key always has.
         /// </remarks>
-        /// <param name="fileStartsAfter">How much of the capture's start to leave out of the file; zero or less leaves out nothing.</param>
+        /// <param name="holdFileStart">True to hold the capture until <see cref="BeginFileAt"/>.</param>
         /// <param name="message">
         /// Empty on success; otherwise why it did not start, written to be
         /// spoken as-is.
         /// </param>
-        public StartOutcome Start(Devices.DeviceInfo device, string path, TimeSpan fileStartsAfter, out string message)
+        public StartOutcome Start(Devices.DeviceInfo device, string path, bool holdFileStart, out string message)
         {
             message = "";
             if (device == null) throw new ArgumentNullException(nameof(device));
@@ -173,6 +172,8 @@ namespace JJPortaudio
                 _stopReason = StopReason.None;
                 _faultMessage = "";
                 _finishedSeconds = 0;
+                _finishedCapturedSeconds = 0;
+                _stoppedBeforeFileBegan = false;
                 // Clear it here, not on stop: a later recording that fails
                 // must not be able to report the previous one's file.
                 LastSavedPath = "";
@@ -197,6 +198,7 @@ namespace JJPortaudio
 
             MicProbe.Reading opened = probe.Read();
             int rate = opened.SampleRate > 0 ? opened.SampleRate : 48000;
+            double inputLatency = opened.InputLatencySeconds;
             int channels = opened.Channels > 0 ? opened.Channels : 1;
 
             WavWriter writer;
@@ -223,8 +225,8 @@ namespace JJPortaudio
                 SampleRate = rate;
                 Channels = channels;
                 _maxDataFrames = (long)MaxSeconds * rate;
-                _leadFrames = LeadFrames(fileStartsAfter, rate);
-                _capturedFrames = 0;
+                _fileStart = new CaptureFileStart(rate, holdFileStart, inputLatency, Stopwatch.Frequency);
+                _beganTraced = false;
                 _running = true;
             }
 
@@ -234,7 +236,8 @@ namespace JJPortaudio
 
             Tracing.TraceLine("MicRecorder: recording \"" + device.Name + "\" at " + rate
                 + " Hz, " + channels + " channel(s) to " + path
-                + (_leadFrames > 0 ? ", the file starting " + (long)Math.Round(fileStartsAfter.TotalMilliseconds) + " ms in" : ""),
+                + (holdFileStart ? ", the file waiting for its start (device input latency "
+                    + (inputLatency * 1000).ToString("F1") + " ms)" : ""),
                 TraceLevel.Info);
             return StartOutcome.Started;
         }
@@ -288,6 +291,22 @@ namespace JJPortaudio
                 probe.Dispose();
             }
 
+            var fileStart = _fileStart;
+            if (writer != null && fileStart != null)
+            {
+                try { if (fileStart.Finish(writer)) TraceFileBegan(fileStart); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("MicRecorder: writing the held capture failed: " + ex.Message, TraceLevel.Error);
+                }
+                _finishedCapturedSeconds = SampleRate > 0 ? (double)fileStart.CapturedFrames / SampleRate : 0;
+                _stoppedBeforeFileBegan = !fileStart.FileBegan;
+                if (_stoppedBeforeFileBegan)
+                    Tracing.TraceLine("MicRecorder: stopped before the file began, "
+                        + _finishedCapturedSeconds.ToString("F2") + " s captured and none of it the file's",
+                        TraceLevel.Info);
+            }
+
             if (writer != null)
             {
                 _finishedSeconds = writer.Seconds;
@@ -327,9 +346,15 @@ namespace JJPortaudio
             WavWriter w = _writer;
             if (w == null) return;
 
+            // Taken first: when the block reached us is what maps a moment onto
+            // the capture (CaptureFileStart).
+            long arrival = Stopwatch.GetTimestamp();
+            var fileStart = _fileStart;
             try
             {
-                _capturedFrames = WriteAfterLead(w, buffer, count, frames, _capturedFrames, _leadFrames);
+                // Every block reaches the file through the file start, and only
+                // through it: it is set before the sink is installed.
+                if (fileStart != null && fileStart.Block(w, buffer, count, frames, arrival)) TraceFileBegan(fileStart);
             }
             catch (Exception ex)
             {
@@ -351,39 +376,66 @@ namespace JJPortaudio
             }
         }
 
-        /// <summary>Frames of capture left out before the file begins (Track Q3); zero keeps everything.</summary>
-        private long _leadFrames;
+        /// <summary>Where this recording's file begins (Track Q3 repair 1); null before the first start.</summary>
+        private CaptureFileStart _fileStart;
 
-        /// <summary>Frames the device has delivered since this recording opened, written or not. Capture thread only.</summary>
-        private long _capturedFrames;
-
-        /// <summary>How many frames at <paramref name="rate"/> a lead of <paramref name="lead"/> is; zero for none.</summary>
-        internal static long LeadFrames(TimeSpan lead, int rate) =>
-            lead <= TimeSpan.Zero || rate <= 0 ? 0 : (long)Math.Round(lead.TotalSeconds * rate);
+        private bool _beganTraced;
+        private double _finishedCapturedSeconds;
+        private bool _stoppedBeforeFileBegan;
 
         /// <summary>
-        /// Write one captured block, leaving out whatever of it falls inside the
-        /// first <paramref name="leadFrames"/> frames of the capture. Returns
-        /// how many frames have been captured once this block is counted.
-        /// The one path a block reaches the file by, so a test that drives it
-        /// drives the recorder's own cut.
+        /// Say where the file of a recording started with a held start begins:
+        /// at the frame the microphone captured at <paramref name="stopwatchTimestamp"/>
+        /// (<see cref="Stopwatch.GetTimestamp"/>), or, when null, at the first
+        /// frame captured. Only the first call counts; ignored when nothing is
+        /// held. Any thread.
         /// </summary>
-        /// <param name="writer">The file.</param>
-        /// <param name="buffer">The block, interleaved.</param>
-        /// <param name="count">Floats in the block.</param>
-        /// <param name="frames">Frames in the block.</param>
-        /// <param name="capturedBefore">Frames captured before this block.</param>
-        /// <param name="leadFrames">Frames at the capture's start that are not the file's.</param>
-        internal static long WriteAfterLead(WavWriter writer, float[] buffer, int count, int frames,
-            long capturedBefore, long leadFrames)
+        public void BeginFileAt(long? stopwatchTimestamp)
         {
-            if (frames <= 0 || count <= 0) return capturedBefore;
-            long after = capturedBefore + frames;
-            if (after <= leadFrames) return after;          // the whole block is before the file
-            int skip = capturedBefore >= leadFrames ? 0 : (int)(leadFrames - capturedBefore);
-            int perFrame = Math.Max(1, count / frames);
-            writer.Write(buffer, skip * perFrame, count - skip * perFrame);
-            return after;
+            var fileStart = _fileStart;
+            if (fileStart == null || !_running) return;
+            fileStart.BeginAt(stopwatchTimestamp);
+            long now = Stopwatch.GetTimestamp();
+            Tracing.TraceLine("MicRecorder: the file's start is "
+                + (stopwatchTimestamp is long t
+                    ? (t <= now ? (now - t) * 1000 / Stopwatch.Frequency + " ms ago"
+                                : (t - now) * 1000 / Stopwatch.Frequency + " ms from now")
+                    : "the first frame captured"),
+                TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// Seconds the device delivered, written to the file or not: in the
+        /// recording running, or the last one. More than <see cref="Seconds"/>
+        /// when the file began after the capture did.
+        /// </summary>
+        public double CapturedSeconds
+        {
+            get
+            {
+                var f = _fileStart;
+                if (_running && f != null && SampleRate > 0) return (double)f.CapturedFrames / SampleRate;
+                return _finishedCapturedSeconds;
+            }
+        }
+
+        /// <summary>
+        /// True when the last recording stopped with its file not yet begun:
+        /// it was held for its start, and stopped before that moment was
+        /// captured, so none of what the microphone heard was the file's. Not a
+        /// microphone fault: the operator stopped too soon.
+        /// </summary>
+        public bool StoppedBeforeFileBegan => _stoppedBeforeFileBegan;
+
+        private void TraceFileBegan(CaptureFileStart fileStart)
+        {
+            if (_beganTraced) return;
+            _beganTraced = true;
+            long frame = fileStart.BoundaryFrame;
+            Tracing.TraceLine("MicRecorder: the file began at frame " + frame + " of the capture ("
+                + (SampleRate > 0 ? (frame * 1000L / SampleRate) + " ms in" : "rate unknown") + ")"
+                + (fileStart.DroppedFrames > 0 ? ", " + fileStart.DroppedFrames + " held frame(s) were let go first" : ""),
+                fileStart.DroppedFrames > 0 ? TraceLevel.Warning : TraceLevel.Info);
         }
 
         /// <summary>Stops and closes anything still open.</summary>

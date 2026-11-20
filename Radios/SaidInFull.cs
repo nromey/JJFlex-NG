@@ -20,15 +20,18 @@ namespace Radios
     /// audition records the microphone, so its word must be FINISHED first.
     /// </para>
     /// <para>
-    /// <b>The countdown's own delivery rule, not a new one.</b> The words are
-    /// followed exactly as a number of the count is (<see cref="ICountdownWords"/>,
-    /// <see cref="CountdownRun.SpeechPollMs"/>, <see cref="CountdownRun.SpeechCeilingMs"/>):
-    /// finished when the reader says so, or on the estimate path at its
-    /// estimated finish, held for the margin when the words are the only
-    /// warning. Words that never reach the reader, or are not said within the
-    /// ceiling, are taken back; then, as with the count, where a tone follows
-    /// and is the warning they are dropped and the start goes on, and where
-    /// these words are the only warning nothing opens.
+    /// <b>Heard in full, or nothing opens (repair 1; Codex's check of
+    /// 83932446, C2).</b> The words are followed on the count's poll and
+    /// ceiling (<see cref="CountdownRun.SpeechPollMs"/>,
+    /// <see cref="CountdownRun.SpeechCeilingMs"/>) through a handle that
+    /// counts them said only when the reader reported them completed and they
+    /// were never cut (<c>CountdownSpeech.SayInFull</c>); on the estimate path,
+    /// at their estimated finish, held for the margin when they are the only
+    /// warning. Words cut part-way, taken back, never reaching the reader, or
+    /// not said within the ceiling open NOTHING, every time, whether or not a
+    /// tone would follow: Track Q3 let a start with its tone on go ahead
+    /// without its words, and the ruling is that "Recording" is said in full
+    /// first, every time. The caller says why it did not open.
     /// </para>
     /// </remarks>
     public static class SaidInFull
@@ -36,18 +39,16 @@ namespace Radios
         /// <summary>How the wait for one sentence ended.</summary>
         public enum Outcome
         {
-            /// <summary>The reader finished it.</summary>
+            /// <summary>The reader finished it, in full.</summary>
             Said,
-            /// <summary>Not said in time, and taken back; a tone that follows is the warning, so the start goes on.</summary>
-            Dropped,
-            /// <summary>Not said, and these words were the only warning: nothing may open.</summary>
+            /// <summary>Not heard in full: cut, taken back, never reaching the reader, or not said in time. Nothing may open.</summary>
             NotSaid,
             /// <summary>The start was called off while it waited; the words were taken back.</summary>
             NotWanted,
         }
 
         /// <summary>True when the start may go on after <paramref name="outcome"/>.</summary>
-        public static bool LetsItOpen(Outcome outcome) => outcome is Outcome.Said or Outcome.Dropped;
+        public static bool LetsItOpen(Outcome outcome) => outcome == Outcome.Said;
 
         /// <summary>
         /// Say <paramref name="text"/> and wait until it has been said in full.
@@ -55,7 +56,7 @@ namespace Radios
         /// <param name="say">Queues the words and returns their handle (in the window, the countdown's speech on the recorder's subject).</param>
         /// <param name="withdraw">Takes back the words not yet said; given plain prose for the trace.</param>
         /// <param name="text">The words.</param>
-        /// <param name="onlyWarning">True when no tone follows, so these words are the only warning.</param>
+        /// <param name="onlyWarning">True when no tone follows, so these words are the only warning: on the estimate path they are then held for the margin. It no longer changes whether a start opens.</param>
         /// <param name="stillWanted">Asked at every look: false when the start was called off or the window is closing.</param>
         /// <param name="nowMs">The clock, in milliseconds; <see cref="Environment.TickCount64"/> when null.</param>
         /// <param name="delay">The wait between looks; <see cref="Task.Delay(int, CancellationToken)"/> when null.</param>
@@ -94,12 +95,11 @@ namespace Radios
                 if (said) return Outcome.Said;
                 if (failed || nowMs() - from >= CountdownRun.SpeechCeilingMs)
                 {
-                    Withdraw(withdraw, "its words not being delivered");
-                    string why = failed ? "never reached the reader" : "were not said within " + CountdownRun.SpeechCeilingMs + " ms";
-                    Tracing.TraceLine("SaidInFull: the words before opening " + why
-                        + (onlyWarning ? "; they were the only warning, so nothing opens" : "; a tone follows, so the start goes on"),
-                        TraceLevel.Warning);
-                    return onlyWarning ? Outcome.NotSaid : Outcome.Dropped;
+                    Withdraw(withdraw, "its words not being heard in full");
+                    string why = failed ? "were cut, taken back or never reached the reader"
+                                        : "were not said in full within " + CountdownRun.SpeechCeilingMs + " ms";
+                    Tracing.TraceLine("SaidInFull: the words before opening " + why + ", so nothing opens", TraceLevel.Warning);
+                    return Outcome.NotSaid;
                 }
                 Task poll = delay(CountdownRun.SpeechPollMs, CancellationToken.None);
                 if (await Task.WhenAny(poll, news).ConfigureAwait(true) == poll) await poll.ConfigureAwait(true);

@@ -69,14 +69,16 @@ public partial class CheckYourAudioDialog
 
     /// <summary>
     /// The take, marked at its start by the computer microphone check's own
-    /// start tone (Track Q2), its file beginning once that tone has finished,
-    /// <see cref="StartToneSettle"/> after the microphone opens (Track Q3, Noel
-    /// 2026-11-19 20:29). The tone plays only while the recorder beeps are on;
-    /// with them off there is no tone and the file begins as the microphone opens.
+    /// start tone (Track Q2), its file beginning once that tone is audibly over
+    /// (Track Q3, Noel 2026-11-19 20:29): the timed tone reports that moment
+    /// from the alert output's own position, not a fixed settle (repair 1;
+    /// Codex's check of 83932446, C1). The tone plays only while the recorder
+    /// beeps are on; with them off there is no tone and the file begins as the
+    /// microphone opens.
     /// </summary>
     private ChainAuditionTake Audition => _audition ??= new ChainAuditionTake(ChainAuditionFolder.DefaultPath,
         new NarratorRecorder(), AuditionProcessorSource(), LoadAuditionTake,
-        startMarker: EarconPlayer.RecorderStartBeep, markerSettle: StartToneSettle,
+        startMarker: EarconPlayer.RecorderStartBeepTimed,
         markerSounds: () => EarconPlayer.RecorderBeepsEnabled);
 
     /// <summary>
@@ -244,25 +246,39 @@ public partial class CheckYourAudioDialog
     /// to open the microphone.
     /// </summary>
     /// <remarks>
-    /// With the recorder beeps on, the start tone that follows is a warning of
-    /// its own, so words the reader never takes are dropped and the take goes
-    /// on, as a beeped count drops its lead-in. With them off, "Recording" is
-    /// the only warning: words that are not said open nothing, with the error
-    /// tone, as a spoken count that cannot be said keys nothing.
+    /// <para>
+    /// <b>Heard in full, every time (repair 1; Codex's check of 83932446,
+    /// C2).</b> The words go through <c>CountdownSpeech.SayInFull</c>, whose
+    /// handle counts them said only when the reader reported them completed
+    /// and never cut; Track Q3 used the count's own handle, which counts a
+    /// word cut part-way as heard, so a "Recording" cut at its first word
+    /// opened the take. Cut, taken back, never reaching the reader or not said
+    /// in time, with the tone on or off: nothing opens, with the error tone
+    /// and a sentence saying so.
+    /// </para>
+    /// <para>
+    /// With the beeps off, "Recording" is the only warning, so on a reader
+    /// that does not report completion it is held for the count's margin past
+    /// its estimate, as before.
+    /// </para>
     /// </remarks>
     private async Task<bool> RecordingSaidAsync(Func<bool> stillWanted)
     {
         bool toneFollows = EarconPlayer.RecorderBeepsEnabled;
         var outcome = await SaidInFull.SayAsync(
-            (text, onlyWarning) => ScreenReaderOutput.CountdownSpeech.Say(text, onlyWarning,
+            (text, onlyWarning) => ScreenReaderOutput.CountdownSpeech.SayInFull(text, onlyWarning,
                 Radios.Speech.SpeechSubject.ComputerRecorder),
             why => ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.ComputerRecorder, why),
             Lexicon.Get("audio.audition.recording_now"), onlyWarning: !toneFollows, stillWanted);
         if (outcome == SaidInFull.Outcome.NotSaid)
         {
-            JJTrace.Tracing.TraceLine("Check your audio audition: \"Recording\" could not be said and there is no start tone, so nothing opened",
+            JJTrace.Tracing.TraceLine("Check your audio audition: \"Recording\" was not heard in full, so nothing opened",
                 System.Diagnostics.TraceLevel.Warning);
             EarconPlayer.LeaderInvalidTone();
+            // DRAFT PROSE (Track Q3 repair 1): a placeholder for Codex's words.
+            // Nothing is recording, so this sentence cannot be in a take.
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.audition.recording_not_heard"), Radios.Speech.SpeechIntent.Interrupt,
+                VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.ComputerRecorder);
         }
         return SaidInFull.LetsItOpen(outcome);
     }
@@ -570,8 +586,11 @@ public partial class CheckYourAudioDialog
         public bool IsRecordingTo(string path) =>
             RecordingNarrator.IsRunning && SamePath(RecordingNarrator.CurrentPath, path);
 
-        public bool Start(string path, TimeSpan fileStartsAfter) =>
-            RecordingNarrator.StartForCheck(path, fileStartsAfter) && IsRecordingTo(path);
+        public bool Start(string path, bool holdFileStart) =>
+            RecordingNarrator.StartForCheck(path, holdFileStart, ChainAudition.TooShortSentence) && IsRecordingTo(path);
+
+        public void BeginFileAt(string path, long? stopwatchTimestamp) =>
+            RecordingNarrator.BeginCheckFileAt(path, stopwatchTimestamp);
 
         public void Stop() => RecordingNarrator.Stop();
     }

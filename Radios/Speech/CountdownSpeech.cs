@@ -93,25 +93,54 @@ namespace Radios.Speech
         /// <param name="text">The words.</param>
         /// <param name="onlyWarning">True when these words are the only warning
         /// (sounds off): an untracked piece is then held for its margin.</param>
-        public Radios.ICountdownWords Say(string text, bool onlyWarning) =>
-            Say(text, onlyWarning, SpeechSubject.CheckCountdown);
-
-        /// <summary>
-        /// Queue one sentence that must be said in full before something
-        /// starts, on its own subject, followed to delivery exactly as a piece
-        /// of the count is: Critical, queued, additive (Sprint 49 Track Q3: the
-        /// audition's "Recording", said before the microphone opens). Taken
-        /// back by <see cref="ScreenReaderOutput.Supersede"/> on that subject.
-        /// </summary>
-        /// <param name="text">The words.</param>
-        /// <param name="onlyWarning">True when these words are the only warning, as for <see cref="Say(string, bool)"/>.</param>
-        /// <param name="subject">A <see cref="SpeechSubject"/> constant.</param>
-        public Radios.ICountdownWords Say(string text, bool onlyWarning, string subject)
+        public Radios.ICountdownWords Say(string text, bool onlyWarning)
         {
             if (string.IsNullOrEmpty(text)) return Radios.CountdownWords.Undelivered;
             var piece = _arbiter.EmitQueued(text, VerbosityLevel.Critical, "CountdownSpeech.Say",
-                subject, additive: true);
+                SpeechSubject.CheckCountdown, additive: true);
             return piece == null ? Radios.CountdownWords.Undelivered : new Words(this, piece, onlyWarning);
+        }
+
+        /// <summary>
+        /// Queue one sentence that must be HEARD IN FULL before something
+        /// starts, on its own subject, through the count's own road (Critical,
+        /// queued, additive), and return a handle that counts it said only when
+        /// it was (Sprint 49 Track Q3 repair 1: the audition's "Recording",
+        /// said before the microphone opens; Codex's check of 83932446, C2).
+        /// Taken back by <see cref="ScreenReaderOutput.Supersede"/> on that subject.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Not the count's rule.</b> A number of the count cut part-way is
+        /// counted as heard, on purpose (a one-word number that has begun is
+        /// heard), and <see cref="Say(string, bool)"/> keeps that rule
+        /// unchanged. Track Q3 reused it for "Recording", so a "Recording" cut
+        /// at its first word mark, by us or by anything else, opened the take.
+        /// Here:
+        /// </para>
+        /// <list type="bullet">
+        /// <item><b>Finished</b>, on a reader that reports completion, only
+        /// when the reader reported it completed and it was never cut part-way
+        /// at any attempt. On the estimate path, as for the count: at its
+        /// estimated finish, plus the margin where it is the only warning.</item>
+        /// <item><b>Failed</b> when it was taken back, or cut part-way at any
+        /// attempt: a word that was cut was not heard in full, and saying it
+        /// again whole later does not make the first hearing whole.</item>
+        /// </list>
+        /// <para>
+        /// What the estimate path cannot see, a cut included, it cannot report;
+        /// that is unchanged, and the trace says which path a word took.
+        /// </para>
+        /// </remarks>
+        /// <param name="text">The words.</param>
+        /// <param name="onlyWarning">True when these words are the only warning, as for <see cref="Say(string, bool)"/>.</param>
+        /// <param name="subject">A <see cref="SpeechSubject"/> constant.</param>
+        public Radios.ICountdownWords SayInFull(string text, bool onlyWarning, string subject)
+        {
+            if (string.IsNullOrEmpty(text)) return Radios.CountdownWords.Undelivered;
+            var piece = _arbiter.EmitQueued(text, VerbosityLevel.Critical, "CountdownSpeech.SayInFull",
+                subject, additive: true);
+            return piece == null ? Radios.CountdownWords.Undelivered : new InFullWords(new Words(this, piece, onlyWarning), this, piece);
         }
 
         /// <summary>
@@ -121,6 +150,54 @@ namespace Radios.Speech
         /// <param name="by">Plain prose for the trace, after "superseded by".</param>
         public void Withdraw(string by) =>
             _arbiter.Supersede(SpeechSubject.CheckCountdown, by, "CountdownSpeech.Withdraw");
+
+        /// <summary>
+        /// <see cref="SayInFull"/>'s handle: the count's own handle for when
+        /// it started and for news, and the arbiter's completion record for
+        /// whether it was heard in full.
+        /// </summary>
+        private sealed class InFullWords : Radios.ICountdownWords
+        {
+            private readonly Words _count;
+            private readonly CountdownSpeech _owner;
+            private readonly SpeechArbiter.FollowedPiece _piece;
+
+            public InFullWords(Words count, CountdownSpeech owner, SpeechArbiter.FollowedPiece piece)
+            {
+                _count = count;
+                _owner = owner;
+                _piece = piece;
+            }
+
+            public bool Failed
+            {
+                get
+                {
+                    if (_owner._arbiter.Inspect(_piece).Superseded) return true;
+                    return _owner._arbiter.Completion(_piece).EverCut;
+                }
+            }
+
+            public bool Started => _count.Started;
+
+            public System.Threading.Tasks.Task NextNews => _count.NextNews;
+
+            public bool Finished
+            {
+                get
+                {
+                    var v = _owner._arbiter.Inspect(_piece);
+                    if (v.Superseded) return false;
+                    var (completed, everCut) = _owner._arbiter.Completion(_piece);
+                    if (everCut) return false;
+                    if (completed) return true;
+                    // Never answered for by a reader: the estimate path, which
+                    // holds an untracked word exactly as the count does.
+                    if (v.Tracked) return false;
+                    return v.State == SpeechArbiter.Owed.Pending && _count.Finished;
+                }
+            }
+        }
 
         private sealed class Words : Radios.ICountdownWords
         {

@@ -134,6 +134,13 @@ namespace JJPortaudio
             public string HostApiName { get; init; }
             /// <summary>How many reads reported dropped input. Not fatal, worth tracing.</summary>
             public long Overflows { get; init; }
+            /// <summary>
+            /// The input latency PortAudio reports for the open stream, in
+            /// seconds; zero before it opens or when it would not say. A claim
+            /// by the driver, not a measurement. Read by the recorder to map a
+            /// moment onto the capture (Sprint 49 Track Q3 repair 1).
+            /// </summary>
+            public double InputLatencySeconds { get; init; }
         }
 
         /// <summary>
@@ -178,6 +185,7 @@ namespace JJPortaudio
         private int _channels;
         private int _sampleRate;
         private string _hostApiName = "";
+        private double _inputLatency;
         private bool _faulted;
         private string _faultMessage = "";
 
@@ -246,6 +254,7 @@ namespace JJPortaudio
                 _channels = 0;
                 _sampleRate = 0;
                 _hostApiName = "";
+                _inputLatency = 0;
                 _faulted = false;
                 _faultMessage = "";
                 Device = device;
@@ -347,7 +356,8 @@ namespace JJPortaudio
                     Channels = _channels,
                     SampleRate = _sampleRate,
                     HostApiName = _hostApiName,
-                    Overflows = _overflows
+                    Overflows = _overflows,
+                    InputLatencySeconds = _inputLatency
                 };
             }
         }
@@ -516,11 +526,23 @@ namespace JJPortaudio
                 }
                 started = true;
 
+                // What the driver says its input latency is, for a recorder that
+                // must map a moment onto this capture (Track Q3 repair 1). Never
+                // fail an open over it.
+                double inputLatency = 0;
+                try { inputLatency = PortAudio.Pa_GetStreamInfo(stream).inputLatency; }
+                catch (Exception latencyEx)
+                {
+                    Tracing.TraceLine("MicProbe: Pa_GetStreamInfo failed, input latency unknown: "
+                        + latencyEx.Message, TraceLevel.Info);
+                }
+
                 lock (_sync)
                 {
                     _channels = channels;
                     _sampleRate = (int)rate;
                     _hostApiName = openedApi;
+                    _inputLatency = inputLatency > 0 && inputLatency < 2 ? inputLatency : 0;
                 }
 
                 Tracing.TraceLine("MicProbe: listening to \"" + device.Name + "\" ("

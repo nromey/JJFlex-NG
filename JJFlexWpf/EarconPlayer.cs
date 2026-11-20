@@ -833,8 +833,8 @@ namespace JJFlexWpf
         {
             if (!RecorderBeepsEnabled) return;
             BeginUngated(nameof(RecorderStartBeep));
-            PlayVoicedDecaySequence(EarconVoices.Press,
-                new[] { (400, 55), (0, 35), (400, 55) }, VolumeNormal);
+            // The steps are shared with RecorderStartBeepTimed (EarconPlayer.ToneEnd.cs).
+            PlayVoicedDecaySequence(EarconVoices.Press, RecorderStartSteps, VolumeNormal);
         }
 
         public static void RecorderStopBeep()

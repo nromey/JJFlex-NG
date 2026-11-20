@@ -25,8 +25,13 @@ namespace Radios.Tests
     /// recorder beeps are off, then the take; the FILE begins once the tone has
     /// finished, so nothing is trimmed afterwards and Keep saves exactly what
     /// was measured and played. The fake recorder below writes its file through
-    /// the real recorder's own cut (<c>MicRecorder.WriteAfterLead</c>), block
-    /// by block as a device delivers.
+    /// the real recorder's own file start (<c>CaptureFileStart</c>), block by
+    /// block as a device delivers.
+    /// </para>
+    /// <para>
+    /// <b>Repair 1 (Codex's check of 83932446):</b> "finished" is the tone's
+    /// real end as its marker reports it, not a fixed 450 ms (C1), and
+    /// "Recording" not heard in full opens nothing, every time (C2).
     /// </para>
     /// </remarks>
     /// <remarks>
@@ -47,7 +52,6 @@ namespace Radios.Tests
     /// </remarks>
     public sealed class ChainAuditionStartTests : IDisposable
     {
-        private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(450);
         private static readonly DateTime Now = new(2026, 11, 19, 12, 30, 0);
         private readonly string _folder = Path.Combine(Path.GetTempPath(), "jjflex-audition-start-" + Guid.NewGuid().ToString("N"));
 
@@ -178,14 +182,18 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_marker_that_throws_never_costs_the_take()
+        public void A_marker_that_throws_never_costs_the_take_and_the_file_starts_at_once()
         {
+            // Nothing sounded, so nothing is held back: the file begins with the first frame.
             var rec = new FakeRecorder(new List<(string, long)>(), () => 0);
             var take = new ChainAuditionTake(_folder, rec, ChainNotConnectedYet.Instance, ChainAuditionTakeTests.ReadMono,
-                startMarker: () => throw new InvalidOperationException("no sound"), markerSettle: Settle);
+                startMarker: () => throw new InvalidOperationException("no sound"));
             rec.Saved = p => take.Saved(p, out _);
             Assert.True(take.Start(Now));
             Assert.Equal(AuditionTakeState.Recording, take.State);
+            Assert.True(rec.Hold);
+            Assert.Equal(1, rec.BeginCalls);
+            Assert.Null(rec.BeginAt);
         }
 
         // ── Track Q3: "Recording", then the tone, then the file ──────────
@@ -226,8 +234,8 @@ namespace Radios.Tests
             Assert.True(log.Single(e => e.What == "open").At >= saidAt, "the microphone opened before \"Recording\" had been said");
             Assert.Equal("Recording", word.Text);
             Assert.False(word.Withdrawn);
-            // The file begins once the tone has finished, or at once with no tone.
-            Assert.Equal(beepsOn ? Settle : TimeSpan.Zero, rec.FileStartsAfter);
+            // The file waits for the tone's end, or begins at once with no tone.
+            Assert.Equal(beepsOn, rec.Hold);
         }
 
         [Theory]
@@ -244,37 +252,52 @@ namespace Radios.Tests
                     "Recording", onlyWarning: !beepsOn, () => true))));
             Assert.Equal(beepsOn ? new[] { "say Recording", "before", "open", "marker" } : new[] { "say Recording", "before", "open" },
                 log.Select(e => e.What));
-            Assert.Equal(beepsOn ? Settle : TimeSpan.Zero, rec.FileStartsAfter);
+            Assert.Equal(beepsOn, rec.Hold);
         }
 
-        [Fact]
-        public async Task Recording_never_said_opens_nothing_when_it_is_the_only_warning_and_is_dropped_when_the_tone_follows()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task Recording_never_said_opens_nothing_whether_or_not_the_tone_follows(bool beepsOn)
         {
-            // Beeps off: "Recording" is the only warning, so words the reader
-            // never finishes open nothing (as a spoken count keys nothing).
+            // Repair 1 (Codex's check of 83932446, C2): "Recording" is said in
+            // full first, every time. Track Q3 let a beeped start go ahead
+            // without it; now neither does.
             var clock = new SteppedClock();
             var log = new List<(string What, long At)>();
-            var (take, rec) = Make(log, clock.NowMs, markerSounds: () => false);
+            var (take, rec) = Make(log, clock.NowMs, markerSounds: () => beepsOn);
             var word = new HeldWord();
             var started = take.StartAfterAsync(() => Task.FromResult(true), () => true, () => Now,
                 startSaid: async () => SaidInFull.LetsItOpen(await SaidInFull.SayAsync(word.Say, word.Withdraw,
-                    "Recording", onlyWarning: true, () => true, clock.NowMs, clock.Delay)));
+                    "Recording", onlyWarning: !beepsOn, () => true, clock.NowMs, clock.Delay)));
             Assert.False(await clock.RunUntil(started));
             Assert.True(clock.Now >= CountdownRun.SpeechCeilingMs, "positive control: it waited out the ceiling first");
             Assert.True(word.Withdrawn);
             Assert.Equal(0, rec.Opens);
+            Assert.Empty(log);
+        }
 
-            // Beeps on: the tone is the warning, so the unsaid words are dropped and the take opens.
-            clock = new SteppedClock();
-            log.Clear();
-            (take, rec) = Make(log, clock.NowMs, markerSounds: () => true);
-            word = new HeldWord();
-            started = take.StartAfterAsync(() => Task.FromResult(true), () => true, () => Now,
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task Recording_cut_part_way_opens_nothing_at_once(bool beepsOn)
+        {
+            // A word the reader reports cut fails its handle (the real arbiter's
+            // case is RecordingHeardInFullTests): no wait for the ceiling, no take.
+            var clock = new SteppedClock();
+            var log = new List<(string What, long At)>();
+            var (take, rec) = Make(log, clock.NowMs, markerSounds: () => beepsOn);
+            var word = new HeldWord();
+            var started = take.StartAfterAsync(() => Task.FromResult(true), () => true, () => Now,
                 startSaid: async () => SaidInFull.LetsItOpen(await SaidInFull.SayAsync(word.Say, word.Withdraw,
-                    "Recording", onlyWarning: false, () => true, clock.NowMs, clock.Delay)));
-            Assert.True(await clock.RunUntil(started));
-            Assert.True(word.Withdrawn);
-            Assert.Equal(new[] { "open", "marker" }, log.Select(e => e.What));
+                    "Recording", onlyWarning: !beepsOn, () => true, clock.NowMs, clock.Delay)));
+            await clock.StepUntil(() => word.Given);
+            long cutAt = clock.Now;
+            word.Cut();
+            Assert.False(await clock.RunUntil(started));
+            Assert.True(clock.Now - cutAt <= 2 * CountdownRun.SpeechPollMs, "a cut word was waited on");
+            Assert.Equal(0, rec.Opens);
+            Assert.Empty(log);
         }
 
         [Fact]
@@ -302,7 +325,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public async Task Words_that_never_reach_the_reader_are_not_waited_on()
+        public async Task Words_that_never_reach_the_reader_are_not_waited_on_and_open_nothing()
         {
             var clock = new SteppedClock();
             bool withdrawn = false;
@@ -313,28 +336,48 @@ namespace Radios.Tests
             Assert.Equal(0, clock.Now);
             outcome = await SaidInFull.SayAsync((t, w) => throw new InvalidOperationException("no reader"), _ => { },
                 "Recording", onlyWarning: false, () => true, clock.NowMs, clock.Delay);
-            Assert.Equal(SaidInFull.Outcome.Dropped, outcome);
+            Assert.Equal(SaidInFull.Outcome.NotSaid, outcome);
+            Assert.False(SaidInFull.LetsItOpen(outcome));
         }
 
-        [Fact]
-        public void The_file_begins_after_the_tone_so_what_is_kept_is_what_is_measured_and_played_and_holds_no_tone()
-        {
-            // What the microphone hears from the moment it opens: the start tone
-            // through the speakers for a full settle, then the operator.
-            float[] speech = ChainAuditionAnalysisTests.Take(8);
-            float[] heard = WithLoudStart(speech);
+        // ── Repair 1: the file begins where the tone really ends ─────────
 
-            var (take, rec) = Recorded(heard, beepsOn: true);
+        [Theory]
+        [InlineData(90)]
+        [InlineData(800)]
+        public void The_file_begins_after_the_tones_real_end_so_what_is_kept_is_what_is_measured_and_played_and_holds_no_tone(int outputLagMs)
+        {
+            // Codex's check of 83932446, C1, at the take: the tone reaches the
+            // speaker after the output's lag, and the marker reports when it is
+            // audibly over. Track Q3 assumed a loud tone lasting exactly 450 ms
+            // (WithLoudStart); here the tone is 160 ms and ends where the lag
+            // puts it, and the operator starts 150 ms after it, faster than a
+            // person answers a tone. (The real rendered beep, through the real
+            // output position, is JJFlexWpf.Tests' AuditionToneEndTests.)
+            const double handedOverMs = 25, toneMs = 160, reactionMs = 150;
+            double toneEndMs = handedOverMs + outputLagMs + toneMs;
+            float[] speech = ChainAuditionAnalysisTests.Take(8);
+            float[] heard = Heard(handedOverMs + outputLagMs, toneMs, reactionMs, speech);
+
+            var (take, rec) = Recorded(heard, markerEnd: Ticks(toneEndMs));
             float[] file = ChainAuditionTakeTests.ReadMono(take.TakePath)!.Value.Mono;
 
-            // No tone in the file, and the file is the operator from the first sample.
-            Assert.Equal(speech.Length, file.Length);
+            // The file begins the margin after the tone's end, to the frame.
+            long expectedFirst = (long)Math.Ceiling((toneEndMs + ChainAuditionTake.ToneMarginMs) * Rate / 1000.0);
+            Assert.InRange(rec.BoundaryFrame, expectedFirst - 1, expectedFirst + 1);
+            Assert.Equal(heard.Length - rec.BoundaryFrame, file.Length);
+
+            // No tone in it, and every sample of the operator's speech.
             Assert.True(Peak(file) < 0.5f, "the start tone the microphone heard is in the take's file");
-            Assert.True(MaxDifference(file, speech) < 1e-3f, "the file does not begin where the tone ends");
+            Assert.True(file.Length >= speech.Length, "the operator's first words were thrown away");
+            Assert.True(MaxDifference(file.Skip(file.Length - speech.Length).ToArray(), speech) < 1e-3f,
+                "the operator's speech is not whole in the file");
+            Assert.True(file.Take(file.Length - speech.Length).All(v => Math.Abs(v) < 1e-3f),
+                "something other than silence lies between the tone's end and the speech");
 
             // What is measured and played is the file itself, nothing trimmed.
             var result = take.Result!;
-            Assert.Equal(file.Length / (double)ChainAuditionAnalysisTests.Rate, result.Seconds, 6);
+            Assert.Equal(file.Length / (double)Rate, result.Seconds, 6);
             float[] raw = result.Render(AuditionRender.Raw)!;
             Assert.Equal(file.Length, raw.Length);
             Assert.True(MaxDifference(raw, file.Select(v => v * result.PlaybackScale).ToArray()) < 1e-5f,
@@ -342,89 +385,221 @@ namespace Radios.Tests
             Assert.Equal(AuditionSpeech.Heard, result.Speech);
 
             // Keep saves those same samples, byte for byte.
-            string kept = Path.Combine(_folder, "kept", "take.wav");
+            string kept = Path.Combine(_folder, "kept-" + outputLagMs, "take.wav");
             Assert.True(take.Keep(kept));
             Assert.Equal(File.ReadAllBytes(take.TakePath), File.ReadAllBytes(kept));
             Assert.Equal(file, ChainAuditionTakeTests.ReadMono(kept)!.Value.Mono);
-            Assert.Equal(Settle, rec.FileStartsAfter);
+            Assert.True(rec.Hold);
         }
 
         [Fact]
         public void With_the_recorder_beeps_off_there_is_no_tone_and_the_file_starts_as_the_microphone_opens()
         {
-            // Nothing sounds, so nothing is cut: every captured sample is the take.
+            // Nothing sounds, so nothing is held: every captured sample is the take.
             float[] heard = ChainAuditionAnalysisTests.Take(8);
-            var (take, rec) = Recorded(heard, beepsOn: false);
-            Assert.Equal(TimeSpan.Zero, rec.FileStartsAfter);
+            var (take, rec) = Recorded(heard, markerEnd: null, beepsOn: false);
+            Assert.False(rec.Hold);
             Assert.Equal(0, rec.MarkersSounded);
+            Assert.Equal(0, rec.BeginCalls);
             float[] file = ChainAuditionTakeTests.ReadMono(take.TakePath)!.Value.Mono;
             Assert.Equal(heard.Length, file.Length);
             Assert.Equal(file.Length, take.Result!.Render(AuditionRender.Raw)!.Length);
 
-            // Positive control for the no-tone test above: had a tone been heard
+            // Positive control for the no-tone tests above: had a tone been heard
             // here, it would be in the file, and the instrument sees it.
-            var (loud, _) = Recorded(WithLoudStart(heard), beepsOn: false);
+            var (loud, _) = Recorded(Heard(25, 160, 150, heard), markerEnd: null, beepsOn: false);
             Assert.True(Peak(ChainAuditionTakeTests.ReadMono(loud.TakePath)!.Value.Mono) > 0.75f);
         }
 
         [Fact]
-        public void The_recorder_writes_nothing_of_the_capture_before_its_lead_and_everything_after_it()
+        public void A_marker_that_reports_no_tone_sounded_begins_the_file_with_the_first_frame()
         {
-            // The real recorder's cut, block by block, stereo, the lead falling
-            // inside a block: the file's first frame is exactly the lead's.
-            const int rate = 48000, channels = 2, block = 441;
-            long lead = MicRecorder.LeadFrames(Settle, rate);
-            Assert.Equal(21600, lead);
+            // The beeps were on when asked, but nothing sounded (every sound off):
+            // nothing is held back, so nothing of the operator is lost.
+            float[] heard = ChainAuditionAnalysisTests.Take(8);
+            var (take, rec) = Recorded(heard, markerEnd: null);
+            Assert.True(rec.Hold);
+            Assert.Equal(1, rec.BeginCalls);
+            Assert.Null(rec.BeginAt);
+            Assert.Equal(heard.Length, ChainAuditionTakeTests.ReadMono(take.TakePath)!.Value.Mono.Length);
+        }
+
+        [Fact]
+        public async Task The_file_waits_for_the_marker_to_say_when_its_tone_ended()
+        {
+            // The output reports the tone's end only once it has taken the tone:
+            // until then the recorder is told nothing, and holds what it captures.
+            var log = new List<(string What, long At)>();
+            var rec = new FakeRecorder(log, () => 0);
+            var end = new TaskCompletionSource<long?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var take = new ChainAuditionTake(_folder, rec, ChainNotConnectedYet.Instance, ChainAuditionTakeTests.ReadMono,
+                startMarker: () => end.Task);
+            Assert.True(take.Start(Now));
+            Assert.True(rec.Hold);
+            Assert.Equal(0, rec.BeginCalls);
+            end.SetResult(Ticks(400));
+            await rec.Begun.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(1, rec.BeginCalls);
+            Assert.Equal(ChainAuditionTake.FileStartAfterTone(Ticks(400)), rec.BeginAt);
+            Assert.Equal(ChainAuditionTake.ToneMarginMs * Freq / 1000, rec.BeginAt!.Value - Ticks(400));
+        }
+
+        [Fact]
+        public async Task A_marker_whose_report_faults_leaves_the_file_starting_well_after_any_tone()
+        {
+            var rec = new FakeRecorder(new List<(string, long)>(), () => 0);
+            var end = new TaskCompletionSource<long?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var take = new ChainAuditionTake(_folder, rec, ChainNotConnectedYet.Instance, ChainAuditionTakeTests.ReadMono,
+                startMarker: () => end.Task);
+            long before = System.Diagnostics.Stopwatch.GetTimestamp();
+            Assert.True(take.Start(Now));
+            long after = System.Diagnostics.Stopwatch.GetTimestamp();
+            end.SetException(new InvalidOperationException("no position"));
+            await rec.Begun.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            long unknown = Ticks(ChainAuditionTake.UnknownToneEndMs);
+            Assert.InRange(rec.BeginAt!.Value, before + unknown, after + unknown);
+        }
+
+        // ── Repair 1: the recorder's own file start (CaptureFileStart) ───
+
+        [Fact]
+        public void The_file_begins_at_the_frame_captured_at_the_moment_it_is_given_however_late_the_blocks_arrive()
+        {
+            // Stereo, MicProbe's 1024-frame blocks, a reported input latency of
+            // 30 ms, a first block that arrives 40 ms late (the backlog when the
+            // recorder's sink is installed after the device started), and the
+            // rest jittered. Frame 0 was captured at origin; each frame carries
+            // its own index, so the first one written says where the file began.
+            const int rate = 48000, channels = 2, block = 1024;
+            const double latency = 0.030;
+            long origin = Ticks(5000);
+            int[] jitterMs = { 40, 0, 3, 1, 6, 2, 0, 4 };
+            long moment = origin + Ticks(337.5);
+            const long expected = 16200;   // 337.5 ms at 48 kHz
             int frames = rate;   // one second captured
             string path = Path.Combine(_folder, "cut.wav");
             Directory.CreateDirectory(_folder);
+            var start = new CaptureFileStart(rate, hold: true, latency, Freq);
             using (var w = new WavWriter(path, rate, channels))
             {
-                long captured = 0;
-                for (int at = 0; at < frames; at += block)
+                int k = 0;
+                for (int at = 0; at < frames; at += block, k++)
                 {
                     int n = Math.Min(block, frames - at);
                     var buf = new float[n * channels];
                     for (int i = 0; i < n; i++)
                     {
-                        // Each frame carries its own index, so the first one written says where the cut fell.
                         buf[i * channels] = (at + i) / 65536f;
                         buf[i * channels + 1] = -(at + i) / 65536f;
                     }
-                    captured = MicRecorder.WriteAfterLead(w, buf, n * channels, n, captured, lead);
+                    long arrival = origin + Ticks((at + n) * 1000.0 / rate + latency * 1000 + jitterMs[k % jitterMs.Length]);
+                    // The moment is learnt part-way through, as the output reports it.
+                    if (k == 3) start.BeginAt(moment);
+                    start.Block(w, buf, n * channels, n, arrival);
                 }
-                Assert.Equal(frames, captured);
-                Assert.Equal(frames - lead, w.Frames);
+                Assert.False(start.Finish(w));
+                Assert.True(start.FileBegan);
+                Assert.Equal(frames, start.CapturedFrames);
+                Assert.InRange(start.BoundaryFrame, expected, expected + 1);
+                Assert.Equal(frames - start.BoundaryFrame, w.Frames);
                 w.Finish();
             }
             byte[] bytes = File.ReadAllBytes(path);
             short first = BitConverter.ToInt16(bytes, 44);
             short firstRight = BitConverter.ToInt16(bytes, 46);
-            Assert.Equal((short)(21600 / 65536f * 32767f), first);
-            Assert.Equal((short)(-21600 / 65536f * 32767f), firstRight);
+            long b = start.BoundaryFrame;
+            Assert.Equal((short)(b / 65536f * 32767f), first);
+            Assert.Equal((short)(-b / 65536f * 32767f), firstRight);
+        }
 
-            // No lead keeps every frame; a lead past the capture keeps none.
-            Assert.Equal(0, MicRecorder.LeadFrames(TimeSpan.Zero, rate));
-            Assert.Equal(0, MicRecorder.LeadFrames(TimeSpan.FromMilliseconds(-5), rate));
-            using (var w = new WavWriter(Path.Combine(_folder, "all.wav"), rate, 1))
+        [Fact]
+        public void Without_a_hold_every_frame_is_the_files_and_a_hold_released_with_no_moment_keeps_every_frame()
+        {
+            Directory.CreateDirectory(_folder);
+            using (var w = new WavWriter(Path.Combine(_folder, "all.wav"), 1000, 1))
             {
-                MicRecorder.WriteAfterLead(w, new float[100], 100, 100, 0, 0);
+                var open = new CaptureFileStart(1000, hold: false, 0, Freq);
+                Assert.True(open.FileBegan);
+                open.Block(w, new float[100], 100, 100, Ticks(100));
                 Assert.Equal(100, w.Frames);
-                MicRecorder.WriteAfterLead(w, new float[100], 100, 100, 100, 1000);
-                Assert.Equal(100, w.Frames);
+                Assert.Equal(0, open.BoundaryFrame);
             }
+            using (var w = new WavWriter(Path.Combine(_folder, "held.wav"), 1000, 1))
+            {
+                var held = new CaptureFileStart(1000, hold: true, 0, Freq);
+                held.Block(w, new float[100], 100, 100, Ticks(100));
+                Assert.Equal(0, w.Frames);
+                Assert.False(held.FileBegan);
+                held.BeginAt(null);       // no tone sounded
+                held.BeginAt(Ticks(50));  // only the first call counts
+                held.Block(w, new float[100], 100, 100, Ticks(200));
+                Assert.Equal(200, w.Frames);
+                Assert.Equal(0, held.BoundaryFrame);
+            }
+        }
+
+        [Fact]
+        public void A_recording_stopped_before_its_moment_was_captured_keeps_nothing_and_says_so()
+        {
+            Directory.CreateDirectory(_folder);
+            using var w = new WavWriter(Path.Combine(_folder, "early.wav"), 1000, 1);
+            var start = new CaptureFileStart(1000, hold: true, 0, Freq);
+            start.Block(w, new float[100], 100, 100, Ticks(100));
+            start.BeginAt(Ticks(450));
+            start.Block(w, new float[100], 100, 100, Ticks(200));
+            Assert.False(start.Finish(w));
+            Assert.False(start.FileBegan);
+            Assert.Equal(0, w.Frames);
+            Assert.Equal(200, start.CapturedFrames);
+        }
+
+        [Fact]
+        public void A_moment_learnt_after_the_last_block_is_still_applied_when_the_recording_stops()
+        {
+            Directory.CreateDirectory(_folder);
+            using var w = new WavWriter(Path.Combine(_folder, "late.wav"), 1000, 1);
+            var start = new CaptureFileStart(1000, hold: true, 0, Freq);
+            for (int k = 1; k <= 5; k++) start.Block(w, new float[100], 100, 100, Ticks(k * 100));
+            start.BeginAt(Ticks(320));
+            Assert.True(start.Finish(w));
+            Assert.InRange(start.BoundaryFrame, 320, 321);
+            Assert.Equal(500 - start.BoundaryFrame, w.Frames);
+        }
+
+        [Fact]
+        public void A_hold_never_told_its_moment_keeps_only_the_last_ten_seconds()
+        {
+            Directory.CreateDirectory(_folder);
+            using var w = new WavWriter(Path.Combine(_folder, "cap.wav"), 1000, 1);
+            var start = new CaptureFileStart(1000, hold: true, 0, Freq);
+            for (int k = 1; k <= 12; k++) start.Block(w, new float[1000], 1000, 1000, Ticks(k * 1000));
+            Assert.Equal(2000, start.DroppedFrames);
+            start.BeginAt(null);
+            Assert.True(start.Finish(w));
+            Assert.Equal((long)(CaptureFileStart.MaxHeldSeconds * 1000), w.Frames);
         }
 
         // ── Helpers ──────────────────────────────────────────────────────
 
-        /// <summary>A take whose microphone hears <paramref name="heard"/> from the moment it opens, recorded and stopped.</summary>
-        private (ChainAuditionTake Take, FakeRecorder Recorder) Recorded(float[] heard, bool beepsOn)
+        private const int Rate = ChainAuditionAnalysisTests.Rate;
+        private static readonly long Freq = System.Diagnostics.Stopwatch.Frequency;
+
+        /// <summary>Milliseconds as Stopwatch ticks, on the fake capture's clock (frame 0 captured at tick 0).</summary>
+        private static long Ticks(double ms) => (long)Math.Round(ms * Freq / 1000.0);
+
+        /// <summary>
+        /// A take whose microphone hears <paramref name="heard"/> from the moment
+        /// it opens, recorded and stopped. The marker reports its tone audibly
+        /// over at <paramref name="markerEnd"/> on the capture's clock, or that
+        /// no tone sounded (null).
+        /// </summary>
+        private (ChainAuditionTake Take, FakeRecorder Recorder) Recorded(float[] heard, long? markerEnd, bool beepsOn = true)
         {
             var log = new List<(string What, long At)>();
             var rec = new FakeRecorder(log, () => 0) { Samples = heard };
             string folder = Path.Combine(_folder, Guid.NewGuid().ToString("N"));
             var take = new ChainAuditionTake(folder, rec, ChainNotConnectedYet.Instance, ChainAuditionTakeTests.ReadMono,
-                startMarker: () => rec.MarkersSounded++, markerSettle: Settle, markerSounds: () => beepsOn);
+                startMarker: () => { rec.MarkersSounded++; return Task.FromResult(markerEnd); }, markerSounds: () => beepsOn);
             rec.Saved = p => take.Saved(p, out _);
             Assert.True(take.Start(Now));
             take.StopRecording();
@@ -440,13 +615,18 @@ namespace Radios.Tests
             return most;
         }
 
-        /// <summary>A full settle's worth of loud tone, as a start tone heard through speakers, then the take.</summary>
-        private static float[] WithLoudStart(float[] take)
+        /// <summary>
+        /// What the microphone hears: silence, a loud tone from
+        /// <paramref name="toneStartMs"/> for <paramref name="toneMs"/>, silence
+        /// for <paramref name="gapMs"/> (the operator answering the tone), then the take.
+        /// </summary>
+        private static float[] Heard(double toneStartMs, double toneMs, double gapMs, float[] take)
         {
-            int n = (int)(Settle.TotalSeconds * ChainAuditionAnalysisTests.Rate);
-            var x = new float[n + take.Length];
-            for (int i = 0; i < n; i++) x[i] = 0.8f * (float)Math.Sin(2 * Math.PI * 880 * i / ChainAuditionAnalysisTests.Rate);
-            Array.Copy(take, 0, x, n, take.Length);
+            int toneFrom = (int)Math.Round(toneStartMs * Rate / 1000), toneTo = (int)Math.Round((toneStartMs + toneMs) * Rate / 1000);
+            int speechFrom = (int)Math.Round((toneStartMs + toneMs + gapMs) * Rate / 1000);
+            var x = new float[speechFrom + take.Length];
+            for (int i = toneFrom; i < toneTo; i++) x[i] = 0.8f * (float)Math.Sin(2 * Math.PI * 880 * i / Rate);
+            Array.Copy(take, 0, x, speechFrom, take.Length);
             return x;
         }
 
@@ -461,7 +641,8 @@ namespace Radios.Tests
         {
             var rec = new FakeRecorder(log, now);
             var take = new ChainAuditionTake(_folder, rec, ChainNotConnectedYet.Instance, ChainAuditionTakeTests.ReadMono,
-                startMarker: () => { lock (log) log.Add(("marker", now())); }, markerSettle: Settle, markerSounds: markerSounds);
+                startMarker: () => { lock (log) log.Add(("marker", now())); return Task.FromResult<long?>(Ticks(300)); },
+                markerSounds: markerSounds);
             rec.Saved = p => take.Saved(p, out _);
             return (take, rec);
         }
@@ -469,8 +650,9 @@ namespace Radios.Tests
         /// <summary>
         /// Logs when it opens; on stop, writes what the microphone heard
         /// (<see cref="Samples"/>, from the moment it opened) through the real
-        /// recorder's cut, block by block as a device delivers, and reports the
-        /// file, as the narrator does.
+        /// recorder's file start (<see cref="CaptureFileStart"/>), block by
+        /// block as a device delivers, frame 0 captured at tick 0, and reports
+        /// the file, as the narrator does.
         /// </summary>
         private sealed class FakeRecorder : IAuditionRecorder
         {
@@ -478,42 +660,54 @@ namespace Radios.Tests
             private readonly Func<long> _now;
             public FakeRecorder(List<(string What, long At)> log, Func<long> now) { _log = log; _now = now; }
             public float[] Samples = ChainAuditionAnalysisTests.Take(8);
-            public bool Running, OtherRecording, Refuse;
-            public int Opens, MarkersSounded;
-            public TimeSpan FileStartsAfter;
+            public bool Running, OtherRecording, Refuse, Hold;
+            public int Opens, MarkersSounded, BeginCalls;
+            public long? BeginAt;
+            public long BoundaryFrame = -1;
+            public readonly TaskCompletionSource Begun = new(TaskCreationOptions.RunContinuationsAsynchronously);
             public string Path = "";
             public Action<string>? Saved;
 
             public bool IsRunning => Running || OtherRecording;
             public bool IsRecordingTo(string path) => Running && string.Equals(Path, path, StringComparison.OrdinalIgnoreCase);
 
-            public bool Start(string path, TimeSpan fileStartsAfter)
+            public bool Start(string path, bool holdFileStart)
             {
                 if (Refuse) { lock (_log) _log.Add(("refused", _now())); return false; }
                 Opens++;
                 Path = path;
-                FileStartsAfter = fileStartsAfter;
+                Hold = holdFileStart;
                 Running = true;
                 lock (_log) _log.Add(("open", _now()));
                 return true;
+            }
+
+            public void BeginFileAt(string path, long? stopwatchTimestamp)
+            {
+                if (!IsRecordingTo(path)) return;
+                BeginCalls++;
+                BeginAt = stopwatchTimestamp;
+                Begun.TrySetResult();
             }
 
             public void Stop()
             {
                 if (!Running) return;
                 Running = false;
-                const int block = 441;   // not a divisor of the lead, so the cut falls inside a block
-                long lead = MicRecorder.LeadFrames(FileStartsAfter, ChainAuditionAnalysisTests.Rate);
-                using (var w = new WavWriter(Path, ChainAuditionAnalysisTests.Rate, 1))
+                const int block = 441;   // the moment falls inside a block
+                var start = new CaptureFileStart(Rate, Hold, 0, Freq);
+                if (BeginCalls > 0) start.BeginAt(BeginAt);
+                using (var w = new WavWriter(Path, Rate, 1))
                 {
-                    long captured = 0;
                     for (int at = 0; at < Samples.Length; at += block)
                     {
                         int n = Math.Min(block, Samples.Length - at);
                         var buf = new float[n];
                         Array.Copy(Samples, at, buf, 0, n);
-                        captured = MicRecorder.WriteAfterLead(w, buf, n, n, captured, lead);
+                        start.Block(w, buf, n, n, Ticks((at + n) * 1000.0 / Rate));
                     }
+                    start.Finish(w);
+                    BoundaryFrame = start.BoundaryFrame;
                     w.Finish();
                 }
                 Saved?.Invoke(Path);
@@ -530,6 +724,9 @@ namespace Radios.Tests
             public volatile bool Given, Withdrawn;
             public string Text = "";
             public void Finish() => _finished = true;
+            private volatile bool _cut;
+            /// <summary>The reader reports the word cut part-way: its handle fails.</summary>
+            public void Cut() => _cut = true;
 
             public ICountdownWords Say(string text, bool onlyWarning)
             {
@@ -545,9 +742,9 @@ namespace Radios.Tests
             {
                 private readonly HeldWord _owner;
                 public Handle(HeldWord owner) => _owner = owner;
-                public bool Failed => _owner.Withdrawn;
+                public bool Failed => _owner.Withdrawn || _owner._cut;
                 public bool Started => true;
-                public bool Finished => _owner._finishAtOnce || _owner._finished;
+                public bool Finished => !_owner._cut && (_owner._finishAtOnce || _owner._finished);
             }
         }
 

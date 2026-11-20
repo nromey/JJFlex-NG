@@ -164,31 +164,85 @@ public static class RecordingNarrator
     /// </para>
     /// </remarks>
     /// <param name="path">Where to write it.</param>
-    /// <param name="fileStartsAfter">
-    /// How long after the microphone opens the FILE begins (Sprint 49 Track
-    /// Q3, Noel 2026-11-19 20:29: <i>"the microphone may open while the tone
-    /// plays, but the file begins once the tone has finished"</i>). The caller
-    /// passes its start tone's settle when the tone will sound, and zero when it
-    /// will not, so the file is exactly the take. Zero keeps everything.
+    /// <param name="holdFileStart">
+    /// True when a start tone follows: the FILE then waits for
+    /// <see cref="BeginCheckFileAt"/>, which the caller gives once the tone is
+    /// audibly over (Sprint 49 Track Q3, Noel 2026-11-19 20:29: <i>"the
+    /// microphone may open while the tone plays, but the file begins once the
+    /// tone has finished"</i>; repair 1). False begins the file as the
+    /// microphone opens.
+    /// </param>
+    /// <param name="stoppedTooSoon">
+    /// What to say, given the seconds kept, when the recording is stopped with
+    /// the microphone working but nothing, or too little, kept to make a file:
+    /// the check's own words for a take that is too short (repair 1). Null
+    /// says the general "nothing was captured, check the microphone", which is
+    /// true only when the microphone delivered nothing.
     /// </param>
     /// <returns>True when the microphone is open and recording to <paramref name="path"/>.</returns>
-    public static bool StartForCheck(string path, TimeSpan fileStartsAfter)
+    public static bool StartForCheck(string path, bool holdFileStart, Func<double, string>? stoppedTooSoon = null)
     {
         if (IsRunning || string.IsNullOrWhiteSpace(path)) return false;
         _purpose = "";
-        return Open(path, quiet: true, fileStartsAfter);
+        if (!Open(path, quiet: true, holdFileStart)) return false;
+        _stoppedTooSoon = stoppedTooSoon;
+        return true;
+    }
+
+    /// <summary>
+    /// For the check recording to <paramref name="path"/>, started with a held
+    /// file start: the file begins at the frame the microphone captured at
+    /// <paramref name="stopwatchTimestamp"/>, or, when null, at the first
+    /// frame captured. Any thread; ignored for any other recording.
+    /// </summary>
+    public static void BeginCheckFileAt(string path, long? stopwatchTimestamp)
+    {
+        var recorder = _recorder;
+        if (recorder == null || !recorder.IsRunning || !_quiet) return;
+        if (!string.Equals(_path, path, StringComparison.OrdinalIgnoreCase)) return;
+        recorder.BeginFileAt(stopwatchTimestamp);
     }
 
     /// <summary>True while the recording in flight was started for a check, so nothing is spoken until it stops.</summary>
     private static bool _quiet;
 
+    /// <summary>The check's words for a recording stopped too soon to keep a file; null for the record key.</summary>
+    private static Func<double, string>? _stoppedTooSoon;
+
+    /// <summary>What a stop says, chosen by <see cref="StopKind"/>.</summary>
+    internal enum StopSaying
+    {
+        /// <summary>The recorder faulted: say why.</summary>
+        Faulted,
+        /// <summary>The microphone delivered nothing: check it.</summary>
+        NothingCaptured,
+        /// <summary>The microphone worked, but the recording was stopped before enough of it was kept: the check's own words.</summary>
+        StoppedTooSoon,
+        /// <summary>A file was kept: say its length and name.</summary>
+        Saved,
+    }
+
+    /// <summary>
+    /// Which sentence a stop says (Track Q3 repair 1). "Nothing was captured,
+    /// check the microphone" is said only when the microphone delivered
+    /// nothing; a check recording stopped before its file began, or with too
+    /// little kept, while the microphone was delivering, says the check's own
+    /// words instead, because the operator stopped it, not the microphone.
+    /// </summary>
+    internal static StopSaying StopKind(bool faulted, bool fileSaved, double capturedSeconds, bool checkHasWords)
+    {
+        if (faulted) return StopSaying.Faulted;
+        if (fileSaved) return StopSaying.Saved;
+        return checkHasWords && capturedSeconds > 0 ? StopSaying.StoppedTooSoon : StopSaying.NothingCaptured;
+    }
+
     /// <summary>
     /// Resolve the microphone, refuse aloud if it cannot record, and open the
-    /// recorder. Says nothing on success; the caller announces. The file
-    /// begins <paramref name="fileStartsAfter"/> after the microphone opens
-    /// (zero for the record key: everything is kept).
+    /// recorder. Says nothing on success; the caller announces. With
+    /// <paramref name="holdFileStart"/> the file waits for
+    /// <see cref="BeginCheckFileAt"/> (never for the record key: everything is kept).
     /// </summary>
-    private static bool Open(string? path, bool quiet, TimeSpan fileStartsAfter = default)
+    private static bool Open(string? path, bool quiet, bool holdFileStart = false)
     {
         // The microphone the operator already chose. Asking again here would
         // be a second place to configure the same thing, and the two would
@@ -228,7 +282,7 @@ public static class RecordingNarrator
         }
 
         var recorder = new MicRecorder();
-        MicRecorder.StartOutcome outcome = recorder.Start(device, _path, fileStartsAfter, out string failure);
+        MicRecorder.StartOutcome outcome = recorder.Start(device, _path, holdFileStart, out string failure);
         if (outcome != MicRecorder.StartOutcome.Started)
         {
             recorder.Dispose();
@@ -238,6 +292,7 @@ public static class RecordingNarrator
 
         _recorder = recorder;
         _quiet = quiet;
+        _stoppedTooSoon = null;
         _lastSpokenInterval = 0;
         _capWarned = false;
 
@@ -260,27 +315,36 @@ public static class RecordingNarrator
         StopTimer();
         string saved = recorder.Stop();
         double seconds = recorder.Seconds;
+        double captured = recorder.CapturedSeconds;
         MicRecorder.StopReason reason = recorder.LastStopReason;
         string fault = recorder.FaultMessage;
+        var stoppedTooSoon = _stoppedTooSoon;
         recorder.Dispose();
         _recorder = null;
         _quiet = false;
+        _stoppedTooSoon = null;
         StateChanged?.Invoke();
 
-        if (reason == MicRecorder.StopReason.Faulted)
+        switch (StopKind(reason == MicRecorder.StopReason.Faulted, !string.IsNullOrEmpty(saved), captured, stoppedTooSoon != null))
         {
-            EarconPlayer.LeaderInvalidTone();
-            Speak(Lexicon.Get("audio.recording.stopped_faulted", ("reason", fault)), interrupt: true);
-            return;
-        }
-
-        if (string.IsNullOrEmpty(saved))
-        {
-            // Nothing was captured. Say which of the two reasons it was,
-            // because they need completely different remedies.
-            EarconPlayer.LeaderCancelTone();
-            Speak(Lexicon.Get("audio.recording.stopped_nothing_captured"), interrupt: true);
-            return;
+            case StopSaying.Faulted:
+                EarconPlayer.LeaderInvalidTone();
+                Speak(Lexicon.Get("audio.recording.stopped_faulted", ("reason", fault)), interrupt: true);
+                return;
+            case StopSaying.NothingCaptured:
+                // Nothing was captured. Say which of the two reasons it was,
+                // because they need completely different remedies.
+                EarconPlayer.LeaderCancelTone();
+                Speak(Lexicon.Get("audio.recording.stopped_nothing_captured"), interrupt: true);
+                return;
+            case StopSaying.StoppedTooSoon:
+                // The microphone worked; the check was stopped before enough of
+                // its take was kept (Track Q3 repair 1). Its own words, not
+                // "check the microphone".
+                EarconPlayer.LeaderCancelTone();
+                Trace.WriteLine($"RecordingNarrator: check recording stopped too soon, {captured:F2} s captured and {seconds:F2} s kept");
+                Speak(stoppedTooSoon!(seconds), interrupt: true);
+                return;
         }
 
         EarconPlayer.ConfirmTone();

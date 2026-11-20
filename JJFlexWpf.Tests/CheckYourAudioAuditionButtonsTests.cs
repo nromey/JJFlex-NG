@@ -278,7 +278,8 @@ public sealed class CheckYourAudioAuditionButtonsTests : IDisposable
         public Action<string>? Saved;
         public bool IsRunning => _running;
         public bool IsRecordingTo(string path) => _running && string.Equals(_path, path, StringComparison.OrdinalIgnoreCase);
-        public bool Start(string path, TimeSpan fileStartsAfter) { _path = path; _running = true; return true; }
+        public bool Start(string path, bool holdFileStart) { _path = path; _running = true; return true; }
+        public void BeginFileAt(string path, long? stopwatchTimestamp) { }
         public void Stop()
         {
             if (!_running) return;
