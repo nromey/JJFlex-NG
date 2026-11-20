@@ -32,6 +32,14 @@ namespace Radios
         private bool isInitialized;
         private bool isExchangingCode;
 
+        // True only while the token exchange is awaited. isExchangingCode
+        // stays set for good once the exchange starts (it keeps later
+        // navigations from re-running it), so it cannot say "running now".
+        private bool _exchangeInFlight;
+
+        // One Escape closes once, whichever route saw it first.
+        private bool _escapeClosing;
+
         // PKCE values (generated per auth attempt)
         private string _codeVerifier;
         private string _codeChallenge;
@@ -178,6 +186,20 @@ namespace Radios
                 TabIndex = 0
             };
 
+            // Escape closes the form as Alt+F4 does (#1222). Two routes,
+            // because the key arrives two different ways:
+            //  - while the page holds focus, keystrokes go to the browser
+            //    process, never to this form's message loop. WebView2 treats
+            //    Escape as an accelerator ("The Escape key is always
+            //    considered an accelerator", CoreWebView2Controller.
+            //    AcceleratorKeyPressed), and the WinForms control raises an
+            //    accelerator as its own KeyDown (the control's documented
+            //    remarks: "Accelerator key presses ... will fire standard
+            //    key press events such as OnKeyDown").
+            //  - before the page exists (WebView2 starting up) focus is an
+            //    ordinary WinForms control, so ProcessCmdKey sees it.
+            webView.KeyDown += WebView_KeyDown;
+
             this.Controls.Add(webView);
             this.Controls.Add(urlLabel);
             this.Controls.SetChildIndex(urlLabel, 0);
@@ -189,6 +211,7 @@ namespace Radios
             this.StartPosition = FormStartPosition.CenterScreen;
             this.Text = Lexicon.Get("connect.smartlink.browser.title");
             this.Load += AuthFormWebView2_Load;
+            this.FormClosing += AuthFormWebView2_FormClosing;
             // Same foreground battle as the native sign-in form: this window
             // opens while the Connecting form (another thread) holds
             // foreground, and plain activation loses to the foreground lock —
@@ -207,6 +230,78 @@ namespace Radios
         }
 
         private System.Windows.Forms.Timer _showTimer;
+
+        /// <summary>
+        /// The key that closes the form as cancelled: plain Escape, nothing
+        /// held with it.
+        /// </summary>
+        internal static bool IsCancelKey(Keys keyData) => keyData == Keys.Escape;
+
+        /// <summary>
+        /// Whether a person's close (Alt+F4, the title bar's Close) is refused.
+        /// Only while the token exchange runs: it lasts a moment, says
+        /// "completing" on its own, and sets the form's result when it ends,
+        /// so a close in the middle would leave it reporting into a form that
+        /// has gone. Escape asks the same question, so the two stay alike.
+        /// A close the form makes itself (setting DialogResult) is never
+        /// refused.
+        /// </summary>
+        internal static bool RefusesUserClose(bool exchangeInFlight, CloseReason reason)
+            => exchangeInFlight && reason == CloseReason.UserClosing;
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (IsCancelKey(keyData))
+            {
+                CancelFromEscape("form");
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        private void WebView_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (!IsCancelKey(e.KeyData)) return;
+            e.Handled = true;
+            // The browser process is blocked while an accelerator handler
+            // runs, so the close is posted rather than made in here.
+            try
+            {
+                if (IsHandleCreated && !IsDisposed)
+                    BeginInvoke(new Action(() => CancelFromEscape("page")));
+            }
+            catch (InvalidOperationException)
+            {
+                // Handle gone between the check and the post: already closing.
+            }
+        }
+
+        /// <summary>
+        /// Escape's close: the same result Alt+F4 gives a modal form
+        /// (DialogResult.Cancel), so the caller's existing cancel path runs.
+        /// It speaks nothing of its own.
+        /// </summary>
+        private void CancelFromEscape(string route)
+        {
+            if (IsDisposed || _escapeClosing) return;
+            if (RefusesUserClose(_exchangeInFlight, CloseReason.UserClosing))
+            {
+                Tracing.TraceLine($"AuthFormWebView2: Escape ({route}) ignored while the sign-in completes", TraceLevel.Info);
+                return;
+            }
+            _escapeClosing = true;
+            Tracing.TraceLine($"AuthFormWebView2: Escape ({route}), closing as cancelled", TraceLevel.Info);
+            DialogResult = DialogResult.Cancel;
+        }
+
+        private void AuthFormWebView2_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (RefusesUserClose(_exchangeInFlight, e.CloseReason))
+            {
+                e.Cancel = true;
+                Tracing.TraceLine("AuthFormWebView2: close ignored while the sign-in completes", TraceLevel.Info);
+            }
+        }
 
         /// <summary>
         /// Generates PKCE code_verifier and code_challenge for secure auth flow.
@@ -430,7 +525,16 @@ namespace Radios
                         urlLabel.Text = Lexicon.Get("connect.smartlink.browser.exchanging_status");
                         ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.browser.completing"), VerbosityLevel.Terse, true);
 
-                        bool success = await ExchangeCodeForTokens(code);
+                        bool success;
+                        _exchangeInFlight = true;
+                        try
+                        {
+                            success = await ExchangeCodeForTokens(code);
+                        }
+                        finally
+                        {
+                            _exchangeInFlight = false;
+                        }
 
                         if (success)
                         {
