@@ -38,9 +38,25 @@ namespace Radios.Tests
         private readonly string _account = "tiers-b-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@example.invalid";
         private static readonly IPAddress RadioAddress = IPAddress.Parse("192.0.2.1");
 
+        // The process's client-id slot, taken under a TEST prefix and planted.
+        // The tests here that run FlexLib's connect reach the rig's client
+        // identity, which reads the process slot; unplanted, that takes a
+        // real session slot under the production name and holds it until the
+        // test host exits, so a copy of the program started meanwhile would be
+        // handed a different slot and a different stored id.
+        private readonly GuiClientSlot _slot = GuiClientSlot.Acquire(@"Local\JJFlexRadio.Tests.SmartLinkAttemptWiring." + Guid.NewGuid().ToString("N") + ".");
+        private readonly IDisposable _slotScope;
+
+        public SmartLinkAttemptWiringTests()
+        {
+            _slotScope = GuiClientSlot.OverrideForTests(_slot);
+        }
+
         public void Dispose()
         {
             foreach (var d in _owned) { try { d.Dispose(); } catch { } }
+            _slotScope.Dispose();
+            _slot.Dispose();
             _scope.Dispose();
         }
 
@@ -701,6 +717,11 @@ namespace Radios.Tests
             lock (states) Assert.DoesNotContain(CommandConnectionState.Connected, states);
             Assert.False(radio.Connected);
             Assert.Equal(SmartLinkAttemptEnd.Cancelled, SmartLinkConnectRecords.For(radio.Serial)!.LastAttempt!.End);
+
+            // This test ran FlexLib's connect for real, which reads the
+            // process's client-id slot. It read the planted one.
+            Assert.False(GuiClientSlot.ProductionSlotTaken,
+                "a test here took the production client-id slot; it must run under the planted test slot");
         }
 
         [Fact]
