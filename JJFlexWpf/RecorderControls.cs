@@ -67,10 +67,24 @@ public static class RecorderControls
             return new object();
         });
     }
+    /// <summary>
+    /// Seam for tests: the slice recording's length instead of asking a radio,
+    /// for the strip, menu and button labels below. Null in the app.
+    /// </summary>
+    internal static Func<FlexBase, SliceRecorderTarget, double?>? SecondsOverride { get; set; }
+
+    private static double? SecondsOf(FlexBase? rig, SliceRecorderTarget target) =>
+        rig == null ? null : SecondsOverride != null ? SecondsOverride(rig, target) : rig.SliceRecordingSeconds(target);
+
     // DRAFT PROSE (#787): awaiting Noel. Shared by the strip, menu and buttons.
+    // The number is SliceRecordingListing.SpokenSeconds, the one formatter for
+    // a slice recording's length (#1051): tenths below ten seconds, and a
+    // length above zero never reads as zero. These labels floored it to whole
+    // seconds until then, so a 0.1 s recording read "0 seconds" here while
+    // Play takes said "0.1". A running recording's length goes the same way.
     public static string? RecordingLength(FlexBase? rig, SliceRecorderTarget target) =>
-        rig?.SliceRecordingSeconds(target) is double seconds
-            ? Lexicon.Get("audio.recorder.seconds", ("seconds", (int)Math.Floor(seconds))) : null;
+        SecondsOf(rig, target) is double seconds
+            ? Lexicon.Get("audio.recorder.seconds", ("seconds", Radios.Listenback.SliceRecordingListing.SpokenSeconds(seconds))) : null;
 
     public static string RecordingSummary(FlexBase? rig, SliceRecorderTarget target)
     {
@@ -91,8 +105,8 @@ public static class RecorderControls
     public static string SliceStripPlayLabel(FlexBase? rig, SliceRecorderTarget target)
     {
         if (rig?.IsSlicePlaying(target) == true) return Lexicon.Get("audio.recorder.stop_strip");
-        if (rig?.SliceRecordingSeconds(target) is double seconds)
-            return Lexicon.Get("audio.recorder.play_strip", ("seconds", (int)Math.Floor(seconds)));
+        if (SecondsOf(rig, target) is double seconds)
+            return Lexicon.Get("audio.recorder.play_strip", ("seconds", Radios.Listenback.SliceRecordingListing.SpokenSeconds(seconds)));
         return Lexicon.Get("audio.recorder.play_button");
     }
     /// <summary>

@@ -151,13 +151,17 @@ public sealed class SliceRecordingListingTests : IDisposable
     }
 
     /// <summary>
-    /// The three places that say a slice recording's length all go through the
-    /// one formatter, and none rounds to whole seconds itself.
+    /// Every place that says a slice recording's length goes through the one
+    /// formatter, and none rounds or floors to whole seconds itself. The
+    /// recorder labels (Home's strip, its Play button, the Slice menu) were
+    /// missed by the first pass and floored it; their behaviour is tested in
+    /// JJFlexWpf.Tests' SliceRecordingLengthLabelsTests.
     /// </summary>
     [Theory]
     [InlineData("Radios", "Listenback", "SliceRecordingListing.cs")]
     [InlineData("JJFlexWpf", "SliceBackupDoor.cs")]
     [InlineData("JJFlexWpf", "Dialogs", "SliceOverwriteWarningDialog.cs")]
+    [InlineData("JJFlexWpf", "RecorderControls.cs")]
     public void Every_slice_length_sentence_uses_the_one_formatter(params string[] file)
     {
         string source = System.IO.File.ReadAllText(System.IO.Path.Combine(
@@ -165,5 +169,6 @@ public sealed class SliceRecordingListingTests : IDisposable
         Assert.Contains("SpokenSeconds(", source);
         Assert.DoesNotContain("(int)Math.Round(seconds)).ToString(", source.Replace("return ((int)Math.Round(seconds)).ToString(", ""));
         Assert.DoesNotContain("(int)Math.Round(started.Seconds)", source);
+        Assert.DoesNotContain("(int)Math.Floor(seconds)", source);
     }
 }
