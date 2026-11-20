@@ -131,9 +131,69 @@ namespace JJPortaudio
 
         // #196's rate limit, kept: at most one "when" line per second, and only
         // in a second that actually had a starvation.
-        private long _windowTick;
+        //
+        // #1229: the second is now counted in CALLBACKS rather than read from a
+        // clock, and a second is written by the first callback after it ends
+        // rather than by the next starvation. Until then a starvation after the
+        // first was placed in time only if another one followed it more than a
+        // second later: on the 2026-11-19 night bench the only such line read
+        // "2 starvation(s) in the last 1029375 ms", so the gaps could not be
+        // set against anything else in the trace. Each callback plays one
+        // device buffer, so counting them is the playback clock, and no clock
+        // is read on the audio thread at all.
+        private readonly int _windowCallbacks;
+        private long _windowStart;           // callback that opened the window; 0 when none is open
+        private long _windowFirst, _windowLast;
         private long _windowStarvations;
+        private double _windowSilenceMs;
         private bool _firstStarvationLogged;
+
+        // The same for trims above the ceiling (#1229): the first is placed at
+        // once, later ones get one line per second that had any.
+        private long _trimWindowStart;
+        private long _trimWindowFirst, _trimWindowLast;
+        private long _trimWindowTrims, _trimWindowBuffers;
+        private bool _firstTrimLogged;
+
+        // #1229, the stop nit: once the producer has stopped feeding the queue,
+        // an empty queue is the end of the audio, not a gap in it. Set from the
+        // feeding thread, read by the callback ONCE, at the callback's entry
+        // (Begin), and that reading classifies the whole callback (repair 1:
+        // reading it again when the shortage is booked let a gap the callback
+        // had already found be filed "at stop" if the mark landed in between).
+        private int _feedEnded;
+        private bool _callbackAfterFeedEnded;
+        private long _stopStarvations;
+        private long _stopSilentCallbacks;
+        private double _stopSilenceMs;
+
+        // ── The lines, written off the playback callback (#1229 repair 1) ──
+        //
+        // The callback must not format or write a trace line: Tracing.TraceLine
+        // reads clocks, takes the listeners' lock and flushes synchronously, and
+        // Codex measured 155 ms inside Begin with a slow listener and 752 bytes
+        // allocated with tracing off. So the callback only copies fixed-size
+        // numbers into this ring, made here and never resized; a reader on
+        // another thread (DrainLines) formats and writes them, each carrying the
+        // callback it happened at. One writer, the callback; readers serialised
+        // by a lock the callback never takes. A full ring drops a record and
+        // counts it, never overwrites one being read.
+        private enum LineKind : byte { FirstStarvation, StarvationSecond, FirstTrim, TrimSecond }
+
+        private struct LineRecord
+        {
+            public LineKind Kind;
+            public bool Final;
+            public long First, Last, WrittenAt, Count, Buffers, RunningCount, RunningBuffers;
+            public double Ms, RunningMs;
+        }
+
+        private const int LineCapacity = 64;
+        private readonly LineRecord[] _lineRing = new LineRecord[LineCapacity];
+        private long _lineHead, _lineTail, _linesDropped;
+        private int _linesPending;
+        private readonly object _drainLock = new object();
+        private readonly LineDrainer _drainer;
 
         public RxPlaybackQueue(string streamName, int buffersPerCallback,
             double bufferMilliseconds, uint sampleRate, double reserveMilliseconds)
@@ -163,6 +223,159 @@ namespace JJPortaudio
             // exists and is far blunter than this one — trimming to target
             // discards the surplus, clearing discards everything.
             DrainCeiling = PrimeTarget + _buffersPerCallback;
+            // One second of callbacks: the shipped receive stream plays ten
+            // 10 ms buffers per callback, so ten callbacks.
+            double callbackMs = _buffersPerCallback * _bufferMilliseconds;
+            _windowCallbacks = callbackMs > 0 ? Math.Max(1, (int)Math.Ceiling(1000.0 / callbackMs)) : 10;
+            _drainer = new LineDrainer(this);
+        }
+
+        /// <summary>Callbacks that make one second of playback: the length of a per-second window.</summary>
+        public int WindowCallbacks { get { return _windowCallbacks; } }
+
+        /// <summary>
+        /// Tests only: sees every line this queue writes, beside the trace. Set
+        /// before the stream runs, never while it runs.
+        /// </summary>
+        internal Action<string> LineObserver { get; set; }
+
+        /// <summary>
+        /// The producer has stopped feeding this queue for good (#1229). Called
+        /// by the receive loop as it ends, before the stream itself is stopped.
+        /// From then on a callback that finds the queue empty is the end of the
+        /// audio, not a gap in it: it is counted "at stop", apart from the
+        /// mid-stream figures, and writes no gap line.
+        /// </summary>
+        /// <remarks>
+        /// Why, from the 2026-11-19 night bench's trace: each of four PC-audio
+        /// offs wrote one "starvation" in the stream's last callbacks (for
+        /// example callback 18600 of 18604). The receive loop ends first
+        /// ("remoteAudioProc:stopping remote audio"); the CW monitor's stream is
+        /// stopped next, which waits about 330 ms for its callback; only then is
+        /// the receive stream stopped, about 560 ms after the loop ended. The
+        /// queue ran dry 82 ms after the loop ended, while the device was still
+        /// playing, and the summary counted it as a gap.
+        /// </remarks>
+        public void NoteFeedEnded()
+        {
+            System.Threading.Volatile.Write(ref _feedEnded, 1);
+        }
+
+        /// <summary>True once <see cref="NoteFeedEnded"/> has been called.</summary>
+        public bool FeedEnded { get { return System.Threading.Volatile.Read(ref _feedEnded) != 0; } }
+
+        /// <summary>Starvations after the feed ended: the stream's end, not a gap in it.</summary>
+        public long StopStarvations { get { return _stopStarvations; } }
+
+        /// <summary>Silent callbacks (starved or holding for a prime) after the feed ended.</summary>
+        public long StopSilentCallbacks { get { return _stopSilentCallbacks; } }
+
+        /// <summary>Silence played after the feed ended, in milliseconds.</summary>
+        public double StopSilenceMilliseconds { get { return _stopSilenceMs; } }
+
+        private void Write(string line, TraceLevel level)
+        {
+            Tracing.TraceLine(line, level);
+            LineObserver?.Invoke(line);
+        }
+
+        /// <summary>Callback side: copy one record into the ring. No allocation, no lock, no wait.</summary>
+        private void Record(ref LineRecord r)
+        {
+            long head = _lineHead;
+            if (head - System.Threading.Volatile.Read(ref _lineTail) >= LineCapacity)
+            {
+                System.Threading.Interlocked.Increment(ref _linesDropped);
+                return;
+            }
+            _lineRing[head % LineCapacity] = r;
+            System.Threading.Volatile.Write(ref _lineHead, head + 1);
+            System.Threading.Volatile.Write(ref _linesPending, 1);
+        }
+
+        /// <summary>True when the callback has recorded lines nobody has written yet.</summary>
+        public bool LinesPending { get { return System.Threading.Volatile.Read(ref _linesPending) != 0; } }
+
+        /// <summary>
+        /// Called by the thread that feeds the queue (the receive loop, once per
+        /// packet): when the callback has recorded lines, hand their writing to
+        /// the thread pool. An interlocked read when there is nothing to do; it
+        /// never formats or writes anything itself.
+        /// </summary>
+        public void RequestLineDrain()
+        {
+            if (System.Threading.Volatile.Read(ref _linesPending) == 0) return;
+            if (System.Threading.Interlocked.Exchange(ref _linesPending, 0) == 0) return;
+            System.Threading.ThreadPool.UnsafeQueueUserWorkItem(_drainer, preferLocal: false);
+        }
+
+        private sealed class LineDrainer : System.Threading.IThreadPoolWorkItem
+        {
+            private readonly RxPlaybackQueue _owner;
+            public LineDrainer(RxPlaybackQueue owner) { _owner = owner; }
+            public void Execute() { _owner.DrainLines(); }
+        }
+
+        /// <summary>
+        /// Format and write every line the callback has recorded, in order. Never
+        /// from the callback while the stream plays; the summary at the stream's
+        /// close calls it first, so the lines precede the totals.
+        /// </summary>
+        public void DrainLines()
+        {
+            lock (_drainLock)
+            {
+                long dropped = System.Threading.Interlocked.Exchange(ref _linesDropped, 0);
+                if (dropped > 0)
+                {
+                    Write("audio " + _streamName + " stream: " + dropped + " timing line(s) were lost because "
+                        + "nothing wrote them before the record ring filled", TraceLevel.Error);
+                }
+                long head = System.Threading.Volatile.Read(ref _lineHead);
+                for (long tail = _lineTail; tail < head; tail++)
+                {
+                    LineRecord r = _lineRing[tail % LineCapacity];
+                    System.Threading.Volatile.Write(ref _lineTail, tail + 1);
+                    Write(Format(ref r), TraceLevel.Error);
+                }
+            }
+        }
+
+        private string Format(ref LineRecord r)
+        {
+            switch (r.Kind)
+            {
+                case LineKind.FirstStarvation:
+                    return "audio " + _streamName + " stream: the playback queue ran dry "
+                        + "mid-stream at callback " + r.First + " — " + r.Ms.ToString("F0")
+                        + " ms of the device buffer was filled with silence, audible as a gap with a "
+                        + "click at each edge. PortAudio raises no flag for this (we supplied the zeros "
+                        + "ourselves). Each later second with any starvation gets one line, written as "
+                        + "that second ends; totals logged when the stream closes.";
+                case LineKind.StarvationSecond:
+                    return "audio " + _streamName + " stream: " + r.Count + " starvation(s) costing "
+                        + r.Ms.ToString("F0") + " ms of silence"
+                        + (r.Final ? " in the final partial second" : " in the second")
+                        + " from callback " + r.First
+                        + (r.Last != r.First ? " (the last at callback " + r.Last + ")" : "")
+                        + "; running total " + r.RunningCount + ", " + r.RunningMs.ToString("F0")
+                        + " ms of silence inserted and never reclaimed (second closed at callback " + r.WrittenAt + ")";
+                case LineKind.FirstTrim:
+                    return "audio " + _streamName + " stream: the backlog passed the " + DrainCeiling
+                        + "-buffer ceiling at callback " + r.First + "; " + r.Buffers + " buffer(s) discarded, "
+                        + (r.Buffers * _bufferMilliseconds).ToString("F0") + " ms. Each later second with any "
+                        + "such trim gets one line, written as that second ends.";
+                default:
+                    return "audio " + _streamName + " stream: " + r.Count + " trim(s) above the "
+                        + DrainCeiling + "-buffer ceiling"
+                        + (r.Final ? " in the final partial second" : " in the second")
+                        + " from callback " + r.First
+                        + (r.Last != r.First ? " (the last at callback " + r.Last + ")" : "")
+                        + ", discarding " + r.Buffers + " buffer(s), "
+                        + (r.Buffers * _bufferMilliseconds).ToString("F0") + " ms; running total "
+                        + r.RunningCount + " trim(s), " + r.RunningBuffers + " buffer(s) (second closed at callback "
+                        + r.WrittenAt + ")";
+            }
         }
 
         /// <summary>Buffers of reserve over and above one callback's demand.</summary>
@@ -218,6 +431,20 @@ namespace JJPortaudio
         public RxCallbackPlan Begin(int queueDepth, bool midBuffer)
         {
             _callbacks++;
+            // #1229 repair 1, the boundary policy: a callback is classified by
+            // whether the feed had been marked ended when it BEGAN. A shortage
+            // found by a callback that began while the feed was live is a gap,
+            // even if the mark lands before the shortage is booked: a real gap
+            // is never filed "at stop". The cost is the reverse race, a
+            // callback that began a few microseconds before the mark and then
+            // ran dry counting as a gap, which the producer's early mark makes
+            // as unlikely as it can be.
+            _callbackAfterFeedEnded = FeedEnded;
+            // #1229: a second that has ended is written by the first callback
+            // after it, whatever that callback goes on to do, so a lone event
+            // is placed in time without waiting for another.
+            if (_windowStart != 0 && _callbacks - _windowStart >= _windowCallbacks) FlushStarvationWindow(false);
+            if (_trimWindowStart != 0 && _callbacks - _trimWindowStart >= _windowCallbacks) FlushTrimWindow(false);
 
             if (midBuffer) return new RxCallbackPlan(0, false);
 
@@ -269,6 +496,7 @@ namespace JJPortaudio
                     _trims++;
                     _trimmedBuffers += drop;
                     _trimmedMs += drop * _bufferMilliseconds;
+                    NoteCeilingTrim(drop);
                 }
                 else
                 {
@@ -288,6 +516,13 @@ namespace JJPortaudio
         /// </summary>
         public void NotePrimingBuffer(long silentFrames)
         {
+            if (_callbackAfterFeedEnded)
+            {
+                // Holding for a prime that will never come: the stream's end.
+                _stopSilentCallbacks++;
+                _stopSilenceMs += MillisecondsFor(silentFrames);
+                return;
+            }
             _primeCallbacks++;
             _primeSilenceMs += MillisecondsFor(silentFrames);
         }
@@ -312,6 +547,22 @@ namespace JJPortaudio
             if (silentFrames <= 0) return;
 
             double ms = MillisecondsFor(silentFrames);
+            if (_callbackAfterFeedEnded)
+            {
+                // #1229: the producer has stopped, so this is the end of the
+                // audio, not a gap in it. Counted apart and never written as a
+                // gap. The reserve is still rebuilt, as before, so the callbacks
+                // left before the stream stops hold for a prime that never
+                // comes rather than each starving again.
+                _stopSilentCallbacks++;
+                _stopSilenceMs += ms;
+                if (_everPlayed)
+                {
+                    _stopStarvations++;
+                    if (ReserveBuffers > 0) _priming = true;
+                }
+                return;
+            }
             if (!_everPlayed)
             {
                 // Nothing has ever played on this stream, so this is the wait
@@ -335,32 +586,69 @@ namespace JJPortaudio
                 _primeEpisodes++;
             }
 
-            long nowTick = Environment.TickCount64;
-            if (_windowTick == 0) _windowTick = nowTick;
-            _windowStarvations++;
-
             if (!_firstStarvationLogged)
             {
                 _firstStarvationLogged = true;
-                Tracing.TraceLine("audio " + _streamName + " stream: the playback queue ran dry "
-                    + "mid-stream at callback " + _callbacks + " — " + ms.ToString("F0")
-                    + " ms of the device buffer was filled with silence, audible as a gap with a "
-                    + "click at each edge. PortAudio raises no flag for this (we supplied the zeros "
-                    + "ourselves). Further occurrences are counted silently; totals logged when the "
-                    + "stream closes.", TraceLevel.Error);
+                var first = new LineRecord { Kind = LineKind.FirstStarvation, First = _callbacks, Ms = ms };
+                Record(ref first);
+                return;
             }
 
-            if (nowTick - _windowTick >= 1000)
+            // Every later starvation joins the second it falls in, and that
+            // second is written by the first callback after it ends (Begin).
+            if (_windowStart == 0) { _windowStart = _callbacks; _windowFirst = _callbacks; }
+            _windowLast = _callbacks;
+            _windowStarvations++;
+            _windowSilenceMs += ms;
+        }
+
+        private void FlushStarvationWindow(bool final)
+        {
+            if (_windowStarvations > 0)
             {
-                Tracing.TraceLine("audio " + _streamName + " stream: "
-                    + _windowStarvations + " starvation(s) in the last "
-                    + (nowTick - _windowTick) + " ms (running total " + _starvations
-                    + ", " + _starvationSilenceMs.ToString("F0")
-                    + " ms of silence inserted and never reclaimed, callback " + _callbacks + ")",
-                    TraceLevel.Error);
-                _windowTick = nowTick;
-                _windowStarvations = 0;
+                var r = new LineRecord
+                {
+                    Kind = LineKind.StarvationSecond, Final = final, First = _windowFirst, Last = _windowLast,
+                    WrittenAt = _callbacks, Count = _windowStarvations, Ms = _windowSilenceMs,
+                    RunningCount = _starvations, RunningMs = _starvationSilenceMs,
+                };
+                Record(ref r);
             }
+            _windowStart = 0;
+            _windowStarvations = 0;
+            _windowSilenceMs = 0;
+        }
+
+        private void NoteCeilingTrim(int dropped)
+        {
+            if (!_firstTrimLogged)
+            {
+                _firstTrimLogged = true;
+                var first = new LineRecord { Kind = LineKind.FirstTrim, First = _callbacks, Buffers = dropped };
+                Record(ref first);
+                return;
+            }
+            if (_trimWindowStart == 0) { _trimWindowStart = _callbacks; _trimWindowFirst = _callbacks; }
+            _trimWindowLast = _callbacks;
+            _trimWindowTrims++;
+            _trimWindowBuffers += dropped;
+        }
+
+        private void FlushTrimWindow(bool final)
+        {
+            if (_trimWindowTrims > 0)
+            {
+                var r = new LineRecord
+                {
+                    Kind = LineKind.TrimSecond, Final = final, First = _trimWindowFirst, Last = _trimWindowLast,
+                    WrittenAt = _callbacks, Count = _trimWindowTrims, Buffers = _trimWindowBuffers,
+                    RunningCount = _trims, RunningBuffers = _trimmedBuffers,
+                };
+                Record(ref r);
+            }
+            _trimWindowStart = 0;
+            _trimWindowTrims = 0;
+            _trimWindowBuffers = 0;
         }
 
         /// <summary>
@@ -368,24 +656,26 @@ namespace JJPortaudio
         /// completes. Deliberately several short lines rather than one long one:
         /// they are read aloud.
         /// </summary>
+        /// <remarks>
+        /// Written from the stream's last callback, as before #1229: by then it
+        /// has returned complete and plays nothing more, so no deadline is at
+        /// stake. Any second still open is recorded as the final partial one,
+        /// and every recorded line is written first, in order.
+        /// </remarks>
         public void TraceSummary()
         {
-            if (_windowStarvations > 0)
-            {
-                Tracing.TraceLine("audio " + _streamName + " stream: "
-                    + _windowStarvations + " starvation(s) in the final partial second"
-                    + " (callback " + _callbacks + ")", TraceLevel.Error);
-                _windowStarvations = 0;
-            }
+            FlushStarvationWindow(true);
+            FlushTrimWindow(true);
+            DrainLines();
 
-            Tracing.TraceLine("audio " + _streamName + " queue policy: primed to "
+            Write("audio " + _streamName + " queue policy: primed to "
                 + PrimeTarget + " buffer(s) — " + _buffersPerCallback
                 + " for the callback plus " + ReserveBuffers + " of reserve ("
                 + (ReserveBuffers * _bufferMilliseconds).ToString("F0")
                 + " ms) — trimming above " + DrainCeiling + " buffer(s)",
                 TraceLevel.Info);
 
-            Tracing.TraceLine("audio " + _streamName + " queue summary: "
+            Write("audio " + _streamName + " queue summary: "
                 + _callbacks + " callbacks, " + _starvations + " mid-stream starvation(s) costing "
                 + _starvationSilenceMs.ToString("F0") + " ms of silence, "
                 + _primeEpisodes + " re-prime(s) after the first, "
@@ -394,11 +684,20 @@ namespace JJPortaudio
                 + (_starvations == 0 ? " (the queue never ran dry while playing)" : ""),
                 _starvations == 0 ? TraceLevel.Info : TraceLevel.Error);
 
+            // #1229: the stream's end, kept apart from every figure above.
+            if (FeedEnded)
+            {
+                Write("audio " + _streamName + " at stop: the feed ended before the stream did; "
+                    + _stopStarvations + " starvation(s) at stop and " + _stopSilentCallbacks
+                    + " callback(s) with silence in them after it ended, " + _stopSilenceMs.ToString("F0")
+                    + " ms; none of it a gap in the audio and none of it counted above", TraceLevel.Info);
+            }
+
             // The one number that answers "how far behind the radio did this
             // session leave the operator". Silence inserted is never played
             // back: the callback cannot consume more than one device buffer per
             // call, so nothing anywhere runs faster afterwards to catch up.
-            Tracing.TraceLine("audio " + _streamName + " standing latency: "
+            Write("audio " + _streamName + " standing latency: "
                 + InsertedSilenceMilliseconds.ToString("F0")
                 + " ms of silence inserted over the life of the stream, none of it ever "
                 + "played back — the callback cannot consume faster than nominal",
@@ -406,7 +705,7 @@ namespace JJPortaudio
 
             // Separately, and in the other direction: audio deliberately
             // discarded, which is the only way any standing delay is given back.
-            Tracing.TraceLine("audio " + _streamName + " backlog trims: "
+            Write("audio " + _streamName + " backlog trims: "
                 + _trims + " above the " + DrainCeiling + "-buffer ceiling, discarding "
                 + _trimmedBuffers + " buffer(s) — " + _trimmedMs.ToString("F0")
                 + " ms of delay that would otherwise have stood in the queue for the rest of "
@@ -417,7 +716,7 @@ namespace JJPortaudio
 
             if (_everPlayed && _bufferMilliseconds > 0)
             {
-                Tracing.TraceLine("audio " + _streamName + " queue depth: "
+                Write("audio " + _streamName + " queue depth: "
                     + DepthMin + " to " + _depthMax + " buffers standing at callback entry, "
                     + _depthLast + " at the last playing callback — "
                     + (DepthMin * _bufferMilliseconds).ToString("F0") + " to "
@@ -429,7 +728,7 @@ namespace JJPortaudio
             }
             else
             {
-                Tracing.TraceLine("audio " + _streamName + " queue depth: nothing was ever played "
+                Write("audio " + _streamName + " queue depth: nothing was ever played "
                     + "on this stream, so there is no depth to report", TraceLevel.Info);
             }
         }

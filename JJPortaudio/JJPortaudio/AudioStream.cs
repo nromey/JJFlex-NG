@@ -427,6 +427,20 @@ namespace JJPortaudio
         public void WriteOpus(byte[] data)
         {
             _rx.WritePacket(aud.Decoder, data);
+            // #1229 repair 1: the playback callback only records its timing
+            // lines; they are handed to the thread pool from here.
+            aud.RequestPlaybackLineDrain();
+        }
+
+        /// <summary>
+        /// Nothing more will be written to this receive stream: the loop that
+        /// feeds it has ended, ahead of the stream being stopped (#1229). The
+        /// playback queue then counts the silence it plays until the stop as
+        /// the stream's end, not as a gap in the audio.
+        /// </summary>
+        public void NoteFeedEnded()
+        {
+            aud?.NoteFeedEnded();
         }
 
         /// <summary>

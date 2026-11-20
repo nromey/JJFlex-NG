@@ -155,6 +155,13 @@ namespace JJFlexWpf
         /// <summary>Buffers in the window now, at most <see cref="Window"/>.</summary>
         public int Filled => _filled;
 
+        /// <summary>
+        /// Buffers still to be discarded as grace before the rule judges anything
+        /// (#1229 repair 1: the running tally counts only what the rule judged,
+        /// so it reads this before each <see cref="Observe(bool)"/>).
+        /// </summary>
+        public int GraceLeft => _graceLeft;
+
         public EngineKeepUpRule(int window = DefaultWindow, int fallAt = DefaultFallAt, int recoverAt = DefaultRecoverAt, int grace = DefaultGrace,
             int stuckWarmup = DefaultStuckWarmup, int recoverHold = DefaultRecoverHold)
         {

@@ -576,6 +576,17 @@ namespace Radios
         // Its server ends only through its own generation (Audio.Terminate).
         private System.Threading.Thread _abandonedRemoteAudioThread;
 
+        // ── The run that owns the receive stream (#1229 repair 2) ──
+        //
+        // The run AdmitRemoteAudioRun last admitted. Admission is single: a run
+        // started while an abandoned one is still alive waits in admission (or
+        // is refused) and touches nothing shared, so the admitted run owns
+        // opusOutputChannel until it exits, even after a newer run has been
+        // REQUESTED. _remoteAudioRun is the newest requested run; it moves the
+        // moment a successor starts waiting, which is why it cannot say whose
+        // stream this is. Its own feed-end accounting is keyed here instead.
+        private long _admittedRemoteAudioRun;
+
         /// <summary>
         /// How long a run waits for an abandoned earlier run to end before it
         /// refuses. Below stopRemoteAudioThread's ten-second join, so a PC audio
@@ -600,7 +611,7 @@ namespace Radios
         internal bool AdmitRemoteAudioRun(long run)
         {
             var earlier = Volatile.Read(ref _abandonedRemoteAudioThread);
-            if (earlier == null) return true;
+            if (earlier == null) { Interlocked.Exchange(ref _admittedRemoteAudioRun, run); return true; }
             long until = Environment.TickCount64 + Math.Max(0, RemoteRunAdmissionMs);
             while (earlier.IsAlive)
             {
@@ -622,6 +633,7 @@ namespace Radios
                 earlier.Join((int)Math.Min(left, 50));
             }
             Interlocked.CompareExchange(ref _abandonedRemoteAudioThread, null, earlier);
+            Interlocked.Exchange(ref _admittedRemoteAudioRun, run);
             Tracing.TraceLine("remoteAudioProc: the abandoned earlier PC audio run has ended; run " + run + " begins",
                 TraceLevel.Warning);
             return true;
@@ -864,6 +876,44 @@ namespace Radios
                     Tracing.TraceLine("remoteAudioProc: the radio never sent the " + which
                         + " stream within the wait — audio setup failed", TraceLevel.Error);
                     break;
+            }
+        }
+
+        /// <summary>
+        /// The receive loop has stopped feeding the receive stream (#1229): its
+        /// playback queue counts what it plays from here until the stream stops
+        /// as the stream's end, not as gaps. Only for the ADMITTED run, which
+        /// owns the stream even when a newer run has been requested and is
+        /// waiting for it (repair 2: keyed to "newest requested", an abandoned
+        /// run left its own feed unmarked the moment a successor started). A
+        /// run never admitted owns nothing and marks nothing. Safe to call more
+        /// than once. Writes nothing unless it fails.
+        /// </summary>
+        internal void MarkReceiveFeedEnded(long run)
+        {
+            if (run != Interlocked.Read(ref _admittedRemoteAudioRun)) return;
+            try { opusOutputChannel?.PortAudioStream?.NoteFeedEnded(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: noting the end of the receive feed failed: " + ex.Message,
+                    TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// Ask the UI layer's pipeline for its closing tallies (#1229), once, at
+        /// the admitted run's teardown: on the same terms as
+        /// <see cref="MarkReceiveFeedEnded"/>, so a superseded admitted run still
+        /// closes the session it ran (repair 2).
+        /// </summary>
+        internal void CloseReceiveTallies(long run)
+        {
+            if (run != Interlocked.Read(ref _admittedRemoteAudioRun)) return;
+            try { AudioFeedEnded?.Invoke(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("remoteAudioProc: closing the receive tallies failed: " + ex.Message,
+                    TraceLevel.Error);
             }
         }
 
@@ -1507,10 +1557,16 @@ namespace Radios
                 }
             }
 
+            // #1229 repair 1: marked before the line below, because a trace
+            // write can block and the receive stream is draining meanwhile.
+            MarkReceiveFeedEnded(run);
             Tracing.TraceLine("remoteAudioProc:stopping remote audio", TraceLevel.Info);
             }
             catch (Exception ex)
             {
+                // #1229 repair 1: the feed has ended on this path too, before
+                // the trace and the announcement below, either of which can block.
+                MarkReceiveFeedEnded(run);
                 // ToString, not Message: this is the one record that will exist
                 // of a fault that used to kill the process silently, and the
                 // stack is the whole of its value.
@@ -1537,6 +1593,15 @@ namespace Radios
             }
 
             remoteDone:
+            // #1229: the feed has ended. Marked first, before anything that
+            // takes time, because the receive stream plays on until it is
+            // stopped below (about 560 ms later on the 2026-11-19 bench) and its
+            // queue runs dry in between: that was being counted as a mid-stream
+            // gap on every PC-audio-off. Already marked on the loop's own exits
+            // (repair 1); marked here for every goto, and harmless twice. The
+            // pipeline's closing tallies are asked for once, here.
+            MarkReceiveFeedEnded(run);
+            CloseReceiveTallies(run);
             // #1156: unhook the packet wake FIRST, from this run's own locals,
             // before any close that can take seconds. A newer run may already
             // own rxStream and opusOutputChannel, so the fields are not used.

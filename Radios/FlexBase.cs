@@ -2109,6 +2109,15 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Optional: called once when a PC-audio run's receive loop ends, on that
+        /// loop's own thread (the one that called <see cref="AudioPostProcessor"/>),
+        /// before the streams are stopped (#1229). The UI layer's pipeline writes
+        /// its closing tallies here. Never called by a run that a newer one has
+        /// replaced.
+        /// </summary>
+        public Action? AudioFeedEnded { get; set; }
+
         public bool DiversityLicenseReported => theRadio?.FeatureLicense?.LicenseFeatDivEsc != null;
         public bool DiversityLicensed => theRadio?.FeatureLicense?.LicenseFeatDivEsc?.FeatureEnabled == true;
         public bool DiversityHardwareSupported => theRadio?.DiversityIsAllowed == true;
