@@ -1082,7 +1082,6 @@ connect.connecting.dropped_during_setup	e7e6fd0d5de8553e
 connect.connecting.initial	bf369f5bb4a9d137
 connect.connecting.initial_lead	248e700a979d9a3b
 connect.connecting.phase_setup	2ec824d30d63afb1
-connect.connecting.phase_slice_wait	231bcea33cf5e9ce
 connect.connecting.retrying	5cee5ff95eeddcd6
 connect.connecting.setup_never_finished	17d4a710084a5b45
 connect.connecting.slow_prompt	2b23dfa34a16e0eb
@@ -1092,8 +1091,6 @@ connect.connecting.still_connecting_chatty	3b6234d9f21b30aa
 connect.connecting.still_connecting_terse	beec56c612b4b913
 connect.connecting.still_setting_up_chatty	054a5c42cba3d16f
 connect.connecting.still_setting_up_terse	60ed7609fce9a2a8
-connect.connecting.still_waiting_chatty	932b1b58b6969198
-connect.connecting.still_waiting_terse	8383f02735c824fe
 connect.connecting.timed_out	8b3fa0a84f04eacb
 connect.connecting.title	c838dc33dcc81306
 connect.dialog.apply	14fadec6ce72dc21
@@ -2493,7 +2490,6 @@ settings.network.save_report_title	427719a06cd4fcc4
 settings.network.tcp_port_invalid	f7d42b09a62336e0
 settings.network.tcp_port_invalid_spoken	d24e992e09b377f0
 settings.network.test_needs_a_radio	7f91ac817c06a990
-settings.network.test_punched_declined	70d48f81930bbc93
 settings.network.udp_port_invalid	62eb494768d045f0
 settings.network.udp_port_invalid_spoken	ad743cdce7a34ec6
 settings.network.uses_upnp_or_hole_punch	157d7835f3f97f88
@@ -2592,7 +2588,6 @@ settings.profile.dialog.title	6f5dea53bf13f475
 settings.profile.export_failed	d49f3ca66767951a
 settings.profile.import_failed	f8790039bdb9ffcc
 settings.profile.invalid_data	1f23936b1ed844e0
-settings.profile.mode_automatic	b574050e49d97013
 settings.profile.mode_forward_only	b6177d6296d695b8
 settings.profile.mode_hole_punch	f0515a6e616f68c4
 settings.profile.must_select	c6c78bcdaa90c574
@@ -2732,7 +2727,6 @@ settings.radio.check.no_radio_selected_spoken	8bcc374786b8868e
 settings.radio.check.no_smartlink_session	16a3452f9f4e4169
 settings.radio.check.no_smartlink_session_spoken	f61759f913a16eac
 settings.radio.check.not_run	ed0df2b3d941d29b
-settings.radio.check.punched_declined	ecccc1edaa2b41e4
 settings.radio.check.running	6ca363688c303140
 settings.radio.check.running_spoken	4bd461600a278d36
 settings.radio.connect.done_local	4e10355bc3ffbcb5
@@ -2776,9 +2770,6 @@ settings.radio.firmware.up_to_date_spoken	df654054453d1a62
 settings.radio.firmware.version_unreported	bafa9ad3e1893cc4
 settings.radio.firmware.warning_do_not_interrupt	80deaab769ef781e
 settings.radio.firmware.warning_unreachable_while_updating	5b8ca62835d2256a
-settings.radio.mode.forward_only	b010b0e31155e8c8
-settings.radio.mode.hole_punch_allowed	e582e4b60a6be29d
-settings.radio.mode.upnp_allowed	6c9ff974c1098f97
 settings.radio.name.rename_failed_note	fd58e8b874fde39c
 settings.radio.name.rename_failed_spoken	b439e65b8bddbfab
 settings.radio.name.renamed	6e72d71291ac41c4
@@ -2807,7 +2798,6 @@ settings.radio.unregister.starting	d99f3c91b34fae8b
 settings.radio.unregister.warning_needs_someone_there	487b0aee6ccbeabe
 settings.radio.unregister.warning_strands_the_radio	5310ceb1cc26ffce
 settings.radio.waiting_on_step_1	8d814da552fd2901
-settings.radio.way_in.not_set	8327b25eb994f4ac
 settings.radio.way_in.ports_same	8e2c6ddae5b79b85
 settings.radio.way_in.ports_separate	767b5f17455f277c
 settings.radio_info.not_available	22b3126b7eb47422

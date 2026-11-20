@@ -137,23 +137,23 @@ namespace Radios.Tests
         public void The_method_names_read_as_ways_of_using_SmartLink()
         {
             // The assembled sentence an operator hears when a dead forwarded
-            // pair falls back to the radio's own UPnP pair (DRAFT words).
+            // pair falls back to the radio's own UPnP pair (approved words, 2026-11-20).
             ConnectWalkAnnouncer.SayMethodMove(SmartLinkMethod.ManualPorts, SmartLinkMethod.UpnpPorts);
             Assert.Equal(
                 "Could not connect over SmartLink on the radio's forwarded ports. Trying SmartLink on the ports the radio opened by UPnP.",
                 Assert.Single(_said));
-            Assert.Equal("SmartLink by hole punch", ConnectWalkAnnouncer.MethodLegName(SmartLinkMethod.HolePunch));
+            Assert.Equal("SmartLink by hole punching", ConnectWalkAnnouncer.MethodLegName(SmartLinkMethod.HolePunch));
         }
 
         [Fact]
         public void The_proof_failure_reason_reads_as_a_sentence_where_the_app_says_it()
         {
             // The connect driver appends a full stop to the open's reason and
-            // puts it in the retry verdict (DRAFT words).
+            // puts it in the retry verdict (approved words, 2026-11-20).
             string reason = Lexicon.Get("connect.start.no_audio_or_data");
             Assert.False(reason.EndsWith(".", StringComparison.Ordinal), "the driver adds the full stop");
             Assert.Equal(
-                "Connection failed. The connection was made, but no audio or data came from the radio. Please try Remote again.",
+                "Connection failed. No audio or data arrived from the radio before the connection attempt timed out. Please try Remote again.",
                 Lexicon.Get("connect.walk.retry_failed_with_reason", ("retryReason", reason + ".")));
         }
     }

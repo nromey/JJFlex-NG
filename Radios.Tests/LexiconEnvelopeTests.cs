@@ -909,7 +909,8 @@ namespace Radios.Tests
             {
                 "audio.reference.armed", // Round 8: direct answer to the operator's arm request.
                 // SmartLink connection tiers, Track A (2026-11-19): the refusals and the
-                // one-time tier offer. DRAFT prose, for Codex to word.
+                // one-time tier offer. Codex's words, approved by Noel 2026-11-20, except
+                // the three tier_offer questions, which wait on the tiers' names (#1234).
                 "connect.failure.smartlink_forward_only_no_ports",
                 "connect.failure.smartlink_tier_no_ports",
                 "connect.failure.smartlink_tier_punch_always",
@@ -927,7 +928,7 @@ namespace Radios.Tests
                 // SmartLink connection tiers, Track B (2026-11-20): the names of the
                 // SmartLink methods in the walk's move sentence, and the reason a
                 // connect gives when the radio's audio and data never arrived.
-                // DRAFT prose, for Codex to word.
+                // Codex's words, approved by Noel 2026-11-20.
                 "connect.walk.leg_smartlink_manual",
                 "connect.walk.leg_smartlink_punch",
                 "connect.walk.leg_smartlink_upnp",
@@ -935,8 +936,24 @@ namespace Radios.Tests
                 // Track B repair 1: the connecting window's truthful phase lines.
                 "connect.connecting.phase_proof_wait",
                 "connect.connecting.phase_radio_answered",
+                // SmartLink connection tiers, Codex's words approved by Noel 2026-11-20:
+                // the still-waiting heartbeat and seven Settings sentences the tiers
+                // made untrue were reworded and classified, leaving the legacy manifest;
+                // the two new start reasons replace sentences hardcoded in the attempt walk.
+                "connect.connecting.still_waiting_chatty",
+                "connect.connecting.still_waiting_terse",
+                "connect.start.attempt_cancelled",
+                "connect.start.connection_unconfirmed",
+                "settings.radio.mode.forward_only",
+                "settings.radio.mode.upnp_allowed",
+                "settings.radio.mode.hole_punch_allowed",
+                "settings.radio.way_in.not_set",
+                "settings.network.test_punched_declined",
+                "settings.radio.check.punched_declined",
+                "settings.profile.mode_automatic",
                 // SmartLink connection tiers, Track C (2026-11-19): the network diagnostic's
-                // three parts, its export and its refusals. DRAFT prose, for Codex to word.
+                // three parts, its export and its refusals. Codex's words, approved by Noel
+                // 2026-11-20.
                 "settings.network.diag.capability_heading",
                 "settings.network.diag.capability_not_run",
                 "settings.network.diag.capability_timed_out",
@@ -1028,7 +1045,7 @@ namespace Radios.Tests
                 "settings.network.diag.export_written",
                 "settings.network.diag.export_attempt_detail",
                 "settings.network.diag.test_no_radio",
-                // Track C: the two replacement status overlays (DRAFT).
+                // Track C: the two replacement status overlays (approved 2026-11-20).
                 "connect.session_overlay.radio_site_no_punch",
                 "connect.session_overlay.radio_site_upnp_unreachable",
                 "settings.cw.vox_did_not_key",                        // Sprint 48 Track E, #151
@@ -3207,7 +3224,14 @@ namespace Radios.Tests
             // Two fewer (3037 to 3035): junk box batch 15's words (#1173)
             // reworded and classified audio.ptt.blocked_by_license and its
             // companion settings.band.tx_lockout_message.
-            Assert.Equal(3035, unclassified);
+            // Ten fewer (3035 to 3025): the SmartLink tiers words (approved by
+            // Noel 2026-11-20) reworded and classified nine legacy entries
+            // (connect.connecting.still_waiting_chatty and _terse, settings.radio.
+            // mode.forward_only, upnp_allowed and hole_punch_allowed, settings.radio.
+            // way_in.not_set, settings.network.test_punched_declined, settings.radio.
+            // check.punched_declined, settings.profile.mode_automatic) and removed
+            // connect.connecting.phase_slice_wait, which had no caller.
+            Assert.Equal(3025, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

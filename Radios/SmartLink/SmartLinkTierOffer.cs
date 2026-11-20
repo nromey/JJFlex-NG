@@ -74,7 +74,7 @@ namespace Radios.SmartLink
         public static SmartLinkConnectionMode TierFor(SmartLinkTierOffer offer, bool yes) =>
             yes ? TierOnYes(offer) : TierOnNo(offer);
 
-        /// <summary>A tier's name, as the accounts dialog and the Network tab say it. DRAFT words (connect.json).</summary>
+        /// <summary>A tier's name, as the accounts dialog and the Network tab say it. Approved words (connect.json).</summary>
         public static string TierName(SmartLinkConnectionMode tier) => Lexicon.Get(tier switch
         {
             SmartLinkConnectionMode.ManualPlusUpnp => "connect.smartlink.account.tier_2",
@@ -87,7 +87,7 @@ namespace Radios.SmartLink
         /// connection choice is saved that the radio's known owning account
         /// would refuse, say so then. Null when the owner or the radio's report
         /// is not known (Settings can only warn when the owner is known), or
-        /// when the choice would not be refused. DRAFT words.
+        /// when the choice would not be refused. Approved words.
         /// </summary>
         public static string? SettingsWarning(string serial, string? owningAccount, SmartLinkConnectionMode tier, bool tierChosen,
             RadioConnectionPreference choice, RadioPortReport? report, string radioName)
@@ -101,7 +101,7 @@ namespace Radios.SmartLink
                 ("disp", radioName), ("reason", RefusalSentence(record, radioName)));
         }
 
-        /// <summary>The offer's title. DRAFT words (connect.json).</summary>
+        /// <summary>The offer's title. Approved words (connect.json).</summary>
         public static string Title() => Lexicon.Get("connect.tier_offer.title");
 
         /// <summary>The offer's question. DRAFT words (connect.json).</summary>
@@ -123,7 +123,7 @@ namespace Radios.SmartLink
         /// The sentence a refused SmartLink leg files as its
         /// <c>PreflightRefused</c> report. It names the radio, the account and
         /// where each setting lives, and never claims a punch is the only way
-        /// to the radio: Local, a VPN or Connect may still exist. DRAFT words.
+        /// to the radio: Local, a VPN or Connect may still exist. Approved words.
         /// </summary>
         public static string RefusalSentence(SmartLinkConnectRecord record, string radioName)
         {

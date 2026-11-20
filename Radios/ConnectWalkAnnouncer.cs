@@ -44,7 +44,7 @@ namespace Radios
                 ? Lexicon.Get("connect.walk.leg_smartlink")
                 : Lexicon.Get("connect.walk.leg_local");
 
-        /// <summary>The operator-facing name of one SmartLink method. DRAFT words.</summary>
+        /// <summary>The operator-facing name of one SmartLink method. Approved words (2026-11-20).</summary>
         public static string MethodLegName(SmartLinkMethod method)
         {
             switch (method)

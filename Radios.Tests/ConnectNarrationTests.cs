@@ -312,10 +312,10 @@ namespace Radios.Tests
             // pinned the defect: the window said Connected when the radio had
             // only reported its free slices, before the open was done and
             // before a SmartLink connection was proven.
-            Assert.Equal("FLEX-8600 answered. Waiting for slice...", slices.StatusText);
+            Assert.Equal("FLEX-8600 answered. Radio setup is continuing.", slices.StatusText);
             Assert.True(slices.Speak);
-            Assert.Equal("Still waiting.", slices.Arm.StillTerse);
-            Assert.Equal("Still waiting for FLEX-8600 to answer.", slices.Arm.StillChatty);
+            Assert.Equal("JJ Flexible is still waiting.", slices.Arm.StillTerse);
+            Assert.Equal("Still waiting for data from the radio.", slices.Arm.StillChatty);
 
             Assert.Equal("Slice acquired. Setting up...", antennas.StatusText);
             Assert.True(antennas.Speak);
@@ -494,7 +494,7 @@ namespace Radios.Tests
             Assert.False(repeat.PlayPhaseTone);
             // CHANGED 2026-11-20 with the test above: the truthful line, not
             // "Connected to FLEX-8600. Waiting for slice...".
-            Assert.Equal("FLEX-8600 answered. Waiting for slice...", repeat.StatusText);
+            Assert.Equal("FLEX-8600 answered. Radio setup is continuing.", repeat.StatusText);
         }
 
         // ------------------------------------------------------------------
@@ -566,7 +566,7 @@ namespace Radios.Tests
             // The proof window ran out: the attempt is torn down and the walk moves on.
             var move = On("smartlink_method_move", Move("ManualPorts", "UpnpPorts"));
 
-            Assert.Equal("FLEX-8600 answered. Waiting for slice...", answered.StatusText);
+            Assert.Equal("FLEX-8600 answered. Radio setup is continuing.", answered.StatusText);
             Assert.True(answered.Speak);
             Assert.Equal("Slice acquired. Setting up...", setup.StatusText);
             Assert.True(named.StopVoice);
@@ -574,10 +574,10 @@ namespace Radios.Tests
 
             // What is being waited for now, on the label; not spoken at once,
             // and covered by the heartbeat if the wait is long.
-            Assert.Equal("Waiting for audio and data from FLEX-8600...", proofWait.StatusText);
+            Assert.Equal("JJ Flexible is waiting for audio or data from FLEX-8600.", proofWait.StatusText);
             Assert.False(proofWait.Speak);
             Assert.Null(proofWait.SpeakExtra);
-            Assert.Equal("Still waiting.", proofWait.Arm.StillTerse);
+            Assert.Equal("JJ Flexible is still waiting.", proofWait.Arm.StillTerse);
 
             // The move: the walk's own sentence on the label, NOT spoken here
             // (the walk says it, once, at Critical), and the ladder restarts.
@@ -606,7 +606,7 @@ namespace Radios.Tests
             // The ladder ran again from the bottom, so the line is said again.
             Assert.Equal(2, answeredAgain.Phase);
             Assert.True(answeredAgain.Speak);
-            Assert.Equal("FLEX-8600 answered. Waiting for slice...", answeredAgain.StatusText);
+            Assert.Equal("FLEX-8600 answered. Radio setup is continuing.", answeredAgain.StatusText);
             // Proven: nothing is said here, because whoever asked for the
             // connect is about to announce it by name.
             Assert.True(proven.StopVoice);
@@ -646,7 +646,7 @@ namespace Radios.Tests
             steps.Add(proven);
 
             Assert.Equal(
-                new[] { "FLEX-8600 answered. Waiting for slice...", "Slice acquired. Setting up..." },
+                new[] { "FLEX-8600 answered. Radio setup is continuing.", "Slice acquired. Setting up..." },
                 steps.Where(s => s.StatusText != null).Select(s => s.StatusText).ToArray());
             Assert.True(proven.StopVoice);
             AssertNeverSaysConnected(steps);
@@ -709,7 +709,11 @@ namespace Radios.Tests
             // The source reads the truthful key, and the old one nowhere.
             string source = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "Radios", "ConnectNarration.cs"));
             Assert.Contains("Lexicon.Get(\"connect.connecting.phase_radio_answered\"", source);
-            Assert.DoesNotContain("Lexicon.Get(\"connect.connecting.phase_slice_wait\"", source);
+            // The old key is gone from the store (removed with the approved words,
+            // 2026-11-20), so the guard names it without the call around it: the
+            // key coverage sweep reads a quoted key after Lexicon.Get( as a key to
+            // verify. Stricter than before: the narrator may not name it at all.
+            Assert.DoesNotContain("phase_slice_wait", source);
         }
 
         /// <summary>

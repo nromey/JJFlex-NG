@@ -82,7 +82,7 @@ namespace Radios.SmartLink
         /// (<c>FlexBase.SessionOverlayInputs</c>). Until then the overlay was
         /// built from the active session's newest report for ANY radio and the
         /// current account's tier.</para>
-        /// <para>Two overlays were untrue and are replaced (DRAFT, in
+        /// <para>Two overlays were untrue and are replaced (approved words, in
         /// connect.json): "UPnP mapping didn't take — falling back to your
         /// manual port forward." (JJ Flexible maps nothing and falls back to
         /// nothing), and "Your NAT appears symmetric — hole-punch (Tier 3) may
@@ -215,7 +215,7 @@ namespace Radios.SmartLink
 
             // Probe completed. Pick the most specific overlay, highest priority first.
             // The two below were untrue and are replaced (the tiers work,
-            // Track C; DRAFT words). Neither applies with the radio's
+            // Track C; approved words). Neither applies with the radio's
             // forwarding known on: a connect then dials the forwarded ports
             // first, whatever the tier.
             if (mode == SmartLinkConnectionMode.AutomaticHolePunch && radioForwardingOn != true

@@ -66,8 +66,8 @@ namespace Radios.SmartLink
     /// measured), POLICY (shown twice, each labelled: as it stands now, and as
     /// recorded at the last connect, so a changed tier or choice is visible),
     /// and OUTCOME (what the last connect tried and how each attempt ended).
-    /// Every sentence is a lexicon entry and DRAFT wording for the tiers
-    /// words track.
+    /// Every sentence is a lexicon entry, in Codex's words as Noel approved
+    /// them on 2026-11-20.
     /// </summary>
     public sealed record NetworkDiagnosticSections(
         DiagnosticPart Capability,
