@@ -18,6 +18,11 @@ namespace Radios.Tests
         private const string Radio = "Bench 8600";
         private const string Account = "owner@example.invalid";
 
+        // The lexicon call as source text, split so the key coverage sweep,
+        // which reads a quoted key after that call even inside a test's string,
+        // does not take these source checks for calls.
+        private const string GetCall = "Lexicon" + ".Get(";
+
         private static RadioPortReport Report(bool manual, bool upnp) => new(
             new AdvertisedPortPair(PortPairSource.Manual, manual ? 4994 : -1, manual ? 4993 : -1, true),
             new AdvertisedPortPair(PortPairSource.Upnp, upnp ? 21000 : -1, upnp ? 21001 : -1, upnp), !manual && !upnp, true);
@@ -106,8 +111,8 @@ namespace Radios.Tests
         public void The_SmartLink_attempt_reads_its_reasons_from_the_lexicon_and_no_longer_writes_them()
         {
             string source = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "Radios", "FlexBase.SmartLinkAttempts.cs"));
-            Assert.Contains("Lexicon.Get(\"connect.start.connection_unconfirmed\")", source);
-            Assert.Contains("Lexicon.Get(\"connect.start.attempt_cancelled\")", source);
+            Assert.Contains(GetCall + "\"connect.start.connection_unconfirmed\")", source);
+            Assert.Contains(GetCall + "\"connect.start.attempt_cancelled\")", source);
             Assert.DoesNotContain("\"Connection lost during setup\"", source);
             Assert.DoesNotContain("\"Cancelled by user\"", source);
         }
@@ -118,7 +123,7 @@ namespace Radios.Tests
         public void The_failed_punch_report_appends_the_overlay_sentence_and_drops_the_retry_advice()
         {
             string source = File.ReadAllText(Path.Combine(IntegrationPassTree.Root, "Radios", "FlexBase.SmartLink.cs"));
-            Assert.Contains("spoken += \" \" + Lexicon.Get(\"connect.session_overlay.radio_site_no_punch\");", source);
+            Assert.Contains("spoken += \" \" + " + GetCall + "\"connect.session_overlay.radio_site_no_punch\");", source);
             Assert.DoesNotContain("Trying again sometimes wins the timing", source);
             Assert.Equal(
                 "SmartLink's last test reported no hole-punch support at the radio's network location.",
