@@ -769,6 +769,11 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // JJFlex patch: both advertised port pairs and the radio's own punch report,
+        // set only by the SmartLink radio-list parse; null for a radio no list
+        // described (MIGRATION.md item 29).
+        public AdvertisedPorts AdvertisedPorts { get; set; }
+
         private int _negotiatedHolePunchPort;
         public int NegotiatedHolePunchPort
         {

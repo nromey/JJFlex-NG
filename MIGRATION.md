@@ -504,6 +504,30 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     logs these through `Trace` itself or parses the power family as a
     fraction.
 
+29. **Both advertised port pairs (2026-11-19, the SmartLink connection tiers
+    work)**: keep the new file `FlexLib_API/FlexLib/AdvertisedPorts.cs`, the
+    comment-marked `AdvertisedPorts` property on `Radio` (in
+    `FlexLib_API/FlexLib/Radio.cs`, beside `NegotiatedHolePunchPort`), and the
+    comment-marked `AdvertisedPorts = new AdvertisedPorts(...)` member at the
+    end of the radio initializer in `WanServer.ParseRadioListMessage`. Stock
+    reads the manual pair (`public_tls_port`, `public_udp_port`) and the UPnP
+    pair (`public_upnp_tls_port`, `public_upnp_udp_port`) and keeps only one
+    in `PublicTlsPort`/`PublicUdpPort`, so a dead manual pair hid a working
+    UPnP pair from everything downstream. The patch keeps both, each by
+    source, with `upnp_supported` and the hole-punch flag exactly as the
+    parse computed it, in an immutable record nothing on the connect path
+    writes. An absent field, or one that is not a whole number, is -1 there
+    (stock's `int.TryParse` turns a malformed one into 0, which stock then
+    treats as a port); deciding that a pair is usable, both ports from 1 to
+    65535, is JJ Flexible's policy, not FlexLib's. The UPnP ports are read
+    whether or not `upnp_supported` is 1, and the flag is kept beside them.
+    **Stock's own selection is unchanged**: `PublicTlsPort`, `PublicUdpPort`,
+    `IsPortForwardOn` and `RequiresHolePunch` are computed exactly as before.
+    `Radios/FlexBase.Wan.cs` `UpdateRadioDiscoveryFields` carries the record
+    onto the radio object a list refresh updates. Pinned by
+    `Radios.Tests/RadioListBothPairsTests`. Remove it only if FlexLib itself
+    exposes both pairs by source.
+
 30. **Qualified-UDP observation (2026-11-19, the SmartLink connection tiers
     work; number 29 is that work's radio-list parse patch)**: keep the new
     file `FlexLib_API/FlexLib/QualifiedUdpObservation.cs` (`QualifiedUdpWatch`

@@ -922,6 +922,10 @@ namespace Radios
                 oldRadio.RequiresHolePunch = newRadio.RequiresHolePunch;
             if (oldRadio.NegotiatedHolePunchPort != newRadio.NegotiatedHolePunchPort)
                 oldRadio.NegotiatedHolePunchPort = newRadio.NegotiatedHolePunchPort;
+            // Both advertised port pairs travel with the list (MIGRATION.md item
+            // 29), so the connect policy sees what the newest list says.
+            if (newRadio.AdvertisedPorts != null)
+                oldRadio.AdvertisedPorts = newRadio.AdvertisedPorts;
             if (oldRadio.MaxLicensedVersion != newRadio.MaxLicensedVersion)
                 oldRadio.MaxLicensedVersion = newRadio.MaxLicensedVersion;
             // RequiresAdditionalLicense removed in FlexLib v4.1.5
