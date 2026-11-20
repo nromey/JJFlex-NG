@@ -300,8 +300,14 @@ public sealed class PlayAfterStopTests : IDisposable
         RecorderControls.FactsOverride = (rig, target) =>
             ReferenceEquals(rig, _rig) ? new SliceOverwriteFacts(Serial, "A", true, 0.1, null!, true) : rig.SliceOverwriteFactsFor(target);
         RecorderControls.AskOverride = question => { _asked.Add(question); return new SliceOverwriteReply(answer, false); };
-        RecorderControls.BackUpOverride = (rig, target) => Task.FromResult<SliceBackupOutcome?>(new(backup, "A", 0.1));
+        RecorderControls.BackUpOverride = (rig, target, afterUnfinished) =>
+        {
+            _backupFollower.Add(afterUnfinished);
+            return Task.FromResult<SliceBackupOutcome?>(new(backup, "A", 0.1));
+        };
     }
+
+    private readonly List<string?> _backupFollower = new();
 
     private RecorderControls.OverwriteGo Confirm() =>
         RecorderControls.ConfirmOverwriteAsync(_rig, SliceRecorderTarget.Letter('A')).GetAwaiter().GetResult();
@@ -368,6 +374,56 @@ public sealed class PlayAfterStopTests : IDisposable
         Assert.Equal(new[] { Lexicon.Get("audio.no_radio_connected") + " FOLLOWER", Lexicon.Get("audio.no_radio_connected") },
             door.Select(d => d.Text));
         Assert.Equal("Done.", SliceBackupDoor.WithFollower("Done.", null));
+    }
+
+    // ── #1044: the slice recorder's own doors (F11, the JJ key, Home, the Slice menu) ──
+
+    private static string RecordingNotStarted => Lexicon.Get("audio.recorder.not_started_backup_unfinished");
+
+    private RecorderOutcome F11() =>
+        RecorderControls.ToggleSliceRecordAsync(_rig, SliceRecorderTarget.Letter('A'), _ => { }).GetAwaiter().GetResult();
+
+    /// <summary>
+    /// F11's route hands the backup the sentence that the new recording did
+    /// not start, so an unfinished Back up first says so; until batch 17 it
+    /// passed none and nothing said the recording had not started.
+    /// </summary>
+    [Fact]
+    public void A_slice_record_door_hands_the_backup_its_not_started_sentence()
+    {
+        TheSliceHoldsARecording(SliceOverwriteAnswer.BackUpFirst, SliceBackupResult.Incomplete);
+        var outcome = F11();
+        Assert.Single(_asked);                                     // positive control: the warning was asked
+        Assert.Equal(new string?[] { RecordingNotStarted }, _backupFollower);
+        Assert.False(outcome.Success);
+        Assert.False(_rig.IsSliceRecording(SliceRecorderTarget.Letter('A')));
+        Assert.NotEqual("audio.recorder.not_started_backup_unfinished", RecordingNotStarted);   // a real entry
+        Assert.NotEqual(NotStarted, RecordingNotStarted);          // not the check's own sentence
+    }
+
+    /// <summary>Through the REAL backup door: the sentence rides at the end of the door's refusal, in one utterance.</summary>
+    [Fact]
+    public void An_unfinished_backup_on_F11_says_the_recording_did_not_start_inside_the_backups_own_sentence()
+    {
+        TheSliceHoldsARecording(SliceOverwriteAnswer.BackUpFirst, SliceBackupResult.Incomplete);
+        RecorderControls.BackUpOverride = null;                    // the real door
+        var door = new List<(string Text, bool Refusal)>();
+        SliceBackupDoor.SpeakOverride = (text, refusal) => door.Add((text, refusal));
+        F11();
+        Assert.Single(_asked);
+        var (text, refusal) = Assert.Single(door);
+        Assert.True(refusal);
+        Assert.Equal(Lexicon.Get("audio.takes.backup.needs_computer_audio") + " " + RecordingNotStarted, text);
+    }
+
+    /// <summary>Positive control: Cancel never reaches the backup.</summary>
+    [Fact]
+    public void Cancel_on_F11s_warning_reaches_no_backup()
+    {
+        TheSliceHoldsARecording(SliceOverwriteAnswer.Cancel, SliceBackupResult.Incomplete);
+        F11();
+        Assert.Single(_asked);
+        Assert.Empty(_backupFollower);
     }
 
     /// <summary>Cancel or Escape on the warning stays silent (#999, ruled C3).</summary>

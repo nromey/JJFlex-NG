@@ -1,0 +1,1 @@
+- When you choose Back up first before recording over a slice recording and the backup does not finish, you now hear that the new recording did not start.

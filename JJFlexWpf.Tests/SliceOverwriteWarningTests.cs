@@ -50,7 +50,7 @@ public sealed class SliceOverwriteWarningTests : IDisposable
             _whileAsking?.Invoke().GetAwaiter().GetResult();
             return _reply;
         };
-        RecorderControls.BackUpOverride = (rig, target) =>
+        RecorderControls.BackUpOverride = (rig, target, afterUnfinished) =>
         {
             _backedUp.Add(target);
             return Task.FromResult<SliceBackupOutcome?>(new(_backupSucceeds ? SliceBackupResult.BackedUp : SliceBackupResult.Stopped,
@@ -231,7 +231,8 @@ public sealed class SliceOverwriteWarningTests : IDisposable
         string door = Body(Source("JJFlexWpf", "RecorderControls.cs"), "public static async Task<RecorderOutcome> ToggleSliceRecordAsync(");
         int starting = door.IndexOf("if (rig != null && !rig.IsSliceRecording(target))\n", StringComparison.Ordinal);
         if (starting < 0) starting = door.IndexOf("if (rig != null && !rig.IsSliceRecording(target))\r\n", StringComparison.Ordinal);
-        int asks = door.IndexOf("ConfirmOverwriteAsync(rig, target)", StringComparison.Ordinal);
+        // Batch 17 (#1044) added the not-started sentence as a further argument.
+        int asks = door.IndexOf("ConfirmOverwriteAsync(rig, target,", StringComparison.Ordinal);
         int records = door.IndexOf("rig.ToggleSliceRecordAsync(target, owner)", StringComparison.Ordinal);
         Assert.True(starting > 0 && asks > starting && records > asks);
     }
