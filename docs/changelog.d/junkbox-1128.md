@@ -1,0 +1,1 @@
+- Stopping a recording you are sending on the air, such as a voice message, now fades it out over a moment instead of cutting it off with a click.
