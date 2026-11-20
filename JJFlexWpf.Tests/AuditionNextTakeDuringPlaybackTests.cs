@@ -232,7 +232,7 @@ public sealed class AuditionNextTakeDuringPlaybackTests : IDisposable
     {
         public bool IsRunning { get; private set; }
         public bool IsRecordingTo(string path) => IsRunning;
-        public bool Start(string path) { opening(); IsRunning = true; return true; }
+        public bool Start(string path, TimeSpan fileStartsAfter) { opening(); IsRunning = true; return true; }
         public void Stop() => IsRunning = false;
     }
 }

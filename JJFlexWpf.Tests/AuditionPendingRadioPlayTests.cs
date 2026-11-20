@@ -398,7 +398,7 @@ public sealed class AuditionPendingRadioPlayTests : IDisposable
         public bool EverOpened { get; private set; }
         public bool OpenedWithPlaybackStopped { get; private set; }
         public bool IsRecordingTo(string path) => IsRunning;
-        public bool Start(string path)
+        public bool Start(string path, TimeSpan fileStartsAfter)
         {
             OpenedWithPlaybackStopped = playbackStopped();
             IsRunning = EverOpened = true;

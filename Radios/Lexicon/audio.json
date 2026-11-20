@@ -1462,6 +1462,7 @@
   "audio.check.about.audition": {"text": "WORDING PLACEHOLDER: records your voice with nothing keyed and plays it through the transmit chain three ways.", "delivery": null},
   "audio.audition.idle": {"text": "WORDING PLACEHOLDER: reading box before a take: press Start to record yourself, nothing is keyed", "delivery": null},
   "audio.audition.recording": {"text": "WORDING PLACEHOLDER: reading box while recording: recording, press Start or Escape to stop", "delivery": null},
+  "audio.audition.recording_now": {"text": "Recording", "delivery": null},
   "audio.audition.recording_purpose": {"text": "WORDING PLACEHOLDER: an audition take (read inside the recorder's own started sentence)", "delivery": null},
   "audio.audition.another_recording": {"text": "WORDING PLACEHOLDER: refusal: another recording is already running, stop it first", "delivery": null},
   "audio.audition.not_quiet": {"text": "WORDING PLACEHOLDER: refusal after the countdown: a playback on the radio would not stop, so the take did not start", "delivery": null},

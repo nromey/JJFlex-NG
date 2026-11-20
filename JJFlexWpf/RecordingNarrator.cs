@@ -164,12 +164,19 @@ public static class RecordingNarrator
     /// </para>
     /// </remarks>
     /// <param name="path">Where to write it.</param>
+    /// <param name="fileStartsAfter">
+    /// How long after the microphone opens the FILE begins (Sprint 49 Track
+    /// Q3, Noel 2026-11-19 20:29: <i>"the microphone may open while the tone
+    /// plays, but the file begins once the tone has finished"</i>). The caller
+    /// passes its start tone's settle when the tone will sound, and zero when it
+    /// will not, so the file is exactly the take. Zero keeps everything.
+    /// </param>
     /// <returns>True when the microphone is open and recording to <paramref name="path"/>.</returns>
-    public static bool StartForCheck(string path)
+    public static bool StartForCheck(string path, TimeSpan fileStartsAfter)
     {
         if (IsRunning || string.IsNullOrWhiteSpace(path)) return false;
         _purpose = "";
-        return Open(path, quiet: true);
+        return Open(path, quiet: true, fileStartsAfter);
     }
 
     /// <summary>True while the recording in flight was started for a check, so nothing is spoken until it stops.</summary>
@@ -177,9 +184,11 @@ public static class RecordingNarrator
 
     /// <summary>
     /// Resolve the microphone, refuse aloud if it cannot record, and open the
-    /// recorder. Says nothing on success; the caller announces.
+    /// recorder. Says nothing on success; the caller announces. The file
+    /// begins <paramref name="fileStartsAfter"/> after the microphone opens
+    /// (zero for the record key: everything is kept).
     /// </summary>
-    private static bool Open(string? path, bool quiet)
+    private static bool Open(string? path, bool quiet, TimeSpan fileStartsAfter = default)
     {
         // The microphone the operator already chose. Asking again here would
         // be a second place to configure the same thing, and the two would
@@ -219,7 +228,7 @@ public static class RecordingNarrator
         }
 
         var recorder = new MicRecorder();
-        MicRecorder.StartOutcome outcome = recorder.Start(device, _path, out string failure);
+        MicRecorder.StartOutcome outcome = recorder.Start(device, _path, fileStartsAfter, out string failure);
         if (outcome != MicRecorder.StartOutcome.Started)
         {
             recorder.Dispose();

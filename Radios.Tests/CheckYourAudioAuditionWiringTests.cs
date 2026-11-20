@@ -87,7 +87,7 @@ namespace Radios.Tests
         {
             string code = Code(Dialog("CheckYourAudioDialog.Audition"));
             // The narrator's check form (Track Q2): still the narrator, still the one way in.
-            Assert.Contains("RecordingNarrator.StartForCheck(path)", code);
+            Assert.Contains("RecordingNarrator.StartForCheck(path, fileStartsAfter)", code);
             Assert.DoesNotContain("RecordingNarrator.Start(", code);
             Assert.DoesNotContain("RecordingNarrator.Toggle(", code);
             Assert.DoesNotContain("new MicRecorder", code);
@@ -129,7 +129,7 @@ namespace Radios.Tests
             // (JJFlexWpf.Tests, the real player); these pin the window to it.
             string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
             string start = Body(audition, "private async Task StartAuditionAsync()");
-            Assert.Contains("beforeOpening: QuietBeforeTake)", start);
+            Assert.Contains("beforeOpening: QuietBeforeTake,", start);
             string quiet = Body(audition, "private bool QuietBeforeTake()");
             Assert.Contains("RecordingPlayer.StopForCapture();", quiet);
             Assert.DoesNotContain("RecordingPlayer.Stop();", quiet);
@@ -232,6 +232,8 @@ namespace Radios.Tests
         {
             string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
             Assert.Contains("startMarker: EarconPlayer.RecorderStartBeep, markerSettle: StartToneSettle", audition);
+            // Track Q3: the tone plays only while the recorder beeps are on, and the take knows it.
+            Assert.Contains("markerSounds: () => EarconPlayer.RecorderBeepsEnabled", audition);
             // Positive control: those are the computer microphone check's, the pattern being reused.
             string mic = Body(Code(Dialog("CheckYourAudioDialog.ComputerMic")), "private void StartComputerMicProbeNow()");
             Assert.Contains("EarconPlayer.RecorderStartBeep();", mic);
@@ -242,9 +244,9 @@ namespace Radios.Tests
         public void The_narrators_check_form_opens_saying_nothing_and_says_nothing_while_it_records()
         {
             string narrator = Code(Source("JJFlexWpf/RecordingNarrator.cs"));
-            string check = Body(narrator, "public static bool StartForCheck(string path)");
-            Assert.Contains("Open(path, quiet: true)", check);
-            string open = Body(narrator, "private static bool Open(string? path, bool quiet)");
+            string check = Body(narrator, "public static bool StartForCheck(string path, TimeSpan fileStartsAfter)");
+            Assert.Contains("Open(path, quiet: true, fileStartsAfter)", check);
+            string open = Body(narrator, "private static bool Open(string? path, bool quiet, TimeSpan fileStartsAfter = default)");
             foreach (string body in new[] { check, open })
             {
                 Assert.DoesNotContain("Speak(", body);
@@ -263,6 +265,59 @@ namespace Radios.Tests
             Assert.Contains("Open(path, quiet: false)", start);
             Assert.Contains("EarconPlayer.ConfirmTone();", start);
             Assert.Contains("\"audio.recording.started\"", start);
+        }
+
+        // ── Track Q3: "Recording", then the tone, then the file ────────────
+        // Noel 2026-11-19 20:26 and 20:29. The behaviour is ChainAuditionStartTests';
+        // these pin the window, the narrator and the recorder to it.
+
+        [Fact]
+        public void Recording_is_said_in_full_before_the_microphone_opens_on_the_recorders_subject()
+        {
+            string audition = Code(Dialog("CheckYourAudioDialog.Audition"));
+            string start = Body(audition, "private async Task StartAuditionAsync()");
+            Assert.Contains("startSaid: () => RecordingSaidAsync(wanted));", start);
+            Assert.Contains("stillWanted: wanted,", start);
+
+            string said = Body(audition, "private async Task<bool> RecordingSaidAsync(Func<bool> stillWanted)");
+            Assert.Contains("SaidInFull.SayAsync(", said);
+            Assert.Contains("ScreenReaderOutput.CountdownSpeech.Say(text, onlyWarning,", said);
+            Assert.Contains("Radios.Speech.SpeechSubject.ComputerRecorder", said);
+            Assert.Contains("ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.ComputerRecorder, why)", said);
+            Assert.Contains("Lexicon.Get(\"audio.audition.recording_now\"", said);
+            // The only warning when no tone follows; the tone is the warning when one does.
+            Assert.Contains("bool toneFollows = EarconPlayer.RecorderBeepsEnabled;", said);
+            Assert.Contains("onlyWarning: !toneFollows", said);
+            Assert.Contains("return SaidInFull.LetsItOpen(outcome);", said);
+
+            // Noel's word, ruled, and said at every verbosity (the countdown's road speaks at Critical).
+            // Read from the lexicon file, not the store: the store resolves the settings root.
+            Assert.Contains("\"audio.audition.recording_now\": {\"text\": \"Recording\", \"delivery\": null}", Source("Radios/Lexicon/audio.json"));
+            string speech = Code(Source("Radios/Speech/CountdownSpeech.cs"));
+            string say = Body(speech, "public Radios.ICountdownWords Say(string text, bool onlyWarning, string subject)");
+            Assert.Contains("VerbosityLevel.Critical", say);
+            Assert.Contains("subject, additive: true", say);
+        }
+
+        [Fact]
+        public void The_file_begins_where_the_take_says_and_every_block_reaches_it_through_the_cut()
+        {
+            string narrator = Code(Source("JJFlexWpf/RecordingNarrator.cs"));
+            string open = Body(narrator, "private static bool Open(string? path, bool quiet, TimeSpan fileStartsAfter = default)");
+            Assert.Contains("recorder.Start(device, _path, fileStartsAfter, out string failure);", open);
+
+            string recorder = Code(Source("JJPortaudio/JJPortaudio/MicRecorder.cs"));
+            string frames = Body(recorder, "private void OnFrames(float[] buffer, int count, int frames)");
+            Assert.Contains("_capturedFrames = WriteAfterLead(w, buffer, count, frames, _capturedFrames, _leadFrames);", frames);
+            Assert.DoesNotContain(".Write(", frames);   // no block reaches the file around the cut
+            string start = Body(recorder, "public StartOutcome Start(Devices.DeviceInfo device, string path, TimeSpan fileStartsAfter, out string message)");
+            Assert.Contains("_leadFrames = LeadFrames(fileStartsAfter, rate);", start);
+            Assert.Contains("_capturedFrames = 0;", start);
+
+            // Nothing is trimmed after the fact: what is analysed is the file.
+            string take = Code(Source("Radios/ChainAuditionTake.cs"));
+            Assert.Contains("ChainAudition.Analyse(take.Mono, take.Rate, _processor);", take);
+            Assert.Contains("File.Copy(TakePath, destination, overwrite: false);", Body(take, "public bool Keep(string destination)"));
         }
 
         [Fact]

@@ -2737,6 +2737,8 @@ namespace Radios.Tests
                 "audio.check.about.audition",
                 "audio.audition.idle",
                 "audio.audition.recording",
+                // Sprint 49 Track Q3: "Recording", Noel's word (ruled 2026-11-19 20:26), said in full before the microphone opens.
+                "audio.audition.recording_now",
                 "audio.audition.recording_purpose",
                 "audio.audition.another_recording",
                 // Sprint 49 Track Q2 repair 2: a radio playback that would not stop keeps the take shut.

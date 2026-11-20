@@ -69,12 +69,15 @@ public partial class CheckYourAudioDialog
 
     /// <summary>
     /// The take, marked at its start by the computer microphone check's own
-    /// start tone and settle (Track Q2): the same sound, and the same moment
-    /// after it that the check is listened to from.
+    /// start tone (Track Q2), its file beginning once that tone has finished,
+    /// <see cref="StartToneSettle"/> after the microphone opens (Track Q3, Noel
+    /// 2026-11-19 20:29). The tone plays only while the recorder beeps are on;
+    /// with them off there is no tone and the file begins as the microphone opens.
     /// </summary>
     private ChainAuditionTake Audition => _audition ??= new ChainAuditionTake(ChainAuditionFolder.DefaultPath,
         new NarratorRecorder(), AuditionProcessorSource(), LoadAuditionTake,
-        startMarker: EarconPlayer.RecorderStartBeep, markerSettle: StartToneSettle);
+        startMarker: EarconPlayer.RecorderStartBeep, markerSettle: StartToneSettle,
+        markerSounds: () => EarconPlayer.RecorderBeepsEnabled);
 
     /// <summary>
     /// The audition's buttons, in the Results section, in the ruled order:
@@ -182,6 +185,12 @@ public partial class CheckYourAudioDialog
     /// been said in full, it opens saying nothing, and the take is marked by
     /// the check's start tone. Nothing is spoken while it records; the reading
     /// box says it is recording, and it is not a live region.
+    /// <para>
+    /// <b>The order, every take (Track Q3, Noel 2026-11-19 20:26 and 20:29):</b>
+    /// the countdown if on, then "Recording" said in full, then the start tone
+    /// unless the recorder beeps are off, then the take, whose file begins once
+    /// the tone has finished.
+    /// </para>
     /// </remarks>
     private async Task StartAuditionAsync()
     {
@@ -201,12 +210,15 @@ public partial class CheckYourAudioDialog
         BeginStartCountdown(AudioCheckListenMethods.Audition);
         try
         {
+            Func<bool> wanted = () => start.IsCurrent && !_closing;
             bool opened = await Audition.StartAfterAsync(CountedThenRadioPlaysStoppedAsync,
-                stillWanted: () => start.IsCurrent && !_closing,
+                stillWanted: wanted,
                 localNow: () => DateTime.Now,
                 // The last act before the microphone opens, in the same step as
                 // the open: everything of ours still sounding stops, saying nothing.
-                beforeOpening: QuietBeforeTake);
+                beforeOpening: QuietBeforeTake,
+                // After the count, "Recording", said in full before anything opens (Track Q3).
+                startSaid: () => RecordingSaidAsync(wanted));
             _auditionStartPending = false;
             if (_closing) return;
             if (opened) ShowAuditionReading(Lexicon.Get("audio.audition.recording"));
@@ -222,6 +234,38 @@ public partial class CheckYourAudioDialog
 
     /// <summary>True from the press that admits an audition start until its count ends: the take's buttons are hidden for it.</summary>
     private bool _auditionStartPending;
+
+    /// <summary>
+    /// Say "Recording" and wait until it has been said in full, so it is never
+    /// in the take (Track Q3, Noel 2026-11-19 20:26: <i>"say 'Recording' before
+    /// the microphone opens, every time, like the check's 'Transmitting'"</i>).
+    /// Critical, so it is said at every verbosity; on the computer recorder's
+    /// subject; followed to delivery the way the countdown's numbers are. True
+    /// to open the microphone.
+    /// </summary>
+    /// <remarks>
+    /// With the recorder beeps on, the start tone that follows is a warning of
+    /// its own, so words the reader never takes are dropped and the take goes
+    /// on, as a beeped count drops its lead-in. With them off, "Recording" is
+    /// the only warning: words that are not said open nothing, with the error
+    /// tone, as a spoken count that cannot be said keys nothing.
+    /// </remarks>
+    private async Task<bool> RecordingSaidAsync(Func<bool> stillWanted)
+    {
+        bool toneFollows = EarconPlayer.RecorderBeepsEnabled;
+        var outcome = await SaidInFull.SayAsync(
+            (text, onlyWarning) => ScreenReaderOutput.CountdownSpeech.Say(text, onlyWarning,
+                Radios.Speech.SpeechSubject.ComputerRecorder),
+            why => ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.ComputerRecorder, why),
+            Lexicon.Get("audio.audition.recording_now"), onlyWarning: !toneFollows, stillWanted);
+        if (outcome == SaidInFull.Outcome.NotSaid)
+        {
+            JJTrace.Tracing.TraceLine("Check your audio audition: \"Recording\" could not be said and there is no start tone, so nothing opened",
+                System.Diagnostics.TraceLevel.Warning);
+            EarconPlayer.LeaderInvalidTone();
+        }
+        return SaidInFull.LetsItOpen(outcome);
+    }
 
     /// <summary>
     /// The countdown's gate, then the radio's playbacks this window started
@@ -394,9 +438,11 @@ public partial class CheckYourAudioDialog
     }
 
     /// <summary>
-    /// Copy the raw take into the recordings folder, where it also serves as a
+    /// Copy the take into the recordings folder, where it also serves as a
     /// reference take (the Reference Audio section's help calls one "the honest
-    /// reference for YOUR station"). The only way a take leaves the working folder.
+    /// reference for YOUR station"). The only way a take leaves the working
+    /// folder. The file began after the start tone, so what is kept is exactly
+    /// what was measured and played (Track Q3).
     /// </summary>
     private void KeepAuditionTake()
     {
@@ -513,8 +559,9 @@ public partial class CheckYourAudioDialog
     /// <summary>
     /// The take's recorder: <see cref="RecordingNarrator"/>, still the one place
     /// a recording starts or stops, in its check form: it opens saying nothing
-    /// (the countdown before it and the start tone after it are the
-    /// announcement), refuses aloud as ever, and says the stop as ever.
+    /// ("Recording", said in full before it, and the start tone after it are
+    /// the announcement), begins its file once the tone has finished, refuses
+    /// aloud as ever, and says the stop as ever.
     /// </summary>
     private sealed class NarratorRecorder : IAuditionRecorder
     {
@@ -523,7 +570,8 @@ public partial class CheckYourAudioDialog
         public bool IsRecordingTo(string path) =>
             RecordingNarrator.IsRunning && SamePath(RecordingNarrator.CurrentPath, path);
 
-        public bool Start(string path) => RecordingNarrator.StartForCheck(path) && IsRecordingTo(path);
+        public bool Start(string path, TimeSpan fileStartsAfter) =>
+            RecordingNarrator.StartForCheck(path, fileStartsAfter) && IsRecordingTo(path);
 
         public void Stop() => RecordingNarrator.Stop();
     }

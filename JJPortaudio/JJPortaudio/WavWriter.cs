@@ -94,16 +94,26 @@ namespace JJPortaudio
         /// </summary>
         /// <param name="buffer">interleaved samples in −1..1</param>
         /// <param name="count">how many floats of <paramref name="buffer"/> to take</param>
-        public void Write(float[] buffer, int count)
+        public void Write(float[] buffer, int count) => Write(buffer, 0, count);
+
+        /// <summary>
+        /// Append <paramref name="count"/> interleaved float samples of
+        /// <paramref name="buffer"/>, starting at <paramref name="offset"/>.
+        /// </summary>
+        /// <param name="buffer">interleaved samples in −1..1</param>
+        /// <param name="offset">the first float of <paramref name="buffer"/> to take</param>
+        /// <param name="count">how many floats to take from there</param>
+        public void Write(float[] buffer, int offset, int count)
         {
             if (_finished || _stream == null || buffer == null || count <= 0) return;
-            if (count > buffer.Length) count = buffer.Length;
+            if (offset < 0 || offset >= buffer.Length) return;
+            if (count > buffer.Length - offset) count = buffer.Length - offset;
 
             int needed = count * 2;
             if (_scratch == null || _scratch.Length < needed) _scratch = new byte[needed];
 
             int j = 0;
-            for (int i = 0; i < count; i++)
+            for (int i = offset; i < offset + count; i++)
             {
                 float s = buffer[i];
                 if (s > 1f) s = 1f;

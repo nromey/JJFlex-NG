@@ -93,11 +93,24 @@ namespace Radios.Speech
         /// <param name="text">The words.</param>
         /// <param name="onlyWarning">True when these words are the only warning
         /// (sounds off): an untracked piece is then held for its margin.</param>
-        public Radios.ICountdownWords Say(string text, bool onlyWarning)
+        public Radios.ICountdownWords Say(string text, bool onlyWarning) =>
+            Say(text, onlyWarning, SpeechSubject.CheckCountdown);
+
+        /// <summary>
+        /// Queue one sentence that must be said in full before something
+        /// starts, on its own subject, followed to delivery exactly as a piece
+        /// of the count is: Critical, queued, additive (Sprint 49 Track Q3: the
+        /// audition's "Recording", said before the microphone opens). Taken
+        /// back by <see cref="ScreenReaderOutput.Supersede"/> on that subject.
+        /// </summary>
+        /// <param name="text">The words.</param>
+        /// <param name="onlyWarning">True when these words are the only warning, as for <see cref="Say(string, bool)"/>.</param>
+        /// <param name="subject">A <see cref="SpeechSubject"/> constant.</param>
+        public Radios.ICountdownWords Say(string text, bool onlyWarning, string subject)
         {
             if (string.IsNullOrEmpty(text)) return Radios.CountdownWords.Undelivered;
             var piece = _arbiter.EmitQueued(text, VerbosityLevel.Critical, "CountdownSpeech.Say",
-                SpeechSubject.CheckCountdown, additive: true);
+                subject, additive: true);
             return piece == null ? Radios.CountdownWords.Undelivered : new Words(this, piece, onlyWarning);
         }
 

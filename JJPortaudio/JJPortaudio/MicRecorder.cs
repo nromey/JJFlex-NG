@@ -137,7 +137,31 @@ namespace JJPortaudio
         /// Empty on success; otherwise why it did not start, written to be
         /// spoken as-is.
         /// </param>
-        public StartOutcome Start(Devices.DeviceInfo device, string path, out string message)
+        public StartOutcome Start(Devices.DeviceInfo device, string path, out string message) =>
+            Start(device, path, TimeSpan.Zero, out message);
+
+        /// <summary>
+        /// Start recording <paramref name="device"/> to <paramref name="path"/>,
+        /// with the FILE beginning <paramref name="fileStartsAfter"/> after the
+        /// microphone opens: what the device delivers before then is dropped and
+        /// never written.
+        /// </summary>
+        /// <remarks>
+        /// <b>Sprint 49 Track Q3, Noel 2026-11-19 20:29.</b> A Check your audio
+        /// take opens the microphone and then sounds its start tone, so a slow
+        /// device loses nothing of the operator; but <i>"the file begins once
+        /// the tone has finished"</i>, so the tone, which the microphone hears
+        /// through speakers, is never in the take. Measured in the device's own
+        /// frames from the first one it delivers, so the cut is exact to the
+        /// sample and does not depend on when a block happens to arrive. Zero
+        /// keeps everything, as the record key always has.
+        /// </remarks>
+        /// <param name="fileStartsAfter">How much of the capture's start to leave out of the file; zero or less leaves out nothing.</param>
+        /// <param name="message">
+        /// Empty on success; otherwise why it did not start, written to be
+        /// spoken as-is.
+        /// </param>
+        public StartOutcome Start(Devices.DeviceInfo device, string path, TimeSpan fileStartsAfter, out string message)
         {
             message = "";
             if (device == null) throw new ArgumentNullException(nameof(device));
@@ -199,6 +223,8 @@ namespace JJPortaudio
                 SampleRate = rate;
                 Channels = channels;
                 _maxDataFrames = (long)MaxSeconds * rate;
+                _leadFrames = LeadFrames(fileStartsAfter, rate);
+                _capturedFrames = 0;
                 _running = true;
             }
 
@@ -207,7 +233,9 @@ namespace JJPortaudio
             probe.FrameSink = OnFrames;
 
             Tracing.TraceLine("MicRecorder: recording \"" + device.Name + "\" at " + rate
-                + " Hz, " + channels + " channel(s) to " + path, TraceLevel.Info);
+                + " Hz, " + channels + " channel(s) to " + path
+                + (_leadFrames > 0 ? ", the file starting " + (long)Math.Round(fileStartsAfter.TotalMilliseconds) + " ms in" : ""),
+                TraceLevel.Info);
             return StartOutcome.Started;
         }
 
@@ -301,7 +329,7 @@ namespace JJPortaudio
 
             try
             {
-                w.Write(buffer, count);
+                _capturedFrames = WriteAfterLead(w, buffer, count, frames, _capturedFrames, _leadFrames);
             }
             catch (Exception ex)
             {
@@ -321,6 +349,41 @@ namespace JJPortaudio
                 System.Threading.ThreadPool.QueueUserWorkItem(
                     _ => StopInternal(StopReason.MaxLength, ""));
             }
+        }
+
+        /// <summary>Frames of capture left out before the file begins (Track Q3); zero keeps everything.</summary>
+        private long _leadFrames;
+
+        /// <summary>Frames the device has delivered since this recording opened, written or not. Capture thread only.</summary>
+        private long _capturedFrames;
+
+        /// <summary>How many frames at <paramref name="rate"/> a lead of <paramref name="lead"/> is; zero for none.</summary>
+        internal static long LeadFrames(TimeSpan lead, int rate) =>
+            lead <= TimeSpan.Zero || rate <= 0 ? 0 : (long)Math.Round(lead.TotalSeconds * rate);
+
+        /// <summary>
+        /// Write one captured block, leaving out whatever of it falls inside the
+        /// first <paramref name="leadFrames"/> frames of the capture. Returns
+        /// how many frames have been captured once this block is counted.
+        /// The one path a block reaches the file by, so a test that drives it
+        /// drives the recorder's own cut.
+        /// </summary>
+        /// <param name="writer">The file.</param>
+        /// <param name="buffer">The block, interleaved.</param>
+        /// <param name="count">Floats in the block.</param>
+        /// <param name="frames">Frames in the block.</param>
+        /// <param name="capturedBefore">Frames captured before this block.</param>
+        /// <param name="leadFrames">Frames at the capture's start that are not the file's.</param>
+        internal static long WriteAfterLead(WavWriter writer, float[] buffer, int count, int frames,
+            long capturedBefore, long leadFrames)
+        {
+            if (frames <= 0 || count <= 0) return capturedBefore;
+            long after = capturedBefore + frames;
+            if (after <= leadFrames) return after;          // the whole block is before the file
+            int skip = capturedBefore >= leadFrames ? 0 : (int)(leadFrames - capturedBefore);
+            int perFrame = Math.Max(1, count / frames);
+            writer.Write(buffer, skip * perFrame, count - skip * perFrame);
+            return after;
         }
 
         /// <summary>Stops and closes anything still open.</summary>
