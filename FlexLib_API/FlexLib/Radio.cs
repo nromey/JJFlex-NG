@@ -102,6 +102,9 @@ namespace Flex.Smoothlake.FlexLib
         XVTR_RX_ONLY,
         NO_TX_ASSIGNED,
         TGXL,
+        // JJFlex patch (MIGRATION.md item 31): the Power Genius XL's own
+        // interlock reason. Appended, so no existing value moves.
+        PGXL,
     }
 
     /// <summary>
@@ -8251,6 +8254,14 @@ namespace Flex.Smoothlake.FlexLib
                 case "NO_TX_ASSIGNED": reason = InterlockReason.NO_TX_ASSIGNED; break;
                 case "AMP:TG": reason = InterlockReason.TGXL; break;
             }
+
+            // JJFlex patch (MIGRATION.md item 31): the radio reports
+            // "AMP:PG-XL" when the Power Genius XL holds the interlock. Stock
+            // FlexLib had no value for it and the status parser let it through
+            // as None, erasing why transmit is held. Same match the status
+            // parser already uses for it (Contains "PG-XL").
+            if (reason == InterlockReason.None && s != null && s.Contains("PG-XL"))
+                reason = InterlockReason.PGXL;
 
             return reason;
         }

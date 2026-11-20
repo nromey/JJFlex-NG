@@ -1,0 +1,1 @@
+- When a Power Genius XL amplifier keeps a tune from transmitting, you now hear that the amplifier is holding it, instead of only that the radio will not transmit.

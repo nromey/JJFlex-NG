@@ -192,6 +192,7 @@ namespace Radios.Tests
         [InlineData(InterlockReason.XVTR_RX_ONLY, "audio.tune.refused_rx_only")]
         [InlineData(InterlockReason.NO_TX_ASSIGNED, "audio.tune.refused_no_tx_slice")]
         [InlineData(InterlockReason.TGXL, "audio.tune.refused_amplifier")]
+        [InlineData(InterlockReason.PGXL, "audio.tune.refused_power_amplifier")]
         [InlineData(InterlockReason.TUNED_TOO_FAR, "audio.tune.refused")]
         [InlineData(InterlockReason.None, "audio.tune.refused")]
         public void A_refusal_carries_the_radios_reason(InterlockReason reason, string key)

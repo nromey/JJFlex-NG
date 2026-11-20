@@ -2463,6 +2463,9 @@ namespace Radios.Tests
                 "audio.tune.refused_rx_only",
                 "audio.tune.refused_no_tx_slice",
                 "audio.tune.refused_amplifier",
+                // Junk box batch 18 (#1225): a tune the Power Genius XL holds
+                // off. DRAFT prose, for Codex.
+                "audio.tune.refused_power_amplifier",
                 // Repair round 1 (#596, Codex B4): says only what is known; a lost
                 // connection cannot show that RF stopped. DRAFT prose, awaiting Noel.
                 "connect.drop.transmit_released",
