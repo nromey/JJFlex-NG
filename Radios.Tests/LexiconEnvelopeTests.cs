@@ -932,6 +932,9 @@ namespace Radios.Tests
                 "connect.walk.leg_smartlink_punch",
                 "connect.walk.leg_smartlink_upnp",
                 "connect.start.no_audio_or_data",
+                // Track B repair 1: the connecting window's truthful phase lines.
+                "connect.connecting.phase_proof_wait",
+                "connect.connecting.phase_radio_answered",
                 // SmartLink connection tiers, Track C (2026-11-19): the network diagnostic's
                 // three parts, its export and its refusals. DRAFT prose, for Codex to word.
                 "settings.network.diag.capability_heading",

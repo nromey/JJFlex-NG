@@ -116,8 +116,17 @@ namespace Radios
         /// own. A reconnect or retry therefore never sends a request for a
         /// radio while this rig still has one unsettled.
         /// </summary>
-        private void AbandonSmartLinkLeg(string why)
+        /// <param name="connectIsOver">
+        /// True when the whole connect is being given up (the rig disconnected,
+        /// or the walk leaving SmartLink for another path), so a "Connected"
+        /// an auto-connect is still owed is forgotten. False for a retry of the
+        /// same connect: the sentence is still owed, and is said when the retry
+        /// is proven. It used to be dropped at every new dial, so an
+        /// auto-connect that succeeded on its second pass never said it.
+        /// </param>
+        private void AbandonSmartLinkLeg(string why, bool connectIsOver = false)
         {
+            if (connectIsOver) _connectedSentenceOwedAtProof = null;
             var leg = _smartLinkLeg;
             if (leg == null) return;
             _smartLinkLegWorld?.Unwatch();
@@ -130,7 +139,6 @@ namespace Radios
             _smartLinkLeg = null;
             _smartLinkLegRadio = null;
             _smartLinkLegWorld = null;
-            _connectedSentenceOwedAtProof = null;
         }
 
         /// <summary>
@@ -358,11 +366,13 @@ namespace Radios
         private bool StartUnderSmartLinkLeg(SmartLinkLeg leg)
         {
             bool proven = leg.RunOpenStage();
-            string? owed = _connectedSentenceOwedAtProof;
-            _connectedSentenceOwedAtProof = null;
             if (!proven) _smartLinkLegWorld?.Unwatch();
             if (proven)
             {
+                // Said once, when it is true, and forgotten only then: a leg
+                // that failed leaves it owed to the retry that follows.
+                string? owed = _connectedSentenceOwedAtProof;
+                _connectedSentenceOwedAtProof = null;
                 // Queued, never interrupting: a move may have been said a
                 // moment ago, and nothing is to be said over it.
                 if (!string.IsNullOrEmpty(owed) && !SuppressSpeech)
@@ -435,7 +445,7 @@ namespace Radios
         /// </summary>
         public bool RetireSessionBeforeNextLeg(string where)
         {
-            AbandonSmartLinkLeg(where + ": the walk is moving to another path");
+            AbandonSmartLinkLeg(where + ": the walk is moving to another path", connectIsOver: true);
             return RetireSessionBeforeReplan(where);
         }
 

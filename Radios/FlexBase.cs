@@ -3756,6 +3756,9 @@ namespace Radios
             var leg = SmartLinkLegOwingAnOpen();
             if (leg == null)
             {
+                // Nothing is owed a "Connected" on this route: a local leg says
+                // its own when its transport comes up.
+                _connectedSentenceOwedAtProof = null;
                 return startOpenPhase(null, out _) && startCommit();
             }
             return StartUnderSmartLinkLeg(leg);
@@ -3983,7 +3986,13 @@ namespace Radios
                 Tracing.TraceLine("start:connection lost during station name wait, caller may retry", TraceLevel.Error);
                 LastStartFailureReason = "Connection lost during setup";
                 ended = Radios.SmartLink.SmartLinkOpenAnswerKind.ConnectionLost;
-                ConnectionProfiler.Current?.RecordAndSave("start_connection_lost");
+                // When the SmartLink method walk is about to try another
+                // method it says so itself. The connecting window answers
+                // "start_connection_lost" with its own Critical line, which
+                // could land on top of that sentence, so this loss goes out
+                // under a name the window only stops its heartbeat for.
+                ConnectionProfiler.Current?.RecordAndSave(
+                    SmartLinkLegWillMoveOnAfterLoss(attempt) ? "start_connection_lost_moving_on" : "start_connection_lost");
                 return false;
             }
             else
@@ -4059,7 +4068,7 @@ namespace Radios
             Speech.SpeechTally.Shared.Write("disconnect");
             // A SmartLink method attempt still undecided ends here, so its
             // record never reads "still going" after the connect is gone.
-            AbandonSmartLinkLeg("the rig was disconnected");
+            AbandonSmartLinkLeg("the rig was disconnected", connectIsOver: true);
             if (theRadio == null) return;
             AttachSliceRecorderStatus(null);
 

@@ -889,6 +889,49 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void An_auto_connects_owed_Connected_survives_a_retry_and_is_forgotten_only_when_the_connect_is_over()
+        {
+            // The Opus check's N3: the sentence was dropped at every new dial,
+            // so an auto-connect that was proven on its second pass never said it.
+            var owedField = typeof(FlexBase).GetField("_connectedSentenceOwedAtProof", Private)!;
+            var (rig, wan, owner) = Setup(SmartLinkConnectionMode.ManualPortForwardOnly);
+            string serial = Serial();
+            var radio = WanRadio(serial, ManualOnly);
+            var ready = AnswerReady(wan, times: 2);
+
+            Assert.True(rig.DialSmartLink(radio, owner, new RadioConfig()));
+            owedField.SetValue(rig, "Connected to FLEX-8600");
+
+            // The retry: a new dial on the same rig.
+            Assert.True(rig.DialSmartLink(radio, owner, new RadioConfig(), () => new RadioConfig(), reconnect: true));
+            ready.Wait(1000);
+            Assert.Equal("Connected to FLEX-8600", owedField.GetValue(rig));
+
+            // The connect is over: forgotten.
+            rig.Disconnect();
+            Assert.Null(owedField.GetValue(rig));
+
+            // And it is cleared only where it is said.
+            string attempts = Src("Radios", "FlexBase.SmartLinkAttempts.cs");
+            string under = Body(attempts, "private bool StartUnderSmartLinkLeg(", "private bool StopOpenForFailedAttempt(");
+            int provenBranch = under.IndexOf("if (proven)", StringComparison.Ordinal);
+            int cleared = under.IndexOf("_connectedSentenceOwedAtProof = null;", StringComparison.Ordinal);
+            Assert.True(provenBranch > 0 && cleared > provenBranch, "the owed sentence must be forgotten only once it has been said");
+            Assert.Single(under.Split(new[] { "_connectedSentenceOwedAtProof = null;" }, StringSplitOptions.None).Skip(1));
+        }
+
+        [Fact]
+        public void A_loss_the_walk_will_move_on_from_is_not_narrated_over_the_move()
+        {
+            string flexBase = Src("Radios", "FlexBase.cs");
+            string open = Body(flexBase, "private bool startOpenPhase(", "private bool startCommit()");
+            Assert.Contains(
+                "SmartLinkLegWillMoveOnAfterLoss(attempt) ? \"start_connection_lost_moving_on\" : \"start_connection_lost\"", open);
+            // The one remaining unconditional record of the loss would be the defect.
+            Assert.DoesNotContain("RecordAndSave(\"start_connection_lost\")", open);
+        }
+
+        [Fact]
         public void The_apps_connect_driver_never_walks_on_after_a_cancel_and_speaks_through_the_one_announcer()
         {
             string globals = Src("globals.vb");
