@@ -66,6 +66,13 @@ namespace Radios
             GraceAbort,
             /// <summary>The station name's 45 s bound passed.</summary>
             StationTimeout,
+            /// <summary>
+            /// Stopped by the open's own SmartLink method attempt, which failed
+            /// its proof while this wait ran. NOT the operator's cancel: a
+            /// cancel is never walked on, and this is followed by the next
+            /// method.
+            /// </summary>
+            Aborted,
         }
 
         /// <summary>What the wait reads and does, so a test can stand in for the radio and the clock.</summary>
@@ -74,6 +81,12 @@ namespace Radios
             public Func<long> Now = () => Environment.TickCount64;
             public Action<int> Sleep = ms => System.Threading.Thread.Sleep(ms);
             public Func<bool> Cancelled = () => false;
+            /// <summary>
+            /// The open's own attempt has failed (the SmartLink proof: no audio
+            /// or data in the window, or its connection lost). Asked after
+            /// <see cref="Cancelled"/>, so an operator's cancel always wins.
+            /// </summary>
+            public Func<bool> Aborted = () => false;
             public Func<bool> Connected = () => true;
             public Func<bool> AntennasHere = () => false;
             /// <summary>Our client was removed during Start, and when (the radio's own report).</summary>
@@ -129,6 +142,15 @@ namespace Radios
                     });
                     w.Trace("start: cancelled during station-name wait", TraceLevel.Info);
                     return new Outcome(End.Cancelled, antennas, named, now);
+                }
+                if (w.Aborted())
+                {
+                    w.Record("start_stopped_by_attempt", new Dictionary<string, object>
+                    {
+                        { "msSinceStartBegin", now - startedAt },
+                    });
+                    w.Trace("start: the setup wait was stopped by its SmartLink attempt, which failed its proof", TraceLevel.Warning);
+                    return new Outcome(End.Aborted, antennas, named, now);
                 }
                 if (!w.Connected())
                 {

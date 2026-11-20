@@ -924,6 +924,14 @@ namespace Radios.Tests
                 "settings.network.tier_in_use",
                 "settings.network.tier_no_account",
                 "settings.profile.choice_would_be_refused",
+                // SmartLink connection tiers, Track B (2026-11-20): the names of the
+                // SmartLink methods in the walk's move sentence, and the reason a
+                // connect gives when the radio's audio and data never arrived.
+                // DRAFT prose, for Codex to word.
+                "connect.walk.leg_smartlink_manual",
+                "connect.walk.leg_smartlink_punch",
+                "connect.walk.leg_smartlink_upnp",
+                "connect.start.no_audio_or_data",
                 // SmartLink connection tiers, Track C (2026-11-19): the network diagnostic's
                 // three parts, its export and its refusals. DRAFT prose, for Codex to word.
                 "settings.network.diag.capability_heading",

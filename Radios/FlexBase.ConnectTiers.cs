@@ -23,9 +23,10 @@ namespace Radios
     public partial class FlexBase
     {
         /// <summary>
-        /// The SmartLink method this connection was dialled with, set when the
-        /// broker's handle arrives; null before that, and for a connection not
-        /// made over SmartLink by this build's connect path.
+        /// The SmartLink method of the attempt in flight, set when the
+        /// broker's handle arrives, cleared when that attempt fails, and kept
+        /// on the attempt that is proven; null before any, and for a
+        /// connection not made over SmartLink by this build's connect path.
         /// </summary>
         public SmartLinkMethod? SmartLinkMethodInUse { get; private set; }
 
@@ -260,6 +261,9 @@ namespace Radios
         private void ResetConnectTierState()
         {
             DismissTierOffer("a new SmartLink dial on this rig starts, and decides its own offer");
+            // An earlier leg's undecided attempt is ended, and its request no
+            // longer listened for, before this dial sends one of its own.
+            AbandonSmartLinkLeg("a new SmartLink dial on this rig starts");
             SmartLinkMethodInUse = null;
         }
     }

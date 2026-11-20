@@ -3262,17 +3262,29 @@ namespace Radios
                 return false;
             }
 
-            return DialSmartLink(r, session, RadioConfig.LoadForRadio(r.Serial));
+            return DialSmartLink(r, session, RadioConfig.LoadForRadio(r.Serial),
+                () => RadioConfig.LoadForRadio(r.Serial), _smartLinkDialIsReconnect);
         }
 
         /// <summary>
-        /// Plan and send one SmartLink connect for <paramref name="r"/> through
+        /// Plan a SmartLink connect for <paramref name="r"/> through
         /// <paramref name="session"/>, the session that brokers it, under the
-        /// radio's own profile. Split from <see cref="sendRemoteConnect"/> so a
-        /// test can hand it a session and a profile without the process-wide
-        /// coordinator.
+        /// radio's own profile, and send its FIRST method's request. Split
+        /// from <see cref="sendRemoteConnect"/> so a test can hand it a session
+        /// and a profile without the process-wide coordinator.
         /// </summary>
-        internal bool DialSmartLink(Radio r, Radios.SmartLink.IWanSessionOwner session, RadioConfig radioProfile)
+        internal bool DialSmartLink(Radio r, Radios.SmartLink.IWanSessionOwner session, RadioConfig radioProfile) =>
+            DialSmartLink(r, session, radioProfile, () => radioProfile, reconnect: false);
+
+        /// <summary>
+        /// As above. <paramref name="profileNow"/> re-reads the radio's
+        /// profile for each later method, so a connection choice changed
+        /// mid-walk takes effect on the next attempt. <paramref name="reconnect"/>:
+        /// this plan is a retry of a connect, so the method that last proved
+        /// itself for this radio is tried first.
+        /// </summary>
+        internal bool DialSmartLink(Radio r, Radios.SmartLink.IWanSessionOwner session, RadioConfig radioProfile,
+            Func<RadioConfig> profileNow, bool reconnect)
         {
             // WHICH METHOD (the tiers plan, ruled by Noel 2026-11-19). The
             // brokering account's tier is the ceiling; the radio's own
@@ -3286,14 +3298,19 @@ namespace Radios
             // another account is dialled through that account's session, and
             // that account's tier governs it.
             //
-            // INTERIM, until the attempt walk lands: this carries out the FIRST
-            // method of the list only, and refuses, saying why, when the list
-            // is empty. Nothing falls back to another method yet.
+            // THE METHOD WALK (Track B): the list becomes this rig's SmartLink
+            // leg (FlexBase.SmartLinkAttempts.cs, SmartLinkLeg). This call
+            // sends the first method's request; the leg carries the rest. A
+            // method that fails (the TCP or TLS stage, no audio or data in the
+            // window, the command connection lost) is torn down and followed
+            // by the next one the list holds, said once. A request that is not
+            // answered ends the SmartLink leg and is never a reason to try
+            // another method. An empty list refuses, saying why.
             //
             // NegotiatedHolePunchPort is a misnomer in FlexLib: nothing assigns
             // it, and picking the punch port is the CLIENT's job, as SmartSDR
-            // does (a fresh random port per connect, so a stale NAT mapping
-            // from an earlier session cannot collide). A per-radio fixed port
+            // does (a fresh random port per attempt, so a stale NAT mapping
+            // from an earlier one cannot collide). A per-radio fixed port
             // (Settings, Radios) wins when set. The account's saved listen port
             // is NEVER a punch port any more (decision 11): that field holds a
             // forwarded port, and the two branches that used it as a punch port
@@ -3346,128 +3363,29 @@ namespace Radios
                 return false;
             }
 
-            var method = decision.First.Value;
-            int holePunchPort = 0;
-            string holePunchPortSource = "none";
-            Radios.SmartLink.SmartLinkAttemptRecord attempt;
-            if (method == Radios.SmartLink.SmartLinkMethod.HolePunch)
+            // RECONNECTS (plan section 4): the method that last proved itself
+            // for this radio goes first, then the policy's order. Only among
+            // the methods the policy permits NOW, so a tier or a connection
+            // choice changed since never puts a method back.
+            IReadOnlyList<Radios.SmartLink.SmartLinkMethod> order = decision.Methods;
+            if (reconnect)
             {
-                if (radioProfile.FixedHolePunchPort > 0)
+                var lastProven = LastProvenSmartLinkMethod(r.Serial);
+                order = Radios.SmartLink.SmartLinkAttemptRules.ReconnectOrder(decision.Methods, lastProven);
+                if (!order.SequenceEqual(decision.Methods))
                 {
-                    holePunchPort = radioProfile.FixedHolePunchPort;
-                    holePunchPortSource = "radioProfile";
+                    record = record with { MethodOrder = order.ToArray() };
+                    Tracing.TraceLine(
+                        $"sendRemoteConnect: a reconnect; {lastProven} last proved itself for {r.Serial}, so the order is [{string.Join(",", order)}]",
+                        TraceLevel.Info);
                 }
-                else
-                {
-                    holePunchPort = System.Random.Shared.Next(25000, 65000);
-                    holePunchPortSource = "random";
-                }
-                // FlexLib's Radio.Connect reads RequiresHolePunch to choose the
-                // transport, so a punch must set it. It is written ONLY when it
-                // differs, which is only "Hole punch always" on a radio that
-                // advertises ports. The radio's own report is not lost: it is
-                // kept in AdvertisedPorts (item 29), and every reader that asks
-                // "is this session punched?" reads the method actually used
-                // (ConnectedByHolePunch), never this flag.
-                if (!r.RequiresHolePunch) r.RequiresHolePunch = true;
-                // The value FlexLib actually reads at connect time. Without this
-                // the whole hole-punch path is dead.
-                r.NegotiatedHolePunchPort = holePunchPort;
-                attempt = Radios.SmartLink.SmartLinkAttemptRecord.ForPunch(holePunchPort, holePunchPortSource);
             }
-            else
-            {
-                // A ports method dials the pair it names, which is not always
-                // the one FlexLib's parse kept (a UPnP pair beside a manual one).
-                var pair = policyInput.Report.PairFor(method);
-                if (r.PublicTlsPort != pair.TlsPort) r.PublicTlsPort = pair.TlsPort;
-                if (r.PublicUdpPort != pair.UdpPort) r.PublicUdpPort = pair.UdpPort;
-                // A usable pair means the radio's flag already says no punch
-                // (stock sets it only when no pair is advertised); the check
-                // stays so a cached radio cannot dial a pair as a punch.
-                if (r.RequiresHolePunch) r.RequiresHolePunch = false;
-                attempt = Radios.SmartLink.SmartLinkAttemptRecord.ForPorts(method, pair);
-            }
+
+            var leg = BeginSmartLinkLeg(r, session, profileNow, policyInput.Report, record, order);
             Tracing.TraceLine(
-                $"sendRemoteConnect: carrying out {attempt.Describe()}, the first of [{string.Join(",", decision.Methods)}]; no fallback until the attempt walk lands",
+                $"sendRemoteConnect: the SmartLink leg will try [{string.Join(",", order)}] in that order, one attempt each",
                 TraceLevel.Info);
-            record = record.WithAttempt(attempt);
-            Radios.SmartLink.SmartLinkConnectRecords.Store(record);
-
-            // Record what actually happened so the UI can report the real port
-            // rather than the configured one.
-            LastHolePunchPort = holePunchPort;
-
-            ConnectionProfiler.Current?.RecordEvent("hole_punch_port_selected", new Dictionary<string, object>
-            {
-                { "method", method.ToString() },
-                { "holePunchPort", holePunchPort },
-                { "portSource", holePunchPortSource },
-                { "radioProfilePreference", radioProfile.ConnectionPreference.ToString() }
-            });
-
-            // session.ConnectToRadio returns Task<string?>: handle on success, null on timeout/failure.
-            // We block synchronously to preserve the existing caller contract; the session owner's
-            // internal TCS does the actual awaiting off-thread.
-            var task = session.ConnectToRadio(r.Serial, holePunchPort);
-            if (!task.Wait(5000))
-            {
-                Tracing.TraceLine("sendRemoteConnect:Radio not ready for connect (timeout).", TraceLevel.Error);
-                ConnectionProfiler.Current?.RecordEvent("send_remote_connect_timeout", new Dictionary<string, object>
-                {
-                    { "serial", r.Serial }
-                });
-                Radios.SmartLink.SmartLinkConnectRecords.Store(record.WithLastAttempt(a => a with
-                {
-                    End = Radios.SmartLink.SmartLinkAttemptEnd.NoHandle,
-                    EndDetail = "the radio did not answer the connect request within 5 seconds",
-                }));
-                return false;
-            }
-
-            var handle = task.Result;
-            if (string.IsNullOrEmpty(handle))
-            {
-                Tracing.TraceLine("sendRemoteConnect:Radio connect returned null handle.", TraceLevel.Error);
-                Radios.SmartLink.SmartLinkConnectRecords.Store(record.WithLastAttempt(a => a with
-                {
-                    End = Radios.SmartLink.SmartLinkAttemptEnd.NullHandle,
-                    EndDetail = "the connect request came back without a handle",
-                }));
-                return false;
-            }
-
-            // The method actually used on this connect: what both punched-
-            // session guards and the network identity read (ConnectedByHolePunch).
-            SmartLinkMethodInUse = method;
-            Radios.SmartLink.SmartLinkConnectRecords.Store(record
-                .WithLastAttempt(a => a with
-                {
-                    HandleArrived = true,
-                    End = Radios.SmartLink.SmartLinkAttemptEnd.Dialled,
-                    EndDetail = "handed to the open; not yet proven",
-                })
-                .WithMethodUsed(method));
-
-            r.WANConnectionHandle = handle;
-            rememberCommandRoute(r, handle, session.AccountId);
-
-            // Refresh the per-radio profile stub on every successful WAN
-            // connect: keeps the nickname current and guarantees every radio
-            // ever connected shows up in the Settings per-radio picker with
-            // zero setup. Load/Save never throw; an unset BaseDirectory just
-            // traces and declines.
-            string observedNickname = r.Nickname;
-            RadioConfig.Update(r.Serial, profileStub => {
-                if (!string.IsNullOrEmpty(observedNickname))
-                    profileStub.Nickname = observedNickname;
-            });
-
-            ConnectionProfiler.Current?.RecordEvent("wan_connect_ready", new Dictionary<string, object>
-            {
-                { "serial", r.Serial }
-            });
-            return true;
+            return leg.DialCurrent();
         }
         #endregion
     }

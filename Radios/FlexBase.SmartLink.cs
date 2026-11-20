@@ -925,22 +925,6 @@ namespace Radios
         }
 
         /// <summary>
-        /// Cached SmartLink test_connection report for a radio, if one has
-        /// been collected this app run. Cache read only — never triggers a
-        /// probe, so it is safe to consult from any state including a live
-        /// hole-punched session.
-        /// </summary>
-        public Radios.SmartLink.NetworkDiagnosticReport? LastNetworkReportFor(string serial)
-        {
-            if (string.IsNullOrEmpty(serial)) return null;
-            try
-            {
-                return Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.GetLastNetworkReport(serial);
-            }
-            catch { return null; }
-        }
-
-        /// <summary>
         /// The radio's last-known LAN address from the connection cache, or
         /// null if this machine has never seen it on the LAN. This is what
         /// lets the router-rule text name a real address for a radio we can
@@ -977,11 +961,16 @@ namespace Radios
         /// evidence already in hand plus (when safe) evidence one probe away:
         ///
         /// 1. The SmartLink test_connection report — reachability ground
-        ///    truth measured from OUTSIDE the user's network. Cached copy is
-        ///    used when present; a fresh probe is fetched only on the
-        ///    forwarded path. NEVER auto-run on a hole-punch radio — the
-        ///    radio-side probe is at minimum useless there and was implicated
-        ///    in killing punched sessions (the f842e93f gate's reasoning).
+        ///    truth measured from OUTSIDE the user's network. The radio's OWN
+        ///    report, from the account that brokers it (the diagnostic's
+        ///    pairing), never whichever session is active. The cached copy is
+        ///    used when present. A fresh probe is behind the same switch as
+        ///    the network test with no radio connected, which is OFF: a failed
+        ///    connect has no radio of ours connected, the test reaches everyone
+        ///    on that radio, and its effect on another operator is not yet
+        ///    established. NEVER for an attempt that punched — the radio-side
+        ///    probe is at minimum useless there and was implicated in killing
+        ///    punched sessions (the f842e93f gate's reasoning).
         /// 2. A client-side TCP classification of the radio's public port —
         ///    refused (router answered, nothing behind the rule) versus
         ///    timed out (packets never arrived) are different diseases with
@@ -996,47 +985,64 @@ namespace Radios
             if (remoteHandshakeFailed && _dialRefusedReport != null) return _dialRefusedReport;
 
             var detail = new List<string>();
+            // The METHOD the last attempt used, not the radio's own punch
+            // report: "Hole punch always" to a radio that advertises ports
+            // punched, and a ports method to a radio that says it needs a
+            // punch did not. The radio's flag only when no attempt was made.
             bool punch = false;
-            try { punch = r.RequiresHolePunch; } catch { }
+            try
+            {
+                punch = LastSmartLinkAttemptMethod is Radios.SmartLink.SmartLinkMethod attempted
+                    ? attempted == Radios.SmartLink.SmartLinkMethod.HolePunch
+                    : r.RequiresHolePunch;
+            }
+            catch { }
             int tlsPort = 0, udpPort = 0;
             try { tlsPort = r.PublicTlsPort; udpPort = r.PublicUdpPort; } catch { }
-            detail.Add($"radio-reported path: {(punch ? "hole punch" : "forwarded ports")}, TCP {tlsPort}, UDP {udpPort}, forwarding flag {(RadioPortForwardActive ? "on" : "off")}");
+            detail.Add($"path attempted: {(punch ? "hole punch" : "the radio's ports")}, TCP {tlsPort}, UDP {udpPort}, forwarding flag {(RadioPortForwardActive ? "on" : "off")}");
 
             string? ruleText = BuildRouterRuleText();
 
-            // Evidence source 1 — SmartLink's own outside-in probe.
-            Radios.SmartLink.NetworkDiagnosticReport? probe = LastNetworkReportFor(r.Serial);
+            // Evidence source 1 — SmartLink's own outside-in probe, PAIRED
+            // (the tiers work, Tracks C and B): this radio's own report from
+            // the account that brokers it, never the active session's cache.
+            Radios.SmartLink.NetworkDiagnosticReport? probe = NetworkReportFor(r.Serial);
             if (probe == null && !punch)
             {
-                // Forwarded path with no cached report: fetch one now. The
-                // connect already failed, so there is no live session to
-                // endanger, and eight seconds of waiting buys the difference
-                // between evidence and a shrug. Punch path: never — see the
-                // method doc.
-                //
-                // FOR TRACK B (the tiers work; left here by Track C, as
-                // settled): this probe, LastNetworkReportFor above, and the
-                // `punch` flag it gates on are still UNPAIRED. They read the
-                // ACTIVE session, which may not be the account that brokered
-                // this radio, and the radio's own RequiresHolePunch report
-                // rather than the method this attempt used. The diagnostic's
-                // pairing is FlexBase.NetworkDiagnosticPairingFor(serial) and
-                // FlexBase.NetworkReportFor(serial) (FlexBase.NetworkDiagnostic.cs);
-                // reuse them, never fall back to the active session, and gate
-                // on the attempt's own method when the walk owns this path.
-                try
+                // Ports attempt with no cached report. A fresh probe here is a
+                // network test with NO radio of ours connected (the connect
+                // just failed), so it waits behind the same switch as that
+                // test, which is off; with the switch off nothing is sent, and
+                // the report is composed from what is already in hand. When
+                // the switch is ruled on, the probe goes through the radio's
+                // own brokering account's session and no other, once for the
+                // SmartLink leg (this runs once per leg, after its last
+                // method), never for an attempt that punched.
+                var gate = Radios.SmartLink.NetworkTestGate.Decide(radioConnected: false, r.Serial);
+                if (gate != Radios.SmartLink.NetworkTestGateAnswer.Run)
                 {
-                    var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-                    if (session != null && session.IsConnected)
-                    {
-                        Tracing.TraceLine("BuildRemoteConnectFailureReport: fetching fresh test_connection (forwarded path, no cached report)", TraceLevel.Info);
-                        var task = session.RunNetworkDiagnosticAsync(r.Serial, forceRefresh: false, timeout: TimeSpan.FromSeconds(8));
-                        if (task.Wait(9000)) probe = task.Result;
-                    }
+                    Tracing.TraceLine($"BuildRemoteConnectFailureReport: no fresh test_connection for {r.Serial} (gate={gate}); composing from the evidence in hand", TraceLevel.Info);
                 }
-                catch (Exception ex)
+                else
                 {
-                    Tracing.TraceLine($"BuildRemoteConnectFailureReport: probe fetch failed: {ex.Message}", TraceLevel.Warning);
+                    try
+                    {
+                        var session = PairedSession(NetworkDiagnosticPairingFor(r.Serial));
+                        if (session != null)
+                        {
+                            Tracing.TraceLine("BuildRemoteConnectFailureReport: fetching fresh test_connection through the radio's own brokering account (ports attempt, no cached report)", TraceLevel.Info);
+                            var task = session.RunNetworkDiagnosticAsync(r.Serial, forceRefresh: false, timeout: TimeSpan.FromSeconds(8));
+                            if (task.Wait(9000)) probe = task.Result;
+                        }
+                        else
+                        {
+                            Tracing.TraceLine($"BuildRemoteConnectFailureReport: no fresh test_connection for {r.Serial}: its brokering account is unknown or not signed in, and no other account's session is used", TraceLevel.Info);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine($"BuildRemoteConnectFailureReport: probe fetch failed: {ex.Message}", TraceLevel.Warning);
+                    }
                 }
             }
             if (probe != null && probe.ProbeCompleted)

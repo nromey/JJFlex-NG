@@ -2908,6 +2908,12 @@ namespace Radios
                 });
             }
 
+            // True when the transport that is up belongs to a LATER SmartLink
+            // method than the one dialled above: that method's own connect
+            // (made the way a retry is) has already done what follows a
+            // connect coming up, and it is not done twice.
+            bool smartLinkMovedOn = false;
+
             if (rv)
             {
                 Tracing.TraceLine($"Connect: IsWan={theRadio.IsWan} RequiresHolePunch={theRadio.RequiresHolePunch} PublicTlsPort={theRadio.PublicTlsPort} NegotiatedHolePunchPort={theRadio.NegotiatedHolePunchPort} IP={theRadio.IP}", TraceLevel.Info);
@@ -2919,7 +2925,14 @@ namespace Radios
                 // for "radio, mint one" (#782). FlexLib sends `client gui <id>`
                 // or a bare `client gui` accordingly.
                 RevokePttWatch("Connect");   // a selected trace topic makes the bare ping fence throw (#835)
+                // The SmartLink attempt this transport belongs to, watched for
+                // its proof from before the socket exists (null for a local radio).
+                var smartLinkAttempt = WatchSmartLinkAttemptBeforeTransport(null);
                 rv = theRadio.Connect(prepareClientIdentityForConnect("Connect"));
+                // A SmartLink method that failed here (the TCP or TLS stage)
+                // is followed by the next method the account's tier allows.
+                rv = SmartLinkTransportResult(smartLinkAttempt, rv, continuation: false, out smartLinkMovedOn);
+                if (RemoteRig) remoteHandshakeFailed = !rv && SmartLinkLegEndedAtTheRequest();
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_end", new Dictionary<string, object>
                 {
                     { "success", rv }
@@ -2929,11 +2942,14 @@ namespace Radios
             if (rv)
             {
                 Tracing.TraceLine("Connect worked:" + theRadio.Serial, TraceLevel.Info);
-                AttachSliceRecorderStatus(theRadio);
-                ApplyChoicesWaitingForAConnect(theRadio.Serial);
-                // The post-connect fence: its reply marks the end of whatever
-                // the radio restored for a returning client (#782).
-                sendConnectFence("Connect");
+                if (!smartLinkMovedOn)
+                {
+                    AttachSliceRecorderStatus(theRadio);
+                    ApplyChoicesWaitingForAConnect(theRadio.Serial);
+                    // The post-connect fence: its reply marks the end of whatever
+                    // the radio restored for a returning client (#782).
+                    sendConnectFence("Connect");
+                }
 
                 // 4.1-line cache writer: seed radioConnectionCacheV1.xml so the
                 // 4.2-line discovery cascade (Rung 1a CachedLanIp) can short-circuit
@@ -3060,7 +3076,15 @@ namespace Radios
                 // "connection failed".
                 try
                 {
-                    if (RemoteRig)
+                    if (RemoteRig && _cancelRequested)
+                    {
+                        // The operator stopped it. Nothing failed, so no
+                        // evidence is gathered: composing it runs a TCP check
+                        // of the radio's port that can take four seconds, and
+                        // Escape is not to be followed by more waiting.
+                        Tracing.TraceLine("Connect: ended by operator cancel; no failure evidence is gathered", TraceLevel.Info);
+                    }
+                    else if (RemoteRig)
                     {
                         RecordConnectFailure(BuildRemoteConnectFailureReport(theRadio, remoteHandshakeFailed));
                     }
@@ -3151,13 +3175,22 @@ namespace Radios
                     var path = chain[leg];
                     bool lastLeg = leg == chain.Count - 1;
 
+                    // A cancel is never walked on (the tiers work, Track B):
+                    // the operator pressed Escape to get OUT. This walk used to
+                    // go on to its next path and say so.
+                    if (_cancelRequested)
+                    {
+                        Tracing.TraceLine($"TryAutoConnect: cancelled by the operator; leg {leg} ({path}) is not tried", TraceLevel.Info);
+                        return false;
+                    }
+
                     if (path == ConnectPathKind.SmartLink)
                     {
                         Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink — calling TryAutoConnectRemote ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                         if (!TryAutoConnectRemote(config, timeoutMs, quietFailures: !lastLeg))
                         {
                             Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink session FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                            if (!lastLeg && !SuppressSpeech)
+                            if (!lastLeg && !SuppressSpeech && !_cancelRequested)
                                 ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.smartlink_unreachable", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
                             continue;
                         }
@@ -3204,7 +3237,7 @@ namespace Radios
                             // No silent path substitution: the walk says so.
                             var next = (chain[leg + 1] == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.next_smartlink") : Lexicon.Get("connect.auto.next_local"));
                             var here = (path == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.here_smartlink") : Lexicon.Get("connect.auto.here_local"));
-                            if (!SuppressSpeech)
+                            if (!SuppressSpeech && !_cancelRequested)
                                 ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.not_found_here",
                                     ("radioName", config.RadioName), ("here", here), ("next", next)), VerbosityLevel.Critical, true);
                             continue;
@@ -3258,7 +3291,14 @@ namespace Radios
                     {
                         sw.Stop();
                         Tracing.TraceLine($"TryAutoConnect: END connected successfully on leg {leg} ({path}) (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                        if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.connected", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
+                        // "Connected" is said when it is true. Over SmartLink
+                        // that is at proof (the radio opened and its audio and
+                        // data arrived), not here, where only the transport is
+                        // up and the method walk may yet move on; said here it
+                        // would also cut across the walk's own sentence.
+                        string connectedSentence = Lexicon.Get("connect.auto.connected", ("radioName", config.RadioName));
+                        if (SmartLinkLegOwingAnOpen() != null) _connectedSentenceOwedAtProof = connectedSentence;
+                        else if (!SuppressSpeech) ScreenReaderOutput.Speak(connectedSentence, VerbosityLevel.Critical, true);
                         // BT prosign moved to MainWindow.PowerOn so it fires AFTER the CW delegate is
                         // wired and CwNotificationsEnabled is loaded from config. Previous location
                         // (here) raced with MainWindow init -- PlayCwBT was null on first connect.
@@ -3266,6 +3306,11 @@ namespace Radios
                     }
 
                     Tracing.TraceLine($"TryAutoConnect: leg {leg} Connect() FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    if (_cancelRequested)
+                    {
+                        Tracing.TraceLine($"TryAutoConnect: leg {leg} ({path}) ended by operator cancel; not walking on", TraceLevel.Info);
+                        return false;
+                    }
                     if (!lastLeg)
                     {
                         var next = (chain[leg + 1] == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.next_smartlink") : Lexicon.Get("connect.auto.next_local"));
@@ -3438,7 +3483,17 @@ namespace Radios
         /// No re-auth, no handler re-wiring. Just sends remote connect + Radio.Connect().
         /// Used when Start() fails due to GUIClient lifecycle race.
         /// </summary>
-        public bool RetryConnect()
+        public bool RetryConnect() => retryConnectCore(null);
+
+        /// <summary>
+        /// The retry itself. <paramref name="continuing"/> is null for a
+        /// caller's retry, which plans the SmartLink connect afresh (the
+        /// method that last proved itself first). Otherwise it is the
+        /// SmartLink method attempt the method walk has already dialled as
+        /// its NEXT method on this radio object: its transport is made here,
+        /// exactly as a retry's is, and nothing is planned or dialled again.
+        /// </summary>
+        private bool retryConnectCore(Radios.SmartLink.SmartLinkAttempt continuing)
         {
             if (theRadio == null)
             {
@@ -3447,12 +3502,15 @@ namespace Radios
             }
 
             // A retry that opens another transport gets another producer identity.
-            rememberCommandRoute(null, null, null);
+            // (The method walk's next method has just been given its own, by
+            // its dial; that one is kept.)
+            if (continuing == null) rememberCommandRoute(null, null, null);
             _txAllowedReported = false;
             ForgetPowerReports();
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
+            Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}"
+                + (continuing == null ? "" : $" (the SmartLink method walk's next method, attempt {continuing.Sequence}, {continuing.Method})"), TraceLevel.Info);
 
             try
             {
@@ -3471,9 +3529,13 @@ namespace Radios
 
                 bool rv = true;
 
-                if (RemoteRig)
+                if (RemoteRig && continuing == null)
                 {
-                    rv = sendRemoteConnect(theRadio);
+                    // A reconnect: the plan tries the method that last proved
+                    // itself for this radio first (the tiers plan, section 4).
+                    _smartLinkDialIsReconnect = true;
+                    try { rv = sendRemoteConnect(theRadio); }
+                    finally { _smartLinkDialIsReconnect = false; }
                     Tracing.TraceLine($"RetryConnect: sendRemoteConnect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
 
@@ -3484,7 +3546,13 @@ namespace Radios
                     // The same stored id as the first attempt presented, unless
                     // the radio refused it as a duplicate in between (#782).
                     RevokePttWatch("RetryConnect");   // as in Connect (#835)
+                    var smartLinkAttempt = WatchSmartLinkAttemptBeforeTransport(continuing);
                     rv = theRadio.Connect(prepareClientIdentityForConnect("RetryConnect"));
+                    rv = SmartLinkTransportResult(smartLinkAttempt, rv, continuation: continuing != null, out bool laterMethodIsUp);
+                    // As in Connect: the transport that came up belongs to a
+                    // LATER SmartLink method, and that method's own connect
+                    // (this code, run for it) has done everything below.
+                    if (rv && laterMethodIsUp) return true;
                     Tracing.TraceLine($"RetryConnect: Radio.Connect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
                     if (rv)
@@ -3664,15 +3732,59 @@ namespace Radios
         public bool SuppressSpeech { get; set; }
 
         /// <summary>
-        /// Start radio activity
+        /// Start radio activity: open the radio and, for a SmartLink connect,
+        /// prove the connection before calling it open.
         /// </summary>
+        /// <remarks>
+        /// A SmartLink method attempt is in flight when the connect stage left
+        /// one with its transport up (FlexBase.SmartLinkAttempts.cs). Its open
+        /// and its proof then run under the method walk, which on a method
+        /// failure (no audio or data from the radio in the window, or the
+        /// command connection lost) tears that attempt down, says the move
+        /// once, and tries the next method the account's tier allows: its own
+        /// request, its own transport, its own open. Every caller of Start
+        /// gets that, because it lives here. Anything else, a local connect
+        /// included, opens exactly as it always has.
+        /// </remarks>
         public bool Start()
         {
+            // The operator's cancel belongs to one Start: cleared here, once,
+            // and NOT at the top of each open the method walk may run inside
+            // it, so a cancel during a later method is never wiped.
+            _cancelRequested = false;
+
+            var leg = SmartLinkLegOwingAnOpen();
+            if (leg == null)
+            {
+                return startOpenPhase(null, out _) && startCommit();
+            }
+            return StartUnderSmartLinkLeg(leg);
+        }
+
+        /// <summary>
+        /// The open, up to but not including its commit
+        /// (<see cref="startCommit"/>): the slice check, the radio's setup
+        /// data and our station name. <paramref name="attempt"/> is the
+        /// SmartLink method attempt this open belongs to, or null; when it
+        /// fails its proof the waits here stop, as they do for a cancel, and
+        /// the open says so through <paramref name="ended"/>.
+        /// </summary>
+        private bool startOpenPhase(Radios.SmartLink.SmartLinkAttempt attempt, out Radios.SmartLink.SmartLinkOpenAnswerKind ended)
+        {
+            ended = Radios.SmartLink.SmartLinkOpenAnswerKind.Failed;
             // Reset flags early — stale removal events from Connect() phase
             // must not poison the station name wait loop.
             _clientRemovedDuringStart = false;
             _clientAddedDuringStart = false;
-            _cancelRequested = false;
+
+            // True when this open's own attempt has failed its proof (read
+            // against the clock here, so no timer thread is needed).
+            bool AttemptFailed()
+            {
+                if (attempt == null) return false;
+                attempt.Poll();
+                return attempt.HasFailed;
+            }
 
             LastStartFailureReason = null;
             ConnectionProfiler.Current?.RecordEvent("start_begin", new Dictionary<string, object>
@@ -3684,14 +3796,20 @@ namespace Radios
 
             await(() =>
             {
-                return initialFreeSlices != -1 || _cancelRequested;
+                return initialFreeSlices != -1 || _cancelRequested || AttemptFailed();
             }, 5000);
 
             if (_cancelRequested)
             {
                 Tracing.TraceLine("start: cancelled before slice check", TraceLevel.Info);
                 LastStartFailureReason = "Cancelled by user";
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.Cancelled;
                 return false;
+            }
+            if (AttemptFailed())
+            {
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.StoppedByAttempt;
+                return StopOpenForFailedAttempt(attempt, "before the slice check");
             }
 
             ConnectionProfiler.Current?.RecordEvent("start_slices_available", new Dictionary<string, object>
@@ -3775,6 +3893,7 @@ namespace Radios
             ConnectSetupWait.Outcome waited = ConnectSetupWait.Run(new ConnectSetupWait.World
             {
                 Cancelled = () => _cancelRequested,
+                Aborted = AttemptFailed,
                 Connected = () => IsConnected,
                 AntennasHere = () => (theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0),
                 ClientRemoved = () => _clientRemovedDuringStart,
@@ -3785,6 +3904,14 @@ namespace Radios
                 Trace = (line, level) => Tracing.TraceLine(line, level),
             }, _startBeginTickCount);
             bool stationNameSet = waited.StationNamed;
+            if (!_cancelRequested && waited.Ended == ConnectSetupWait.End.Aborted)
+            {
+                // This open's own SmartLink attempt failed its proof (no audio
+                // or data from the radio in the window, or its connection
+                // fell). Not the operator's cancel: the method walk moves on.
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.StoppedByAttempt;
+                return StopOpenForFailedAttempt(attempt, "during the setup wait");
+            }
             if (!_cancelRequested && !waited.AntennasArrived)
             {
                 // QB Track D (item 4): "no RX antenna" was a misleading verdict
@@ -3797,7 +3924,12 @@ namespace Radios
                 {
                     Tracing.TraceLine("start: connection dropped during antenna-list wait", TraceLevel.Error);
                     LastStartFailureReason = "Connection lost during setup";
-                    raiseNoSliceError("the connection to the radio dropped during setup");
+                    ended = Radios.SmartLink.SmartLinkOpenAnswerKind.ConnectionLost;
+                    // When the SmartLink method walk is about to try another
+                    // method, it says so; an error box here would sit over
+                    // that move and say the connect was over.
+                    if (!SmartLinkLegWillMoveOnAfterLoss(attempt))
+                        raiseNoSliceError("the connection to the radio dropped during setup");
                     return false;
                 }
                 if (theRadio.RXAntList == null)
@@ -3822,6 +3954,7 @@ namespace Radios
                 // connect attempt doesn't trip the AS-retry path on stale state.
                 Tracing.TraceLine("start: cancelled, disconnecting radio for clean cleanup", TraceLevel.Info);
                 LastStartFailureReason = "Cancelled by user";
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.Cancelled;
                 ConnectionProfiler.Current?.RecordAndSave("start_cancelled", new Dictionary<string, object>
                 {
                     { "phase", "station_name_wait" },
@@ -3849,6 +3982,7 @@ namespace Radios
                 // Don't raise error — caller (openTheRadio) can retry the connection.
                 Tracing.TraceLine("start:connection lost during station name wait, caller may retry", TraceLevel.Error);
                 LastStartFailureReason = "Connection lost during setup";
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.ConnectionLost;
                 ConnectionProfiler.Current?.RecordAndSave("start_connection_lost");
                 return false;
             }
@@ -3891,6 +4025,18 @@ namespace Radios
                 teardownDisconnect("station-name timeout, retrying");
                 return false;
             }
+            ended = Radios.SmartLink.SmartLinkOpenAnswerKind.Completed;
+            return true;
+        }
+
+        /// <summary>
+        /// The open's commit: what must not start until the open is done and,
+        /// for a SmartLink connect, proven. Split from the open so a
+        /// connection that fails its proof never has the rig's main thread
+        /// running over it.
+        /// </summary>
+        private bool startCommit()
+        {
             mainThread = new Thread(mainThreadProc);
             mainThread.Name = "mainThread";
             mainThread.Start();
@@ -3911,6 +4057,9 @@ namespace Radios
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             // The session's last speech counts, before the radio goes (#506).
             Speech.SpeechTally.Shared.Write("disconnect");
+            // A SmartLink method attempt still undecided ends here, so its
+            // record never reads "still going" after the connect is gone.
+            AbandonSmartLinkLeg("the rig was disconnected");
             if (theRadio == null) return;
             AttachSliceRecorderStatus(null);
 

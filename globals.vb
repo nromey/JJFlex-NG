@@ -5098,13 +5098,22 @@ Module globals
             Do
                 connectOk = RunWalkLeg(walk, suppressedAuthFailure)
                 If connectOk Then Exit Do
-                If Not AnnounceWalkOn(walk, "wpfSelectorProc") Then Exit Do
+                ' A cancel is never walked on (the tiers work, Track B): the
+                ' operator pressed Escape to get OUT, and until now only the
+                ' walk resumed after a failed open honoured that. One rule,
+                ' ConnectWalk.MayMoveOn, for both.
+                If Not walk.MayMoveOn(WalkCancelled()) Then
+                    If WalkCancelled() Then Tracing.TraceLine($"wpfSelectorProc: leg {walk.LegIndex} ({walk.Current}) ended by operator cancel; not walking on", TraceLevel.Info)
+                    Exit Do
+                End If
+                AnnounceWalkOn(walk, "wpfSelectorProc")
                 walk.MoveNext()
             Loop
 
             ' The chain is exhausted and a SmartLink leg failed on auth while
             ' its prompt was suppressed: NOW the native sign-in is earned.
-            If Not connectOk AndAlso suppressedAuthFailure Then
+            ' Never after a cancel.
+            If Not connectOk AndAlso suppressedAuthFailure AndAlso Not WalkCancelled() Then
                 Tracing.TraceLine("wpfSelectorProc: chain exhausted after suppressed auth failure — retrying SmartLink with sign-in allowed", TraceLevel.Info)
                 Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.walk.signing_in"), VerbosityLevel.Critical, True)
                 Dim retrySw = System.Diagnostics.Stopwatch.StartNew()
@@ -5321,11 +5330,14 @@ Module globals
         Return ok
     End Function
 
-    ''' <summary>The operator-facing name of one leg.</summary>
-    Private Function WalkLegName(path As Radios.ConnectPathKind) As String
-        Return If(path = Radios.ConnectPathKind.SmartLink,
-                  Radios.Lexicon.Get("connect.walk.leg_smartlink"),
-                  Radios.Lexicon.Get("connect.walk.leg_local"))
+    ''' <summary>
+    ''' True when the operator cancelled this connect: the rig's own flag, or a
+    ''' cancel its SmartLink leg saw at one of its waits (the tiers work, Track
+    ''' B). The second is kept by the leg, so it survives the flag being cleared.
+    ''' </summary>
+    Private Function WalkCancelled() As Boolean
+        Dim rig = RigControl
+        Return rig IsNot Nothing AndAlso (rig.CancelRequested OrElse rig.SmartLinkLegCancelled)
     End Function
 
     ''' <summary>
@@ -5339,12 +5351,11 @@ Module globals
     ''' </summary>
     Private Function AnnounceWalkOn(walk As Radios.ConnectWalk, where As String) As Boolean
         If walk Is Nothing OrElse Not walk.HasNextLeg Then Return False
-        Dim legName = WalkLegName(walk.Current)
-        Dim nextName = WalkLegName(walk.PeekNext.Value)
-        Tracing.TraceLine($"{where}: leg {walk.LegIndex} ({legName}) failed; walking to {nextName}", TraceLevel.Info)
-        Radios.ScreenReaderOutput.Speak(
-            Radios.Lexicon.Get("connect.walk.falling_back", ("legName", legName), ("nextName", nextName)),
-            VerbosityLevel.Critical, True)
+        Tracing.TraceLine($"{where}: leg {walk.LegIndex} ({walk.DescribeWithMethod()}) failed; walking to {walk.PeekNext.Value}", TraceLevel.Info)
+        ' One voice for every move of the walk, this one between paths and the
+        ' SmartLink leg's own between methods: Radios.ConnectWalkAnnouncer, at
+        ' Critical, interrupting, said once.
+        Radios.ConnectWalkAnnouncer.SayMove(walk.Current, walk.PeekNext.Value)
         Return True
     End Function
 
@@ -5387,6 +5398,11 @@ Module globals
             connectOk = RigControl.ReconnectRemote(serial, lowBW,
                 forceWanPath:=True,
                 allowInteractiveLogin:=lastLeg)
+            ' The method the SmartLink leg attempted last (the forwarded ports,
+            ' the radio's UPnP ports, a hole punch): the leg walks its methods
+            ' itself, inside the radio layer, and the walk carries which one it
+            ' reached.
+            walk.NoteSmartLinkMethod(RigControl.SmartLinkLegMethod)
             Dim failReport = RigControl.LastConnectFailureReport
             If Not connectOk AndAlso Not lastLeg AndAlso failReport IsNot Nothing AndAlso
                failReport.Class = Radios.ConnectFailureClass.AuthenticationFailed Then
@@ -5456,7 +5472,7 @@ Module globals
         If walk Is Nothing Then Return False
         If RigControl Is Nothing Then Return False
 
-        If RigControl.CancelRequested Then
+        If WalkCancelled() Then
             Tracing.TraceLine("connect walk: open failed after a cancel — not walking on", TraceLevel.Info)
             Return False
         End If
@@ -5496,7 +5512,15 @@ Module globals
         Dim opened As Boolean = False
 
         Do
-            If Not AnnounceWalkOn(walk, "connect walk (after failed open)") Then Exit Do
+            If Not walk.MayMoveOn(WalkCancelled()) Then Exit Do
+            AnnounceWalkOn(walk, "connect walk (after failed open)")
+            ' The path being left may still hold its session open: an open can
+            ' fail with the command connection up. It is closed before the
+            ' next path connects, our own goodbye and our own socket, so the
+            ' radio never holds two sessions with this program's one client
+            ' identity (the tiers work, Track B; Track A's repair 3 did the
+            ' same for the tier offer's Yes).
+            RigControl.RetireSessionBeforeNextLeg("connect walk (after failed open)")
             walk.MoveNext()
             Radios.ConnectionProfiler.Current?.RecordEvent("walk_resume_leg", New Dictionary(Of String, Object) From {
                 {"leg", walk.LegIndex},
@@ -5520,7 +5544,7 @@ Module globals
             End If
 
             Tracing.TraceLine($"connect walk: leg {walk.LegIndex} ({walk.Current}) connected but did not open", TraceLevel.Warning)
-            If RigControl.CancelRequested Then Exit Do
+            If WalkCancelled() Then Exit Do
         Loop
 
         Return opened
