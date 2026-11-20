@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using Flex.Smoothlake.FlexLib;
 using JJTrace;
 using Radios.SmartLink;
 
@@ -120,6 +121,97 @@ namespace Radios
             Tracing.TraceLine(
                 $"DismissTierOffer: the tier {(int)offer.OfferedTier + 1} offer to {offer.AccountEmail} for {offer.Serial} is not presented: {why}",
                 TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// Yes to the tier offer: plan the SmartLink connect to
+        /// <paramref name="serial"/> again under the tier just saved, through
+        /// the same brokering lookup (sendRemoteConnect re-reads the account
+        /// from the shared manager). Returns True when the SmartLink session
+        /// came up; the open is the caller's.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>A session this rig still holds open is retired FIRST</b>
+        /// (Track A repair round 3, from Codex's re-check of round 2). A Local
+        /// open can fail with its command connection still up (the antenna
+        /// list never arrives), and the offer is put at that walk end. The
+        /// re-plan's <see cref="Connect"/> then replaces <c>theRadio</c> with
+        /// the WAN object without closing the old one, so two sessions
+        /// presenting this program's one GUI client identity
+        /// (FlexBase.ClientIdentity.cs) would be open to the same radio, which
+        /// the identity contract says the radio may refuse by dropping either.
+        /// See <see cref="RetireSessionBeforeReplan"/>.</para>
+        /// <para>Every route into the re-plan comes through here, so a route
+        /// whose transport has already fallen behaves exactly as before: there
+        /// is nothing to retire, and the trace says so.</para>
+        /// </remarks>
+        public bool ReplanSmartLinkUnderRaisedTier(string serial, bool lowBW, bool pathForced, string where) =>
+            ReplanSmartLinkUnderRaisedTier(serial, lowBW, pathForced, where,
+                () => ReconnectRemote(serial, lowBW, forceWanPath: true, allowInteractiveLogin: true));
+
+        /// <summary>
+        /// The re-plan with its dial supplied, so a test can stand at the
+        /// boundary with a real rig and a real live radio object and see what
+        /// the dial would meet. Production passes <see cref="ReconnectRemote"/>.
+        /// </summary>
+        internal bool ReplanSmartLinkUnderRaisedTier(string serial, bool lowBW, bool pathForced, string where, Func<bool> dial)
+        {
+            RetireSessionBeforeReplan(where);
+            SmartLinkPathForced = pathForced;
+            Tracing.TraceLine($"{where}: dialling SmartLink again for {serial} (lowBW={lowBW}, pathForced={pathForced}) under the raised tier", TraceLevel.Info);
+            return dial();
+        }
+
+        /// <summary>
+        /// Close the session this rig still holds open on <c>theRadio</c>, if
+        /// any, before a re-plan replaces the object. The open that used it has
+        /// already failed, so this is that open's teardown, the one
+        /// <see cref="Start"/> itself uses when an open fails part way (a
+        /// cancel, a station-name timeout): the goodbye for this client's own
+        /// registration (<c>client disconnect</c> with our handle, the same one
+        /// an ordinary disconnect sends) and the socket closed as our own,
+        /// so the fall is classed self-initiated and archives nothing. Then
+        /// this rig's handlers are let go of on the object, as
+        /// <see cref="Disconnect"/> does once it has fallen.
+        /// </summary>
+        /// <remarks>
+        /// <para>Deliberately NOT <see cref="Disconnect"/>: that is the
+        /// operator's hang-up. It announces the disconnect, plays the farewell,
+        /// and puts profiles, PC audio, the microphone input and the speaker
+        /// back, which are writes to the radio, for a session whose open never
+        /// finished. Nothing here writes a setting or sends anything but the
+        /// goodbye.</para>
+        /// <para>The pending offer is already answered; the serial, bandwidth
+        /// and forced path are the caller's parameters, and the brokering
+        /// lookup is the shared manager's, so none of them is touched.</para>
+        /// </remarks>
+        /// <returns>True when a live session was retired.</returns>
+        internal bool RetireSessionBeforeReplan(string where)
+        {
+            Radio? radio = theRadio;
+            bool live;
+            try { live = radio != null && radio.Connected; }
+            catch { live = false; }
+            if (!live)
+            {
+                Tracing.TraceLine($"{where}: no session still open on this rig; nothing to retire before the SmartLink re-plan", TraceLevel.Info);
+                return false;
+            }
+
+            string why = where + ": the failed open's session retired before the SmartLink re-plan";
+            Tracing.TraceLine($"{where}: {radio!.Serial} ({(radio.IsWan ? "SmartLink" : "local")}) still holds this program's session open after its open failed; retiring it before the SmartLink re-plan", TraceLevel.Info);
+            releaseGuiClientRegistration(why);
+            teardownDisconnect(why);
+            if (!radio.Connected)
+            {
+                unwireProducerHandlers(radio);
+                UnwireStationHandlers(radio);
+            }
+            else
+            {
+                Tracing.TraceLine($"{where}: {radio.Serial} still reports connected after the teardown; its handlers stay until it lets go", TraceLevel.Warning);
+            }
+            return true;
         }
 
         /// <summary>The offer's question, naming the radio the operator's way. DRAFT words.</summary>

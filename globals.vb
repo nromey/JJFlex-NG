@@ -5297,14 +5297,17 @@ Module globals
     ''' and through the same brokering lookup (sendRemoteConnect re-reads the
     ''' account from the shared manager). Returns True when the SmartLink
     ''' session came up; the open is the caller's. Shared by the selector's
-    ''' walk end and the walk resumed after a failed open (repair round 1).
+    ''' walk end and the walk resumed after a failed open (repair round 1),
+    ''' and the last walk end (repair round 2).
+    ''' Only a Yes reaches the re-plan; No and Cancel dial nothing. The re-plan
+    ''' first retires a session the failed open left up (repair round 3):
+    ''' see FlexBase.ReplanSmartLinkUnderRaisedTier.
     ''' </summary>
     Private Function OfferTierAndReplanSmartLink(serial As String, lowBW As Boolean, pathForced As Boolean, where As String) As Boolean
         If Not OfferHigherSmartLinkTier(RigControl, where) Then Return False
         Tracing.TraceLine($"{where}: tier raised by the operator — planning the SmartLink connect again", TraceLevel.Info)
         Dim offerSw = System.Diagnostics.Stopwatch.StartNew()
-        RigControl.SmartLinkPathForced = pathForced
-        Dim ok = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=True, allowInteractiveLogin:=True)
+        Dim ok = RigControl.ReplanSmartLinkUnderRaisedTier(serial, lowBW, pathForced, where)
         offerSw.Stop()
         If ok Then
             Radios.ConnectionHistory.ArmPendingOutcome(serial,
