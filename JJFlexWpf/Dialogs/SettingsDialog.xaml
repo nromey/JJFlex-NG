@@ -707,7 +707,7 @@
 
                             <!-- Sprint 27 Track A: Tier 1 framing prose. Explains what this mode means and why it's the recommended default. -->
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Tier 1 (Manual Port Forwarding) is the recommended default. You choose the external port and set the two router rules yourself, and JJ Flexible Radio Access tells the radio to advertise that port. Tier 1 is sovereign — there is no third-party coordination, no UPnP, and no hole-punch. It is the only tier compatible with organizational security policies that require UPnP disabled (DISA STIGs, PCI-DSS, HIPAA), and it is the most reliable path through strict NAT configurations. Your chosen port is saved with your SmartLink account; on future connections, JJ Flexible Radio Access applies it automatically."/>
+                                       Text="Tier 1 is the recommended default for SmartLink accounts. Tier 1 permits SmartLink connections through the radio's manually forwarded TCP and UDP ports only. The router at the radio's network location must have matching forwarding rules. Tier 1 does not use UPnP ports or hole punching."/>
 
                             <TextBlock x:Name="NetworkCurrentStateText"
                                        Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
@@ -782,50 +782,54 @@
                                  per-radio path is the honest answer for that radio
                                  and this text is the signpost to it. -->
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,4"
-                                       Text="This ladder is your account-wide default, and tiers 2 and 3 unlock only after manual port forwarding above is enabled with a valid port, because they build on it. It cannot describe a radio that has no port forwarding at all. For that — or for any radio that should always hole punch — use Per-radio settings: the per-radio setting there outranks this ladder, needs no port-forward setup, and works without a connected radio."/>
+                                       Text="The account tier limits which SmartLink connection methods are permitted. Change the tier in Manage SmartLink Accounts, on the Radio menu; a radio connection is not required. A radio's connection choice in Settings, under Per-radio settings, can restrict these methods but cannot override the account tier. The descriptions here explain the three tiers."/>
                             <!-- The tiers work (decision 8): the tier is edited per account,
                                  offline, in Manage SmartLink Accounts. This tab shows the
                                  in-use account's tier, read-only; the three choices below
-                                 are display only and are disabled in code. DRAFT words in
-                                 settings.network.tier_in_use and tier_no_account. -->
+                                 are display only and are disabled in code. The words in
+                                 settings.network.tier_in_use and tier_no_account, this box's
+                                 accessible name and the tier descriptions below are Codex's,
+                                 approved by Noel 2026-11-20 (#1157). The three tier labels
+                                 still wait on the tiers getting names instead of numbers
+                                 (#1234). -->
                             <TextBox x:Name="TierInUseText"
                                      IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
                                      Background="Transparent" Margin="0,0,0,4"
-                                     AutomationProperties.Name="SmartLink connection tier in use"/>
+                                     AutomationProperties.Name="SmartLink account tier"/>
                             <RadioButton x:Name="Tier1Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
                                          AutomationProperties.Name="Tier 1 — Manual port forwarding only (recommended default)"
-                                         local:JJFlexHelp.Text="You forward the port configured above on your router. No UPnP, no hole-punch. The only mode compatible with strict security policies (DISA STIGs, PCI-DSS, HIPAA) and the most reliable path through picky NATs."
+                                         local:JJFlexHelp.Text="Allow SmartLink connections through the radio's manually forwarded TCP and UDP ports. Tier 1 does not use UPnP ports or hole punching. Configure the forwarding rules on the router at the radio's network location."
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 — Manual port forwarding only (recommended default)" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="You forward the port configured above on your router. No UPnP, no hole-punch. The only mode compatible with strict security policies (DISA STIGs, PCI-DSS, HIPAA) and the most reliable path through picky NATs."/>
+                                               Text="Allow SmartLink connections through the radio's manually forwarded TCP and UDP ports. Tier 1 does not use UPnP ports or hole punching. Configure the forwarding rules on the router at the radio's network location."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="Tier2Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
                                          AutomationProperties.Name="Tier 1 + 2 — Manual + UPnP"
-                                         local:JJFlexHelp.Text="The radio asks your router via UPnP to open the port automatically. JJ Flexible Radio Access does not do this itself and cannot turn UPnP on — if your router has UPnP switched off, that is a change on the router, not here. UPnP is also convenient in a way worth knowing about: it lets any program on your network open a way in without asking, which is why many routers and most workplace networks disable it. If UPnP does not work, JJ Flexible Radio Access falls back to Tier 1."
+                                         local:JJFlexHelp.Text="Allow SmartLink connections through manually forwarded ports and the ports the radio reports opening on its own router through Universal Plug and Play (UPnP). Automatic puts manually forwarded ports before UPnP ports in the connection order. JJ Flexible Radio Access does not create router mappings or enable UPnP."
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 — Manual + UPnP" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="The radio asks your router via UPnP to open the port automatically. JJ Flexible Radio Access does not do this itself and cannot turn UPnP on — if your router has UPnP switched off, that is a change on the router, not here. UPnP is also convenient in a way worth knowing about: it lets any program on your network open a way in without asking, which is why many routers and most workplace networks disable it. If UPnP does not work, JJ Flexible Radio Access falls back to Tier 1."/>
+                                               Text="Allow SmartLink connections through manually forwarded ports and the ports the radio reports opening on its own router through Universal Plug and Play (UPnP). Automatic puts manually forwarded ports before UPnP ports in the connection order. JJ Flexible Radio Access does not create router mappings or enable UPnP."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="Tier3Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
                                          AutomationProperties.Name="Tier 1+2+3 — Allow automatic hole-punch"
-                   local:JJFlexHelp.Text="If direct port forwarding or UPnP is not working, let Flex's SmartLink coordinate a UDP hole-punch between the radio and JJ Flexible Radio Access. Works through most home NATs. May fail on symmetric-NAT networks (some corporate environments and mobile-carrier networks). Fallback to Tier 2 then Tier 1 on failure is automatic."
+                   local:JJFlexHelp.Text="Allow the Tier 1 and Tier 2 port methods and SmartLink hole punching. Automatic uses hole punching only when the radio advertises no usable port pair permitted by this tier; Automatic does not switch to hole punching after a port connection fails. Hole punch always requests hole punching directly and does not try port connections. The networks at both ends may still prevent the connection."
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1+2+3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="If direct port forwarding or UPnP is not working, let Flex's SmartLink coordinate a UDP hole-punch between the radio and JJ Flexible Radio Access. Works through most home NATs. May fail on symmetric-NAT networks (some corporate environments and mobile-carrier networks). Fallback to Tier 2 then Tier 1 on failure is automatic."/>
+                                               Text="Allow the Tier 1 and Tier 2 port methods and SmartLink hole punching. Automatic uses hole punching only when the radio advertises no usable port pair permitted by this tier; Automatic does not switch to hole punching after a port connection fails. Hole punch always requests hole punching directly and does not try port connections. The networks at both ends may still prevent the connection."/>
                                 </StackPanel>
                             </RadioButton>
                         </StackPanel>
@@ -850,7 +854,7 @@
                               AutomationProperties.Name="Hole-punch Port">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="The hole-punch port is a per-radio setting — it belongs to the radio's site, not your account. Set it under Per-radio settings, which works whether or not a radio is connected. Leaving it blank there is recommended: JJ Flexible Radio Access then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router. A port saved here by an earlier version of JJ Flexible Radio Access is still honored until the radio has its own setting."/>
+                                       Text="The hole-punch port is set for each radio in Settings, under Per-radio settings, with or without a radio connected. A blank value lets JJ Flexible Radio Access choose a port automatically for each hole-punch attempt. A port saved at account level by an older version is no longer used for hole punching."/>
                         </StackPanel>
                     </GroupBox>
 
@@ -901,7 +905,7 @@
                               AutomationProperties.Name="Network Diagnostic">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Asks Flex's SmartLink backend to probe your network from outside, then reports whether UPnP and manual port forwarding are reachable from the internet, and whether your NAT preserves source ports (the signal that decides whether hole-punch / Tier 3 can work). Requires an active radio connection and an authenticated SmartLink session. Results are cached for 5 minutes."/>
+                                       Text="The network test checks the radio's ports from the internet through the SmartLink account that lists the radio. Running the test requires a connected radio and that account signed in. The report separates the last test results, the account and radio settings, and the last SmartLink connection attempt. The test does not check this computer's network or guarantee a working hole-punched connection."/>
 
                             <TextBlock x:Name="NetworkDiagnosticResultText"
                                        Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
@@ -913,14 +917,14 @@
                                  last connect, outcome), from the same code as Radio
                                  Setup step 6 (SettingsDialog.RefreshNetworkDiagnosticSections).
                                  Read-only and in the tab order, so a screen reader can arrow
-                                 through it line by line. DRAFT words throughout: the lines
-                                 are settings.network.diag.*, and this accessible name is
-                                 DRAFT too. -->
+                                 through it line by line. The lines are settings.network.diag.*
+                                 and this accessible name; both are Codex's words, approved by
+                                 Noel 2026-11-20 (#1157). -->
                             <TextBox x:Name="NetworkDiagnosticSectionsText"
                                      IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
                                      VerticalScrollBarVisibility="Auto" MaxHeight="320"
                                      Margin="0,0,0,8"
-                                     AutomationProperties.Name="Network diagnostic for this radio: capability, policy and outcome"/>
+                                     AutomationProperties.Name="Network diagnostic for this radio"/>
 
                             <!-- Sprint 27 Track D: Test / Copy / Save / Help row + Verbose toggle. -->
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
@@ -1148,7 +1152,7 @@
                               AutomationProperties.Name="Connection over SmartLink">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="How JJ Flexible Radio Access reaches this radio over SmartLink. These settings belong to the radio, not your account — one radio can use a forwarded port while another hole-punches."/>
+                                       Text="These settings choose how JJ Flexible Radio Access tries to reach this radio over SmartLink. Each radio has its own choice, limited by the tier of the account used for that connection."/>
                             <!-- The three mode radios are their own arrow-navigation
                                  group. Without this they shared the outer StackPanel
                                  with the hole-punch port field, so arrowing past the
@@ -1161,32 +1165,32 @@
                                         KeyboardNavigation.TabNavigation="Once">
                             <RadioButton x:Name="RadioProfileAutoRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Automatic (recommended)"
-                                         local:JJFlexHelp.Text="For remote connections, JJ Flexible Radio Access follows the radio's report to choose between public ports and SmartLink hole punching. You do not need to choose the connection method yourself."
+                                         local:JJFlexHelp.Text="JJ Flexible Radio Access chooses among the radio's usable port pairs in this order: manually forwarded ports, then UPnP ports, as permitted by the SmartLink account tier. Automatic uses hole punching at Tier 3 only when no permitted usable port pair is advertised. Automatic does not switch to hole punching after a port connection fails."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Automatic (recommended)" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="For remote connections, JJ Flexible Radio Access follows the radio's report to choose between public ports and SmartLink hole punching. You do not need to choose the connection method yourself."/>
+                                               Text="JJ Flexible Radio Access chooses among the radio's usable port pairs in this order: manually forwarded ports, then UPnP ports, as permitted by the SmartLink account tier. Automatic uses hole punching at Tier 3 only when no permitted usable port pair is advertised. Automatic does not switch to hole punching after a port connection fails."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="RadioProfileForwardRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Forwarded ports only, never hole punch"
-                                         local:JJFlexHelp.Text="For remote connections, JJ Flexible Radio Access uses the radio's public ports and never uses hole punching. Choose this when port forwarding is set up but the radio still reports that it needs hole punching. The public ports must be reachable for the connection to work."
+                                         local:JJFlexHelp.Text="Restrict SmartLink connections to the radio's usable advertised ports within the account tier. JJ Flexible Radio Access tries manually forwarded ports first, then UPnP ports if the tier permits them. Hole punching is never attempted."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Forwarded ports only" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="For remote connections, JJ Flexible Radio Access uses the radio's public ports and never uses hole punching. Choose this when port forwarding is set up but the radio still reports that it needs hole punching. The public ports must be reachable for the connection to work."/>
+                                               Text="Restrict SmartLink connections to the radio's usable advertised ports within the account tier. JJ Flexible Radio Access tries manually forwarded ports first, then UPnP ports if the tier permits them. Hole punching is never attempted."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="RadioProfilePunchRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Hole punch always, never use forwarded ports"
-                                         local:JJFlexHelp.Text="For remote connections, JJ Flexible Radio Access requests SmartLink hole punching even when the radio advertises public ports. You can use this to try the hole-punch connection method, but the network may still prevent the connection."
+                                         local:JJFlexHelp.Text="Request SmartLink hole punching even when the radio advertises usable ports. The SmartLink account must permit hole punching at Tier 3, or the request is refused. JJ Flexible Radio Access does not try port connections if hole punching fails."
                                          Checked="RadioProfileMode_Checked">
                                 <StackPanel>
-                                    <TextBlock Text="Hole-punch always" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Hole punch always" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="For remote connections, JJ Flexible Radio Access requests SmartLink hole punching even when the radio advertises public ports. You can use this to try the hole-punch connection method, but the network may still prevent the connection."/>
+                                               Text="Request SmartLink hole punching even when the radio advertises usable ports. The SmartLink account must permit hole punching at Tier 3, or the request is refused. JJ Flexible Radio Access does not try port connections if hole punching fails."/>
                                 </StackPanel>
                             </RadioButton>
                             </StackPanel>
@@ -1519,12 +1523,13 @@
                                        AutomationProperties.LiveSetting="Polite"
                                        local:StatusTextName.Label="Outside check status"/>
                             <!-- The tiers work, Track C: the same three parts as the
-                                 Network tab, from the same code, not a second copy. DRAFT. -->
+                                 Network tab, from the same code, not a second copy. Its
+                                 accessible name is approved with the Network tab's (2026-11-20). -->
                             <TextBox x:Name="SetupDiagnosticSectionsText"
                                      IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
                                      VerticalScrollBarVisibility="Auto" MaxHeight="320"
                                      Margin="0,0,0,6"
-                                     AutomationProperties.Name="Network diagnostic for this radio: capability, policy and outcome"/>
+                                     AutomationProperties.Name="Network diagnostic for this radio"/>
                             <Button x:Name="SetupTestNetworkButton"
                                     Content="Run the network _test"
                                     HorizontalAlignment="Left" Padding="12,4"

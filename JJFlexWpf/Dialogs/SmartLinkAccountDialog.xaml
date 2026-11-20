@@ -98,15 +98,16 @@
 
         <!-- The tiers work (decision 8): each account's SmartLink connection
              tier is edited here, offline. Saved the moment it changes, and
-             recorded as the operator's choice. DRAFT words (label, name, help);
-             the three choices are connect.smartlink.account.tier_1 to tier_3. -->
+             recorded as the operator's choice. The label, name and help, and
+             the three choices (connect.smartlink.account.tier_1 to tier_3), are
+             Codex's words, approved by Noel 2026-11-20 (#1157). -->
         <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,8,0,0">
             <Label x:Name="TierLabel" Content="Connection _tier for this account:" Padding="0,0,0,2"
                    Target="{Binding ElementName=TierCombo}"/>
             <ComboBox x:Name="TierCombo" IsEnabled="False"
                       AutomationProperties.Name="Connection tier for this account"
                       AutomationProperties.AcceleratorKey="Alt+T"
-                      local:JJFlexHelp.Text="The SmartLink methods every radio on this account may use. Tier 1 uses the radio's forwarded ports only. Tier 2 also uses the ports the radio opened on its own router by UPnP. Tier 3 also allows a hole punch when the radio has no usable ports. A radio's own connection choice, in Settings under Per-radio settings, can narrow this but never widen it."
+                      local:JJFlexHelp.Text="Choose the SmartLink methods permitted for every radio reached through this account. Tier 1 allows manually forwarded ports; Tier 2 also allows the radio's Universal Plug and Play (UPnP) ports; Tier 3 also allows hole punching. The choice is saved immediately and can be changed without a radio connected. A radio's connection choice in Settings, under Per-radio settings, can restrict these methods but cannot permit a method the tier forbids."
                       SelectionChanged="TierCombo_SelectionChanged"/>
         </StackPanel>
     </Grid>
