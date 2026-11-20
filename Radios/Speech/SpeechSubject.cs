@@ -726,8 +726,11 @@ namespace Radios.Speech
         /// <summary>
         /// The Audio Workshop's engine speed test: that it started, each engine's
         /// or pairing's line as it finishes, and that it ended (Sprint 49 Track
-        /// L). Every line is also in the test's result box, so a newer line
-        /// covering an unheard older one loses nothing.
+        /// L). The engine lines, "busy" and "finished" are ADDITIVE on it, so
+        /// no line retires another and every one is said in turn; only
+        /// "started" restates it. That said "a newer line covering an unheard
+        /// older one loses nothing" until Track L2: on the 2026-11-19 bench
+        /// each line withdrew the one before it and NVDA said 3 of 19.
         /// </summary>
         public const string EngineSpeedTest = "engine-speed-test";
 

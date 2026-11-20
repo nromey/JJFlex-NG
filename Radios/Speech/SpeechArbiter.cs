@@ -725,6 +725,16 @@ namespace Radios.Speech
             public long QuietGeneration;
 
             /// <summary>
+            /// <see cref="_interruptsReached"/> as it stood when the reader
+            /// last reported this entry cut part-way by something that is not
+            /// us (<see cref="Owed.PausedUnknownCause"/>). A record only: it
+            /// changes nothing about the entry, and is read by
+            /// <see cref="RecoveredSinceForeignCut"/> (Sprint 49 Track L2
+            /// repair 2).
+            /// </summary>
+            public long ForeignCutAtInterrupt;
+
+            /// <summary>
             /// The producer's own answer to "is the state this sentence claims
             /// still the state", or null where the producer declared none. A
             /// PROTECTED sentence that claims a PRESENT state — "you are no
@@ -846,6 +856,15 @@ namespace Radios.Speech
         /// only that a hold happened and how long, but what went ahead.
         /// </summary>
         private readonly List<string> _wentFirst = new List<string>();
+
+        /// <summary>
+        /// How many ordinary interrupts of ours have reached the reader: each is
+        /// the occasion every owed entry is judged for its put-back, which is
+        /// what the lines a cut made outside the app gave back unspoken wait
+        /// for. A counter only, read by <see cref="RecoveredSinceForeignCut"/>;
+        /// no rule here reads it (Sprint 49 Track L2 repair 2).
+        /// </summary>
+        private long _interruptsReached;
 
         private readonly object _lock = new object();
 
@@ -1276,6 +1295,99 @@ namespace Radios.Speech
                 bool inLedger = _believedQueued.Contains(e) || _held.Contains(e);
                 return new FollowedView(inLedger, e.Ticket != 0, e.Ticket, e.State, e.SupersededBy != null,
                     e.EstStartUtc, e.EstFinishUtc, _clock.UtcNow);
+            }
+        }
+
+        /// <summary>
+        /// Whether a followed piece is waiting in the held set for its put-back
+        /// after an interrupt, rather than in the reader's queue. Read-only.
+        /// </summary>
+        /// <remarks>
+        /// Added for <see cref="SpokenSeries"/> (Sprint 49 Track L2 repair 1):
+        /// anything handed to the reader while a piece is held is said BEFORE
+        /// it, so a series that must stay in order hands nothing new until its
+        /// held pieces are back in the queue. <see cref="Inspect"/>'s
+        /// <c>InLedger</c> answers "owed", which a held piece and a queued one
+        /// both are; on the estimate path a held piece's old estimate can even
+        /// run out while it waits.
+        /// </remarks>
+        internal bool IsHeld(FollowedPiece piece)
+        {
+            lock (_lock) return _held.Contains((BelievedQueued)piece.Entry);
+        }
+
+        /// <summary>
+        /// For a followed piece the reader last reported cut part-way by
+        /// something that is not us (<see cref="Owed.PausedUnknownCause"/>):
+        /// whether an ordinary interrupt of ours has reached the reader since.
+        /// False for a piece in any other state. Read-only.
+        /// </summary>
+        /// <remarks>
+        /// Added for <see cref="SpokenSeries"/> (Sprint 49 Track L2 repair 2;
+        /// Codex's re-check of 03280742, C1). A cut made outside the app gives
+        /// the pump's queued lines back unspoken, and they wait in the ledger
+        /// until our next interrupt puts them back; a series must wait for the
+        /// same event when its cut line was the only one, rather than hand its
+        /// next lines over into the silence. This answers only "has that event
+        /// happened since the cut". It does not say the cut line was heard,
+        /// and it changes no outcome, state or recovery rule: the cut line
+        /// itself is still not put back by an unrelated interrupt
+        /// (<see cref="RecoveryPermitted"/>). A discard of ordinary speech (an
+        /// urgent warning, an alarm) is not counted: it takes the cut entry out
+        /// of the ledger, which a caller sees through <see cref="Inspect"/>.
+        /// </remarks>
+        internal bool RecoveredSinceForeignCut(FollowedPiece piece)
+        {
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                return e.State == Owed.PausedUnknownCause && _interruptsReached > e.ForeignCutAtInterrupt;
+            }
+        }
+
+        /// <summary>
+        /// Take back ONE followed piece: mark it superseded, so no interrupt
+        /// puts it back and a held copy is dropped at its release, and take it
+        /// out of the delivery pump if the pump still holds it unsent.
+        /// </summary>
+        /// <remarks>
+        /// <para>Added for <see cref="SpokenSeries"/> (Sprint 49 Track L2
+        /// repair 1; Codex's check of 979bfa1f, B2). <see cref="Supersede"/>
+        /// reaches only what the ledger still lists, and the ledger forgets its
+        /// oldest ordinary entry at <see cref="LedgerCap"/> WITHOUT taking it
+        /// out of the pump (<see cref="LedgerInsertLocked"/>), so a piece pushed
+        /// out by other speech could not be taken back by its subject. The
+        /// caller holds the piece itself, so this asks the pump by the piece's
+        /// own ticket whether or not the ledger still lists it. The cap is not
+        /// changed.</para>
+        /// <para>A pump that has already given the piece to the reader answers
+        /// no, and nothing is cut: what the reader is saying is not taken from
+        /// it.</para>
+        /// </remarks>
+        /// <param name="by">Plain prose for the trace, after "superseded by".</param>
+        /// <returns>True when it will now not be said: taken out of the pump, or held and so dropped at its release.</returns>
+        internal bool Withdraw(FollowedPiece piece, string by, string? origin)
+        {
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                var now = _clock.UtcNow;
+                if (e.SupersededBy == null)
+                {
+                    e.SupersededBy = by;
+                    e.SupersededByOrigin = origin;
+                    e.SupersededAtUtc = now;
+                }
+                if (_held.Contains(e)) return true;   // not in the pump; its release drops it, superseded
+                if (_withdrawUnsent == null || e.Ticket == 0 || e.State != Owed.Pending) return false;
+                bool taken;
+                try { taken = _withdrawUnsent(e.Ticket, $"superseded by {by}"); }
+                catch { taken = false; }
+                if (!taken) return false;
+                bool listed = _believedQueued.Remove(e);
+                TraceDropLocked(e, "taken back from the delivery queue before it was said, "
+                    + $"superseded by {by}" + (listed ? string.Empty : " (the ledger had already let go of it at its cap)"), now);
+                return true;
             }
         }
 
@@ -2416,6 +2528,7 @@ namespace Radios.Speech
             // protected retry that waits for the turn must not wait on an
             // attempt that is no longer sounding).
             _safety.NoteOrdinaryInterruptCutTheReader(now);
+            _interruptsReached++;
 
             // The interrupt flushed the reader. Everything believed unspoken
             // is gone from its queue and must be re-queued, in order, behind
@@ -3668,6 +3781,9 @@ namespace Radios.Speech
                             outcome.MarksReached == 0 ? Owed.NeverStarted
                             : outcome.CancelledByUs ? Owed.CutByUs
                             : Owed.PausedUnknownCause;
+                        // A record of when, for RecoveredSinceForeignCut; it
+                        // changes nothing above.
+                        if (entry.State == Owed.PausedUnknownCause) entry.ForeignCutAtInterrupt = _interruptsReached;
 
                         Tracing.TraceLine(
                             $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' is "

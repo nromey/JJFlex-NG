@@ -314,13 +314,53 @@ namespace JJFlexWpf
                 // resumes on the first unkeyed tick. The continuous levers stay
                 // live while keyed (S15 itself; ContinuousLeversLiveWhileKeyed).
                 var profile = rig.TxLoudnessProfile;
-                var threshold = DerivedThreshold(cond.AutoThresholdInForce, rig.TransmitKeyedOrInterlock,
+                bool keyed = rig.TransmitKeyedOrInterlock;
+                var threshold = DerivedThreshold(cond.AutoThresholdInForce, keyed,
                     profile.IsValid, profile.NoiseFloorLufs, cond.ThresholdMarginInForceDb);
                 if (threshold is float db) cond.Gate.ThresholdDb = db;
+                TraceThresholdHold(cond.GateInForce.Enabled && cond.AutoThresholdInForce && keyed,
+                    cond.Gate.ThresholdDb, cond.ThresholdMarginInForceDb);
             }
             catch (Exception ex)
             {
                 Trace.WriteLine("TxAudioConditioning: threshold refresh failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>1 while the automatic gate threshold is held for an over, else 0. The policy tick's alone; see <see cref="TraceThresholdHold"/>.</summary>
+        private static int _thresholdHeld;
+
+        /// <summary>The threshold in force when the current hold started, dB.</summary>
+        private static float _heldThresholdDb;
+
+        /// <summary>
+        /// S15, made observable (Sprint 49 Track L2; the integration-day
+        /// bench's finding 4, "no trace or readout of the derived gate threshold
+        /// while automatic"). One trace line when the automatic threshold starts
+        /// holding still for an over (the gate on, its threshold automatic, the
+        /// radio keyed), and one when it lets go, each with the threshold in
+        /// force, so a bench can check from the trace that it did not move while
+        /// keyed and resumed after. Trace only: nothing is said or shown. An
+        /// over with the gate off, or with a threshold set by hand, writes
+        /// nothing, because nothing is held.
+        /// </summary>
+        /// <param name="heldNow">Whether the hold is in force on this tick.</param>
+        /// <param name="thresholdDb">The gate's threshold in force after this tick's refresh.</param>
+        /// <param name="marginDb">The margin over the measured floor in force.</param>
+        private static void TraceThresholdHold(bool heldNow, float thresholdDb, float marginDb)
+        {
+            int now = heldNow ? 1 : 0;
+            if (System.Threading.Interlocked.Exchange(ref _thresholdHeld, now) == now) return;
+            if (heldNow)
+            {
+                _heldThresholdDb = thresholdDb;
+                Trace.WriteLine(FormattableString.Invariant(
+                    $"TxAudioConditioning: automatic gate threshold held for the over at {thresholdDb:F1} dB (margin {marginDb:F1} dB over the measured floor; S15)"));
+            }
+            else
+            {
+                Trace.WriteLine(FormattableString.Invariant(
+                    $"TxAudioConditioning: automatic gate threshold released (unkeyed, or the gate's threshold policy changed): held at {_heldThresholdDb:F1} dB, now {thresholdDb:F1} dB (S15)"));
             }
         }
 
