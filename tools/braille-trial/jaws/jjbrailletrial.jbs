@@ -1,0 +1,14 @@
+; Braille structure file for the braille trial (jjbrailletrial.exe).
+; The script's BrailleCallbackObjectIdentify returns WT_CUSTOM_CONTROL_BASE+1
+; for the trial's Home control; this section says the custom control has one
+; component, its value, which the script's BrailleAddObjectValue paints as
+; the whole line. Modelled on the shipped Calc.jbs.
+
+[CustomControl1]
+components=value
+removed=
+type=
+displayname=Trial Home
+
+[Information]
+Description=Braille trial view of the trial Home line.

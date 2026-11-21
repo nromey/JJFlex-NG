@@ -1,0 +1,11 @@
+; Key map for the braille trial's JAWS script (jjbrailletrial.jss).
+;
+; APPLICATION SCOPED: these keys exist only while jjbrailletrial.exe is in
+; front. Neither combination is bound in JAWS 2026's default.jkm (checked
+; 2026-11-21); Insert+Shift+B is JAWS's battery level and is left alone.
+
+[common keys]
+Insert+Alt+Shift+B=JjbtStatus
+JAWSKey+Alt+Shift+B=JjbtStatus
+Insert+Alt+Shift+V=JjbtSwitchView
+JAWSKey+Alt+Shift+V=JjbtSwitchView
