@@ -169,11 +169,12 @@ namespace JJPortaudio
 
         // ── The splice in progress ──
 
-        private enum FadeKind : byte { None, Splice, Seam, Cut }
+        private enum FadeKind : byte { None, Splice, Seam, Cut, Overflow }
         private FadeKind _fade;
         private int _fadeLen, _fadeAt, _fadePeriod, _fadeHold;
         private long _fadeA, _fadeB;          // old side and new side, at fade frame 0
         private readonly float[] _fadeR;
+        private readonly float[] _overflowTail;
 
         private long _out;                    // frames rendered, ever
         private long _nextDecision;
@@ -276,6 +277,7 @@ namespace JJPortaudio
             _gapMaxUncertain = Ms(GapMaxUncertainMilliseconds);
             _gapFade = Ms(GapFadeMilliseconds);
             _cutFade = Ms(CutFadeMilliseconds);
+            _overflowTail = new float[Math.Max(1, _cutFade) * _ch];
             _seamFade = Ms(SeamFadeMilliseconds);
             _dryFade = Math.Max(1, Ms(DryFadeMilliseconds));
             _onsetBlock = Math.Max(1, Ms(OnsetBlockMilliseconds));
@@ -456,13 +458,7 @@ namespace JJPortaudio
             // the oldest unread audio is dropped instead, and counted (owner two
             // only reaches this when a backlog passes the ring).
             long room = _cap - (2 * _maxLag + _cutFade) - (_write - _read) - frames;
-            if (room < 0)
-            {
-                long drop = -room;
-                _read += drop;
-                if (_fade != FadeKind.None) { _fade = FadeKind.None; }
-                OverflowFrames += drop;
-            }
+            if (room < 0) Overflow(-room);
             int at = 0;
             while (at < frames)
             {
@@ -485,6 +481,73 @@ namespace JJPortaudio
                 at += n;
                 if (_accFrames == _block) CompleteBlock();
             }
+        }
+
+        /// <summary>
+        /// Tests only: false drops an overflow with no fade, as before repair 2 (the
+        /// positive control for the faded overflow).
+        /// </summary>
+        internal bool OverflowFades { get; set; } = true;
+
+        /// <summary>
+        /// The ring is full: at least <paramref name="drop"/> unread frames must go
+        /// before this write overwrites them (a backlog past the ring: a digital mode
+        /// is never cut, or steering cannot keep up). Codex's re-check of 5a0a8c93:
+        /// the drop used to jump with no fade. Now, BEFORE anything is overwritten,
+        /// the drop is lengthened by up to one longest lag to the point whose audio
+        /// best continues what was about to play (so a tone does not cancel itself
+        /// in the fade), the next 10 ms that would have played are kept, and the
+        /// output fades from them into the new point at the correlation measured
+        /// there. Preallocated; the search is about 90 thousand multiply-adds, once
+        /// per overflow.
+        /// </summary>
+        private void Overflow(long drop)
+        {
+            long avail = _write - _read;
+            int F = (int)Math.Min(_cutFade, Math.Max(0, avail - drop));
+            if (!OverflowFades || F <= 0 || drop + _maxLag + _window + F > avail)
+            {
+                JumpRead(_read + drop);
+                _fade = FadeKind.None;
+                OverflowFrames += drop;
+                return;
+            }
+            // The best continuation: the extra e in [0, one longest lag) whose next
+            // window correlates best with the window about to play (worse ear).
+            long a = _read;
+            int best = 0; float bestScore = float.MinValue;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int lo = pass == 0 ? 0 : Math.Max(0, best - CoarseStride + 1);
+                int hi = pass == 0 ? _maxLag - 1 : Math.Min(_maxLag - 1, best + CoarseStride - 1);
+                int step = pass == 0 ? CoarseStride : 1;
+                for (int e = lo; e <= hi; e += step)
+                {
+                    float sc = OverflowScore(a, a + drop + e, pass == 0 ? CoarseStride : 1);
+                    if (sc > bestScore) { bestScore = sc; best = e; }
+                }
+            }
+            long newSide = a + drop + best;
+            // Keep the audio that was about to play, and measure each ear's match.
+            for (int f = 0; f < F; f++)
+                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = _ring[Idx(a + f) * _ch + c];
+            MeasureFadeR(a, newSide, F, 0);
+            Log(a, newSide, (int)(drop + best), F, _fadeR[0], 5);
+            BeginFade(FadeKind.Overflow, a, newSide, F);
+            OverflowFrames += drop + best;
+        }
+
+        /// <summary>The worse ear's correlation of the window at <paramref name="a"/> with the one at <paramref name="b"/>; an ear with no sound in either does not count.</summary>
+        private float OverflowScore(long a, long b, int stride)
+        {
+            float worst = float.MaxValue;
+            for (int c = 0; c < _ch; c++)
+            {
+                float r = Corr(a, b, _window, c, stride, out double ea, out double eb);
+                if (ea < 1e-12 && eb < 1e-12) continue;
+                if (r < worst) worst = r;
+            }
+            return worst == float.MaxValue ? 0f : worst;
         }
 
         private void CompleteBlock()
@@ -906,7 +969,9 @@ namespace JJPortaudio
                 for (int c = 0; c < _ch; c++)
                 {
                     float r = _fade == FadeKind.Cut ? 0f : _fadeR[c];
-                    dst[f * _ch + c] = Sample(oldPos, c) * CrossFadeCurve.Out(t, r) + Sample(newPos, c) * CrossFadeCurve.In(t, r);
+                    // An overflow's old side may already be overwritten: it plays from the copy kept.
+                    float old = _fade == FadeKind.Overflow ? _overflowTail[j * _ch + c] : Sample(oldPos, c);
+                    dst[f * _ch + c] = old * CrossFadeCurve.Out(t, r) + Sample(newPos, c) * CrossFadeCurve.In(t, r);
                 }
             }
             if (CarrySeams && _carryCount > 0)

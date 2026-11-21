@@ -446,5 +446,52 @@ namespace Radios.Tests
             Assert.False(RxPlaybackQueue.DigitalModesTakeTheLongCut);
             Assert.Equal(0, Cut(digital, null));
         }
+
+        /// <summary>
+        /// Codex's re-check of 5a0a8c93: past the ring's 4.5 s, a backlog (a digital
+        /// mode is never cut while C1 waits on Noel; or steering cannot keep up) was
+        /// dropped with no fade, a 700 ms jump. Now the overflow keeps the audio that
+        /// was about to play, lengthens the drop to the best-matching point, and fades.
+        /// A 625 Hz tone, where the bare drop lands half a period out of phase: the
+        /// faded overflow shows no phase step and no dip (Hann-windowed demodulation,
+        /// as the lost-packet tests measure); with the fade off (the positive
+        /// control) the phase flips by half a cycle.
+        /// </summary>
+        [Fact]
+        public void An_overflow_of_the_ring_fades_instead_of_jumping()
+        {
+            (double Step, double DipDb, long Overflow) Run(bool fades)
+            {
+                var p = new RxPlaybackQueue("probe", 10, 10, 48000, 60, RxCatchUpMode.On);
+                p.ShifterForTest.OverflowFades = fades;
+                var q = new Queue(); float[] b = Array.Empty<float>(); uint off = 0; var output = new float[9600]; long n = 0;
+                const RxContentClass digital = RxContentClass.Classified | RxContentClass.NoSplice;
+                void Arrive(int packets)
+                {
+                    for (int j = 0; j < packets; j++)
+                    {
+                        var x = new float[960];
+                        for (int i = 0; i < 480; i++, n++) x[2 * i] = x[2 * i + 1] = (float)(0.4 * Math.Sin(n * 2 * Math.PI * 625 / 48000));
+                        p.NoteEnqueued(x, digital, false); q.Enqueue(x);
+                    }
+                }
+                var heard = new List<float>();
+                void Render() { p.RenderCallback(q, ref b, ref off, output, false, 2, () => true); for (int i = 0; i < 4800; i++) heard.Add(output[2 * i]); }
+                for (int j = 0; j < 30; j++) { Arrive(10); Render(); }
+                int mark = heard.Count;
+                Arrive(500);
+                for (int j = 0; j < 10; j++) { Arrive(10); Render(); }
+                var (step, dip) = PhaseAndDip(heard, 625, mark - 4800, heard.Count);
+                return (step, dip, p.ShifterForTest.OverflowFrames);
+            }
+            var faded = Run(true);
+            var hard = Run(false);
+            _out.WriteLine($"faded overflow: phase step {faded.Step:0.000} rad, deepest dip {faded.DipDb:0.00} dB, {faded.Overflow} frames dropped; "
+                + $"hard drop: phase step {hard.Step:0.000} rad, dip {hard.DipDb:0.00} dB, {hard.Overflow} dropped");
+            Assert.True(faded.Overflow > 0 && hard.Overflow > 0, "the ring never overflowed, so nothing was tested");
+            Assert.True(hard.Step > 1.0 && hard.DipDb > 6, "positive control: the hard drop should step the phase and dip (a 4 ms window splits a half-cycle flip over two)");
+            Assert.True(faded.Step < 0.25, $"the faded overflow stepped {faded.Step:0.000} rad");
+            Assert.True(faded.DipDb < 1.0, $"the faded overflow dipped {faded.DipDb:0.00} dB");
+        }
     }
 }
