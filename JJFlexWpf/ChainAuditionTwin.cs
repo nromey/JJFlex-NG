@@ -1,0 +1,410 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.Threading;
+using JJPortaudio;
+using Radios;
+
+namespace JJFlexWpf
+{
+    /// <summary>
+    /// The audition's offline twin of the configured transmit chain (#262,
+    /// Sprint 49 Track Q phase B, item 2): both noise slots and the gate, exactly
+    /// as configured, in instances of its OWN that never touch the live chain.
+    /// Check your audio hands it the one take; it renders what the transmit
+    /// chain would send, and says what produced it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It reads the configuration when it runs, not when it is made.</b> The
+    /// window builds its take once and the take keeps its processor, so every
+    /// input comes through a function asked on each <see cref="Process"/>: the
+    /// setup (the app's is <see cref="TxAudioConditioning.CaptureSetup"/>, the
+    /// operator's INTENT), the live state the window read from its own radio
+    /// (for the verdict only), and the catalog to build engines from.
+    /// </para>
+    /// <para>
+    /// <b>Never auto-apply.</b> It writes nothing to the live chain, the live
+    /// conditioner, the saved settings or the radio. It builds a new
+    /// <see cref="TxNoiseChain"/> and a new <see cref="TxAudioConditioner"/>
+    /// for each render and tears both down before it returns.
+    /// </para>
+    /// <para>
+    /// <b>Two passes, the order the live path runs them.</b> The noise pass runs
+    /// the chain over the take, unkeyed, in 10 ms buffers of the microphone
+    /// duplicated to stereo, the way the capture delivers it. Unkeyed on purpose:
+    /// on the air the engines are built and their pipelines filled while
+    /// receiving, and a keyed buffer would latch a helper's bank dry on its
+    /// normal first late frames. The gate pass then runs a conditioner keyed for
+    /// the whole take, so its first buffer is a key-down and the gate resets
+    /// open, as at a real key-down, and a slow offline buffer is never taken for
+    /// a stream restart. Each stage sees the same samples in the same order as
+    /// the live single pass, which the positive control in
+    /// <c>ChainAuditionTwinTests</c> proves sample for sample.
+    /// </para>
+    /// <para>
+    /// <b>Never a partly dry render presented as the chain's.</b> After the
+    /// noise pass every enabled slot's bank is read: every frame through the
+    /// engine; an in-process engine never late; a helper engine late exactly by
+    /// its start-up (its pipeline depth, plus the first answers covering its own
+    /// delay, which it discards), at the live delay; no fallback and no
+    /// latched frame; and the delay the same on every buffer. Anything else is
+    /// unavailable, naming the engine, with the counts traced either way.
+    /// </para>
+    /// </remarks>
+    internal sealed class ChainAuditionTwin : IChainAuditionProcessor
+    {
+        /// <summary>Frames per buffer: 10 ms at 48 kHz, the capture's own buffer and an engine frame. Claude's judgement (the brief's).</summary>
+        internal const int BufferFrames = 480;
+
+        /// <summary>How long a render waits for an engine to be built: past a helper's construction wait and handshake, with room to spare.</summary>
+        internal static readonly TimeSpan DefaultBuildWait = TimeSpan.FromSeconds(10);
+
+        // DRAFT PROSE keys (Track Q phase B), for Codex.
+        internal const string WrongRateKey = "audio.audition.verdict.wrong_rate";
+        internal const string EngineUnavailableKey = "audio.audition.verdict.engine_unavailable";
+        internal const string EngineNotReadyKey = "audio.audition.verdict.engine_not_ready";
+        internal const string EngineFailedKey = "audio.audition.verdict.engine_failed";
+        internal const string IncompleteKey = "audio.audition.verdict.render_incomplete";
+        internal const string RenderFailedKey = "audio.audition.verdict.render_failed";
+
+        private readonly Func<TxNoiseSetup> _setup;
+        private readonly Func<AuditionLiveState?> _live;
+        private readonly Func<DenoiseEngineCatalog> _catalog;
+        private readonly TimeSpan _buildWait;
+
+        /// <param name="setup">The configured chain, asked as each render starts.</param>
+        /// <param name="live">The live transmit side as the window read it from its own radio; null with no radio. For the verdict, and for the threshold only when the take is too short for its own floor.</param>
+        /// <param name="catalog">The catalog to build engines from; the app's is <see cref="DenoiseEngineCatalog.ForOfflineRender"/>.</param>
+        /// <param name="buildWait">How long to wait for each enabled slot's engine to be built.</param>
+        internal ChainAuditionTwin(Func<TxNoiseSetup> setup, Func<AuditionLiveState?> live, Func<DenoiseEngineCatalog> catalog,
+            TimeSpan buildWait)
+        {
+            _setup = setup ?? throw new ArgumentNullException(nameof(setup));
+            _live = live ?? throw new ArgumentNullException(nameof(live));
+            _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            _buildWait = buildWait;
+        }
+
+        /// <summary>The app's twin: the configured chain, engines from the offline catalog on the app's own helper.</summary>
+        internal static ChainAuditionTwin ForApp(Func<AuditionLiveState?> live) =>
+            new(() => TxAudioConditioning.CaptureSetup(""), live,
+                () => DenoiseEngineCatalog.ForOfflineRender(WdspHost.Default), DefaultBuildWait);
+
+        // ── The live side, read by the window from its own radio (items 5 and 6) ──
+
+        /// <summary>
+        /// What the window knows of the live transmit side, read from its own
+        /// radio, never from the twin: the live gate (its threshold policy and
+        /// figure in force, and whether the live meter measured a floor during
+        /// the last over, since it resets at each over's start) and the transmit
+        /// mode. Null with no radio. Reads only; changes nothing.
+        /// </summary>
+        internal static AuditionLiveState? ReadLive(FlexBase? rig)
+        {
+            if (rig == null) return null;
+            try
+            {
+                var cond = rig.TxConditioner;
+                if (cond == null) return null;
+                var profile = rig.TxLoudnessProfile;
+                string mode;
+                try { mode = TxAudioConditioning.TransmitModeOf(rig) ?? ""; }
+                catch (Exception) { mode = ""; }
+                return LiveState(cond.AutoThresholdInForce, cond.Gate.ThresholdDb, profile.IsValid, profile.NoiseFloorLufs,
+                    cond.ThresholdMarginInForceDb, mode);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("ChainAuditionTwin: the live transmit side could not be read: " + ex.GetType().Name);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The live state from its readings. "Measured an over" means exactly
+        /// what the live rule would act on: <see cref="TxAudioConditioning.DerivedThreshold"/>
+        /// gives a figure for that profile (unkeyed). The mode clause follows the
+        /// live chain's own policy, <see cref="TxAudioConditioning.BypassedIn"/>.
+        /// </summary>
+        internal static AuditionLiveState LiveState(bool autoInForce, float thresholdDb, bool profileValid, float noiseFloorLufs,
+            float marginDb, string transmitMode)
+        {
+            bool measured = TxAudioConditioning.DerivedThreshold(true, false, profileValid, noiseFloorLufs, marginDb) != null;
+            return new AuditionLiveState(new AuditionLiveGate(autoInForce, thresholdDb, measured), transmitMode ?? "",
+                TxAudioConditioning.BypassedIn(transmitMode ?? ""));
+        }
+
+        // ── The render ──────────────────────────────────────────────────
+
+        /// <summary>One enabled slot, as the setup asks for it.</summary>
+        private sealed record SlotPlan(DenoiseFamily Family, string EngineId, string Name);
+
+        public ChainProcessing Process(float[] rawMono, int sampleRate, CancellationToken cancel, Action<double>? progress)
+        {
+            if (rawMono == null) throw new ArgumentNullException(nameof(rawMono));
+            // 1. The configuration now, not when the twin was made.
+            var setup = _setup() ?? new TxNoiseSetup();
+            AuditionLiveState? live;
+            try { live = _live(); }
+            catch (Exception) { live = null; }
+            var gate = setup.Gate ?? new TxNoiseGateSetup();
+            if (sampleRate != TxNoiseChain.SampleRate)
+            {
+                // The loader makes this unreachable today; the chain would pass
+                // such a take through untouched, which must never be called cleaned.
+                Trace.WriteLine("ChainAuditionTwin: a take at " + sampleRate + " Hz is not rendered; the chain runs at " + TxNoiseChain.SampleRate);
+                return ChainProcessing.Unavailable(WrongRateKey);
+            }
+
+            var catalog = _catalog();
+            var plans = new List<SlotPlan>(2);
+            foreach (var (family, slotSetup) in new[] { (DenoiseFamily.Spectral, setup.Spectral), (DenoiseFamily.Neural, setup.Neural) })
+            {
+                if (slotSetup?.Enabled != true) continue;
+                string id = string.IsNullOrWhiteSpace(slotSetup.EngineId) ? TxNoiseChain.DefaultEngine(family) : slotSetup.EngineId;
+                var row = catalog.Find(id);
+                plans.Add(new SlotPlan(family, id, row != null ? Lexicon.Get(row.LabelKey) : id));
+            }
+            // Nothing on (Noel's S4): render nothing; only the raw take is offered.
+            if (plans.Count == 0 && !gate.Enabled)
+            {
+                Trace.WriteLine("ChainAuditionTwin: both noise slots and the gate are off; nothing rendered");
+                return ChainProcessing.NothingIsOn(live);
+            }
+
+            // 3. An engine reported unavailable is said at once, in the words
+            // the rest of the app already uses for it, with its name.
+            foreach (var plan in plans)
+            {
+                var row = catalog.Find(plan.EngineId);
+                var reason = row == null || row.Factory == null || row.Side != DenoiseSide.Pc || row.Family != plan.Family
+                             || !row.Serves(DenoiseDirection.Transmit)
+                    ? Unavailability.LibraryMissing : row.Availability();
+                if (reason != Unavailability.None)
+                {
+                    Trace.WriteLine("ChainAuditionTwin: " + plan.EngineId + " is unavailable (" + reason + "); nothing rendered");
+                    return ChainProcessing.Unavailable(EngineUnavailableKey, ("engine", plan.Name),
+                        ("reason", Lexicon.Get(DenoiseEngineCatalog.UnavailabilityKey(reason))));
+                }
+            }
+
+            TxNoiseChain? chain = null;
+            try
+            {
+                // 2. Our own chain on the offline catalog, the setup's slots put
+                // in place. KeySource stays null: no radio, never keyed.
+                chain = new TxNoiseChain(catalog);
+                // Every engine reaching here passed the checks above, which are the
+                // slot's own reasons to refuse one, so each slot takes the setup's engine.
+                chain.ApplySlotsNow(setup.Spectral, setup.Neural);
+
+                // 4. Wait, bounded, for each enabled slot's engine.
+                var notReady = WaitForEngines(chain, plans, cancel);
+                if (notReady != null) return notReady;
+
+                // 5. The noise pass.
+                int buffers = (rawMono.Length + BufferFrames - 1) / BufferFrames;
+                int steps = buffers * (gate.Enabled ? 2 : 1);
+                int lastPercent = -1;
+                void Report(int done)
+                {
+                    if (progress == null) return;
+                    int percent = (int)((long)done * 100 / Math.Max(1, steps));
+                    if (percent == lastPercent) return;
+                    lastPercent = percent;
+                    progress(Math.Min(1.0, (double)done / Math.Max(1, steps)));
+                }
+
+                var noise = new float[buffers * BufferFrames];
+                var stereo = new float[BufferFrames * 2];
+                int? latency = null;
+                bool latencyMoved = false;
+                for (int b = 0; b < buffers; b++)
+                {
+                    cancel.ThrowIfCancellationRequested();
+                    int at = b * BufferFrames;
+                    for (int f = 0; f < BufferFrames; f++)
+                    {
+                        float s = at + f < rawMono.Length ? rawMono[at + f] : 0f;
+                        stereo[2 * f] = s;
+                        stereo[2 * f + 1] = s;
+                    }
+                    chain.Process(stereo, stereo.Length, TxNoiseChain.SampleRate, keyed: false);
+                    for (int f = 0; f < BufferFrames; f++) noise[at + f] = stereo[2 * f];
+                    int applied = chain.AppliedLatencySamples;
+                    if (latency == null) latency = applied;
+                    else if (applied != latency) latencyMoved = true;
+                    Report(b + 1);
+                }
+
+                // 9. Completeness: never a partly dry render presented as the chain's.
+                var incomplete = Completeness(chain, plans, buffers, latencyMoved, out string counts);
+                Trace.WriteLine("ChainAuditionTwin: noise pass over " + buffers + " buffers, delay " + (latency ?? 0)
+                    + " samples" + (latencyMoved ? " (MOVED)" : "") + "; " + counts);
+                if (incomplete != null) return incomplete;
+
+                // 6 and 7. The floor the threshold comes from, and the threshold.
+                int delay = latency ?? 0;
+                var floorProfile = ChainAudition.Measure(Slice(noise, delay, Math.Max(0, rawMono.Length - delay)),
+                    Math.Max(0, rawMono.Length - delay), TxNoiseChain.SampleRate);
+                var (threshold, source, floor) = Threshold(gate, floorProfile, live);
+
+                // 8. The gate pass, keyed for the whole take.
+                var output = new float[rawMono.Length];
+                float? reported = null;
+                if (gate.Enabled)
+                {
+                    var conditioner = new TxAudioConditioner { KeySource = () => true };
+                    conditioner.SetGateInForce(TxAudioConditioning.ToConditioner(gate, gate.AutoThreshold, gate.ThresholdMarginDb));
+                    if (gate.AutoThreshold) conditioner.Gate.ThresholdDb = threshold!.Value;
+                    for (int b = 0; b < buffers; b++)
+                    {
+                        cancel.ThrowIfCancellationRequested();
+                        int at = b * BufferFrames;
+                        for (int f = 0; f < BufferFrames; f++) { stereo[2 * f] = noise[at + f]; stereo[2 * f + 1] = noise[at + f]; }
+                        conditioner.Process(stereo, stereo.Length, TxNoiseChain.SampleRate);
+                        for (int f = 0; f < BufferFrames && at + f < output.Length; f++) output[at + f] = stereo[2 * f];
+                        Report(buffers + b + 1);
+                    }
+                    // What the gate really held (its setter clamps).
+                    reported = conditioner.Gate.ThresholdDb;
+                }
+                else Array.Copy(noise, output, output.Length);
+
+                Trace.WriteLine("ChainAuditionTwin: rendered " + rawMono.Length + " samples, gate "
+                    + (gate.Enabled ? "on at " + F(reported!.Value) + " dB (" + source
+                        + (floor is float fl ? ", floor " + F(fl) + " LUFS" : "") + ")" : "off"));
+                return ChainProcessing.Rendered(output, delay, gate.Enabled, reported,
+                    gate.Enabled ? source : null, gate.Enabled ? floor : null, live);
+            }
+            catch (OperationCanceledException)
+            {
+                Trace.WriteLine("ChainAuditionTwin: render cancelled");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("ChainAuditionTwin: render failed: " + ex.GetType().Name + ": " + ex.Message);
+                return ChainProcessing.Unavailable(RenderFailedKey);
+            }
+            finally
+            {
+                // 11. Torn down on success, failure and cancellation alike. A build
+                // still on its way when admission closes disposes itself on
+                // arrival (PcDenoiseSlot.BuildChoice), so its helper channel
+                // closes once that build returns.
+                if (chain != null)
+                {
+                    foreach (var slot in new[] { chain.SpectralSlot, chain.NeuralSlot })
+                    {
+                        try { slot.CloseAdmission(); slot.DisposeOwned(); }
+                        catch (Exception ex) { Trace.WriteLine("ChainAuditionTwin: teardown: " + ex.GetType().Name); }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Wait, bounded, until each enabled slot's chosen engine is built (running,
+        /// or delivered and installed by the first buffer). A failed build is said
+        /// at once; a timeout names the engine. Null when every one is ready.
+        /// </summary>
+        private ChainProcessing? WaitForEngines(TxNoiseChain chain, List<SlotPlan> plans, CancellationToken cancel)
+        {
+            var clock = Stopwatch.StartNew();
+            while (true)
+            {
+                SlotPlan? waiting = null;
+                foreach (var plan in plans)
+                {
+                    var slot = chain.SlotOf(plan.Family);
+                    if (slot.ChoiceFailure is string failure)
+                    {
+                        Trace.WriteLine("ChainAuditionTwin: " + plan.EngineId + " could not be built: " + failure);
+                        return ChainProcessing.Unavailable(EngineFailedKey, ("engine", plan.Name));
+                    }
+                    if (!slot.RunningIsCurrent(plan.EngineId) && !slot.BuildDelivered(plan.EngineId)) waiting = plan;
+                }
+                if (waiting == null) return null;
+                if (clock.Elapsed >= _buildWait)
+                {
+                    Trace.WriteLine("ChainAuditionTwin: " + waiting.EngineId + " was not built within "
+                        + _buildWait.TotalMilliseconds + " ms; nothing rendered");
+                    return ChainProcessing.Unavailable(EngineNotReadyKey, ("engine", waiting.Name));
+                }
+                cancel.ThrowIfCancellationRequested();
+                Thread.Sleep(5);
+            }
+        }
+
+        /// <summary>
+        /// Item 9: every enabled slot's bank, read once the noise pass is done.
+        /// Its counts are this render's alone, because the bank was built for this
+        /// chain. Null when complete; <paramref name="counts"/> is traced either way.
+        /// </summary>
+        private static ChainProcessing? Completeness(TxNoiseChain chain, List<SlotPlan> plans, int buffers, bool latencyMoved,
+            out string counts)
+        {
+            var parts = new List<string>(2);
+            ChainProcessing? verdict = null;
+            foreach (var plan in plans)
+            {
+                var slot = chain.SlotOf(plan.Family);
+                var bank = slot.RunningBank;
+                if (bank == null || slot.RunningEngineId != plan.EngineId)
+                {
+                    parts.Add(plan.Family + " " + plan.EngineId + ": no bank ran (running '" + slot.RunningEngineId + "')");
+                    verdict ??= ChainProcessing.Unavailable(IncompleteKey, ("engine", plan.Name));
+                    continue;
+                }
+                // A helper's first answers are late by design: k frames of pipeline,
+                // and the answers covering its own algorithmic delay, which the
+                // engine discards (WdspChannel.DiscardBelow, set from the open
+                // acknowledgement). Both go out dry at the live delay, exactly as
+                // when the engine starts on the air. Nothing else may be late.
+                long expectedLate = bank.EngineFor(0) is WdspHelperEngine helper
+                    ? helper.PipelineDepth + (helper.Channel is { } channel ? Volatile.Read(ref channel.DiscardBelow) : 0)
+                    : 0;
+                parts.Add(string.Format(CultureInfo.InvariantCulture,
+                    "{0} {1}: engine frames {2} of {3}, late {4} (expected {5}), fallback {6}, latched {7}, delay {8}",
+                    plan.Family, plan.EngineId, bank.EngineFrames, buffers, bank.LateFrames, expectedLate,
+                    bank.FallbackFrames, bank.LatchedFrames, bank.LatencySamples));
+                bool complete = bank.EngineFrames == buffers && bank.LateFrames == expectedLate
+                                && bank.FallbackFrames == 0 && bank.LatchedFrames == 0;
+                if (!complete) verdict ??= ChainProcessing.Unavailable(IncompleteKey, ("engine", plan.Name));
+            }
+            if (latencyMoved && verdict == null)
+                verdict = ChainProcessing.Unavailable(IncompleteKey, ("engine", plans.Count > 0 ? plans[0].Name : ""));
+            counts = parts.Count == 0 ? "no noise slot on" : string.Join("; ", parts);
+            return verdict;
+        }
+
+        /// <summary>
+        /// Item 7, as ruled (Noel's S3): automatic is worked out from this take's
+        /// own floor by the live rule itself; a take too short for a floor uses
+        /// the live figure in force when there is a radio, else the gate's inert
+        /// default; by hand is the setup's figure.
+        /// </summary>
+        internal static (float? Threshold, AuditionThresholdSource? Source, float? Floor) Threshold(
+            TxNoiseGateSetup gate, LufsMeter.LoudnessProfile floor, AuditionLiveState? live)
+        {
+            if (!gate.Enabled) return (null, null, null);
+            if (!gate.AutoThreshold) return (gate.ThresholdDb, AuditionThresholdSource.SetByHand, null);
+            var derived = TxAudioConditioning.DerivedThreshold(true, false, floor.IsValid, floor.NoiseFloorLufs, gate.ThresholdMarginDb);
+            if (derived is float d) return (d, AuditionThresholdSource.FromThisTake, floor.NoiseFloorLufs);
+            if (live != null) return (live.Gate.ThresholdDb, AuditionThresholdSource.LiveFigure, null);
+            return (TxNoiseGate.DefaultThresholdDb, AuditionThresholdSource.Default, null);
+        }
+
+        private static float[] Slice(float[] source, int from, int count)
+        {
+            var part = new float[Math.Max(0, count)];
+            if (count > 0) Array.Copy(source, from, part, 0, count);
+            return part;
+        }
+
+        private static string F(float v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+    }
+}

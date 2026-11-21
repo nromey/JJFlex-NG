@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading;
 using JJPortaudio;
 
 namespace Radios
@@ -67,6 +68,58 @@ namespace Radios
     }
 
     /// <summary>
+    /// Where the gate threshold that produced a render came from (Sprint 49
+    /// Track Q phase B; Noel's S3, 2026-11-20: worked out from this take's own
+    /// noise, the gate's current figure said beside it when there is one).
+    /// </summary>
+    public enum AuditionThresholdSource
+    {
+        /// <summary>Automatic, derived from this take's own noise floor, measured after the noise reduction the way the live meter sees it, plus the margin.</summary>
+        FromThisTake,
+        /// <summary>Automatic, but the take was too short or too quiet for a floor: the live gate's figure in force was used.</summary>
+        LiveFigure,
+        /// <summary>Automatic, too short for a floor, and no radio: the gate's inert default.</summary>
+        Default,
+        /// <summary>The threshold is set by hand.</summary>
+        SetByHand,
+    }
+
+    /// <summary>
+    /// The live transmit gate, as the window reads it from its own radio, for
+    /// the verdict only (Track Q phase B, item 5). The twin never reads the
+    /// live chain itself.
+    /// </summary>
+    /// <param name="AutoThreshold">The live gate's threshold is derived from the measured floor (as in force).</param>
+    /// <param name="ThresholdDb">The live gate's threshold in force, dB.</param>
+    /// <param name="OverMeasured">
+    /// The live meter measured a floor during the last over, so an automatic
+    /// threshold is the live rule's own figure. The meter resets at every
+    /// over's start, so false also means "no over yet".
+    /// </param>
+    public sealed record AuditionLiveGate(bool AutoThreshold, float ThresholdDb, bool OverMeasured);
+
+    /// <summary>
+    /// What the window knows of the live transmit side when a take is
+    /// processed (items 5 and 6). Null when no radio is connected: then the
+    /// verdict says nothing about a live figure or a transmit mode.
+    /// </summary>
+    /// <param name="Gate">The live gate.</param>
+    /// <param name="TransmitMode">The transmit slice's mode, as the live chain's own policy reads it.</param>
+    /// <param name="ChainStandsAside">The live chain stands aside in that mode (CW and the digital modes).</param>
+    public sealed record AuditionLiveState(AuditionLiveGate Gate, string TransmitMode, bool ChainStandsAside);
+
+    /// <summary>What the verdict says about the live gate beside the take's threshold.</summary>
+    public enum AuditionLiveClause
+    {
+        /// <summary>Nothing: no radio, the gate off, a threshold set by hand, or the take already used the live figure.</summary>
+        None,
+        /// <summary>The live gate's figure, said beside the take's.</summary>
+        Figure,
+        /// <summary>The live gate is automatic and has not measured an over yet.</summary>
+        NotMeasuredYet,
+    }
+
+    /// <summary>
     /// What a chain made of the take, as a processor hands it back: either the
     /// processed samples with what produced them, or why there are none.
     /// </summary>
@@ -92,21 +145,53 @@ namespace Radios
         /// <summary>The lexicon key that says why there is no output; empty when there is.</summary>
         public string UnavailableKey { get; private init; } = "";
 
+        /// <summary>The values <see cref="UnavailableKey"/>'s sentence is filled with (an engine's name, a reason).</summary>
+        public IReadOnlyList<(string Name, object? Value)> UnavailableArgs { get; private init; } = Array.Empty<(string, object?)>();
+
+        /// <summary>Where <see cref="ThresholdDb"/> came from (Track Q phase B); null when the gate was off or the chain does not say.</summary>
+        public AuditionThresholdSource? ThresholdSource { get; private init; }
+
+        /// <summary>The noise floor, in LUFS, an automatic threshold was derived from: the take's own, after the noise reduction. Null otherwise.</summary>
+        public float? ThresholdFloorLufs { get; private init; }
+
+        /// <summary>The live transmit side as the window read it when the take was processed; null with no radio, or when the chain does not say.</summary>
+        public AuditionLiveState? Live { get; private init; }
+
+        /// <summary>Every noise slot and the gate were off, so the chain would change nothing (Noel's S4: only the raw take is offered, and the verdict says so).</summary>
+        public bool NothingOn { get; private init; }
+
         /// <summary>The chain ran.</summary>
-        public static ChainProcessing Rendered(float[] processed, int latencySamples, bool gateEnabled, float? thresholdDb) => new()
+        public static ChainProcessing Rendered(float[] processed, int latencySamples, bool gateEnabled, float? thresholdDb,
+            AuditionThresholdSource? thresholdSource = null, float? thresholdFloorLufs = null, AuditionLiveState? live = null) => new()
         {
             Available = true,
             Processed = processed ?? throw new ArgumentNullException(nameof(processed)),
             LatencySamples = Math.Max(0, latencySamples),
             GateEnabled = gateEnabled,
             ThresholdDb = thresholdDb,
+            ThresholdSource = gateEnabled ? thresholdSource : null,
+            ThresholdFloorLufs = gateEnabled ? thresholdFloorLufs : null,
+            Live = live,
         };
 
-        /// <summary>The chain could not run; <paramref name="reasonKey"/> says why, in the lexicon.</summary>
-        public static ChainProcessing Unavailable(string reasonKey) => new()
+        /// <summary>The chain could not run; <paramref name="reasonKey"/> says why, in the lexicon, filled with <paramref name="args"/>.</summary>
+        public static ChainProcessing Unavailable(string reasonKey, params (string Name, object? Value)[] args) => new()
         {
             Available = false,
             UnavailableKey = reasonKey ?? "",
+            UnavailableArgs = args ?? Array.Empty<(string, object?)>(),
+        };
+
+        /// <summary>The lexicon key said when nothing in the transmit chain is on (DRAFT PROSE, Track Q phase B).</summary>
+        public const string NothingOnKey = "audio.audition.verdict.nothing_on";
+
+        /// <summary>Every slot and the gate are off: nothing is rendered, only the raw take is offered, and the verdict says nothing in the chain is on (Noel's S4, 2026-11-20).</summary>
+        public static ChainProcessing NothingIsOn(AuditionLiveState? live = null) => new()
+        {
+            Available = false,
+            UnavailableKey = NothingOnKey,
+            NothingOn = true,
+            Live = live,
         };
     }
 
@@ -123,8 +208,15 @@ namespace Radios
     /// </remarks>
     public interface IChainAuditionProcessor
     {
-        /// <summary>Process <paramref name="rawMono"/>, a copy the processor may keep or change.</summary>
-        ChainProcessing Process(float[] rawMono, int sampleRate);
+        /// <summary>
+        /// Process <paramref name="rawMono"/>, a copy the processor may keep or
+        /// change. Called on a worker (Track Q phase B, item 4): it may take a
+        /// while, and gives up with an <see cref="OperationCanceledException"/>
+        /// once <paramref name="cancel"/> is set. <paramref name="progress"/>,
+        /// when given, is told the fraction done, 0 to 1 (Noel's S6: the
+        /// processing line carries a percentage).
+        /// </summary>
+        ChainProcessing Process(float[] rawMono, int sampleRate, CancellationToken cancel, Action<double>? progress);
     }
 
     /// <summary>
@@ -141,7 +233,8 @@ namespace Radios
 
         private ChainNotConnectedYet() { }
 
-        public ChainProcessing Process(float[] rawMono, int sampleRate) => ChainProcessing.Unavailable(ReasonKey);
+        public ChainProcessing Process(float[] rawMono, int sampleRate, CancellationToken cancel, Action<double>? progress) =>
+            ChainProcessing.Unavailable(ReasonKey);
     }
 
     /// <summary>What the audition found, and the three renders to play.</summary>
@@ -160,6 +253,21 @@ namespace Radios
 
         /// <summary>Why the chain did not run, as a lexicon key; empty when it did.</summary>
         public string ChainUnavailableKey { get; internal init; } = "";
+
+        /// <summary>The values <see cref="ChainUnavailableKey"/>'s sentence is filled with.</summary>
+        public IReadOnlyList<(string Name, object? Value)> ChainUnavailableArgs { get; internal init; } = Array.Empty<(string, object?)>();
+
+        /// <summary>Every slot and the gate were off (Noel's S4).</summary>
+        public bool NothingOn { get; internal init; }
+
+        /// <summary>Where the threshold came from; null when the gate was off or the chain did not say.</summary>
+        public AuditionThresholdSource? ThresholdSource { get; internal init; }
+
+        /// <summary>The take's own floor an automatic threshold was derived from, LUFS.</summary>
+        public float? ThresholdFloorLufs { get; internal init; }
+
+        /// <summary>The live transmit side when the take was processed; null with no radio.</summary>
+        public AuditionLiveState? Live { get; internal init; }
 
         /// <summary>
         /// The raw take's figures: from the lined-up stretch when the comparison
@@ -319,7 +427,17 @@ namespace Radios
         /// <paramref name="sampleRate"/>; it is not changed. The processor gets a
         /// copy.
         /// </summary>
-        public static ChainAuditionResult Analyse(float[] raw, int sampleRate, IChainAuditionProcessor processor)
+        public static ChainAuditionResult Analyse(float[] raw, int sampleRate, IChainAuditionProcessor processor) =>
+            Analyse(raw, sampleRate, processor, CancellationToken.None, null);
+
+        /// <summary>
+        /// Analyse one take on the calling thread, which for the window is a
+        /// worker (Track Q phase B, item 4): <paramref name="cancel"/> is handed
+        /// to the processor, and <paramref name="progress"/> is told the
+        /// processor's fraction done.
+        /// </summary>
+        public static ChainAuditionResult Analyse(float[] raw, int sampleRate, IChainAuditionProcessor processor,
+            CancellationToken cancel, Action<double>? progress)
         {
             if (raw == null) throw new ArgumentNullException(nameof(raw));
             if (processor == null) throw new ArgumentNullException(nameof(processor));
@@ -329,8 +447,9 @@ namespace Radios
             var rawProfile = Measure(raw, raw.Length, sampleRate);
             var speech = ClassifySpeech(rawProfile);
 
-            var processing = processor.Process((float[])raw.Clone(), sampleRate)
+            var processing = processor.Process((float[])raw.Clone(), sampleRate, cancel, progress)
                 ?? ChainProcessing.Unavailable(ChainNotConnectedYet.ReasonKey);
+            cancel.ThrowIfCancellationRequested();
             bool chain = processing.Available && processing.Processed.Length > 0;
 
             // Without speech, or without a chain, there is nothing to match:
@@ -345,6 +464,11 @@ namespace Radios
                     Speech = speech,
                     ChainAvailable = chain,
                     ChainUnavailableKey = chain ? "" : processing.UnavailableKey,
+                    ChainUnavailableArgs = chain ? Array.Empty<(string, object?)>() : processing.UnavailableArgs,
+                    NothingOn = processing.NothingOn,
+                    ThresholdSource = chain ? processing.ThresholdSource : null,
+                    ThresholdFloorLufs = chain ? processing.ThresholdFloorLufs : null,
+                    Live = processing.Live,
                     Comparison = AuditionComparison.NotAttempted,
                     RawSpeechLufs = Figure(rawProfile, rawProfile.SpeechLufs),
                     RawFloorLufs = Figure(rawProfile, rawProfile.NoiseFloorLufs),
@@ -416,6 +540,9 @@ namespace Radios
                 SpeechToNoiseChangeLu = valid ? cleanedProfile.SpeechToNoiseLu - rawPart.SpeechToNoiseLu : null,
                 ThresholdDb = processing.ThresholdDb,
                 GateEnabled = processing.GateEnabled,
+                ThresholdSource = processing.ThresholdSource,
+                ThresholdFloorLufs = processing.ThresholdFloorLufs,
+                Live = processing.Live,
                 Faults = faults,
                 MatchGainDb = gainDb,
                 LevelMatched = matched,
@@ -585,7 +712,8 @@ namespace Radios
 
             if (!result.ChainAvailable)
             {
-                if (result.ChainUnavailableKey.Length > 0) parts.Add(Lexicon.Get(result.ChainUnavailableKey));
+                if (result.ChainUnavailableKey.Length > 0)
+                    parts.Add(Lexicon.Get(result.ChainUnavailableKey, ToArray(result.ChainUnavailableArgs)));
                 return string.Join(" ", parts);
             }
             if (result.Speech != AuditionSpeech.Heard) return string.Join(" ", parts);
@@ -614,10 +742,75 @@ namespace Radios
                 parts.Add(Lexicon.Get("audio.audition.verdict.threshold", ("threshold", Number(threshold))));
             else parts.Add(Lexicon.Get("audio.audition.verdict.threshold_unknown"));
 
+            // Track Q phase B: the new clauses, after the threshold sentence:
+            // where the threshold came from; the live gate's figure beside it
+            // (Noel's S3); that the live chain stands aside in the transmit
+            // mode. DRAFT PROSE keys, for Codex.
+            if (result.GateEnabled && result.ThresholdDb != null && result.ThresholdSource is AuditionThresholdSource source)
+                parts.Add(ThresholdSourceSentence(source, result.ThresholdFloorLufs));
+            switch (LiveGateClause(result))
+            {
+                case AuditionLiveClause.Figure:
+                    parts.Add(Lexicon.Get("audio.audition.verdict.live_threshold", ("threshold", Number(result.Live!.Gate.ThresholdDb))));
+                    break;
+                case AuditionLiveClause.NotMeasuredYet:
+                    parts.Add(Lexicon.Get("audio.audition.verdict.live_not_measured"));
+                    break;
+            }
+            if (result.Live is { ChainStandsAside: true } live)
+                parts.Add(Lexicon.Get("audio.audition.verdict.mode_stands_aside", ("mode", live.TransmitMode)));
+
             foreach (var (fault, key) in FaultKeys)
                 if ((result.Faults & fault) != 0) parts.Add(Lexicon.Get(key));
             if (!result.LevelMatched) parts.Add(Lexicon.Get("audio.audition.verdict.not_level_matched"));
             return string.Join(" ", parts);
+        }
+
+        /// <summary>
+        /// The live gate's figure is said beside the take's whenever there is
+        /// one (Noel's S3, 2026-11-20: "the gate's current figure is said beside
+        /// it when there is one"), so this is 0. The draft proposed saying it
+        /// only when the two differ by 1 dB or more: that is this one constant.
+        /// </summary>
+        public const float LiveFigureSaidWhenDiffersByDb = 0f;
+
+        /// <summary>What the verdict says about the live gate for <paramref name="result"/>.</summary>
+        public static AuditionLiveClause LiveGateClause(ChainAuditionResult result) =>
+            LiveGateClause(result.ChainAvailable && result.GateEnabled, result.ThresholdSource, result.ThresholdDb, result.Live);
+
+        /// <summary>
+        /// The pure rule (item 5), tested without a radio. Nothing with no radio,
+        /// with the gate off, or with a threshold set by hand (the take used the
+        /// live gate's own figure). An automatic live gate that has not measured
+        /// an over says so. Otherwise the live figure is said, unless the take
+        /// already used it.
+        /// </summary>
+        public static AuditionLiveClause LiveGateClause(bool gateRendered, AuditionThresholdSource? source, float? takeThresholdDb,
+            AuditionLiveState? live)
+        {
+            if (live == null || !gateRendered || takeThresholdDb is not float take) return AuditionLiveClause.None;
+            if (source == AuditionThresholdSource.SetByHand) return AuditionLiveClause.None;
+            if (live.Gate.AutoThreshold && !live.Gate.OverMeasured) return AuditionLiveClause.NotMeasuredYet;
+            if (source == AuditionThresholdSource.LiveFigure) return AuditionLiveClause.None;
+            return Math.Abs(live.Gate.ThresholdDb - take) >= LiveFigureSaidWhenDiffersByDb
+                ? AuditionLiveClause.Figure : AuditionLiveClause.None;
+        }
+
+        /// <summary>The sentence saying where the threshold came from (DRAFT PROSE keys).</summary>
+        private static string ThresholdSourceSentence(AuditionThresholdSource source, float? floor) => source switch
+        {
+            AuditionThresholdSource.FromThisTake =>
+                Lexicon.Get("audio.audition.verdict.threshold_from_take", ("floor", floor is float f ? Number(f) : "?")),
+            AuditionThresholdSource.LiveFigure => Lexicon.Get("audio.audition.verdict.threshold_from_live"),
+            AuditionThresholdSource.Default => Lexicon.Get("audio.audition.verdict.threshold_default"),
+            _ => Lexicon.Get("audio.audition.verdict.threshold_by_hand"),
+        };
+
+        private static (string Name, object? Value)[] ToArray(IReadOnlyList<(string Name, object? Value)> args)
+        {
+            var a = new (string, object?)[args.Count];
+            for (int i = 0; i < a.Length; i++) a[i] = args[i];
+            return a;
         }
 
         /// <summary>Each gate failure's sentence, in the order they are said.</summary>
@@ -642,8 +835,15 @@ namespace Radios
                   + ", cleaned " + Optional(r.CleanedSpeechLufs) + "/" + Optional(r.CleanedFloorLufs) + " LUFS, change "
                   + Optional(r.SpeechToNoiseChangeLu) + " LU, match " + Number(r.MatchGainDb) + " dB"
                   + (r.LevelMatched ? "" : " (not matched)") + ", gate " + (r.GateEnabled ? "on" : "off")
-                  + (r.ThresholdDb is float t ? " at " + Number(t) + " dB" : "") + ", faults " + r.Faults
-                : ", chain not available");
+                  + (r.ThresholdDb is float t ? " at " + Number(t) + " dB" : "")
+                  + (r.ThresholdSource is AuditionThresholdSource src ? " (" + src
+                      + (r.ThresholdFloorLufs is float fl ? ", floor " + Number(fl) + " LUFS" : "") + ")" : "")
+                  + ", faults " + r.Faults
+                : ", chain not available" + (r.NothingOn ? " (nothing in the chain is on)"
+                    : r.ChainUnavailableKey.Length > 0 ? " (" + r.ChainUnavailableKey + ")" : ""))
+            + (r.Live is { } lv ? ", live gate " + (lv.Gate.AutoThreshold ? "automatic" : "by hand") + " at "
+                + Number(lv.Gate.ThresholdDb) + " dB" + (lv.Gate.OverMeasured ? "" : " (no over measured)")
+                + (lv.ChainStandsAside ? ", chain stands aside in " + lv.TransmitMode : "") : "");
 
         private static string Number(double v) => v.ToString("0.0", CultureInfo.InvariantCulture);
 

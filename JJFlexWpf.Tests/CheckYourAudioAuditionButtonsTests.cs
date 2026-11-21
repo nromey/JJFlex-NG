@@ -267,7 +267,7 @@ public sealed class CheckYourAudioAuditionButtonsTests : IDisposable
 
     private sealed class HalvingChain : IChainAuditionProcessor
     {
-        public ChainProcessing Process(float[] raw, int rate) =>
+        public ChainProcessing Process(float[] raw, int rate, CancellationToken cancel, Action<double>? progress) =>
             ChainProcessing.Rendered(raw.Select(s => s * 0.5f).ToArray(), 0, gateEnabled: false, thresholdDb: null);
     }
 

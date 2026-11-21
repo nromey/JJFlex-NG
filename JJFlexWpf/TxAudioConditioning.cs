@@ -595,7 +595,7 @@ namespace JJFlexWpf
         }
 
         /// <summary>A setup's gate as the conditioner's one record.</summary>
-        private static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, bool auto, float margin) => new()
+        internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, bool auto, float margin) => new()
         {
             Enabled = g.Enabled,
             HasThreshold = !auto,

@@ -92,7 +92,7 @@ namespace Radios.Tests
                 _gain = gain; _latency = latency; _gate = gate; _threshold = threshold; Zeroed = zeroInput;
             }
 
-            public ChainProcessing Process(float[] rawMono, int sampleRate)
+            public ChainProcessing Process(float[] rawMono, int sampleRate, System.Threading.CancellationToken cancel, Action<double>? progress)
             {
                 var output = new float[rawMono.Length];
                 for (int i = _latency; i < output.Length; i++)
@@ -275,7 +275,7 @@ namespace Radios.Tests
         {
             private readonly int _delay;
             public LyingLatency(int delay) => _delay = delay;
-            public ChainProcessing Process(float[] raw, int rate)
+            public ChainProcessing Process(float[] raw, int rate, System.Threading.CancellationToken cancel, Action<double>? progress)
             {
                 var o = new float[raw.Length];
                 Array.Copy(raw, 0, o, _delay, raw.Length - _delay);
