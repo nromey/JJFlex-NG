@@ -2974,7 +2974,7 @@ namespace Radios.Tests
                 // finish. A PLACEHOLDER: Codex writes it; classified when written.
                 "audio.check.not_started_backup_unfinished",
                 // Junk box batch 17 (#1044): a slice recording did not start
-                // because Back up first did not finish. A PLACEHOLDER for Codex.
+                // because Back up first did not finish. Approved by Noel 2026-11-21.
                 "audio.recorder.not_started_backup_unfinished",
                 // Junk box #879 (2026-11-11): the keyer speed field on the Tuning
                 // tab. The label is Noel's; the rest are worded by Codex.

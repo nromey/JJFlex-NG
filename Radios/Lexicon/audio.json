@@ -1187,7 +1187,7 @@
   "audio.takes.backup.changed": {"text": "The recording on slice {letter} changed during the backup. This attempt does not count as a backup of the recording now on the radio.", "delivery": null},
   "audio.takes.backup.needs_computer_audio": {"text": "Backing up a slice recording requires the radio's audio to be playing on this computer.", "delivery": null},
   "audio.takes.backup.failed": {"text": "The backup failed.", "delivery": null},
-  "_note_1044": "Junk box batch 17 (2026-11-19): audio.recorder.not_started_backup_unfinished is DRAFT wording, a placeholder for Codex, awaiting Noel. Said when Back up first on the slice-overwrite warning does not finish, at the end of the backup's own sentence and in the same utterance, by every door that starts a slice recording except Check your audio, which says audio.check.not_started_backup_unfinished.",
+  "_note_1044": "Junk box batch 17 (2026-11-19): audio.recorder.not_started_backup_unfinished: approved by Noel 2026-11-21. Said when Back up first on the slice-overwrite warning does not finish, at the end of the backup's own sentence and in the same utterance, by every door that starts a slice recording except Check your audio, which says audio.check.not_started_backup_unfinished.",
   "audio.recorder.not_started_backup_unfinished": {"text": "The new recording did not start.", "delivery": null},
   "audio.recorder.overwrite.title": {"text": "Replace the recording on slice {letter}?", "delivery": null},
   "audio.recorder.overwrite.opening_not_backed_up": {"text": "Press Enter to record without making a backup first. Press Tab to reach the Back up first button, which saves the current recording on this computer before starting the new recording.", "delivery": null},

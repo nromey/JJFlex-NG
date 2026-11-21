@@ -1,2 +1,1 @@
-- The ATU On/Off switch now keeps your choice. A tune that ends with the tuner bypassed because the antenna needed no matching still tells you so, but no longer turns the ATU off, and connecting no longer turns it off either unless you bypassed it yourself.
-- A tune that fails now leaves the ATU switch on as well. You still hear that it failed, and the next tune press tries the tuner again.
+- The ATU On/Off switch no longer turns itself Off when an automatic antenna tune finds no further tuning is required or the tune fails. The next press of Ctrl+T starts another automatic tune instead of sending only a carrier. Reconnecting after a tune that did not require further antenna tuning or matching no longer turns this switch Off.
