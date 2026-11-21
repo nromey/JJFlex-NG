@@ -286,6 +286,9 @@ namespace JJPortaudio
         /// <summary>The last decision found tonal material.</summary>
         public bool LastTonal => _lastTonal;
 
+        /// <summary>The class of the audio at the read point (the next to be played), or unclassified when its block is not in hand.</summary>
+        public RxContentClass ClassAtRead => ClassAt(_read);
+
         /// <summary>Owner one: content at position p was classified this many frames earlier (the engine's own delay).</summary>
         public int ClassLagFrames { get; set; }
 

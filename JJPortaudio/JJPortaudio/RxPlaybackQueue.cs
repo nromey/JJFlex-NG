@@ -153,6 +153,22 @@ namespace JJPortaudio
         public const double CutLeaveMilliseconds = 200;
         /// <summary>Above this, something is broken: cut at the next buffer (first report, section 5).</summary>
         public const double CutNowMilliseconds = 3000;
+
+        /// <summary>
+        /// Whether a digital mode (DIGU, DIGL, RTTY: <see cref="RxContentClass.NoSplice"/>)
+        /// takes the long-backlog cuts above (<see cref="CutAboveMilliseconds"/> and
+        /// <see cref="CutNowMilliseconds"/>). False is the brief's "nothing is cut or
+        /// repeated" in those modes; the follow-up research (2026-11-08, section 3)
+        /// proposed keeping the cut above about 1.5 s there. Codex's check of
+        /// 2567a596 (C1) found the two disagree, and the question is Noel's: the
+        /// other answer is this one line. With false, a digital-mode backlog is held
+        /// until the ring is full (4.5 s), where the ring's overflow drops the
+        /// oldest audio.
+        /// </summary>
+        public const bool DigitalModesTakeTheLongCut = false;
+
+        /// <summary>Tests only: the other answer to <see cref="DigitalModesTakeTheLongCut"/>, or null for the constant.</summary>
+        internal static bool? DigitalModesTakeTheLongCutOverrideForTest { get; set; }
         /// <summary>How far ahead the quiet moment for a cut is looked for, and the gap that counts as one (first report, section 5).</summary>
         public const double QuietHorizonMilliseconds = 1000, QuietGapMilliseconds = 50;
         /// <summary>
@@ -465,13 +481,16 @@ namespace JJPortaudio
             if (!shadow) { if (ms < _minuteMinMs) _minuteMinMs = ms; if (ms > _minuteMaxMs) _minuteMaxMs = ms; }
             if (_shifter.CutPending) return;
             double over = MillisecondsFor(depth - _targetFrames);
-            if (depth > _targetFrames && over > CutNowMilliseconds)
+            // A digital mode is never cut unless the constant says so (C1, Noel's to rule).
+            bool mayCut = (DigitalModesTakeTheLongCutOverrideForTest ?? DigitalModesTakeTheLongCut)
+                || (_shifter.ClassAtRead & RxContentClass.NoSplice) == 0;
+            if (mayCut && depth > _targetFrames && over > CutNowMilliseconds)
             {
                 _shifter.RequestCut(_shifter.ReadPosition, depth - _targetFrames - FramesFor(CutLeaveMilliseconds));
                 RecordCut(depth - _targetFrames - FramesFor(CutLeaveMilliseconds), shadow);
                 return;
             }
-            if (ms > CutAboveMilliseconds)
+            if (mayCut && ms > CutAboveMilliseconds)
             {
                 long at = _shifter.FindQuietMoment(FramesFor(QuietHorizonMilliseconds), FramesFor(QuietGapMilliseconds));
                 _shifter.RequestCut(at, excess - FramesFor(CutLeaveMilliseconds));

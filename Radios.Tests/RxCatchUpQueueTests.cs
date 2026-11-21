@@ -398,5 +398,53 @@ namespace Radios.Tests
             }
             return (step, 20 * Math.Log10(steady / Math.Max(worst, 1e-9)));
         }
+
+        /// <summary>
+        /// Codex's check of 2567a596 (C1): the long-backlog cut took 1.8 s out of a
+        /// digital mode. The brief says nothing is cut or repeated in DIGU, DIGL and
+        /// RTTY; the research proposed keeping the cut there. Until Noel rules, one
+        /// constant decides (RxPlaybackQueue.DigitalModesTakeTheLongCut, false), and
+        /// both answers are tested.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void A_digital_mode_takes_the_long_backlog_cut_only_when_the_constant_says_so(bool digitalCut)
+        {
+            long Cut(RxContentClass cls, bool? overrideCut)
+            {
+                RxPlaybackQueue.DigitalModesTakeTheLongCutOverrideForTest = overrideCut;
+                try
+                {
+                    var p = new RxPlaybackQueue("probe", 10, 10, 48000, 60, RxCatchUpMode.On);
+                    var q = new Queue(); float[] b = Array.Empty<float>(); uint off = 0; var output = new float[9600]; long n = 0;
+                    void Arrive(int packets)
+                    {
+                        for (int j = 0; j < packets; j++)
+                        {
+                            var x = new float[960];
+                            for (int i = 0; i < 480; i++, n++) x[2 * i] = x[2 * i + 1] = (float)(0.3 * Math.Sin(n * 2 * Math.PI * 625 / 48000));
+                            p.NoteEnqueued(x, cls, false); q.Enqueue(x);
+                        }
+                    }
+                    void Render() => p.RenderCallback(q, ref b, ref off, output, false, 2, () => true);
+                    for (int j = 0; j < 30; j++) { Arrive(10); Render(); }
+                    Arrive(200);
+                    for (int j = 0; j < 30; j++) { Arrive(10); Render(); }
+                    _out.WriteLine($"{cls}, digital cut {overrideCut?.ToString() ?? "as the constant"}: cut {p.CutFrames}, caught up {p.CatchUpRemovedFrames}");
+                    return p.CutFrames;
+                }
+                finally { RxPlaybackQueue.DigitalModesTakeTheLongCutOverrideForTest = null; }
+            }
+            const RxContentClass digital = RxContentClass.Classified | RxContentClass.NoSplice;
+            // Positive control: the same backlog in a voice mode is cut, either way.
+            Assert.True(Cut(RxContentClass.Classified | RxContentClass.NotVoiceRun, digitalCut) > 48000);
+            long cut = Cut(digital, digitalCut);
+            if (digitalCut) Assert.True(cut > 48000, "with the research's answer, a digital mode is cut above 1.5 s");
+            else Assert.Equal(0, cut);
+            // And the shipped value is the brief's: no cut in a digital mode.
+            Assert.False(RxPlaybackQueue.DigitalModesTakeTheLongCut);
+            Assert.Equal(0, Cut(digital, null));
+        }
     }
 }
