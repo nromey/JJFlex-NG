@@ -107,10 +107,26 @@ namespace JJFlexWpf
         public IReadOnlyList<DenoiseEngineEntry> Entries { get; }
         public DenoiseEngineCatalog(IEnumerable<DenoiseEngineEntry>? entries = null)
         {
-            Entries = (entries ?? DefaultEntries()).ToArray();
+            Entries = (entries ?? DefaultEntries(null, offlineWait: false)).ToArray();
             if (Entries.Select(e => e.Id).Distinct(StringComparer.Ordinal).Count() != Entries.Count)
                 throw new ArgumentException("Duplicate engine id", nameof(entries));
         }
+        /// <summary>
+        /// The app's catalog for an OFFLINE render (Sprint 49 Track Q phase B,
+        /// #262: the audition's twin of the transmit chain). The same rows as the
+        /// app's own, except that both helper engines are built on
+        /// <paramref name="host"/> with <c>offlineWait</c> on, so a caller faster
+        /// than real time waits for each answer and gets exactly the live delay,
+        /// instead of falling late and having the bank send those frames dry. A
+        /// helper row added later gets the offline form for free, because every
+        /// helper row is built through the one private factory below; and the
+        /// live catalog cannot get it by accident, because only this method asks
+        /// for it. Its probes ask <paramref name="host"/>, so a test's stub host is
+        /// judged by itself and never by the app's default helper.
+        /// </summary>
+        internal static DenoiseEngineCatalog ForOfflineRender(WdspHost host) =>
+            new(DefaultEntries(host ?? throw new ArgumentNullException(nameof(host)), offlineWait: true));
+
         public DenoiseEngineEntry? Find(string id) => Entries.FirstOrDefault(e => e.Id == id);
         public static string UnavailabilityKey(Unavailability reason) => "audio.denoise.unavailable." + reason.ToString().ToLowerInvariant();
 
@@ -264,7 +280,23 @@ namespace JJFlexWpf
             return problems.Count == 0 ? null : string.Join(", ", problems);
         }
 
-        private static IEnumerable<DenoiseEngineEntry> DefaultEntries()
+        /// <summary>
+        /// The one way a helper row builds its engine (Track Q phase B). A null
+        /// <paramref name="host"/> is the app's own, resolved when an engine is
+        /// built, exactly as the public <see cref="WdspHelperEngine"/> constructor
+        /// does, so the live catalog builds what it always built: the default
+        /// host, the default pipeline depth, no offline wait.
+        /// </summary>
+        private static Func<IReadOnlyDictionary<string, EngineSettingValue>, DenoiseDirection, IDenoiseEngine> HelperFactory(
+            string engineId, WdspHost? host, bool offlineWait) =>
+            (initial, direction) => new WdspHelperEngine(host ?? WdspHost.Default, engineId, direction, initial,
+                pipelineDepth: null, offlineWait: offlineWait);
+
+        /// <summary>A helper row's probe: the app's (which never creates the default host) for the live catalog, the given host's otherwise. Neither starts anything.</summary>
+        private static Func<Unavailability> HelperProbe(string engineId, WdspHost? host) =>
+            host == null ? () => WdspHelperEngine.Probe(engineId) : () => host.Probe(engineId);
+
+        private static IEnumerable<DenoiseEngineEntry> DefaultEntries(WdspHost? host, bool offlineWait)
         {
             // ── Noise Reduction: the radio's reducers ──
             yield return new("radio_nr", DenoiseSide.Radio, null, "audio.denoise.radio_nr", Receive,
@@ -291,7 +323,7 @@ namespace JJFlexWpf
 
             // ── Noise Reduction: the computer's, spectral first, then neural ──
             yield return new("nr2", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr2", Both,
-                (initial, direction) => new WdspHelperEngine("nr2", direction, initial), () => WdspHelperEngine.Probe("nr2"),
+                HelperFactory("nr2", host, offlineWait), HelperProbe("nr2", host),
                 SettingDescriptors: Nr2Mirror);
             yield return new("nr4", DenoiseSide.Pc, DenoiseFamily.Spectral, "audio.denoise.nr4", Both,
                 (initial, _) => new SpecbleachEngine(initial, estimator: SpecbleachEngine.EstimatorFrom(initial)),
@@ -306,7 +338,7 @@ namespace JJFlexWpf
                 (initial, _) => new DeepFilterNet3Engine((float)initial["attenuation_limit_db"].Number), ProbeDeepFilter, SettingDescriptors: DeepFilterNet3Engine.SettingDescriptors,
                 ReductionSetting: "attenuation_limit_db");
             yield return new("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr", Both,
-                (initial, direction) => new WdspHelperEngine("nnr", direction, initial), () => WdspHelperEngine.Probe("nnr"),
+                HelperFactory("nnr", host, offlineWait), HelperProbe("nnr", host),
                 SettingDescriptors: NnrMirror, ReductionSetting: "mask_floor_db");
             // Track G (#768) builds NVIDIA NR. Until then the row is listed,
             // marked and self-explaining, and has no factory.

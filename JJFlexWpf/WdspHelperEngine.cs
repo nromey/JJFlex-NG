@@ -259,7 +259,10 @@ namespace JJFlexWpf
 
         /// <param name="pipelineDepth">k; null, as the app always builds it, for <see cref="WdspPipelineDepth.For"/> the engine and its starting model.</param>
         /// <param name="offlineWait">
-        /// The offline bench only, and never set by the catalog: <see cref="ProcessFrame"/>
+        /// Offline callers only: the offline bench, and the audition's render through
+        /// the catalog's <see cref="DenoiseEngineCatalog.ForOfflineRender"/> (Sprint 49
+        /// Track Q phase B, #262), the one catalog that sets it; the app's live
+        /// catalog never does. <see cref="ProcessFrame"/>
         /// then waits, bounded, for frame n minus k's answer, so a faster-than-real-time
         /// caller gets exactly the live path's delay and never runs ahead of the helper.
         /// </param>
