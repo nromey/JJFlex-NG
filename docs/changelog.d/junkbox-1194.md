@@ -1,1 +1,1 @@
-- The TX band lockout now judges where you actually transmit when XIT is on, so an XIT offset that would put your signal outside your license privileges is refused, and one that brings it back inside is allowed.
+- The transmit (TX) band lockout now checks the frequency with XIT applied, instead of ignoring the offset. The check now refuses a signal shifted outside your license privileges by XIT and accepts one shifted back within the established band boundaries that apply to your license.

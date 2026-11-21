@@ -2977,7 +2977,7 @@ namespace Radios.Tests
                 // finish. A PLACEHOLDER: Codex writes it; classified when written.
                 "audio.check.not_started_backup_unfinished",
                 // Junk box batch 17 (#1044): a slice recording did not start
-                // because Back up first did not finish. A PLACEHOLDER for Codex.
+                // because Back up first did not finish. Approved by Noel 2026-11-21.
                 "audio.recorder.not_started_backup_unfinished",
                 // Junk box #879 (2026-11-11): the keyer speed field on the Tuning
                 // tab. The label is Noel's; the rest are worded by Codex.
@@ -3033,7 +3033,7 @@ namespace Radios.Tests
                 // Codex's words with Noel's edit, approved 2026-11-19.
                 "audio.ptt.blocked_by_license",
                 "settings.band.tx_lockout_message",
-                // Junk box batch 16 (2026-11-19), DRAFT wording awaiting Noel:
+                // Junk box batch 16 (2026-11-19), approved by Noel 2026-11-21 (the operator line pending):
                 // #1204, an update whose exit the operator cancelled.
                 "connect.update.exit_cancelled",
                 // Repair 1: Settings could not apply its edits, so nothing launched.
