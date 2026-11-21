@@ -463,7 +463,7 @@ namespace Radios.Tests
             (double Step, double DipDb, long Overflow) Run(bool fades)
             {
                 var p = new RxPlaybackQueue("probe", 10, 10, 48000, 60, RxCatchUpMode.On);
-                p.ShifterForTest.OverflowFades = fades;
+                if (!fades) p.ShifterForTest.OverflowFades = false;   // the control; the faded run is the shipped default
                 var q = new Queue(); float[] b = Array.Empty<float>(); uint off = 0; var output = new float[9600]; long n = 0;
                 const RxContentClass digital = RxContentClass.Classified | RxContentClass.NoSplice;
                 void Arrive(int packets)
