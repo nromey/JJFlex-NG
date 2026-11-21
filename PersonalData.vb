@@ -879,7 +879,7 @@ Public Class PersonalData
                     changed = True
                 End If
             Next
-            If changed Then File.WriteAllLines(recordPath, lines)
+            If changed Then AtomicFile.WriteAllText(recordPath, String.Join(vbCrLf, lines) & vbCrLf)
         Catch ex As Exception
             Tracing.TraceLine("PersonalData: the retired operator record could not be updated: " & ex.Message, TraceLevel.Error)
         End Try
@@ -947,7 +947,7 @@ Public Class PersonalData
             If keep.Count = 0 Then
                 File.Delete(recordPath)
             Else
-                File.WriteAllLines(recordPath, keep)
+                AtomicFile.WriteAllText(recordPath, String.Join(vbCrLf, keep) & vbCrLf)
             End If
         Catch ex As Exception
             Tracing.TraceLine("PersonalData: the retired operator record could not be settled: " & ex.Message, TraceLevel.Error)
