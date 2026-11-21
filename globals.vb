@@ -2950,8 +2950,6 @@ Module globals
             Return
         End If
 
-        ' Initialize the optional message processor
-        OptionalMessage.Setup(AddressOf Operators.UpdateOptionalMessages, AddressOf Operators.RetrieveOptionalMessages)
         ' Update the key dictionaries.
         Commands.UpdateCWText()
         ' Setup macros

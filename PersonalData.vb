@@ -139,7 +139,11 @@ Public Class PersonalData
         ''' </summary>
         Public CWDecodeCells As Integer
         ''' <summary>
-        ''' Optional message tags and values
+        ''' Optional message tags and values. RETIRED (#1108): nothing shows
+        ''' one of Jim's optional messages any more, and every "don't show
+        ''' again" goes through AdvisorySuppression. Kept, and never written,
+        ''' so an operator file that carries it still loads and re-saves with
+        ''' it intact.
         ''' </summary>
         Public OptionalMessages As OptionalMessageConfig()
         ''' <summary>
@@ -428,6 +432,10 @@ Public Class PersonalData
         End Sub
     End Class
 
+    ''' <summary>
+    ''' One saved optional-message answer. RETIRED (#1108), kept only so old
+    ''' operator files still read; see personal_v1.OptionalMessages.
+    ''' </summary>
     Public Class OptionalMessageConfig
         Public Tag As String
         Public Result As DialogResult
@@ -1024,40 +1032,6 @@ Public Class PersonalData
         op.CWDecodeCells = cells
         write(op)
     End Sub
-
-    ''' <summary>
-    ''' Update the current operator's optional messages info
-    ''' </summary>
-    ''' <param name="items">OptionalMessageElements array</param>
-    Friend Function UpdateOptionalMessages(items As OptionalMessageElement()) As Boolean
-        Dim op As personal_v1 = CurrentItem
-        If (items Is Nothing) OrElse (items.Length = 0) Then
-            op.OptionalMessages = Nothing
-        Else
-            ReDim op.OptionalMessages(items.Length - 1)
-            For i As Integer = 0 To items.Length - 1
-                op.OptionalMessages(i) = New OptionalMessageConfig(items(i).Tag, items(i).Result, items(i).Ignore)
-            Next
-        End If
-        write(op)
-        Return True
-    End Function
-
-    ''' <summary>
-    ''' Get current operator's optional message info
-    ''' </summary>
-    ''' <returns>array of OptionalMessageElements</returns>
-    Friend Function RetrieveOptionalMessages() As OptionalMessageElement()
-        Dim op As personal_v1 = CurrentItem
-        If op.OptionalMessages Is Nothing Then
-            Return Nothing
-        End If
-        Dim rv(op.OptionalMessages.Length - 1) As OptionalMessageElement
-        For i As Integer = 0 To rv.Length - 1
-            rv(i) = New OptionalMessageElement(op.OptionalMessages(i).Tag, op.OptionalMessages(i).Result, op.OptionalMessages(i).Ignore)
-        Next
-        Return rv
-    End Function
 
     ''' <summary>
     ''' Update the current operator's config info.
