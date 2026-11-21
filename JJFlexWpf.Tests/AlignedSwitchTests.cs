@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using JJPortaudio;
 using Radios;
 using Xunit;
 using Xunit.Abstractions;
