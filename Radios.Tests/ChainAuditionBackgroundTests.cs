@@ -338,6 +338,11 @@ namespace Radios.Tests
                 ChainAuditionTake.DiscardWaitsForReads.TotalSeconds + 10);
             Assert.True(File.Exists(path));            // the stated limit: this one file is still there
             Assert.False(run.IsCompleted);
+            // Repair 3 (Codex's re-check 2): a sweep while the reader still holds
+            // the file (as the window does each time it opens, in the same
+            // process) cannot remove it, because the reader shares no delete.
+            Assert.Equal(0, ChainAuditionFolder.Clear(_folder));
+            Assert.True(File.Exists(path));
             unstick.Set();
             Assert.True(run.Result.Cancelled);
             Assert.False(File.Exists(path));           // and its worker removed it when the read returned

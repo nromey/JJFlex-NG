@@ -324,9 +324,13 @@ namespace Radios
         /// call that does not return, such as a failing or disconnected disk),
         /// Discard returns after this wait with that one file still there and still
         /// open, and says so in the trace; the worker deletes it the moment its
-        /// read returns; and a read that never returns leaves it until the next
-        /// sweep of the folder (the window clears it each time it opens). Render
-        /// writers are never waited for: Discard closes them itself.
+        /// read returns. <b>A read that never returns has no bound here</b>
+        /// (corrected in repair 3; Codex's re-check 2 of 807be937): the reader
+        /// shares no delete, so a sweep of the folder in the same process (the
+        /// window sweeps it each time it opens) cannot remove the file while that
+        /// reader still holds it. The file stays until the reader lets go, or until
+        /// the process ends and releases the handle and a later sweep removes it.
+        /// Render writers are never waited for: Discard closes them itself.
         /// </remarks>
         internal static readonly TimeSpan DiscardWaitsForReads = TimeSpan.FromSeconds(5);
 
@@ -344,6 +348,9 @@ namespace Radios
 
         /// <summary>Tests only: run on the worker after the renders are written and before the take is marked ready, outside the lock.</summary>
         internal Action? BeforeReadyForTest { get; set; }
+
+        /// <summary>Tests only: run on the worker once the take's terminal state is set (ready, or idle after an unreadable take or a failure) and before its task completes, outside the lock.</summary>
+        internal Action? BeforeOutcomeReturnsForTest { get; set; }
 
         /// <summary>The take's file, as recorded: it begins after the start tone, so it is exactly what is measured and played. Empty before the first take.</summary>
         public string TakePath { get; private set; } = "";
@@ -643,6 +650,7 @@ namespace Radios
                         _state = AuditionTakeState.Idle;
                     }
                     Tracing.TraceLine("Check your audio audition: the take could not be read", System.Diagnostics.TraceLevel.Warning);
+                    BeforeOutcomeReturnsForTest?.Invoke();
                     return new AuditionAnalysisOutcome { Generation = generation, Trouble = TroubleUnreadable };
                 }
 
@@ -664,6 +672,7 @@ namespace Radios
                     Result = result;
                     _state = AuditionTakeState.Ready;
                 }
+                BeforeOutcomeReturnsForTest?.Invoke();
                 Tracing.TraceLine(ChainAudition.TraceLine(result), System.Diagnostics.TraceLevel.Info);
                 return new AuditionAnalysisOutcome { Generation = generation, Result = result };
             }
@@ -680,6 +689,7 @@ namespace Radios
                     if (StaleLocked(generation, token)) return Cancelled(generation);
                     _state = AuditionTakeState.Idle;
                 }
+                BeforeOutcomeReturnsForTest?.Invoke();
                 return new AuditionAnalysisOutcome { Generation = generation, Trouble = TroubleFailed };
             }
         }
@@ -838,10 +848,14 @@ namespace Radios
                 _cancel = null;
                 if (wasRecording && _recorder.IsRecordingTo(TakePath)) _recorder.Stop();
                 // Repair 1, R3: every render writer still open is closed here (its
-                // header written now, before the clear) and its file deleted; and a
-                // worker still reading the take back is waited for, bounded, because
-                // the open file cannot be deleted. So when Discard returns, no file of
-                // this take is open or on disk, and nothing is written after the clear.
+                // header written now, before the clear) and its file deleted, so
+                // nothing is written after the clear. A worker still reading the
+                // take back is cancelled and waited for, bounded by
+                // DiscardWaitsForReads, because the open file cannot be deleted: so
+                // when Discard returns, no file of this take is open or on disk,
+                // EXCEPT the take file of a read stuck inside the operating system
+                // past that wait, which stays until its reader lets go (see
+                // DiscardWaitsForReads for the whole limit; repair 3).
                 foreach (var path in new System.Collections.Generic.List<string>(_openWriters.Keys)) AbandonLocked(path);
                 var waited = System.Diagnostics.Stopwatch.StartNew();
                 while (_loads > 0)

@@ -106,8 +106,19 @@ public partial class CheckYourAudioDialog
     /// <summary>The owner value captured when the current analysis started; the window's thread only.</summary>
     private int _auditionAnalysisOwner;
 
-    /// <summary>The generation whose result is in the reading box, so a held result is shown once.</summary>
+    /// <summary>
+    /// The generation whose outcome is in the reading box. An outcome is
+    /// published once: a later delivery of the same generation (a callback that
+    /// arrives after a silent restoration) is consumed and says nothing (repair
+    /// 3, R2; Codex's re-check 2 of 807be937). The window's thread only.
+    /// </summary>
     private int _auditionShownGeneration = -1;
+
+    /// <summary>The whole terminal outcome, verdict or trouble, that finished while a new take's start held ownership; given back if that start is called off (repair 3, R2).</summary>
+    private AuditionAnalysisOutcome? _auditionHeldOutcome;
+
+    /// <summary>A generation whose outcome, when its callback arrives, is shown silently: it was restored after a called-off start while its task was still finishing (repair 3, R2).</summary>
+    private int _auditionSilentGeneration = -1;
     private int _auditionProcessingGeneration = -1;
     private Button? _auditionProcessAgainButton;
 
@@ -526,10 +537,31 @@ public partial class CheckYourAudioDialog
         // it at the admission, though the take's generation changes only when the
         // microphone opens, after the countdown. A called-off start gives it back
         // (ReclaimAuditionAfterCalledOffStart).
-        if (outcome.Generation != _auditionProcessingGeneration
-            || _auditionAnalysisOwner != Volatile.Read(ref _auditionOwnerEpoch)) return;
+        if (outcome.Generation != _auditionProcessingGeneration) return;
+        // Repair 3, R2: published once. One already in the reading box (shown, or
+        // restored silently after a called-off start) is consumed.
+        if (outcome.Generation == _auditionShownGeneration) return;
+        if (_auditionAnalysisOwner != Volatile.Read(ref _auditionOwnerEpoch))
+        {
+            // Held, whole, for a called-off start to give back (repair 3, R2).
+            _auditionHeldOutcome = outcome;
+            return;
+        }
+        PublishAuditionOutcome(audition, outcome,
+            speak: outcome.Generation != _auditionSilentGeneration && SelectedMethod == AudioCheckListenMethods.Audition);
+    }
+
+    /// <summary>
+    /// Put one analysis's terminal outcome in the reading box, and say it when
+    /// asked: its verdict, or why there is none (unreadable, failed). The one
+    /// place an outcome is published, so a published generation is always marked
+    /// as shown, and never published twice.
+    /// </summary>
+    private void PublishAuditionOutcome(ChainAuditionTake audition, AuditionAnalysisOutcome outcome, bool speak)
+    {
         StopAuditionProcessingSpeech();
         _auditionShownGeneration = outcome.Generation;
+        if (ReferenceEquals(_auditionHeldOutcome, outcome)) _auditionHeldOutcome = null;
         string words;
         VerbosityLevel level;
         if (outcome.Result is { } result)
@@ -544,7 +576,7 @@ public partial class CheckYourAudioDialog
             level = VerbosityLevel.Critical;
         }
         ShowAuditionReading(words);
-        if (SelectedMethod == AudioCheckListenMethods.Audition)
+        if (speak)
             ScreenReaderOutput.Speak(words, Radios.Speech.SpeechIntent.Queue, level, subject: Radios.Speech.SpeechSubject.AuditionVerdict,
                 stillValid: AuditionSpeechStillValid(audition, outcome.Generation));
         SyncAuditionButtons();
@@ -574,20 +606,34 @@ public partial class CheckYourAudioDialog
     /// <summary>
     /// A new take's start was called off during its countdown (Escape, Start
     /// again, the window's own checks): the take that was there is still there,
-    /// so it owns its analysis again (repair 2, R2). A result that finished during
-    /// the countdown, and so was held back, is put in the reading box now,
-    /// silently, as the buttons come back; one still running publishes as usual.
+    /// so it owns its analysis again (repair 2, R2), and gets back its WHOLE
+    /// terminal outcome exactly once (repair 3, R2; Codex's re-check 2):
+    /// <list type="bullet">
+    /// <item>an outcome delivered during the countdown, and held: verdict or
+    /// trouble, put in the reading box now, silently;</item>
+    /// <item>an analysis already finished (ready, or idle after a failure) whose
+    /// callback has not arrived yet: a ready verdict is shown now from the take,
+    /// and that generation is marked so its late callback is shown silently, or
+    /// consumed if it was already shown;</item>
+    /// <item>one still running: it publishes as usual when it ends, spoken.</item>
+    /// </list>
     /// </summary>
     private void ReclaimAuditionAfterCalledOffStart()
     {
         var audition = _audition;
         if (_closing || audition == null || audition.Generation != _auditionProcessingGeneration) return;
         _auditionAnalysisOwner = Volatile.Read(ref _auditionOwnerEpoch);
-        if (audition.State == AuditionTakeState.Ready && audition.Result is { } result && _auditionShownGeneration != audition.Generation)
+        int generation = audition.Generation;
+        if (_auditionShownGeneration == generation) return;
+        if (_auditionHeldOutcome is { } held && held.Generation == generation)
         {
-            _auditionShownGeneration = audition.Generation;
-            ShowAuditionReading(ChainAudition.Verdict(result));
+            PublishAuditionOutcome(audition, held, speak: false);
+            return;
         }
+        if (audition.State == AuditionTakeState.Analysing) return;
+        _auditionSilentGeneration = generation;
+        if (audition.State == AuditionTakeState.Ready && audition.Result is { } result)
+            PublishAuditionOutcome(audition, new AuditionAnalysisOutcome { Generation = generation, Result = result }, speak: false);
     }
 
     /// <summary>
