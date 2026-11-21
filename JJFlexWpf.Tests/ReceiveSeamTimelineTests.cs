@@ -283,4 +283,75 @@ public class ReceiveSeamTimelineTests
         }, attempts: 3);
         Assert.Equal(0, least);
     }
+
+    /// <summary>
+    /// One slot through an engine handover: rnnoise at <paramref name="from"/> frames,
+    /// "b" at <paramref name="to"/> chosen before buffer 60. Returns the handover
+    /// buffer, every position the slot reported a seam at, every position the output
+    /// first carries audio from after the loss (a replay crosses twice), and the
+    /// input frame heard 100 frames into the handover buffer.
+    /// </summary>
+    private static (int Handover, List<long> Reported, List<long> Crossings, long HeardAt) Handover(int from, int to, bool fade, long lossAt)
+    {
+        DenoiseEngineEntry R(string id, int d) => Row(id, DenoiseFamily.Neural, d);
+        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "rnnoise", 48000, 2, new DenoiseEngineCatalog(new[] { R("rnnoise", from), R("b", to) }));
+        try
+        {
+            slot.CrossFadeOverrideForTest = fade; slot.MuteOverrideForTest = false;
+            slot.SetStrength("rnnoise", 1); slot.SetStrength("b", 1);
+            slot.Enabled = true;
+            var x = new float[2 * F];
+            var reported = new List<long>(); var crossings = new List<long>();
+            int handover = -1; long heardAt = -1;
+            float prev = 0;
+            for (int b = 0; b < 600; b++)
+            {
+                if (b == 60) { Assert.True(slot.Select("b", out _)); WaitFor(() => slot.BuildDelivered("b")); }
+                for (int i = 0; i < F; i++)
+                {
+                    long n = (long)b * F + i;
+                    x[2 * i] = x[2 * i + 1] = (n + (lossAt >= 0 && n >= lossAt ? Lost : 0)) / (float)Scale;
+                }
+                if (lossAt >= 0 && b == lossAt / F) slot.NoteInputSeam((int)(lossAt % F));
+                var before = slot.LastSwitch;
+                slot.Process(x, true, true, false, null, RxContentClass.Classified | RxContentClass.NotVoiceRun);
+                if (handover < 0 && !Equals(before, slot.LastSwitch)) { handover = b; heardAt = (long)Math.Round(x[2 * 100] * (double)Scale); }
+                for (int i = 0; i < slot.SeamsOut; i++) reported.Add((long)b * F + slot.SeamOut(i));
+                if (lossAt >= 0)
+                    for (int i = 0; i < F; i++)
+                    {
+                        float cur = x[2 * i];
+                        if (prev * (double)Scale < lossAt + Lost - 0.5 && cur * (double)Scale >= lossAt + Lost - 0.5) crossings.Add((long)b * F + i);
+                        prev = cur;
+                    }
+            }
+            return (handover, reported, crossings, heardAt);
+        }
+        finally { slot.CloseAdmission(); slot.DisposeOwned(); }
+    }
+
+    /// <summary>
+    /// Codex's re-check of 5a0a8c93 (B1): with the cross-fade off, a handover played
+    /// the incoming engine but reported the outgoing one's seams, so a seam coming out
+    /// in the handover buffer was lost (switching to a faster engine), or its replay
+    /// went unmarked (switching to a slower one). The seam is put where the incoming
+    /// engine plays it, 100 frames into the handover buffer; every place the output
+    /// crosses the loss must be reported, and nothing else.
+    /// </summary>
+    [Theory]
+    [InlineData(3408, 480, false)]
+    [InlineData(480, 3408, false)]
+    [InlineData(3408, 480, true)]
+    [InlineData(480, 3408, true)]
+    public void A_seam_that_comes_out_in_the_handover_buffer_is_reported_where_it_is_heard(int from, int to, bool fade)
+    {
+        var probe = Handover(from, to, fade, -1);
+        Assert.True(probe.Handover > 0, "no handover happened");
+        var run = Handover(from, to, fade, probe.HeardAt);
+        _out.WriteLine($"{from} to {to}, cross-fade {(fade ? "on" : "off")}: handover at buffer {run.Handover} (probe {probe.Handover}); the loss at input {probe.HeardAt}; "
+            + $"crossings {string.Join(", ", run.Crossings)}; reported {string.Join(", ", run.Reported)}");
+        // Positive control: the seam really comes out inside the handover buffer.
+        Assert.Contains(run.Crossings, c => c / F == run.Handover);
+        Assert.Equal(run.Crossings, run.Reported);
+    }
 }

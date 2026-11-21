@@ -840,6 +840,14 @@ namespace JJFlexWpf
                     else if (!CrossFadeOn) _nextAudio.AsSpan(0, audio.Length).CopyTo(audio);
                     else if (aligned) AlignedSwitch.Fade(audio, _nextAudio.AsSpan(0, audio.Length), _channels, _corr);
                     else CrossFade(audio, _nextAudio, _channels);
+                    // The seams follow what this buffer ends on (Codex's re-check of 5a0a8c93,
+                    // B1): with the cross-fade off it IS the incoming engine, and a fade ends on
+                    // it; only the Mute switch's buffer is the outgoing one, fading out.
+                    if (!mute)
+                    {
+                        if (_warmTarget >= 0) Heard(SeamSource.Line, _warmPad);
+                        else Heard(SeamSource.Bank, latency: _warming.Bank.LatencySamples);
+                    }
                     var note = new SwitchNote(aligned, _channels > 0 ? _corr[0] : 0, _channels > 1 ? _corr[1] : 0, _warmTarget, mute);
                     LastSwitch = note;
                     // The incoming bank's pad line becomes the running one, so the
