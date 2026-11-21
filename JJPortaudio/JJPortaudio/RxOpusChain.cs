@@ -33,22 +33,61 @@ namespace JJPortaudio
     /// need to be.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// What a post-decode processor knows about the buffer it just processed,
+    /// for the lag shifter at the playback queue (#873 phase 2): the class of
+    /// that buffer's audio. <c>RxAudioPipeline</c> implements it; the chain finds
+    /// it as the processor delegate's target, so nothing between the UI and the
+    /// stream has to forward a second object.
+    /// </summary>
+    public interface IRxContentClassifier
+    {
+        /// <summary>The class of the buffer most recently processed, as it comes out.</summary>
+        RxContentClass LastBufferClass { get; }
+    }
+
     public sealed class RxOpusChain
     {
         private readonly Action<float[]> _enqueue;
         private readonly Func<uint> _sampleRate;
+        private readonly Action<float[], RxContentClass, bool> _noteMeta;
+        private Action<float[]> _postDecodeProcessor;
+        private IRxContentClassifier _classifier;
+        private bool _seamNext;
 
-        public RxOpusChain(Action<float[]> enqueue, Func<uint> sampleRate)
+        /// <param name="noteMeta">
+        /// Called with each buffer's class and seam mark just BEFORE it is
+        /// enqueued (Track P2: the playback queue's catch-up keeps them beside
+        /// the buffer). Optional.
+        /// </param>
+        public RxOpusChain(Action<float[]> enqueue, Func<uint> sampleRate, Action<float[], RxContentClass, bool> noteMeta = null)
         {
             _enqueue = enqueue ?? throw new ArgumentNullException(nameof(enqueue));
             _sampleRate = sampleRate ?? (() => 0);
+            _noteMeta = noteMeta;
         }
+
+        /// <summary>
+        /// The next buffer emitted follows lost audio the loop did not make up (a
+        /// gap over the concealment cap): it carries a seam mark, so the playback
+        /// queue joins across it with a matched fade instead of a splice (#1155,
+        /// Track P2). Called on the remote-audio thread, just before the packet
+        /// after the gap is written.
+        /// </summary>
+        public void MarkSeam() => _seamNext = true;
+
+        /// <summary>Seam marks emitted (tests).</summary>
+        public long SeamsMarked { get; private set; }
 
         /// <summary>Output gain scalar; 1.0 is unity.</summary>
         public float OutputGain { get; set; } = 1.0f;
 
-        /// <summary>In-place PC-side processing (receive noise reduction).</summary>
-        public Action<float[]>? PostDecodeProcessor { get; set; }
+        /// <summary>In-place PC-side processing (receive noise reduction). When its target classifies what it processed (<see cref="IRxContentClassifier"/>), each buffer's class goes with it to the queue.</summary>
+        public Action<float[]>? PostDecodeProcessor
+        {
+            get => _postDecodeProcessor;
+            set { _postDecodeProcessor = value; _classifier = value?.Target as IRxContentClassifier; }
+        }
 
         /// <summary>Observer of the final samples; it must return without blocking.</summary>
         public Action<float[]>? PostOutputObserver { get; set; }
@@ -183,7 +222,12 @@ namespace JJPortaudio
             if (prePeak > _peakSinceLastLog) _peakSinceLastLog = prePeak;
 
             // PC-side audio processing (NR, spectral subtraction, etc.)
-            PostDecodeProcessor?.Invoke(buf);
+            var processor = _postDecodeProcessor;
+            processor?.Invoke(buf);
+            var cls = processor != null && _classifier != null ? _classifier.LastBufferClass : RxContentClass.Unclassified;
+            bool seam = _seamNext;
+            _seamNext = false;
+            if (seam) SeamsMarked++;
             PostOutputObserver?.Invoke(buf);
 
             // Measure what is actually going to the speakers, AFTER the gain,
@@ -247,6 +291,7 @@ namespace JJPortaudio
                 _meterSamplesSinceLastLog = 0;
             }
 
+            _noteMeta?.Invoke(buf, cls, seam);
             _enqueue(buf);
         }
     }

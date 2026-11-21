@@ -24,7 +24,7 @@ namespace JJFlexWpf
     /// before freeing their native state.
     /// Sprint 25 Phase 20.
     /// </summary>
-    public class RxAudioPipeline : IDisposable
+    public class RxAudioPipeline : IDisposable, IRxContentClassifier
     {
         private SpectralSubtractionProvider _spectralSub;
         private SpectralSubtractionProvider _processingCapture;
@@ -179,6 +179,17 @@ namespace JJFlexWpf
         /// <summary>Tests only: the content classifier.</summary>
         internal RxContentClassifier Classifier => _classifier;
 
+        private RxContentClass _lastOutClass;
+
+        /// <summary>
+        /// The class of the buffer <see cref="Process"/> just returned, as it comes
+        /// OUT (#873 phase 2, item 2): the input's class from as many blocks ago as
+        /// the two slots delay the audio now, so the playback queue's catch-up
+        /// splices audio by what that audio is, not by what the newest input is.
+        /// Unclassified when the buffer was not processed.
+        /// </summary>
+        public RxContentClass LastBufferClass => _lastOutClass;
+
         // --- Noise profile management ---
 
         /// <summary>Start sampling noise. Call when the band is quiet.
@@ -227,6 +238,7 @@ namespace JJFlexWpf
         /// </summary>
         public void Process(float[] buffer)
         {
+            _lastOutClass = RxContentClass.Unclassified;
             if (Volatile.Read(ref _disposed) != 0 || Interlocked.CompareExchange(ref _processMark, 1, 0) != 0) return;
             try
             {
@@ -264,6 +276,8 @@ namespace JJFlexWpf
                 _neuralKeepUp.After(NeuralSlot, neuralBank, neuralLate, afterNeural - afterSpectral, bufferTicks, gap, false, afterNeural);
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
+                int lagBlocks = (SpectralSlot.HeardDelaySamples + NeuralSlot.HeardDelaySamples + RxContentClassifier.BlockFrames / 2) / RxContentClassifier.BlockFrames;
+                _lastOutClass = _classifier.ClassOfBlock(_classifier.Blocks - 1 - lagBlocks);
                 _lastProcessEnd = Stopwatch.GetTimestamp();
             }
             finally { Interlocked.Exchange(ref _processMark, 0); }

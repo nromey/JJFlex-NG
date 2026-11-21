@@ -1544,6 +1544,24 @@ namespace Radios
                             i => recorder?.ReceiveConcealed(this, prev + i, consumedTs));
                         rxGaps.NoteFilled(filled.Concealed, filled.Recovered);
                     }
+                    // #1155, Sprint 49 Track P2: a gap concealment did not make up (over
+                    // the cap, or concealment switched off) is no longer a splice: the
+                    // packet after it carries a seam mark, and the playback queue joins
+                    // across it with a matched fade, then rebuilds the reserve the gap
+                    // spent by playing slightly slow. Only when catch-up is on.
+                    if ((gap == ReceiveGapAction.SpliceOverCap || gap == ReceiveGapAction.SpliceSwitchedOff)
+                        && !_speakerGivenUp && rxGaps.JoinsSeams)
+                    {
+                        if (gap == ReceiveGapAction.SpliceOverCap && ReceiveGap.ConcealBeforeSeam)
+                        {
+                            int prev = (consumedSequence - missing - 1) & 15;
+                            var filled = opusOutputChannel.PortAudioStream.FillGap(opusBuf, ReceiveGap.ConcealCapFrames,
+                                i => recorder?.ReceiveConcealed(this, prev + i, consumedTs));
+                            rxGaps.NoteFilled(filled.Concealed, filled.Recovered);
+                        }
+                        opusOutputChannel.PortAudioStream.MarkSeam();
+                        rxGaps.NoteSeam();
+                    }
                     recorder?.Receive(this, opusBuf, consumedSequence, consumedTs, rxMuted);
                     if (!rxMuted && !_speakerGivenUp)
                         opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);

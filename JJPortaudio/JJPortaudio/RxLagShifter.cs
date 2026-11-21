@@ -90,6 +90,14 @@ namespace JJPortaudio
         public const double GapFadeMilliseconds = 5;
         /// <summary>The fade at a cut: 10 ms at r = 0 (first report, section 5).</summary>
         public const double CutFadeMilliseconds = 10;
+        /// <summary>
+        /// A seam join never starts inside the first 2.5 ms after the seam. Measured
+        /// (RxSeamJoinTests): Opus's CELT frames overlap by 2.5 ms, so the decoder's
+        /// first samples after a lost run are its own blend of stale state and the new
+        /// frame, and for audio half a period out of phase that blend nearly cancels
+        /// (a 43 dB dip on a 625 Hz tone). A join that begins inside it keeps the hole.
+        /// </summary>
+        public const double SeamSkipMilliseconds = 2.5;
         /// <summary>The fade at a seam join (my judgement: as a gap splice's).</summary>
         public const double SeamFadeMilliseconds = 5;
         /// <summary>The fade when the queue runs dry, and when audio comes back: "a few milliseconds", so neither edge clicks (item 4).</summary>
@@ -150,7 +158,7 @@ namespace JJPortaudio
 
         private enum FadeKind : byte { None, Splice, Seam, Cut }
         private FadeKind _fade;
-        private int _fadeLen, _fadeAt, _fadePeriod;
+        private int _fadeLen, _fadeAt, _fadePeriod, _fadeHold;
         private long _fadeA, _fadeB;          // old side and new side, at fade frame 0
         private readonly float[] _fadeR;
 
@@ -747,13 +755,21 @@ namespace JJPortaudio
         /// <summary>One or more frames of the fade in progress.</summary>
         private int StepFade(Span<float> dst, int remaining)
         {
-            int n = Math.Min(remaining, _fadeLen - _fadeAt);
+            int total = _fadeHold + _fadeLen;
+            int n = Math.Min(remaining, total - _fadeAt);
             for (int f = 0; f < n; f++)
             {
                 int k = _fadeAt + f;
-                float t = (k + 1f) / _fadeLen;
                 long oldPos = _fade == FadeKind.Seam ? _fadeA + (k % _fadePeriod) : _fadeA + k;
-                long newPos = _fadeB + k;
+                if (k < _fadeHold)
+                {
+                    // A seam's extension of the audio before, alone, until its phase meets the audio after.
+                    for (int c = 0; c < _ch; c++) dst[f * _ch + c] = Sample(oldPos, c);
+                    continue;
+                }
+                int j = k - _fadeHold;
+                float t = (j + 1f) / _fadeLen;
+                long newPos = _fadeB + j;
                 for (int c = 0; c < _ch; c++)
                 {
                     float r = _fade == FadeKind.Cut ? 0f : _fadeR[c];
@@ -761,14 +777,15 @@ namespace JJPortaudio
                 }
             }
             _fadeAt += n;
-            _read = _fadeB + _fadeAt;
+            _read = _fadeB + Math.Max(0, _fadeAt - _fadeHold);
             _out += n;
-            if (_fadeAt >= _fadeLen) _fade = FadeKind.None;
+            if (_fadeAt >= total) { _fade = FadeKind.None; _fadeHold = 0; }
             return n;
         }
 
-        private void BeginFade(FadeKind kind, long oldSide, long newSide, int length, int period = 0)
+        private void BeginFade(FadeKind kind, long oldSide, long newSide, int length, int period = 0, int hold = 0)
         {
+            _fadeHold = Math.Max(0, hold);
             _fade = kind;
             _fadeA = oldSide;
             _fadeB = newSide;
@@ -1174,6 +1191,38 @@ namespace JJPortaudio
 
         // ── Cut and seam ──
 
+        /// <summary>The worse ear's correlation of the extension from its <paramref name="offset"/>-th frame on with x[after + i].</summary>
+        private float SeamScoreFrom(long ext, int P, int offset, long after, int len, int stride)
+        {
+            float worst = float.MaxValue;
+            for (int c = 0; c < _ch; c++)
+            {
+                double xy = 0, xx = 0, yy = 0;
+                for (int i = 0; i < len; i += stride)
+                {
+                    float x = _ring[Idx(ext + ((offset + i) % P)) * _ch + c], y = _ring[Idx(after + i) * _ch + c];
+                    xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
+                }
+                float r = xx < 1e-12 || yy < 1e-12 ? 0f : (float)(xy / Math.Sqrt(xx * yy));
+                if (r < worst) worst = r;
+            }
+            return worst;
+        }
+
+        private void MeasureSeamR(long ext, int P, int offset, long after, int len)
+        {
+            for (int c = 0; c < _ch; c++)
+            {
+                double xy = 0, xx = 0, yy = 0;
+                for (int k = 0; k < len; k++)
+                {
+                    float x = _ring[Idx(ext + ((offset + k) % P)) * _ch + c], y = _ring[Idx(after + k) * _ch + c];
+                    xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
+                }
+                _fadeR[c] = xx < 1e-12 || yy < 1e-12 ? 0f : (float)Math.Clamp(xy / Math.Sqrt(xx * yy), 0, 1);
+            }
+        }
+
         /// <summary>The worse ear's correlation of the periodic extension x[ext + (i mod P)] with x[after + i], over len samples.</summary>
         private float SeamScore(long ext, int P, long after, int len, int stride)
         {
@@ -1216,31 +1265,35 @@ namespace JJPortaudio
             int P = BestLag(s - _window, false, _minLag, _maxLag, out _, false, 0);
             if (P == 0) return false;
             int F = _seamFade;
-            // The audio after, lined up with the extension: up to one long lag of it may go.
-            long dMax = Math.Min(_maxLag, (_write - s) - Math.Max(remaining, F) - F);
-            if (dMax < 0) return false;
-            int d = 0; float bestD = float.MinValue;
+            // The audio after the seam starts past the codec's own overlap (measured),
+            // and the audio before is EXTENDED, one period at a time from what was
+            // just played, for as long as it takes (under one period) for its phase
+            // to meet the audio after. Adding, not dropping: a loss has already left
+            // the queue short, and bridging rebuilds the reserve from there.
+            int dMin = Ms(SeamSkipMilliseconds);
+            if ((_write - s) < dMin + F) return false;
+            long after = s + dMin;
+            int hold = 0; float bestH = float.MinValue;
             for (int pass = 0; pass < 2; pass++)
             {
-                int lo = pass == 0 ? 0 : Math.Max(0, d - CoarseStride + 1);
-                int hi = pass == 0 ? (int)dMax : (int)Math.Min(dMax, d + CoarseStride - 1);
+                int lo = pass == 0 ? 0 : Math.Max(0, hold - CoarseStride + 1);
+                int hi = pass == 0 ? P - 1 : Math.Min(P - 1, hold + CoarseStride - 1);
                 int step = pass == 0 ? CoarseStride : 1;
-                int sampleStride = pass == 0 ? CoarseStride : 1;
-                for (int k = lo; k <= hi; k += step)
+                for (int h = lo; h <= hi; h += step)
                 {
-                    float sc = SeamScore(s - P, P, s + k, F, sampleStride);
-                    if (sc > bestD) { bestD = sc; d = k; }
+                    float sc = SeamScoreFrom(s - P, P, h, after, F, pass == 0 ? CoarseStride : 1);
+                    if (sc > bestH) { bestH = sc; hold = h; }
                 }
             }
-            if (s + d + F > _write) return false;
-            MeasureFadeR(s - P, s + d, F, P);
-            Log(s - P, s + d, P, F, _fadeR[0], 4);
-            BeginFade(FadeKind.Seam, s - P, s + d, F, P);
+            MeasureSeamR(s - P, P, hold, after, F);
+            Log(s - P, after, P, F, _fadeR[0], 4);
+            BeginFade(FadeKind.Seam, s - P, after, F, P, hold);
             // Nothing before the join may be repeated after it.
-            _growGuard = Math.Max(_growGuard == long.MinValue ? s : _growGuard, s + d);
+            _growGuard = Math.Max(_growGuard == long.MinValue ? s : _growGuard, after);
             TotalSeamJoins++;
-            if (d > 0) TotalRemoved += d;
-            if (_eventActive) { _event.SeamJoins++; _event.Removed += d; }
+            TotalRemoved += dMin;
+            TotalAdded += hold;
+            if (_eventActive) { _event.SeamJoins++; _event.Removed += dMin; _event.Added += hold; }
             return true;
         }
     }

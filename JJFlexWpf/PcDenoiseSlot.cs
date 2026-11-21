@@ -1218,6 +1218,25 @@ namespace JJFlexWpf
         internal (RxLagShifter Run, RxLagShifter Warm, RxLagShifter Dry)? LinesForTest =>
             _runPad == null ? null : (_runPad.Shifter, _warmPad!.Shifter, _dryPad!.Shifter);
 
+        /// <summary>
+        /// Receive, on the audio thread: how far behind its input this slot's
+        /// output is heard now, in samples: the dry line's delay while turning on
+        /// or off, the running engine's delay and pad while processing, nothing
+        /// while off. The pipeline reads it to give the playback queue the class
+        /// of the audio coming out (#873 phase 2).
+        /// </summary>
+        internal int HeardDelaySamples
+        {
+            get
+            {
+                if (_runPad == null) return 0;
+                if (_onPhase || _offPhase) return _dryPad!.Delay;
+                if (!_wasActive) return 0;
+                var bank = Volatile.Read(ref _runningBuild)?.Bank;
+                return bank == null ? 0 : RunningActual(bank);
+            }
+        }
+
         /// <summary>The delay the running engine's output is heard at now: its own, plus its line when the line is in use.</summary>
         private int RunningActual(PerChannelDenoiserBank running) => running.LatencySamples + (_runLineActive ? _runPad!.Delay : 0);
 

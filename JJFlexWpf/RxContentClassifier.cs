@@ -60,6 +60,9 @@ namespace JJFlexWpf
         public const int FloorPercentile = 10;
 
         private const int Frame = RnnoiseVoiceDetector.Frame;
+
+        /// <summary>The frames in one classified block: 480, 10 ms at 48 kHz.</summary>
+        public const int BlockFrames = Frame;
         private readonly RnnoiseVoiceDetector? _detector;
         private readonly float[] _mono = new float[Frame];
         private int _fill;

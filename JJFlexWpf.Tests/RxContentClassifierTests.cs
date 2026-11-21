@@ -61,7 +61,7 @@ public sealed class RxContentClassifierTests
         using var c2 = new RxContentClassifier();
         var (speechInNoise, notVoice, _) = Run(c2, Stereo(BandNoise(Rate * 8, 6, 0.02f)));
         _out.WriteLine($"voice over band noise: {speech:P0} of blocks speech; band noise alone: {speechInNoise:P0} speech, {notVoice:P0} in a not-voice run");
-        Assert.True(speech > 0.5, $"only {speech:P0} of the voice read as speech");
+        Assert.True(speech > 0.7, $"only {speech:P0} of the voice read as speech");
         Assert.True(speechInNoise < 0.1, $"{speechInNoise:P0} of plain band noise read as speech");
         Assert.True(notVoice > 0.8, $"only {notVoice:P0} of plain band noise got the noise policy");
     }
@@ -154,5 +154,22 @@ public sealed class RxContentClassifierTests
         _out.WriteLine($"{Environment.Is64BitProcess switch { true => "x64", false => "x86" }}: {perBlock:0.0} µs per 10 ms block in all ({detector:0.0} µs in the detector), {perBlock / 100:0.00} percent of one core, one detector on the mix of both ears");
         Assert.Equal(0, allocated);
         Assert.True(perBlock < 500, $"{perBlock:0} µs per block");
+    }
+
+    [Fact]
+    public void The_pipeline_reports_each_output_buffer_s_class_at_the_delay_its_slots_add()
+    {
+        using var p = new RxAudioPipeline();
+        IRxContentClassifier c = p;
+        var noise = Stereo(BandNoise(F * 60, 9, 0.02f));
+        p.SetCurrentMode("DIGU");
+        for (int b = 0; b < 30; b++) { var buf = noise.AsSpan(b * 2 * F, 2 * F).ToArray(); p.Process(buf); }
+        Assert.True((c.LastBufferClass & RxContentClass.NoSplice) != 0, "a digital mode did not reach the queue's class");
+        p.SetCurrentMode("USB");
+        for (int b = 30; b < 60; b++) { var buf = noise.AsSpan(b * 2 * F, 2 * F).ToArray(); p.Process(buf); }
+        Assert.Equal(RxContentClass.Classified, c.LastBufferClass & RxContentClass.Classified);
+        Assert.True((c.LastBufferClass & RxContentClass.NoSplice) == 0);
+        // No slot running: no delay, so the class is the newest block's.
+        Assert.Equal(p.Classifier.ClassOfBlock(p.Classifier.Blocks - 1), c.LastBufferClass);
     }
 }

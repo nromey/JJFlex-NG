@@ -1133,6 +1133,9 @@ namespace JJPortaudio
         {
             CBData?.Playback?.RequestLineDrain();
         }
+
+        /// <summary>This stream's playback queue, for the receive chain's class and seam marks (Track P2). Null on an input stream or once closed.</summary>
+        internal RxPlaybackQueue Playback => CBData?.Playback;
         /// <summary>
         /// buffer size in use
         /// </summary>
@@ -2474,108 +2477,26 @@ namespace JJPortaudio
             // somebody's only speaker because it has one channel is not a
             // policy, it is a missing few lines.
             bool monoOut = (data.Channels == 1);
-            int floatsPerFrame = monoOut ? 1 : Devices.StreamChannels;
             float* outptr = (float*)outbuf;
             float* endptr = outptr + (monoOut ? data.BufferSize / 2 : data.BufferSize);
 
-            // ── #473: decide before touching the queue ──
+            // ── #473, and #873 phase 2 / #1154 (Sprint 49 Track P2): the queue renders ──
             //
-            // The standing backlog is read here, before a single buffer is
-            // dequeued (#462). One lock on an uncontended synchronized queue,
-            // against a callback that is about to take the same lock up to ten
-            // times.
-            //
-            // Begin() answers two questions this callback could not previously
-            // ask. Is the reserve still being built, in which case play silence
-            // and consume nothing rather than starting on empty? And has the
-            // backlog ratcheted past the point where it is only latency, in
-            // which case trim it — because the callback CANNOT catch up by
-            // consuming faster: PortAudio sizes the output buffer, and no
-            // callback can write more than it is given.
+            // The decision and the copy moved into the playback queue
+            // (RxPlaybackQueue.RenderCallback), so a test can drive the real render
+            // path with no device. On today's path (no reserve: the CW monitor and
+            // JJFLEX_RX_PRIME_MS=0; or JJFLEX_RX_CATCHUP=off) it is exactly the
+            // code that stood here: read the standing depth before a buffer is
+            // dequeued (#462), hold while the reserve builds, trim a backlog past
+            // the ceiling, play what is queued and measure any shortfall. With
+            // catch-up on, the callback no longer only copies: it renders through
+            // the lag shifter, which can play a backlog slightly FASTER than
+            // nominal, so a backlog is caught up instead of discarded and a low
+            // queue is stretched over. Nothing here allocates or waits.
             RxPlaybackQueue queue = data.Playback;
-            long silentFrames = 0;
-            int buffersConsumed = 0;
-            if (queue != null)
-            {
-                RxCallbackPlan plan = queue.Begin(data.Q.Count, data.Offset != 0);
-                for (int i = 0; i < plan.Discard && data.Q.Count > 0; i++) data.Q.Dequeue();
-                if (plan.HoldForPrime)
-                {
-                    long primingFrames = (endptr - outptr) / floatsPerFrame;
-                    while (outptr != endptr) *(outptr++) = 0f;
-                    queue.NotePrimingBuffer(primingFrames);
-                    goto outCallbackDone;
-                }
-            }
-
-            while (data.Active)
-            {
-                bool silence = false;
-                if (data.Offset == 0)
-                {
-                    // Fresh queued buffer.
-                    if (data.Q.Count == 0)
-                    {
-                        Tracing.TraceLine("silence", TraceLevel.Verbose);
-                        silence = true;
-                        // Track B (#29): measure the self-inflicted gap. See the
-                        // field comments — this is the glitch statusFlags
-                        // cannot see, because we fed the device on time, with
-                        // zeros. It is measured in FRAMES rather than counted as
-                        // an event, because the loop above has already played
-                        // every packet that was there: nine packets present out
-                        // of ten costs ten milliseconds of silence, not a
-                        // hundred, and counting events could not tell those
-                        // apart.
-                        silentFrames += (endptr - outptr) / floatsPerFrame;
-                    }
-                    else
-                    {
-                        data.Buffer = (float[])data.Q.Dequeue();
-                        buffersConsumed++;
-                    }
-                }
-                // else still data in this buffer.
-
-                if (silence)
-                {
-                    while (outptr != endptr) *(outptr++) = 0f;
-                }
-                else if (monoOut)
-                {
-                    // while there's data in the input, and room in the output:
-                    while ((data.Offset < data.Buffer.Length) & (outptr != endptr))
-                    {
-                        float l = data.Buffer[data.Offset++];
-                        // The queued buffers are stereo, so their length is
-                        // even and the pair is always complete. Guarded anyway:
-                        // half a frame of silence is a click, and a click is
-                        // the kind of thing that gets chased for a week.
-                        float r = (data.Offset < data.Buffer.Length)
-                            ? data.Buffer[data.Offset++] : l;
-                        *(outptr++) = (l + r) * 0.5f;
-                    }
-                    if (data.Offset >= data.Buffer.Length) data.Offset = 0;
-                }
-                else
-                {
-                    // while there's data in the input, and room in the output:
-                    while ((data.Offset < data.Buffer.Length) & (outptr != endptr))
-                    {
-                        *(outptr++) = data.Buffer[data.Offset++];
-                    }
-                    if (data.Offset == data.Buffer.Length) data.Offset = 0;
-                }
-                if (outptr == endptr)
-                {
-                    break;
-                }
-            }
-            // #473: one report per callback, with the shortfall MEASURED. A
-            // non-zero shortfall is a starvation, and it also spends the
-            // reserve — NotePlayed re-enters priming so the margin is rebuilt
-            // rather than left at zero until the stream ends.
-            queue?.NotePlayed(buffersConsumed, silentFrames);
+            var output = new Span<float>(outptr, (int)(endptr - outptr));
+            if (queue != null) queue.RenderCallback(data.Q, ref data.Buffer, ref data.Offset, output, monoOut, Devices.StreamChannels, data.IsActive);
+            else RxPlaybackQueue.RenderToday(null, data.Q, ref data.Buffer, ref data.Offset, output, monoOut, Devices.StreamChannels, data.IsActive);
 
             outCallbackDone:
             if (rv == PortAudio.PaStreamCallbackResult.paContinue) rv = (data.Active) ? PortAudio.PaStreamCallbackResult.paContinue : PortAudio.PaStreamCallbackResult.paComplete;
@@ -2592,7 +2513,7 @@ namespace JJPortaudio
                 data.Playback?.TraceSummary();
             }
             if ((rv == PortAudio.PaStreamCallbackResult.paContinue) &
-                (data.Q.Count == 0))
+                (data.Q.Count == 0) & (data.Playback == null || data.Playback.RingEmpty))
             {
                 // Only call once per silent period.
                 if (!data.SilentPeriod & (data.AudioSent != null))

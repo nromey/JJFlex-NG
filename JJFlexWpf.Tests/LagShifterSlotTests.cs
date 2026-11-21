@@ -233,20 +233,56 @@ public sealed class LagShifterSlotTests
         Assert.NotEqual(expected, today);
     }
 
+    /// <summary>An engine that colours differently from its partner (so the two outputs' correlation varies buffer to buffer), then a pure delay.</summary>
+    private sealed class ColourEngine : IDenoiseEngine
+    {
+        private readonly float[] _ring; private int _at; private float _prev; private readonly float _a, _b;
+        public ColourEngine(string id, int delay, float a, float b) { Id = id; _ring = new float[delay]; LatencySamples = delay; _a = a; _b = b; }
+        public string Id { get; }
+        public int SampleRate => 48000; public int FrameLength => F; public int LatencySamples { get; }
+        public bool IsAvailable => true;
+        public IReadOnlyList<EngineSettingDescriptor> Settings => Array.Empty<EngineSettingDescriptor>();
+        public EngineSettingValue GetSetting(string name) => throw new ArgumentException(name);
+        public bool TrySetSetting(string name, EngineSettingValue value) => false;
+        public bool ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
+        {
+            for (int i = 0; i < input.Length; i++) { float x = _a * input[i] + _b * _prev; _prev = input[i]; output[i] = _ring[_at]; _ring[_at] = x; if (++_at == _ring.Length) _at = 0; }
+            return true;
+        }
+        public void Reset() { } public void Dispose() { }
+    }
+
     [Fact]
     public void A_switch_inside_the_set_is_phase_1_s_sample_for_sample()
     {
         float[] Run(bool shifter)
         {
-            using var rig = new AlignedSwitchTests.Rig(480, 3408, 0.8f, shared: true, shifter: shifter);
+            DenoiseEngineEntry Row(string id, int d, float a, float b) => new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label",
+                new[] { DenoiseDirection.Receive }, (_, _) => new ColourEngine(id, d, a, b), () => Unavailability.None);
+            using var p = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("rnnoise", 480, 0.85f, 0.15f), Row("b", 3408, 1.1f, -0.2f) }));
+            var slot = p.NeuralSlot;
+            slot.SharedPlan = Plan(3408, "rnnoise", "b");
+            slot.ShifterOverrideForTest = shifter; slot.MuteOverrideForTest = false;
+            slot.SetStrength("rnnoise", 1); slot.SetStrength("b", 1);
+            p.RnnEnabled = true;
             var rng = new Random(49);
-            var noise = Enumerable.Range(0, 200 * F).Select(_ => (float)(rng.NextDouble() - 0.5) * 0.3f).ToArray();
             var o = new List<float>();
-            rig.Feed(n => noise[n % noise.Length], 40, o);
-            rig.ChooseB();
-            rig.Feed(n => noise[n % noise.Length], 60, o, "b");
-            Assert.Equal("b", rig.Slot.RunningEngineId);
-            Assert.True(rig.Slot.LastSwitch is { Aligned: true });
+            var audio = new float[2 * F];
+            for (int k = 0; k < 120; k++)
+            {
+                if (k == 40)
+                {
+                    Assert.True(slot.Select("b", out _));
+                    var t = System.Diagnostics.Stopwatch.StartNew();
+                    while (!slot.BuildDelivered("b") && t.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(1);
+                }
+                // Voice-like: noise bursts at a syllable rate, so each buffer's correlation differs.
+                for (int i = 0; i < F; i++) { long n = (long)k * F + i; float env = (n / 4800) % 2 == 0 ? 1f : 0.1f; audio[2 * i] = audio[2 * i + 1] = (float)(rng.NextDouble() - 0.5) * 0.3f * env; }
+                p.Process(audio);
+                for (int i = 0; i < F; i++) o.Add(audio[2 * i]);
+            }
+            Assert.Equal("b", slot.RunningEngineId);
+            Assert.True(slot.LastSwitch is { Aligned: true });
             return o.ToArray();
         }
         Assert.Equal(Run(false), Run(true));

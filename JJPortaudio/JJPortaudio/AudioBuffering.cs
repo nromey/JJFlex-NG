@@ -35,13 +35,17 @@ namespace JJPortaudio
     /// <see cref="RxPlaybackQueue"/>.
     /// </para>
     /// <para>
-    /// <b>What IS true is that the callback cannot catch up.</b> PortAudio sizes
-    /// the output buffer, so however far behind the queue falls, no callback can
-    /// write more than one buffer's worth — the drain rate is capped at exactly
-    /// the nominal rate and can never exceed it. Every millisecond of silence
-    /// inserted is therefore permanent: nothing anywhere plays faster afterwards
-    /// to reclaim it. That is the ratchet, and the only way to give any of it
-    /// back is to discard queued audio.
+    /// <b>What was true until Sprint 49 Track P2 is that a copying callback
+    /// cannot catch up.</b> PortAudio sizes the output buffer, so however far
+    /// behind the queue falls, no callback can write more than one buffer's
+    /// worth, and a callback that only COPIES drains at exactly the nominal rate.
+    /// That is still true of today's path (the CW monitor,
+    /// <c>JJFLEX_RX_PRIME_MS=0</c>, <c>JJFLEX_RX_CATCHUP=off</c>), where the only
+    /// way to give a backlog back is to discard it. With catch-up on, the
+    /// callback renders through the lag shifter (<see cref="RxLagShifter"/>),
+    /// which consumes slightly MORE than one buffer's worth per buffer it writes
+    /// by cutting whole periods and gap time, so late audio is played back
+    /// faster rather than thrown away (#473, ruled 2026-11-08; #873 phase 2).
     /// </para>
     /// <para>
     /// The arithmetic here is deliberately the same float expression

@@ -346,6 +346,29 @@ namespace Radios.Tests
             Assert.True(s.TotalRemoved > 0 && s.TotalAdded > 0, "the fuzz never exercised both directions");
         }
 
+        [Fact]
+        public void A_drain_never_takes_audio_the_render_still_needs_so_it_never_runs_dry()
+        {
+            // Owner one's shape: a buffer written, a buffer rendered, a 2,000-frame
+            // delay, and a request for far more than is there. The drain may take the
+            // delay down to nothing, never further: a removal that ate into what this
+            // render still has to play would run the line dry.
+            var s = new RxLagShifter(2, Rate * 2);
+            var input = Noise(Rate * 20, 91, 0.2);
+            var buf = new float[Block * 2];
+            s.Write(input.AsSpan(0, 2000 * 2), RxContentClass.Classified | RxContentClass.NotVoiceRun);
+            s.Request(Rate, LagPolicy.CatchUp, LagCause.LateAudio);
+            for (int at = 2000; at + Block <= Rate * 20; at += Block)
+            {
+                s.Write(input.AsSpan(at * 2, Block * 2), RxContentClass.Classified | RxContentClass.NotVoiceRun);
+                s.Render(buf);
+            }
+            _out.WriteLine($"removed {s.TotalRemoved} of the 2,000 there were; {s.SilentFrames} silent frames");
+            Assert.True(s.TotalRemoved > 1500, "the drain hardly ran");
+            Assert.Equal(0, s.SilentFrames);
+            Assert.Equal(0, s.ReadsPastWrite);
+        }
+
         // ── Growth: no region repeated twice ──
 
         [Fact]
