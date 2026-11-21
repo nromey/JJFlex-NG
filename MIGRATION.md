@@ -526,6 +526,30 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     branch adds 29 and 30. Remove it if a FlexLib release names the PG-XL's
     reason itself.
 
+32. **An amplifier reason FlexLib does not know clears the old one
+    (2026-11-21)**: keep the comment-marked JJFlex patch in
+    `FlexLib_API/FlexLib/Radio.cs`, inside `ParseInterlockStatus`'s `reason`
+    case, in the block that rejects a reason `ParseInterlockReason` cannot
+    name. Stock code wrote a debug line and `continue`d, so
+    `InterlockReason` kept whatever it held before: an `AMP:KZX-2500` after
+    an `OUT_OF_BAND` left `OUT_OF_BAND` standing, and a tune that amplifier
+    refused was explained as out of band. Now, when the rejected value
+    starts with `AMP:` (ordinal), the case stores `None` instead of
+    skipping, and the tune answer falls to its general refusal. The debug
+    line is kept. This replaces item 31's remark that any other amplifier
+    still hits the `continue`. **Scope, deliberately:** only an `AMP:`
+    value, not every unknown reason; any other unrecognised reason is still
+    skipped as stock code does. It also clears on a bare `AMP:` and on any
+    `AMP:` value other than the two already named (`AMP:TG`, FlexLib's,
+    and the PG-XL's, item 31). Whether any amplifier other than 4O3A's
+    sends `AMP:` is not established, so this may rarely fire. Pinned by
+    `Radios.Tests/PgxlInterlockReasonTests` (an unknown amplifier after
+    `OUT_OF_BAND` reads `None`, a bare `AMP:` likewise, an unknown
+    non-amplifier reason still leaves the old one, and a source pin on the
+    marker and this entry). Numbered 32 because 29 and 30 are the SmartLink
+    tiers branch's. Remove it if a FlexLib release clears or names an
+    unknown amplifier's reason itself.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

@@ -74,6 +74,76 @@ namespace Radios.Tests
             Assert.Equal(InterlockReason.None, radio.InterlockReason);
         }
 
+        // MIGRATION.md item 32 (#1247): an amplifier FlexLib cannot name
+        // clears the old reason rather than leaving it standing.
+        [Fact]
+        public void An_unknown_amplifier_clears_the_reason_before_it()
+        {
+            var radio = NewRadio();
+            Interlock(radio, "reason=OUT_OF_BAND");
+            Assert.Equal(InterlockReason.OUT_OF_BAND, radio.InterlockReason);
+
+            Interlock(radio, "reason=AMP:KZX-2500");
+            Assert.Equal(InterlockReason.None, radio.InterlockReason);
+        }
+
+        [Fact]
+        public void A_bare_amplifier_prefix_also_clears_the_reason_before_it()
+        {
+            var radio = NewRadio();
+            Interlock(radio, "reason=BAD_MODE");
+            Assert.Equal(InterlockReason.BAD_MODE, radio.InterlockReason);
+
+            Interlock(radio, "reason=AMP:");
+            Assert.Equal(InterlockReason.None, radio.InterlockReason);
+        }
+
+        [Fact]
+        public void The_two_named_amplifiers_still_parse_to_their_own_values_after_an_unknown_one()
+        {
+            var radio = NewRadio();
+            Interlock(radio, "reason=AMP:KZX-2500");
+            Assert.Equal(InterlockReason.None, radio.InterlockReason);
+
+            Interlock(radio, "reason=AMP:TG");
+            Assert.Equal(InterlockReason.TGXL, radio.InterlockReason);
+
+            Interlock(radio, "reason=AMP:PG-XL");
+            Assert.Equal(InterlockReason.PGXL, radio.InterlockReason);
+        }
+
+        [Fact]
+        public void Positive_control_an_unknown_reason_that_is_not_an_amplifier_is_still_skipped()
+        {
+            // The scope is deliberately AMP: only. Any other unrecognised
+            // reason keeps stock FlexLib's skip, so the old reason stands.
+            var radio = NewRadio();
+            Interlock(radio, "reason=OUT_OF_BAND");
+            Interlock(radio, "reason=SOMETHING_NEW");
+            Assert.Equal(InterlockReason.OUT_OF_BAND, radio.InterlockReason);
+
+            // Case matters: the prefix test is ordinal.
+            Interlock(radio, "reason=amp:KZX-2500");
+            Assert.Equal(InterlockReason.OUT_OF_BAND, radio.InterlockReason);
+        }
+
+        [Fact]
+        public void An_unknown_amplifier_gives_the_general_tune_refusal_not_a_stale_reason()
+        {
+            var radio = NewRadio();
+            Interlock(radio, "reason=OUT_OF_BAND");
+            Interlock(radio, "reason=AMP:KZX-2500");
+
+            var reading = new TuneReading(Transmitting: false, Busy: false, TxAllowed: false, NotReady: true,
+                                          Reason: radio.InterlockReason, Source: PTTSource.None, AnotherClient: false);
+            string said = TuneAnswer.NotKeyedSentence(reading);
+
+            var stale = new TuneReading(Transmitting: false, Busy: false, TxAllowed: false, NotReady: true,
+                                        Reason: InterlockReason.OUT_OF_BAND, Source: PTTSource.None, AnotherClient: false);
+            Assert.Equal(Lexicon.Get("audio.tune.refused"), said);
+            Assert.NotEqual(TuneAnswer.NotKeyedSentence(stale), said);
+        }
+
         [Fact]
         public void The_new_value_is_appended_so_no_existing_value_moves()
         {
@@ -104,6 +174,29 @@ namespace Radios.Tests
 
             string migration = Src("MIGRATION.md");
             Assert.Contains("31. **The Power Genius XL's interlock reason is kept", migration, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void The_unknown_amplifier_patch_is_marked_and_listed()
+        {
+            string radio = Src("FlexLib_API", "FlexLib", "Radio.cs");
+            int start = radio.IndexOf("private void ParseInterlockStatus(", StringComparison.Ordinal);
+            Assert.True(start >= 0, "ParseInterlockStatus is where the patch lives");
+            int reasonCase = radio.IndexOf("case \"reason\":", start, StringComparison.Ordinal);
+            int nextCase = radio.IndexOf("case \"timeout\":", reasonCase, StringComparison.Ordinal);
+            Assert.True(reasonCase > start && nextCase > reasonCase, "the reason case is followed by the timeout case");
+            string block = radio.Substring(reasonCase, nextCase - reasonCase);
+
+            Assert.Contains("JJFlex patch (MIGRATION.md item 32)", block, StringComparison.Ordinal);
+            Assert.Contains("value.StartsWith(\"AMP:\", StringComparison.Ordinal)", block, StringComparison.Ordinal);
+            Assert.Equal(1, Regex.Matches(radio, @"JJFlex patch \(MIGRATION\.md item 32\)").Count);
+
+            string migration = Src("MIGRATION.md");
+            Assert.Contains("32. **An amplifier reason FlexLib does not know clears the old one", migration, StringComparison.Ordinal);
+            Assert.Contains("bare `AMP:`", migration, StringComparison.Ordinal);
+            Assert.True(migration.IndexOf("32. **An amplifier reason", StringComparison.Ordinal)
+                        > migration.IndexOf("31. **The Power Genius XL", StringComparison.Ordinal),
+                "item 32 is appended after 31");
         }
     }
 }
