@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+using JJPortaudio;
 using Radios;
 
 namespace JJFlexWpf
@@ -83,8 +84,12 @@ namespace JJFlexWpf
             _channels = channels;
             _sampleRate = sampleRate;
             _catalog = catalog ?? new DenoiseEngineCatalog();
-            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog);
-            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog);
+            // One engine-switch budget for both slots (#873 phase 2): they run in series
+            // on one thread, so two drains at once must not double the rate.
+            _switchBudget = new RxLagBudget(sampleRate);
+            _classifier = new RxContentClassifier();
+            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget);
+            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget);
             SpectralSlot.SelectionResult += ForwardSelection;
             NeuralSlot.SelectionResult += ForwardSelection;
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
@@ -151,13 +156,28 @@ namespace JJFlexWpf
         // --- Mode tracking ---
 
         /// <summary>
-        /// Set the current radio mode (SSB, CW, etc.) so RNNoise can
-        /// auto-disable for non-voice modes. Called by the UI when mode changes.
+        /// Set the current slice mode (USB, CW, DIGU and so on). Called by the UI
+        /// when the mode changes. It no longer turns any engine off (the mode gate
+        /// was retired 2026-11-07, above); it tells the lag shifter what it is
+        /// hearing (#873 phase 2): nothing is cut or repeated in DIGU, DIGL and
+        /// RTTY, and CW's gap splices are kept short.
         /// </summary>
         public void SetCurrentMode(string mode)
         {
             Volatile.Write(ref _mode, mode ?? "");
+            _classifier.SetMode(mode);
         }
+
+        // --- The lag shifter's budget and classes (#873 phase 2, Sprint 49 Track P2) ---
+
+        private readonly RxLagBudget _switchBudget;
+        private readonly RxContentClassifier _classifier;
+
+        /// <summary>Tests only: the engine-switch budget both slots spend from.</summary>
+        internal RxLagBudget SwitchBudget => _switchBudget;
+
+        /// <summary>Tests only: the content classifier.</summary>
+        internal RxContentClassifier Classifier => _classifier;
 
         // --- Noise profile management ---
 
@@ -218,6 +238,9 @@ namespace JJFlexWpf
                 long entered = Stopwatch.GetTimestamp();
                 bool gap = _lastProcessEnd != 0 && entered - _lastProcessEnd > KeepUpGapTicks;
                 int count = buffer.Length;
+                // What this buffer is, for the lag shifter, read on the dry input
+                // before anything changes it; each slot reads it at its own delay.
+                var cls = _classifier.Classify(buffer, _channels);
                 var capture = Volatile.Read(ref _spectralSub);
                 bool capturing = capture.IsSampling;
                 capture.ProcessInPlace(buffer, 0, count, _channels); // capture only, never enabled
@@ -228,11 +251,12 @@ namespace JJFlexWpf
                 long start = Stopwatch.GetTimestamp();
                 var spectralBank = SpectralSlot.RunningBank;
                 long spectralLate = spectralBank?.LateFrames ?? 0;
-                SpectralSlot.Process(buffer, true, capture.HasProfile, capturing, _prepareSpectral);
+                SpectralSlot.Process(buffer, true, capture.HasProfile, capturing, _prepareSpectral, cls, gap);
                 long afterSpectral = Stopwatch.GetTimestamp();
                 var neuralBank = NeuralSlot.RunningBank;
                 long neuralLate = neuralBank?.LateFrames ?? 0;
-                NeuralSlot.Process(buffer, true, true, false, null);
+                NeuralSlot.Process(buffer, true, true, false, null, cls, gap);
+                _switchBudget.Advance(count / Math.Max(1, _channels));
                 long afterNeural = Stopwatch.GetTimestamp();
                 long bufferTicks = _channels > 0 && _sampleRate > 0
                     ? (long)((double)(count / _channels) * Stopwatch.Frequency / _sampleRate) : 0;
@@ -764,6 +788,7 @@ namespace JJFlexWpf
                 spin.SpinOnce();
             }
             SpectralSlot.DisposeOwned(); NeuralSlot.DisposeOwned();
+            _classifier.Dispose();
             Trace.WriteLine("RxAudioPipeline: disposed");
         }
     }

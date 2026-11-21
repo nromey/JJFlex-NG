@@ -2195,6 +2195,8 @@ public sealed class NoiseControllerTests
     public void Captured_noise_without_a_profile_reads_as_not_running_even_with_a_built_bank(bool clearAfterRunning)
     {
         using var f = new NoiseFixture();
+        // The readout, buffer by buffer: today's path (Track P2's smooth turn-off spans many buffers).
+        f.Pipeline.SpectralSlot.ShifterOverrideForTest = false;
         if (clearAfterRunning) CaptureProfile(f);
         f.Noise.Toggle("spectral_capture", "test");
         var audio = Buffer();
@@ -2223,6 +2225,9 @@ public sealed class NoiseControllerTests
     public void A_paused_or_passing_through_engine_reads_as_not_running_yet()
     {
         using var f = new NoiseFixture();
+        // The readout, buffer by buffer: today's path (Track P2's smooth turn-off spans many buffers).
+        f.Pipeline.SpectralSlot.ShifterOverrideForTest = false;
+        f.Pipeline.NeuralSlot.ShifterOverrideForTest = false;
         CaptureProfile(f);
         f.Noise.Toggle("spectral_capture", "test");
         f.Pipeline.Process(Buffer());

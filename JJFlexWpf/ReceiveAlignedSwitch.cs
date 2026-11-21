@@ -1,98 +1,85 @@
 using System;
+using JJPortaudio;
 
 namespace JJFlexWpf
 {
     /// <summary>
     /// Plain delay after a receive bank (#873, Sprint 49 Track P): pads a faster
     /// engine's whole output (Strength's blend, or "Listen to what was removed")
-    /// out to the slot's shared delay. A ring of interleaved frames, allocated
-    /// once off the audio thread; <see cref="Process"/> neither allocates nor
-    /// waits. The pad may change between buffers: the read point moves with it,
-    /// which is how the slot absorbs a change in the bank's own delay (the frame
-    /// carry) without the output moving in time.
+    /// out to the slot's shared delay. Since phase 2 (Track P2) it is a client of
+    /// the lag shifter's core (<see cref="RxLagShifter"/>): one ring, so a fixed
+    /// pad and a drained or grown one read the same history. <see cref="Process"/>
+    /// and <see cref="ProcessTwo"/> are phase 1's line exactly (write, then read a
+    /// fixed pad back; silence for what was never written). <see cref="Steer"/>
+    /// moves the delay toward a target by whole splices instead of jumping. All
+    /// allocated once off the audio thread; nothing here allocates or waits.
     /// </summary>
     internal sealed class PadLine
     {
-        private readonly float[] _ring;
-        private readonly int _channels, _frames;
-        private int _at, _filled;
+        private readonly RxLagShifter _line;
+        private readonly int _maxPad;
 
-        public PadLine(int maxPadFrames, int channels)
+        public PadLine(int maxPadFrames, int channels, int sampleRate = 48000, RxLagBudget? budget = null)
         {
-            _channels = Math.Max(1, channels);
-            _frames = Math.Max(0, maxPadFrames) + 1;
-            _ring = new float[_frames * _channels];
+            _maxPad = Math.Max(0, maxPadFrames);
+            _line = new RxLagShifter(Math.Max(1, channels), _maxPad + 8192, sampleRate, budget);
         }
 
         /// <summary>The longest pad this line can hold, in frames.</summary>
-        public int MaxPad => _frames - 1;
+        public int MaxPad => _maxPad;
+
+        /// <summary>The core, for its events and counters.</summary>
+        public RxLagShifter Shifter => _line;
 
         /// <summary>
         /// How many frames have gone in since the line was made or cleared, up
         /// to <see cref="MaxPad"/>: a read at a pad no longer than this is real
         /// audio from the start of the next buffer, never left-over history.
         /// </summary>
-        public int Filled => _filled;
+        public int Filled => (int)Math.Min(_maxPad, _line.Filled);
+
+        /// <summary>The pad the last buffer came out at, in frames.</summary>
+        public int Delay => (int)_line.Available;
+
+        /// <summary>Content in the line is classified this many frames earlier (its engine's own delay).</summary>
+        public int ClassLag { get => _line.ClassLagFrames; set => _line.ClassLagFrames = value; }
 
         /// <summary>Delay <paramref name="audio"/> in place by <paramref name="pad"/> frames (clamped to 0 to <see cref="MaxPad"/>).</summary>
-        public void Process(Span<float> audio, int pad)
-        {
-            pad = Math.Clamp(pad, 0, MaxPad);
-            int frames = audio.Length / _channels;
-            for (int f = 0; f < frames; f++)
-            {
-                int w = _at * _channels, r = _at - pad;
-                if (r < 0) r += _frames;
-                r *= _channels;
-                for (int c = 0; c < _channels; c++)
-                {
-                    int i = f * _channels + c;
-                    _ring[w + c] = audio[i];
-                    audio[i] = _ring[r + c];
-                }
-                if (++_at == _frames) _at = 0;
-            }
-            _filled = Math.Min(MaxPad, _filled + frames);
-        }
+        public void Process(Span<float> audio, int pad, RxContentClass cls = RxContentClass.Unclassified) =>
+            _line.ProcessFixed(audio, Math.Clamp(pad, 0, _maxPad), cls);
+
+        /// <summary>One line, two taps (repair 1, B2, phase 1's retime).</summary>
+        public void ProcessTwo(Span<float> audio, int padA, Span<float> second, int padB) =>
+            _line.ProcessFixedTwo(audio, Math.Clamp(padA, 0, _maxPad), second, Math.Clamp(padB, 0, _maxPad));
 
         /// <summary>
-        /// Delay <paramref name="audio"/> by two pads at once from the one line
-        /// (repair 1, B2, the retime): <paramref name="audio"/> comes back at
-        /// <paramref name="padA"/> and <paramref name="second"/> is filled at
-        /// <paramref name="padB"/>, both read from the same history, so the two
-        /// are the same output at two delays. Each pad is clamped as in
-        /// <see cref="Process"/>.
+        /// Phase 2: write <paramref name="audio"/> and render it back with the pad
+        /// moving toward <paramref name="targetPad"/> by whole splices, on
+        /// <paramref name="policy"/>. Asked afresh every buffer, from the pad the
+        /// line actually holds, so nothing drifts.
         /// </summary>
-        public void ProcessTwo(Span<float> audio, int padA, Span<float> second, int padB)
+        public void Steer(Span<float> audio, int targetPad, in LagPolicy policy, LagCause cause, RxContentClass cls)
         {
-            padA = Math.Clamp(padA, 0, MaxPad);
-            padB = Math.Clamp(padB, 0, MaxPad);
-            int frames = audio.Length / _channels;
-            for (int f = 0; f < frames; f++)
-            {
-                int w = _at * _channels, ra = _at - padA, rb = _at - padB;
-                if (ra < 0) ra += _frames;
-                if (rb < 0) rb += _frames;
-                ra *= _channels; rb *= _channels;
-                for (int c = 0; c < _channels; c++)
-                {
-                    int i = f * _channels + c;
-                    _ring[w + c] = audio[i];
-                    audio[i] = _ring[ra + c];
-                    second[i] = _ring[rb + c];
-                }
-                if (++_at == _frames) _at = 0;
-            }
-            _filled = Math.Min(MaxPad, _filled + frames);
+            targetPad = Math.Clamp(targetPad, 0, _maxPad);
+            _line.Request(_line.Available - targetPad, policy, cause, exact: true);
+            _line.ProcessSteered(audio, cls);
         }
 
-        /// <summary>Forget everything held: the next output is silence for the pad's length.</summary>
-        public void Clear()
+        /// <summary>True when the pad is within one smallest splice of <paramref name="targetPad"/> and no splice is part-way.</summary>
+        public bool SettledAt(int targetPad) => !_line.Fading && Math.Abs(_line.Available - Math.Clamp(targetPad, 0, _maxPad)) < _line.MinLagFrames;
+
+        /// <summary>Keep the line's history current at a pad of zero, with no output: so a later read at a pad has audio behind it.</summary>
+        public void Feed(ReadOnlySpan<float> audio, RxContentClass cls = RxContentClass.Unclassified)
         {
-            Array.Clear(_ring);
-            _at = 0;
-            _filled = 0;
+            _line.Write(audio, cls);
+            _line.SetDelay(0);
         }
+
+        /// <summary>Put the pad at <paramref name="pad"/> at once, with no output: phase 1's jump, for a line nobody has heard yet.</summary>
+        public void SetDelay(int pad) => _line.SetDelay(Math.Clamp(pad, 0, _maxPad));
+
+        /// <summary>Forget everything held: the next output is silence for the pad's length.</summary>
+        public void Clear() => _line.Clear();
     }
 
     /// <summary>

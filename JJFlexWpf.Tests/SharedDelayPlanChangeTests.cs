@@ -17,6 +17,15 @@ namespace JJFlexWpf.Tests;
 /// different delays in a real receive pipeline, nothing played.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Since Sprint 49 Track P2 (#873 phase 2) a retime is a drain or a growth of the
+/// running line, not a fade between two taps. The tests here whose subject is a
+/// final state run on that path, fed until the drain lands; the repair rounds'
+/// mechanics tests (a one-buffer retime at its safe point, the history a pending
+/// growth gathers) run on phase 1's path (<c>shifter: false</c>), which the
+/// cross-fade switch off still selects, and guard the plan bookkeeping both paths
+/// share. Their invariants on the drain path are in <see cref="LagShifterSlotTests"/>.
+/// </para>
 /// Every timeline is measured with a ramp whose every value names its own
 /// sample, so the delay actually heard is read off the output, independently
 /// of what the slot says it holds.
@@ -42,6 +51,14 @@ public sealed class SharedDelayPlanChangeTests
         return new SharedDelayPlan(samples, members);
     }
 
+    /// <summary>Feed until the running line has stopped draining or growing (phase 2), at most 800 buffers, then a few more.</summary>
+    internal static void Settle(AlignedSwitchTests.Rig rig, List<float> o)
+    {
+        for (int i = 0; i < 800 && (rig.Slot.DrainingForTest || i < 5); i++) rig.Feed(Ramp, 1, o);
+        rig.Feed(Ramp, 3, o);
+        Assert.False(rig.Slot.DrainingForTest, "the drain never landed");
+    }
+
     /// <summary>The delay the last output sample was heard at: the input index it carries, against the index just fed.</summary>
     private static long Lag(AlignedSwitchTests.Rig rig, List<float> o) => (rig.At - 1) - (long)Math.Round(o[^1] * Scale);
 
@@ -57,7 +74,7 @@ public sealed class SharedDelayPlanChangeTests
         Assert.Equal(3408, Lag(rig, o));
 
         rig.Slot.SharedPlan = SharedDelayPlan.None;
-        rig.Feed(Ramp, 30, o);
+        Settle(rig, o); // a drain to the engine's own delay since phase 2, not a one-buffer fade
         _out.WriteLine($"empty plan: held {rig.Slot.HeldSamples}, heard at {Lag(rig, o)}");
         Assert.Equal(-1, rig.Slot.HeldSamples);
         Assert.Equal(480, Lag(rig, o)); // the engine's own delay, nothing added
@@ -73,7 +90,7 @@ public sealed class SharedDelayPlanChangeTests
         Assert.Equal(3894, rig.Slot.HeldSamples);
 
         rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
-        rig.Feed(Ramp, 20, o);
+        Settle(rig, o);
         Assert.Equal(1440, rig.Slot.HeldSamples);
         Assert.Equal(1440, Lag(rig, o));
 
@@ -106,6 +123,9 @@ public sealed class SharedDelayPlanChangeTests
         Assert.Equal(Row("rnnoise", fx, own: 20, shared: 30, more: 10), fx.Noise.SharedDelayRow("rnnoise"));
 
         fx.Settle();
+        // Since phase 2 the hold moves by a drain: feed until it has landed.
+        var buf = new float[2 * F];
+        for (int i = 0; i < 800 && slot.DrainingForTest; i++) { Array.Fill(buf, 0.1f); fx.Pipeline.Process(buf); }
         _out.WriteLine($"plan {slot.SharedPlan.Samples}, held {slot.HeldSamples}; row: {fx.Noise.SharedDelayRow("rnnoise")}");
         Assert.Equal(slot.SharedPlan.Samples, slot.HeldSamples);
         Assert.Equal(Row("rnnoise", fx, own: 20, shared: 20, more: 0), fx.Noise.SharedDelayRow("rnnoise"));
@@ -123,7 +143,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void A_switch_straight_after_a_new_plan_never_inherits_the_old_hold()
     {
-        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: true);
+        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: true, shifter: false);
         rig.Slot.SharedPlan = Plan(3894, "rnnoise", "b");
         var o = new List<float>();
         rig.Feed(Ramp, 40, o);
@@ -156,7 +176,7 @@ public sealed class SharedDelayPlanChangeTests
         Assert.Equal(1440, rig.Slot.HeldSamples);
 
         rig.Slot.SharedPlan = Plan(3408, "rnnoise", "b", "slow");
-        rig.Feed(Ramp, 30, o);
+        Settle(rig, o);
         Assert.Equal(3408, rig.Slot.HeldSamples);
         Assert.Equal(3408, Lag(rig, o));
     }
@@ -169,7 +189,7 @@ public sealed class SharedDelayPlanChangeTests
         rig.Feed(Ramp, 40, o);
         // A model change or a measured figure replacing an expected one: same members, new figure.
         rig.Slot.SharedPlan = Plan(2000, "rnnoise", "b");
-        rig.Feed(Ramp, 30, o);
+        Settle(rig, o);
         Assert.Equal(2000, rig.Slot.HeldSamples);
         Assert.Equal(2000, Lag(rig, o));
     }
@@ -189,7 +209,7 @@ public sealed class SharedDelayPlanChangeTests
         Assert.Single(outliers);
         Assert.False(plan.Contains("rnnoise", null));
         rig.Slot.SharedPlan = plan;
-        rig.Feed(Ramp, 30, o);
+        Settle(rig, o);
         Assert.Equal(-1, rig.Slot.HeldSamples);
         Assert.Equal(480, Lag(rig, o));
     }
@@ -201,7 +221,7 @@ public sealed class SharedDelayPlanChangeTests
         var o = new List<float>();
         rig.Feed(Ramp, 40, o);
         rig.Slot.SharedPlan = Plan(1440, "b");
-        rig.Feed(Ramp, 30, o);
+        Settle(rig, o);
         Assert.Equal(-1, rig.Slot.HeldSamples);
         Assert.Equal(480, Lag(rig, o));
     }
@@ -209,7 +229,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void An_unpadded_engine_that_joins_a_plan_is_padded_once_its_line_holds_enough()
     {
-        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: false);
+        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: false, shifter: false);
         var o = new List<float>();
         rig.Feed(Ramp, 40, o);
         Assert.Equal(-1, rig.Slot.HeldSamples);
@@ -291,7 +311,7 @@ public sealed class SharedDelayPlanChangeTests
         public RxAudioPipeline P { get; }
         public PcDenoiseSlot Slot => P.NeuralSlot;
         public long At;
-        public LateRig(int delayB, int lateFrames, SharedDelayPlan plan)
+        public LateRig(int delayB, int lateFrames, SharedDelayPlan plan, bool shifter = true)
         {
             var catalog = new DenoiseEngineCatalog(new[]
             {
@@ -303,6 +323,7 @@ public sealed class SharedDelayPlanChangeTests
             P = new RxAudioPipeline(catalog: catalog);
             Slot.SharedPlan = plan;
             Slot.MuteOverrideForTest = false;
+            Slot.ShifterOverrideForTest = shifter;
             Slot.SetStrength("rnnoise", 1);
             Slot.SetStrength("b", 1);
             P.RnnEnabled = true;
@@ -344,7 +365,7 @@ public sealed class SharedDelayPlanChangeTests
     [InlineData(true)]
     public void Codex_R1_an_empty_plan_reaches_the_running_engine_while_the_incoming_one_stays_late(bool warming)
     {
-        using var rig = new LateRig(1440, lateFrames: -1, Plan(1440, "rnnoise", "b"));
+        using var rig = new LateRig(1440, lateFrames: -1, Plan(1440, "rnnoise", "b"), shifter: false);
         var o = new List<float>();
         rig.Feed(40, o);
         Assert.Equal(1440, rig.Slot.HeldSamples);
@@ -369,7 +390,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void A_retime_waiting_when_a_late_switch_begins_still_lands()
     {
-        using var rig = new LateRig(1440, lateFrames: -1, SharedDelayPlan.None);
+        using var rig = new LateRig(1440, lateFrames: -1, SharedDelayPlan.None, shifter: false);
         var o = new List<float>();
         rig.Feed(40, o);
         Assert.Equal(-1, rig.Slot.HeldSamples);
@@ -395,7 +416,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void When_the_late_engine_comes_on_time_its_switch_is_aligned_at_the_retimed_hold()
     {
-        using var rig = new LateRig(960, lateFrames: 30, Plan(1440, "rnnoise", "b"));
+        using var rig = new LateRig(960, lateFrames: 30, Plan(1440, "rnnoise", "b"), shifter: false);
         var o = new List<float>();
         rig.Feed(40, o);
         Assert.Equal(1440, rig.Slot.HeldSamples);
@@ -425,7 +446,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void The_retime_fades_the_old_delay_into_the_new_across_one_buffer()
     {
-        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: true);
+        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: true, shifter: false);
         rig.Slot.SharedPlan = Plan(3894, "rnnoise", "b");
         var o = new List<float>();
         rig.Feed(Ramp, 40, o);
@@ -456,7 +477,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void A_retime_allocates_nothing_on_the_audio_thread()
     {
-        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: true);
+        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: true, shifter: false);
         var audio = new float[2 * F];
         for (int b = 0; b < 20; b++) rig.P.Process(audio);
         // The first retime sizes the switch buffer once, as the warm-up's first buffer does.
@@ -515,7 +536,7 @@ public sealed class SharedDelayPlanChangeTests
         public long At;
         public readonly float[] Audio = new float[2 * F];
 
-        public ControlledRig(bool bLate = false)
+        public ControlledRig(bool bLate = false, bool shifter = true)
         {
             DenoiseEngineEntry Row(string id, int delay, List<ControlledEngine> made) =>
                 new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
@@ -528,6 +549,7 @@ public sealed class SharedDelayPlanChangeTests
                     () => Unavailability.None);
             P = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(new[] { Row("rnnoise", 480, A), Row("b", 960, B) }));
             Slot.MuteOverrideForTest = false;
+            Slot.ShifterOverrideForTest = shifter;
             Slot.SetStrength("rnnoise", 1);
             Slot.SetStrength("b", 1);
             P.RnnEnabled = true;
@@ -572,7 +594,7 @@ public sealed class SharedDelayPlanChangeTests
     [InlineData(true)]
     public void Codex_R2_an_equivalent_republished_plan_does_not_restart_a_pending_growth(bool warming)
     {
-        using var rig = new ControlledRig(bLate: true);
+        using var rig = new ControlledRig(bLate: true, shifter: false);
         rig.Feed(40);
         Assert.Equal(-1, rig.Slot.HeldSamples);
         if (warming) { rig.Choose("b"); rig.Feed(1); }
@@ -602,6 +624,7 @@ public sealed class SharedDelayPlanChangeTests
     public void Codex_R2_controller_republications_preserve_a_pending_growth(bool republish)
     {
         using var fx = new NoiseFixture(rnnoiseLatency: 480);
+        fx.Pipeline.NeuralSlot.ShifterOverrideForTest = false;
         fx.Pipeline.RnnEnabled = true;
         fx.Settle();
         Assert.Equal(-1, fx.Pipeline.NeuralSlot.HeldSamples);
@@ -631,7 +654,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void Codex_R2_a_new_plan_supersedes_a_pending_growth_while_an_engine_is_late()
     {
-        using var rig = new ControlledRig(bLate: true);
+        using var rig = new ControlledRig(bLate: true, shifter: false);
         rig.Feed(40);
         rig.Choose("b");
         rig.Feed(1);
@@ -658,7 +681,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void A_changed_pending_target_keeps_the_history_already_gathered()
     {
-        using var rig = new ControlledRig();
+        using var rig = new ControlledRig(shifter: false);
         rig.Feed(40);
         Assert.Equal(-1, rig.Slot.HeldSamples);
         rig.Slot.SharedPlan = Plan(12000, "rnnoise", "b");
@@ -690,7 +713,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void A_line_that_starts_being_fed_never_reads_another_engines_history()
     {
-        using var rig = new ControlledRig();
+        using var rig = new ControlledRig(shifter: false);
         rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
         rig.Feed(40);
         Assert.Equal(1440, rig.Slot.HeldSamples);
@@ -735,7 +758,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void Codex_R2_a_plan_published_during_outgoing_processing_defers_the_switch()
     {
-        using var rig = new ControlledRig();
+        using var rig = new ControlledRig(shifter: false);
         rig.Slot.SharedPlan = Plan(1440, "rnnoise", "b");
         rig.Feed(40);
         rig.Choose("b");
@@ -792,7 +815,7 @@ public sealed class SharedDelayPlanChangeTests
     [Fact]
     public void Codex_R2_an_outside_set_switch_waits_past_the_retime_buffer()
     {
-        using var rig = new AlignedSwitchTests.Rig(480, 960, 1, shared: true);
+        using var rig = new AlignedSwitchTests.Rig(480, 960, 1, shared: true, shifter: false);
         rig.Slot.SharedPlan = Plan(1440, "rnnoise");
         var o = new List<float>();
         rig.Feed(Ramp, 40, o);

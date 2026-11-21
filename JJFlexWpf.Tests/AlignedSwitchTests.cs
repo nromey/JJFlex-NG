@@ -65,7 +65,7 @@ public sealed class AlignedSwitchTests
         public RxAudioPipeline P { get; }
         public PcDenoiseSlot Slot => P.NeuralSlot;
         public long At;
-        public Rig(int delayA, int delayB, float gainB, bool shared, bool? mute = null)
+        public Rig(int delayA, int delayB, float gainB, bool shared, bool? mute = null, bool shifter = true)
         {
             DenoiseEngineEntry Row(string id, int delay, float gain) =>
                 new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
@@ -75,6 +75,8 @@ public sealed class AlignedSwitchTests
                 Slot.SharedPlan = new SharedDelayPlan(Math.Max(delayA, delayB),
                     new[] { new ReceiveSharedDelay.Member("rnnoise", null), new ReceiveSharedDelay.Member("b", null) });
             Slot.MuteOverrideForTest = mute ?? false;
+            // Phase 2 (Track P2): false runs phase 1's paths, today's code, as the positive control.
+            Slot.ShifterOverrideForTest = shifter;
             Slot.SetStrength("rnnoise", 1);
             Slot.SetStrength("b", 1);
             P.RnnEnabled = true;
@@ -117,9 +119,9 @@ public sealed class AlignedSwitchTests
     /// of the switch buffer.
     /// </summary>
     private static (float[] Output, long SwitchAt, PcDenoiseSlot.SwitchNote? Note, int HeldBefore, int HeldAfter) Switch(
-        int delayA, int delayB, bool shared, Func<long, float> signal, float gainB = 0.8f, bool? mute = null)
+        int delayA, int delayB, bool shared, Func<long, float> signal, float gainB = 0.8f, bool? mute = null, bool shifter = true)
     {
-        using var rig = new Rig(delayA, delayB, gainB, shared, mute);
+        using var rig = new Rig(delayA, delayB, gainB, shared, mute, shifter);
         var output = new List<float>();
         rig.Feed(signal, PreBuffers, output);
         int heldBefore = rig.Slot.HeldSamples;
@@ -166,23 +168,38 @@ public sealed class AlignedSwitchTests
         return count;
     }
 
-    private int Markers(int delayA, int delayB, bool shared)
+    internal int Markers(int delayA, int delayB, bool shared, bool shifter = true)
     {
         // First run finds the switch instant (silence); it is the same on the second.
-        var probe = Switch(delayA, delayB, shared, _ => 0f);
+        var probe = Switch(delayA, delayB, shared, _ => 0f, shifter: shifter);
         var signal = BurstsAround(probe.SwitchAt, delayA, delayB);
-        var run = Switch(delayA, delayB, shared, signal);
-        Assert.Equal(probe.SwitchAt, run.SwitchAt);
+        var run = Switch(delayA, delayB, shared, signal, shifter: shifter);
+        // A pre-growth (Track P2) can take a buffer more or less on the markers than
+        // on silence: place them again around the instant they produced, until it holds.
+        for (int tries = 0; tries < 4 && run.SwitchAt != probe.SwitchAt; tries++)
+        {
+            probe = run;
+            signal = BurstsAround(probe.SwitchAt, delayA, delayB);
+            run = Switch(delayA, delayB, shared, signal, shifter: shifter);
+        }
+        // Phase 1's timing and an aligned switch's do not depend on the material; a
+        // pre-growth's can settle a buffer either side, and the markers then still
+        // straddle it (they span the slower delay plus a buffer either side).
+        bool preGrowth = shifter && !shared && delayB > delayA;
+        if (!preGrowth) Assert.Equal(probe.SwitchAt, run.SwitchAt);
+        else Assert.InRange(Math.Abs(probe.SwitchAt - run.SwitchAt), 0, 20 * F);
         int bursts = CountBursts(run.Output);
-        _out.WriteLine($"markers {delayA} to {delayB}, {(shared ? "shared delay" : "today")}: {Bursts} in, {bursts} out (switch at sample {run.SwitchAt})");
+        _out.WriteLine($"markers {delayA} to {delayB}, {(shared ? "shared delay" : "outside the set")}, {(shifter ? "lag shifter" : "today's code")}: {Bursts} in, {bursts} out (switch at sample {run.SwitchAt})");
         return bursts;
     }
 
     [Fact]
     public void Positive_control_today_s_switch_repeats_markers_to_a_later_engine_and_drops_them_to_an_earlier_one()
     {
-        Assert.True(Markers(480, 3408, shared: false) > Bursts);
-        Assert.True(Markers(3408, 480, shared: false) < Bursts);
+        // Today's code: phase 1's outside-set switch (Track P2 moved this control onto
+        // the shifter-off path, because phase 2 makes an outside-set switch aligned too).
+        Assert.True(Markers(480, 3408, shared: false, shifter: false) > Bursts);
+        Assert.True(Markers(3408, 480, shared: false, shifter: false) < Bursts);
     }
 
     [Fact]
@@ -232,7 +249,7 @@ public sealed class AlignedSwitchTests
         Func<long, float> tone = n => 0.5f * MathF.Sin(2 * MathF.PI * 500 * n / 48000f);
         foreach (var (a, b) in new[] { (480, 3408), (3408, 480) })
         {
-            var today = Switch(a, b, shared: false, tone, gainB: 1f);
+            var today = Switch(a, b, shared: false, tone, gainB: 1f, shifter: false);
             var aligned = Switch(a, b, shared: true, tone, gainB: 1f);
             double dToday = DipDb(today.Output, today.SwitchAt), dAligned = DipDb(aligned.Output, aligned.SwitchAt);
             _out.WriteLine($"500 Hz, {a} to {b}: today's switch dips {dToday:0.0} dB, the aligned one {dAligned:0.00} dB");
