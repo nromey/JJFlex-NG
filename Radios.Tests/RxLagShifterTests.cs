@@ -535,6 +535,85 @@ namespace Radios.Tests
             Assert.Equal(gaps, s.TotalGapSplices);
         }
 
+        /// <summary>
+        /// Codex's re-check 2 of 0d8ecb3c (overflow-two-writes): an overflow kept the
+        /// next 10 ms and moved the read point at once, so a SECOND overflowing write
+        /// before the render recaptured from the first one's dropped place, and the
+        /// output jumped from the 0.2 last heard to the 0.8 of the burst. Material that
+        /// steps in level (a tone stays phase-matched anywhere and hides this). One, two
+        /// and three overflowing writes, and one landing part-way through an overflow's
+        /// fade: the first sample after continues what was heard. Positive control: the
+        /// fade off, the full 0.6 step.
+        /// </summary>
+        [Theory]
+        [InlineData(1, 0)]
+        [InlineData(2, 0)]
+        [InlineData(3, 0)]
+        [InlineData(2, 100)]      // the second overflow comes after 100 frames of the first fade were heard
+        public void Several_overflows_before_one_render_keep_the_continuation_of_what_was_heard(int writes, int heardBetween)
+        {
+            (float Step, long Dropped) Run(bool fades)
+            {
+                const int cap = 96000;
+                int margin = 2 * RxLagShifter.MaxLagFramesAt(Rate) + 480;
+                var s = new RxLagShifter(2, cap, Rate);
+                if (!fades) s.OverflowFades = false;
+                var x = new float[(cap - margin) * 2];
+                for (int f = 0; f < x.Length / 2; f++) x[f * 2] = x[f * 2 + 1] = f < 720 ? 0.2f : 0.8f;
+                s.Write(x, RxContentClass.NoSplice);
+                var y = new float[960];
+                s.Render(y);
+                float before = y[^2];
+                var add = new float[1920];
+                Array.Fill(add, 0.8f);
+                s.Write(add, RxContentClass.NoSplice);
+                if (heardBetween > 0)
+                {
+                    var part = new float[heardBetween * 2];
+                    s.Render(part);
+                    before = part[^2];
+                }
+                for (int w = 1; w < writes; w++) s.Write(add.AsSpan(0, 960), RxContentClass.NoSplice);
+                s.Render(y);
+                _out.WriteLine($"{writes} overflowing write(s), {heardBetween} heard between, fade {(fades ? "on" : "off")}: last heard {before:0.000000}, next {y[0]:0.000000}, dropped {s.OverflowFrames}, reads past write {s.ReadsPastWrite}");
+                Assert.Equal(0, s.ReadsPastWrite);
+                return (Math.Abs(y[0] - before), s.OverflowFrames);
+            }
+            var faded = Run(true);
+            var hard = Run(false);
+            Assert.True(faded.Dropped > 0 && hard.Dropped > 0, "nothing overflowed");
+            if (heardBetween == 0) Assert.True(hard.Step > 0.5f, "positive control: the hard drop should jump from 0.2 to 0.8");
+            Assert.True(faded.Step < 0.01f, $"the first sample after the overflow stepped {faded.Step:0.000}");
+        }
+
+        /// <summary>
+        /// Codex's re-check 2 (overflow-refine): the overflow's search kept the coarse
+        /// (every fourth frame) score into the fine pass, so a high subsampled score could
+        /// block every better fine candidate (seeds 1 and 3). The fine pass is scored on
+        /// its own around the coarse best, as the splice search does.
+        /// </summary>
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        public void An_overflow_refines_its_match_on_its_own_score(int seed)
+        {
+            var s = new RxLagShifter(2, 96000, Rate);
+            var rng = new Random(seed);
+            var x = new float[24000];
+            for (int i = 0; i < x.Length; i++) x[i] = (float)(rng.NextDouble() - 0.5);
+            s.Write(x);
+            s.KeepForTest(0);
+            int maxLag = RxLagShifter.MaxLagFramesAt(Rate);
+            int coarse = 0; float cs = float.MinValue;
+            for (int e = 0; e < maxLag; e += 4) { float z = s.TailScore(1000 + e, 4); if (z > cs) { cs = z; coarse = e; } }
+            int fine = coarse; float fs = float.MinValue;
+            for (int e = Math.Max(0, coarse - 3); e <= Math.Min(maxLag - 1, coarse + 3); e++) { float z = s.TailScore(1000 + e, 1); if (z > fs) { fs = z; fine = e; } }
+            int chosen = s.FindOverflowMatch(1000);
+            _out.WriteLine($"seed {seed}: coarse {coarse} (sampled {cs:0.000000}); chosen {chosen} (full {s.TailScore(1000 + chosen, 1):0.000000}); the best around the coarse {fine} (full {fs:0.000000})");
+            Assert.Equal(fine, chosen);
+        }
+
         [Fact]
         public void CW_key_ups_still_take_gap_splices_with_or_without_a_detector()
         {

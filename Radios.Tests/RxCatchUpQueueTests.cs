@@ -493,5 +493,56 @@ namespace Radios.Tests
             Assert.True(faded.Step < 0.25, $"the faded overflow stepped {faded.Step:0.000} rad");
             Assert.True(faded.DipDb < 1.0, $"the faded overflow dipped {faded.DipDb:0.00} dB");
         }
+
+        /// <summary>
+        /// Codex's re-check 2 of 0d8ecb3c (overflow-tail): the queue writes every waiting
+        /// packet before it renders, so a burst that overflows the ring several times
+        /// before one render used to start its fade from the last dropped place: a steady
+        /// 0.2, a burst of 0.8, and the first output frame jumped to 0.8. Now the first
+        /// frame continues the 0.2 that was playing. 400 extra packets does not overflow
+        /// (the control that the material itself is continuous); the fade off is the
+        /// positive control.
+        /// </summary>
+        [Theory]
+        [InlineData(400)]
+        [InlineData(437)]
+        [InlineData(500)]
+        public void A_burst_that_overflows_several_times_continues_what_was_playing(int burst)
+        {
+            (float Step, long Overflow) Run(bool fades)
+            {
+                var p = new RxPlaybackQueue("probe", 10, 10, 48000, 60, RxCatchUpMode.On);
+                if (!fades) p.ShifterForTest.OverflowFades = false;
+                var q = new Queue(); float[] b = Array.Empty<float>(); uint off = 0; var y = new float[9600]; long frame = 0, change = long.MaxValue;
+                const RxContentClass cls = RxContentClass.Classified | RxContentClass.NoSplice;
+                void Arrive(int packets)
+                {
+                    for (int j = 0; j < packets; j++)
+                    {
+                        var x = new float[960];
+                        for (int i = 0; i < 480; i++, frame++) x[i * 2] = x[i * 2 + 1] = frame < change ? 0.2f : 0.8f;
+                        p.NoteEnqueued(x, cls, false); q.Enqueue(x);
+                    }
+                }
+                void Render() => p.RenderCallback(q, ref b, ref off, y, false, 2, () => true);
+                for (int k = 0; k < 30; k++) { Arrive(10); Render(); }
+                float last = y[^2];
+                change = frame;
+                Arrive(burst); Arrive(10); Render();
+                _out.WriteLine($"{burst} extra packets, fade {(fades ? "on" : "off")}: last {last:0.000000}, first {y[0]:0.000000}, dropped {p.ShifterForTest.OverflowFrames}");
+                return (Math.Abs(y[0] - last), p.ShifterForTest.OverflowFrames);
+            }
+            var faded = Run(true);
+            var hard = Run(false);
+            if (burst == 400)
+            {
+                Assert.Equal(0, faded.Overflow);
+                Assert.True(faded.Step < 0.01f);
+                return;
+            }
+            Assert.True(faded.Overflow > 0 && hard.Overflow > 0);
+            Assert.True(hard.Step > 0.5f, "positive control: the hard drop jumps to the burst");
+            Assert.True(faded.Step < 0.01f, $"the first frame after the overflow stepped {faded.Step:0.000}");
+        }
     }
 }

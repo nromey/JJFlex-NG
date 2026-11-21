@@ -174,7 +174,7 @@ namespace JJPortaudio
         private int _fadeLen, _fadeAt, _fadePeriod, _fadeHold;
         private long _fadeA, _fadeB;          // old side and new side, at fade frame 0
         private readonly float[] _fadeR;
-        private readonly float[] _overflowTail;
+        private float[] _overflowTail, _overflowNext;
 
         private long _out;                    // frames rendered, ever
         private long _nextDecision;
@@ -278,6 +278,7 @@ namespace JJPortaudio
             _gapFade = Ms(GapFadeMilliseconds);
             _cutFade = Ms(CutFadeMilliseconds);
             _overflowTail = new float[Math.Max(1, _cutFade) * _ch];
+            _overflowNext = new float[_overflowTail.Length];
             _seamFade = Ms(SeamFadeMilliseconds);
             _dryFade = Math.Max(1, Ms(DryFadeMilliseconds));
             _onsetBlock = Math.Max(1, Ms(OnsetBlockMilliseconds));
@@ -504,50 +505,133 @@ namespace JJPortaudio
         private void Overflow(long drop)
         {
             long avail = _write - _read;
-            int F = (int)Math.Min(_cutFade, Math.Max(0, avail - drop));
-            if (!OverflowFades || F <= 0 || drop + _maxLag + _window + F > avail)
+            // An overflow not heard yet keeps its copy as it is: it IS the continuation of
+            // what was last heard. Rendering its fade ahead instead would drift the copy
+            // toward the dropped audio a little at every overflow of a long burst.
+            bool pending = _fade == FadeKind.Overflow && _fadeAt == 0;
+            int F = pending ? _fadeLen : (int)Math.Min(_cutFade, Math.Max(0, avail - drop));
+            if (!OverflowFades || F < _window || drop + _maxLag + _window + F > avail)
             {
                 JumpRead(_read + drop);
                 _fade = FadeKind.None;
                 OverflowFrames += drop;
                 return;
             }
-            // The best continuation: the extra e in [0, one longest lag) whose next
-            // window correlates best with the window about to play (worse ear).
+            // What the listener would hear next is the continuation of what was last
+            // heard, kept until it is played (Codex's re-check 2 of 0d8ecb3c: the queue
+            // writes every waiting packet before it renders, so a second overflow used to
+            // recapture from the first one's dropped place and the jump came back). It is
+            // kept as it is while an earlier overflow is not yet heard; otherwise (no fade, a
+            // splice part-way, an overflow part-way) captured by rendering ahead on a copy
+            // of the state.
+            if (!pending) CaptureContinuation(F);
             long a = _read;
-            int best = 0; float bestScore = float.MinValue;
-            for (int pass = 0; pass < 2; pass++)
-            {
-                int lo = pass == 0 ? 0 : Math.Max(0, best - CoarseStride + 1);
-                int hi = pass == 0 ? _maxLag - 1 : Math.Min(_maxLag - 1, best + CoarseStride - 1);
-                int step = pass == 0 ? CoarseStride : 1;
-                for (int e = lo; e <= hi; e += step)
-                {
-                    float sc = OverflowScore(a, a + drop + e, pass == 0 ? CoarseStride : 1);
-                    if (sc > bestScore) { bestScore = sc; best = e; }
-                }
-            }
+            int best = FindOverflowMatch(a + drop);
             long newSide = a + drop + best;
-            // Keep the audio that was about to play, and measure each ear's match.
-            for (int f = 0; f < F; f++)
-                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = _ring[Idx(a + f) * _ch + c];
-            MeasureFadeR(a, newSide, F, 0);
+            MeasureTailR(newSide, F);
             Log(a, newSide, (int)(drop + best), F, _fadeR[0], 5);
+            _fade = FadeKind.None;
             BeginFade(FadeKind.Overflow, a, newSide, F);
             OverflowFrames += drop + best;
         }
 
-        /// <summary>The worse ear's correlation of the window at <paramref name="a"/> with the one at <paramref name="b"/>; an ear with no sound in either does not count.</summary>
-        private float OverflowScore(long a, long b, int stride)
+        /// <summary>
+        /// The extra e in [0, one longest lag) whose window at <paramref name="from"/> + e
+        /// best continues the kept audio (worse ear). Coarse first, then every frame
+        /// around the coarse best, scored on its own: the coarse score is subsampled and
+        /// must not stand against full scores (Codex's re-check 2: it blocked better ones).
+        /// </summary>
+        internal int FindOverflowMatch(long from)
+        {
+            int coarse = 0; float coarseScore = float.MinValue;
+            for (int e = 0; e < _maxLag; e += CoarseStride)
+            {
+                float sc = TailScore(from + e, CoarseStride);
+                if (sc > coarseScore) { coarseScore = sc; coarse = e; }
+            }
+            int best = coarse;
+            float fineScore = float.MinValue;
+            for (int e = Math.Max(0, coarse - CoarseStride + 1); e <= Math.Min(_maxLag - 1, coarse + CoarseStride - 1); e++)
+            {
+                float sc = TailScore(from + e, 1);
+                if (sc > fineScore) { fineScore = sc; best = e; }
+            }
+            return best;
+        }
+
+        /// <summary>The worse ear's correlation of the kept audio's first window with the ring at <paramref name="b"/>; an ear silent in both does not count.</summary>
+        internal float TailScore(long b, int stride)
         {
             float worst = float.MaxValue;
             for (int c = 0; c < _ch; c++)
             {
-                float r = Corr(a, b, _window, c, stride, out double ea, out double eb);
-                if (ea < 1e-12 && eb < 1e-12) continue;
+                double xy = 0, xx = 0, yy = 0;
+                for (int i = 0; i < _window; i += stride)
+                {
+                    float x = _overflowTail[i * _ch + c], y = _ring[Idx(b + i) * _ch + c];
+                    xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
+                }
+                if (xx < 1e-12 && yy < 1e-12) continue;
+                float r = xx < 1e-12 || yy < 1e-12 ? 0f : (float)(xy / Math.Sqrt(xx * yy));
                 if (r < worst) worst = r;
             }
             return worst == float.MaxValue ? 0f : worst;
+        }
+
+        /// <summary>Each ear's correlation of the kept audio with the ring from <paramref name="newSide"/>, over the fade.</summary>
+        private void MeasureTailR(long newSide, int len)
+        {
+            for (int c = 0; c < _ch; c++)
+            {
+                double xy = 0, xx = 0, yy = 0;
+                for (int k = 0; k < len; k++)
+                {
+                    float x = _overflowTail[k * _ch + c], y = _ring[Idx(newSide + k) * _ch + c];
+                    xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
+                }
+                _fadeR[c] = xx < 1e-12 || yy < 1e-12 ? 0f : (float)Math.Clamp(xy / Math.Sqrt(xx * yy), 0, 1);
+            }
+        }
+
+        /// <summary>
+        /// The next <paramref name="frames"/> frames exactly as Render would play them
+        /// from the state as it stands (any fade part-way included), into the kept
+        /// audio, with the state left as it was. Allocation-free.
+        /// </summary>
+        private void CaptureContinuation(int frames)
+        {
+            if (_fade == FadeKind.None) { CaptureFromRing(frames); return; }
+            var fade = _fade; int fadeAt = _fadeAt, fadeHold = _fadeHold, fadeLen = _fadeLen, fadePeriod = _fadePeriod;
+            long fadeA = _fadeA, fadeB = _fadeB, read = _read, outPos = _out, past = ReadsPastWrite, grow = _growGuard, lastEmitted = _lastEmitted;
+            int fadeIn = _fadeInLeft, emitCount = _emitCount;
+            var dst = new Span<float>(_overflowNext, 0, frames * _ch);
+            int got = 0;
+            while (got < frames)
+            {
+                if (_fade != FadeKind.None) { got += StepFade(dst.Slice(got * _ch), frames - got); continue; }
+                int n = (int)Math.Min(frames - got, _write - _read);
+                if (n <= 0) { dst.Slice(got * _ch).Clear(); break; }
+                CopyOut(dst.Slice(got * _ch), n, long.MaxValue);
+                got += n;
+            }
+            _fade = fade; _fadeAt = fadeAt; _fadeHold = fadeHold; _fadeLen = fadeLen; _fadePeriod = fadePeriod;
+            _fadeA = fadeA; _fadeB = fadeB; _read = read; _out = outPos; ReadsPastWrite = past; _growGuard = grow; _lastEmitted = lastEmitted;
+            _fadeInLeft = fadeIn; _emitCount = emitCount;
+            (_overflowTail, _overflowNext) = (_overflowNext, _overflowTail);
+        }
+
+        /// <summary>The next <paramref name="frames"/> frames straight from the ring at the read point (no fade in progress).</summary>
+        private void CaptureFromRing(int frames)
+        {
+            for (int f = 0; f < frames; f++)
+                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = _ring[Idx(_read + f) * _ch + c];
+        }
+
+        /// <summary>Tests only: keep the ring's audio from <paramref name="pos"/> as the kept continuation.</summary>
+        internal void KeepForTest(long pos)
+        {
+            for (int f = 0; f < _cutFade; f++)
+                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = _ring[Idx(pos + f) * _ch + c];
         }
 
         private void CompleteBlock()
