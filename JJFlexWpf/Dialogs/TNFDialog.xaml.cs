@@ -273,7 +273,7 @@ public partial class TNFDialog : JJFlexDialog
             {
                 ShowFrequency(GetTNFFrequencyHz?.Invoke(idx) ?? 0);
                 ShowWidth(GetTNFWidth?.Invoke(idx) ?? 0);
-                DepthBox.Text = (GetTNFDepth?.Invoke(idx) ?? 1).ToString();
+                ShowDepth(GetTNFDepth?.Invoke(idx) ?? 1);
                 PermanentCheck.IsChecked = GetTNFPermanent?.Invoke(idx) ?? false;
             }
             else
@@ -283,6 +283,7 @@ public partial class TNFDialog : JJFlexDialog
                 WidthBox.Text = "";
                 _widthShown = null;
                 DepthBox.Text = "";
+                _depthShown = null;
                 PermanentCheck.IsChecked = false;
             }
         }
@@ -576,14 +577,35 @@ public partial class TNFDialog : JJFlexDialog
         if (idx >= 0) ApplyDepth(idx);
     }
 
-    /// <summary>Commit the typed depth. Shows the request, for the reason in <see cref="ApplyWidth"/>.</summary>
+    /// <summary>
+    /// The depth the box was last given (#1198), as <see cref="_widthShown"/>
+    /// is for the width: the radio's on selection, or the last one asked for.
+    /// A commit that leaves it unchanged writes nothing. Null with nothing
+    /// selected.
+    /// </summary>
+    private int? _depthShown;
+
+    private void ShowDepth(int depth)
+    {
+        _depthShown = depth;
+        DepthBox.Text = depth.ToString();
+    }
+
+    /// <summary>
+    /// Commit the typed depth. Shows the request, for the reason in
+    /// <see cref="ApplyWidth"/>, and, as the width does, writes only a change
+    /// (#1198): a Tab through the box, or an Enter on a value the arrows
+    /// already sent, writes nothing to the radio. Text that is not a number
+    /// puts back the depth last shown, and writes nothing.
+    /// </summary>
     private void ApplyDepth(int idx)
     {
         int val = int.TryParse(DepthBox.Text, out int typed)
             ? Math.Max(DepthMin, Math.Min(DepthMax, typed))
-            : GetTNFDepth?.Invoke(idx) ?? DepthMin;
-        SetTNFDepth?.Invoke(idx, val);
-        DepthBox.Text = val.ToString();
+            : _depthShown ?? GetTNFDepth?.Invoke(idx) ?? DepthMin;
+        bool changed = val != _depthShown;
+        ShowDepth(val);
+        if (changed) SetTNFDepth?.Invoke(idx, val);
     }
 
     private void AdjustDepth(int idx, int delta)
@@ -591,7 +613,7 @@ public partial class TNFDialog : JJFlexDialog
         int current = GetTNFDepth?.Invoke(idx) ?? DepthMin;
         int newVal = Math.Max(DepthMin, Math.Min(DepthMax, current + delta));
         SetTNFDepth?.Invoke(idx, newVal);
-        DepthBox.Text = newVal.ToString();
+        ShowDepth(newVal);   // what the next commit compares with (#1198)
         SpeakValue(DepthLabel, newVal.ToString());
     }
 
