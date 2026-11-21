@@ -475,6 +475,15 @@ namespace JJFlexWpf
         private IReadOnlyList<WdspModelCost>? _lastModelCosts;
 
         internal WdspHostPolicy Policy { get; }
+
+        /// <summary>
+        /// Whether this host's handshakes feed the live capture-rate policy
+        /// (<c>TxCallbackRate.HelperFrameCostP99Nanos</c>, a process-wide figure).
+        /// True for the app's host. The audition's render-owned host sets it false
+        /// (Sprint 49 Track Q phase B repair 1, R1): an offline render must not
+        /// change how the live transmit capture is paced.
+        /// </summary>
+        internal bool PublishesLiveTelemetry { get; init; } = true;
         internal long SetSettingsSent;
         internal long SettingAcksReceived;
         internal long FramesSent;
@@ -829,7 +838,7 @@ namespace JJFlexWpf
                             TraceHello(ack);
                             c.Hello = ack;
                             _lastHello = ack;
-                            Radios.TxCallbackRate.HelperFrameCostP99Nanos = TransmitFrameCostP99(ack);
+                            if (PublishesLiveTelemetry) Radios.TxCallbackRate.HelperFrameCostP99Nanos = TransmitFrameCostP99(ack);
                             c.HelloAt = now;
                             Volatile.Write(ref c.LastReceive, now);
                             c.HelloDone = true;

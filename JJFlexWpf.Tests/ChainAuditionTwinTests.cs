@@ -208,9 +208,16 @@ public sealed class ChainAuditionTwinTests
             chain.SpectralSlot.Process(Array.Empty<float>(), true, true, false, null);
             chain.NeuralSlot.Process(Array.Empty<float>(), true, true, false, null);
 
-            var cond = new TxAudioConditioner { KeySource = () => true };
-            cond.NoiseReducer = (buffer, count, rate) => chain.Process(buffer, count, rate, cond.Keyed);
-            cond.NoiseReducerAppliedLatencySamples = () => chain.AppliedLatencySamples;
+            // Through the live wiring itself (repair 1, Codex's drift caveat): the
+            // same PlugNoiseStage Attach calls, and the same NoiseStage body NrStage
+            // runs, so a change to either reaches this control. The one line not
+            // shared is where the key state comes from: Attach's NrStage reads the
+            // rig's conditioner, which is this conditioner.
+            var cond = new TxAudioConditioner();
+            int applied = 0;
+            TxAudioConditioning.PlugNoiseStage(cond, () => true,
+                (buffer, count, rate) => applied = TxAudioConditioning.NoiseStage(chain, cond.Keyed, buffer, count, rate),
+                () => applied);
             cond.SetGateInForce(TxAudioConditioning.ToConditioner(setup.Gate, setup.Gate.AutoThreshold, setup.Gate.ThresholdMarginDb));
             if (setup.Gate.AutoThreshold) cond.Gate.ThresholdDb = threshold;
 

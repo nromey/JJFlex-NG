@@ -156,6 +156,79 @@ namespace Radios.Tests
             Assert.Equal(2, chunks);
         }
 
+        /// <summary>
+        /// Repair 1, R3 (Codex's probe, adopted): the worker is HELD between two
+        /// pieces of the raw render, with the file open, and the state is read the
+        /// moment Discard returns, before the worker is released. Before the
+        /// repair the render's WAV was still there and still open (the clear could
+        /// not delete it), and closing it later patched its header after the clear.
+        /// </summary>
+        [Fact]
+        public void When_Discard_returns_mid_render_no_file_of_the_take_is_open_or_on_disk()
+        {
+            var (take, rec, chain) = Make();
+            chain.Release.Set();
+            using var held = new ManualResetEventSlim(false);
+            using var release = new ManualResetEventSlim(false);
+            int pieces = 0;
+            take.BeforeRenderChunkForTest = () =>
+            {
+                if (Interlocked.Increment(ref pieces) != 2) return;
+                held.Set();
+                release.Wait(TimeSpan.FromSeconds(20));
+            };
+            var run = take.AnalyseInBackground(Recorded(take, rec, Now))!;
+            Assert.True(held.Wait(10000));
+            // Positive control: mid-render, a render file is on disk and open.
+            string? part = Files().FirstOrDefault(f => f.Contains("-cleaned") || f.Contains("-raw") || f.Contains("-removed"));
+            Assert.NotNull(part);
+            Assert.Throws<IOException>(() => { using var _ = new FileStream(part!, FileMode.Open, FileAccess.ReadWrite, FileShare.None); });
+
+            take.Discard();
+            // At the moment Discard returns, the worker still held.
+            Assert.Empty(Files());
+            Assert.False(File.Exists(part));
+            Assert.False(run.IsCompleted);
+
+            release.Set();
+            Assert.True(run.Result.Cancelled);
+            Assert.Empty(Files());
+            Assert.Equal(2, pieces);   // and the worker wrote no further piece
+        }
+
+        /// <summary>
+        /// Repair 1, R3: a worker still reading the take back holds the file, so
+        /// the clear cannot delete it; Discard waits for that read (bounded) and
+        /// returns only once the take's file is gone.
+        /// </summary>
+        [Fact]
+        public void When_Discard_returns_during_the_read_back_the_take_file_is_gone()
+        {
+            var rec = new Recorder();
+            var chain = new Blocking();
+            chain.Release.Set();
+            using var reading = new ManualResetEventSlim(false);
+            using var finishRead = new ManualResetEventSlim(false);
+            var take = new ChainAuditionTake(_folder, rec, chain, path =>
+            {
+                // The way the real loader holds the file while it reads.
+                using var open = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                reading.Set();
+                finishRead.Wait(TimeSpan.FromSeconds(20));
+                return null;   // as if unreadable: the outcome is decided by the Discard anyway
+            });
+            string path = Recorded(take, rec, Now);
+            var run = take.AnalyseInBackground(path)!;
+            Assert.True(reading.Wait(10000));
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            ThreadPool.QueueUserWorkItem(_ => { Thread.Sleep(300); finishRead.Set(); });
+            take.Discard();
+            Assert.True(clock.ElapsedMilliseconds >= 250, "Discard did not wait for the read: " + clock.ElapsedMilliseconds + " ms");
+            Assert.False(File.Exists(path));
+            Assert.Empty(Files());
+            Assert.True(run.Result.Cancelled);
+        }
+
         [Fact]
         public void Discard_after_the_renders_are_written_but_before_the_take_is_ready_wins()
         {

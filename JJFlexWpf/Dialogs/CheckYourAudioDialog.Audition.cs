@@ -80,7 +80,16 @@ public partial class CheckYourAudioDialog
     internal static readonly TimeSpan AuditionProcessingSayEvery = TimeSpan.Zero;
 
     private DispatcherTimer? _auditionProcessingTimer;
-    private int _auditionProcessingPercent;
+    private int _auditionProcessingPercent;   // the window's thread only: the newest ADMITTED figure (repair 1, R4)
+    private long _auditionProgressPosted = -1; // the last (generation, percent) posted, so a worker does not flood the window
+
+    /// <summary>
+    /// Bumped on the window's thread at every boundary that ends what the
+    /// audition said (repair 1, R2): the window closing, a new take, Process
+    /// again, another method chosen. Speech admitted under an older value is
+    /// superseded at that boundary and fails its validity check thereafter.
+    /// </summary>
+    private int _auditionSpeechEpoch;
     private int _auditionProcessingGeneration = -1;
     private Button? _auditionProcessAgainButton;
 
@@ -234,6 +243,8 @@ public partial class CheckYourAudioDialog
     {
         using var start = _checkStarts.TryBegin();
         if (start == null) return;
+        // A new take: whatever the last one's verdict was still saying is over (repair 1, R2).
+        EndAuditionSpeech("a new take began");
         // A render asked for before this press is void (repair 3): its click
         // is still sounding, and it must not start playing over the count.
         VoidAuditionPlaybackRequests();
@@ -419,17 +430,28 @@ public partial class CheckYourAudioDialog
     // WORDING PLACEHOLDER (Track Q phase B, DRAFT PROSE): the processing line, with its percentage.
     private static string AuditionProcessingLine(int percent) => Lexicon.Get("audio.audition.processing", ("percent", percent));
 
-    /// <summary>On the worker: how far the render has got. Posted only when the whole percentage moves, and shown only for the analysis still current.</summary>
+    /// <summary>
+    /// On the worker: how far the render has got. Nothing shared is written here
+    /// (repair 1, R4; Codex's check of 3c61da16): the figure travels with its
+    /// generation, and only the window's thread, once it has admitted that
+    /// generation as current, stores and shows it. A stale callback changes
+    /// nothing. Posted only when the generation's whole percentage moves.
+    /// </summary>
     private void OnAuditionProgress(int generation, double fraction)
     {
         int percent = (int)Math.Round(Math.Clamp(fraction, 0, 1) * 100);
-        if (Interlocked.Exchange(ref _auditionProcessingPercent, percent) == percent) return;
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            var audition = _audition;
-            if (_closing || audition == null || !audition.IsAnalysing || generation != audition.Generation) return;
-            ShowAuditionReading(AuditionProcessingLine(Volatile.Read(ref _auditionProcessingPercent)));
-        }));
+        long key = ((long)generation << 8) | (uint)percent;
+        if (Interlocked.Exchange(ref _auditionProgressPosted, key) == key) return;
+        Dispatcher.BeginInvoke(new Action(() => AdmitAuditionProgress(generation, percent)));
+    }
+
+    /// <summary>On the window's thread: show a progress figure only if its generation is the take's current analysis, and show that callback's own figure.</summary>
+    private void AdmitAuditionProgress(int generation, int percent)
+    {
+        var audition = _audition;
+        if (_closing || audition == null || !audition.IsAnalysing || generation != audition.Generation) return;
+        _auditionProcessingPercent = percent;
+        ShowAuditionReading(AuditionProcessingLine(percent));
     }
 
     private void StartAuditionProcessingSpeech()
@@ -459,8 +481,9 @@ public partial class CheckYourAudioDialog
             return;
         }
         if (SelectedMethod == AudioCheckListenMethods.Audition)
-            ScreenReaderOutput.Speak(AuditionProcessingLine(Volatile.Read(ref _auditionProcessingPercent)), Radios.Speech.SpeechIntent.Queue,
-                VerbosityLevel.Terse, subject: Radios.Speech.SpeechSubject.AuditionVerdict);
+            ScreenReaderOutput.Speak(AuditionProcessingLine(_auditionProcessingPercent), Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse, subject: Radios.Speech.SpeechSubject.AuditionVerdict,
+                stillValid: AuditionSpeechStillValid(audition, audition.Generation));
         if (AuditionProcessingSayEvery > TimeSpan.Zero && _auditionProcessingTimer != null) _auditionProcessingTimer.Interval = AuditionProcessingSayEvery;
         else StopAuditionProcessingSpeech();
     }
@@ -492,8 +515,37 @@ public partial class CheckYourAudioDialog
         }
         ShowAuditionReading(words);
         if (SelectedMethod == AudioCheckListenMethods.Audition)
-            ScreenReaderOutput.Speak(words, Radios.Speech.SpeechIntent.Queue, level, subject: Radios.Speech.SpeechSubject.AuditionVerdict);
+            ScreenReaderOutput.Speak(words, Radios.Speech.SpeechIntent.Queue, level, subject: Radios.Speech.SpeechSubject.AuditionVerdict,
+                stillValid: AuditionSpeechStillValid(audition, outcome.Generation));
         SyncAuditionButtons();
+    }
+
+    /// <summary>
+    /// The validity a queued audition sentence carries into the speech arbiter
+    /// (repair 1, R2), asked before any delayed delivery or replay, from any
+    /// thread: still the same take, the same analysis, and no boundary since.
+    /// The boundaries supersede the subject as well (<see cref="EndAuditionSpeech"/>).
+    /// </summary>
+    private Func<bool> AuditionSpeechStillValid(ChainAuditionTake audition, int generation)
+    {
+        int epoch = Volatile.Read(ref _auditionSpeechEpoch);
+        return () => Volatile.Read(ref _auditionSpeechEpoch) == epoch && ReferenceEquals(_audition, audition)
+            && audition.Generation == generation;
+    }
+
+    /// <summary>
+    /// A boundary that ends what the audition said (repair 1, R2; Codex's check
+    /// of 3c61da16): the window closing, a new take, Process again, another
+    /// method chosen. Every sentence of the audition's subject still owed, in
+    /// the pump, the ledger or held for salvage, is superseded, and nothing
+    /// admitted before this passes its validity check again. The audition only
+    /// ever speaks this subject queued, so there is no pending Latest to retire.
+    /// </summary>
+    private void EndAuditionSpeech(string why)
+    {
+        Interlocked.Increment(ref _auditionSpeechEpoch);
+        StopAuditionProcessingSpeech();
+        ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.AuditionVerdict, why);
     }
 
     /// <summary>
@@ -506,6 +558,7 @@ public partial class CheckYourAudioDialog
     {
         var audition = _audition;
         if (audition == null || _closing || audition.State != AuditionTakeState.Ready) return;
+        EndAuditionSpeech("the take is being processed again");
         VoidAuditionPlaybackRequests();
         StopAuditionPlayback();
         Volatile.Write(ref _auditionLive, ChainAuditionTwin.ReadLive(_rig));
@@ -540,6 +593,9 @@ public partial class CheckYourAudioDialog
     /// <summary>Choosing another method stops a take that is recording; its result waits for the method to come back.</summary>
     private void ApplyAuditionLayout(AudioCheckListenMethods method)
     {
+        // Another method chosen: what the audition was saying is no longer about
+        // what is shown (repair 1, R2). The render goes on; its verdict waits.
+        if (method != AudioCheckListenMethods.Audition && _audition != null) EndAuditionSpeech("another method was chosen");
         if (method != AudioCheckListenMethods.Audition && AuditionRecording) _audition!.StopRecording();
         SyncAuditionButtons();
     }
@@ -642,7 +698,7 @@ public partial class CheckYourAudioDialog
         RecordingNarrator.StateChanged -= OnAuditionRecorderStateChanged;
         RecordingNarrator.RecordingSaved -= OnAuditionRecordingSaved;
         RecordingPlayer.StateChanged -= OnAuditionPlayerStateChanged;
-        StopAuditionProcessingSpeech();
+        EndAuditionSpeech("the window closed");
         StopAuditionPlayback();
         // Cancels an analysis still running: nothing it would write can appear after the clear.
         if (_audition != null) _audition.Discard();

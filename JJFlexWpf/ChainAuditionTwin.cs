@@ -71,8 +71,15 @@ namespace JJFlexWpf
 
         private readonly Func<TxNoiseSetup> _setup;
         private readonly Func<AuditionLiveState?> _live;
-        private readonly Func<DenoiseEngineCatalog> _catalog;
+        private readonly Func<RenderEngines> _engines;
         private readonly TimeSpan _buildWait;
+
+        /// <summary>
+        /// What one render builds its engines from: the catalog, and the helper
+        /// host the twin OWNS for that render (disposed when it ends), or null
+        /// when the host belongs to someone else (a test's stub rig).
+        /// </summary>
+        internal sealed record RenderEngines(DenoiseEngineCatalog Catalog, WdspHost? OwnedHost);
 
         /// <param name="setup">The configured chain, asked as each render starts.</param>
         /// <param name="live">The live transmit side as the window read it from its own radio; null with no radio. For the verdict, and for the threshold only when the take is too short for its own floor.</param>
@@ -80,17 +87,48 @@ namespace JJFlexWpf
         /// <param name="buildWait">How long to wait for each enabled slot's engine to be built.</param>
         internal ChainAuditionTwin(Func<TxNoiseSetup> setup, Func<AuditionLiveState?> live, Func<DenoiseEngineCatalog> catalog,
             TimeSpan buildWait)
+            : this(setup, live, Wrap(catalog), buildWait) { }
+
+        /// <param name="engines">Asked as each render starts: the catalog, and a helper host the twin owns for that render, or null.</param>
+        internal ChainAuditionTwin(Func<TxNoiseSetup> setup, Func<AuditionLiveState?> live, Func<RenderEngines> engines,
+            TimeSpan buildWait)
         {
             _setup = setup ?? throw new ArgumentNullException(nameof(setup));
             _live = live ?? throw new ArgumentNullException(nameof(live));
-            _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            _engines = engines ?? throw new ArgumentNullException(nameof(engines));
             _buildWait = buildWait;
         }
 
-        /// <summary>The app's twin: the configured chain, engines from the offline catalog on the app's own helper.</summary>
+        private static Func<RenderEngines> Wrap(Func<DenoiseEngineCatalog> catalog)
+        {
+            if (catalog == null) throw new ArgumentNullException(nameof(catalog));
+            return () => new RenderEngines(catalog(), null);
+        }
+
+        /// <summary>
+        /// The app's twin: the configured chain, its engines from the offline
+        /// catalog on a helper host of ITS OWN for each render (repair 1, R1;
+        /// Codex's check of 3c61da16). Never <see cref="WdspHost.Default"/>: the
+        /// live chain's helper channels share that host's process, connection,
+        /// writer, restart count and failure handling, so an audition on it could
+        /// take down, restart or revive the live chain's helper.
+        /// </summary>
         internal static ChainAuditionTwin ForApp(Func<AuditionLiveState?> live) =>
-            new(() => TxAudioConditioning.CaptureSetup(""), live,
-                () => DenoiseEngineCatalog.ForOfflineRender(WdspHost.Default), DefaultBuildWait);
+            new(() => TxAudioConditioning.CaptureSetup(""), live, () =>
+            {
+                var host = NewRenderHost();
+                return new RenderEngines(DenoiseEngineCatalog.ForOfflineRender(host), host);
+            }, DefaultBuildWait);
+
+        /// <summary>
+        /// A helper host for one render: the app's helper program in a process
+        /// of its own (it starts only if a helper engine is chosen), with no
+        /// model-cost store, and publishing nothing to the live capture-rate
+        /// policy (<see cref="WdspHost.PublishesLiveTelemetry"/>). Disposed when
+        /// the render ends.
+        /// </summary>
+        internal static WdspHost NewRenderHost() =>
+            new(null, WdspHostPolicy.Default, null, costStore: null) { PublishesLiveTelemetry = false };
 
         // ── The live side, read by the window from its own radio (items 5 and 6) ──
 
@@ -158,7 +196,27 @@ namespace JJFlexWpf
                 return ChainProcessing.Unavailable(WrongRateKey);
             }
 
-            var catalog = _catalog();
+            var engines = _engines();
+            var catalog = engines.Catalog;
+            try
+            {
+                return Render(rawMono, setup, live, gate, catalog, cancel, progress);
+            }
+            finally
+            {
+                // R1: the render's own helper host goes with the render, its
+                // process and connection included; nothing of it outlives it.
+                if (engines.OwnedHost is { } host)
+                {
+                    try { host.Dispose(); }
+                    catch (Exception ex) { Trace.WriteLine("ChainAuditionTwin: the render's helper host did not close: " + ex.GetType().Name); }
+                }
+            }
+        }
+
+        private ChainProcessing Render(float[] rawMono, TxNoiseSetup setup, AuditionLiveState? live, TxNoiseGateSetup gate,
+            DenoiseEngineCatalog catalog, CancellationToken cancel, Action<double>? progress)
+        {
             var plans = new List<SlotPlan>(2);
             foreach (var (family, slotSetup) in new[] { (DenoiseFamily.Spectral, setup.Spectral), (DenoiseFamily.Neural, setup.Neural) })
             {

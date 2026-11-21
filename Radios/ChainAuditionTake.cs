@@ -195,6 +195,12 @@ namespace Radios
         private readonly object _sync = new();
         private int _generation;
         private CancellationTokenSource? _cancel;
+        // Repair 1, R3 (Codex's check of 3c61da16): every render writer this take
+        // has open, by path, and how many workers are reading a take back. Discard
+        // closes the writers itself and waits for the readers, so it never returns
+        // with a file of the take still open or still on disk.
+        private readonly System.Collections.Generic.Dictionary<string, WavWriter> _openWriters = new(StringComparer.OrdinalIgnoreCase);
+        private int _loads;
         private readonly string _folder;
         private readonly IAuditionRecorder _recorder;
         private readonly IChainAuditionProcessor _processor;
@@ -286,6 +292,17 @@ namespace Radios
         /// Discard waits for at most one piece, and nothing is written after it.
         /// </summary>
         internal const int RenderChunkSamples = 48000;
+
+        /// <summary>
+        /// How long Discard waits for a worker still reading the take back (the
+        /// reader holds the file, so it cannot be deleted until it is done). A
+        /// 15-minute take reads in well under this; past it, Discard says so in
+        /// the trace and the worker deletes the file itself when its read ends.
+        /// </summary>
+        internal static readonly TimeSpan DiscardWaitsForReads = TimeSpan.FromSeconds(5);
+
+        /// <summary>Tests only: run on the worker while it is reading the take back, after it has counted itself as reading.</summary>
+        internal Action? WhileLoadingForTest { get; set; }
 
         /// <summary>An outcome's <see cref="AuditionAnalysisOutcome.Trouble"/> when the take could not be read back.</summary>
         public const string TroubleUnreadable = "unreadable";
@@ -568,7 +585,27 @@ namespace Radios
         {
             try
             {
-                var loaded = _load(takePath);
+                (float[] Mono, int Rate)? loaded;
+                lock (_sync)
+                {
+                    if (StaleLocked(generation, token)) return Cancelled(generation);
+                    _loads++;
+                }
+                try
+                {
+                    WhileLoadingForTest?.Invoke();
+                    loaded = _load(takePath);
+                }
+                finally
+                {
+                    lock (_sync)
+                    {
+                        _loads--;
+                        Monitor.PulseAll(_sync);
+                        // Discard gave up waiting for this read: the file is ours to remove.
+                        if (StaleLocked(generation, token)) TryDelete(takePath);
+                    }
+                }
                 if (loaded is not { } take || take.Mono.Length == 0)
                 {
                     lock (_sync)
@@ -628,29 +665,32 @@ namespace Radios
         /// </summary>
         private bool WriteRender(string path, float[] samples, int rate, AuditionRender render, int generation, CancellationToken token)
         {
-            WavWriter? writer = null;
             try
             {
+                WavWriter writer;
                 lock (_sync)
                 {
                     if (StaleLocked(generation, token)) return false;
                     writer = new WavWriter(path, rate, 1);
+                    _openWriters[path] = writer;
                 }
                 for (int at = 0; at < samples.Length; at += RenderChunkSamples)
                 {
                     BeforeRenderChunkForTest?.Invoke();
                     lock (_sync)
                     {
-                        if (StaleLocked(generation, token)) { Abandon(ref writer, path); return false; }
+                        // Stale: Discard has already closed and deleted this file
+                        // (repair 1, R3), or this abandons it now.
+                        if (StaleLocked(generation, token)) { AbandonLocked(path); return false; }
                         writer.Write(samples, at, Math.Min(RenderChunkSamples, samples.Length - at));
                     }
                 }
                 lock (_sync)
                 {
-                    if (StaleLocked(generation, token)) { Abandon(ref writer, path); return false; }
+                    if (StaleLocked(generation, token)) { AbandonLocked(path); return false; }
+                    _openWriters.Remove(path);
                     writer.Finish();
                     writer.Dispose();
-                    writer = null;
                 }
                 return true;
             }
@@ -660,17 +700,25 @@ namespace Radios
                     System.Diagnostics.TraceLevel.Error);
                 lock (_sync)
                 {
-                    Abandon(ref writer, path);
+                    AbandonLocked(path);
                     return !StaleLocked(generation, token);
                 }
             }
         }
 
-        private static void Abandon(ref WavWriter? writer, string path)
+        /// <summary>Under the lock: close the render writer still open at <paramref name="path"/>, if any, and delete its file. A writer Discard already closed is not touched again.</summary>
+        private void AbandonLocked(string path)
         {
-            try { writer?.Dispose(); } catch (Exception) { /* closing a part we are about to delete */ }
-            writer = null;
-            try { File.Delete(path); } catch (Exception) { /* swept at close */ }
+            if (_openWriters.Remove(path, out var writer))
+            {
+                try { writer.Dispose(); } catch (Exception) { /* closing a part we are about to delete */ }
+            }
+            TryDelete(path);
+        }
+
+        private static void TryDelete(string path)
+        {
+            try { File.Delete(path); } catch (Exception) { /* swept at the next clear */ }
         }
 
         /// <summary>
@@ -742,6 +790,25 @@ namespace Radios
                 _cancel?.Cancel();
                 _cancel = null;
                 if (wasRecording && _recorder.IsRecordingTo(TakePath)) _recorder.Stop();
+                // Repair 1, R3: every render writer still open is closed here (its
+                // header written now, before the clear) and its file deleted; and a
+                // worker still reading the take back is waited for, bounded, because
+                // the open file cannot be deleted. So when Discard returns, no file of
+                // this take is open or on disk, and nothing is written after the clear.
+                foreach (var path in new System.Collections.Generic.List<string>(_openWriters.Keys)) AbandonLocked(path);
+                var waited = System.Diagnostics.Stopwatch.StartNew();
+                while (_loads > 0)
+                {
+                    var left = DiscardWaitsForReads - waited.Elapsed;
+                    if (left <= TimeSpan.Zero)
+                    {
+                        Tracing.TraceLine("Check your audio audition: a worker was still reading the take after "
+                            + DiscardWaitsForReads.TotalSeconds + " s; it deletes the file when its read ends",
+                            System.Diagnostics.TraceLevel.Warning);
+                        break;
+                    }
+                    Monitor.Wait(_sync, left);
+                }
                 ChainAuditionFolder.Clear(_folder);
             }
         }

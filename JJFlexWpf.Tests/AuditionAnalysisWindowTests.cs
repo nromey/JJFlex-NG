@@ -154,6 +154,151 @@ public sealed class AuditionAnalysisWindowTests : IDisposable
         });
     }
 
+    // ── Repair 1, R2: admitted speech does not outlive its owner ─────────
+
+    /// <summary>
+    /// Codex's probe, adopted, through the real arbiter and the diverted sink
+    /// (render off, no reader): a verdict ADMITTED to the speech queue is still
+    /// owed after its owner ends. Each owner-ending boundary must supersede it,
+    /// and its validity must fail from then on, so neither the pump, the ledger
+    /// nor a salvage replay can say it. The positive control is the verdict owed
+    /// and valid before the boundary.
+    /// </summary>
+    [Theory]
+    [InlineData("close")]
+    [InlineData("method")]
+    [InlineData("again")]
+    public void An_admitted_verdict_is_superseded_and_invalid_once_its_owner_ends(string boundary)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Assert.True(QuietRun.Silenced);
+        Assert.False(OutputChannelRecorder.RenderEnabled);
+        Run(() =>
+        {
+            var dialog = WithDispatcher(Dialog(AudioCheckListenMethods.Audition));
+            var (take, chain) = Take();
+            Put(dialog, "_audition", take);
+            chain.Release.Set();
+            var outcome = take.AnalyseInBackground(Recorded(take))!.Result;
+            // Only entries this test admits count: earlier ones (another case's) are excluded by identity.
+            var earlier = new HashSet<object>(Entries(), ReferenceEqualityComparer.Instance);
+            Invoke(dialog, "OnAuditionAnalysed", outcome);
+            var before = Audition(ChainAudition.Verdict(outcome.Result!), earlier);
+            Assert.True(before.Count > 0, "the verdict never reached the arbiter, so this probe could not see the defect");
+            Assert.All(before, e => Assert.False(e.Superseded));
+            Assert.All(before, e => Assert.True(e.Valid ?? false, "admitted without a validity check"));
+
+            switch (boundary)
+            {
+                case "close": Invoke(dialog, "EndAudition"); break;
+                case "method":
+                    Select(dialog, AudioCheckListenMethods.ComputerMic);
+                    Invoke(dialog, "ApplyAuditionLayout", AudioCheckListenMethods.ComputerMic);
+                    break;
+                case "again": Invoke(dialog, "ProcessAuditionAgain"); break;
+            }
+            var after = Audition(ChainAudition.Verdict(outcome.Result!), earlier);
+            Assert.Equal(before.Count, after.Count);
+            Assert.All(after, e => Assert.True(e.Superseded, boundary + " left the verdict owed"));
+            Assert.All(after, e => Assert.False(e.Valid ?? true, boundary + " left the verdict valid for a replay"));
+        });
+    }
+
+    [Fact]
+    public void A_new_take_ends_the_last_takes_speech_before_its_countdown()
+    {
+        // StartAuditionAsync needs the window's start admission and countdown, so
+        // this one is a source pin: the boundary is the first thing after admission.
+        string code = File.ReadAllText(Path.Combine(RepoPaths.RequireRoot(), "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Audition.cs"));
+        string start = code.Substring(code.IndexOf("private async Task StartAuditionAsync()", StringComparison.Ordinal));
+        int admitted = start.IndexOf("if (start == null) return;", StringComparison.Ordinal);
+        int ended = start.IndexOf("EndAuditionSpeech(", StringComparison.Ordinal);
+        int count = start.IndexOf("BeginStartCountdown(", StringComparison.Ordinal);
+        Assert.True(admitted > 0 && admitted < ended && ended < count);
+    }
+
+    /// <summary>Every entry of the audition's subject, not in <paramref name="earlier"/>, whose text starts with <paramref name="text"/>: superseded, and what its validity answers now.</summary>
+    private const BindingFlags Any = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+
+    /// <summary>Every entry now in the arbiter's ledger and salvage hold.</summary>
+    private static List<object> Entries()
+    {
+        var arbiter = typeof(ScreenReaderOutput).GetField("_arbiter", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        object gate = arbiter.GetType().GetField("_lock", Any)!.GetValue(arbiter)!;
+        var entries = new List<object>();
+        lock (gate)
+            foreach (string list in new[] { "_believedQueued", "_held" })
+                foreach (var e in (System.Collections.IEnumerable)arbiter.GetType().GetField(list, Any)!.GetValue(arbiter)!)
+                    entries.Add(e);
+        return entries;
+    }
+
+    private static List<(bool Superseded, bool? Valid)> Audition(string text, HashSet<object> earlier)
+    {
+        var found = new List<(bool, bool?)>();
+        foreach (var e in Entries())
+        {
+            if (earlier.Contains(e)) continue;
+            var t = e.GetType();
+            if ((string?)t.GetField("Subject", Any)!.GetValue(e) != Radios.Speech.SpeechSubject.AuditionVerdict) continue;
+            if (!((string)t.GetField("Message", Any)!.GetValue(e)!).StartsWith(text, StringComparison.Ordinal)) continue;
+            var valid = (Func<bool>?)t.GetField("StillValid", Any)!.GetValue(e);
+            found.Add((t.GetField("SupersededBy", Any)!.GetValue(e) != null, valid?.Invoke()));
+        }
+        return found;
+    }
+
+    // ── Repair 1, R4: progress is admitted before it is stored ───────────
+
+    /// <summary>
+    /// Codex's probe, adopted: a stale generation's progress callback must not
+    /// change the current figure, even before its post is refused; the current
+    /// generation's figure is stored and shown once admitted, and it is that
+    /// callback's own figure.
+    /// </summary>
+    [Fact]
+    public void A_stale_progress_callback_never_changes_the_current_percentage()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        Run(() =>
+        {
+            var dialog = WithDispatcher(Dialog(AudioCheckListenMethods.Audition));
+            var (take, chain) = Take();
+            Put(dialog, "_audition", take);
+            var run = take.AnalyseInBackground(Recorded(take))!;
+            Assert.True(chain.Entered.Wait(10000));
+            int current = take.Generation;
+            var box = (TextBox)Get(dialog, "_micReadingBox")!;
+            Put(dialog, "_auditionProcessingPercent", 20);
+            Invoke(dialog, "ShowAuditionReading", Line(20));
+
+            Invoke(dialog, "OnAuditionProgress", current - 1, 0.99);
+            Assert.Equal(20, (int)Get(dialog, "_auditionProcessingPercent")!);   // nothing written off the window's thread
+            Pump();
+            Assert.Equal(20, (int)Get(dialog, "_auditionProcessingPercent")!);
+            Assert.Equal(Line(20), box.Text);
+
+            Invoke(dialog, "OnAuditionProgress", current, 0.55);                 // positive control
+            Pump();
+            Assert.Equal(55, (int)Get(dialog, "_auditionProcessingPercent")!);
+            Assert.Equal(Line(55), box.Text);
+            chain.Release.Set();
+            run.Wait(10000);
+        });
+    }
+
+    private static string Line(int percent) => Lexicon.Get("audio.audition.processing", ("percent", percent));
+
+    private static CheckYourAudioDialog WithDispatcher(CheckYourAudioDialog dialog)
+    {
+        typeof(System.Windows.Threading.DispatcherObject).GetField("_dispatcher", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(dialog, System.Windows.Threading.Dispatcher.CurrentDispatcher);
+        return dialog;
+    }
+
+    private static void Pump() =>
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private static int Count(string text, string what)
