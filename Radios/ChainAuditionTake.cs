@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using JJPortaudio;
 using JJTrace;
@@ -110,6 +111,31 @@ namespace Radios
         Recording,
         /// <summary>The take is analysed and its renders are on disk to play.</summary>
         Ready,
+        /// <summary>
+        /// The take is recorded and being analysed on a worker (Sprint 49 Track Q
+        /// phase B, item 4): its renders are not on disk yet, so nothing plays and
+        /// nothing can be kept until it is <see cref="Ready"/>.
+        /// </summary>
+        Analysing,
+    }
+
+    /// <summary>
+    /// How one analysis of a take ended (Track Q phase B, item 4). The window
+    /// shows or says it only when <see cref="ChainAuditionTake.IsCurrent"/>.
+    /// </summary>
+    public sealed class AuditionAnalysisOutcome
+    {
+        /// <summary>The take's generation the analysis ran under.</summary>
+        public int Generation { get; init; }
+
+        /// <summary>The analysis, or null when it was cancelled or failed.</summary>
+        public ChainAuditionResult? Result { get; init; }
+
+        /// <summary>"" when it ran; "unreadable" when the take could not be read back; "failed" when the analysis itself threw.</summary>
+        public string Trouble { get; init; } = "";
+
+        /// <summary>A new take, Discard, or the window closing cancelled it: nothing of it is shown, said or kept on disk.</summary>
+        public bool Cancelled { get; init; }
     }
 
     /// <summary>
@@ -162,6 +188,13 @@ namespace Radios
     /// </remarks>
     public sealed class ChainAuditionTake
     {
+        // Track Q phase B, item 4: the analysis runs on a worker under a
+        // generation number. Every change of state, the folder's clear and every
+        // chunk a worker writes are made under this one lock, so once Discard
+        // has cleared the folder no worker can write into it again.
+        private readonly object _sync = new();
+        private int _generation;
+        private CancellationTokenSource? _cancel;
         private readonly string _folder;
         private readonly IAuditionRecorder _recorder;
         private readonly IChainAuditionProcessor _processor;
@@ -223,7 +256,48 @@ namespace Radios
             _markerSounds = markerSounds ?? (() => true);
         }
 
-        public AuditionTakeState State { get; private set; } = AuditionTakeState.Idle;
+        private AuditionTakeState _state = AuditionTakeState.Idle;
+
+        public AuditionTakeState State
+        {
+            get { lock (_sync) return _state; }
+            private set { lock (_sync) _state = value; }
+        }
+
+        /// <summary>
+        /// Counts the analyses started and the takes thrown away (Track Q phase B,
+        /// item 4). An outcome whose generation is not this one belongs to work a
+        /// newer take, Discard or Process again has superseded.
+        /// </summary>
+        public int Generation { get { lock (_sync) return _generation; } }
+
+        /// <summary>True when <paramref name="outcome"/> is the newest analysis and was not cancelled: the only kind the window may show or say.</summary>
+        public bool IsCurrent(AuditionAnalysisOutcome outcome)
+        {
+            lock (_sync) return outcome != null && !outcome.Cancelled && outcome.Generation == _generation;
+        }
+
+        /// <summary>True while the take is being analysed.</summary>
+        public bool IsAnalysing => State == AuditionTakeState.Analysing;
+
+        /// <summary>
+        /// How many samples a render is written in at a time, each piece under the
+        /// lock with a check that it is still wanted: one second at 48 kHz, so a
+        /// Discard waits for at most one piece, and nothing is written after it.
+        /// </summary>
+        internal const int RenderChunkSamples = 48000;
+
+        /// <summary>An outcome's <see cref="AuditionAnalysisOutcome.Trouble"/> when the take could not be read back.</summary>
+        public const string TroubleUnreadable = "unreadable";
+
+        /// <summary>An outcome's <see cref="AuditionAnalysisOutcome.Trouble"/> when the analysis itself threw.</summary>
+        public const string TroubleFailed = "failed";
+
+        /// <summary>Tests only: run on the worker before each piece of a render is written, outside the lock.</summary>
+        internal Action? BeforeRenderChunkForTest { get; set; }
+
+        /// <summary>Tests only: run on the worker after the renders are written and before the take is marked ready, outside the lock.</summary>
+        internal Action? BeforeReadyForTest { get; set; }
 
         /// <summary>The take's file, as recorded: it begins after the start tone, so it is exactly what is measured and played. Empty before the first take.</summary>
         public string TakePath { get; private set; } = "";
@@ -249,6 +323,8 @@ namespace Radios
         public bool Start(DateTime localNow)
         {
             if (State == AuditionTakeState.Recording || _recorder.IsRunning) return false;
+            // A take still analysing is thrown away like any other: its worker is
+            // cancelled (Track Q phase B, item 4).
             Discard();
             try { Directory.CreateDirectory(_folder); }
             catch (Exception ex)
@@ -400,41 +476,201 @@ namespace Radios
         public ChainAuditionResult? Saved(string path, out string trouble)
         {
             trouble = "";
-            if (State != AuditionTakeState.Recording || !SamePath(path, TakePath)) return null;
-            var loaded = _load(path);
-            if (loaded is not { } take || take.Mono.Length == 0)
+            int generation;
+            string take;
+            lock (_sync)
             {
-                State = AuditionTakeState.Idle;
-                trouble = "unreadable";
-                Tracing.TraceLine("Check your audio audition: the take could not be read", System.Diagnostics.TraceLevel.Warning);
-                return null;
+                if (_state != AuditionTakeState.Recording || !SamePath(path, TakePath)) return null;
+                generation = BeginLocked(out _);
+                take = TakePath;
             }
+            // The calling thread's form: the same analysis, in hand at once.
+            var outcome = Run(take, generation, CancellationToken.None, null);
+            trouble = outcome.Trouble;
+            return outcome.Result;
+        }
 
-            // The file began after the start tone (Track Q3), so it is the take
-            // as it is: nothing is trimmed, and Keep saves these same samples.
-            var result = ChainAudition.Analyse(take.Mono, take.Rate, _processor);
-            foreach (var render in ChainAudition.PlayOrder)
+        /// <summary>
+        /// The recorder finished a file: when it is this take's, analyse it ON A
+        /// WORKER (Track Q phase B, item 4) and return at once. The take is
+        /// <see cref="AuditionTakeState.Analysing"/> until the task completes;
+        /// <paramref name="progress"/> is told the generation and the fraction
+        /// done, on the worker. Null for anybody else's file (the reference
+        /// recorder reports through the same event). The task never faults: its
+        /// outcome says how it ended.
+        /// </summary>
+        public Task<AuditionAnalysisOutcome>? AnalyseInBackground(string path, Action<int, double>? progress = null)
+        {
+            lock (_sync)
             {
-                var samples = result.Render(render);
-                if (samples == null) continue;
-                string renderPath = RenderPathFor(render);
-                try
+                if (_state != AuditionTakeState.Recording || !SamePath(path, TakePath)) return null;
+                return StartWorkerLocked(progress);
+            }
+        }
+
+        /// <summary>
+        /// Process the take already in the working folder again, through the
+        /// configuration as it is NOW, with no new recording (Track Q phase B,
+        /// item 9; Noel's S5, 2026-11-20). One take, processed again: #262's
+        /// one-take rule. Its old renders are removed first (the window stops
+        /// playing them before it asks). Null unless the take is ready.
+        /// </summary>
+        public Task<AuditionAnalysisOutcome>? ProcessAgain(Action<int, double>? progress = null)
+        {
+            lock (_sync)
+            {
+                if (_state != AuditionTakeState.Ready || TakePath.Length == 0 || !File.Exists(TakePath)) return null;
+                foreach (var render in ChainAudition.PlayOrder)
                 {
-                    using var writer = new WavWriter(renderPath, result.SampleRate, 1);
-                    writer.Write(samples, samples.Length);
-                    writer.Finish();
+                    try { File.Delete(RenderPathFor(TakePath, render)); }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine("Check your audio audition: an old " + render + " render could not be removed: " + ex.GetType().Name,
+                            System.Diagnostics.TraceLevel.Warning);
+                    }
                 }
-                catch (Exception ex)
+                Tracing.TraceLine("Check your audio audition: processing the take again", System.Diagnostics.TraceLevel.Info);
+                return StartWorkerLocked(progress);
+            }
+        }
+
+        /// <summary>Under the lock: a new generation, the last analysis cancelled, the take analysing.</summary>
+        private int BeginLocked(out CancellationToken token)
+        {
+            _cancel?.Cancel();
+            var cts = new CancellationTokenSource();
+            _cancel = cts;
+            token = cts.Token;
+            _state = AuditionTakeState.Analysing;
+            Result = null;
+            return ++_generation;
+        }
+
+        private Task<AuditionAnalysisOutcome> StartWorkerLocked(Action<int, double>? progress)
+        {
+            int generation = BeginLocked(out var token);
+            string take = TakePath;
+            return Task.Run(() => Run(take, generation, token, progress));
+        }
+
+        /// <summary>True when work of <paramref name="generation"/> must stop: superseded or cancelled. Under the lock.</summary>
+        private bool StaleLocked(int generation, CancellationToken token) => generation != _generation || token.IsCancellationRequested;
+
+        private AuditionAnalysisOutcome Cancelled(int generation)
+        {
+            Tracing.TraceLine("Check your audio audition: an analysis was cancelled (a new take, Discard, or the window closing)",
+                System.Diagnostics.TraceLevel.Info);
+            return new AuditionAnalysisOutcome { Generation = generation, Cancelled = true };
+        }
+
+        /// <summary>One analysis, start to finish, on whichever thread runs it. Never throws.</summary>
+        private AuditionAnalysisOutcome Run(string takePath, int generation, CancellationToken token, Action<int, double>? progress)
+        {
+            try
+            {
+                var loaded = _load(takePath);
+                if (loaded is not { } take || take.Mono.Length == 0)
                 {
-                    Tracing.TraceLine("Check your audio audition: " + render + " render not written: " + ex.GetType().Name,
-                        System.Diagnostics.TraceLevel.Error);
-                    try { File.Delete(renderPath); } catch (Exception) { /* swept at close */ }
+                    lock (_sync)
+                    {
+                        if (StaleLocked(generation, token)) return Cancelled(generation);
+                        _state = AuditionTakeState.Idle;
+                    }
+                    Tracing.TraceLine("Check your audio audition: the take could not be read", System.Diagnostics.TraceLevel.Warning);
+                    return new AuditionAnalysisOutcome { Generation = generation, Trouble = TroubleUnreadable };
+                }
+
+                // The file began after the start tone (Track Q3), so it is the take
+                // as it is: nothing is trimmed, and Keep saves these same samples.
+                var result = ChainAudition.Analyse(take.Mono, take.Rate, _processor, token,
+                    progress == null ? null : p => progress(generation, p));
+                foreach (var render in ChainAudition.PlayOrder)
+                {
+                    var audio = result.Render(render);
+                    if (audio == null) continue;
+                    if (!WriteRender(RenderPathFor(takePath, render), audio, result.SampleRate, render, generation, token))
+                        return Cancelled(generation);
+                }
+                BeforeReadyForTest?.Invoke();
+                lock (_sync)
+                {
+                    if (StaleLocked(generation, token)) return Cancelled(generation);
+                    Result = result;
+                    _state = AuditionTakeState.Ready;
+                }
+                Tracing.TraceLine(ChainAudition.TraceLine(result), System.Diagnostics.TraceLevel.Info);
+                return new AuditionAnalysisOutcome { Generation = generation, Result = result };
+            }
+            catch (OperationCanceledException)
+            {
+                return Cancelled(generation);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Check your audio audition: the analysis failed: " + ex.GetType().Name + ": " + ex.Message,
+                    System.Diagnostics.TraceLevel.Error);
+                lock (_sync)
+                {
+                    if (StaleLocked(generation, token)) return Cancelled(generation);
+                    _state = AuditionTakeState.Idle;
+                }
+                return new AuditionAnalysisOutcome { Generation = generation, Trouble = TroubleFailed };
+            }
+        }
+
+        /// <summary>
+        /// Write one render a piece at a time, each piece under the lock and only
+        /// while the work is still wanted. Once Discard has cleared the folder
+        /// under the same lock, the next piece finds the work stale, and the part
+        /// already written (which the clear could not delete while it was open)
+        /// is closed and deleted here. False only when the work was cancelled; a
+        /// render that fails to write is traced and skipped, as before.
+        /// </summary>
+        private bool WriteRender(string path, float[] samples, int rate, AuditionRender render, int generation, CancellationToken token)
+        {
+            WavWriter? writer = null;
+            try
+            {
+                lock (_sync)
+                {
+                    if (StaleLocked(generation, token)) return false;
+                    writer = new WavWriter(path, rate, 1);
+                }
+                for (int at = 0; at < samples.Length; at += RenderChunkSamples)
+                {
+                    BeforeRenderChunkForTest?.Invoke();
+                    lock (_sync)
+                    {
+                        if (StaleLocked(generation, token)) { Abandon(ref writer, path); return false; }
+                        writer.Write(samples, at, Math.Min(RenderChunkSamples, samples.Length - at));
+                    }
+                }
+                lock (_sync)
+                {
+                    if (StaleLocked(generation, token)) { Abandon(ref writer, path); return false; }
+                    writer.Finish();
+                    writer.Dispose();
+                    writer = null;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Check your audio audition: " + render + " render not written: " + ex.GetType().Name,
+                    System.Diagnostics.TraceLevel.Error);
+                lock (_sync)
+                {
+                    Abandon(ref writer, path);
+                    return !StaleLocked(generation, token);
                 }
             }
-            Result = result;
-            State = AuditionTakeState.Ready;
-            Tracing.TraceLine(ChainAudition.TraceLine(result), System.Diagnostics.TraceLevel.Info);
-            return result;
+        }
+
+        private static void Abandon(ref WavWriter? writer, string path)
+        {
+            try { writer?.Dispose(); } catch (Exception) { /* closing a part we are about to delete */ }
+            writer = null;
+            try { File.Delete(path); } catch (Exception) { /* swept at close */ }
         }
 
         /// <summary>
@@ -444,16 +680,19 @@ namespace Radios
         /// </summary>
         public void RecorderStopped()
         {
-            if (State != AuditionTakeState.Recording || _recorder.IsRecordingTo(TakePath)) return;
-            State = AuditionTakeState.Idle;
-            ChainAuditionFolder.Clear(_folder);
+            lock (_sync)
+            {
+                if (_state != AuditionTakeState.Recording || _recorder.IsRecordingTo(TakePath)) return;
+                _state = AuditionTakeState.Idle;
+                ChainAuditionFolder.Clear(_folder);
+            }
         }
 
         /// <summary>The file a render was written to, or null when this take has no such render on disk.</summary>
         public string? RenderPath(AuditionRender render)
         {
             if (State != AuditionTakeState.Ready || Result?.Render(render) == null) return null;
-            string path = RenderPathFor(render);
+            string path = RenderPathFor(TakePath, render);
             return File.Exists(path) ? path : null;
         }
 
@@ -490,16 +729,26 @@ namespace Radios
         /// </summary>
         public void Discard()
         {
-            bool wasRecording = State == AuditionTakeState.Recording;
-            // Idle FIRST, so the file the stop below reports is not analysed.
-            State = AuditionTakeState.Idle;
-            Result = null;
-            if (wasRecording && _recorder.IsRecordingTo(TakePath)) _recorder.Stop();
-            ChainAuditionFolder.Clear(_folder);
+            lock (_sync)
+            {
+                bool wasRecording = _state == AuditionTakeState.Recording;
+                // Idle FIRST, so the file the stop below reports is not analysed.
+                _state = AuditionTakeState.Idle;
+                Result = null;
+                // Any analysis in flight is superseded and cancelled (Track Q phase
+                // B, item 4); under this lock, so none of its pieces can be written
+                // after the clear below.
+                _generation++;
+                _cancel?.Cancel();
+                _cancel = null;
+                if (wasRecording && _recorder.IsRecordingTo(TakePath)) _recorder.Stop();
+                ChainAuditionFolder.Clear(_folder);
+            }
         }
 
-        private string RenderPathFor(AuditionRender render) =>
-            Path.Combine(_folder, Path.GetFileNameWithoutExtension(TakePath) + "-" + render.ToString().ToLowerInvariant() + ".wav");
+        /// <summary>A render's file, beside the take it belongs to (the path is passed, so a worker names its own take's files even after a newer take began).</summary>
+        private string RenderPathFor(string takePath, AuditionRender render) =>
+            Path.Combine(_folder, Path.GetFileNameWithoutExtension(takePath) + "-" + render.ToString().ToLowerInvariant() + ".wav");
 
         private static bool SamePath(string a, string b) =>
             a.Length > 0 && b.Length > 0

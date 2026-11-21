@@ -2793,6 +2793,11 @@ namespace Radios.Tests
                 "audio.audition.verdict.engine_failed",
                 "audio.audition.verdict.render_incomplete",
                 "audio.audition.verdict.render_failed",
+                // Sprint 49 Track Q phase B: processing off the window's thread, and Process again. DRAFT PROSE, for Codex.
+                "audio.audition.processing",
+                "audio.audition.analysis_failed",
+                "audio.audition.process_again",
+                "audio.audition.process_again_help",
                 "audio.countdown.method.audition",
             };
 

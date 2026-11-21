@@ -363,7 +363,8 @@ namespace Radios.Tests
 
             // Nothing is trimmed after the fact: what is analysed is the file.
             string take = Code(Source("Radios/ChainAuditionTake.cs"));
-            Assert.Contains("ChainAudition.Analyse(take.Mono, take.Rate, _processor);", take);
+            // Track Q phase B: the analysis also takes the worker's token and progress; still the file, untrimmed.
+            Assert.Contains("ChainAudition.Analyse(take.Mono, take.Rate, _processor, token,", take);
             Assert.Contains("File.Copy(TakePath, destination, overwrite: false);", Body(take, "public bool Keep(string destination)"));
         }
 
@@ -461,10 +462,37 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Phase_A_wires_the_placeholder_chain_and_nothing_live()
+        public void Phase_B_wires_the_offline_twin_and_nothing_live()
+        {
+            // Sprint 49 Track Q phase B replaced phase A's placeholder with the twin
+            // of the configured chain, handed only the window's own snapshot of its
+            // radio's live side (for the verdict). The placeholder stays for tests.
+            string code = Code(Dialog("CheckYourAudioDialog.Audition"));
+            Assert.Contains("AuditionProcessorSource { get; set; } = live => ChainAuditionTwin.ForApp(live);", Regex.Replace(code, @"\s+", " "));
+            Assert.DoesNotContain("ChainNotConnectedYet.Instance", code);
+            Assert.Contains("AuditionProcessorSource(() => Volatile.Read(ref _auditionLive))", code);
+        }
+
+        [Fact]
+        public void The_verdict_is_shown_and_said_only_for_the_takes_newest_analysis_and_on_its_own_subject()
         {
             string code = Code(Dialog("CheckYourAudioDialog.Audition"));
-            Assert.Contains("AuditionProcessorSource { get; set; } = () => ChainNotConnectedYet.Instance;", code);
+            string analysed = Body(code, "private void OnAuditionAnalysed(AuditionAnalysisOutcome outcome)");
+            int current = analysed.IndexOf("!audition.IsCurrent(outcome)) return;", StringComparison.Ordinal);
+            int shown = analysed.IndexOf("ShowAuditionReading(", StringComparison.Ordinal);
+            int said = analysed.IndexOf("ScreenReaderOutput.Speak(", StringComparison.Ordinal);
+            Assert.True(current > 0 && current < shown && shown < said);
+            Assert.Contains("subject: Radios.Speech.SpeechSubject.AuditionVerdict", analysed);
+            // The saved handler no longer analyses on the window's thread.
+            string saved = Body(code, "private void OnAuditionRecordingSaved(string path)");
+            Assert.Contains("AnalyseInBackground(path, OnAuditionProgress)", saved);
+            Assert.DoesNotContain(".Saved(", saved);
+            // Choosing another method does not cancel: the layout change neither discards nor cancels.
+            string layout = Body(code, "private void ApplyAuditionLayout(AudioCheckListenMethods method)");
+            Assert.DoesNotContain("Discard", layout);
+            Assert.DoesNotContain("Cancel", layout);
+            // The window closing does: EndAudition still discards.
+            Assert.Contains("_audition.Discard()", Body(code, "private void EndAudition()"));
         }
 
         [Fact]

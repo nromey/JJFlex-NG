@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Radios;
 
 namespace JJFlexWpf.Dialogs;
@@ -36,22 +37,52 @@ namespace JJFlexWpf.Dialogs;
 /// (<see cref="ChainAuditionFolder"/>), never the recordings folder.
 /// </para>
 /// <para>
-/// <b>Phase A.</b> The offline transmit chain is not built yet, so
-/// <see cref="AuditionProcessorSource"/> hands back <see cref="ChainNotConnectedYet"/>:
-/// the take is analysed, the raw render is offered, and the verdict says the
-/// chain is not connected. Phase B replaces that one wiring with the offline
-/// twin of the configured chain, and the other two buttons appear by themselves.
+/// <b>Phase B (Sprint 49 Track Q phase B).</b> <see cref="AuditionProcessorSource"/>
+/// is the offline twin of the configured transmit chain
+/// (<see cref="ChainAuditionTwin"/>): both noise slots and the gate as
+/// configured, in instances of its own. The analysis runs on a worker under the
+/// take's generation; the reading box says it is processing, with how far it has
+/// got, and the verdict is shown and said only for the newest analysis. A new
+/// take, Discard and the window closing cancel it; choosing another method does
+/// not, and its result waits for the method to come back.
 /// </para>
 /// </remarks>
 public partial class CheckYourAudioDialog
 {
     /// <summary>
-    /// The offline chain the audition renders through. Phase A's is
-    /// <see cref="ChainNotConnectedYet"/>; phase B replaces this one wiring.
-    /// It must never return the live chain: the audition changes no transmit
-    /// setting (#262, "NEVER AUTO-APPLY").
+    /// The offline chain the audition renders through: phase B's twin of the
+    /// configured transmit chain, handed the window's own reading of its radio's
+    /// live side (for the verdict only). It must never return the live chain:
+    /// the audition changes no transmit setting (#262, "NEVER AUTO-APPLY").
+    /// Phase A's placeholder, <see cref="ChainNotConnectedYet"/>, stays for tests.
     /// </summary>
-    internal static Func<IChainAuditionProcessor> AuditionProcessorSource { get; set; } = () => ChainNotConnectedYet.Instance;
+    internal static Func<Func<AuditionLiveState?>, IChainAuditionProcessor> AuditionProcessorSource { get; set; } =
+        live => ChainAuditionTwin.ForApp(live);
+
+    /// <summary>
+    /// The live transmit side as this window read it from its own radio when the
+    /// latest analysis started (items 5 and 6): null with no radio. Read on the
+    /// window's thread; the twin only reads this snapshot.
+    /// </summary>
+    private AuditionLiveState? _auditionLive;
+
+    /// <summary>
+    /// Noel's S6 (2026-11-20): while a take processes, the reading box says so
+    /// with its percentage, and it is said once it has taken this long.
+    /// </summary>
+    internal static readonly TimeSpan AuditionProcessingSayAfter = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// How often the processing line, with its percentage, is said again after
+    /// the first time. Zero says it once. How the percentage is spoken is a
+    /// follow-up question for Noel (S6), so its cadence is this one constant.
+    /// </summary>
+    internal static readonly TimeSpan AuditionProcessingSayEvery = TimeSpan.Zero;
+
+    private DispatcherTimer? _auditionProcessingTimer;
+    private int _auditionProcessingPercent;
+    private int _auditionProcessingGeneration = -1;
+    private Button? _auditionProcessAgainButton;
 
     /// <summary>The take, made on first use so an uninitialized dialog in a test has none.</summary>
     private ChainAuditionTake? _audition;
@@ -77,7 +108,7 @@ public partial class CheckYourAudioDialog
     /// microphone opens.
     /// </summary>
     private ChainAuditionTake Audition => _audition ??= new ChainAuditionTake(ChainAuditionFolder.DefaultPath,
-        new NarratorRecorder(), AuditionProcessorSource(), LoadAuditionTake,
+        new NarratorRecorder(), AuditionProcessorSource(() => Volatile.Read(ref _auditionLive)), LoadAuditionTake,
         startMarker: EarconPlayer.RecorderStartBeepTimed,
         markerSounds: () => EarconPlayer.RecorderBeepsEnabled);
 
@@ -101,6 +132,11 @@ public partial class CheckYourAudioDialog
             () => PlayAuditionRender(AuditionRender.Removed));
         _auditionKeepButton = MakeAuditionButton("audio.audition.keep", "audio.audition.keep_help", KeepAuditionTake);
         foreach (var button in AuditionButtonsInOrder()) _sections.Add(CheckContent, button!);
+        // After Keep (Track Q phase B, item 9; Noel's S5): the same take, processed
+        // again with the settings as they are now, no new recording.
+        _auditionProcessAgainButton = MakeAuditionButton("audio.audition.process_again", "audio.audition.process_again_help",
+            ProcessAuditionAgain);
+        _sections.Add(CheckContent, _auditionProcessAgainButton);
 
         RecordingNarrator.StateChanged += OnAuditionRecorderStateChanged;
         RecordingNarrator.RecordingSaved += OnAuditionRecordingSaved;
@@ -354,24 +390,128 @@ public partial class CheckYourAudioDialog
         }
         var audition = _audition;
         if (audition == null || _closing) return;
-        var result = audition.Saved(path, out string trouble);
-        if (result == null)
+        // The live side, read here from this window's own radio (items 5 and 6).
+        Volatile.Write(ref _auditionLive, ChainAuditionTwin.ReadLive(_rig));
+        // On a worker (Track Q phase B, item 4): a real render takes time.
+        var run = audition.AnalyseInBackground(path, OnAuditionProgress);
+        if (run == null) return;   // somebody else's recording
+        SetStartButtonLabel("Start Audio Check");
+        BeginAuditionProcessing(audition, run);
+    }
+
+    /// <summary>
+    /// An analysis has started: the reading box says it is processing, at once
+    /// and silently (it is not a live region), the play buttons and Keep are
+    /// hidden, the spoken line waits for <see cref="AuditionProcessingSayAfter"/>,
+    /// and the outcome is posted back here when the worker is done.
+    /// </summary>
+    private void BeginAuditionProcessing(ChainAuditionTake audition, Task<AuditionAnalysisOutcome> run)
+    {
+        _auditionProcessingGeneration = audition.Generation;
+        _auditionProcessingPercent = 0;
+        ShowAuditionReading(AuditionProcessingLine(0));
+        SyncAuditionButtons();
+        StartAuditionProcessingSpeech();
+        run.ContinueWith(t => Dispatcher.BeginInvoke(new Action(() => OnAuditionAnalysed(t.Result))),
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    // WORDING PLACEHOLDER (Track Q phase B, DRAFT PROSE): the processing line, with its percentage.
+    private static string AuditionProcessingLine(int percent) => Lexicon.Get("audio.audition.processing", ("percent", percent));
+
+    /// <summary>On the worker: how far the render has got. Posted only when the whole percentage moves, and shown only for the analysis still current.</summary>
+    private void OnAuditionProgress(int generation, double fraction)
+    {
+        int percent = (int)Math.Round(Math.Clamp(fraction, 0, 1) * 100);
+        if (Interlocked.Exchange(ref _auditionProcessingPercent, percent) == percent) return;
+        Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (trouble.Length == 0) return;   // somebody else's recording
-            string unreadable = Lexicon.Get("audio.audition.unreadable");
-            ShowAuditionReading(unreadable);
-            ScreenReaderOutput.Speak(unreadable, VerbosityLevel.Critical, interrupt: false);
+            var audition = _audition;
+            if (_closing || audition == null || !audition.IsAnalysing || generation != audition.Generation) return;
+            ShowAuditionReading(AuditionProcessingLine(Volatile.Read(ref _auditionProcessingPercent)));
+        }));
+    }
+
+    private void StartAuditionProcessingSpeech()
+    {
+        StopAuditionProcessingSpeech();
+        _auditionProcessingTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = AuditionProcessingSayAfter };
+        _auditionProcessingTimer.Tick += OnAuditionProcessingTick;
+        _auditionProcessingTimer.Start();
+    }
+
+    private void StopAuditionProcessingSpeech()
+    {
+        var timer = _auditionProcessingTimer;
+        _auditionProcessingTimer = null;
+        if (timer == null) return;
+        timer.Stop();
+        timer.Tick -= OnAuditionProcessingTick;
+    }
+
+    /// <summary>Said once it has taken a while (Noel's S6), only while the audition is the method shown and its analysis still current.</summary>
+    private void OnAuditionProcessingTick(object? sender, EventArgs e)
+    {
+        var audition = _audition;
+        if (_closing || audition == null || !audition.IsAnalysing || audition.Generation != _auditionProcessingGeneration)
+        {
+            StopAuditionProcessingSpeech();
+            return;
+        }
+        if (SelectedMethod == AudioCheckListenMethods.Audition)
+            ScreenReaderOutput.Speak(AuditionProcessingLine(Volatile.Read(ref _auditionProcessingPercent)), Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse, subject: Radios.Speech.SpeechSubject.AuditionVerdict);
+        if (AuditionProcessingSayEvery > TimeSpan.Zero && _auditionProcessingTimer != null) _auditionProcessingTimer.Interval = AuditionProcessingSayEvery;
+        else StopAuditionProcessingSpeech();
+    }
+
+    /// <summary>
+    /// The worker is done. Shown and said only when it is the take's newest,
+    /// uncancelled analysis and the window is open: an old generation's verdict
+    /// is never shown or said. The verdict is said only while the audition is the
+    /// method shown; otherwise it waits in the reading box for the method to
+    /// come back. Nothing plays: the buttons appear, and the operator chooses.
+    /// </summary>
+    private void OnAuditionAnalysed(AuditionAnalysisOutcome outcome)
+    {
+        var audition = _audition;
+        if (_closing || audition == null || !audition.IsCurrent(outcome)) return;
+        StopAuditionProcessingSpeech();
+        string words;
+        VerbosityLevel level;
+        if (outcome.Result is { } result)
+        {
+            words = ChainAudition.Verdict(result);
+            level = VerbosityLevel.Terse;
         }
         else
         {
-            string verdict = ChainAudition.Verdict(result);
-            ShowAuditionReading(verdict);
-            // The speech subject this wants lives in SpeechSubject.cs, which the
-            // transmit rulings work is changing; it waits for that merge.
-            ScreenReaderOutput.Speak(verdict, VerbosityLevel.Terse, interrupt: false);
+            words = outcome.Trouble == ChainAuditionTake.TroubleUnreadable
+                ? Lexicon.Get("audio.audition.unreadable") : Lexicon.Get("audio.audition.analysis_failed");
+            level = VerbosityLevel.Critical;
         }
-        SetStartButtonLabel("Start Audio Check");
+        ShowAuditionReading(words);
+        if (SelectedMethod == AudioCheckListenMethods.Audition)
+            ScreenReaderOutput.Speak(words, Radios.Speech.SpeechIntent.Queue, level, subject: Radios.Speech.SpeechSubject.AuditionVerdict);
         SyncAuditionButtons();
+    }
+
+    /// <summary>
+    /// Process the same take again with the settings as they are now (Track Q
+    /// phase B, item 9; Noel's S5): no new recording. Our own renders stop
+    /// first, saying nothing, because their files are about to be replaced, and
+    /// any render still waiting for its click is void.
+    /// </summary>
+    private void ProcessAuditionAgain()
+    {
+        var audition = _audition;
+        if (audition == null || _closing || audition.State != AuditionTakeState.Ready) return;
+        VoidAuditionPlaybackRequests();
+        StopAuditionPlayback();
+        Volatile.Write(ref _auditionLive, ChainAuditionTwin.ReadLive(_rig));
+        var run = audition.ProcessAgain(OnAuditionProgress);
+        if (run == null) return;
+        BeginAuditionProcessing(audition, run);
     }
 
     /// <summary>
@@ -502,7 +642,9 @@ public partial class CheckYourAudioDialog
         RecordingNarrator.StateChanged -= OnAuditionRecorderStateChanged;
         RecordingNarrator.RecordingSaved -= OnAuditionRecordingSaved;
         RecordingPlayer.StateChanged -= OnAuditionPlayerStateChanged;
+        StopAuditionProcessingSpeech();
         StopAuditionPlayback();
+        // Cancels an analysis still running: nothing it would write can appear after the clear.
         if (_audition != null) _audition.Discard();
         else ChainAuditionFolder.Clear(ChainAuditionFolder.DefaultPath);
     }
@@ -540,6 +682,16 @@ public partial class CheckYourAudioDialog
         bool keep = shown && !audition!.Kept;
         if (!keep && _auditionKeepButton!.IsKeyboardFocusWithin) focusLost = true;
         _auditionKeepButton!.Visibility = keep ? Visibility.Visible : Visibility.Collapsed;
+        // Process again (item 9): while the take is ready, and also while it is
+        // processing, so the button just pressed keeps the focus rather than the
+        // screen reader announcing a move to Start; pressed then, it does nothing.
+        if (_auditionProcessAgainButton != null)
+        {
+            bool again = !_auditionStartPending && SelectedMethod == AudioCheckListenMethods.Audition
+                && audition?.State is AuditionTakeState.Ready or AuditionTakeState.Analysing;
+            if (!again && _auditionProcessAgainButton.IsKeyboardFocusWithin) focusLost = true;
+            _auditionProcessAgainButton.Visibility = again ? Visibility.Visible : Visibility.Collapsed;
+        }
         // Never during a take: the screen reader would announce the move into it.
         if (focusLost && !AuditionRecording) _startCheckButton?.Focus();
         SyncResultsSection();
