@@ -22,8 +22,32 @@ namespace JJFlexWpf
         public PadLine(int maxPadFrames, int channels, int sampleRate = 48000, RxLagBudget? budget = null)
         {
             _maxPad = Math.Max(0, maxPadFrames);
-            _line = new RxLagShifter(Math.Max(1, channels), _maxPad + 8192, sampleRate, budget);
+            // Seams are carried through a pad line, never joined in it: the join is the
+            // playback queue's, at the place the seam is actually heard (B1).
+            _line = new RxLagShifter(Math.Max(1, channels), _maxPad + 8192, sampleRate, budget) { CarrySeams = true };
         }
+
+        private long _outAtCall;
+
+        /// <summary>Each call starts a fresh report of the seams that come out of it.</summary>
+        private void BeginCall()
+        {
+            _line.ClearEmerged();
+            _outAtCall = _line.OutputPosition;
+        }
+
+        /// <summary>
+        /// Mark the seams <paramref name="trail"/> holds where this call's write will put
+        /// them, for audio <paramref name="latency"/> frames behind the trail's input
+        /// (the engine's own delay; 0 for the dry signal). Call just before the write.
+        /// </summary>
+        public void MarkSeams(SeamTrail trail, int latency) => trail.MarkInto(_line, latency);
+
+        /// <summary>Seams that came out of the last call.</summary>
+        public int SeamCount => _line.EmergedCount;
+
+        /// <summary>Where the <paramref name="index"/>-th seam came out, in frames into the last call's audio.</summary>
+        public int SeamOffset(int index) => (int)(_line.EmergedAt(index) - _outAtCall);
 
         /// <summary>The longest pad this line can hold, in frames.</summary>
         public int MaxPad => _maxPad;
@@ -45,12 +69,18 @@ namespace JJFlexWpf
         public int ClassLag { get => _line.ClassLagFrames; set => _line.ClassLagFrames = value; }
 
         /// <summary>Delay <paramref name="audio"/> in place by <paramref name="pad"/> frames (clamped to 0 to <see cref="MaxPad"/>).</summary>
-        public void Process(Span<float> audio, int pad, RxContentClass cls = RxContentClass.Unclassified) =>
+        public void Process(Span<float> audio, int pad, RxContentClass cls = RxContentClass.Unclassified)
+        {
+            BeginCall();
             _line.ProcessFixed(audio, Math.Clamp(pad, 0, _maxPad), cls);
+        }
 
         /// <summary>One line, two taps (repair 1, B2, phase 1's retime).</summary>
-        public void ProcessTwo(Span<float> audio, int padA, Span<float> second, int padB) =>
+        public void ProcessTwo(Span<float> audio, int padA, Span<float> second, int padB)
+        {
+            BeginCall();
             _line.ProcessFixedTwo(audio, Math.Clamp(padA, 0, _maxPad), second, Math.Clamp(padB, 0, _maxPad));
+        }
 
         /// <summary>
         /// Phase 2: write <paramref name="audio"/> and render it back with the pad
@@ -61,6 +91,7 @@ namespace JJFlexWpf
         public void Steer(Span<float> audio, int targetPad, in LagPolicy policy, LagCause cause, RxContentClass cls)
         {
             targetPad = Math.Clamp(targetPad, 0, _maxPad);
+            BeginCall();
             _line.Request(_line.Available - targetPad, policy, cause, exact: true);
             _line.ProcessSteered(audio, cls);
         }
@@ -71,6 +102,7 @@ namespace JJFlexWpf
         /// <summary>Keep the line's history current at a pad of zero, with no output: so a later read at a pad has audio behind it.</summary>
         public void Feed(ReadOnlySpan<float> audio, RxContentClass cls = RxContentClass.Unclassified)
         {
+            BeginCall();
             _line.Write(audio, cls);
             _line.SetDelay(0);
         }
@@ -80,6 +112,82 @@ namespace JJFlexWpf
 
         /// <summary>Forget everything held: the next output is silence for the pad's length.</summary>
         public void Clear() => _line.Clear();
+    }
+
+    /// <summary>
+    /// The seams in one receive slot's INPUT, kept by absolute input frame, so each
+    /// can be put where it lands in whatever the slot plays: a pad line written
+    /// this buffer (<see cref="MarkInto"/>, at that line's own engine delay), or
+    /// audio played straight through at a fixed delay (<see cref="Direct"/>).
+    /// Codex's check of 2567a596 (B1): a seam mark rode the buffer that came out
+    /// of the slots, which still held audio from before the lost packets; the
+    /// queue then joined 40 ms (or more) too early. No allocation after
+    /// construction.
+    /// </summary>
+    internal sealed class SeamTrail
+    {
+        private readonly long[] _in = new long[16];
+        private int _count;
+        private long _next;
+        private readonly long _keep;
+
+        public SeamTrail(int sampleRate) => _keep = Math.Max(1, sampleRate) * 4L;
+
+        /// <summary>The absolute input frame of this buffer's first frame.</summary>
+        public long InputStart { get; private set; }
+
+        /// <summary>This buffer's frames.</summary>
+        public int Frames { get; private set; }
+
+        /// <summary>A new input buffer of <paramref name="frames"/> frames begins.</summary>
+        public void Begin(int frames)
+        {
+            InputStart = _next;
+            Frames = frames;
+            _next += frames;
+            // Long after any delay a slot can hold, a seam has come out or been cut away.
+            int drop = 0;
+            while (drop < _count && _in[drop] < InputStart - _keep) drop++;
+            if (drop > 0) { Array.Copy(_in, drop, _in, 0, _count - drop); _count -= drop; }
+        }
+
+        /// <summary>A seam <paramref name="offset"/> frames into this buffer's input.</summary>
+        public void Add(int offset)
+        {
+            if (_count == _in.Length) { Array.Copy(_in, 1, _in, 0, _in.Length - 1); _count--; }
+            _in[_count++] = InputStart + Math.Max(0, offset);
+        }
+
+        /// <summary>
+        /// Mark <paramref name="line"/>'s seams for the write about to happen: audio
+        /// <paramref name="latency"/> frames behind this buffer's input, so a seam at
+        /// input frame p is in this write when p + latency falls in this buffer.
+        /// </summary>
+        public void MarkInto(RxLagShifter line, int latency)
+        {
+            long w = line.WritePosition;
+            for (int i = 0; i < _count; i++)
+            {
+                long q = _in[i] + latency;
+                if (q >= InputStart && q < InputStart + Frames) line.MarkSeamAt(w + (q - InputStart));
+            }
+        }
+
+        /// <summary>
+        /// The seams that come out of this buffer when what is played is the input
+        /// <paramref name="latency"/> frames late, with no line between: their
+        /// offsets into this buffer, written into <paramref name="offsets"/> from
+        /// <paramref name="count"/> on; returns the new count.
+        /// </summary>
+        public int Direct(int latency, int[] offsets, int count)
+        {
+            for (int i = 0; i < _count && count < offsets.Length; i++)
+            {
+                long off = _in[i] + latency - InputStart;
+                if (off >= 0 && off < Frames) offsets[count++] = (int)off;
+            }
+            return count;
+        }
     }
 
     /// <summary>

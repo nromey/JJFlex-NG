@@ -208,7 +208,7 @@ namespace JJPortaudio
         private const int MetaCapacity = 512;
         private readonly float[][] _metaBuf = new float[MetaCapacity][];
         private readonly byte[] _metaCls = new byte[MetaCapacity];
-        private readonly bool[] _metaSeam = new bool[MetaCapacity];
+        private readonly int[] _metaSeam = new int[MetaCapacity];   // frames into the buffer, or -1
         private long _metaHead, _metaTail, _metaDropped;
 
         /// <summary>The catch-up mode this queue runs in: off for a queue with no reserve, whatever the variable says.</summary>
@@ -230,39 +230,51 @@ namespace JJPortaudio
         /// <summary>
         /// Called by the thread that feeds the queue, just BEFORE it enqueues
         /// <paramref name="buffer"/>: what the buffer is (the classifier's class)
-        /// and whether a seam (a join across lost audio) comes just before it.
+        /// and where a seam (a join across lost audio) sits in it, in frames, or -1
+        /// (Codex's check of 2567a596, B1: the receive processing delays the audio,
+        /// so the seam can come out part-way into a buffer, or a buffer later).
         /// Lock-free and allocation-free; on today's path it does nothing.
         /// </summary>
-        public void NoteEnqueued(float[] buffer, RxContentClass cls, bool seamBefore)
+        public void NoteEnqueued(float[] buffer, RxContentClass cls, int seamAt)
         {
             if (_mode == RxCatchUpMode.Off) return;
             long head = _metaHead;
             if (head - System.Threading.Volatile.Read(ref _metaTail) >= MetaCapacity) { System.Threading.Interlocked.Increment(ref _metaDropped); return; }
             int i = (int)(head % MetaCapacity);
-            _metaBuf[i] = buffer; _metaCls[i] = (byte)cls; _metaSeam[i] = seamBefore;
+            _metaBuf[i] = buffer; _metaCls[i] = (byte)cls; _metaSeam[i] = seamAt;
             System.Threading.Volatile.Write(ref _metaHead, head + 1);
         }
 
-        private (RxContentClass Cls, bool Seam) TakeMeta(float[] buffer)
+        /// <summary>As above, with a seam just before the buffer or none.</summary>
+        public void NoteEnqueued(float[] buffer, RxContentClass cls, bool seamBefore) => NoteEnqueued(buffer, cls, seamBefore ? 0 : -1);
+
+        /// <summary>The buffer's audio into the ring, its seam marked where it sits (never in a digital mode).</summary>
+        private void WriteWithSeam(float[] b, RxContentClass cls, int seamAt)
+        {
+            if (seamAt >= 0 && (cls & RxContentClass.NoSplice) == 0) _shifter.MarkSeamAt(_shifter.WritePosition + seamAt);
+            _shifter.Write(b, cls);
+        }
+
+        private (RxContentClass Cls, int Seam) TakeMeta(float[] buffer)
         {
             long head = System.Threading.Volatile.Read(ref _metaHead);
             while (_metaTail < head)
             {
                 int i = (int)(_metaTail % MetaCapacity);
                 var b = _metaBuf[i];
-                var cls = (RxContentClass)_metaCls[i]; bool seam = _metaSeam[i];
+                var cls = (RxContentClass)_metaCls[i]; int seam = _metaSeam[i];
                 _metaBuf[i] = null;
                 System.Threading.Volatile.Write(ref _metaTail, _metaTail + 1);
                 if (ReferenceEquals(b, buffer)) return (cls, seam);
             }
-            return (RxContentClass.Unclassified, false);
+            return (RxContentClass.Unclassified, -1);
         }
 
         /// <summary>Shadow: the next enqueued buffer, from the meta ring alone (the real queue is today's path's).</summary>
-        private bool TakeShadow(out float[] buffer, out RxContentClass cls, out bool seam)
+        private bool TakeShadow(out float[] buffer, out RxContentClass cls, out int seam)
         {
             long head = System.Threading.Volatile.Read(ref _metaHead);
-            if (_metaTail >= head) { buffer = null; cls = 0; seam = false; return false; }
+            if (_metaTail >= head) { buffer = null; cls = 0; seam = -1; return false; }
             int i = (int)(_metaTail % MetaCapacity);
             buffer = _metaBuf[i]; cls = (RxContentClass)_metaCls[i]; seam = _metaSeam[i];
             _metaBuf[i] = null;
@@ -325,7 +337,7 @@ namespace JJPortaudio
             {
                 var b = (float[])queue.Dequeue();
                 var (cls, seam) = TakeMeta(b);
-                _shifter.Write(b, cls, seam && (cls & RxContentClass.NoSplice) == 0);
+                WriteWithSeam(b, cls, seam);
             }
             int frames = output.Length / (monoOut ? 1 : streamChannels);
             long depth = _shifter.Available;
@@ -443,7 +455,7 @@ namespace JJPortaudio
         /// <summary>Shadow: the shifter runs beside today's path on the same arrivals, unheard; its decisions are traced.</summary>
         private void ShadowStep(int frames)
         {
-            while (TakeShadow(out var b, out var cls, out bool seam)) _shifter.Write(b, cls, seam && (cls & RxContentClass.NoSplice) == 0);
+            while (TakeShadow(out var b, out var cls, out int seam)) WriteWithSeam(b, cls, seam);
             long depth = _shifter.Available;
             if (_shadowPriming)
             {

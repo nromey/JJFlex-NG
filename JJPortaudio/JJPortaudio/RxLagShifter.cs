@@ -144,6 +144,17 @@ namespace JJPortaudio
         private readonly long[] _seams = new long[32];
         private int _seamHead, _seamCount;
 
+        // -- Carried seams (owner one's pad lines: Codex's check of 2567a596, B1) --
+        // Positions in this line's write timeline where a seam sits. They are not
+        // joined here: each is reported, as an output position, when the read point
+        // reaches it (or passes it in a splice), so the slot can say where the seam
+        // comes OUT. Kept, not consumed, because a fixed pad re-reads its history.
+        private readonly long[] _carry = new long[16];
+        private int _carryCount;
+        private readonly long[] _emitOut = new long[8], _emitPos = new long[8];
+        private int _emitCount;
+        private long _lastEmitted = long.MinValue;
+
         // ── The request ──
 
         private long _pending;              // frames: > 0 remove, < 0 add
@@ -304,6 +315,93 @@ namespace JJPortaudio
         /// <summary>The class of the audio at the read point (the next to be played), or unclassified when its block is not in hand.</summary>
         public RxContentClass ClassAtRead => ClassAt(_read);
 
+        /// <summary>
+        /// Owner one: seams are CARRIED, not joined. A seam marked here (<see cref="MarkSeamAt"/>)
+        /// is reported where it comes out (<see cref="EmergedCount"/>, <see cref="EmergedAt"/>)
+        /// and nothing about the audio changes. Owner two (the queue) leaves this off and joins them.
+        /// </summary>
+        public bool CarrySeams { get; set; }
+
+        /// <summary>Frames rendered, ever: the output timeline <see cref="EmergedAt"/> is in.</summary>
+        public long OutputPosition => _out;
+
+        /// <summary>
+        /// A seam at <paramref name="writePosition"/> in this line's write timeline,
+        /// which may be ahead of what is written yet. Carried or joined, as
+        /// <see cref="CarrySeams"/> says.
+        /// </summary>
+        public void MarkSeamAt(long writePosition)
+        {
+            if (CarrySeams)
+            {
+                PruneCarry();
+                if (_carryCount == _carry.Length) { Array.Copy(_carry, 1, _carry, 0, _carry.Length - 1); _carryCount--; }
+                int i = _carryCount;
+                while (i > 0 && _carry[i - 1] > writePosition) { _carry[i] = _carry[i - 1]; i--; }
+                if (i > 0 && _carry[i - 1] == writePosition) { Array.Copy(_carry, i + 1, _carry, i, _carryCount - i); return; }
+                _carry[i] = writePosition;
+                _carryCount++;
+            }
+            else if (writePosition > _validFrom) AddSeam(writePosition);
+        }
+
+        /// <summary>Carried seams that came out since <see cref="ClearEmerged"/>.</summary>
+        public int EmergedCount => _emitCount;
+
+        /// <summary>Where the <paramref name="index"/>-th carried seam came out, in <see cref="OutputPosition"/>'s timeline.</summary>
+        public long EmergedAt(int index) => _emitOut[index];
+
+        /// <summary>Forget the seams reported so far (the owner reads them after each call).</summary>
+        public void ClearEmerged() => _emitCount = 0;
+
+        private void PruneCarry()
+        {
+            int drop = 0;
+            while (drop < _carryCount && _carry[drop] < _write - _cap) drop++;
+            if (drop == 0) return;
+            Array.Copy(_carry, drop, _carry, 0, _carryCount - drop);
+            _carryCount -= drop;
+        }
+
+        /// <summary>A carried seam at <paramref name="pos"/> came out at output frame <paramref name="outAt"/>.</summary>
+        private void Emit(long pos, long outAt)
+        {
+            if (pos <= _lastEmitted) return;
+            _lastEmitted = pos;
+            // Nothing from before a seam is ever repeated after it (as at a join).
+            _growGuard = _growGuard == long.MinValue ? pos : Math.Max(_growGuard, pos);
+            if (_emitCount == _emitOut.Length) return;
+            _emitOut[_emitCount] = outAt;
+            _emitPos[_emitCount] = pos;
+            _emitCount++;
+        }
+
+        /// <summary>Report carried seams read in [from, from + n), the frame at from coming out at <paramref name="outAt"/>.</summary>
+        private void EmitRange(long from, long n, long outAt)
+        {
+            for (int i = 0; i < _carryCount; i++)
+            {
+                long sp = _carry[i];
+                if (sp >= from + n) break;
+                if (sp >= from) Emit(sp, outAt + (sp - from));
+            }
+        }
+
+        /// <summary>
+        /// The read point moves to <paramref name="newRead"/> without playing what lies
+        /// between: a seam passed over comes out here; a move back lets history's
+        /// seams come out again when they are read.
+        /// </summary>
+        private void JumpRead(long newRead)
+        {
+            if (CarrySeams && _carryCount > 0)
+            {
+                if (newRead > _read) EmitRange(_read, newRead - _read, _out);
+                else if (newRead < _read) _lastEmitted = Math.Min(_lastEmitted, newRead - 1);
+            }
+            _read = newRead;
+        }
+
         /// <summary>Owner one: content at position p was classified this many frames earlier (the engine's own delay).</summary>
         public int ClassLagFrames { get; set; }
 
@@ -348,7 +446,7 @@ namespace JJPortaudio
         {
             int frames = data.Length / _ch;
             if (frames <= 0) return;
-            if (seamBefore && _write > _validFrom) AddSeam(_write);
+            if (seamBefore && _write > _validFrom) MarkSeamAt(_write);
             // Never overwrite audio not yet read, nor the history a fade needs:
             // the oldest unread audio is dropped instead, and counted (owner two
             // only reaches this when a backlog passes the ring).
@@ -436,7 +534,19 @@ namespace JJPortaudio
         private void AddSeam(long at)
         {
             if (_seamCount == _seams.Length) { _seamHead = (_seamHead + 1) % _seams.Length; _seamCount--; }
-            _seams[(_seamHead + _seamCount) % _seams.Length] = at;
+            // In order: a mark inside a buffer (MarkSeamAt) can arrive after a later one.
+            int i = _seamCount;
+            while (i > 0 && _seams[(_seamHead + i - 1) % _seams.Length] > at)
+            {
+                _seams[(_seamHead + i) % _seams.Length] = _seams[(_seamHead + i - 1) % _seams.Length];
+                i--;
+            }
+            if (i > 0 && _seams[(_seamHead + i - 1) % _seams.Length] == at)
+            {
+                for (int k = i; k < _seamCount; k++) _seams[(_seamHead + k) % _seams.Length] = _seams[(_seamHead + k + 1) % _seams.Length];
+                return;
+            }
+            _seams[(_seamHead + i) % _seams.Length] = at;
             _seamCount++;
         }
 
@@ -461,6 +571,7 @@ namespace JJPortaudio
             for (int i = 0; i < _blocks; i++) _blockId[i] = -1;
             _floorCount = 0; _floorAt = 0; Array.Clear(_floor); _floorDirty = false;
             _seamCount = 0; _seamHead = 0;
+            _carryCount = 0; _lastEmitted = long.MinValue;
             _fade = FadeKind.None;
             _dry = false; _fadeInLeft = 0;
             _cutPending = false;
@@ -487,9 +598,8 @@ namespace JJPortaudio
                 var part = audio.Slice(at * _ch, n * _ch);
                 Write(part, cls);
                 _fade = FadeKind.None;
-                _read = _write - n - pad;
+                JumpRead(_write - n - pad);
                 CopyOut(part, n, fadeOutFrom: long.MaxValue);
-                _read = _write - pad;
             }
         }
 
@@ -501,7 +611,7 @@ namespace JJPortaudio
         public void SetDelay(long frames)
         {
             _fade = FadeKind.None;
-            _read = _write - Math.Max(0, frames);
+            JumpRead(_write - Math.Max(0, frames));
         }
 
         /// <summary>One line, two taps: <paramref name="audio"/> at <paramref name="padA"/> and <paramref name="second"/> at <paramref name="padB"/>.</summary>
@@ -516,9 +626,8 @@ namespace JJPortaudio
                 Write(part);
                 _fade = FadeKind.None;
                 ReadInto(second.Slice(at * _ch, n * _ch), _write - n - padB, n);
-                _read = _write - n - padA;
+                JumpRead(_write - n - padA);
                 CopyOut(part, n, fadeOutFrom: long.MaxValue);
-                _read = _write - padA;
             }
         }
 
@@ -753,6 +862,7 @@ namespace JJPortaudio
                 }
                 for (int c = 0; c < _ch; c++) dst[f * _ch + c] = _ring[src + c] * g;
             }
+            if (CarrySeams && _carryCount > 0) EmitRange(_read, n, _out);
             _read += n;
             _out += n;
         }
@@ -794,6 +904,14 @@ namespace JJPortaudio
                     dst[f * _ch + c] = Sample(oldPos, c) * CrossFadeCurve.Out(t, r) + Sample(newPos, c) * CrossFadeCurve.In(t, r);
                 }
             }
+            if (CarrySeams && _carryCount > 0)
+            {
+                // The old side's frames are read at k, the new side's at k - hold.
+                int k0 = _fadeAt;
+                if (_fade != FadeKind.Seam) EmitRange(_fadeA + k0, n, _out);
+                int j0 = Math.Max(0, k0 - _fadeHold), j1 = Math.Max(0, k0 + n - _fadeHold);
+                if (j1 > j0) EmitRange(_fadeB + j0, j1 - j0, _out + (j0 + _fadeHold - k0));
+            }
             _fadeAt += n;
             _read = _fadeB + Math.Max(0, _fadeAt - _fadeHold);
             _out += n;
@@ -810,6 +928,8 @@ namespace JJPortaudio
             _fadeLen = Math.Max(1, length);
             _fadeAt = 0;
             _fadePeriod = period > 0 ? period : int.MaxValue;
+            // A removal never plays [old side's end, new side): a carried seam there comes out at the fade.
+            if (CarrySeams && _carryCount > 0 && newSide > oldSide + _fadeLen) EmitRange(oldSide + _fadeLen, newSide - oldSide - _fadeLen, _out);
             _read = newSide;
         }
 

@@ -34,33 +34,43 @@ namespace JJPortaudio
     /// </para>
     /// </remarks>
     /// <summary>
-    /// What a post-decode processor knows about the buffer it just processed,
-    /// for the lag shifter at the playback queue (#873 phase 2): the class of
-    /// that buffer's audio. <c>RxAudioPipeline</c> implements it; the chain finds
-    /// it as the processor delegate's target, so nothing between the UI and the
-    /// stream has to forward a second object.
+    /// What a post-decode processor knows about the timeline of the buffer it
+    /// just processed, for the lag shifter at the playback queue (#873 phase 2):
+    /// the class of the audio that came out, and where a seam across lost audio
+    /// came out. Both are told by the audio's own path through the processor,
+    /// not by the newest input: the processor delays the audio, and its own
+    /// drains and growths move that delay (Codex's check of 2567a596, B1).
+    /// <c>RxAudioPipeline</c> implements it; the chain finds it as the processor
+    /// delegate's target, so nothing between the UI and the stream has to
+    /// forward a second object.
     /// </summary>
-    public interface IRxContentClassifier
+    public interface IRxReceiveTimeline
     {
         /// <summary>The class of the buffer most recently processed, as it comes out.</summary>
         RxContentClass LastBufferClass { get; }
+
+        /// <summary>The next buffer given to the processor starts just after lost audio.</summary>
+        void MarkSeamIn();
+
+        /// <summary>Where a seam came out of the buffer most recently processed, in frames into it, or -1.</summary>
+        int LastBufferSeamAt { get; }
     }
 
     public sealed class RxOpusChain
     {
         private readonly Action<float[]> _enqueue;
         private readonly Func<uint> _sampleRate;
-        private readonly Action<float[], RxContentClass, bool> _noteMeta;
+        private readonly Action<float[], RxContentClass, int> _noteMeta;
         private Action<float[]> _postDecodeProcessor;
-        private IRxContentClassifier _classifier;
+        private IRxReceiveTimeline _timeline;
         private bool _seamNext;
 
         /// <param name="noteMeta">
-        /// Called with each buffer's class and seam mark just BEFORE it is
-        /// enqueued (Track P2: the playback queue's catch-up keeps them beside
-        /// the buffer). Optional.
+        /// Called with each buffer's class and where a seam sits in it (frames
+        /// into the buffer, or -1) just BEFORE it is enqueued (Track P2: the
+        /// playback queue's catch-up keeps them beside the buffer). Optional.
         /// </param>
-        public RxOpusChain(Action<float[]> enqueue, Func<uint> sampleRate, Action<float[], RxContentClass, bool> noteMeta = null)
+        public RxOpusChain(Action<float[]> enqueue, Func<uint> sampleRate, Action<float[], RxContentClass, int> noteMeta = null)
         {
             _enqueue = enqueue ?? throw new ArgumentNullException(nameof(enqueue));
             _sampleRate = sampleRate ?? (() => 0);
@@ -82,11 +92,11 @@ namespace JJPortaudio
         /// <summary>Output gain scalar; 1.0 is unity.</summary>
         public float OutputGain { get; set; } = 1.0f;
 
-        /// <summary>In-place PC-side processing (receive noise reduction). When its target classifies what it processed (<see cref="IRxContentClassifier"/>), each buffer's class goes with it to the queue.</summary>
+        /// <summary>In-place PC-side processing (receive noise reduction). When its target keeps the timeline of what it processed (<see cref="IRxReceiveTimeline"/>), each buffer's class and seam go with it to the queue where the audio actually comes out.</summary>
         public Action<float[]>? PostDecodeProcessor
         {
             get => _postDecodeProcessor;
-            set { _postDecodeProcessor = value; _classifier = value?.Target as IRxContentClassifier; }
+            set { _postDecodeProcessor = value; _timeline = value?.Target as IRxReceiveTimeline; }
         }
 
         /// <summary>Observer of the final samples; it must return without blocking.</summary>
@@ -223,11 +233,16 @@ namespace JJPortaudio
 
             // PC-side audio processing (NR, spectral subtraction, etc.)
             var processor = _postDecodeProcessor;
-            processor?.Invoke(buf);
-            var cls = processor != null && _classifier != null ? _classifier.LastBufferClass : RxContentClass.Unclassified;
-            bool seam = _seamNext;
+            var timeline = processor != null ? _timeline : null;
+            bool seamIn = _seamNext;
             _seamNext = false;
-            if (seam) SeamsMarked++;
+            if (seamIn) SeamsMarked++;
+            // The seam goes INTO the processor with the audio it precedes, and comes out
+            // wherever that audio does (B1); with no timeline, the buffer is unchanged in time.
+            if (seamIn) timeline?.MarkSeamIn();
+            processor?.Invoke(buf);
+            var cls = timeline != null ? timeline.LastBufferClass : RxContentClass.Unclassified;
+            int seam = timeline != null ? timeline.LastBufferSeamAt : seamIn ? 0 : -1;
             PostOutputObserver?.Invoke(buf);
 
             // Measure what is actually going to the speakers, AFTER the gain,

@@ -50,7 +50,7 @@ namespace JJPortaudio
             // Track P2: each buffer's class and seam mark go to the playback queue
             // just before the buffer itself, so its catch-up keeps them together.
             _rx = new RxOpusChain(buf => aud.TheQ.Enqueue(buf), () => SampleRate,
-                (buf, cls, seam) => aud.Playback?.NoteEnqueued(buf, cls, seam));
+                (buf, cls, seamAt) => aud.Playback?.NoteEnqueued(buf, cls, seamAt));
         }
 
         /// <summary>

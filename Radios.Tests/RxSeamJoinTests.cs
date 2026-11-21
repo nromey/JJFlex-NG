@@ -193,11 +193,20 @@ namespace Radios.Tests
             }
         }
 
-        private sealed class FakeProcessor : IRxContentClassifier
+        /// <summary>A processor that holds each seam one buffer and lets it out 100 frames in, as a delay would.</summary>
+        private sealed class FakeProcessor : IRxReceiveTimeline
         {
             public RxContentClass Next = RxContentClass.Classified | RxContentClass.Speech;
+            private bool _in, _held;
             public RxContentClass LastBufferClass { get; private set; }
-            public void Process(float[] buffer) { LastBufferClass = Next; }
+            public int LastBufferSeamAt { get; private set; } = -1;
+            public void MarkSeamIn() => _in = true;
+            public void Process(float[] buffer)
+            {
+                LastBufferClass = Next;
+                LastBufferSeamAt = _held ? 100 : -1;
+                _held = _in; _in = false;
+            }
         }
 
         [Fact]
@@ -205,7 +214,7 @@ namespace Radios.Tests
         {
             using var dec = new OpusDecoder(SamplingRate.Sampling48000, Channels.Stereo);
             var packets = Encode(Pcm(n => (float)(0.3 * Math.Sin(n * 0.05)), Fpb * 6));
-            var seen = new List<(RxContentClass Cls, bool Seam)>();
+            var seen = new List<(RxContentClass Cls, int Seam)>();
             var proc = new FakeProcessor();
             var chain = new RxOpusChain(_ => { }, () => Rate, (b, cls, seam) => seen.Add((cls, seam))) { PostDecodeProcessor = proc.Process };
             chain.WritePacket(dec, packets[0]);
@@ -213,14 +222,19 @@ namespace Radios.Tests
             chain.MarkSeam();
             chain.WritePacket(dec, packets[1]);
             chain.WritePacket(dec, packets[2]);
-            chain.PostDecodeProcessor = b => { };   // a processor that classifies nothing
+            chain.PostDecodeProcessor = b => { };   // a processor that keeps no timeline: the buffer is unchanged in time
             chain.WritePacket(dec, packets[3]);
+            chain.MarkSeam();
+            chain.WritePacket(dec, packets[4]);
+            // The seam comes out where the processor says, a buffer later and 100 frames
+            // in, not on the buffer it went in with (Codex's check of 2567a596, B1).
             Assert.Equal(new[]
             {
-                (RxContentClass.Classified | RxContentClass.Speech, false),
-                (RxContentClass.Classified | RxContentClass.NotVoiceRun | RxContentClass.NoSplice, true),
-                (RxContentClass.Classified | RxContentClass.NotVoiceRun | RxContentClass.NoSplice, false),
-                (RxContentClass.Unclassified, false),
+                (RxContentClass.Classified | RxContentClass.Speech, -1),
+                (RxContentClass.Classified | RxContentClass.NotVoiceRun | RxContentClass.NoSplice, -1),
+                (RxContentClass.Classified | RxContentClass.NotVoiceRun | RxContentClass.NoSplice, 100),
+                (RxContentClass.Unclassified, -1),
+                (RxContentClass.Unclassified, 0),
             }, seen);
         }
 

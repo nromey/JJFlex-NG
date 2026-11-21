@@ -160,7 +160,7 @@ public sealed class RxContentClassifierTests
     public void The_pipeline_reports_each_output_buffer_s_class_at_the_delay_its_slots_add()
     {
         using var p = new RxAudioPipeline();
-        IRxContentClassifier c = p;
+        IRxReceiveTimeline c = p;
         var noise = Stereo(BandNoise(F * 60, 9, 0.02f));
         p.SetCurrentMode("DIGU");
         for (int b = 0; b < 30; b++) { var buf = noise.AsSpan(b * 2 * F, 2 * F).ToArray(); p.Process(buf); }

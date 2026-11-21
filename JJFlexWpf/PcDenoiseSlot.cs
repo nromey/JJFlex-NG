@@ -264,6 +264,7 @@ namespace JJFlexWpf
             _nextAudio = new float[Math.Max(1, sampleRate / 100) * Math.Max(1, channels)];
             _retimeAudio = new float[_nextAudio.Length];
             _scratchMaker = new ScratchMaker(this);
+            if (direction == DenoiseDirection.Receive) _seamTrail = new SeamTrail(sampleRate);
             if (direction == DenoiseDirection.Receive)
             {
                 // The shared delay's lines, allocated here and never on the audio thread (#873).
@@ -585,6 +586,88 @@ namespace JJFlexWpf
             Action<PerChannelDenoiserBank>? prepareSpectral, RxContentClass cls = RxContentClass.Unclassified, bool gap = false)
         {
             if (_direction == DenoiseDirection.Transmit) { ProcessTransmit(audio, permitted); return; }
+            BeginSeams(audio.Length / Math.Max(1, _channels));
+            try { ProcessReceive(audio, permitted, profilePresent, capturing, prepareSpectral, cls, gap); }
+            finally { EndSeams(); }
+        }
+
+        // -- Seams through the slot (Codex's check of 2567a596, B1) --
+        //
+        // A seam enters at a frame of this buffer's input (NoteInputSeam, from the
+        // pipeline) and comes out wherever the audio after it is HEARD: through the
+        // running engine's pad line, the dry line while turning on or off, the bank
+        // alone at its own delay, or the input itself while off. Each line is marked
+        // when it is written (SeamTrail), and carries the mark through its own
+        // drains and growths (RxLagShifter.CarrySeams); the branch that ran says
+        // which of them was heard.
+
+        private enum SeamSource : byte { Passthrough, Bank, Line }
+
+        private readonly SeamTrail? _seamTrail;
+        private readonly int[] _seamIn = new int[4], _seamOut = new int[4];
+        private int _seamInCount, _seamOutCount, _seamLatency;
+        private SeamSource _seamSource;
+        private PadLine? _seamLine;
+
+        /// <summary>Receive: a seam sits <paramref name="frameOffset"/> frames into the next buffer given to <see cref="Process"/>.</summary>
+        internal void NoteInputSeam(int frameOffset)
+        {
+            if (_seamInCount < _seamIn.Length) _seamIn[_seamInCount++] = frameOffset;
+        }
+
+        /// <summary>Receive: seams that came out of the buffer <see cref="Process"/> just returned.</summary>
+        internal int SeamsOut => _seamOutCount;
+
+        /// <summary>Where the <paramref name="index"/>-th came out, in frames into that buffer.</summary>
+        internal int SeamOut(int index) => _seamOut[index];
+
+        private void BeginSeams(int frames)
+        {
+            _seamOutCount = 0;
+            _seamSource = SeamSource.Passthrough;
+            _seamLine = null;
+            _seamLatency = 0;
+            if (_seamTrail == null) { _seamInCount = 0; return; }
+            _seamTrail.Begin(frames);
+            for (int i = 0; i < _seamInCount; i++) _seamTrail.Add(_seamIn[i]);
+            _seamInCount = 0;
+        }
+
+        private void EndSeams()
+        {
+            if (_seamTrail == null) return;
+            switch (_seamSource)
+            {
+                case SeamSource.Passthrough: _seamOutCount = _seamTrail.Direct(0, _seamOut, 0); break;
+                case SeamSource.Bank: _seamOutCount = _seamTrail.Direct(_seamLatency, _seamOut, 0); break;
+                default:
+                    var line = _seamLine!;
+                    for (int i = 0; i < line.SeamCount && _seamOutCount < _seamOut.Length; i++)
+                    {
+                        int off = line.SeamOffset(i);
+                        if (off >= 0 && off < _seamTrail.Frames) _seamOut[_seamOutCount++] = off;
+                    }
+                    break;
+            }
+        }
+
+        /// <summary>What this buffer played: the input, the bank alone at <paramref name="latency"/>, or <paramref name="line"/>.</summary>
+        private void Heard(SeamSource source, PadLine? line = null, int latency = 0)
+        {
+            _seamSource = source;
+            _seamLine = line;
+            _seamLatency = latency;
+        }
+
+        /// <summary>Mark <paramref name="line"/>'s seams just before it is written, for audio <paramref name="latency"/> frames behind the input.</summary>
+        private void MarkSeams(PadLine? line, int latency)
+        {
+            if (line != null && _seamTrail != null) line.MarkSeams(_seamTrail, latency);
+        }
+
+        private void ProcessReceive(float[] audio, bool permitted, bool profilePresent, bool capturing,
+            Action<PerChannelDenoiserBank>? prepareSpectral, RxContentClass cls, bool gap)
+        {
             if (audio.Length != _nextAudio.Length) _scratchMaker.Request(audio.Length);
             var choice = Volatile.Read(ref _choice);
             if (Volatile.Read(ref choice.Failure) != null)
@@ -665,7 +748,7 @@ namespace JJFlexWpf
             }
             // The dry signal's history, kept current while processing, so a turn-off
             // can fade to it at the delay in force (phase 2).
-            if (shifting) _dryPad!.Feed(audio, cls);
+            if (shifting) { MarkSeams(_dryPad, 0); _dryPad!.Feed(audio, cls); }
             bool listen = ListenToRemoved;
             if (running != null) { running.ListenToRemoved = listen; ApplyParameters(running, run!.Id, ref _runningApplied); }
             if (_warming != null) _warming.Bank.ListenToRemoved = listen;
@@ -704,7 +787,11 @@ namespace JJFlexWpf
                 audio.CopyTo(_nextAudio, 0);
                 long late = _warming.Bank.LateFrames, failed = _warming.Bank.FallbackFrames;
                 _warming.Bank.Process(_nextAudio, GetStrength(_warming.Choice.Id));
-                if (_warmTarget >= 0) _warmPad!.Process(_nextAudio.AsSpan(0, audio.Length), _warmTarget - _warming.Bank.LatencySamples);
+                if (_warmTarget >= 0)
+                {
+                    MarkSeams(_warmPad, _warming.Bank.LatencySamples);
+                    _warmPad!.Process(_nextAudio.AsSpan(0, audio.Length), _warmTarget - _warming.Bank.LatencySamples);
+                }
                 bool produced = late == _warming.Bank.LateFrames && failed == _warming.Bank.FallbackFrames;
                 if (failed != _warming.Bank.FallbackFrames)
                 {
@@ -1303,11 +1390,11 @@ namespace JJFlexWpf
         /// </summary>
         private void PadRunningLag(float[] audio, PerChannelDenoiserBank running, RxContentClass cls)
         {
-            if (_runPad == null) return;
+            if (_runPad == null) { Heard(SeamSource.Bank, latency: running.LatencySamples); return; }
             int own = running.LatencySamples;
             int target = _preGrowTo >= 0 ? _preGrowTo : _retimePending ? Effective(_retimeTarget, own) : Effective(_held, own);
             int targetPad = Math.Max(0, target - own);
-            if (!_runLineActive && targetPad == 0) { Volatile.Write(ref _draining, 0); _startFixed = false; return; }
+            if (!_runLineActive && targetPad == 0) { Volatile.Write(ref _draining, 0); _startFixed = false; Heard(SeamSource.Bank, latency: own); return; }
             if (!_runLineActive)
             {
                 _runPad.Clear();
@@ -1321,7 +1408,9 @@ namespace JJFlexWpf
             _runPad.ClassLag = own;
             int from = RunningActual(running);
             var cause = _preGrowTo >= 0 || _transitional ? LagCause.EngineSwitch : LagCause.Retime;
+            MarkSeams(_runPad, own);
             _runPad.Steer(audio, targetPad, LagPolicy.EngineSwitch, cause, cls);
+            Heard(SeamSource.Line, _runPad);
             TraceEvents(_runPad, cause);
             if (_retimePending && _preGrowTo < 0 && _runPad.SettledAt(targetPad))
             {
@@ -1376,6 +1465,7 @@ namespace JJFlexWpf
             bool slower = _preGrowTo >= 0;
             int pad = slower ? 0 : Math.Max(0, runBefore - ownIn);
             _warmPad!.ClassLag = ownIn;
+            MarkSeams(_warmPad, ownIn);
             _warmPad.Process(_nextAudio.AsSpan(0, n), pad, cls);
             bool produced = late == warming.Bank.LateFrames && failed == warming.Bank.FallbackFrames;
             if (failed != warming.Bank.FallbackFrames)
@@ -1482,10 +1572,13 @@ namespace JJFlexWpf
             ApplyParameters(running, run.Id, ref _runningApplied);
             running.Process(_nextAudio, GetStrength(run.Id));
             int own = running.LatencySamples;
-            if (_runLineActive) _runPad!.Process(processed, _runPad.Delay, cls);
+            if (_runLineActive) { MarkSeams(_runPad, own); _runPad!.Process(processed, _runPad.Delay, cls); }
             int delay = own + (_runLineActive ? _runPad!.Delay : 0);
             _dryPad!.ClassLag = 0;
+            MarkSeams(_dryPad, 0);
             _dryPad.Process(audio, delay, cls);
+            // The fade ends on the dry signal, at the same delay: its seams are the ones heard.
+            Heard(SeamSource.Line, _dryPad);
             AlignedSwitch.Correlation(processed, audio, _channels, _corr);
             AlignedSwitch.Fade(processed, audio, _channels, _corr);
             processed.CopyTo(audio);
@@ -1503,7 +1596,9 @@ namespace JJFlexWpf
         private void DrainDry(float[] audio, RxContentClass cls)
         {
             _dryPad!.ClassLag = 0;
+            MarkSeams(_dryPad, 0);
             _dryPad.Steer(audio, 0, LagPolicy.EngineSwitch, LagCause.TurnOff, cls);
+            Heard(SeamSource.Line, _dryPad);
             TraceEvents(_dryPad, LagCause.TurnOff);
             if (_dryPad.Delay == 0 && !_dryPad.Shifter.Fading) _offPhase = false;
         }
@@ -1540,11 +1635,15 @@ namespace JJFlexWpf
             int own = running.LatencySamples;
             _onTarget = Effective(_held, own);
             int pad = _onTarget - own;
-            if (pad > 0) { _runPad!.ClassLag = own; _runPad.Process(processed, pad, cls); _runLineActive = true; }
+            if (pad > 0) { _runPad!.ClassLag = own; MarkSeams(_runPad, own); _runPad.Process(processed, pad, cls); _runLineActive = true; }
             else _runLineActive = false;
             long splicesBefore = Splices(_dryPad!);
             _dryPad!.ClassLag = 0;
+            MarkSeams(_dryPad, 0);
             _dryPad.Steer(audio, _onTarget, LagPolicy.EngineSwitch, LagCause.TurnOn, cls);
+            // The dry signal is what is heard while it grows, and the fade into the
+            // processed audio lines the two up first, so its seams are the heard ones.
+            Heard(SeamSource.Line, _dryPad);
             TraceEvents(_dryPad, LagCause.TurnOn);
             bool moved = Splices(_dryPad) != splicesBefore || _dryPad.Shifter.Fading;
             _onFrames += frames;
@@ -1564,6 +1663,7 @@ namespace JJFlexWpf
             {
                 // The dry line did not reach the engine's delay in time: today's turn-on, a cut.
                 processed.CopyTo(audio);
+                if (_runLineActive) Heard(SeamSource.Line, _runPad); else Heard(SeamSource.Bank, latency: own);
                 _dryPad.Shifter.MarkFallback();
                 LastTurn = new TurnNote(true, _onTarget, 0, true);
                 _drainTrace.Queue(Family, LagCause.TurnOn, default, fellBack: true, onOff: 1, delay: _onTarget);
@@ -1634,8 +1734,9 @@ namespace JJFlexWpf
         private void PadRunningPhaseOne(float[] audio, PerChannelDenoiserBank running)
         {
             Volatile.Write(ref _draining, 0);
-            if (_runPad == null) return;
             int own = running.LatencySamples;
+            Heard(SeamSource.Bank, latency: own);
+            if (_runPad == null) return;
             if (_retimePending)
             {
                 int oldPad = Effective(_held, own) - own, newPad = Effective(_retimeTarget, own) - own;
@@ -1643,7 +1744,9 @@ namespace JJFlexWpf
                 {
                     if (_retimeAudio.Length != audio.Length) _retimeAudio = new float[audio.Length];  // phase 1's, sized once like the scratch above
                     var next = _retimeAudio.AsSpan(0, audio.Length);
+                    MarkSeams(_runPad, own);
                     _runPad.ProcessTwo(audio, oldPad, next, newPad);
+                    Heard(SeamSource.Line, _runPad);
                     AlignedSwitch.Correlation(audio, next, _channels, _retimeCorr);
                     bool faded = CrossFadeOn;
                     if (faded) AlignedSwitch.Fade(audio, next, _channels, _retimeCorr);
@@ -1658,11 +1761,13 @@ namespace JJFlexWpf
                     _runLineActive = _held >= 0;
                     return;
                 }
+                MarkSeams(_runPad, own);
                 _runPad.Process(audio, oldPad);
+                Heard(SeamSource.Line, _runPad);
                 _runLineActive = true;
                 return;
             }
-            if (_held >= 0) _runPad.Process(audio, _held - own);
+            if (_held >= 0) { MarkSeams(_runPad, own); _runPad.Process(audio, _held - own); Heard(SeamSource.Line, _runPad); }
             _runLineActive = _held >= 0;
         }
 

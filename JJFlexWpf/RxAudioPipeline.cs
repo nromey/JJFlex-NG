@@ -24,7 +24,7 @@ namespace JJFlexWpf
     /// before freeing their native state.
     /// Sprint 25 Phase 20.
     /// </summary>
-    public class RxAudioPipeline : IDisposable, IRxContentClassifier
+    public class RxAudioPipeline : IDisposable, IRxReceiveTimeline
     {
         private SpectralSubtractionProvider _spectralSub;
         private SpectralSubtractionProvider _processingCapture;
@@ -198,6 +198,21 @@ namespace JJFlexWpf
         /// </summary>
         public RxContentClass LastBufferClass => _lastOutClass;
 
+        private bool _seamInPending;
+        private int _lastSeamAt = -1;
+
+        /// <summary>
+        /// The next buffer given to <see cref="Process"/> starts just after lost
+        /// audio. The seam goes into the spectral slot at frame 0, comes out of it
+        /// wherever that slot's delay puts it, goes into the neural slot there, and
+        /// <see cref="LastBufferSeamAt"/> reports where it came out of both, which
+        /// may be a later buffer (Codex's check of 2567a596, B1).
+        /// </summary>
+        public void MarkSeamIn() => _seamInPending = true;
+
+        /// <summary>Where a seam came out of the buffer <see cref="Process"/> just returned, in frames into it, or -1.</summary>
+        public int LastBufferSeamAt => _lastSeamAt;
+
         // --- Noise profile management ---
 
         /// <summary>Start sampling noise. Call when the band is quiet.
@@ -247,10 +262,15 @@ namespace JJFlexWpf
         public void Process(float[] buffer)
         {
             _lastOutClass = RxContentClass.Unclassified;
+            bool seamIn = _seamInPending;
+            _seamInPending = false;
+            // Not processed: the buffer is unchanged in time, so its seam is where it went in.
+            _lastSeamAt = seamIn ? 0 : -1;
             if (Volatile.Read(ref _disposed) != 0 || Interlocked.CompareExchange(ref _processMark, 1, 0) != 0) return;
             try
             {
                 if (Volatile.Read(ref _disposed) != 0) return;
+                _lastSeamAt = -1;
                 // A gap is time the audio was absent: from the end of the last
                 // buffer's processing to the start of this one. Never from start
                 // to start, which counts the pipeline's own processing as a pause
@@ -272,11 +292,19 @@ namespace JJFlexWpf
                 long start = Stopwatch.GetTimestamp();
                 var spectralBank = SpectralSlot.RunningBank;
                 long spectralLate = spectralBank?.LateFrames ?? 0;
+                if (seamIn) SpectralSlot.NoteInputSeam(0);
                 SpectralSlot.Process(buffer, true, capture.HasProfile, capturing, _prepareSpectral, cls, gap);
+                // The neural slot's input is the spectral slot's output: its seams go in
+                // where they came out, and its class is the class of the audio that came
+                // out, as many blocks back as the spectral slot delays it (B1's provenance).
+                for (int i = 0; i < SpectralSlot.SeamsOut; i++) NeuralSlot.NoteInputSeam(SpectralSlot.SeamOut(i));
+                var neuralCls = ClassOverrideForTest ?? _classifier.ClassOfBlock(_classifier.Blocks - 1
+                    - (SpectralSlot.HeardDelaySamples + RxContentClassifier.BlockFrames / 2) / RxContentClassifier.BlockFrames);
                 long afterSpectral = Stopwatch.GetTimestamp();
                 var neuralBank = NeuralSlot.RunningBank;
                 long neuralLate = neuralBank?.LateFrames ?? 0;
-                NeuralSlot.Process(buffer, true, true, false, null, cls, gap);
+                NeuralSlot.Process(buffer, true, true, false, null, neuralCls, gap);
+                if (NeuralSlot.SeamsOut > 0) _lastSeamAt = NeuralSlot.SeamOut(0);
                 _switchBudget.Advance(count / Math.Max(1, _channels));
                 long afterNeural = Stopwatch.GetTimestamp();
                 long bufferTicks = _channels > 0 && _sampleRate > 0
@@ -286,7 +314,7 @@ namespace JJFlexWpf
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
                 int lagBlocks = (SpectralSlot.HeardDelaySamples + NeuralSlot.HeardDelaySamples + RxContentClassifier.BlockFrames / 2) / RxContentClassifier.BlockFrames;
-                _lastOutClass = _classifier.ClassOfBlock(_classifier.Blocks - 1 - lagBlocks);
+                _lastOutClass = ClassOverrideForTest ?? _classifier.ClassOfBlock(_classifier.Blocks - 1 - lagBlocks);
                 _lastProcessEnd = Stopwatch.GetTimestamp();
             }
             finally { Interlocked.Exchange(ref _processMark, 0); }
