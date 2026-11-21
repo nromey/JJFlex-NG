@@ -479,10 +479,16 @@ namespace Radios.Tests
             string code = Code(Dialog("CheckYourAudioDialog.Audition"));
             string analysed = Body(code, "private void OnAuditionAnalysed(AuditionAnalysisOutcome outcome)");
             int current = analysed.IndexOf("!audition.IsCurrent(outcome)) return;", StringComparison.Ordinal);
-            int shown = analysed.IndexOf("ShowAuditionReading(", StringComparison.Ordinal);
-            int said = analysed.IndexOf("ScreenReaderOutput.Speak(", StringComparison.Ordinal);
-            Assert.True(current > 0 && current < shown && shown < said);
-            Assert.Contains("subject: Radios.Speech.SpeechSubject.AuditionVerdict", analysed);
+            // Repair 3: published through one path, once per generation, after the checks.
+            int consumed = analysed.IndexOf("if (outcome.Generation == _auditionShownGeneration) return;", StringComparison.Ordinal);
+            int published = analysed.IndexOf("PublishAuditionOutcome(", StringComparison.Ordinal);
+            Assert.True(current > 0 && current < consumed && consumed < published);
+            string publish = Body(code, "private void PublishAuditionOutcome(ChainAuditionTake audition, AuditionAnalysisOutcome outcome, bool speak)");
+            int marked = publish.IndexOf("_auditionShownGeneration = outcome.Generation;", StringComparison.Ordinal);
+            int shown = publish.IndexOf("ShowAuditionReading(", StringComparison.Ordinal);
+            int said = publish.IndexOf("ScreenReaderOutput.Speak(", StringComparison.Ordinal);
+            Assert.True(marked > 0 && marked < shown && shown < said);
+            Assert.Contains("subject: Radios.Speech.SpeechSubject.AuditionVerdict", publish);
             // The saved handler no longer analyses on the window's thread.
             string saved = Body(code, "private void OnAuditionRecordingSaved(string path)");
             Assert.Contains("AnalyseInBackground(path, OnAuditionProgress)", saved);
