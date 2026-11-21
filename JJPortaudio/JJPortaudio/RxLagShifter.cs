@@ -1088,18 +1088,31 @@ namespace JJPortaudio
         private bool TryGap(long a, bool removal, long need, long reach, int remaining, RxContentClass cls, double tokens)
         {
             bool cw = (cls & RxContentClass.Cw) != 0;
-            bool noise = (cls & RxContentClass.NotVoiceRun) != 0;
-            bool uncertain = (cls & RxContentClass.Uncertain) != 0;
-            int cap = cw ? _gapMaxCw : uncertain ? _gapMaxUncertain : noise ? _gapMaxNoise : _gapMaxSpeech;
             if (cw && _out - _lastCwGap < _cwGapInterval) return false;
-            long L = Math.Min(cap, Math.Min(reach, (long)tokens));
-            if (_exact && !ExactOk(need, L))
-            {
-                if (need <= L) L = need;
-                else L = Math.Min(L, need - _minLag);
-            }
-            if (L < _minLag) return false;
+            // The classes govern the gap path, not energy alone (Codex's check of
+            // 2567a596, B2; the brief, item 2; the follow-up, section 6): the energy
+            // gate alone calls 20 to 83 percent of weak speech a pause. Every block the
+            // splice touches must be confirmed: no speech and no loudness in any of
+            // them, and either 100 ms of consecutive not-voice (the fast noise policy)
+            // or, in CW, a key-up. Unclassified audio is voice: it never takes this path.
             int F = _gapFade;
+            long L = 0;
+            bool uncertain = false;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int cap = cw ? _gapMaxCw : uncertain ? _gapMaxUncertain : _gapMaxNoise;
+                L = Math.Min(cap, Math.Min(reach, (long)tokens));
+                if (_exact && !ExactOk(need, L))
+                {
+                    if (need <= L) L = need;
+                    else L = Math.Min(L, need - _minLag);
+                }
+                if (L < _minLag) return false;
+                bool wasUncertain = uncertain;
+                if (!GapClassOk(removal ? a : a - L, removal ? a + L + F : a + F, cw, out uncertain)) return false;
+                // A block the detector was unsure of caps the splice at 20 ms: once more at that cap.
+                if (!uncertain || wasUncertain || L <= _gapMaxUncertain) break;
+            }
             long oldSide = a, newSide = removal ? a + L : a - L;
             if (removal)
             {
@@ -1123,6 +1136,29 @@ namespace JJPortaudio
             Account(removal, L, gap: true, score: 1f);
             if (cw) _lastCwGap = _out;
             if (!removal) _growGuard = a + F;
+            return true;
+        }
+
+        /// <summary>
+        /// True when every block covering [<paramref name="from"/>, <paramref name="to"/>)
+        /// that is in hand may be gap-spliced by its class: no Speech and no Active,
+        /// and confirmed not-voice (Classified with NotVoiceRun), or CW (the slice
+        /// mode's flag, which holds with or without a detector). Blocks not yet
+        /// written are left to the splice's own bounds. <paramref name="uncertain"/>
+        /// is set when any block's voice probability sat between 0.1 and 0.3.
+        /// </summary>
+        private bool GapClassOk(long from, long to, bool cw, out bool uncertain)
+        {
+            uncertain = false;
+            from = Math.Max(from, 0);
+            to = Math.Min(to, _write);
+            for (long b = from / _block; b * _block < to; b++)
+            {
+                var c = ClassAt(Math.Max(from, b * _block));
+                if ((c & (RxContentClass.Speech | RxContentClass.Active)) != 0) return false;
+                if (!cw && (c & (RxContentClass.Classified | RxContentClass.NotVoiceRun)) != (RxContentClass.Classified | RxContentClass.NotVoiceRun)) return false;
+                if ((c & RxContentClass.Uncertain) != 0) uncertain = true;
+            }
             return true;
         }
 
@@ -1268,8 +1304,9 @@ namespace JJPortaudio
             // The audio after the seam starts past the codec's own overlap (measured),
             // and the audio before is EXTENDED, one period at a time from what was
             // just played, for as long as it takes (under one period) for its phase
-            // to meet the audio after. Adding, not dropping: a loss has already left
-            // the queue short, and bridging rebuilds the reserve from there.
+            // to meet the audio after, and never for less than the overlap skipped.
+            // Adding, not dropping: a loss has already left the queue short, and
+            // bridging rebuilds the reserve from there.
             int dMin = Ms(SeamSkipMilliseconds);
             if ((_write - s) < dMin + F) return false;
             long after = s + dMin;
@@ -1285,6 +1322,13 @@ namespace JJPortaudio
                     if (sc > bestH) { bestH = sc; hold = h; }
                 }
             }
+            // The skipped overlap is audio the listener no longer gets: the extension
+            // must cover it, or the join removes net audio after a loss has already
+            // spent the reserve (Codex's check of 2567a596, B3: a hold of 104 frames
+            // against 120 skipped took the last 16 frames, a starvation, and the
+            // 6.7 dB dip was that dry-out). Whole extra periods keep the phase match
+            // just found: the extension is periodic in P.
+            if (hold < dMin) hold += P * ((dMin - hold + P - 1) / P);
             MeasureSeamR(s - P, P, hold, after, F);
             Log(s - P, after, P, F, _fadeR[0], 4);
             BeginFade(FadeKind.Seam, s - P, after, F, P, hold);

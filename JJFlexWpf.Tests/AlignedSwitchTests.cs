@@ -119,9 +119,11 @@ public sealed class AlignedSwitchTests
     /// of the switch buffer.
     /// </summary>
     private static (float[] Output, long SwitchAt, PcDenoiseSlot.SwitchNote? Note, int HeldBefore, int HeldAfter) Switch(
-        int delayA, int delayB, bool shared, Func<long, float> signal, float gainB = 0.8f, bool? mute = null, bool shifter = true)
+        int delayA, int delayB, bool shared, Func<long, float> signal, float gainB = 0.8f, bool? mute = null, bool shifter = true,
+        RxContentClass? classAs = null)
     {
         using var rig = new Rig(delayA, delayB, gainB, shared, mute, shifter);
+        rig.P.ClassOverrideForTest = classAs;
         var output = new List<float>();
         rig.Feed(signal, PreBuffers, output);
         int heldBefore = rig.Slot.HeldSamples;
@@ -171,16 +173,21 @@ public sealed class AlignedSwitchTests
     internal int Markers(int delayA, int delayB, bool shared, bool shifter = true)
     {
         // First run finds the switch instant (silence); it is the same on the second.
-        var probe = Switch(delayA, delayB, shared, _ => 0f, shifter: shifter);
+        // The markers are loud, so the classifier would call them voice and the lag
+        // shifter's gap path would wait for them to pass (Codex's check of 2567a596,
+        // B2): this test is about the switch's time, so its audio is labelled
+        // confirmed noise; the class gate is tested in RxLagShifterTests.
+        const RxContentClass asNoise = RxContentClass.Classified | RxContentClass.NotVoiceRun;
+        var probe = Switch(delayA, delayB, shared, _ => 0f, shifter: shifter, classAs: asNoise);
         var signal = BurstsAround(probe.SwitchAt, delayA, delayB);
-        var run = Switch(delayA, delayB, shared, signal, shifter: shifter);
+        var run = Switch(delayA, delayB, shared, signal, shifter: shifter, classAs: asNoise);
         // A pre-growth (Track P2) can take a buffer more or less on the markers than
         // on silence: place them again around the instant they produced, until it holds.
         for (int tries = 0; tries < 4 && run.SwitchAt != probe.SwitchAt; tries++)
         {
             probe = run;
             signal = BurstsAround(probe.SwitchAt, delayA, delayB);
-            run = Switch(delayA, delayB, shared, signal, shifter: shifter);
+            run = Switch(delayA, delayB, shared, signal, shifter: shifter, classAs: asNoise);
         }
         // Phase 1's timing and an aligned switch's do not depend on the material; a
         // pre-growth's can settle a buffer either side, and the markers then still

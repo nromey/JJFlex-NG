@@ -52,16 +52,28 @@ namespace Radios.Tests
         private static float[] Drain(RxLagShifter s, float[] input, int prefill, long request, in LagPolicy policy,
             RxContentClass cls = RxContentClass.Unclassified, Action<RxLagShifter, int> perStep = null)
         {
+            var c = cls;
+            return Drain(s, input, prefill, request, policy, _ => c, perStep);
+        }
+
+        /// <summary>As above, with each block's class from <paramref name="classAt"/> (its first frame).</summary>
+        private static float[] Drain(RxLagShifter s, float[] input, int prefill, long request, in LagPolicy policy,
+            Func<int, RxContentClass> classAt, Action<RxLagShifter, int> perStep = null)
+        {
             int ch = s.Channels;
             int frames = input.Length / ch;
             var output = new List<float>(input.Length);
-            s.Write(input.AsSpan(0, prefill * ch), cls);
+            for (int at = 0; at < prefill; at += Block)
+            {
+                int n = Math.Min(Block, prefill - at);
+                s.Write(input.AsSpan(at * ch, n * ch), classAt(at));
+            }
             s.Request(request, policy, LagCause.LateAudio);
             var buf = new float[Block * ch];
             int step = 0;
             for (int at = prefill; at + Block <= frames; at += Block)
             {
-                s.Write(input.AsSpan(at * ch, Block * ch), cls);
+                s.Write(input.AsSpan(at * ch, Block * ch), classAt(at));
                 s.Render(buf);
                 output.AddRange(buf);
                 perStep?.Invoke(s, step++);
@@ -182,7 +194,9 @@ namespace Radios.Tests
         {
             var input = Tone(hz, Rate * 8);
             var s = new RxLagShifter(2, Rate * 2);
-            var y = Drain(s, input, Rate / 2, 9600, LagPolicy.CatchUp);
+            // Labelled confirmed noise, so the class gate would let a gap splice through:
+            // only the shifter's own tonal veto keeps the tone off the gap path.
+            var y = Drain(s, input, Rate / 2, 9600, LagPolicy.CatchUp, RxContentClass.Classified | RxContentClass.NotVoiceRun);
             var (step, dip) = PhaseAndDip(y, hz, 2);
             _out.WriteLine($"{hz} Hz: removed {s.TotalRemoved} in {s.TotalPeriodSplices} period and {s.TotalGapSplices} gap splices; largest phase step {step:0.000} rad, deepest dip {dip:0.00} dB");
             Assert.True(s.TotalPeriodSplices >= 3, "too few splices to test anything");
@@ -199,7 +213,7 @@ namespace Radios.Tests
         {
             var input = Tone(hz, Rate * 8);
             var s = new RxLagShifter(2, Rate * 2) { WholePeriodSearch = false };
-            var y = Drain(s, input, Rate / 2, 9600, LagPolicy.CatchUp);
+            var y = Drain(s, input, Rate / 2, 9600, LagPolicy.CatchUp, RxContentClass.Classified | RxContentClass.NotVoiceRun);
             var (step, dip) = PhaseAndDip(y, hz, 2);
             _out.WriteLine($"{hz} Hz, no period search: removed {s.TotalRemoved}; largest phase step {step:0.000} rad, deepest dip {dip:0.00} dB");
             Assert.True(s.TotalRemoved > 0);
@@ -369,6 +383,109 @@ namespace Radios.Tests
             Assert.Equal(0, s.ReadsPastWrite);
         }
 
+        // ── The classes govern the gap path (Codex's check of 2567a596, B2) ──
+
+        /// <summary>
+        /// Stationary broadband noise, identical in every case, with one class
+        /// written for all of it, and a 14,400-frame catch-up asked: Codex's probe.
+        /// Energy alone calls every block a gap, so only the class can tell them apart.
+        /// </summary>
+        private static RxLagShifter GapRun(RxContentClass cls)
+        {
+            var s = new RxLagShifter(2, 96000);
+            long at = 0;
+            var chunk = new float[960];
+            var output = new float[960];
+            void Write()
+            {
+                for (int i = 0; i < 480; i++, at++)
+                {
+                    ulong x = (ulong)at * 0x9E3779B97F4A7C15UL; x ^= x >> 29; x *= 0xBF58476D1CE4E5B9UL;
+                    chunk[2 * i] = chunk[2 * i + 1] = ((x & 65535) / 65535f - 0.5f) * 0.3f;
+                }
+                s.Write(chunk, cls);
+            }
+            for (int i = 0; i < 50; i++) Write();
+            s.Request(14400, LagPolicy.CatchUp, LagCause.LateAudio);
+            for (int i = 0; i < 200; i++) { Write(); s.Render(output); }
+            return s;
+        }
+
+        [Fact]
+        public void Only_confirmed_noise_takes_the_fast_gap_path_and_speech_and_unclassified_audio_never_do()
+        {
+            const RxContentClass C = RxContentClass.Classified;
+            var noise = GapRun(C | RxContentClass.NotVoiceRun);
+            var speech = GapRun(C | RxContentClass.Speech | RxContentClass.Active);
+            var unclassified = GapRun(RxContentClass.Unclassified);
+            var shortPause = GapRun(C);                                  // not voice, but not yet for 100 ms
+            var uncertain = GapRun(C | RxContentClass.NotVoiceRun | RxContentClass.Uncertain);
+            foreach (var (name, sh) in new[] { ("confirmed noise", noise), ("speech", speech), ("unclassified", unclassified), ("a pause under 100 ms", shortPause), ("noise, voice probability 0.1 to 0.3", uncertain) })
+                _out.WriteLine($"{name}: removed {sh.TotalRemoved} in {sh.TotalGapSplices} gap and {sh.TotalPeriodSplices} period splices");
+            // Positive control: the same audio really reaches the gap path, and drains.
+            Assert.Equal(14400, noise.TotalRemoved);
+            Assert.True(noise.TotalGapSplices > 0);
+            // Speech and unclassified audio are voice: never the fast noise policy (brief,
+            // item 2: "treat audio as voice ... never the fast noise policy by default").
+            Assert.Equal(0, speech.TotalGapSplices);
+            Assert.Equal(0, unclassified.TotalGapSplices);
+            // The fast policy only after 100 ms of consecutive not-voice.
+            Assert.Equal(0, shortPause.TotalGapSplices);
+            // Noise with a voice probability between 0.1 and 0.3 still drains by gaps.
+            Assert.True(uncertain.TotalGapSplices > 0);
+        }
+
+        [Fact]
+        public void A_speech_block_inside_a_quiet_span_stops_a_gap_splice_across_it()
+        {
+            // Confirmed noise everywhere except one 10 ms block the detector called
+            // speech in each 200 ms: no gap splice may span a speech block.
+            const RxContentClass NoiseClass = RxContentClass.Classified | RxContentClass.NotVoiceRun;
+            var s = new RxLagShifter(2, 96000);
+            var input = Noise(Rate * 6, 77, 0.1);
+            var buf = new float[Block * 2];
+            int blocks = 0;
+            RxContentClass ClassOf(int b) => b % 20 == 10 ? RxContentClass.Classified | RxContentClass.Speech : NoiseClass;
+            for (; blocks < 50; blocks++) s.Write(input.AsSpan(blocks * Block * 2, Block * 2), ClassOf(blocks));
+            s.Request(Rate, LagPolicy.CatchUp, LagCause.LateAudio);
+            s.LogSplices = true;
+            for (; (blocks + 1) * Block * 2 <= input.Length; blocks++) { s.Write(input.AsSpan(blocks * Block * 2, Block * 2), ClassOf(blocks)); s.Render(buf); }
+            Assert.True(s.TotalGapSplices > 0, "no gap splice at all, so nothing was tested");
+            for (int i = 0; i < Math.Min(s.SpliceLogCount, s.SpliceLog.Length); i++)
+            {
+                var r = s.SpliceLog[i];
+                if (r.Kind != 1) continue;
+                long from = Math.Min(r.OldSide, r.NewSide), to = Math.Max(r.OldSide, r.NewSide) + r.Fade;
+                for (long b = from / Block; b * Block < to; b++)
+                    Assert.False(b % 20 == 10, $"gap splice {r} spans the speech block {b}");
+            }
+        }
+
+        [Fact]
+        public void CW_key_ups_still_take_gap_splices_with_or_without_a_detector()
+        {
+            // The slice mode says CW even when no detector loaded: key-ups are found by
+            // energy, and the tonal veto guards the key-downs.
+            foreach (var cls in new[] { RxContentClass.Cw, RxContentClass.Cw | RxContentClass.Classified })
+            {
+                var s = new RxLagShifter(2, 96000);
+                var y = new float[Rate * 8 * 2];
+                var rng = new Random(3);
+                for (int n = 0; n < Rate * 8; n++)
+                {
+                    bool down = n % 17280 < 2880;      // 60 ms elements, 300 ms word spaces (over the 150 ms pause floor)
+                    y[2 * n] = y[2 * n + 1] = down ? (float)(0.4 * Math.Sin(2 * Math.PI * 625 * n / Rate)) : (float)((rng.NextDouble() - 0.5) * 0.002);
+                }
+                var buf = new float[Block * 2];
+                int b = 0;
+                for (; b < 50; b++) s.Write(y.AsSpan(b * Block * 2, Block * 2), cls);
+                s.Request(Rate / 2, LagPolicy.CatchUp, LagCause.LateAudio);
+                for (; (b + 1) * Block * 2 <= y.Length; b++) { s.Write(y.AsSpan(b * Block * 2, Block * 2), cls); s.Render(buf); }
+                _out.WriteLine($"{cls}: {s.TotalGapSplices} gap splices, removed {s.TotalRemoved}");
+                Assert.True(s.TotalGapSplices > 0, $"{cls}: no key-up was shortened");
+            }
+        }
+
         // ── Growth: no region repeated twice ──
 
         [Fact]
@@ -457,6 +574,7 @@ namespace Radios.Tests
             // pauses of 80 to 400 ms of quiet noise.
             var rng = new Random(9);
             var x = new List<float>();
+            var cls = new List<RxContentClass>();
             var pauses = new[] { 80, 120, 160, 200, 260, 320, 400 };
             for (int k = 0; k < 40; k++)
             {
@@ -465,13 +583,21 @@ namespace Radios.Tests
                 {
                     float v = (float)(0.4 * Math.Sin(2 * Math.PI * 300 * n / Rate) * (0.6 + 0.4 * Math.Sin(2 * Math.PI * 7 * n / Rate)) + (rng.NextDouble() - 0.5) * 0.1);
                     x.Add(v); x.Add(v);
+                    cls.Add(RxContentClass.Classified | RxContentClass.Speech | RxContentClass.Active);
                 }
                 int off = pauses[k % pauses.Length] * 48;
-                for (int n = 0; n < off; n++) { float v = (float)((rng.NextDouble() - 0.5) * 0.004); x.Add(v); x.Add(v); }
+                for (int n = 0; n < off; n++)
+                {
+                    float v = (float)((rng.NextDouble() - 0.5) * 0.004); x.Add(v); x.Add(v);
+                    // As the classifier labels a pause: speech held for the 80 ms hangover,
+                    // then not-voice, and the fast noise policy only from 100 ms after that.
+                    cls.Add(n < 80 * 48 ? RxContentClass.Classified | RxContentClass.Speech
+                        : n < 180 * 48 ? RxContentClass.Classified : RxContentClass.Classified | RxContentClass.NotVoiceRun);
+                }
             }
             var input = x.ToArray();
             var s = new RxLagShifter(2, Rate * 3);
-            var y = Drain(s, input, Rate / 2, Rate, LagPolicy.CatchUp, RxContentClass.Classified | RxContentClass.Speech);
+            var y = Drain(s, input, Rate / 2, Rate, LagPolicy.CatchUp, at => cls[at]);
             // Quiet runs in the output, in 1 ms blocks.
             var runs = new List<int>(); int run = 0;
             for (int b = 0; b + 48 <= y.Length / 2; b += 48)

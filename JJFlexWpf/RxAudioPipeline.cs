@@ -179,6 +179,14 @@ namespace JJFlexWpf
         /// <summary>Tests only: the content classifier.</summary>
         internal RxContentClassifier Classifier => _classifier;
 
+        /// <summary>
+        /// Tests only: every buffer is this class, in both slots and to the queue,
+        /// whatever the classifier says. For a test of a switch's time mechanics,
+        /// whose loud markers would otherwise be voice and hold the lag shifter's
+        /// gap path shut (the class gate has its own tests).
+        /// </summary>
+        internal RxContentClass? ClassOverrideForTest { get; set; }
+
         private RxContentClass _lastOutClass;
 
         /// <summary>
@@ -253,6 +261,7 @@ namespace JJFlexWpf
                 // What this buffer is, for the lag shifter, read on the dry input
                 // before anything changes it; each slot reads it at its own delay.
                 var cls = _classifier.Classify(buffer, _channels);
+                if (ClassOverrideForTest is RxContentClass forced) cls = forced;
                 var capture = Volatile.Read(ref _spectralSub);
                 bool capturing = capture.IsSampling;
                 capture.ProcessInPlace(buffer, 0, count, _channels); // capture only, never enabled

@@ -45,7 +45,10 @@ namespace Radios.Tests
         }
 
         /// <summary>Packets through the chain into the queue, losing <paramref name="lost"/> after packet <paramref name="at"/>; returns the left channel heard.</summary>
-        private static List<float> Play(List<byte[]> packets, int at, int lost, string how)
+        private static List<float> Play(List<byte[]> packets, int at, int lost, string how) => Play(packets, at, lost, how, out _, out _);
+
+        /// <summary>As above, also giving the queue's starvations and the frames it had to play as silence.</summary>
+        private static List<float> Play(List<byte[]> packets, int at, int lost, string how, out long starvations, out long silent)
         {
             using var dec = new OpusDecoder(SamplingRate.Sampling48000, Channels.Stereo);
             var q = new Queue();
@@ -64,14 +67,16 @@ namespace Radios.Tests
                     if (p == at + lost + 1)
                     {
                         if (how == "conceal-then-join") chain.FillGap(dec, packets[p], ReceiveGap.ConcealCapFrames);
-                        if (how != "today") chain.MarkSeam();
+                        if (how != "today" && how != "unmarked") chain.MarkSeam();
                     }
                     chain.WritePacket(dec, packets[p]);
                 }
                 playback.RenderCallback(q, ref buffer, ref offset, output, false, 2, () => true);
                 for (int i = 0; i < Fpb * Bpc; i++) heard.Add(output[2 * i]);
             }
-            if (how != "today") Assert.True(playback.ShifterForTest.TotalSeamJoins == 1, $"{how}: {chain.SeamsMarked} marked, {playback.ShifterForTest.TotalSeamJoins} joined, dry {playback.ShifterForTest.SilentFrames}");
+            starvations = playback.Starvations;
+            silent = playback.ShifterForTest?.SilentFrames ?? 0;
+            if (how != "today" && how != "unmarked") Assert.True(playback.ShifterForTest.TotalSeamJoins == 1, $"{how}: {chain.SeamsMarked} marked, {playback.ShifterForTest.TotalSeamJoins} joined, dry {playback.ShifterForTest.SilentFrames}");
             return heard;
         }
 
@@ -147,13 +152,45 @@ namespace Radios.Tests
             // The join beats today's splice on the tone and makes no hole in noise. Concealing
             // first is better only if it is better on BOTH materials.
             Assert.True(results["join"].Tone < results["today"].Tone, "the join was no smoother than today's splice");
-            Assert.True(results["join"].Noise < 9, $"the join made a {results["join"].Noise:0.0} dB hole in noise");
             // And the join itself is good, not merely better than a near-cancellation:
             // under half a radian and under 7 dB on the tone (measured 0.45 and 5.7).
             Assert.True(results["join"].Tone < 1.3, $"the join measured {results["join"].Tone:0.00} on the tone");
             bool concealBetter = results["conceal-then-join"].Tone < results["join"].Tone && results["conceal-then-join"].Noise < results["join"].Noise;
             _out.WriteLine($"conceal first measures {(concealBetter ? "better" : "no better")}; ReceiveGap.ConcealBeforeSeam is {ReceiveGap.ConcealBeforeSeam}");
             Assert.Equal(concealBetter, ReceiveGap.ConcealBeforeSeam);
+        }
+
+        /// <summary>
+        /// Codex's check of 2567a596 (B3): the join skipped 2.5 ms of the codec's
+        /// overlap but extended the audio before by less than that (104 frames
+        /// against 120), so after six lost packets had spent the reserve it took the
+        /// last 16 frames the callback needed: one starvation, and the 6.7 dB dip was
+        /// that dry-out's fades, not the seam. The same arrival with no mark is the
+        /// control: it never starves. A join must not starve where it does not.
+        /// </summary>
+        [Fact]
+        public void A_join_after_six_lost_packets_spends_no_reserve_the_unmarked_stream_kept()
+        {
+            int frames = Rate * 3;
+            var rng = new Random(11);
+            double lp = 0;
+            var noise = Pcm(n => { lp += ((rng.NextDouble() - 0.5) - lp) * 0.3; return (float)(lp * 0.6); }, frames);
+            var tone = Pcm(n => (float)(0.4 * Math.Sin(2 * Math.PI * 625 * n / Rate)), frames);
+            const int at = 150, lost = 6;
+            foreach (var (name, pcm) in new[] { ("band noise", noise), ("625 Hz", tone) })
+            {
+                var packets = Encode(pcm);
+                var control = Play(packets, at, lost, "unmarked", out long controlStarved, out long controlSilent);
+                var joined = Play(packets, at, lost, "join", out long starved, out long silent);
+                double controlDip = LevelDip(control, Rate, control.Count - 240), dip = LevelDip(joined, Rate, joined.Count - 240);
+                _out.WriteLine($"{name}: unmarked {controlStarved} starvation(s), {controlSilent} silent frames, deepest dip {controlDip:0.0} dB; joined {starved}, {silent}, {dip:0.0} dB");
+                // Positive control: the same arrival really reaches the reserve's edge (the
+                // join is what decides whether it starves), and it is played unmarked without a gap.
+                Assert.Equal(0, controlStarved);
+                Assert.Equal(0, controlSilent);
+                Assert.Equal(controlStarved, starved);
+                Assert.Equal(controlSilent, silent);
+            }
         }
 
         private sealed class FakeProcessor : IRxContentClassifier
