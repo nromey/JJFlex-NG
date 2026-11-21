@@ -42,6 +42,11 @@ namespace Radios
         // One Escape closes once, whichever route saw it first.
         private bool _escapeClosing;
 
+        // Set by any close (Escape, Alt+F4, the title bar). The load handler
+        // awaits WebView2's start-up, and a close can land during any of
+        // those awaits; this is how the continuation sees it and stops.
+        private bool _closed;
+
         // PKCE values (generated per auth attempt)
         private string _codeVerifier;
         private string _codeChallenge;
@@ -314,7 +319,22 @@ namespace Radios
         /// </summary>
         private void AuthFormWebView2_FormClosing(object sender, FormClosingEventArgs e)
         {
+            _closed = true;
             CancelExchange($"close ({e.CloseReason})");
+        }
+
+        /// <summary>
+        /// True once the form has closed, for the load handler to check after
+        /// each await of WebView2's start-up. A close during the start-up
+        /// (Escape, Alt+F4) must not be followed by anything on the closed
+        /// form: no error box, no DialogResult, no navigation. The operator
+        /// has already left. Traces the stop; speaks nothing.
+        /// </summary>
+        private bool LoadStoppedByClose(string step)
+        {
+            if (!_closed && !IsDisposed) return false;
+            Tracing.TraceLine($"AuthFormWebView2: closed during the browser start-up ({step}), stopping quietly", TraceLevel.Info);
+            return true;
         }
 
         /// <summary>
@@ -384,12 +404,14 @@ namespace Radios
                     try
                     {
                         env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
+                        if (LoadStoppedByClose("environment")) return;
                         break;
                     }
                     catch (Exception ex) when (attempt < 5)
                     {
                         Tracing.TraceLine($"AuthFormWebView2: CreateAsync attempt {attempt}/5 failed ({ex.Message}), retrying in 2s", TraceLevel.Warning);
                         await Task.Delay(2000);
+                        if (LoadStoppedByClose("environment retry")) return;
                     }
                 }
                 // Per-account browser profile (2026-08-05). Each SmartLink account
@@ -418,6 +440,7 @@ namespace Radios
                         var controllerOptions = env.CreateCoreWebView2ControllerOptions();
                         controllerOptions.ProfileName = profileName;
                         await webView.EnsureCoreWebView2Async(env, controllerOptions);
+                        if (LoadStoppedByClose("browser profile")) return;
                         profileApplied = true;
                         Tracing.TraceLine($"AuthFormWebView2: using browser profile '{profileName}'", TraceLevel.Info);
                     }
@@ -427,11 +450,15 @@ namespace Radios
                             $"AuthFormWebView2: profile '{profileName}' unavailable ({ex.Message}); using shared profile",
                             TraceLevel.Warning);
                     }
+                    // A close during the profile's start-up can surface as
+                    // that failure; never go on to the shared profile then.
+                    if (LoadStoppedByClose("browser profile")) return;
                 }
 
                 if (!profileApplied)
                 {
                     await webView.EnsureCoreWebView2Async(env);
+                    if (LoadStoppedByClose("browser")) return;
                 }
                 isInitialized = true;
 
@@ -440,6 +467,7 @@ namespace Radios
                 {
                     var cookieManager = webView.CoreWebView2.CookieManager;
                     var cookies = await cookieManager.GetCookiesAsync($"https://{Auth0Domain}");
+                    if (LoadStoppedByClose("cookies")) return;
                     foreach (var cookie in cookies)
                     {
                         cookieManager.DeleteCookie(cookie);
@@ -458,6 +486,14 @@ namespace Radios
             }
             catch (Exception ex)
             {
+                // A start-up that failed because the operator closed the form
+                // is not a failure to report: trace it, show nothing, and
+                // leave the close's own result alone.
+                if (_closed || IsDisposed)
+                {
+                    Tracing.TraceLine("AuthFormWebView2: start-up ended after the form closed (" + ex.Message + "), no error box", TraceLevel.Info);
+                    return;
+                }
                 Tracing.TraceLine("AuthFormWebView2 Exception: " + ex.Message, TraceLevel.Error);
                 MessageBox.Show(
                     Lexicon.Get("connect.smartlink.browser.init_failed_body", ("message", ex.Message)),
