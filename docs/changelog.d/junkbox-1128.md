@@ -1,0 +1,1 @@
+- A voice message or other recording sent from this computer now fades out briefly when stopped while the radio keeps transmitting, replacing the abrupt cutoff that could cause a click. A stop that also unkeys the radio still ends the transmission without waiting for the fade.

@@ -272,7 +272,7 @@ public partial class TNFDialog : JJFlexDialog
             if (hasSelection)
             {
                 ShowFrequency(GetTNFFrequencyHz?.Invoke(idx) ?? 0);
-                WidthBox.Text = (GetTNFWidth?.Invoke(idx) ?? 0).ToString();
+                ShowWidth(GetTNFWidth?.Invoke(idx) ?? 0);
                 DepthBox.Text = (GetTNFDepth?.Invoke(idx) ?? 1).ToString();
                 PermanentCheck.IsChecked = GetTNFPermanent?.Invoke(idx) ?? false;
             }
@@ -281,6 +281,7 @@ public partial class TNFDialog : JJFlexDialog
                 FrequencyBox.Text = "";
                 _freqShown = "";
                 WidthBox.Text = "";
+                _widthShown = null;
                 DepthBox.Text = "";
                 PermanentCheck.IsChecked = false;
             }
@@ -383,8 +384,29 @@ public partial class TNFDialog : JJFlexDialog
             ShowFrequency(CurrentFrequencyHz(idx));
             return;
         }
+        if (!FrequencyInRange(hz.Value))
+        {
+            // #1189 item 2: a number that was read but lies outside where a
+            // notch can go is refused here, before MoveTo, rather than moved
+            // silently to the edge, which put the notch somewhere other than
+            // where it was typed. The radio layer's clamp stays as a
+            // backstop. The arrows (StepFrequency) still stop at the edge.
+            EarconPlayer.LeaderInvalidTone();
+            // DRAFT wording, settings.tnf.frequency_out_of_range.
+            Speak(Radios.Lexicon.Get("settings.tnf.frequency_out_of_range"));
+            ShowFrequency(CurrentFrequencyHz(idx));
+            return;
+        }
         MoveTo(idx, hz.Value);
     }
+
+    /// <summary>
+    /// Whether a notch can be put at this frequency: the radio layer's own
+    /// range, <see cref="Radios.FlexBase.TNFFrequencyMinHz"/> through
+    /// <see cref="Radios.FlexBase.TNFFrequencyMaxHz"/>, both included. Pure.
+    /// </summary>
+    internal static bool FrequencyInRange(ulong hz) =>
+        hz >= Radios.FlexBase.TNFFrequencyMinHz && hz <= Radios.FlexBase.TNFFrequencyMaxHz;
 
     /// <summary>
     /// What the Frequency box's text says, in Hz, or null (batch 14 repair 3,
@@ -475,6 +497,21 @@ public partial class TNFDialog : JJFlexDialog
     }
 
     /// <summary>
+    /// The width the box was last given (#1198): the radio's on selection, or
+    /// the last one asked for. A commit that leaves it unchanged writes
+    /// nothing. Compared with this and never with <see cref="GetTNFWidth"/>,
+    /// whose read-back lags a write (see <see cref="ApplyWidth"/>). Null with
+    /// nothing selected.
+    /// </summary>
+    private int? _widthShown;
+
+    private void ShowWidth(int hz)
+    {
+        _widthShown = hz;
+        WidthBox.Text = hz.ToString();
+    }
+
+    /// <summary>
     /// Commit whatever is typed in the width box.
     ///
     /// <para><b>Shows what was ASKED FOR, not what the radio reads back.</b>
@@ -484,14 +521,20 @@ public partial class TNFDialog : JJFlexDialog
     /// the box snap back to the old number as though the entry had been
     /// rejected. Displaying the clamped request is both honest and stable —
     /// the clamp is the same one <c>FlexBase</c> applies, so the two agree.</para>
+    ///
+    /// <para><b>Writes only a change</b> (#1198): a width equal to the one last
+    /// shown is not sent, so a Tab through the box, or an Enter on a value
+    /// the arrows already sent, writes nothing to the radio. Text that is not
+    /// a number puts back the width last shown, and writes nothing.</para>
     /// </summary>
     private void ApplyWidth(int idx)
     {
         int val = int.TryParse(WidthBox.Text, out int typed)
             ? Math.Max(WidthMin, Math.Min(WidthMax, typed))
-            : GetTNFWidth?.Invoke(idx) ?? WidthMin;
-        SetTNFWidth?.Invoke(idx, val);
-        WidthBox.Text = val.ToString();
+            : _widthShown ?? GetTNFWidth?.Invoke(idx) ?? WidthMin;
+        bool changed = val != _widthShown;
+        ShowWidth(val);
+        if (changed) SetTNFWidth?.Invoke(idx, val);
     }
 
     private void AdjustWidth(int idx, int delta)
@@ -499,7 +542,7 @@ public partial class TNFDialog : JJFlexDialog
         int current = GetTNFWidth?.Invoke(idx) ?? WidthMin;
         int newVal = Math.Max(WidthMin, Math.Min(WidthMax, current + delta));
         SetTNFWidth?.Invoke(idx, newVal);
-        WidthBox.Text = newVal.ToString();
+        ShowWidth(newVal);   // what the next commit compares with (#1198)
         // Through the one width formatter, as every filter width is (#983):
         // "2.75 k" at Terse from 1 kHz up, the whole number otherwise.
         SpeakValue(WidthLabel, Radios.HertzSpeech.Width(newVal, Radios.HertzUnitStyle.Bare));

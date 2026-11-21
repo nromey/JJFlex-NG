@@ -9,10 +9,11 @@ using static Radios.Tests.ListenbackRoundTwoTests;
 namespace Radios.Tests;
 
 /// <summary>
-/// #1127, ruled by Noel 2026-11-12 08:05 (J4): keep Jim's design (after a Fail
-/// the ATU is bypassed and taken out of automatic), and when the ATU has
-/// failed, is bypassed, or the radio has none, the tune key sends a plain tune
-/// carrier and SAYS so, never "ATU tuning". Automatic type is unchanged.
+/// #1127, ruled by Noel 2026-11-12 08:05 (J4): when the ATU is bypassed, or
+/// the radio has none, the tune key sends a plain tune carrier and SAYS so,
+/// never "ATU tuning". Automatic type is unchanged. J4 also kept Jim's design
+/// that a Fail bypasses the ATU and leaves automatic; #1188's 2026-11-19
+/// ruling (J1) superseded that half: a failed tune now stays automatic.
 /// </summary>
 /// <remarks>
 /// What the press keys is read off the vendor radio fixture's transport, the
@@ -28,7 +29,7 @@ public sealed class TunePressTests : IDisposable
 
     [Theory]
     [InlineData(true, FlexBase.FlexTunerTypes.auto, TunePressOutcome.AtuTune)]      // unchanged
-    [InlineData(true, FlexBase.FlexTunerTypes.manual, TunePressOutcome.TuneCarrier)] // after a Fail or a bypass
+    [InlineData(true, FlexBase.FlexTunerTypes.manual, TunePressOutcome.TuneCarrier)] // after the operator's bypass
     [InlineData(false, FlexBase.FlexTunerTypes.manual, TunePressOutcome.TuneCarrier)] // no ATU (refused before)
     [InlineData(false, FlexBase.FlexTunerTypes.auto, TunePressOutcome.NoTuner)]     // refused, as before
     // None cannot arise (below). Were it to, it would mean an ATU switched off,
@@ -93,13 +94,16 @@ public sealed class TunePressTests : IDisposable
     }
 
     /// <summary>
-    /// After a failed tune the ATU is bypassed and the type leaves automatic
-    /// (Jim's design, kept), so the next press is a plain tune carrier: the
-    /// rule says TuneCarrier and the radio is sent "transmit tune 1", not
-    /// "atu start".
+    /// After a failed tune the type stays automatic and no bypass is sent
+    /// (#1188's Fail case, ruled by Noel 2026-11-19 20:35, superseding J4's
+    /// "after a Fail the ATU is bypassed and taken out of automatic"; dropping
+    /// the bypass command is the orchestrator's decision), so the next press
+    /// runs another ATU cycle: "atu start", not a plain "transmit tune 1".
+    /// Until batch 17 this was
+    /// <c>After_a_failed_tune_the_next_press_is_a_plain_tune_carrier</c>.
     /// </summary>
     [Fact]
-    public void After_a_failed_tune_the_next_press_is_a_plain_tune_carrier()
+    public void After_a_failed_tune_the_next_press_runs_another_ATU_cycle()
     {
         using var c = new RadioCase();
         Wired(c, FlexBase.FlexTunerTypes.auto);
@@ -111,14 +115,14 @@ public sealed class TunePressTests : IDisposable
         c.F.Vendor.Status("atu status=TUNE_IN_PROGRESS");
         c.F.Vendor.Status("atu status=TUNE_FAIL");
         RunQueue(c);
-        Assert.True(Sent(c, "atu bypass") > 0, "Jim's design: a Fail bypasses the ATU");
+        Assert.Equal(0, Sent(c, "atu bypass"));
 
-        Assert.Equal(TunePressOutcome.TuneCarrier, TunePress.For(true, c.F.Rig.FlexTunerType));
+        Assert.Equal(TunePressOutcome.AtuTune, TunePress.For(true, c.F.Rig.FlexTunerType));
         int keys = Sent(c, "transmit tune 1");
         c.F.Rig.FlexTunerOn = true;   // the next press
         RunQueue(c);
-        Assert.True(Sent(c, "transmit tune 1") > keys, "the press keys a plain tune carrier");
-        Assert.Equal(starts, Sent(c, "atu start"));
+        Assert.True(Sent(c, "atu start") > starts, "the press runs another ATU cycle");
+        Assert.Equal(keys, Sent(c, "transmit tune 1"));
     }
 
     /// <summary>

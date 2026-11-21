@@ -269,6 +269,9 @@ Namespace My
 
             ' Wire exit callback so RequestShutdown can trigger VB-side shutdown.
             WpfMainWindow.AppExitCallback = AddressOf ExitApplication
+            ' The exit questions alone, so an in-app update can ask them before
+            ' it launches anything (#1204, repair 1).
+            WpfMainWindow.ExitQuestionsCallback = AddressOf AskExitQuestions
 
             ' Wire "Connect to Radio" callback for menu item.
             WpfMainWindow.SelectRadioCallback = AddressOf SelectRadio

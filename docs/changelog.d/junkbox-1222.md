@@ -1,0 +1,1 @@
+- Escape now closes the SmartLink browser sign-in page. Escape and Alt+F4 also cancel sign-in during the final step.

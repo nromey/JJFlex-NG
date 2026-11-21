@@ -1,0 +1,1 @@
+- The tracking notch window no longer resends the notch width to the radio when you leave the Width box without changing the value. A frequency outside 30 kilohertz to 54 megahertz now produces a message and leaves the notch where it was, instead of silently moving the notch to the nearest limit.

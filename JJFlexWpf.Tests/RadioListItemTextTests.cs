@@ -463,7 +463,7 @@ public sealed class RadioListItemTextTests
         int refreshAt = src.IndexOf("private void RefreshRadiosList(bool reorder = false)", System.StringComparison.Ordinal);
         // The held lists are read ONCE (#1059), before the plan is asked, and
         // the same reading feeds the replan.
-        int read = src.IndexOf("var heldLists = ReadHeldLists();", refreshAt, System.StringComparison.Ordinal);
+        int read = src.IndexOf("var heldLists = HeldRadioLists.ReadHeldLists();", refreshAt, System.StringComparison.Ordinal);
         int ask = src.IndexOf("var replanned = ReplanRowAccountsIfTheListsMoved(heldLists);", refreshAt, System.StringComparison.Ordinal);
         int stamp = src.IndexOf("r.EverySavedListRuledItOut = plan.RuledOut;", refreshAt, System.StringComparison.Ordinal);
         int stampLock = src.LastIndexOf("lock (_radiosLock)", stamp, System.StringComparison.Ordinal);
@@ -472,10 +472,13 @@ public sealed class RadioListItemTextTests
         Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(
             src.Substring(refreshAt, stamp - refreshAt), @"ReadHeldLists\(\)").Count);
         int replanAt = src.IndexOf("private Dictionary<string, (string Account, bool RuledOut)> ReplanRowAccountsIfTheListsMoved(HeldLists lists)", System.StringComparison.Ordinal);
-        int replanEnd = src.IndexOf("internal static List<object>? ListsKey(HeldLists lists)", replanAt, System.StringComparison.Ordinal);
-        string replan = src.Substring(replanAt, replanEnd - replanAt);
+        // The span is the replan's own body, by its braces. Until batch 17 it
+        // ended at ListsKey's declaration, which then moved to HeldRadioLists
+        // (#1094); the check is re-anchored, not dropped.
+        Assert.True(replanAt > 0, "the replan is where this looks");
+        string replan = BracedBody(src, replanAt);
         Assert.DoesNotContain("AllSessions", replan, System.StringComparison.Ordinal);   // no second reader
-        int check = replan.IndexOf("if (!ListsMovedSince(now, _rowAccountsAskedAt))", System.StringComparison.Ordinal);
+        int check = replan.IndexOf("if (!HeldRadioLists.ListsMovedSince(now, _rowAccountsAskedAt))", System.StringComparison.Ordinal);
         int askInReplan = replan.IndexOf("Radios.FlexBase.RadioListAccountFor(serial, out bool ruledOut);", System.StringComparison.Ordinal);
         int lockAt = replan.IndexOf("lock (_radiosLock)", System.StringComparison.Ordinal);
         int lockEnd = replan.IndexOf("foreach (var serial in serials)", System.StringComparison.Ordinal);
@@ -640,7 +643,7 @@ public sealed class RadioListItemTextTests
     public void The_held_lists_reading_gives_each_caller_its_own_safe_answer()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
-        var lists = new RigSelectorDialog.HeldLists(new[]
+        var lists = new HeldLists(new[]
         {
             ("answered@example.com", Snapshot(connected: true, arrived: true)),
             ("waiting@example.com", Snapshot(connected: true, arrived: false)),
@@ -650,14 +653,14 @@ public sealed class RadioListItemTextTests
         Assert.Equal(new[] { "answered@example.com", "waiting@example.com" }, lists.LiveAccounts().OrderBy(a => a));
         Assert.Equal(new[] { "answered@example.com" }, lists.AnsweredAccounts());
         Assert.Equal(3, lists.NamedLists().Count);
-        Assert.NotNull(RigSelectorDialog.ListsKey(lists));
+        Assert.NotNull(HeldRadioLists.ListsKey(lists));
 
-        var unread = RigSelectorDialog.HeldLists.Unread;
+        var unread = HeldLists.Unread;
         Assert.Empty(unread.LiveAccounts());
         Assert.Empty(unread.AnsweredAccounts());
         Assert.Empty(unread.NamedLists());
-        Assert.Null(RigSelectorDialog.ListsKey(unread));
-        Assert.True(RigSelectorDialog.ListsMovedSince(null, RigSelectorDialog.ListsKey(lists)));
+        Assert.Null(HeldRadioLists.ListsKey(unread));
+        Assert.True(HeldRadioLists.ListsMovedSince(null, HeldRadioLists.ListsKey(lists)));
     }
 
     /// <summary>
@@ -680,19 +683,19 @@ public sealed class RadioListItemTextTests
         });
         var replan = typeof(RigSelectorDialog).GetMethod("ReplanRowAccountsIfTheListsMoved",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        int Asked(RigSelectorDialog.HeldLists lists) =>
+        int Asked(HeldLists lists) =>
             ((System.Collections.IDictionary)replan.Invoke(dialog, new object[] { lists })!).Count;
 
-        var before = new RigSelectorDialog.HeldLists(new[] { ("a@example.com", Snapshot(true, false, revision: 0)) }, true);
-        var same = new RigSelectorDialog.HeldLists(new[] { ("a@example.com", Snapshot(true, false, revision: 0)) }, true);
-        var arrived = new RigSelectorDialog.HeldLists(new[] { ("a@example.com", Snapshot(true, true, revision: 1)) }, true);
+        var before = new HeldLists(new[] { ("a@example.com", Snapshot(true, false, revision: 0)) }, true);
+        var same = new HeldLists(new[] { ("a@example.com", Snapshot(true, false, revision: 0)) }, true);
+        var arrived = new HeldLists(new[] { ("a@example.com", Snapshot(true, true, revision: 1)) }, true);
 
         Assert.Equal(1, Asked(before));                          // the first ask
         Assert.Equal(0, Asked(same));                            // unchanged: nothing asked
         Assert.Equal(1, Asked(arrived));                         // the list landed: asked again
         Assert.Equal(0, Asked(arrived));
-        Assert.Equal(1, Asked(RigSelectorDialog.HeldLists.Unread));   // unread: asked every time
-        Assert.Equal(1, Asked(RigSelectorDialog.HeldLists.Unread));
+        Assert.Equal(1, Asked(HeldLists.Unread));   // unread: asked every time
+        Assert.Equal(1, Asked(HeldLists.Unread));
     }
 
     /// <summary>
@@ -722,10 +725,50 @@ public sealed class RadioListItemTextTests
         int loop = src.IndexOf("while (PresenceStillSettling())", System.StringComparison.Ordinal);
         int end = src.IndexOf("_presenceSettleDeadlineUtc = null;", loop, System.StringComparison.Ordinal);
         string body = src.Substring(loop, end - loop);
-        Assert.Contains("var answered = ReadHeldLists().AnsweredAccounts();", body, System.StringComparison.Ordinal);
+        Assert.Contains("var answered = HeldRadioLists.ReadHeldLists().AnsweredAccounts();", body, System.StringComparison.Ordinal);
         Assert.Contains("&& !answered.Contains(a));", body, System.StringComparison.Ordinal);
         // ...and the row's flag is stamped from the card's own fact.
         Assert.Contains("&& !r.SmartLinkAnsweredWithoutIt;", src, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>The text from <paramref name="at"/> to the brace that closes the first one after it.</summary>
+    private static string BracedBody(string src, int at)
+    {
+        int brace = src.IndexOf('{', at);
+        int depth = 0;
+        for (int i = brace; i < src.Length; i++)
+        {
+            if (src[i] == '{') depth++;
+            else if (src[i] == '}' && --depth == 0) return src.Substring(at, i - at + 1);
+        }
+        throw new System.InvalidOperationException("unbalanced braces");
+    }
+
+    private static string ReadDialogSource(string file)
+    {
+        var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        return System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "Dialogs", file)).Replace("\r\n", "\n");
+    }
+
+    /// <summary>
+    /// #1094: the held-lists helpers live in one place, HeldRadioLists.cs,
+    /// and neither dialog that uses them declares its own copy.
+    /// </summary>
+    [Theory]
+    [InlineData("RigSelectorDialog.xaml.cs")]
+    [InlineData("RadioAssociationsDialog.xaml.cs")]
+    public void No_dialog_declares_its_own_held_lists_helpers(string file)
+    {
+        string dialog = ReadDialogSource(file);
+        foreach (string declared in new[] { "record struct HeldLists(", " ReadHeldLists()\n", " ListsKey(HeldLists lists)", " ListsMovedSince(List<object>? now" })
+            Assert.DoesNotContain(declared, dialog, System.StringComparison.Ordinal);
+        Assert.Contains("HeldRadioLists.", dialog, System.StringComparison.Ordinal);   // it uses the shared ones
+        // Positive control: the same strings find the declarations where they now live.
+        string shared = ReadDialogSource("HeldRadioLists.cs");
+        foreach (string declared in new[] { "record struct HeldLists(", " ReadHeldLists()\n", " ListsKey(HeldLists lists)", " ListsMovedSince(List<object>? now" })
+            Assert.Contains(declared, shared, System.StringComparison.Ordinal);
     }
 
     private static string ReadSelectorSource()

@@ -5132,10 +5132,14 @@ namespace Radios
                             MyCaps.getCaps = MyCaps.SetCap(MyCaps.getCaps, RigCaps.Caps.ATGet);
                             MyCaps.setCaps = MyCaps.SetCap(MyCaps.setCaps, RigCaps.Caps.ATSet);
                             MyCaps.getCaps = MyCaps.SetCap(MyCaps.getCaps, RigCaps.Caps.ATMems);
-                            // Turn off the tuner if was bypassed.
+                            // Turn off the tuner if it was bypassed by hand.
                             // Note the bypass status might happen later.
-                            if ((originalATUStatus == ATUTuneStatus.Bypass) |
-                                (originalATUStatus == ATUTuneStatus.ManualBypass))
+                            // #1188 (ruled by Noel 2026-11-19, J8): only a
+                            // remembered ManualBypass sets manual. A remembered
+                            // Bypass is a tune RESULT (the load needed no
+                            // matching), not the operator choosing bypass, so
+                            // the switch keeps reading On.
+                            if (originalATUStatus == ATUTuneStatus.ManualBypass)
                             {
                                 setFlexTunerTypeNotAuto();
                             }
@@ -5173,14 +5177,29 @@ namespace Radios
                         switch (theRadio.ATUTuneStatus)
                         {
                             case ATUTuneStatus.Bypass:
-                                // Turn off autoTune.
-                                setFlexTunerTypeNotAuto();
+                                // #1188 (ruled by Noel 2026-11-19, J8): a tune
+                                // that ends in bypass is a result, said as one
+                                // (the FlexAntTuneStartStop event above), and no
+                                // longer turns automatic off. Off means only
+                                // that the operator bypassed the tuner.
                                 break;
                             case ATUTuneStatus.Fail:
-                                // bypass the tuner
-                                theRadio.ATUTuneBypass(); // will get manualBypass status
-                                                          // Turn autotune off
-                                setFlexTunerTypeNotAuto();
+                                // #1188 (ruled by Noel 2026-11-19 20:35, J1:
+                                // "yep the other case is fine"): a failed tune
+                                // is a result too, said as one by the event
+                                // above, and leaves the switch on Automatic.
+                                // Jim's code bypassed the tuner here and turned
+                                // automatic off. Not sending the bypass command
+                                // either is the orchestrator's decision, beyond
+                                // the ruling: SmartSDR 4.1.x sends nothing after
+                                // a failed tune (UpdateATUStatus sets display
+                                // flags only), and our bypass made the radio
+                                // remember TUNE_MANUAL_BYPASS, which the connect
+                                // rule above reads as the operator's own Off,
+                                // and which was spoken as "ATU bypassed" right
+                                // after the failure. So the radio keeps whatever
+                                // its tuner held after the failure, and the next
+                                // tune press runs another ATU cycle.
                                 break;
                             case ATUTuneStatus.FailBypass:
                                 // The radio has bypassed the tuner itself: no bypass
@@ -14162,6 +14181,19 @@ namespace Radios
             /// Ensures focus returns to the app after dialog closes.
             /// </summary>
             public System.Windows.Forms.IWin32Window ParentWindow;
+            /// <summary>
+            /// The way onto the UI thread that owns <see cref="ParentWindow"/>,
+            /// set beside it by the code that builds the shell (#1205). The
+            /// SmartLink sign-in shows and disposes its browser form through
+            /// this, so it never has to cast the parent to a WinForms control.
+            /// </summary>
+            public UiThreadInvoker UiThread;
+            /// <summary>
+            /// Brings the parent window forward after a sign-in dialog closes
+            /// (activates it and raises it), run on the UI thread. Set beside
+            /// <see cref="ParentWindow"/>; null leaves only the foreground call.
+            /// </summary>
+            public Action ActivateParentWindow;
             /// <summary>
             /// Get the displayable SWR.
             /// </summary>

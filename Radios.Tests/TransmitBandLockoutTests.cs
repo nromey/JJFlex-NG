@@ -148,6 +148,71 @@ public sealed class TransmitBandLockoutTests : IDisposable
         Assert.Null(c.F.Rig.TransmitSliceSignal());
     }
 
+    // ---- #1194: XIT moves the transmitted frequency ----
+
+    /// <summary>
+    /// The fixture's transmit slice moved to slice 0 at <paramref name="mhz"/>
+    /// in <paramref name="mode"/>, with XIT as given; returns the lockout's
+    /// verdict for a General on that slice's reading.
+    /// </summary>
+    private static (bool Allowed, ulong Hz) JudgeWithXit(double mhz, string mode, int low, int high, bool xitOn, int xitHz)
+    {
+        using var c = new RadioCase();
+        c.Add(0, mhz);
+        c.F.Vendor.Status("slice 1 tx=0");
+        c.F.Vendor.Status("slice 0 mode=" + mode + " filter_lo=" + low + " filter_hi=" + high
+            + " tx=1 xit_on=" + (xitOn ? "1" : "0") + " xit_freq=" + xitHz);
+        var reading = c.F.Rig.TransmitSliceSignal();
+        Assert.NotNull(reading);
+        bool allowed = TransmitBandLockout.Judge(reading, 0, 0, 0, Bands.Licenses.general, out bool judgedSelected);
+        Assert.False(judgedSelected);
+        return (allowed, reading!.Value.Hz);
+    }
+
+    [Fact]
+    public void A_negative_XIT_that_carries_the_signal_under_a_licence_edge_is_refused()
+    {
+        // 7.178 LSB is 7.1752 to 7.1779 MHz, inside a General's phone; XIT
+        // -2,000 Hz transmits at 7.176, whose signal reaches under 7.175.
+        var on = JudgeWithXit(7.178, "LSB", -2800, -100, xitOn: true, xitHz: -2000);
+        Assert.Equal(7_176_000UL, on.Hz);
+        Assert.False(on.Allowed);
+    }
+
+    [Fact]
+    public void The_same_offset_with_XIT_off_is_allowed()
+    {
+        var off = JudgeWithXit(7.178, "LSB", -2800, -100, xitOn: false, xitHz: -2000);
+        Assert.Equal(7_178_000UL, off.Hz);
+        Assert.True(off.Allowed);
+    }
+
+    [Fact]
+    public void A_positive_XIT_that_carries_the_signal_over_a_licence_edge_is_refused()
+    {
+        // 7.297 USB is 7.2971 to 7.2998 MHz, inside; XIT +2,000 Hz puts its top over 7.300.
+        Assert.True(JudgeWithXit(7.297, "USB", 100, 2800, xitOn: false, xitHz: 2000).Allowed);
+        var on = JudgeWithXit(7.297, "USB", 100, 2800, xitOn: true, xitHz: 2000);
+        Assert.Equal(7_299_000UL, on.Hz);
+        Assert.False(on.Allowed);
+    }
+
+    [Fact]
+    public void An_XIT_that_carries_the_signal_back_inside_the_licence_keys()
+    {
+        // 7.174 LSB is outside a General's phone; XIT +4,000 Hz transmits at 7.178, inside.
+        Assert.False(JudgeWithXit(7.174, "LSB", -2800, -100, xitOn: false, xitHz: 4000).Allowed);
+        Assert.True(JudgeWithXit(7.174, "LSB", -2800, -100, xitOn: true, xitHz: 4000).Allowed);
+    }
+
+    [Fact]
+    public void The_XIT_offset_is_the_slice_s_XIT_frequency_only_when_XIT_is_on()
+    {
+        Assert.Equal(-2000L, FlexBase.XitOffsetHz(true, -2000));
+        Assert.Equal(99_999L, FlexBase.XitOffsetHz(true, 99_999));
+        Assert.Equal(0L, FlexBase.XitOffsetHz(false, -2000));
+    }
+
     // ---- the wiring ----
 
     [Fact]

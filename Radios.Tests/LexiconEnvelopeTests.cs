@@ -2463,6 +2463,9 @@ namespace Radios.Tests
                 "audio.tune.refused_rx_only",
                 "audio.tune.refused_no_tx_slice",
                 "audio.tune.refused_amplifier",
+                // Junk box batch 18 (#1225): a tune the Power Genius XL holds
+                // off. Codex's words, approved by Noel 2026-11-20.
+                "audio.tune.refused_power_amplifier",
                 // Repair round 1 (#596, Codex B4): says only what is known; a lost
                 // connection cannot show that RF stopped. DRAFT prose, awaiting Noel.
                 "connect.drop.transmit_released",
@@ -2973,6 +2976,9 @@ namespace Radios.Tests
                 // #1040: Check your audio did not start because Back up first did not
                 // finish. A PLACEHOLDER: Codex writes it; classified when written.
                 "audio.check.not_started_backup_unfinished",
+                // Junk box batch 17 (#1044): a slice recording did not start
+                // because Back up first did not finish. Approved by Noel 2026-11-21.
+                "audio.recorder.not_started_backup_unfinished",
                 // Junk box #879 (2026-11-11): the keyer speed field on the Tuning
                 // tab. The label is Noel's; the rest are worded by Codex.
                 "settings.keyer.speed_label",
@@ -3027,6 +3033,15 @@ namespace Radios.Tests
                 // Codex's words with Noel's edit, approved 2026-11-19.
                 "audio.ptt.blocked_by_license",
                 "settings.band.tx_lockout_message",
+                // Junk box batch 16 (2026-11-19), approved by Noel 2026-11-21:
+                // #1204, an update whose exit the operator cancelled.
+                "connect.update.exit_cancelled",
+                // Repair 1: Settings could not apply its edits, so nothing launched.
+                "connect.update.settings_need_fixing",
+                // #1195, an added or edited operator that could not be saved.
+                "settings.operator.not_saved",
+                // #1189 item 2, a typed notch frequency outside the range a notch can go.
+                "settings.tnf.frequency_out_of_range",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

@@ -75,7 +75,8 @@ public sealed class AtuTuneEndTests : IDisposable
 
     /// <summary>
     /// The manual tuner type: where a radio that connects with its ATU
-    /// bypassed starts the session, and where a plain TUNE_FAIL leaves it.
+    /// bypassed starts the session. (A plain TUNE_FAIL left it here too until
+    /// batch 17; it now stays automatic.)
     /// </summary>
     private static void Manual(RadioCase c) => Wired(c, FlexBase.FlexTunerTypes.manual);
 
@@ -137,17 +138,32 @@ public sealed class AtuTuneEndTests : IDisposable
         Assert.False(c.F.Rig.FlexTunerOn);
     }
 
-    /// <summary>Fail keeps Fail's own handling: the bypass command and the tuner taken out of automatic.</summary>
+    /// <summary>
+    /// A failed tune ends the latch and unkeys, sends no bypass command and
+    /// stays automatic (#1188's Fail case, ruled by Noel 2026-11-19 20:35; the
+    /// dropped bypass is the orchestrator's decision), so the next press runs
+    /// another ATU cycle. Until batch 17 this was
+    /// <c>A_failed_tune_still_bypasses_the_tuner_and_leaves_automatic</c> and
+    /// pinned Jim's bypass and the move out of automatic as correct.
+    /// </summary>
     [Fact]
-    public void A_failed_tune_still_bypasses_the_tuner_and_leaves_automatic()
+    public void A_failed_tune_ends_the_tune_sends_no_bypass_and_stays_automatic()
     {
         using var c = new RadioCase();
         Automatic(c);
         TunePressed(c);
+        int starts = Sent(c, "atu start");
+        int unkeys = Sent(c, "xmit 0");
         c.F.Vendor.Status("atu status=TUNE_FAIL");
         Assert.False(c.F.Rig.FlexTunerOn);
-        Assert.True(Sent(c, "atu bypass") > 0);
-        Assert.NotEqual(FlexBase.FlexTunerTypes.auto, TunerType(c));
+        RunQueue(c);
+        Assert.True(Sent(c, "xmit 0") > unkeys, "clearing the latch queues our unkey");
+        Assert.Equal(0, Sent(c, "atu bypass"));
+        Assert.Equal(FlexBase.FlexTunerTypes.auto, TunerType(c));
+
+        c.F.Rig.FlexTunerOn = true;   // the next press
+        RunQueue(c);
+        Assert.True(Sent(c, "atu start") > starts, "the next press runs another ATU cycle");
     }
 
     // ---- the latch follows the carrier out of automatic type ----

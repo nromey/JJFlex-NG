@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Threading.Tasks;
 using Radios;
 using Radios.Listenback;
@@ -71,7 +70,7 @@ public static class SliceBackupDoor
             outcome = await SliceRecordingBackup.RunAsync(rig, target, ListenbackTakesRoot,
                 (writer, slice) => recorder.StartTakeCapture(rig, writer, slice),
                 started => Say(Lexicon.Get("audio.takes.backup.started", ("letter", started.Letter),
-                    ("seconds", ((int)Math.Round(started.Seconds)).ToString(CultureInfo.CurrentCulture))), refusal: false));
+                    ("seconds", SliceRecordingListing.SpokenSeconds(started.Seconds))), refusal: false));
         }
         catch (Exception ex)
         {

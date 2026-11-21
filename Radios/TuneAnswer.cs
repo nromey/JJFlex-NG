@@ -122,6 +122,10 @@ namespace Radios
                 case InterlockReason.XVTR_RX_ONLY: return Lexicon.Get("audio.tune.refused_rx_only");
                 case InterlockReason.NO_TX_ASSIGNED: return Lexicon.Get("audio.tune.refused_no_tx_slice");
                 case InterlockReason.TGXL: return Lexicon.Get("audio.tune.refused_amplifier");
+                // The Power Genius XL holding the interlock. FlexLib named it
+                // only after a JJFlex patch (MIGRATION.md item 31); stock
+                // FlexLib reported None here.
+                case InterlockReason.PGXL: return Lexicon.Get("audio.tune.refused_power_amplifier");
                 default: return Lexicon.Get("audio.tune.refused");
             }
         }

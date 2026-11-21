@@ -504,6 +504,28 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     logs these through `Trace` itself or parses the power family as a
     fraction.
 
+31. **The Power Genius XL's interlock reason is kept (2026-11-20)**: keep the
+    two comment-marked JJFlex patches in `FlexLib_API/FlexLib/Radio.cs`: the
+    `PGXL` value appended to the `InterlockReason` enum (after `TGXL`, so no
+    existing value moves), and the lines at the end of
+    `ParseInterlockReason` that map a reason containing `PG-XL` to it. When
+    the Power Genius XL holds off transmit, the radio reports
+    `reason=AMP:PG-XL`; stock FlexLib named only the tuner's `AMP:TG`, and
+    `ParseInterlockStatus`'s `reason` case deliberately let the PG-XL's
+    string through as `None` (its `!value.Contains("PG-XL")` clause, left
+    as it was and now unreached for that string). So a refused tune could
+    not say the amplifier was the cause. The match is FlexLib's own,
+    `Contains("PG-XL")`. Any other amplifier's `AMP:<name>` still hits that
+    case's `continue` and leaves the previous reason standing, as stock code
+    does; out of scope here. The app reads the value in one place,
+    `TuneAnswer.NotKeyedSentence`. Pinned by
+    `Radios.Tests/PgxlInterlockReasonTests` (the reason parsed through
+    `ParseInterlockStatus`, the tuner's reason as a positive control, the
+    enum order, the tune sentence, and a source pin on both markers and this
+    entry). Numbered 31 because main ends at 28 and the SmartLink tiers
+    branch adds 29 and 30. Remove it if a FlexLib release names the PG-XL's
+    reason itself.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

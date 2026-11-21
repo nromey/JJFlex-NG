@@ -1,0 +1,1 @@
+- The slice recorder now tells you that the new recording did not start if you select ‘Back up first’ before replacing an existing recording and the backup does not finish. Previously, only the backup’s outcome was announced.

@@ -10,9 +10,10 @@ namespace Radios
 
         /// <summary>
         /// The tune carrier's own key (manual type), and the press says so.
-        /// Manual is the type after a failed ATU tune and after a bypass (Jim's
-        /// design, kept: "bypass the tuner", "Turn autotune off"), and the type
-        /// a radio with no ATU has from the start. A press with our carrier up
+        /// Manual is the type after the operator bypasses the ATU, and the type
+        /// a radio with no ATU has from the start. (A failed ATU tune left
+        /// manual too until #1188's Fail case, ruled 2026-11-19; it now stays
+        /// automatic, so the next press runs another ATU cycle.) A press with our carrier up
         /// turns it off; a new press starts one through the tune carrier toggle
         /// (MainWindow.TuneKeyCarrierPress, batch 12 repair round 1).
         /// </summary>

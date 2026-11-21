@@ -1,0 +1,1 @@
+- The tune refusal now names the Power Genius XL amplifier when the amplifier is preventing transmission.

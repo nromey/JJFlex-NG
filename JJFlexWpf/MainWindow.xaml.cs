@@ -5882,16 +5882,14 @@ public partial class MainWindow : UserControl
                 break;
             case "OK":
             case "Successful":
-                StopATUTimeout();
-                EarconPlayer.StopATUProgressEarcon();
+                EndAtuCycle(AtuCycleEnd.Result);
                 if (isAutoATU)
                     EarconPlayer.ATUSuccessTone();
                 AnnounceSettledSwrAfterTune(isFailure: false);
                 break;
             case "Fail":
             case "FailBypass":
-                StopATUTimeout();
-                EarconPlayer.StopATUProgressEarcon();
+                EndAtuCycle(AtuCycleEnd.Result);
                 if (isAutoATU)
                 {
                     EarconPlayer.ATUFailTone();
@@ -5900,17 +5898,56 @@ public partial class MainWindow : UserControl
                 break;
             case "Bypass":
             case "ManualBypass":
-                StopATUTimeout();
-                EarconPlayer.StopATUProgressEarcon();
+                EndAtuCycle(AtuCycleEnd.Result);
                 if (isAutoATU)
                     Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_bypassed"), VerbosityLevel.Terse);
                 break;
             case "NotStarted":
             case "Aborted":
-                StopATUTimeout();
-                EarconPlayer.StopATUProgressEarcon();
+                EndAtuCycle(AtuCycleEnd.Result);
                 break;
         }
+    }
+
+    /// <summary>How an ATU cycle, or a tune carrier, ended (#1193).</summary>
+    internal enum AtuCycleEnd
+    {
+        /// <summary>The radio reported a terminal status: the Ant Tune button
+        /// already shows what <see cref="AntTuneButtonTextFor"/> chose for it.</summary>
+        Result,
+        /// <summary>The 15 s timer fired with no end status from the radio.</summary>
+        TimedOut,
+        /// <summary>The radio's events were unwired (a disconnect, a retry, the exit).</summary>
+        Teardown,
+        /// <summary>Our own stop: a tune carrier turned off, or the tune key's stop of the tuner latch.</summary>
+        CarrierStopped,
+    }
+
+    /// <summary>
+    /// Whether the Ant Tune button goes back to its own label at this end of a
+    /// cycle: at every end but a result the radio reported, which the button
+    /// shows (#1193). Pure.
+    /// </summary>
+    internal static bool AtuEndShowsNeutral(AtuCycleEnd end) => end != AtuCycleEnd.Result;
+
+    /// <summary>
+    /// The one end of an ATU cycle (#1193): stops the 15 s timer and the
+    /// progress tone, and puts the Ant Tune button back to its own label
+    /// wherever the end is not a result the button should show. Before this,
+    /// about seven places each reset a different subset, and a disconnect or
+    /// the timeout left the button reading "InProgress".
+    /// </summary>
+    /// <remarks>
+    /// It never touches the transmit episode's ATU note: each caller that ends
+    /// the note does so itself, and the timeout deliberately does not (#1183:
+    /// the radio may still be tuning when a UI timer fires). It sends nothing
+    /// to the radio and makes no sound of its own.
+    /// </remarks>
+    private void EndAtuCycle(AtuCycleEnd end)
+    {
+        StopATUTimeout();
+        EarconPlayer.StopATUProgressEarcon();
+        if (AtuEndShowsNeutral(end)) ShowTuneButtonNeutral();
     }
 
     /// <summary>
@@ -7454,9 +7491,11 @@ public partial class MainWindow : UserControl
         // A carrier's stop ends any ATU episode with it (batch 14 repair round 4).
         if (!newState) _pttController?.NoteAtuTuning(false);
         TuneToggleButton.IsChecked = newState;
-        ShowTuneButtonNeutral();   // batch 14 repair 2 (#1144)
         if (newState)
         {
+            // A plain carrier is no ATU result (batch 14 repair 2, #1144). Its
+            // stop gets the same through TuneOffFeedback's end of cycle (#1193).
+            ShowTuneButtonNeutral();
             EarconPlayer.TuneOnTone();
             MeterToneEngine.OnTuneStarted();
             AnnounceTuneWhenTheRadioAnswers();
@@ -7470,12 +7509,13 @@ public partial class MainWindow : UserControl
     /// <summary>What a tune carrier going off says and sounds, from the toggle or from <see cref="TurnTuneCarrierOff"/>.</summary>
     private void TuneOffFeedback(float capturedSwr)
     {
+        // Ends any ATU cycle the carrier was part of (#1193): the timer, the
+        // progress earcon, and the Ant Tune button back to its own label,
+        // first, where the button's label was put back before (#1144).
+        EndAtuCycle(AtuCycleEnd.CarrierStopped);
         // Whatever still says this carrier is up goes before "Tune off" (#1127, repair round 2).
         TuneAnswers.Ended("tune off");
         EndTuneAnswer("tune off");
-        // Stop ATU progress earcon in case auto-ATU started a tune cycle
-        EarconPlayer.StopATUProgressEarcon();
-        StopATUTimeout();
         EarconPlayer.TuneOffTone();
         MeterToneEngine.OnTuneStopped();
         Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_off"), VerbosityLevel.Terse, true);
@@ -7512,7 +7552,8 @@ public partial class MainWindow : UserControl
         // the toggle's window is swallowed, which is the safe direction.
         _lastTuneToggleTicks = Environment.TickCount64;
         if (TuneToggleButton != null) TuneToggleButton.IsChecked = false;
-        ShowTuneButtonNeutral();   // batch 14 repair 2 (#1144)
+        // The Ant Tune button's own label (batch 14 repair 2, #1144) comes
+        // with TuneOffFeedback's end of cycle (#1193).
         TuneOffFeedback(capturedSwr);
         return true;
     }
@@ -7771,6 +7812,9 @@ public partial class MainWindow : UserControl
                     _oldSwr = "";
                     RigControl.FlexTunerOn = false;
                     _pttController?.NoteAtuTuning(false);
+                    // #1193: the cycle ends here even when no carrier of ours
+                    // is up for TurnTuneCarrierOff to find.
+                    EndAtuCycle(AtuCycleEnd.CarrierStopped);
                 }
                 TurnTuneCarrierOff();
                 return;
@@ -7879,20 +7923,22 @@ public partial class MainWindow : UserControl
         {
             Interval = TimeSpan.FromSeconds(15)
         };
-        _atuTuneTimer.Tick += (s, e) =>
-        {
-            StopATUTimeout();
-            EarconPlayer.StopATUProgressEarcon();
-            EarconPlayer.ATUFailTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_timed_out"), VerbosityLevel.Critical, true);
-            // #1183, deliberately: the ATU note (_pttController.NoteAtuTuning)
-            // is NOT cleared here. This is a UI timer, and the radio may still
-            // be tuning when it fires; the note follows the radio's own ATU
-            // status (batch 14 repair round 4), so the radio's end status or
-            // its transmit-off clears it, and a disconnect does
-            // (EndAtuForTeardown).
-        };
+        _atuTuneTimer.Tick += (s, e) => AtuTimedOut();
         _atuTuneTimer.Start();
+    }
+
+    /// <summary>The 15 s ATU timer's tick: the cycle ends as timed out (#1193).</summary>
+    private void AtuTimedOut()
+    {
+        EndAtuCycle(AtuCycleEnd.TimedOut);
+        EarconPlayer.ATUFailTone();
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_timed_out"), VerbosityLevel.Critical, true);
+        // #1183, deliberately: the ATU note (_pttController.NoteAtuTuning)
+        // is NOT cleared here. This is a UI timer, and the radio may still
+        // be tuning when it fires; the note follows the radio's own ATU
+        // status (batch 14 repair round 4), so the radio's end status or
+        // its transmit-off clears it, and a disconnect does
+        // (EndAtuForTeardown).
     }
 
     private void StopATUTimeout()
@@ -7917,8 +7963,9 @@ public partial class MainWindow : UserControl
     private void EndAtuForTeardown()
     {
         System.Threading.Interlocked.Increment(ref _atuEventWiring);
-        StopATUTimeout();
-        EarconPlayer.StopATUProgressEarcon();
+        // #1193: also puts the Ant Tune button back to its own label, which
+        // a disconnect mid-cycle used to leave reading "InProgress".
+        EndAtuCycle(AtuCycleEnd.Teardown);
         _pttController?.NoteAtuTuning(false);
     }
 

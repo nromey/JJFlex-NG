@@ -217,9 +217,15 @@ internal static class Act
         return reading.Failure == null && (reading.HasValuePattern || reading.HasRangeValue) ? 0 : 7;
     }
 
+    /// <summary>
+    /// Act on a control, and say how it ended in <paramref name="outcome"/>
+    /// (#1067): a refusal and a control not found used to exit 0, the same as
+    /// an act that ran, so a script could not tell them apart.
+    /// </summary>
     public static string Perform(int pid, string op, string? automationId, string? name, string? className,
-        int index, string? value, bool armed = false)
+        int index, string? value, out ActOutcome outcome, bool armed = false)
     {
+        outcome = ActOutcome.Refused;
         // Setting a value changes the app, and with no --value it would blank
         // the field, so it is refused unless armed and given a value (#989).
         // Checked before the search, so a refusal touches nothing.
@@ -234,8 +240,13 @@ internal static class Act
         }
 
         AutomationElement? el = Find(pid, automationId, name, className, index, out int matchCount, out string notFound);
-        if (el == null) return notFound;
+        if (el == null)
+        {
+            outcome = ActOutcome.NotFound;
+            return notFound;
+        }
 
+        outcome = ActOutcome.Done;
         var sb = new StringBuilder();
         sb.AppendLine(Describe(el, index, matchCount));
 

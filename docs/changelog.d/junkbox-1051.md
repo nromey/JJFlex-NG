@@ -1,0 +1,1 @@
+- A slice recording under ten seconds now gives its length in tenths of a second, so even a very short recording no longer reads as 0 seconds long.

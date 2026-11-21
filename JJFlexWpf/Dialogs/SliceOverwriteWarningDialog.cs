@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -57,7 +56,7 @@ public sealed class SliceOverwriteWarningDialog : JJFlexDialog
     public SliceOverwriteWarningDialog(bool backedUp, string letter, double seconds)
     {
         // PLACEHOLDER: Codex writes (#999). Every string here is an audio.recorder.overwrite.* key.
-        string length = ((int)Math.Round(seconds)).ToString(CultureInfo.CurrentCulture);
+        string length = Radios.Listenback.SliceRecordingListing.SpokenSeconds(seconds);   // #1051: tenths below ten seconds
         Title = Lexicon.Get("audio.recorder.overwrite.title", ("letter", letter));
         // The opening line: Noel's own draft for the not-backed-up form, verbatim.
         _opening = Lexicon.Get(backedUp ? "audio.recorder.overwrite.opening_backed_up" : "audio.recorder.overwrite.opening_not_backed_up",

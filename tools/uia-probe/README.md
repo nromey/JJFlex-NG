@@ -149,8 +149,11 @@ One JSON object on stdout, nothing else. Fields that matter to a caller:
 - `verdict` — `handled`, `unhandled`, `silent`, `not-sent`, or `skipped`.
 
 Exit codes: `0` ok · `1` error · `2` usage · `3` pressed but never settled ·
-`4` target window not found · `5` could not bring the window to the foreground ·
-`6` refused at the safety gate.
+`4` target window not found (for `value` and `act`: no such control) ·
+`5` could not bring the window to the foreground ·
+`6` refused at the safety gate (including `act --op value` without `--armed`
+or `--value`) · `7` `value` found the control but it has no value pattern, or
+the read failed.
 
 **"Settled" means** no UIA event from the target process *and* no new bytes in
 the speech log for `--quiet-ms` consecutive milliseconds, capped at

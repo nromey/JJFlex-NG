@@ -112,4 +112,63 @@ public sealed class SliceRecordingListingTests : IDisposable
         c.F.Vendor.Status("slice 1 record_time=6.0 play=0");
         Assert.Equal(new[] { "A", "C" }, SliceRecordingListing.Rows(c.F.Rig, Now).Select(r => r.Letter));
     }
+
+    // ---- #1051: the length in tenths below ten seconds ----
+
+    private static string InUsEnglish(Func<string> say)
+    {
+        var was = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+        try { return say(); }
+        finally { System.Globalization.CultureInfo.CurrentCulture = was; }
+    }
+
+    [Theory]
+    [InlineData(0.1, "0.1")]
+    [InlineData(0.04, "0.1")]    // above zero never reads as zero
+    [InlineData(0.55, "0.6")]
+    [InlineData(4.4, "4.4")]
+    [InlineData(1.0, "1")]
+    [InlineData(9.94, "9.9")]
+    [InlineData(10.0, "10")]
+    [InlineData(30.0, "30")]
+    [InlineData(29.6, "30")]
+    [InlineData(0.0, "0")]
+    public void A_slice_recordings_length_reads_in_tenths_below_ten_seconds(double seconds, string spoken) =>
+        Assert.Equal(spoken, InUsEnglish(() => SliceRecordingListing.SpokenSeconds(seconds)));
+
+    /// <summary>The row's sentence uses it: a 0.1 s recording no longer reads as 0 seconds.</summary>
+    [Fact]
+    public void A_tenth_of_a_second_recording_reads_as_a_tenth_in_its_row()
+    {
+        string tenth = InUsEnglish(() => SliceRecordingListing.Sentence("A", 0.1, null, false, Now));
+        string zero = InUsEnglish(() => Lexicon.Get("audio.takes.slice_row", ("letter", "A"), ("seconds", "0"),
+            ("made", Lexicon.Get("audio.takes.slice_made_outside")), ("backup", Lexicon.Get("audio.takes.slice_not_backed_up"))));
+        string expected = InUsEnglish(() => Lexicon.Get("audio.takes.slice_row", ("letter", "A"), ("seconds", "0.1"),
+            ("made", Lexicon.Get("audio.takes.slice_made_outside")), ("backup", Lexicon.Get("audio.takes.slice_not_backed_up"))));
+        Assert.Equal(expected, tenth);
+        Assert.NotEqual(zero, tenth);   // positive control: the template does carry the number
+    }
+
+    /// <summary>
+    /// Every place that says a slice recording's length goes through the one
+    /// formatter, and none rounds or floors to whole seconds itself. The
+    /// recorder labels (Home's strip, its Play button, the Slice menu) were
+    /// missed by the first pass and floored it; their behaviour is tested in
+    /// JJFlexWpf.Tests' SliceRecordingLengthLabelsTests.
+    /// </summary>
+    [Theory]
+    [InlineData("Radios", "Listenback", "SliceRecordingListing.cs")]
+    [InlineData("JJFlexWpf", "SliceBackupDoor.cs")]
+    [InlineData("JJFlexWpf", "Dialogs", "SliceOverwriteWarningDialog.cs")]
+    [InlineData("JJFlexWpf", "RecorderControls.cs")]
+    public void Every_slice_length_sentence_uses_the_one_formatter(params string[] file)
+    {
+        string source = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            new[] { FieldKeyMapScan.RepoRoot() }.Concat(file).ToArray()));
+        Assert.Contains("SpokenSeconds(", source);
+        Assert.DoesNotContain("(int)Math.Round(seconds)).ToString(", source.Replace("return ((int)Math.Round(seconds)).ToString(", ""));
+        Assert.DoesNotContain("(int)Math.Round(started.Seconds)", source);
+        Assert.DoesNotContain("(int)Math.Floor(seconds)", source);
+    }
 }

@@ -1439,22 +1439,25 @@ namespace Radios
         /// Restore focus to the parent window after a modal dialog closes.
         /// Must marshal to UI thread since auth runs on SmartLink thread.
         /// </summary>
+        /// <remarks>
+        /// Posted through <see cref="OpenParms.UiThread"/>, and the activation
+        /// is the shell's own callback (<see cref="OpenParms.ActivateParentWindow"/>),
+        /// so nothing here depends on the parent being a WinForms form (#1205).
+        /// </remarks>
         private void RestoreParentFocus()
         {
             try
             {
-                var parent = Callouts?.ParentWindow as Control;
-                if (parent != null && parent.IsHandleCreated)
+                var parent = Callouts?.ParentWindow;
+                var ui = Callouts?.UiThread;
+                if (parent != null && ui != null)
                 {
-                    parent.BeginInvoke(new Action(() =>
+                    var activate = Callouts.ActivateParentWindow;
+                    ui.Post(() =>
                     {
                         SetForegroundWindow(parent.Handle);
-                        if (parent is Form f)
-                        {
-                            f.Activate();
-                            f.BringToFront();
-                        }
-                    }));
+                        activate?.Invoke();
+                    });
                 }
             }
             catch { }
@@ -1541,11 +1544,15 @@ namespace Radios
 
                 // Show dialog on the main UI thread so it gets foreground focus.
                 // PerformNewLogin may be called from the SmartLink background thread.
+                // The UI thread comes from OpenParms.UiThread, not from casting
+                // the parent to a Control (#1205): the form is shown, and later
+                // disposed, on that one thread (see the lifetime note above).
                 DialogResult dialogResult = DialogResult.Cancel;
-                var parent = Callouts?.ParentWindow as Control;
-                if (parent != null && parent.IsHandleCreated && parent.InvokeRequired)
+                var parent = Callouts?.ParentWindow;
+                var ui = Callouts?.UiThread;
+                if (parent != null && UiThreadInvoker.MustMarshal(ui))
                 {
-                    parent.Invoke(new Action(() => { dialogResult = form.ShowDialog(parent as IWin32Window); }));
+                    UiThreadInvoker.Run(ui, () => { dialogResult = form.ShowDialog(parent); });
                 }
                 else
                 {
@@ -1781,19 +1788,13 @@ namespace Radios
             if (form == null) return;
             try
             {
-                var parent = Callouts?.ParentWindow as Control;
-                if (parent != null && parent.IsHandleCreated && parent.InvokeRequired)
+                // Through OpenParms.UiThread when the caller is off it, the
+                // same thread the form was shown on (#1205); here otherwise.
+                UiThreadInvoker.Run(Callouts?.UiThread, () =>
                 {
-                    parent.Invoke(new Action(() =>
-                    {
-                        try { form.Dispose(); }
-                        catch (Exception ex) { Tracing.TraceLine($"DisposeAuthFormOnUiThread: {ex.Message}", TraceLevel.Error); }
-                    }));
-                }
-                else
-                {
-                    form.Dispose();
-                }
+                    try { form.Dispose(); }
+                    catch (Exception ex) { Tracing.TraceLine($"DisposeAuthFormOnUiThread: {ex.Message}", TraceLevel.Error); }
+                });
             }
             catch (Exception ex)
             {

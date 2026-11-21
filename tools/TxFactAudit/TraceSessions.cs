@@ -124,14 +124,52 @@ namespace JJFlex.TxFactAudit
             @"Boot Tracing on instance:(?<instance>\d+)\s+(?<asm>.+?\.dll)\s+(?<ver>[\d.]+)\s+(?<when>.+?)\s+level=(?<level>\w+)",
             RegexOptions.Compiled);
 
+        /// <summary>The app's own variable for a throwaway settings tree.</summary>
+        public const string ConfigDirVariable = "JJFLEX_CONFIG_DIR";
+
         /// <summary>
-        /// The folder the app writes traces to. Note the app keeps its
+        /// The operator's own settings folder. Note the app keeps its
         /// JJFlexRadio identity here on purpose even though the executable was
         /// renamed to jjflexible.
         /// </summary>
-        public static string DefaultDirectory =>
+        public static string StandardDirectory =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                          "JJFlexRadio");
+
+        /// <summary>
+        /// The folder the app writes traces to: its settings root, which is the
+        /// <c>JJFLEX_CONFIG_DIR</c> tree when that is set, as it is for an
+        /// isolated run, and the operator's own folder otherwise.
+        /// <c>--trace-dir</c> still outranks both (callers pass it first).
+        /// </summary>
+        /// <remarks>
+        /// Until #937 this ignored the variable, so under an isolated run the
+        /// default read the operator's live traces and reported on the wrong
+        /// session without saying so: the gap #914 closed in jjprobe.
+        /// </remarks>
+        public static string DefaultDirectory =>
+            ResolveDefaultDirectory(Environment.GetEnvironmentVariable(ConfigDirVariable),
+                                    StandardDirectory, Console.Error);
+
+        /// <summary>
+        /// The rule, without the environment, in jjprobe's order
+        /// (<c>TraceLog.ResolveAppDataDir</c>): the variable when it holds a
+        /// full path, else the standard folder. A relative path is refused with
+        /// a message, as the app refuses it: it would resolve against whatever
+        /// directory the tool was started in.
+        /// </summary>
+        public static string ResolveDefaultDirectory(string? environment, string standard, TextWriter? warnings = null)
+        {
+            if (!string.IsNullOrWhiteSpace(environment))
+            {
+                string trimmed = environment.Trim();
+                if (Path.IsPathRooted(trimmed))
+                    return Path.GetFullPath(trimmed);
+                warnings?.WriteLine("TxFactAudit: ignoring " + ConfigDirVariable + " (\"" + trimmed
+                    + "\") because it is a relative path; reading " + standard + " instead.");
+            }
+            return standard;
+        }
 
         /// <summary>
         /// Every trace file that declares a session, newest session first by the

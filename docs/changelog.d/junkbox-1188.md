@@ -1,0 +1,1 @@
+- The ATU On/Off switch no longer turns itself Off when an automatic antenna tune finds no further tuning is required or the tune fails. The next press of Ctrl+T starts another automatic tune instead of sending only a carrier. Reconnecting after a tune that did not require further antenna tuning or matching no longer turns this switch Off.

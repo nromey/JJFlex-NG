@@ -94,6 +94,13 @@ namespace JJPortaudio
         private volatile float _gain = 1f;
         private volatile bool _reachedEnd;
         private volatile bool _restartOnNextBuffer;
+        // A disarm's fade, asked for by Stop and taken by the audio thread at
+        // the start of its next buffer, where the ramp's level is known.
+        private volatile bool _stopFadeOnNextBuffer;
+        // The state the audio thread left its last buffer in. Audio thread
+        // only: Stop overwrites _state, so this is what the thread was really
+        // doing when the disarm came.
+        private int _bufferEndState = StIdle;
         private volatile bool _holdSilenceAtEnd;
         private volatile int _playedFrames;
 
@@ -327,6 +334,7 @@ namespace JJPortaudio
             _reachedEnd = false;
             _playedFrames = 0;
             _fade = 0f;
+            _stopFadeOnNextBuffer = false;   // a disarm before this start is superseded by it
             _state = micOffTheEncoder ? StFileFadeIn : StMicFadeOut;
         }
 
@@ -349,6 +357,23 @@ namespace JJPortaudio
         /// If transmit audio is not flowing, the release resolves instantly at
         /// the next stream start.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The state moves to the file's fade-out here, at once, because
+        /// callers read <see cref="Engaged"/> straight after. The fade's
+        /// LEVEL is the audio thread's to set, at the start of its next
+        /// buffer (<see cref="TakeStopFade"/>): from a file at full level the
+        /// fade starts at full level and lasts 10 ms. Until 2026-11-19 the
+        /// fade carried on from the counter the file's ramp in had left at 1,
+        /// so a file at full level was cut in one frame, a click on the air.
+        /// </para>
+        /// <para>
+        /// This is a disarm while the transmission continues. An unkey is
+        /// not slowed by it: the unkey stops the self-clock hard, whatever
+        /// this player is doing (the 2026-08-24 ruling, no drain and no
+        /// tail), so no buffer of this fade is produced after an unkey.
+        /// </para>
+        /// </remarks>
         public void Stop()
         {
             _restartOnNextBuffer = false;
@@ -364,7 +389,61 @@ namespace JJPortaudio
                 return;
             }
             if (s == StIdle || s == StFileFadeOut || s == StMicFadeIn) return;
+            // The request first, then the state: an audio thread that reads
+            // the fade-out state then sees the request with it, and never runs
+            // a buffer of the fade at the stale level.
+            _stopFadeOnNextBuffer = true;
             _state = StFileFadeOut;
+        }
+
+        /// <summary>
+        /// A disarm's fade, taken on the audio thread (see <see cref="Stop"/>).
+        /// Starts the fade from the level this thread's last buffer ended at.
+        /// </summary>
+        /// <remarks>
+        /// From the file at level, the file fades out from full. From the
+        /// file's ramp in at f, the file fades out from f. From the
+        /// microphone's ramp out (no file sample yet sent), there is no file
+        /// to fade: the microphone ramps back in from where it had got to.
+        /// From the microphone or silence (a start and a stop between two
+        /// buffers), the microphone comes back from that level.
+        /// Reading this thread's own last state, not <c>_state</c>, also
+        /// closes the race where a stop lands in the buffer the file's ramp
+        /// in completes in, and that buffer then writes the file at level over
+        /// the stop: the request outlives the overwrite.
+        /// </remarks>
+        private int TakeStopFade(int state)
+        {
+            _stopFadeOnNextBuffer = false;
+            switch (_bufferEndState)
+            {
+                case StFile:
+                    _fade = 0f;
+                    state = StFileFadeOut;
+                    break;
+                case StFileFadeIn:
+                    _fade = Math.Clamp(1f - _fade, 0f, 1f);
+                    state = StFileFadeOut;
+                    break;
+                case StMicFadeOut:
+                    _fade = Math.Clamp(1f - _fade, 0f, 1f);
+                    state = StMicFadeIn;
+                    break;
+                case StIdle:
+                    _fade = 1f;
+                    state = StMicFadeIn;
+                    break;
+                case StEndSilence:
+                    _fade = 0f;
+                    state = StMicFadeIn;
+                    break;
+                default:
+                    // Already fading the file out or the microphone in: that
+                    // ramp goes on from where it is.
+                    return state;
+            }
+            _state = state;
+            return state;
         }
 
         /// <summary>Held silence to the microphone: nothing is left to fade out, so the mic ramps back from zero.</summary>
@@ -391,7 +470,8 @@ namespace JJPortaudio
             _lastProcessMs = now;
 
             int state = _state;
-            if (state == StIdle) return;
+            if (_stopFadeOnNextBuffer) state = TakeStopFade(state);
+            if (state == StIdle) { _bufferEndState = StIdle; return; }
 
             if (_restartOnNextBuffer)
             {
@@ -419,6 +499,7 @@ namespace JJPortaudio
                 // Content vanished under us. Let the mic back rather than
                 // transmitting a buffer of whatever was there.
                 _state = StIdle;
+                _bufferEndState = StIdle;
                 return;
             }
 
@@ -452,6 +533,7 @@ namespace JJPortaudio
                 else
                 {
                     _state = StIdle;
+                    _bufferEndState = StIdle;
                     return;
                 }
             }
@@ -562,12 +644,14 @@ namespace JJPortaudio
                     case StIdle:
                         // Released mid-buffer: remaining mic samples pass untouched.
                         _playedFrames = played;
+                        _bufferEndState = StIdle;
                         return;
                 }
                 i += Channels;
             }
 
             _playedFrames = played;
+            _bufferEndState = state;
         }
 
         /// <summary>

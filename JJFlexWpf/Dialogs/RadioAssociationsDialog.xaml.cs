@@ -194,7 +194,7 @@ public partial class RadioAssociationsDialog : JJFlexDialog
     private readonly Radios.SmartLink.SmartLinkSessionCoordinator _listSource = null!;
 
     /// <summary>What the lists looked like when the rows' accounts were last
-    /// asked (the radio list's own key, <see cref="RigSelectorDialog.ListsKey"/>).
+    /// asked (the radio list's own key, <see cref="HeldRadioLists.ListsKey"/>).
     /// UI thread only.</summary>
     private List<object>? _listsAskedAt;
 
@@ -227,10 +227,10 @@ public partial class RadioAssociationsDialog : JJFlexDialog
     /// </summary>
     /// <remarks>
     /// <para><b>The radio list's discipline, reused, not copied.</b> The lists
-    /// are read once (<see cref="RigSelectorDialog.ReadHeldLists"/>) and
+    /// are read once (<see cref="HeldRadioLists.ReadHeldLists"/>) and
     /// compared by the radio list's own key and change check
-    /// (<see cref="RigSelectorDialog.ListsKey"/>,
-    /// <see cref="RigSelectorDialog.ListsMovedSince"/>), taken BEFORE the asks,
+    /// (<see cref="HeldRadioLists.ListsKey"/>,
+    /// <see cref="HeldRadioLists.ListsMovedSince"/>), taken BEFORE the asks,
     /// so a list landing while they run is seen next time: asked once too
     /// often, never once too few. An unchanged reading asks nothing, so no
     /// record is read on a quiet event. An unreadable table has no key and
@@ -243,8 +243,8 @@ public partial class RadioAssociationsDialog : JJFlexDialog
     internal async System.Threading.Tasks.Task FollowTheListsAsync()
     {
         System.Threading.Interlocked.Exchange(ref _followQueued, 0);
-        var now = RigSelectorDialog.ListsKey(RigSelectorDialog.ReadHeldLists());
-        if (!RigSelectorDialog.ListsMovedSince(now, _listsAskedAt)) return;
+        var now = HeldRadioLists.ListsKey(HeldRadioLists.ReadHeldLists());
+        if (!HeldRadioLists.ListsMovedSince(now, _listsAskedAt)) return;
         _listsAskedAt = now;
         ListAskPasses++;
 
@@ -271,7 +271,7 @@ public partial class RadioAssociationsDialog : JJFlexDialog
 
         // The lists as they stand before the rows are asked: a list landing
         // during the asks reads as moved at the next event (#405 repair one).
-        _listsAskedAt = RigSelectorDialog.ListsKey(RigSelectorDialog.ReadHeldLists());
+        _listsAskedAt = HeldRadioLists.ListsKey(HeldRadioLists.ReadHeldLists());
 
         RadioList.Items.Clear();
         foreach (var entry in known)

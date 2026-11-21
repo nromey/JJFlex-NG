@@ -67,10 +67,24 @@ public static class RecorderControls
             return new object();
         });
     }
+    /// <summary>
+    /// Seam for tests: the slice recording's length instead of asking a radio,
+    /// for the strip, menu and button labels below. Null in the app.
+    /// </summary>
+    internal static Func<FlexBase, SliceRecorderTarget, double?>? SecondsOverride { get; set; }
+
+    private static double? SecondsOf(FlexBase? rig, SliceRecorderTarget target) =>
+        rig == null ? null : SecondsOverride != null ? SecondsOverride(rig, target) : rig.SliceRecordingSeconds(target);
+
     // DRAFT PROSE (#787): awaiting Noel. Shared by the strip, menu and buttons.
+    // The number is SliceRecordingListing.SpokenSeconds, the one formatter for
+    // a slice recording's length (#1051): tenths below ten seconds, and a
+    // length above zero never reads as zero. These labels floored it to whole
+    // seconds until then, so a 0.1 s recording read "0 seconds" here while
+    // Play takes said "0.1". A running recording's length goes the same way.
     public static string? RecordingLength(FlexBase? rig, SliceRecorderTarget target) =>
-        rig?.SliceRecordingSeconds(target) is double seconds
-            ? Lexicon.Get("audio.recorder.seconds", ("seconds", (int)Math.Floor(seconds))) : null;
+        SecondsOf(rig, target) is double seconds
+            ? Lexicon.Get("audio.recorder.seconds", ("seconds", Radios.Listenback.SliceRecordingListing.SpokenSeconds(seconds))) : null;
 
     public static string RecordingSummary(FlexBase? rig, SliceRecorderTarget target)
     {
@@ -91,8 +105,8 @@ public static class RecorderControls
     public static string SliceStripPlayLabel(FlexBase? rig, SliceRecorderTarget target)
     {
         if (rig?.IsSlicePlaying(target) == true) return Lexicon.Get("audio.recorder.stop_strip");
-        if (rig?.SliceRecordingSeconds(target) is double seconds)
-            return Lexicon.Get("audio.recorder.play_strip", ("seconds", (int)Math.Floor(seconds)));
+        if (SecondsOf(rig, target) is double seconds)
+            return Lexicon.Get("audio.recorder.play_strip", ("seconds", Radios.Listenback.SliceRecordingListing.SpokenSeconds(seconds)));
         return Lexicon.Get("audio.recorder.play_button");
     }
     /// <summary>
@@ -187,7 +201,12 @@ public static class RecorderControls
         // first. Only when starting; a running recording always stops at once.
         if (rig != null && !rig.IsSliceRecording(target))
         {
-            var answered = await ConfirmOverwriteAsync(rig, target);
+            // #1044: when Back up first does not finish, say that the new
+            // recording did not start, at the end of the backup's own sentence
+            // and in the same utterance, as Check your audio does (#1040).
+            // DRAFT sentence, a placeholder for Codex.
+            var answered = await ConfirmOverwriteAsync(rig, target,
+                afterUnfinishedBackup: Lexicon.Get("audio.recorder.not_started_backup_unfinished"));
             if (!answered.Proceed) return new(false, "", SpeechSubject.SliceRecorder(""));
             if (answered.Asked)
             {
@@ -233,8 +252,12 @@ public static class RecorderControls
     /// </summary>
     internal static Func<SliceOverwriteQuestion, Dialogs.SliceOverwriteReply>? AskOverride { get; set; }
 
-    /// <summary>Seam for tests: runs Back up first instead of <see cref="SliceBackupDoor"/>.</summary>
-    internal static Func<FlexBase, SliceRecorderTarget, Task<Radios.Listenback.SliceBackupOutcome?>>? BackUpOverride { get; set; }
+    /// <summary>
+    /// Seam for tests: runs Back up first instead of <see cref="SliceBackupDoor"/>,
+    /// and receives the sentence the real door would say after an unfinished
+    /// backup (null when the caller passed none), so a test can see it.
+    /// </summary>
+    internal static Func<FlexBase, SliceRecorderTarget, string?, Task<Radios.Listenback.SliceBackupOutcome?>>? BackUpOverride { get; set; }
 
     /// <summary>Seam for tests: what the radio would report, instead of asking a radio. Null in the app.</summary>
     internal static Func<FlexBase, SliceRecorderTarget, SliceOverwriteFacts?>? FactsOverride { get; set; }
@@ -267,7 +290,8 @@ public static class RecorderControls
     /// <param name="owner">The window the warning opens over; the main window when null.</param>
     /// <param name="afterUnfinishedBackup">
     /// Said when Back up first does not finish, at the end of the backup's own
-    /// sentence and in the same utterance (#1040). Only Check your audio passes one.
+    /// sentence and in the same utterance (#1040). Check your audio passes its
+    /// own; every other door passes the slice recorder's (#1044).
     /// </param>
     public static async Task<OverwriteGo> ConfirmOverwriteAsync(FlexBase rig, SliceRecorderTarget target, System.Windows.Window? owner = null,
         string? afterUnfinishedBackup = null)
@@ -294,7 +318,7 @@ public static class RecorderControls
         var slice = SliceRecorderTarget.Letter(question.Letter[0]);
         if (reply.Answer == Dialogs.SliceOverwriteAnswer.BackUpFirst)
         {
-            var backup = BackUpOverride != null ? await BackUpOverride(rig, slice) : await SliceBackupDoor.BackUpAsync(rig, slice, afterUnfinishedBackup);
+            var backup = BackUpOverride != null ? await BackUpOverride(rig, slice, afterUnfinishedBackup) : await SliceBackupDoor.BackUpAsync(rig, slice, afterUnfinishedBackup);
             // A backup that did not finish leaves the recording unprotected, so
             // nothing records over it; the backup door has said why.
             if (backup?.BackedUp != true) return new(false, true, target) { BackupUnfinished = true };

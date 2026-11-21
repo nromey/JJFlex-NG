@@ -1,0 +1,1 @@
+- The update download now cancels when you press Escape or close the window, just as it does with the Cancel button. An 'Update failed' box no longer appears after the window closes.

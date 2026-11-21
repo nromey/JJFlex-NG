@@ -2724,6 +2724,34 @@ namespace JJFlexWpf.Dialogs
         // -------------------------------------------------------- entry points
 
         /// <summary>
+        /// The WPF window holding the keyboard, for the trace line that names
+        /// who opened the picker; null off an STA thread, or when the keyboard
+        /// is not in a WPF window (the main window's hosted content, a menu).
+        /// </summary>
+        /// <remarks>
+        /// The same two lines as <c>KeyCommands.FocusedWpfWindow</c>, copied
+        /// rather than shared, because that method is private to a file another
+        /// branch is changing (#1210). It only names a window: the picker's
+        /// <see cref="Window.Owner"/> is still set only from the caller.
+        /// </remarks>
+        private static Window? WindowHoldingTheKeyboard()
+        {
+            if (System.Threading.Thread.CurrentThread.GetApartmentState() != System.Threading.ApartmentState.STA)
+                return null;
+            try
+            {
+                return System.Windows.Input.Keyboard.FocusedElement is DependencyObject focused
+                    ? Window.GetWindow(focused)
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Audio Devices: could not read the focused window: " + ex.Message, TraceLevel.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Show the picker and report whether radio audio is configured
         /// afterwards. Used by the PC-audio rescue path, where the answer
         /// decides whether PC audio can actually start.
@@ -2739,10 +2767,12 @@ namespace JJFlexWpf.Dialogs
             if (owner != null) dlg.Owner = owner;
             // Which window opened it (#835, fix round 2026-10-28): a bench
             // could not tell, and "the microphone changed in one window and not
-            // the other" turned on exactly that. The window active when the
-            // picker opens is the one whose button or menu opened it.
+            // the other" turned on exactly that. The window holding the
+            // keyboard when the picker opens is the one whose button or menu
+            // opened it. (#1210: this asked the WPF application object, and
+            // there is none in this app, so it always said "no active window".)
             string from = owner?.Title
-                ?? System.Windows.Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive)?.Title
+                ?? WindowHoldingTheKeyboard()?.Title
                 ?? "no active window (the main window or a menu)";
             Tracing.TraceLine("Audio Devices: opened from \"" + from + "\"" + (startMicCheck ? ", with the microphone check running" : ""),
                 TraceLevel.Info);

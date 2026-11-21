@@ -1,0 +1,1 @@
+- The Ant Tune button no longer keeps reading ‘InProgress’ after a disconnect during an automatic tune or after 15 seconds without a result from the radio. The button returns to its usual label in those cases. The radio then subsequently reports the result of the tune as normal.

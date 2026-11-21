@@ -49,13 +49,39 @@ public static class SliceRecordingListing
     }
 
     /// <summary>
+    /// A slice recording's length as its sentences say it (#1051): tenths of a
+    /// second below ten seconds ("0.1", "4.4"), whole seconds from ten up
+    /// ("30"), in the current culture. A length above zero never reads as
+    /// zero: it is floored at 0.1. Numbers only; the sentence templates
+    /// around it are unchanged.
+    /// </summary>
+    /// <remarks>
+    /// The one formatter for the slice recording's length, used by the slice
+    /// row here, the backup's start sentence (<c>SliceBackupDoor</c>) and the
+    /// overwrite warning's detail (<c>SliceOverwriteWarningDialog</c>). Until
+    /// batch 17 each rounded to whole seconds itself, so a 0.1 s recording
+    /// was said to be "0 seconds long". It lives here, in Radios, because two
+    /// of the three are in JJFlexWpf.
+    /// </remarks>
+    public static string SpokenSeconds(double seconds)
+    {
+        if (double.IsNaN(seconds) || seconds <= 0) return 0.ToString(CultureInfo.CurrentCulture);
+        if (seconds < 10)
+        {
+            double tenths = Math.Max(0.1, Math.Round(seconds, 1, MidpointRounding.AwayFromZero));
+            return tenths.ToString("0.#", CultureInfo.CurrentCulture);
+        }
+        return ((int)Math.Round(seconds)).ToString(CultureInfo.CurrentCulture);
+    }
+
+    /// <summary>
     /// "Slice B recording, 30 seconds, made earlier today at 8:15 PM on 14.200
     /// megahertz USB. Not backed up." A recording no stamp describes says it was
     /// made outside JJ Flexible (S1).
     /// </summary>
     public static string Sentence(string letter, double seconds, SliceTakeStamp? stamp, bool backedUp, DateTime nowLocal)
     {
-        string length = ((int)Math.Round(seconds)).ToString(CultureInfo.CurrentCulture);
+        string length = SpokenSeconds(seconds);
         string made;
         if (stamp == null || stamp.Source == SliceTakeSource.Outside)
             made = Lexicon.Get("audio.takes.slice_made_outside");

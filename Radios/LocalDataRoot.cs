@@ -35,9 +35,10 @@ namespace Radios
     /// </remarks>
     public static class LocalDataRoot
     {
-        /// <summary>The folder name used when the settings root cannot be
-        /// resolved at all; the same name RadioConfig gives the settings
-        /// folder.</summary>
+        /// <summary>The settings folder's standard name, the same name
+        /// RadioConfig gives it: the ordinary root is this folder directly
+        /// inside roaming app data, and it is also the name used when the
+        /// settings root cannot be resolved at all.</summary>
         private const string FallbackFolderName = "JJFlexRadio";
 
         /// <summary>The folder inside a relocated settings tree that stands in
@@ -59,21 +60,29 @@ namespace Radios
 
         /// <summary>
         /// The rule, without the environment. When the settings root is the
-        /// ordinary one (directly inside roaming app data), the local root is
+        /// ordinary one (<c>%AppData%\JJFlexRadio</c> itself), the local root is
         /// the folder of the same name inside local app data. When it has been
         /// moved, the local root moves with it, inside it.
         /// </summary>
+        /// <remarks>
+        /// Ordinary means the standard folder exactly, not any folder whose
+        /// parent is roaming app data (#937): <c>JJFLEX_CONFIG_DIR</c> set to
+        /// <c>%AppData%\Something</c> is a throwaway tree, and the old parent
+        /// test sent its local data to <c>%LocalAppData%\Something</c>,
+        /// outside it. RadioConfig refuses an override equal to the standard
+        /// folder, so "is the standard folder" is "was not relocated".
+        /// </remarks>
         public static string Resolve(string? appDataRoot, string? roamingAppData, string? localAppData)
         {
             if (string.IsNullOrWhiteSpace(appDataRoot))
                 return Path.Combine(localAppData ?? "", FallbackFolderName);
 
             string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(appDataRoot));
-            string? parent = Path.GetDirectoryName(root);
             bool ordinary = !string.IsNullOrWhiteSpace(roamingAppData)
-                && parent != null
-                && string.Equals(parent,
-                                 Path.TrimEndingDirectorySeparator(Path.GetFullPath(roamingAppData!)),
+                && string.Equals(root,
+                                 Path.Combine(
+                                     Path.TrimEndingDirectorySeparator(Path.GetFullPath(roamingAppData!)),
+                                     FallbackFolderName),
                                  StringComparison.OrdinalIgnoreCase);
 
             if (ordinary && !string.IsNullOrWhiteSpace(localAppData))
