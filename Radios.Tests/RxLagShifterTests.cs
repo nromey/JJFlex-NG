@@ -503,6 +503,38 @@ namespace Radios.Tests
             else Assert.Equal(1, s.TotalGapSplices);
         }
 
+        /// <summary>
+        /// Codex's re-check 2 of 0d8ecb3c: the CW exception was taken from the span's
+        /// FIRST block and granted to every block it touched, so a span starting in CW
+        /// spliced into blocks with no CW flag and no classification (removal over 312
+        /// such frames, growth over 192). The exception is checked on every block now.
+        /// Uniformly CW spans still splice (key-ups with no detector); a non-CW start
+        /// refuses as before.
+        /// </summary>
+        [Theory]
+        [InlineData(false, true, false, 0)]    // CW, then unknown non-CW: refuse
+        [InlineData(true, true, false, 0)]
+        [InlineData(false, true, true, 1)]     // uniformly CW: splices
+        [InlineData(true, true, true, 1)]
+        [InlineData(false, false, false, 0)]   // confirmed noise, then unknown: refuse
+        [InlineData(false, false, true, 1)]    // uniformly confirmed noise: splices
+        public void The_CW_exception_holds_only_for_blocks_that_are_CW(bool growth, bool cwStart, bool uniform, int gaps)
+        {
+            var start = cwStart ? RxContentClass.Cw : RxContentClass.Classified | RxContentClass.NotVoiceRun;
+            var budget = new RxLagBudget(Rate);
+            var s = new RxLagShifter(2, Rate * 2, Rate, budget) { ClassLagFrames = 3408, LogSplices = true };
+            var b = new float[Block * 2];
+            for (int k = 0; k < 50; k++) s.Write(b, k >= 1 && !uniform ? RxContentClass.Unclassified : start);
+            s.SetDelay(s.WritePosition - 3840);
+            s.Request(growth ? -120 : 120, LagPolicy.CatchUp, LagCause.LateAudio, exact: true);
+            budget.Touch(LagPolicy.CatchUp, cwStart);
+            budget.Advance(Rate);
+            s.Render(b);
+            for (int j = 0; j < s.SpliceLogCount; j++)
+                _out.WriteLine($"{(growth ? "growth" : "removal")}: old {s.SpliceLog[j].OldSide} new {s.SpliceLog[j].NewSide}, classification [{Math.Min(s.SpliceLog[j].OldSide, s.SpliceLog[j].NewSide) - 3408}, {Math.Max(s.SpliceLog[j].OldSide, s.SpliceLog[j].NewSide) + s.SpliceLog[j].Fade - 3408})");
+            Assert.Equal(gaps, s.TotalGapSplices);
+        }
+
         [Fact]
         public void CW_key_ups_still_take_gap_splices_with_or_without_a_detector()
         {

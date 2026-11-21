@@ -1317,7 +1317,7 @@ namespace JJPortaudio
                 }
                 if (L < _minLag) return false;
                 bool wasUncertain = uncertain;
-                if (!GapClassOk(removal ? a : a - L, removal ? a + L + F : a + F, cw, out uncertain)) return false;
+                if (!GapClassOk(removal ? a : a - L, removal ? a + L + F : a + F, out uncertain)) return false;
                 // A block the detector was unsure of caps the splice at 20 ms: once more at that cap.
                 if (!uncertain || wasUncertain || L <= _gapMaxUncertain) break;
             }
@@ -1362,7 +1362,7 @@ namespace JJPortaudio
         /// <paramref name="uncertain"/> is set when any block's voice probability
         /// sat between 0.1 and 0.3.
         /// </summary>
-        private bool GapClassOk(long from, long to, bool cw, out bool uncertain)
+        private bool GapClassOk(long from, long to, out bool uncertain)
         {
             uncertain = false;
             if (to <= from) return true;
@@ -1371,7 +1371,11 @@ namespace JJPortaudio
             {
                 var c = ClassOfBlockAt(b);
                 if ((c & (RxContentClass.Speech | RxContentClass.Active)) != 0) return false;
-                if (!cw && (c & (RxContentClass.Classified | RxContentClass.NotVoiceRun)) != (RxContentClass.Classified | RxContentClass.NotVoiceRun)) return false;
+                // The CW exception is the BLOCK's, never the span's (Codex's re-check 2 of
+                // 0d8ecb3c): a span starting in CW used to waive confirmation for every
+                // block it touched, unknown voice-mode blocks included.
+                if ((c & RxContentClass.Cw) == 0
+                    && (c & (RxContentClass.Classified | RxContentClass.NotVoiceRun)) != (RxContentClass.Classified | RxContentClass.NotVoiceRun)) return false;
                 if ((c & RxContentClass.Uncertain) != 0) uncertain = true;
             }
             return true;

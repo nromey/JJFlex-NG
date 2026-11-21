@@ -159,15 +159,18 @@ namespace JJFlexWpf
         /// One class for the frames [<paramref name="from"/>, <paramref name="to"/>)
         /// that covers every block they touch, both partial ends included (Codex's
         /// re-check of 5a0a8c93, with B2): anything that holds speech, loudness, a
-        /// doubtful probability, CW or a digital mode in ANY touched block holds it;
-        /// classified and the not-voice run only when EVERY touched block is. A block
+        /// doubtful probability or a digital mode in ANY touched block holds it;
+        /// classified, the not-voice run and CW (which grants a splice) only when
+        /// EVERY touched block does. A block
         /// not yet complete counts as unclassified, with the mode's flags.
         /// </summary>
         public RxContentClass ClassOfSpan(long from, long to)
         {
             if (to <= from) return ClassOfBlock(_blocks - 1);
-            const RxContentClass any = RxContentClass.Speech | RxContentClass.Active | RxContentClass.Uncertain | RxContentClass.Cw | RxContentClass.NoSplice;
-            const RxContentClass all = RxContentClass.Classified | RxContentClass.NotVoiceRun;
+            // Cw GRANTS a splice (key-ups need no detector), so it holds only when every
+            // block is CW; the flags that refuse hold when any block has them.
+            const RxContentClass any = RxContentClass.Speech | RxContentClass.Active | RxContentClass.Uncertain | RxContentClass.NoSplice;
+            const RxContentClass all = RxContentClass.Classified | RxContentClass.NotVoiceRun | RxContentClass.Cw;
             RxContentClass ored = 0, anded = all;
             long first = from >= 0 ? from / Frame : -((-from + Frame - 1) / Frame);
             for (long b = first; b * Frame < to; b++)

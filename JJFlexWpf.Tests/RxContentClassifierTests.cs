@@ -172,4 +172,23 @@ public sealed class RxContentClassifierTests
         // No slot running: no delay, so the class is the newest block's.
         Assert.Equal(p.Classifier.ClassOfBlock(p.Classifier.Blocks - 1), c.LastBufferClass);
     }
+
+    /// <summary>
+    /// CW grants a splice, so a span's summary carries it only when every block is CW
+    /// (Codex's re-check 2 of 0d8ecb3c); the digital flag refuses, so any block's carries.
+    /// </summary>
+    [Fact]
+    public void A_span_is_CW_only_when_every_block_is_and_digital_when_any_is()
+    {
+        using var c = new RxContentClassifier();
+        var silence = new float[2 * F];
+        c.SetMode("CW");
+        for (int b = 0; b < 4; b++) c.Classify(silence, 2);
+        c.SetMode("DIGU");
+        for (int b = 0; b < 4; b++) c.Classify(silence, 2);
+        Assert.True((c.ClassOfSpan(0, 4 * F) & RxContentClass.Cw) != 0, "an all-CW span lost CW");
+        Assert.True((c.ClassOfSpan(3 * F, 5 * F) & RxContentClass.Cw) == 0, "a span crossing out of CW kept CW");
+        Assert.True((c.ClassOfSpan(3 * F, 5 * F) & RxContentClass.NoSplice) != 0, "a span touching a digital block lost no-splice");
+        Assert.True((c.ClassOfSpan(0, 2 * F) & RxContentClass.NoSplice) == 0);
+    }
 }
