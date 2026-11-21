@@ -41,13 +41,13 @@ public sealed class QuickTypeCommitTests
 
         Assert.Equal("USB", o.Correction?.RequiredMode);
         Assert.Equal("Frequency set to 5.360 megahertz", o.Arrival);
-        Assert.Equal("Frequency set to 5.360 megahertz, 60 meter segment needs USB, switching",
+        Assert.Equal("Frequency set to 5.360 megahertz, switching to USB",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.Sent));
-        Assert.Equal("Frequency set to 5.360 megahertz, 60 meter segment needs USB, mode not changed while transmitting",
+        Assert.Equal("Frequency set to 5.360 megahertz, the mode could not be changed to USB while transmitting",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedTransmitting));
-        Assert.Equal("Frequency set to 5.360 megahertz, 60 meter segment needs USB, mode not changed",
+        Assert.Equal("Frequency set to 5.360 megahertz, the mode could not be changed to USB",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedNoSlice));
-        Assert.Equal("Frequency set to 5.360 megahertz, 60 meter segment needs USB, mode not changed",
+        Assert.Equal("Frequency set to 5.360 megahertz, the mode could not be changed to USB",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedNotRunning));
     }
 
@@ -57,7 +57,7 @@ public sealed class QuickTypeCommitTests
         var o = FreqOutHandlers.QuickTypeCommitOutcome("US", 5_330_500, "LSB", "5.3305 megahertz");
 
         Assert.Equal("USB", o.Correction?.RequiredMode);
-        Assert.Equal("Frequency set to 5.3305 megahertz, Channel 1 needs USB, switching",
+        Assert.Equal("Frequency set to 5.3305 megahertz, switching to USB",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.Sent));
     }
 
@@ -136,11 +136,11 @@ public sealed class QuickTypeCommitTests
 
         Assert.Equal("USB", o.Correction?.RequiredMode);
         Assert.Equal("60 meter band, 5.3305 megahertz", o.Arrival);
-        Assert.Equal("60 meter band, 5.3305 megahertz, Channel 1 needs USB, switching",
+        Assert.Equal("60 meter band, 5.3305 megahertz, switching to USB",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.Sent));
-        Assert.Equal("60 meter band, 5.3305 megahertz, Channel 1 needs USB, mode not changed while transmitting",
+        Assert.Equal("60 meter band, 5.3305 megahertz, the mode could not be changed to USB while transmitting",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedTransmitting));
-        Assert.Equal("60 meter band, 5.3305 megahertz, Channel 1 needs USB, mode not changed",
+        Assert.Equal("60 meter band, 5.3305 megahertz, the mode could not be changed to USB",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedNoSlice));
     }
 
