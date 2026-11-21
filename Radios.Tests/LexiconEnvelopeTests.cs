@@ -3033,7 +3033,7 @@ namespace Radios.Tests
                 // Codex's words with Noel's edit, approved 2026-11-19.
                 "audio.ptt.blocked_by_license",
                 "settings.band.tx_lockout_message",
-                // Junk box batch 16 (2026-11-19), approved by Noel 2026-11-21 (the operator line pending):
+                // Junk box batch 16 (2026-11-19), approved by Noel 2026-11-21:
                 // #1204, an update whose exit the operator cancelled.
                 "connect.update.exit_cancelled",
                 // Repair 1: Settings could not apply its edits, so nothing launched.
