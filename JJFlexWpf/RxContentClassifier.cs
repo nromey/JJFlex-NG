@@ -82,6 +82,9 @@ namespace JJFlexWpf
         /// <summary>Blocks classified since construction.</summary>
         public long Blocks => _blocks;
 
+        /// <summary>Frames given to <see cref="Classify"/> since construction, the last block's partial fill included.</summary>
+        public long Frames => _blocks * Frame + _fill;
+
         /// <summary>True when the detector loaded; false means every block is unclassified.</summary>
         public bool DetectorAvailable => _detector?.IsAvailable == true;
 
@@ -150,6 +153,30 @@ namespace JJFlexWpf
             int modeOnly = System.Threading.Volatile.Read(ref _modeFlags);
             if (block < 0 || block >= _blocks || _blocks - block > _history.Length) return (RxContentClass)modeOnly;
             return _history[block % _history.Length];
+        }
+
+        /// <summary>
+        /// One class for the frames [<paramref name="from"/>, <paramref name="to"/>)
+        /// that covers every block they touch, both partial ends included (Codex's
+        /// re-check of 5a0a8c93, with B2): anything that holds speech, loudness, a
+        /// doubtful probability, CW or a digital mode in ANY touched block holds it;
+        /// classified and the not-voice run only when EVERY touched block is. A block
+        /// not yet complete counts as unclassified, with the mode's flags.
+        /// </summary>
+        public RxContentClass ClassOfSpan(long from, long to)
+        {
+            if (to <= from) return ClassOfBlock(_blocks - 1);
+            const RxContentClass any = RxContentClass.Speech | RxContentClass.Active | RxContentClass.Uncertain | RxContentClass.Cw | RxContentClass.NoSplice;
+            const RxContentClass all = RxContentClass.Classified | RxContentClass.NotVoiceRun;
+            RxContentClass ored = 0, anded = all;
+            long first = from >= 0 ? from / Frame : -((-from + Frame - 1) / Frame);
+            for (long b = first; b * Frame < to; b++)
+            {
+                var c = ClassOfBlock(b);
+                ored |= c & any;
+                anded &= c;
+            }
+            return ored | (anded & all);
         }
 
         private void CompleteBlock()

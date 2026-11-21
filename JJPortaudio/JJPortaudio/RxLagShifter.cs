@@ -1257,6 +1257,7 @@ namespace JJPortaudio
                 if (!uncertain || wasUncertain || L <= _gapMaxUncertain) break;
             }
             long oldSide = a, newSide = removal ? a + L : a - L;
+            if (SpanHas(removal ? a : newSide, removal ? newSide + F : a + F, RxContentClass.NoSplice)) return false;
             if (removal)
             {
                 if (newSide + F > _write) return false;
@@ -1283,26 +1284,52 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// True when every block covering [<paramref name="from"/>, <paramref name="to"/>)
-        /// that is in hand may be gap-spliced by its class: no Speech and no Active,
-        /// and confirmed not-voice (Classified with NotVoiceRun), or CW (the slice
-        /// mode's flag, which holds with or without a detector). Blocks not yet
-        /// written are left to the splice's own bounds. <paramref name="uncertain"/>
-        /// is set when any block's voice probability sat between 0.1 and 0.3.
+        /// True when every classification block the audio [<paramref name="from"/>,
+        /// <paramref name="to"/>) touches may be gap-spliced by its class: no Speech
+        /// and no Active, and confirmed not-voice (Classified with NotVoiceRun), or CW
+        /// (the slice mode's flag, which holds with or without a detector). The
+        /// interval is shifted into the classification timeline FIRST
+        /// (<see cref="ClassLagFrames"/> back) and every block it touches is read,
+        /// both partial ends included: Codex's re-check of 5a0a8c93 (B2) found that
+        /// shifting sample points after walking audio blocks skipped a trailing
+        /// partial speech block whenever the lag was not a whole number of blocks.
+        /// A block not in hand reads as unclassified, so it refuses.
+        /// <paramref name="uncertain"/> is set when any block's voice probability
+        /// sat between 0.1 and 0.3.
         /// </summary>
         private bool GapClassOk(long from, long to, bool cw, out bool uncertain)
         {
             uncertain = false;
-            from = Math.Max(from, 0);
-            to = Math.Min(to, _write);
-            for (long b = from / _block; b * _block < to; b++)
+            if (to <= from) return true;
+            long cFrom = from - ClassLagFrames, cTo = to - ClassLagFrames;
+            for (long b = FloorBlock(cFrom); b * _block < cTo; b++)
             {
-                var c = ClassAt(Math.Max(from, b * _block));
+                var c = ClassOfBlockAt(b);
                 if ((c & (RxContentClass.Speech | RxContentClass.Active)) != 0) return false;
                 if (!cw && (c & (RxContentClass.Classified | RxContentClass.NotVoiceRun)) != (RxContentClass.Classified | RxContentClass.NotVoiceRun)) return false;
                 if ((c & RxContentClass.Uncertain) != 0) uncertain = true;
             }
             return true;
+        }
+
+        /// <summary>True when any classification block the audio [<paramref name="from"/>, <paramref name="to"/>) touches carries <paramref name="flag"/>.</summary>
+        private bool SpanHas(long from, long to, RxContentClass flag)
+        {
+            if (to <= from) return false;
+            long cFrom = from - ClassLagFrames, cTo = to - ClassLagFrames;
+            for (long b = FloorBlock(cFrom); b * _block < cTo; b++)
+                if ((ClassOfBlockAt(b) & flag) != 0) return true;
+            return false;
+        }
+
+        private long FloorBlock(long pos) => pos >= 0 ? pos / _block : -((-pos + _block - 1) / _block);
+
+        /// <summary>The class of classification block <paramref name="b"/>, or unclassified when it is not in hand.</summary>
+        private RxContentClass ClassOfBlockAt(long b)
+        {
+            if (b < 0) return RxContentClass.Unclassified;
+            int slot = (int)(b % _blocks);
+            return _blockId[slot] == b ? (RxContentClass)_blockFlags[slot] : RxContentClass.Unclassified;
         }
 
         private bool TryPeriod(long a, bool removal, long need, long reach, int remaining, bool tonal, float periodicity,
@@ -1338,6 +1365,8 @@ namespace JJPortaudio
             if (_exact && !ExactOk(need, L)) return false;
             int F = L;
             long newSide = removal ? a + L : a - L;
+            // A digital mode anywhere in what the splice touches (a mode change part-way) refuses it.
+            if (SpanHas(removal ? a : newSide, removal ? newSide + F : a + F, RxContentClass.NoSplice)) return false;
             if (removal ? newSide + F > _write : a + F > _write) return false;
             if (removal ? !TransientOk(a, newSide, F, a, newSide + F) : !TransientOk(a, newSide, F, newSide, a + F)) return false;
             if (!_budget.TakePeriod(L)) return false;

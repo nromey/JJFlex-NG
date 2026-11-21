@@ -354,4 +354,42 @@ public class ReceiveSeamTimelineTests
         Assert.Contains(run.Crossings, c => c / F == run.Handover);
         Assert.Equal(run.Crossings, run.Reported);
     }
+
+    /// <summary>
+    /// The class the queue is given covers every classification block its buffer
+    /// touches (Codex's re-check of 5a0a8c93, the audit with B2): at a delay that is
+    /// not a whole number of blocks, an output buffer holds the end of one input block
+    /// and the start of the next. Bank alone at 300 frames, the mode changed to DIGU at
+    /// buffer X: output buffer X already holds 180 frames of digital audio, so it must
+    /// say no-splice; the rounded one-block summary said so a buffer late. And back to
+    /// USB at buffer Y: buffer Y still holds 300 frames of digital audio.
+    /// </summary>
+    [Fact]
+    public void The_queue_s_class_covers_every_block_its_buffer_touches_at_a_part_block_delay()
+    {
+        var catalog = new DenoiseEngineCatalog(new[] { Row("rnnoise", DenoiseFamily.Neural, 300) });
+        using var p = new RxAudioPipeline(catalog: catalog);
+        p.NeuralSlot.MuteOverrideForTest = false;
+        p.NeuralSlot.SetStrength("rnnoise", 1);
+        p.RnnEnabled = true;
+        p.SetCurrentMode("USB");
+        var rng = new Random(3);
+        var audio = new float[2 * F];
+        const int x = 40, y = 60;
+        var digital = new bool[80];
+        for (int b = 0; b < 80; b++)
+        {
+            if (b == x) p.SetCurrentMode("DIGU");
+            if (b == y) p.SetCurrentMode("USB");
+            for (int i = 0; i < F; i++) audio[2 * i] = audio[2 * i + 1] = (float)(rng.NextDouble() - 0.5) * 0.1f;
+            p.Process(audio);
+            digital[b] = (p.LastBufferClass & RxContentClass.NoSplice) != 0;
+        }
+        Assert.Equal(300, p.NeuralSlot.HeardDelaySamples);
+        _out.WriteLine($"digital output buffers: {string.Join(",", Enumerable.Range(0, 80).Where(b => digital[b]))}");
+        Assert.False(digital[x - 1]);
+        Assert.True(digital[x], "the first output buffer holding digital audio was not marked no-splice");
+        Assert.True(digital[y], "the last output buffer holding digital audio was not marked no-splice");
+        Assert.False(digital[y + 1]);
+    }
 }

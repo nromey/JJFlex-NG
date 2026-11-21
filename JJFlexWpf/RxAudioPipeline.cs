@@ -298,8 +298,10 @@ namespace JJFlexWpf
                 // where they came out, and its class is the class of the audio that came
                 // out, as many blocks back as the spectral slot delays it (B1's provenance).
                 for (int i = 0; i < SpectralSlot.SeamsOut; i++) NeuralSlot.NoteInputSeam(SpectralSlot.SeamOut(i));
-                var neuralCls = ClassOverrideForTest ?? _classifier.ClassOfBlock(_classifier.Blocks - 1
-                    - (SpectralSlot.HeardDelaySamples + RxContentClassifier.BlockFrames / 2) / RxContentClassifier.BlockFrames);
+                int frames = count / Math.Max(1, _channels);
+                long seen = _classifier.Frames;
+                int spectralDelay = SpectralSlot.HeardDelaySamples;
+                var neuralCls = ClassOverrideForTest ?? _classifier.ClassOfSpan(seen - frames - spectralDelay, seen - spectralDelay);
                 long afterSpectral = Stopwatch.GetTimestamp();
                 var neuralBank = NeuralSlot.RunningBank;
                 long neuralLate = neuralBank?.LateFrames ?? 0;
@@ -313,8 +315,10 @@ namespace JJFlexWpf
                 _neuralKeepUp.After(NeuralSlot, neuralBank, neuralLate, afterNeural - afterSpectral, bufferTicks, gap, false, afterNeural);
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
-                int lagBlocks = (SpectralSlot.HeardDelaySamples + NeuralSlot.HeardDelaySamples + RxContentClassifier.BlockFrames / 2) / RxContentClassifier.BlockFrames;
-                _lastOutClass = ClassOverrideForTest ?? _classifier.ClassOfBlock(_classifier.Blocks - 1 - lagBlocks);
+                // The class of the audio coming OUT: every input block this buffer holds,
+                // at the delay both slots add now, partial ends included (with B2).
+                int outDelay = SpectralSlot.HeardDelaySamples + NeuralSlot.HeardDelaySamples;
+                _lastOutClass = ClassOverrideForTest ?? _classifier.ClassOfSpan(seen - frames - outDelay, seen - outDelay);
                 _lastProcessEnd = Stopwatch.GetTimestamp();
             }
             finally { Interlocked.Exchange(ref _processMark, 0); }

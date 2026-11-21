@@ -461,6 +461,48 @@ namespace Radios.Tests
             }
         }
 
+        /// <summary>
+        /// Codex's re-check of 5a0a8c93 (B2): the gate sampled 480-frame blocks in the
+        /// AUDIO timeline and shifted each sample point by the class lag, so at a lag
+        /// that is not a whole number of blocks (3,408, the helper delay) a trailing
+        /// partial speech block was skipped, and a real gap splice removed audio whose
+        /// classification interval held 312 frames of speech. Every block the shifted
+        /// interval touches is checked now. Delays 0 and 480 refuse (as before); 3,408
+        /// must too; the same span all noise at 3,408 splices (the path is reachable).
+        /// </summary>
+        [Theory]
+        [InlineData(0, "speech", false)]
+        [InlineData(480, "speech", false)]
+        [InlineData(3408, "speech", false)]
+        [InlineData(3408, "noise", false)]
+        [InlineData(3408, "speech", true)]      // a growth touching the same classification span
+        [InlineData(3408, "noise", true)]
+        [InlineData(3408, "digital", false)]    // the mode changes part-way through the span
+        public void A_gap_splice_never_touches_a_speech_block_at_any_class_lag(int lag, string block, bool growth)
+        {
+            var noise = RxContentClass.Classified | RxContentClass.NotVoiceRun;
+            var speech = block == "digital" ? noise | RxContentClass.NoSplice : RxContentClass.Classified | RxContentClass.Speech | RxContentClass.Active;
+            bool speechBlock = block != "noise";
+            var budget = new RxLagBudget(Rate);
+            var s = new RxLagShifter(2, Rate * 2, Rate, budget) { ClassLagFrames = lag, LogSplices = true };
+            var b = new float[Block * 2];
+            for (int k = 0; k < 50; k++) s.Write(b, speechBlock && k == 1 ? speech : noise);
+            // The audio whose classification is [432, 912) at lag 3,408, else [480, 960): the speech block.
+            long from = (lag == 3408 ? 3840 : 480 + lag) + (growth ? 120 : 0);
+            s.SetDelay(s.WritePosition - from);
+            s.Request(growth ? -120 : 120, LagPolicy.CatchUp, LagCause.LateAudio, exact: true);
+            budget.Touch(LagPolicy.CatchUp, false);
+            budget.Advance(Rate);
+            s.Render(b);
+            for (int j = 0; j < s.SpliceLogCount; j++)
+            {
+                var r = s.SpliceLog[j];
+                _out.WriteLine($"lag {lag}: kind {r.Kind} old {r.OldSide} new {r.NewSide} fade {r.Fade}, classification [{Math.Min(r.OldSide, r.NewSide) - lag}, {Math.Max(r.OldSide, r.NewSide) + r.Fade - lag})");
+            }
+            if (speechBlock) Assert.Equal(0, s.TotalGapSplices);
+            else Assert.Equal(1, s.TotalGapSplices);
+        }
+
         [Fact]
         public void CW_key_ups_still_take_gap_splices_with_or_without_a_detector()
         {
