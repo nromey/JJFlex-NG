@@ -1271,6 +1271,13 @@ namespace JJFlexWpf
             _nextAudio = prepared != null && prepared.Length == n ? prepared : new float[n];
         }
 
+        /// <summary>
+        /// Tests only: while set and not signalled, the scratch maker waits before it
+        /// makes anything, as it would behind a busy pool. Opens, deterministically,
+        /// the window the constructor's scratch exists to cover.
+        /// </summary>
+        internal ManualResetEventSlim? ScratchMakerGateForTest { get; set; }
+
         /// <summary>Tests only: a scratch of <paramref name="n"/> floats is ready for the audio thread.</summary>
         internal bool ScratchReadyForTest(int n) => _nextAudio.Length == n || Volatile.Read(ref _preparedScratch)?.Length == n;
 
@@ -1294,6 +1301,8 @@ namespace JJFlexWpf
 
             public void Execute()
             {
+                // Tests only: hold the maker, as a busy pool would (Codex's re-check, R4a).
+                _slot.ScratchMakerGateForTest?.Wait(TimeSpan.FromSeconds(10));
                 int length = Volatile.Read(ref _length);
                 Volatile.Write(ref _slot._preparedScratch, new float[length]);
                 Volatile.Write(ref _busy, 0);

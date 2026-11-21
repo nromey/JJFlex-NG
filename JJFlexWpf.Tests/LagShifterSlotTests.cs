@@ -538,6 +538,41 @@ public sealed class LagShifterSlotTests
         finally { slot.CloseAdmission(); slot.DisposeOwned(); }
     }
 
+    /// <summary>
+    /// The constructor's scratch covers a turn-off that comes before the pool thread
+    /// has made one (Codex's re-check of 5a0a8c93, R4a): with the scratch maker held,
+    /// as behind a busy pool, a turn-off on the stream's second buffer allocates
+    /// nothing. Without the constructor's scratch it allocated 3,864 bytes here.
+    /// </summary>
+    [Fact]
+    public void A_turn_off_before_the_pool_has_made_any_scratch_allocates_nothing()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        DenoiseEngineEntry Row() => new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
+            (_, _) => new AlignedSwitchTests.DelayGainEngine("rnnoise", 480, 1), () => Unavailability.None);
+        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "rnnoise", 48000, 2, new DenoiseEngineCatalog(new[] { Row() }));
+        using var gate = new System.Threading.ManualResetEventSlim(false);
+        try
+        {
+            slot.ScratchMakerGateForTest = gate;
+            slot.CrossFadeOverrideForTest = true; slot.ShifterOverrideForTest = true; slot.MuteOverrideForTest = false;
+            slot.SetStrength("rnnoise", 1);
+            slot.Enabled = true;
+            var x = new float[2 * F];
+            for (int i = 0; i < F; i++) x[2 * i] = x[2 * i + 1] = (float)Math.Sin(i * 0.04) * 0.2f;
+            for (int b = 0; b < 2; b++) slot.Process(x, true, true, false, null, RxContentClass.Classified | RxContentClass.NotVoiceRun);
+            Assert.Equal("rnnoise", slot.RunningEngineId);
+            slot.Enabled = false;
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            slot.Process(x, true, true, false, null, RxContentClass.Classified | RxContentClass.NotVoiceRun);
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            _out.WriteLine($"the first turn-off, the maker held: {bytes} bytes");
+            Assert.True(slot.TurningForTest, "it did not take the smooth turn-off, so nothing was tested");
+            Assert.Equal(0, bytes);
+        }
+        finally { gate.Set(); slot.ScratchMakerGateForTest = null; slot.CloseAdmission(); slot.DisposeOwned(); }
+    }
+
     /// <summary>A pipeline whose neural slot runs "rnnoise" (480) and can choose a forever-late "b".</summary>
     private sealed class LateRigLag : IDisposable
     {
