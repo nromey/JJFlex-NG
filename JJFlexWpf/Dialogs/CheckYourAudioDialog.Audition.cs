@@ -90,6 +90,24 @@ public partial class CheckYourAudioDialog
     /// superseded at that boundary and fails its validity check thereafter.
     /// </summary>
     private int _auditionSpeechEpoch;
+
+    /// <summary>
+    /// Bumped on the window's thread at every boundary that ends the take's
+    /// OWNERSHIP of what its analysis publishes (repair 2, R2; Codex's re-check
+    /// of 0194e190): the window closing, a new take admitted, Process again.
+    /// Not another method: the result of a render still waits for the method to
+    /// come back. An analysis publishes only while the owner value it captured
+    /// when it STARTED (<see cref="_auditionAnalysisOwner"/>) is still the
+    /// current one, so a previous take finishing during the next take's
+    /// countdown can neither be shown nor acquire the new take's speech lifetime.
+    /// </summary>
+    private int _auditionOwnerEpoch;
+
+    /// <summary>The owner value captured when the current analysis started; the window's thread only.</summary>
+    private int _auditionAnalysisOwner;
+
+    /// <summary>The generation whose result is in the reading box, so a held result is shown once.</summary>
+    private int _auditionShownGeneration = -1;
     private int _auditionProcessingGeneration = -1;
     private Button? _auditionProcessAgainButton;
 
@@ -244,7 +262,7 @@ public partial class CheckYourAudioDialog
         using var start = _checkStarts.TryBegin();
         if (start == null) return;
         // A new take: whatever the last one's verdict was still saying is over (repair 1, R2).
-        EndAuditionSpeech("a new take began");
+        EndAuditionSpeech("a new take began", endsOwnership: true);
         // A render asked for before this press is void (repair 3): its click
         // is still sounding, and it must not start playing over the count.
         VoidAuditionPlaybackRequests();
@@ -278,6 +296,8 @@ public partial class CheckYourAudioDialog
             _auditionStartPending = false;
             EndStartCountdown();
             if (!AuditionRecording) SetStartButtonLabel("Start Audio Check");
+            // Called off before the microphone opened: the take that was there owns its result again.
+            if (!AuditionRecording && !_closing) ReclaimAuditionAfterCalledOffStart();
         }
     }
 
@@ -419,6 +439,8 @@ public partial class CheckYourAudioDialog
     private void BeginAuditionProcessing(ChainAuditionTake audition, Task<AuditionAnalysisOutcome> run)
     {
         _auditionProcessingGeneration = audition.Generation;
+        // Ownership is captured here, as the analysis starts, never at queue time (repair 2, R2).
+        _auditionAnalysisOwner = Volatile.Read(ref _auditionOwnerEpoch);
         _auditionProcessingPercent = 0;
         ShowAuditionReading(AuditionProcessingLine(0));
         SyncAuditionButtons();
@@ -499,7 +521,15 @@ public partial class CheckYourAudioDialog
     {
         var audition = _audition;
         if (_closing || audition == null || !audition.IsCurrent(outcome)) return;
+        // Repair 2, R2: and only while this window still owns that analysis's
+        // publication. A new take admitted during the previous take's render ends
+        // it at the admission, though the take's generation changes only when the
+        // microphone opens, after the countdown. A called-off start gives it back
+        // (ReclaimAuditionAfterCalledOffStart).
+        if (outcome.Generation != _auditionProcessingGeneration
+            || _auditionAnalysisOwner != Volatile.Read(ref _auditionOwnerEpoch)) return;
         StopAuditionProcessingSpeech();
+        _auditionShownGeneration = outcome.Generation;
         string words;
         VerbosityLevel level;
         if (outcome.Result is { } result)
@@ -526,11 +556,38 @@ public partial class CheckYourAudioDialog
     /// thread: still the same take, the same analysis, and no boundary since.
     /// The boundaries supersede the subject as well (<see cref="EndAuditionSpeech"/>).
     /// </summary>
+    /// <remarks>
+    /// Repair 2, R2: the take's lifetime is the owner value its analysis captured
+    /// when it STARTED, never one read now, so it cannot be inherited from a newer
+    /// take. The view value read now (bumped when another method is chosen) only
+    /// narrows it: it ends a sentence sooner, and can never lengthen one, because
+    /// nothing is published without the start-captured ownership.
+    /// </remarks>
     private Func<bool> AuditionSpeechStillValid(ChainAuditionTake audition, int generation)
     {
-        int epoch = Volatile.Read(ref _auditionSpeechEpoch);
-        return () => Volatile.Read(ref _auditionSpeechEpoch) == epoch && ReferenceEquals(_audition, audition)
-            && audition.Generation == generation;
+        int owner = _auditionAnalysisOwner;
+        int view = Volatile.Read(ref _auditionSpeechEpoch);
+        return () => Volatile.Read(ref _auditionOwnerEpoch) == owner && Volatile.Read(ref _auditionSpeechEpoch) == view
+            && ReferenceEquals(_audition, audition) && audition.Generation == generation;
+    }
+
+    /// <summary>
+    /// A new take's start was called off during its countdown (Escape, Start
+    /// again, the window's own checks): the take that was there is still there,
+    /// so it owns its analysis again (repair 2, R2). A result that finished during
+    /// the countdown, and so was held back, is put in the reading box now,
+    /// silently, as the buttons come back; one still running publishes as usual.
+    /// </summary>
+    private void ReclaimAuditionAfterCalledOffStart()
+    {
+        var audition = _audition;
+        if (_closing || audition == null || audition.Generation != _auditionProcessingGeneration) return;
+        _auditionAnalysisOwner = Volatile.Read(ref _auditionOwnerEpoch);
+        if (audition.State == AuditionTakeState.Ready && audition.Result is { } result && _auditionShownGeneration != audition.Generation)
+        {
+            _auditionShownGeneration = audition.Generation;
+            ShowAuditionReading(ChainAudition.Verdict(result));
+        }
     }
 
     /// <summary>
@@ -541,8 +598,9 @@ public partial class CheckYourAudioDialog
     /// admitted before this passes its validity check again. The audition only
     /// ever speaks this subject queued, so there is no pending Latest to retire.
     /// </summary>
-    private void EndAuditionSpeech(string why)
+    private void EndAuditionSpeech(string why, bool endsOwnership)
     {
+        if (endsOwnership) Interlocked.Increment(ref _auditionOwnerEpoch);
         Interlocked.Increment(ref _auditionSpeechEpoch);
         StopAuditionProcessingSpeech();
         ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.AuditionVerdict, why);
@@ -558,7 +616,7 @@ public partial class CheckYourAudioDialog
     {
         var audition = _audition;
         if (audition == null || _closing || audition.State != AuditionTakeState.Ready) return;
-        EndAuditionSpeech("the take is being processed again");
+        EndAuditionSpeech("the take is being processed again", endsOwnership: true);
         VoidAuditionPlaybackRequests();
         StopAuditionPlayback();
         Volatile.Write(ref _auditionLive, ChainAuditionTwin.ReadLive(_rig));
@@ -595,7 +653,7 @@ public partial class CheckYourAudioDialog
     {
         // Another method chosen: what the audition was saying is no longer about
         // what is shown (repair 1, R2). The render goes on; its verdict waits.
-        if (method != AudioCheckListenMethods.Audition && _audition != null) EndAuditionSpeech("another method was chosen");
+        if (method != AudioCheckListenMethods.Audition && _audition != null) EndAuditionSpeech("another method was chosen", endsOwnership: false);
         if (method != AudioCheckListenMethods.Audition && AuditionRecording) _audition!.StopRecording();
         SyncAuditionButtons();
     }
@@ -698,7 +756,7 @@ public partial class CheckYourAudioDialog
         RecordingNarrator.StateChanged -= OnAuditionRecorderStateChanged;
         RecordingNarrator.RecordingSaved -= OnAuditionRecordingSaved;
         RecordingPlayer.StateChanged -= OnAuditionPlayerStateChanged;
-        EndAuditionSpeech("the window closed");
+        EndAuditionSpeech("the window closed", endsOwnership: true);
         StopAuditionPlayback();
         // Cancels an analysis still running: nothing it would write can appear after the clear.
         if (_audition != null) _audition.Discard();
@@ -803,9 +861,79 @@ public partial class CheckYourAudioDialog
         public void Stop() => RecordingNarrator.Stop();
     }
 
-    /// <summary>The take as mono samples at 48 kHz, the transmit stream's rate, through the reference audio's own loader.</summary>
-    private static (float[] Mono, int Rate)? LoadAuditionTake(string path) =>
-        TxAudioFile.TryLoad(path, 48000, out var loaded, out _) && loaded != null ? (loaded.Mono, loaded.SampleRate) : null;
+    /// <summary>
+    /// The take as mono samples at 48 kHz, the transmit stream's rate, read so
+    /// that a cancelled worker lets go of the file promptly (repair 2, R3;
+    /// Codex's re-check of 0194e190): the file is read into memory a piece at a
+    /// time, the cancel checked between pieces, and the file is closed before it
+    /// is decoded. Decoding is the reference audio's own recipe
+    /// (<c>TxAudioFile</c>: mixed to mono first, then <c>WdlResamplingSampleProvider</c>
+    /// to the target rate), run on the bytes in memory, because that loader
+    /// takes only a path and holds the file while it decodes. Only the audition's
+    /// own takes come through here, WAV files our recorder wrote.
+    /// </summary>
+    internal static (float[] Mono, int Rate)? LoadAuditionTake(string path, CancellationToken cancel)
+    {
+        byte[] bytes;
+        try { bytes = ReadTakeCancellably(path, cancel); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("Check your audio audition: the take could not be read: " + ex.GetType().Name,
+                System.Diagnostics.TraceLevel.Warning);
+            return null;
+        }
+        try
+        {
+            using var reader = new NAudio.Wave.WaveFileReader(new MemoryStream(bytes, writable: false));
+            NAudio.Wave.ISampleProvider source = NAudio.Wave.WaveExtensionMethods.ToSampleProvider(reader);
+            if (source.WaveFormat.Channels > 1) source = NAudio.Wave.WaveExtensionMethods.ToMono(source);
+            if (source.WaveFormat.SampleRate != TakeRate) source = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(source, TakeRate);
+            var samples = new List<float>((int)Math.Min(int.MaxValue / 2, reader.SampleCount + TakeRate));
+            var block = new float[TakeRate];
+            int read;
+            while ((read = source.Read(block)) > 0)
+            {
+                cancel.ThrowIfCancellationRequested();
+                for (int i = 0; i < read; i++) samples.Add(block[i]);
+            }
+            return samples.Count == 0 ? null : (samples.ToArray(), TakeRate);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("Check your audio audition: the take could not be decoded: " + ex.GetType().Name,
+                System.Diagnostics.TraceLevel.Warning);
+            return null;
+        }
+    }
+
+    private const int TakeRate = 48000;
+
+    /// <summary>The piece the take is read in, between checks of the cancel: 256 KB, under 3 seconds of a 48 kHz take.</summary>
+    internal const int TakeReadPieceBytes = 256 * 1024;
+
+    /// <summary>Tests only: run after each piece of the take is read, with the file still open.</summary>
+    internal static Action? AfterTakePieceReadForTest { get; set; }
+
+    /// <summary>The whole file into memory, a piece at a time, giving up at once when cancelled. The file is open only inside this call.</summary>
+    internal static byte[] ReadTakeCancellably(string path, CancellationToken cancel)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+        var bytes = new byte[file.Length];
+        int at = 0;
+        while (at < bytes.Length)
+        {
+            cancel.ThrowIfCancellationRequested();
+            int got = file.Read(bytes, at, Math.Min(TakeReadPieceBytes, bytes.Length - at));
+            if (got <= 0) break;
+            at += got;
+            AfterTakePieceReadForTest?.Invoke();
+        }
+        cancel.ThrowIfCancellationRequested();
+        if (at < bytes.Length) Array.Resize(ref bytes, at);
+        return bytes;
+    }
 
     /// <summary>True for a file in the audition's working folder: an audition take or render, never a reference take until it is kept.</summary>
     internal static bool InAuditionFolder(string? path)

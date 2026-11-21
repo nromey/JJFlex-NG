@@ -61,8 +61,8 @@ public sealed class AuditionAnalysisWindowTests : IDisposable
             var (take, chain) = Take();
             Put(dialog, "_audition", take);
             chain.Release.Set();
-            var first = take.AnalyseInBackground(Recorded(take))!.Result;
-            var second = take.ProcessAgain()!.Result;          // a newer generation
+            var first = Begin(dialog, take, take.AnalyseInBackground(Recorded(take))!).Result;
+            var second = Begin(dialog, take, take.ProcessAgain()!).Result;          // a newer generation
             var box = (TextBox)Get(dialog, "_micReadingBox")!;
             Invoke(dialog, "ShowAuditionReading", "before");
 
@@ -86,7 +86,7 @@ public sealed class AuditionAnalysisWindowTests : IDisposable
             var dialog = Dialog(AudioCheckListenMethods.Audition);
             var (take, chain) = Take();
             Put(dialog, "_audition", take);
-            var run = take.AnalyseInBackground(Recorded(take))!;
+            var run = Begin(dialog, take, take.AnalyseInBackground(Recorded(take))!);
             Assert.True(chain.Entered.Wait(10000));
             take.Discard();
             var outcome = run.Result;
@@ -108,7 +108,7 @@ public sealed class AuditionAnalysisWindowTests : IDisposable
             var dialog = Dialog(AudioCheckListenMethods.Audition);
             var (take, chain) = Take();
             Put(dialog, "_audition", take);
-            var run = take.AnalyseInBackground(Recorded(take))!;
+            var run = Begin(dialog, take, take.AnalyseInBackground(Recorded(take))!);
             Assert.True(chain.Entered.Wait(10000));
 
             Select(dialog, AudioCheckListenMethods.ComputerMic);
@@ -179,7 +179,7 @@ public sealed class AuditionAnalysisWindowTests : IDisposable
             var (take, chain) = Take();
             Put(dialog, "_audition", take);
             chain.Release.Set();
-            var outcome = take.AnalyseInBackground(Recorded(take))!.Result;
+            var outcome = Begin(dialog, take, take.AnalyseInBackground(Recorded(take))!).Result;
             // Only entries this test admits count: earlier ones (another case's) are excluded by identity.
             var earlier = new HashSet<object>(Entries(), ReferenceEqualityComparer.Instance);
             Invoke(dialog, "OnAuditionAnalysed", outcome);
@@ -287,6 +287,13 @@ public sealed class AuditionAnalysisWindowTests : IDisposable
         });
     }
 
+    /// <summary>The window's own start of an analysis (it owns what the analysis publishes from here, repair 2), on an analysis the test began.</summary>
+    private static Task<AuditionAnalysisOutcome> Begin(CheckYourAudioDialog dialog, ChainAuditionTake take, Task<AuditionAnalysisOutcome> run)
+    {
+        Invoke(dialog, "BeginAuditionProcessing", take, run);
+        return run;
+    }
+
     private static string Line(int percent) => Lexicon.Get("audio.audition.processing", ("percent", percent));
 
     private static CheckYourAudioDialog WithDispatcher(CheckYourAudioDialog dialog)
@@ -359,7 +366,7 @@ public sealed class AuditionAnalysisWindowTests : IDisposable
 
     private static CheckYourAudioDialog Dialog(AudioCheckListenMethods shown)
     {
-        var dialog = (CheckYourAudioDialog)RuntimeHelpers.GetUninitializedObject(typeof(CheckYourAudioDialog));
+        var dialog = WithDispatcher((CheckYourAudioDialog)RuntimeHelpers.GetUninitializedObject(typeof(CheckYourAudioDialog)));
         var offered = new List<AudioCheckListenMethods>(AudioCheckMethods.Offered(true, false, "", true));
         var control = new CycleFieldControl();
         control.Setup("Method", CheckYourAudioDialog.MethodNames(offered), offered.IndexOf(shown));

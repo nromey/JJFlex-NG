@@ -111,7 +111,10 @@ namespace JJFlexWpf
         /// Codex's check of 3c61da16). Never <see cref="WdspHost.Default"/>: the
         /// live chain's helper channels share that host's process, connection,
         /// writer, restart count and failure handling, so an audition on it could
-        /// take down, restart or revive the live chain's helper.
+        /// take down or restart the live chain's helper, and its attach would reset
+        /// the live host's restart count. (It could not revive a host already at
+        /// its cap: the catalog's probe refuses a capped host before anything
+        /// attaches; repair 2 corrects an earlier comment that said it could.)
         /// </summary>
         internal static ChainAuditionTwin ForApp(Func<AuditionLiveState?> live) =>
             new(() => TxAudioConditioning.CaptureSetup(""), live, () =>

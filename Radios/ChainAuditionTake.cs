@@ -204,7 +204,7 @@ namespace Radios
         private readonly string _folder;
         private readonly IAuditionRecorder _recorder;
         private readonly IChainAuditionProcessor _processor;
-        private readonly Func<string, (float[] Mono, int Rate)?> _load;
+        private readonly Func<string, CancellationToken, (float[] Mono, int Rate)?> _load;
         private readonly Func<Task<long?>>? _startMarker;
         private readonly Func<bool> _markerSounds;
 
@@ -253,6 +253,18 @@ namespace Radios
         public ChainAuditionTake(string folder, IAuditionRecorder recorder, IChainAuditionProcessor processor,
             Func<string, (float[] Mono, int Rate)?> load, Func<Task<long?>>? startMarker = null,
             Func<bool>? markerSounds = null)
+            : this(folder, recorder, processor, Uncancellable(load), startMarker, markerSounds) { }
+
+        /// <param name="load">
+        /// Reads a recorded file to mono samples and their rate, or null when it
+        /// cannot, giving up with an <see cref="OperationCanceledException"/>
+        /// once the token is set (repair 2, R3): a cancelled worker then lets go
+        /// of the take file promptly, so Discard can delete it. The window's
+        /// reader checks the token between pieces of the file.
+        /// </param>
+        public ChainAuditionTake(string folder, IAuditionRecorder recorder, IChainAuditionProcessor processor,
+            Func<string, CancellationToken, (float[] Mono, int Rate)?> load, Func<Task<long?>>? startMarker = null,
+            Func<bool>? markerSounds = null)
         {
             _folder = folder ?? throw new ArgumentNullException(nameof(folder));
             _recorder = recorder ?? throw new ArgumentNullException(nameof(recorder));
@@ -260,6 +272,12 @@ namespace Radios
             _load = load ?? throw new ArgumentNullException(nameof(load));
             _startMarker = startMarker;
             _markerSounds = markerSounds ?? (() => true);
+        }
+
+        private static Func<string, CancellationToken, (float[] Mono, int Rate)?> Uncancellable(Func<string, (float[] Mono, int Rate)?> load)
+        {
+            if (load == null) throw new ArgumentNullException(nameof(load));
+            return (path, _) => load(path);
         }
 
         private AuditionTakeState _state = AuditionTakeState.Idle;
@@ -295,10 +313,21 @@ namespace Radios
 
         /// <summary>
         /// How long Discard waits for a worker still reading the take back (the
-        /// reader holds the file, so it cannot be deleted until it is done). A
-        /// 15-minute take reads in well under this; past it, Discard says so in
-        /// the trace and the worker deletes the file itself when its read ends.
+        /// reader holds the file, so it cannot be deleted until it lets go).
         /// </summary>
+        /// <remarks>
+        /// <b>What Discard guarantees, stated exactly (repair 2, R3; Codex's
+        /// re-check of 0194e190).</b> Discard cancels the read; the window's
+        /// reader checks the cancel between pieces of the file and lets go within
+        /// one piece, so normally Discard returns well inside this wait with the
+        /// take file gone. If a read is stuck inside the operating system (one
+        /// call that does not return, such as a failing or disconnected disk),
+        /// Discard returns after this wait with that one file still there and still
+        /// open, and says so in the trace; the worker deletes it the moment its
+        /// read returns; and a read that never returns leaves it until the next
+        /// sweep of the folder (the window clears it each time it opens). Render
+        /// writers are never waited for: Discard closes them itself.
+        /// </remarks>
         internal static readonly TimeSpan DiscardWaitsForReads = TimeSpan.FromSeconds(5);
 
         /// <summary>Tests only: run on the worker while it is reading the take back, after it has counted itself as reading.</summary>
@@ -594,7 +623,7 @@ namespace Radios
                 try
                 {
                     WhileLoadingForTest?.Invoke();
-                    loaded = _load(takePath);
+                    loaded = _load(takePath, token);
                 }
                 finally
                 {
@@ -688,9 +717,12 @@ namespace Radios
                 lock (_sync)
                 {
                     if (StaleLocked(generation, token)) { AbandonLocked(path); return false; }
-                    _openWriters.Remove(path);
+                    // Repair 2, R3: the writer leaves the registry only once it is
+                    // closed. If Finish or Dispose throws, it is still registered,
+                    // so the catch below, or the next Discard, closes it.
                     writer.Finish();
                     writer.Dispose();
+                    _openWriters.Remove(path);
                 }
                 return true;
             }
@@ -706,12 +738,27 @@ namespace Radios
             }
         }
 
-        /// <summary>Under the lock: close the render writer still open at <paramref name="path"/>, if any, and delete its file. A writer Discard already closed is not touched again.</summary>
+        /// <summary>
+        /// Under the lock: close the render writer still open at
+        /// <paramref name="path"/>, if any, and delete its file. A writer leaves
+        /// the registry only once its close returned (repair 2, R3): if closing
+        /// throws, it stays registered and the next Discard tries again, so its
+        /// handle is never lost. A writer Discard already closed is not touched again.
+        /// </summary>
         private void AbandonLocked(string path)
         {
-            if (_openWriters.Remove(path, out var writer))
+            if (_openWriters.TryGetValue(path, out var writer))
             {
-                try { writer.Dispose(); } catch (Exception) { /* closing a part we are about to delete */ }
+                try
+                {
+                    writer.Dispose();
+                    _openWriters.Remove(path);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("Check your audio audition: a render could not be closed yet (" + ex.GetType().Name
+                        + "); it stays tracked and is closed at the next discard", System.Diagnostics.TraceLevel.Warning);
+                }
             }
             TryDelete(path);
         }

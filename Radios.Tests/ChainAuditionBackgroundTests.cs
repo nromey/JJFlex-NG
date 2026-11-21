@@ -229,6 +229,121 @@ namespace Radios.Tests
             Assert.True(run.Result.Cancelled);
         }
 
+        /// <summary>
+        /// Repair 2, R3 (Codex's probe, adopted): a render whose Finish FAILS
+        /// (its header range locked by another handle, a real I/O failure) keeps
+        /// its open writer tracked, so the next Discard closes it and deletes the
+        /// file. Before the repair the writer left the registry before Finish, the
+        /// failure lost it, and its handle stayed open with the file on disk.
+        /// </summary>
+        [Fact]
+        public void A_render_whose_finish_fails_is_still_closed_and_deleted_by_Discard()
+        {
+            var (take, rec, chain) = Make();
+            chain.Release.Set();
+            FileStream? blocker = null;
+            WavWriter? writer = null;
+            string? render = null;
+            int pieces = 0;
+            take.BeforeRenderChunkForTest = () =>
+            {
+                if (Interlocked.Increment(ref pieces) != 2) return;
+                var open = (System.Collections.IDictionary)typeof(ChainAuditionTake)
+                    .GetField("_openWriters", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(take)!;
+                var entry = open.GetEnumerator();
+                Assert.True(entry.MoveNext());   // positive control: the render's writer is tracked while it writes
+                render = (string)entry.Entry.Key;
+                writer = (WavWriter)entry.Entry.Value!;
+                blocker = new FileStream(render, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                blocker.Lock(0, 44);             // the header Finish must patch
+            };
+            try
+            {
+                take.AnalyseInBackground(Recorded(take, rec, Now))!.Wait(20000);
+                Assert.NotNull(render);
+                blocker!.Unlock(0, 44);
+                blocker.Dispose();
+                blocker = null;
+                take.Discard();
+                var stream = (FileStream?)typeof(WavWriter).GetField("_stream",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(writer);
+                Assert.True(stream == null || stream.SafeFileHandle.IsClosed, "the failed render's handle is still open");
+                Assert.False(File.Exists(render), "the failed render is still on disk");
+                Assert.Empty(Files());
+            }
+            finally { blocker?.Dispose(); }
+        }
+
+        /// <summary>
+        /// Repair 2, R3: the read back is cancellable. A loader that honours the
+        /// take's token (as the window's does, between pieces of the file) lets go
+        /// promptly when Discard cancels it, so Discard returns at once with the
+        /// take file gone, not after its bounded wait.
+        /// </summary>
+        [Fact]
+        public void Discard_during_a_cancellable_read_back_returns_promptly_with_the_take_file_gone()
+        {
+            var rec = new Recorder();
+            var chain = new Blocking();
+            chain.Release.Set();
+            using var reading = new ManualResetEventSlim(false);
+            var take = new ChainAuditionTake(_folder, rec, chain, (path, cancel) =>
+            {
+                using var open = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                reading.Set();
+                // A slow read in pieces, checking the token between them.
+                for (int i = 0; i < 400; i++) { cancel.ThrowIfCancellationRequested(); Thread.Sleep(25); }
+                return null;
+            });
+            string path = Recorded(take, rec, Now);
+            var run = take.AnalyseInBackground(path)!;
+            Assert.True(reading.Wait(10000));
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            take.Discard();
+            Assert.True(clock.ElapsedMilliseconds < 2000, "Discard waited " + clock.ElapsedMilliseconds + " ms for a read it had cancelled");
+            Assert.False(File.Exists(path));
+            Assert.Empty(Files());
+            Assert.True(run.Result.Cancelled);
+        }
+
+        /// <summary>
+        /// Repair 2, R3, the stated limit (Codex's probe, kept as the policy's
+        /// test): a reader stuck in the operating system, which does not look at
+        /// the token, holds the take file past Discard's bounded wait. Discard
+        /// returns after <see cref="ChainAuditionTake.DiscardWaitsForReads"/> with
+        /// that file still there and open; the worker deletes it as soon as its
+        /// read returns, leaving nothing.
+        /// </summary>
+        [Fact]
+        public void A_stuck_reader_outlasts_Discards_bounded_wait_and_its_worker_removes_the_file_when_it_returns()
+        {
+            var rec = new Recorder();
+            var chain = new Blocking();
+            chain.Release.Set();
+            using var reading = new ManualResetEventSlim(false);
+            using var unstick = new ManualResetEventSlim(false);
+            var take = new ChainAuditionTake(_folder, rec, chain, path =>
+            {
+                using var open = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                reading.Set();
+                unstick.Wait(TimeSpan.FromSeconds(30));   // ignores any cancel, as a stuck OS read would
+                return null;
+            });
+            string path = Recorded(take, rec, Now);
+            var run = take.AnalyseInBackground(path)!;
+            Assert.True(reading.Wait(10000));
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            take.Discard();
+            Assert.InRange(clock.Elapsed.TotalSeconds, ChainAuditionTake.DiscardWaitsForReads.TotalSeconds - 0.2,
+                ChainAuditionTake.DiscardWaitsForReads.TotalSeconds + 10);
+            Assert.True(File.Exists(path));            // the stated limit: this one file is still there
+            Assert.False(run.IsCompleted);
+            unstick.Set();
+            Assert.True(run.Result.Cancelled);
+            Assert.False(File.Exists(path));           // and its worker removed it when the read returned
+            Assert.Empty(Files());
+        }
+
         [Fact]
         public void Discard_after_the_renders_are_written_but_before_the_take_is_ready_wins()
         {
