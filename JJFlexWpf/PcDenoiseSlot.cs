@@ -264,6 +264,7 @@ namespace JJFlexWpf
             _nextAudio = new float[Math.Max(1, sampleRate / 100) * Math.Max(1, channels)];
             _retimeAudio = new float[_nextAudio.Length];
             _scratchMaker = new ScratchMaker(this);
+            _traceDrainer = new TraceDrainer(this);
             if (direction == DenoiseDirection.Receive) _seamTrail = new SeamTrail(sampleRate);
             if (direction == DenoiseDirection.Receive)
             {
@@ -586,6 +587,7 @@ namespace JJFlexWpf
             Action<PerChannelDenoiserBank>? prepareSpectral, RxContentClass cls = RxContentClass.Unclassified, bool gap = false)
         {
             if (_direction == DenoiseDirection.Transmit) { ProcessTransmit(audio, permitted); return; }
+            RequestTraceDrain();
             BeginSeams(audio.Length / Math.Max(1, _channels));
             try { ProcessReceive(audio, permitted, profilePresent, capturing, prepareSpectral, cls, gap); }
             finally { EndSeams(); }
@@ -1101,7 +1103,6 @@ namespace JJFlexWpf
         private SharedDelayPlan? _planSeen, _warmPlan;
         private bool _retimePending;
         private int _retimeTarget = -1, _retimeBasis = -1;
-        private readonly RetimeTrace _retimeTrace = new();
 
         private static string? ModelOf(IReadOnlyDictionary<string, EngineSettingValue>? values) =>
             values != null && values.TryGetValue("model", out var v) ? v.Choice : null;
@@ -1350,7 +1351,6 @@ namespace JJFlexWpf
         private bool _onPhase, _offPhase, _dryFlowing;
         private int _onFrames, _onTarget, _onBound;
         private int _draining, _actualReport = -1;
-        private readonly DrainTrace _drainTrace = new();
 
         /// <summary>Tests only: false runs phase 1's paths with the cross-fade switch on (today's code, the positive control).</summary>
         internal bool? ShifterOverrideForTest { get; set; }
@@ -1440,7 +1440,7 @@ namespace JJFlexWpf
                 _heldBasis = _retimeBasis;
                 _retimePending = false;
                 _transitional = false;
-                if (!_transitional && cause == LagCause.Retime) _retimeTrace.Queue(Family, note);
+                if (!_transitional && cause == LagCause.Retime) TraceRetime(note);
             }
             if (targetPad == 0 && _runPad.Delay == 0 && !_runPad.Shifter.Fading && !_retimePending && _preGrowTo < 0) _runLineActive = false;
             int heldPad = Math.Max(0, Effective(_held, own) - own);
@@ -1545,7 +1545,7 @@ namespace JJFlexWpf
                 // The pre-growth did not land in time: this switch falls back to
                 // today's (phase 1's decision and fade), and the trace says so.
                 _runPad.Shifter.MarkFallback();
-                _drainTrace.Queue(Family, LagCause.EngineSwitch, default, fellBack: true, onOff: 0, delay: ownIn);
+                TraceDrain(LagCause.EngineSwitch, default, fellBack: true, onOff: 0, delay: ownIn);
                 _preGrowTo = -1;
                 _warmLag = false;
                 _warmFellBack = warming;
@@ -1606,7 +1606,7 @@ namespace JJFlexWpf
             _offPhase = true;
             var note = new TurnNote(false, delay, _channels > 0 ? _corr[0] : 0, false);
             LastTurn = note;
-            _drainTrace.Queue(Family, LagCause.TurnOff, default, fellBack: false, onOff: -1, delay: delay);
+            TraceDrain(LagCause.TurnOff, default, fellBack: false, onOff: -1, delay: delay);
         }
 
         /// <summary>After a turn-off: the dry line drains to no delay on the engine-switch policy, and the slot keeps running until it has.</summary>
@@ -1671,7 +1671,7 @@ namespace JJFlexWpf
                 AlignedSwitch.Correlation(audio, processed, _channels, _corr);
                 AlignedSwitch.Fade(audio, processed, _channels, _corr);
                 LastTurn = new TurnNote(true, _onTarget, _channels > 0 ? _corr[0] : 0, false);
-                _drainTrace.Queue(Family, LagCause.TurnOn, default, fellBack: false, onOff: 1, delay: _onTarget);
+                TraceDrain(LagCause.TurnOn, default, fellBack: false, onOff: 1, delay: _onTarget);
                 EndTurnOn(fellBack: false);
                 Volatile.Write(ref _processingId, run.Id);
                 return;
@@ -1683,7 +1683,7 @@ namespace JJFlexWpf
                 if (_runLineActive) Heard(SeamSource.Line, _runPad); else Heard(SeamSource.Bank, latency: own);
                 _dryPad.Shifter.MarkFallback();
                 LastTurn = new TurnNote(true, _onTarget, 0, true);
-                _drainTrace.Queue(Family, LagCause.TurnOn, default, fellBack: true, onOff: 1, delay: _onTarget);
+                TraceDrain(LagCause.TurnOn, default, fellBack: true, onOff: 1, delay: _onTarget);
                 EndTurnOn(fellBack: true);
                 Volatile.Write(ref _processingId, run.Id);
                 return;
@@ -1706,46 +1706,123 @@ namespace JJFlexWpf
             if (_onPhase) _onPhase = false;
         }
 
-        private void TraceEvents(PadLine line, LagCause cause)
+        // -- Trace lines: Track T's record-and-drain (Codex's re-check of 5a0a8c93) --
+        //
+        // The audio path only copies a fixed record into a preallocated ring. The
+        // next Process call, before it processes anything, asks for the ring to be
+        // written (as Track T's feeding thread does for the playback queue, once a
+        // packet); a preallocated work item formats and writes, in order. Nothing
+        // is queued from inside a buffer's processing, and nothing is formatted there.
+
+        private enum TraceKind : byte { Drain, Retime }
+
+        private struct TraceRecord
         {
-            if (line.Shifter.TryTakeCompleted(out var e)) _drainTrace.Queue(Family, cause, e, fellBack: e.FellBack, onOff: 0, delay: line.Delay);
+            public TraceKind Kind;
+            public LagCause Cause;
+            public RxLagEvent Event;
+            public bool FellBack;
+            public int OnOff, Delay;
+            public RetimeNote Note;
+        }
+
+        private const int TraceCapacity = 64;
+        private readonly TraceRecord[] _traceRing = new TraceRecord[TraceCapacity];
+        private long _traceHead, _traceTail, _traceDropped;
+        private int _tracePending;
+        private readonly object _traceLock = new();
+        private TraceDrainer? _traceDrainer;
+
+        /// <summary>Tests only: each trace line, as it is written.</summary>
+        internal Action<string>? TraceObserverForTest { get; set; }
+
+        /// <summary>Tests only: lines recorded and not yet handed to a writer.</summary>
+        internal bool TracePendingForTest => Volatile.Read(ref _tracePending) != 0;
+
+        private void TraceDrain(LagCause cause, in RxLagEvent e, bool fellBack, int onOff, int delay)
+        {
+            var r = new TraceRecord { Kind = TraceKind.Drain, Cause = cause, Event = e, FellBack = fellBack, OnOff = onOff, Delay = delay };
+            RecordTrace(ref r);
+        }
+
+        private void TraceRetime(in RetimeNote note)
+        {
+            var r = new TraceRecord { Kind = TraceKind.Retime, Note = note };
+            RecordTrace(ref r);
+        }
+
+        /// <summary>The audio path's side: copy one record into the ring. No allocation, no lock, no wait.</summary>
+        private void RecordTrace(ref TraceRecord r)
+        {
+            long head = _traceHead;
+            if (head - Volatile.Read(ref _traceTail) >= TraceCapacity) { Interlocked.Increment(ref _traceDropped); return; }
+            _traceRing[head % TraceCapacity] = r;
+            Volatile.Write(ref _traceHead, head + 1);
+            Volatile.Write(ref _tracePending, 1);
         }
 
         /// <summary>
-        /// The lag shifter's trace line for the slot (item 7), written on a pool
-        /// thread from one work item made with the slot, so the audio thread
-        /// allocates nothing for it. One at a time: a second event while the first
-        /// line is still being written is counted and said with the next.
+        /// Once a buffer, before processing it: when lines are waiting, hand their
+        /// writing to the thread pool. An interlocked read when there is nothing to do.
         /// </summary>
-        private sealed class DrainTrace : IThreadPoolWorkItem
+        private void RequestTraceDrain()
         {
-            private int _busy, _dropped;
-            private DenoiseFamily _family;
-            private LagCause _cause;
-            private RxLagEvent _event;
-            private bool _fellBack;
-            private int _onOff, _delay;
+            if (Volatile.Read(ref _tracePending) == 0) return;
+            if (Interlocked.Exchange(ref _tracePending, 0) == 0) return;
+            ThreadPool.UnsafeQueueUserWorkItem(_traceDrainer ??= new TraceDrainer(this), preferLocal: false);
+        }
 
-            public void Queue(DenoiseFamily family, LagCause cause, in RxLagEvent e, bool fellBack, int onOff, int delay)
+        /// <summary>Format and write every recorded line, in order (a pool thread, or the slot's disposal).</summary>
+        internal void DrainTraces()
+        {
+            lock (_traceLock)
             {
-                if (Interlocked.Exchange(ref _busy, 1) != 0) { Interlocked.Increment(ref _dropped); return; }
-                _family = family; _cause = cause; _event = e; _fellBack = fellBack; _onOff = onOff; _delay = delay;
-                ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
+                long dropped = Interlocked.Exchange(ref _traceDropped, 0);
+                if (dropped > 0) WriteTrace($"PcDenoiseSlot: {Family} lag shifter: {dropped} trace line(s) lost: the ring filled before they were written");
+                long head = Volatile.Read(ref _traceHead);
+                for (long tail = _traceTail; tail < head; tail++)
+                {
+                    var r = _traceRing[tail % TraceCapacity];
+                    Volatile.Write(ref _traceTail, tail + 1);
+                    WriteTrace(FormatTrace(in r));
+                }
             }
+        }
 
-            public void Execute()
+        private string FormatTrace(in TraceRecord r)
+        {
+            if (r.Kind == TraceKind.Retime)
             {
-                var family = _family; var cause = _cause; var e = _event; bool fellBack = _fellBack; int onOff = _onOff, delay = _delay;
-                int dropped = Interlocked.Exchange(ref _dropped, 0);
-                Volatile.Write(ref _busy, 0);
-                string head = $"PcDenoiseSlot: {family} lag shifter: ";
-                string body = onOff > 0
-                    ? (fellBack ? $"turned on by a cut: the dry signal did not reach {delay} samples in time (fell back)" : $"turned on, the dry signal grown to {delay} samples, matched fade")
-                    : onOff < 0 ? $"turned off: the dry signal at {delay} samples, matched fade, draining to none"
-                    : fellBack && e.Requested == 0 ? $"switch fell back to today's: the pre-growth to {delay} samples did not land in time"
-                    : $"{cause} {e.Describe(48000)}";
-                Trace.WriteLine(head + body + (dropped > 0 ? $" ({dropped} earlier event(s) not written)" : ""));
+                var n = r.Note;
+                return $"PcDenoiseSlot: {Family} retimed to a new shared delay: from {n.From} to {n.To} samples, " +
+                    (n.Faded ? "faded" : "cut") + $", correlation {n.R0:0.000} and {n.R1:0.000}";
             }
+            var e = r.Event;
+            string head = $"PcDenoiseSlot: {Family} lag shifter: ";
+            string body = r.OnOff > 0
+                ? (r.FellBack ? $"turned on by a cut: the dry signal did not reach {r.Delay} samples in time (fell back)" : $"turned on, the dry signal grown to {r.Delay} samples, matched fade")
+                : r.OnOff < 0 ? $"turned off: the dry signal at {r.Delay} samples, matched fade, draining to none"
+                : r.FellBack && e.Requested == 0 ? $"switch fell back to today's: the pre-growth to {r.Delay} samples did not land in time"
+                : $"{r.Cause} {e.Describe(48000)}";
+            return head + body;
+        }
+
+        private void WriteTrace(string line)
+        {
+            Trace.WriteLine(line);
+            TraceObserverForTest?.Invoke(line);
+        }
+
+        private sealed class TraceDrainer : IThreadPoolWorkItem
+        {
+            private readonly PcDenoiseSlot _slot;
+            public TraceDrainer(PcDenoiseSlot slot) => _slot = slot;
+            public void Execute() => _slot.DrainTraces();
+        }
+
+        private void TraceEvents(PadLine line, LagCause cause)
+        {
+            if (line.Shifter.TryTakeCompleted(out var e)) TraceDrain(cause, e, fellBack: e.FellBack, onOff: 0, delay: line.Delay);
         }
 
         private void PadRunningPhaseOne(float[] audio, PerChannelDenoiserBank running)
@@ -1774,7 +1851,7 @@ namespace JJFlexWpf
                     Volatile.Write(ref _held, _retimeTarget);
                     _heldBasis = _retimeBasis;
                     _retimePending = false;
-                    _retimeTrace.Queue(Family, note);
+                    TraceRetime(note);
                     _runLineActive = _held >= 0;
                     return;
                 }
@@ -1788,34 +1865,6 @@ namespace JJFlexWpf
             _runLineActive = _held >= 0;
         }
 
-        /// <summary>
-        /// The retime's trace line, written on a pool thread from one work item
-        /// made with the slot, so the audio thread allocates nothing for it. A
-        /// second retime while the first line is still being written is not
-        /// traced (they are seconds apart in practice; the note is kept either way).
-        /// </summary>
-        private sealed class RetimeTrace : IThreadPoolWorkItem
-        {
-            private int _busy;
-            private DenoiseFamily _family;
-            private RetimeNote _note;
-
-            public void Queue(DenoiseFamily family, RetimeNote note)
-            {
-                if (Interlocked.Exchange(ref _busy, 1) != 0) return;
-                _family = family; _note = note;
-                ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
-            }
-
-            public void Execute()
-            {
-                var n = _note;
-                var family = _family;
-                Volatile.Write(ref _busy, 0);
-                Trace.WriteLine($"PcDenoiseSlot: {family} retimed to a new shared delay: from {n.From} to {n.To} samples, " +
-                    (n.Faded ? "faded" : "cut") + $", correlation {n.R0:0.000} and {n.R1:0.000}");
-            }
-        }
 
         /// <summary>The Mute switch's first part: the outgoing engine fades out across the switch buffer.</summary>
         private void FadeOutForMute(Span<float> audio)
@@ -1888,6 +1937,7 @@ namespace JJFlexWpf
         }
         internal void DisposeOwned()
         {
+            DrainTraces();
             // The id stays, as it always did; only the bank goes, so the delay reads 0.
             var run = Volatile.Read(ref _runningBuild);
             if (run?.Bank != null) { run.Bank.Dispose(); Volatile.Write(ref _runningBuild, run with { Bank = null }); }

@@ -573,6 +573,49 @@ public sealed class LagShifterSlotTests
         finally { gate.Set(); slot.ScratchMakerGateForTest = null; slot.CloseAdmission(); slot.DisposeOwned(); }
     }
 
+    /// <summary>
+    /// The slot's trace lines follow Track T's record-and-drain (Codex's re-check of
+    /// 5a0a8c93): the buffer in which a turn-off happens only records it; the next
+    /// buffer asks for the ring to be written, and a pool thread writes the lines in
+    /// order (the turn-off, then the dry line's drain when it ends). Nothing is lost.
+    /// </summary>
+    [Fact]
+    public void Trace_lines_are_recorded_by_the_buffer_and_written_after_it_in_order()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        DenoiseEngineEntry Row() => new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
+            (_, _) => new AlignedSwitchTests.DelayGainEngine("rnnoise", 480, 1), () => Unavailability.None);
+        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "rnnoise", 48000, 2, new DenoiseEngineCatalog(new[] { Row() }));
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        try
+        {
+            slot.TraceObserverForTest = lines.Enqueue;
+            slot.CrossFadeOverrideForTest = true; slot.ShifterOverrideForTest = true; slot.MuteOverrideForTest = false;
+            slot.SetStrength("rnnoise", 1);
+            slot.Enabled = true;
+            var x = new float[2 * F];
+            var rng = new Random(8);
+            void Next() { for (int i = 0; i < F; i++) x[2 * i] = x[2 * i + 1] = (float)(rng.NextDouble() - 0.5) * 0.2f; slot.Process(x, true, true, false, null, RxContentClass.Classified | RxContentClass.NotVoiceRun); }
+            for (int b = 0; b < 40; b++) Next();
+            slot.Enabled = false;
+            Next();                                   // the turn-off: recorded only
+            Assert.True(slot.TracePendingForTest, "the turn-off was not recorded");
+            System.Threading.Thread.Sleep(100);
+            Assert.Empty(lines);                      // nothing was handed to a writer from its own buffer
+            for (int b = 0; b < 200 && slot.TurningForTest; b++) Next();
+            Next();                                   // asks for the drain's line too
+            var wait = System.Diagnostics.Stopwatch.StartNew();
+            while (lines.Count < 2 && wait.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(5);
+            var got = lines.ToArray();
+            _out.WriteLine(string.Join(" | ", got));
+            Assert.Equal(2, got.Length);
+            Assert.Contains("turned off", got[0]);
+            Assert.Contains("TurnOff", got[1]);
+            Assert.DoesNotContain(got, l => l.Contains("lost"));
+        }
+        finally { slot.CloseAdmission(); slot.DisposeOwned(); }
+    }
+
     /// <summary>A pipeline whose neural slot runs "rnnoise" (480) and can choose a forever-late "b".</summary>
     private sealed class LateRigLag : IDisposable
     {
