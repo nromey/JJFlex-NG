@@ -527,7 +527,8 @@ Public Class PersonalData
                 Exit Sub
             End Try
         End If
-        Dim opFiles As String() = GetFiles(opsDir, "*.xml")
+        ' Less any old file a rename could not remove (#1241).
+        Dim opFiles As String() = OperatorFilesToLoad(opsDir)
         If opFiles.Length = 0 Then
             ' Create initial operator.
             Add()
@@ -801,6 +802,9 @@ Public Class PersonalData
             Return False
         End If
         If Not String.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase) Then
+            ' An earlier rename's old file, still on record, now belongs to the
+            ' newest file (#1241).
+            RetargetRetiredFiles(oldPath, newPath)
             Try
                 File.Delete(oldPath)
             Catch ex As Exception
@@ -808,9 +812,159 @@ Public Class PersonalData
                 ' Traced only (#1195): the "Exception" box read the .NET message and
                 ' stack trace to the operator about a save that had succeeded.
                 Tracing.TraceLine("PersonalData: the operator was saved, but the old file was not removed: " & ex.Message, TraceLevel.Error)
+                ' Recorded, so the next start neither loads it as a second
+                ' operator nor forgets it (#1241).
+                RecordRetiredFile(oldPath, newPath)
             End Try
         End If
         Return True
+    End Function
+
+    ''' <summary>
+    ''' The record of operator files a rename saved past but could not remove
+    ''' (#1241). One line per file: the old file's name, the renamed file's
+    ''' name and the time the delete failed (UTC ticks), separated by tabs.
+    ''' It sits beside the operator files and is settled at the next start by
+    ''' <see cref="SettleRetiredFiles"/>.
+    '''
+    ''' <para><b>Never an .xml file.</b> The loader reads every *.xml in the
+    ''' folder as an operator; a file that is not one fails both of its reads,
+    ''' and the second failure is not caught, so an .xml record would stop
+    ''' startup.</para>
+    ''' </summary>
+    Friend Const RetiredFilesRecordName As String = "retired-operator-files.txt"
+
+    ''' <summary>
+    ''' Note an old operator file that could not be removed after its renamed
+    ''' copy was saved, so the next start neither loads it as a second operator
+    ''' nor forgets to remove it. A failure to write the note is traced only:
+    ''' the save it follows has succeeded.
+    ''' </summary>
+    Friend Shared Sub RecordRetiredFile(oldPath As String, newPath As String)
+        Try
+            Dim line As String = Path.GetFileName(oldPath) & vbTab & Path.GetFileName(newPath) & vbTab &
+                DateTime.UtcNow.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            File.AppendAllText(Path.Combine(Path.GetDirectoryName(oldPath), RetiredFilesRecordName), line & vbCrLf)
+            Tracing.TraceLine("PersonalData: the old operator file is recorded, to be removed at the next start: " & oldPath, TraceLevel.Info)
+        Catch ex As Exception
+            Tracing.TraceLine("PersonalData: the old operator file could not be recorded: " & ex.Message, TraceLevel.Error)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' A later rename moved an operator whose earlier old file is still on
+    ''' record: the record now names the newest file, so the old one is still
+    ''' known to be a stale copy of a saved operator.
+    ''' </summary>
+    Private Shared Sub RetargetRetiredFiles(oldPath As String, newPath As String)
+        Try
+            Dim recordPath As String = Path.Combine(Path.GetDirectoryName(oldPath), RetiredFilesRecordName)
+            If Not File.Exists(recordPath) Then Return
+            Dim was As String = Path.GetFileName(oldPath)
+            Dim lines As String() = File.ReadAllLines(recordPath)
+            Dim changed As Boolean = False
+            For i As Integer = 0 To lines.Length - 1
+                Dim parts As String() = lines(i).Split(vbTab)
+                If parts.Length = 3 AndAlso String.Equals(parts(1), was, StringComparison.OrdinalIgnoreCase) Then
+                    parts(1) = Path.GetFileName(newPath)
+                    lines(i) = String.Join(vbTab, parts)
+                    changed = True
+                End If
+            Next
+            If changed Then File.WriteAllLines(recordPath, lines)
+        Catch ex As Exception
+            Tracing.TraceLine("PersonalData: the retired operator record could not be updated: " & ex.Message, TraceLevel.Error)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Settle the retired-file record at startup (#1241), before any operator
+    ''' is read, and return the names of the files NOT to load.
+    '''
+    ''' For each entry: the old file is gone, so the entry is dropped; the old
+    ''' file was written after the record, so it is a new operator who reuses
+    ''' the name, and it is kept and loaded; the renamed file is missing, so the
+    ''' old file is the only copy, and it is kept and loaded; otherwise the
+    ''' delete is tried again, and a file that still cannot be removed is
+    ''' skipped, never loaded, and kept on record. Only a file the record names,
+    ''' in this folder, is ever touched. Each outcome is traced. Anything that
+    ''' goes wrong here is traced and startup carries on.
+    ''' </summary>
+    Friend Shared Function SettleRetiredFiles(dir As String) As HashSet(Of String)
+        Dim skip As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        Try
+            Dim recordPath As String = Path.Combine(dir, RetiredFilesRecordName)
+            If Not File.Exists(recordPath) Then Return skip
+            Dim keep As New List(Of String)
+            For Each line As String In File.ReadAllLines(recordPath)
+                If String.IsNullOrWhiteSpace(line) Then Continue For
+                Dim parts As String() = line.Split(vbTab)
+                Dim ticks As Long
+                If parts.Length <> 3 OrElse
+                   Not Long.TryParse(parts(2), System.Globalization.NumberStyles.None,
+                                     System.Globalization.CultureInfo.InvariantCulture, ticks) OrElse
+                   Not IsOperatorFileName(parts(0)) OrElse Not IsOperatorFileName(parts(1)) OrElse
+                   String.Equals(parts(0), parts(1), StringComparison.OrdinalIgnoreCase) Then
+                    Tracing.TraceLine("PersonalData: an unreadable retired-file entry was dropped: " & line, TraceLevel.Warning)
+                    Continue For
+                End If
+                Dim oldFile As String = Path.Combine(dir, parts(0))
+                Dim newFile As String = Path.Combine(dir, parts(1))
+                If Not File.Exists(oldFile) Then
+                    Tracing.TraceLine("PersonalData: retired operator file already gone: " & oldFile, TraceLevel.Info)
+                    Continue For
+                End If
+                If File.GetLastWriteTimeUtc(oldFile).Ticks > ticks Then
+                    ' Written after the record, so not the stale copy it names: an
+                    ' operator saved since under the same name. Kept and loaded.
+                    Tracing.TraceLine("PersonalData: a newer operator file reuses a retired name; kept: " & oldFile, TraceLevel.Info)
+                    Continue For
+                End If
+                If Not File.Exists(newFile) Then
+                    ' The renamed copy is gone, so this is the operator's only
+                    ' record. Never lose it: load it as it is.
+                    Tracing.TraceLine("PersonalData: the renamed operator file is missing; the old one is kept and loaded: " & oldFile, TraceLevel.Warning)
+                    Continue For
+                End If
+                Try
+                    File.Delete(oldFile)
+                    Tracing.TraceLine("PersonalData: removed the retired operator file: " & oldFile, TraceLevel.Info)
+                Catch ex As Exception
+                    Tracing.TraceLine("PersonalData: the retired operator file still cannot be removed, and is not loaded: " &
+                                      oldFile & " (" & ex.Message & ")", TraceLevel.Warning)
+                    skip.Add(parts(0))
+                    keep.Add(line)
+                End Try
+            Next
+            If keep.Count = 0 Then
+                File.Delete(recordPath)
+            Else
+                File.WriteAllLines(recordPath, keep)
+            End If
+        Catch ex As Exception
+            Tracing.TraceLine("PersonalData: the retired operator record could not be settled: " & ex.Message, TraceLevel.Error)
+        End Try
+        Return skip
+    End Function
+
+    ''' <summary>A bare operator file name: no folder part, an .xml file.</summary>
+    Private Shared Function IsOperatorFileName(name As String) As Boolean
+        Return Not String.IsNullOrWhiteSpace(name) AndAlso
+            String.Equals(name, Path.GetFileName(name), StringComparison.Ordinal) AndAlso
+            name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    ''' <summary>
+    ''' The operator files to read at startup: every *.xml in the folder, less
+    ''' any a rename retired and could not remove (<see cref="SettleRetiredFiles"/>).
+    ''' </summary>
+    Friend Shared Function OperatorFilesToLoad(dir As String) As String()
+        Dim skip As HashSet(Of String) = SettleRetiredFiles(dir)
+        Dim files As New List(Of String)
+        For Each fn As String In GetFiles(dir, "*.xml")
+            If Not skip.Contains(Path.GetFileName(fn)) Then files.Add(fn)
+        Next
+        Return files.ToArray()
     End Function
 
     Public Function RemoveAt(ByVal id As Integer) As Boolean
