@@ -260,21 +260,47 @@ public sealed class AlignedSwitchTests
 
     // ── Nothing on the audio thread allocates ──
 
+    /// <summary>
+    /// The least of up to <paramref name="attempts"/> measurements, stopping at the
+    /// first that reads nothing. Track P2 measured why one is not enough
+    /// (2026-11-21): once receive pipelines have been built on the test thread,
+    /// <c>GC.GetAllocatedBytesForCurrentThread</c> moves by 1 to 8 KB at intervals
+    /// even across a loop of plain arithmetic that cannot allocate, with no
+    /// collection counted, so a single window fails by chance (about one run in
+    /// three, on x86 and x64). A real allocation on the audio path is the same on
+    /// every attempt, so the least still catches it.
+    /// </summary>
+    internal static long LeastAllocated(Func<long> measure, int attempts = 5)
+    {
+        long least = long.MaxValue;
+        for (int a = 0; a < attempts && least != 0; a++) least = Math.Min(least, measure());
+        return least;
+    }
+
     [Fact]
     public void A_padded_slot_and_its_warm_up_allocate_nothing_per_buffer()
     {
-        using var rig = new Rig(480, 3408, 0.8f, shared: true);
         var audio = new float[2 * F];
-        for (int b = 0; b < 20; b++) rig.P.Process(audio);           // running, padded to 3408
-        Assert.Equal(3408, rig.Slot.HeldSamples);
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int b = 0; b < 50; b++) rig.P.Process(audio);
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
-        rig.ChooseB();
-        rig.P.Process(audio);                                       // the warm-up's first buffer sizes its scratch once, as before
-        before = GC.GetAllocatedBytesForCurrentThread();
-        for (int b = 0; b < 5; b++) rig.P.Process(audio);           // warming: two banks, two pads, the correlation
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        long steady = 0, warming = LeastAllocated(() =>
+        {
+            using var rig = new Rig(480, 3408, 0.8f, shared: true);
+            for (int b = 0; b < 20; b++) rig.P.Process(audio);           // running, padded to 3408
+            Assert.Equal(3408, rig.Slot.HeldSamples);
+            steady = LeastAllocated(() =>
+            {
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                for (int b = 0; b < 50; b++) rig.P.Process(audio);
+                return GC.GetAllocatedBytesForCurrentThread() - before;
+            });
+            Assert.Equal(0, steady);
+            rig.ChooseB();
+            rig.P.Process(audio);                                       // the warm-up's first buffer sizes its scratch once, as before
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int b = 0; b < 5; b++) rig.P.Process(audio);           // warming: two banks, two pads, the correlation
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        });
+        Assert.Equal(0, steady);
+        Assert.Equal(0, warming);
     }
 
     // ── Outside the set, nothing changes ──

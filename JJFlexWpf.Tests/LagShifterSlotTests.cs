@@ -445,27 +445,33 @@ public sealed class LagShifterSlotTests
     [Fact]
     public void A_drain_a_turn_on_and_a_turn_off_allocate_nothing_per_buffer()
     {
-        using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: true);
-        var audio = new float[2 * F];
-        var rng = new Random(5);
-        void Noise() { for (int i = 0; i < F; i++) audio[2 * i] = audio[2 * i + 1] = (float)(rng.NextDouble() - 0.5) * 0.2f; }
-        for (int b = 0; b < 40; b++) { Noise(); rig.P.Process(audio); }
-        var shorter = Plan(480, "rnnoise", "b");
-        rig.P.RnnEnabled = false; Noise(); rig.P.Process(audio);   // sizes the switch buffer once, as phase 1's first switch does
-        rig.P.RnnEnabled = true;
-        for (int b = 0; b < 5; b++) { Noise(); rig.P.Process(audio); }
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        rig.Slot.SharedPlan = shorter;
-        for (int b = 0; b < 200; b++) { Noise(); rig.P.Process(audio); }
-        rig.P.RnnEnabled = false;
-        for (int b = 0; b < 100; b++) { Noise(); rig.P.Process(audio); }
-        rig.P.RnnEnabled = true;
-        for (int b = 0; b < 200; b++) { Noise(); rig.P.Process(audio); }
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        var lines = rig.Slot.LinesForTest!.Value;
-        long splices = lines.Run.TotalPeriodSplices + lines.Run.TotalGapSplices + lines.Dry.TotalPeriodSplices + lines.Dry.TotalGapSplices;
+        // The least of up to five fresh runs: see AlignedSwitchTests.LeastAllocated
+        // for why one window can read a few KB that nothing allocated.
+        long allocated = AlignedSwitchTests.LeastAllocated(() =>
+        {
+            using var rig = new AlignedSwitchTests.Rig(480, 1440, 1, shared: true);
+            var audio = new float[2 * F];
+            var rng = new Random(5);
+            void Noise() { for (int i = 0; i < F; i++) audio[2 * i] = audio[2 * i + 1] = (float)(rng.NextDouble() - 0.5) * 0.2f; }
+            for (int b = 0; b < 40; b++) { Noise(); rig.P.Process(audio); }
+            var shorter = Plan(480, "rnnoise", "b");
+            rig.P.RnnEnabled = false; Noise(); rig.P.Process(audio);   // sizes the switch buffer once, as phase 1's first switch does
+            rig.P.RnnEnabled = true;
+            for (int b = 0; b < 5; b++) { Noise(); rig.P.Process(audio); }
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            rig.Slot.SharedPlan = shorter;
+            for (int b = 0; b < 200; b++) { Noise(); rig.P.Process(audio); }
+            rig.P.RnnEnabled = false;
+            for (int b = 0; b < 100; b++) { Noise(); rig.P.Process(audio); }
+            rig.P.RnnEnabled = true;
+            for (int b = 0; b < 200; b++) { Noise(); rig.P.Process(audio); }
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            var lines = rig.Slot.LinesForTest!.Value;
+            long splices = lines.Run.TotalPeriodSplices + lines.Run.TotalGapSplices + lines.Dry.TotalPeriodSplices + lines.Dry.TotalGapSplices;
+            Assert.True(splices > 0, "nothing was drained while counting");
+            return bytes;
+        });
         Assert.Equal(0, allocated);
-        Assert.True(splices > 0, "nothing was drained while counting");
     }
 
     /// <summary>A pipeline whose neural slot runs "rnnoise" (480) and can choose a forever-late "b".</summary>
