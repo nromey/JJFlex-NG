@@ -48,19 +48,8 @@ namespace Radios.Tests
 
         private static string Src(params string[] parts) => File.ReadAllText(Path.Combine(new[] { IntegrationPassTree.Root }.Concat(parts).ToArray()));
 
-        private static string Body(string text, string signature)
-        {
-            int at = text.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, signature + " is not where this test reads it.");
-            int open = text.IndexOf('{', at);
-            int depth = 0;
-            for (int i = open; i < text.Length; i++)
-            {
-                if (text[i] == '{') depth++;
-                else if (text[i] == '}' && --depth == 0) return text.Substring(at, i - at + 1);
-            }
-            throw new InvalidOperationException("unbalanced braces after " + signature);
-        }
+        private static string Body(string text, string signature) =>
+            SourceMember.CSharp(text, signature);
 
         /// <summary>Run what the rig queued, as its main loop would.</summary>
         private void Drain()

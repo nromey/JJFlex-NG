@@ -345,19 +345,8 @@ namespace Radios.Tests
         }
 
         /// <summary>The text of one method, from its signature to its matching close brace.</summary>
-        private static string Body(string src, string signature)
-        {
-            int at = src.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, "no method with signature: " + signature);
-            int open = src.IndexOf('{', at);
-            int depth = 0;
-            for (int i = open; i < src.Length; i++)
-            {
-                if (src[i] == '{') depth++;
-                else if (src[i] == '}' && --depth == 0) return src.Substring(at, i - at + 1);
-            }
-            throw new InvalidOperationException("unbalanced braces after " + signature);
-        }
+        private static string Body(string src, string signature) =>
+            SourceMember.CSharp(src, signature);
 
         [Fact]
         public void TheEpisodeIsToldByEveryAllowedRfSource_ThroughNoteRf_AndAdvancedByNothingElse()

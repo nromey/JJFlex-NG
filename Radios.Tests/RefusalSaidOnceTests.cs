@@ -226,19 +226,8 @@ public sealed class RefusalSaidOnceTests : IDisposable
         Assert.Contains("== GuardedOutcome.Failed)", before, StringComparison.Ordinal);
     }
 
-    private static string Body(string text, string signature)
-    {
-        int at = text.IndexOf(signature, StringComparison.Ordinal);
-        Assert.True(at > 0, "not found: " + signature);
-        int open = text.IndexOf('{', at);
-        int depth = 0;
-        for (int i = open; i < text.Length; i++)
-        {
-            if (text[i] == '{') depth++;
-            else if (text[i] == '}' && --depth == 0) return text.Substring(at, i - at + 1);
-        }
-        return text.Substring(at);
-    }
+    private static string Body(string text, string signature) =>
+        SourceMember.CSharp(text, signature);
 
     private static string Read(params string[] parts)
     {

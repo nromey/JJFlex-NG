@@ -440,7 +440,7 @@ namespace Radios.Tests
             Assert.Contains("SayTheHoldRefused(actionKey);", body);
             Assert.Contains("return GuardedOutcome.Refused;", body);
             int wuh = src.IndexOf("private bool WriteUnlessHeld(", StringComparison.Ordinal);
-            Assert.Contains("lock (_changeNothingGate)", src.Substring(wuh, 300));   // positive control
+            Assert.Contains("lock (_changeNothingGate)", SourceMember.CSharpAt(src, wuh));   // positive control
         }
 
         [Fact]
@@ -460,7 +460,7 @@ namespace Radios.Tests
             string main = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.MainThread.cs"));
             int run = main.IndexOf("internal void ImportProfile(string name)", StringComparison.Ordinal);
             Assert.True(run >= 0, "ImportProfile moved");
-            string runBody = main.Substring(run, Math.Min(1500, main.Length - run));
+            string runBody = SourceMember.CSharpAt(main, run);
             int again = runBody.IndexOf("GuardRefuses(\"settings.guard.action.profile_import\")", StringComparison.Ordinal);
             int upload = runBody.IndexOf("SendDBImportFile", StringComparison.Ordinal);
             Assert.True(again > 0 && upload > again, "the queued import must ask again before it powers off and uploads");

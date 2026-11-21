@@ -50,20 +50,8 @@ namespace Radios.Tests
         private static string Source() => File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
             "Radios", "AuthFormWebView2.cs")).Replace("\r\n", "\n");
 
-        private static string MethodBody(string source, string signature)
-        {
-            int start = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(start >= 0, $"not found: {signature}");
-            int open = source.IndexOf('{', start);
-            int depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}' && --depth == 0)
-                    return source.Substring(open, i - open + 1);
-            }
-            throw new InvalidOperationException("unbalanced braces after " + signature);
-        }
+        private static string MethodBody(string source, string signature) =>
+            SourceMember.CSharpBlock(source, signature);
 
         private const string ExchangeSignature =
             "private async Task<bool> ExchangeCodeForTokens(string code, CancellationToken ct)";

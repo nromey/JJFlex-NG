@@ -171,7 +171,7 @@ namespace Radios.Tests
             Assert.True(method >= 0, "JJFlexDialog.ShowModalDialog is gone. If modals now go "
                 + "somewhere else, the attention claim has to go with them (#331).");
 
-            string region = source.Substring(method, Math.Min(1400, source.Length - method));
+            string region = SourceMember.CSharpAt(source, method);
 
             Assert.Contains("PushAttentionWindow", region, StringComparison.Ordinal);
             Assert.Contains("finally", region, StringComparison.Ordinal);

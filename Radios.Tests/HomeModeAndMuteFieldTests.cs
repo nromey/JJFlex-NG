@@ -21,19 +21,8 @@ namespace Radios.Tests
         private static string Source(string file) =>
             File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), file));
 
-        private static string Body(string source, string signature)
-        {
-            int at = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, signature + " was not found");
-            int open = source.IndexOf('{', at);
-            int depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}' && --depth == 0) return source.Substring(open, i - open + 1);
-            }
-            throw new InvalidOperationException(signature + " has no end");
-        }
+        private static string Body(string source, string signature) =>
+            SourceMember.CSharpBlock(source, signature);
 
         [Fact]
         public void Modern_carries_Mode_and_Mute_and_Classic_carries_Mode()

@@ -113,7 +113,7 @@ public sealed class AtuSwitchTests : IDisposable
         Assert.DoesNotContain("_rig.FlexTunerType =", antenna);
         Assert.Contains("_rig.SetAtuAutomatic(automatic)", antenna);
         int mode = antenna.IndexOf("_atuModeControl.SelectionChanged += (s, idx) =>", StringComparison.Ordinal);
-        Assert.Contains("if (_polling || _rig == null) return;", antenna.Substring(mode, Math.Min(400, antenna.Length - mode)));
+        Assert.Contains("if (_polling || _rig == null) return;", SourceMember.CSharpAt(antenna, mode));
 
         int poll = panel.IndexOf("private void PollAntenna()", StringComparison.Ordinal);
         string polled = panel.Substring(poll, panel.IndexOf("#endregion", poll, StringComparison.Ordinal) - poll);

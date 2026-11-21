@@ -1295,7 +1295,7 @@ namespace Radios.Tests
             string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             int at = source.IndexOf("private void traceTxMeters()", StringComparison.Ordinal);
             Assert.True(at > 0, "traceTxMeters not found");
-            string body = source.Substring(at, Math.Min(12000, source.Length - at));
+            string body = SourceMember.CSharpAt(source, at);
             Assert.Contains("int interval = tuning ? 250 : 1000;", body, StringComparison.Ordinal);
         }
 
@@ -1315,14 +1315,14 @@ namespace Radios.Tests
             Assert.DoesNotContain("ThisStringIsNotInFlexBaseAnywhere", source, StringComparison.Ordinal);
 
             int at = source.IndexOf("private void PATempDataHandler(float data)", StringComparison.Ordinal);
-            string body = source.Substring(at, Math.Min(2400, source.Length - at));
+            string body = SourceMember.CSharpAt(source, at);
             Assert.Contains("recordCaptureMeters(data);", body, StringComparison.Ordinal);
 
             // And the supply meter's handler drives the window when temperature
             // is not selected (blocker 4) — the same one-caller rule.
             int volts = source.IndexOf("private void VoltsDataHandler(float data)", StringComparison.Ordinal);
             Assert.True(volts > 0, "VoltsDataHandler not found");
-            string voltsBody = source.Substring(volts, Math.Min(1200, source.Length - volts));
+            string voltsBody = SourceMember.CSharpAt(source, volts);
             Assert.Contains("recordCaptureMetersFromVolts();", voltsBody, StringComparison.Ordinal);
         }
 

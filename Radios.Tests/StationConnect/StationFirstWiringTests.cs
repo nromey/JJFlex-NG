@@ -64,7 +64,7 @@ namespace Radios.Tests.StationConnect
         {
             var text = Read(FlexBase);
             int at = IndexOf(text, signature);
-            Assert.Contains(feed, text.Substring(at, Math.Min(6000, text.Length - at)), StringComparison.Ordinal);
+            Assert.Contains(feed, SourceMember.CSharpAt(text, at), StringComparison.Ordinal);
         }
 
         [Fact]
@@ -91,7 +91,7 @@ namespace Radios.Tests.StationConnect
             // same line without running sliceAdded's timer; this pins both.
             var text = Read(FlexBase);
             int sig = IndexOf(text, "private void sliceAdded(Slice slc, ObservationBinding binding)");
-            string body = text.Substring(sig, 1200);
+            string body = SourceMember.CSharpAt(text, sig);
             Assert.Contains("ObserveOwnSliceReported(binding, (Slice)s2, e2.PropertyName);", body, StringComparison.Ordinal);
             Assert.DoesNotContain("ObserveOwnSliceTuned(", body, StringComparison.Ordinal);
 
@@ -146,7 +146,7 @@ namespace Radios.Tests.StationConnect
             // the current attempt — the review's step-1 defect.
             var station = Read(FlexBaseStation);
             int wiring = IndexOf(station, "internal void WireStationHandlers(Radio radio)");
-            string wiringBody = station.Substring(wiring, 4000);
+            string wiringBody = SourceMember.CSharpAt(station, wiring);
             foreach (var wire in new[]
             {
                 "if (IsCurrentBinding(binding)) radioPropertyChangedHandler(s, e, binding);",
@@ -188,7 +188,7 @@ namespace Radios.Tests.StationConnect
                     site + " must consider the offer immediately after publishing its result");
             }
             int offer = IndexOf(text, "private void ConsiderOwnerProfileLoadOffer()");
-            string body = text.Substring(offer, 2000);
+            string body = SourceMember.CSharpAt(text, offer);
             Assert.Contains("Interlocked.CompareExchange(ref _ownerLoadOfferedForAttempt, gen, already)", body, StringComparison.Ordinal);
             Assert.Contains("OwnerProfileLoadOffered?.Invoke(offer);", body, StringComparison.Ordinal);
         }
@@ -198,7 +198,7 @@ namespace Radios.Tests.StationConnect
         {
             var text = Read(FlexBaseStation);
             int method = IndexOf(text, "internal StationResult EstablishStationOnConnect(bool postImport)");
-            string body = text.Substring(method, Math.Min(3000, text.Length - method));
+            string body = SourceMember.CSharpAt(text, method);
             Assert.Contains("var previous = postImport ? LastStationResult : null;", body, StringComparison.Ordinal);
             Assert.Contains("attempt.BeginOperation(postImport ?", body, StringComparison.Ordinal);
             Assert.Contains("StationDeadlines.Default(), waiter, previous);", body, StringComparison.Ordinal);
@@ -222,7 +222,7 @@ namespace Radios.Tests.StationConnect
                 "the post-station phase (fresh tx/mic reads) must follow the coordinator's run, never precede it");
 
             int port = IndexOf(text, "private sealed class FlexPostStationPort : IPostStationPort");
-            string portBody = text.Substring(port, Math.Min(2500, text.Length - port));
+            string portBody = SourceMember.CSharpAt(text, port);
             Assert.Contains("_rig.ReadProfileTypeState(type, _rig.WantedProfilesForThisRadio(), freshAsk: true, timeoutMs: timeoutMs)", portBody, StringComparison.Ordinal);
             Assert.DoesNotContain("ReadProfileSituation(", portBody, StringComparison.Ordinal);
         }
@@ -233,7 +233,7 @@ namespace Radios.Tests.StationConnect
             var text = Read(FlexBaseStation);
             int port = IndexOf(text, "public ProfileSituation ReadGlobalSituation(int timeoutMs)");
             Assert.Contains("freshTypes: new[] { ProfileTypes.global }",
-                text.Substring(port, Math.Min(800, text.Length - port)), StringComparison.Ordinal);
+                SourceMember.CSharpAt(text, port), StringComparison.Ordinal);
         }
 
         [Fact]
@@ -246,7 +246,7 @@ namespace Radios.Tests.StationConnect
             // one is pending.
             var text = Read(FlexBaseStation);
             int conclude = IndexOf(text, "private void ConcludePostStationPhase(PostStationResult result)");
-            string body = text.Substring(conclude, Math.Min(1600, text.Length - conclude));
+            string body = SourceMember.CSharpAt(text, conclude);
             int announce = body.IndexOf("AnnounceConnectStewardship(", StringComparison.Ordinal);
             int deferred = body.IndexOf("_pendingAssessmentMayRepair = result.MayRepairMicrophone;", StringComparison.Ordinal);
             int check = body.IndexOf("CheckMicProfileForSilentTx(mayRepair: result.MayRepairMicrophone);", StringComparison.Ordinal);
@@ -302,7 +302,7 @@ namespace Radios.Tests.StationConnect
 
             var orchestrator = Read("Radios/StationConnect/PostStationOrchestrator.cs");
             int refusal = IndexOf(orchestrator, "private string RefusalAtSend(");
-            string body = orchestrator.Substring(refusal, 1200);
+            string body = SourceMember.CSharpAt(orchestrator, refusal);
             Assert.Contains("operation.IsEnded", body, StringComparison.Ordinal);
             Assert.Contains("phase.Passed(_clock)", body, StringComparison.Ordinal);
             Assert.Contains("_port.RosterForAutomaticWrite()", body, StringComparison.Ordinal);
@@ -337,7 +337,7 @@ namespace Radios.Tests.StationConnect
         {
             var text = Read(FlexBaseStation);
             int method = IndexOf(text, "private void DispatchStationWork(string name, Action work)");
-            Assert.Contains("Thread.CurrentThread == mainThread", text.Substring(method, 600), StringComparison.Ordinal);
+            Assert.Contains("Thread.CurrentThread == mainThread", SourceMember.CSharpAt(text, method), StringComparison.Ordinal);
         }
 
         // ── the guest live-audio path (design step 9; group 7) ──
@@ -363,7 +363,7 @@ namespace Radios.Tests.StationConnect
                 StringComparison.Ordinal);
 
             int refusal = IndexOf(text, "private string DeferredLiveAudioRefusal(LiveAudioBatch batch)");
-            string body = text.Substring(refusal, Math.Min(2500, text.Length - refusal));
+            string body = SourceMember.CSharpAt(text, refusal);
             Assert.Contains("DeferredLiveAudioGate.Refusal(", body, StringComparison.Ordinal);
             // The GUEST'S authority, not the owner's ruled one (Track G3).
             Assert.Contains("StrictRoster = RosterJudgementForGuestSharedWrite().Verdict", body, StringComparison.Ordinal);
@@ -376,12 +376,12 @@ namespace Radios.Tests.StationConnect
         {
             var text = Read(FlexBase);
             int capture = IndexOf(text, "private bool CaptureLiveTransmitAudio()");
-            string body = text.Substring(capture, Math.Min(3500, text.Length - capture));
+            string body = SourceMember.CSharpAt(text, capture);
             Assert.Contains("if (!SaveLiveTxSnapshot(serial, _liveTxSnapshot))", body, StringComparison.Ordinal);
             Assert.Contains("LiveTxSnapshotStore.Persist(path, snapshot)", text, StringComparison.Ordinal);
 
             int abort = IndexOf(text, "private void RestoreRadioAutosaveAfterAbort()");
-            string abortBody = text.Substring(abort, 2200);
+            string abortBody = SourceMember.CSharpAt(text, abort);
             int confirmed = abortBody.IndexOf("bool confirmed = SetRadioProfileAutosaveInternal(true,", StringComparison.Ordinal);
             int clear = abortBody.IndexOf("RadioConfig.RecordAutosaveTurnedOffByUs(serial, false);", StringComparison.Ordinal);
             int guard = abortBody.IndexOf("if (!confirmed)", StringComparison.Ordinal);
@@ -393,7 +393,7 @@ namespace Radios.Tests.StationConnect
         {
             var text = Read(FlexBase);
             int method = IndexOf(text, "private bool SetRadioProfileAutosaveInternal(bool on, string why, string operatorHoldAction, out bool held)");
-            string body = text.Substring(method, Math.Min(4000, text.Length - method));
+            string body = SourceMember.CSharpAt(text, method);
             Assert.Contains("Provenance == ObservationProvenance.RadioReported", body, StringComparison.Ordinal);
             Assert.Contains("Sequence > seq", body, StringComparison.Ordinal);
             Assert.DoesNotContain("await(() => theRadio == null || theRadio.ProfileAutoSave == on, 3000)", body, StringComparison.Ordinal);
@@ -404,7 +404,7 @@ namespace Radios.Tests.StationConnect
         {
             var text = Read(FlexBase);
             int method = IndexOf(text, "private bool CaptureLiveTransmitAudio()");
-            string body = text.Substring(method, Math.Min(3000, text.Length - method));
+            string body = SourceMember.CSharpAt(text, method);
             Assert.Contains("NOT capturing", body, StringComparison.Ordinal);
             Assert.DoesNotContain("Capturing anyway", body, StringComparison.Ordinal);
             Assert.Contains("_liveTxSnapshotChainGeneration = evidence.TxChainGeneration;", body, StringComparison.Ordinal);
@@ -430,7 +430,7 @@ namespace Radios.Tests.StationConnect
 
             var station = Read(FlexBaseStation);
             int init = IndexOf(station, "private ProfileActionOutcome RunOwnerInitialization(StationOperation operation, Func<string> refusalAtWrite)");
-            string initBody = station.Substring(init, 2500);
+            string initBody = SourceMember.CSharpAt(station, init);
             int dispatch = initBody.IndexOf("DispatchStationWork(\"owner initialisation\"", StringComparison.Ordinal);
             int recheck = initBody.IndexOf("refusal = refusalAtWrite?.Invoke();", StringComparison.Ordinal);
             int tnf = initBody.IndexOf("r.TNFEnabled = true;", StringComparison.Ordinal);
@@ -509,7 +509,7 @@ namespace Radios.Tests.StationConnect
             // operation and keeps an unconfirmed send as uncertain.
             var text = Read(FlexBaseStation);
             int method = IndexOf(text, "private bool CreatePendingGlobalAtDisconnect()");
-            string body = text.Substring(method, Math.Min(3000, text.Length - method));
+            string body = SourceMember.CSharpAt(text, method);
             Assert.Contains("new DeferredCreationRun(", body, StringComparison.Ordinal);
             Assert.Contains("attempt.BeginOperation(\"teardown: disconnect-time create\")", body, StringComparison.Ordinal);
             Assert.Contains("if (result.Outcome == CreationOutcome.Unconfirmed)", body, StringComparison.Ordinal);
@@ -545,7 +545,7 @@ namespace Radios.Tests.StationConnect
             // missed a per-radio-only name.
             var text = Read(FlexBase);
             int method = IndexOf(text, "private bool saveNewGlobalProfile()");
-            string body = text.Substring(method, Math.Min(1500, text.Length - method));
+            string body = SourceMember.CSharpAt(text, method);
             Assert.DoesNotContain("GetDefaultProfiles()", body, StringComparison.Ordinal);
             Assert.Contains("CreatePendingGlobalAtDisconnect()", body, StringComparison.Ordinal);
         }

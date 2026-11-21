@@ -222,27 +222,8 @@ namespace Radios.Tests
             Assert.DoesNotContain("Marker()", body);
         }
 
-        private static string MethodBody(string source, string signature)
-        {
-            int at = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, "signature not found: " + signature);
-
-            int open = source.IndexOf('{', at);
-            Assert.True(open >= 0, "no body for: " + signature);
-
-            int depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0) return source.Substring(at, i - at + 1);
-                }
-            }
-            Assert.Fail("unbalanced braces after: " + signature);
-            return "";
-        }
+        private static string MethodBody(string source, string signature) =>
+            SourceMember.CSharp(source, signature);
 
         private static string Source(string relative)
         {

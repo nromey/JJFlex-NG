@@ -186,7 +186,7 @@ namespace Radios.Tests
             // The property body is short; 1200 characters comfortably covers
             // the getter, the clamp and the send without reaching the next
             // property's clamp.
-            return source.Substring(at, Math.Min(1200, source.Length - at));
+            return SourceMember.CSharpAt(source, at);
         }
 
         private static string Read(string relative)

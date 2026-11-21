@@ -137,20 +137,7 @@ namespace Radios.Tests
             return File.ReadAllText(path);
         }
 
-        private static string MethodBody(string src, string signature)
-        {
-            int at = src.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, "Could not find '" + signature + "'; re-anchor this rule rather than letting it pass on nothing.");
-            int open = src.IndexOf('{', at + signature.Length);
-            int depth = 0;
-            for (int i = open; i < src.Length; i++)
-            {
-                if (src[i] == '{') depth++;
-                else if (src[i] == '}' && --depth == 0)
-                    return src.Substring(at, i - at + 1);
-            }
-            Assert.Fail("Unbalanced braces after '" + signature + "'.");
-            return string.Empty;
-        }
+        private static string MethodBody(string src, string signature) =>
+            SourceMember.CSharp(src, signature);
     }
 }

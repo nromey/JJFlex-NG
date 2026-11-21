@@ -227,7 +227,7 @@ namespace Radios.Tests
                 "ReadTransmitPowerWatts moved; reconcile it with CommandedPowerWatts "
                 + "rather than deleting this guard");
 
-            string body = src.Substring(at, Math.Min(400, src.Length - at));
+            string body = SourceMember.CSharpAt(src, at);
             Assert.Contains("TunePower", body);
             Assert.Contains("XmitPower", body);
         }

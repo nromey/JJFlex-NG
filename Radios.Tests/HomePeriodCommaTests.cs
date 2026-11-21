@@ -28,19 +28,8 @@ namespace Radios.Tests
     {
         private const string Handlers = "JJFlexWpf/FreqOutHandlers.cs";
 
-        private static string Body(string source, string signature)
-        {
-            int at = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, signature + " was not found");
-            int open = source.IndexOf('{', at);
-            int depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}' && --depth == 0) return source.Substring(open, i - open + 1);
-            }
-            throw new InvalidOperationException(signature + " has no end");
-        }
+        private static string Body(string source, string signature) =>
+            SourceMember.CSharpBlock(source, signature);
 
         [Fact]
         public void A_period_or_comma_on_any_slice_row_field_is_a_slice_key_S_Meter_included()

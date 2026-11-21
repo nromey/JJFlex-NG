@@ -91,7 +91,7 @@ namespace Radios.Tests
 
             int start = text.IndexOf("private void startRemoteAudioThread()", StringComparison.Ordinal);
             Assert.True(start > 0);
-            string starter = text.Substring(start, 900);
+            string starter = SourceMember.CSharpAt(text, start);
             Assert.Contains("Interlocked.Increment(ref _remoteAudioRun)", starter, StringComparison.Ordinal);
             Assert.Contains("remoteAudioProc(run)", starter, StringComparison.Ordinal);
 
@@ -146,7 +146,7 @@ namespace Radios.Tests
             Assert.Contains("ShackSpeakerKeepFor(run, speakerRadio)", before, StringComparison.Ordinal);
             int keepFor = text.IndexOf("internal string ShackSpeakerKeepFor(", StringComparison.Ordinal);
             Assert.True(keepFor > 0, "the stop's put-back decision is gone");
-            string helper = text.Substring(keepFor, Math.Min(700, text.Length - keepFor));
+            string helper = SourceMember.CSharpAt(text, keepFor);
             Assert.Contains("mutedBy.Run == run && ReferenceEquals(mutedBy.Radio, speakerRadio)", helper, StringComparison.Ordinal);
             Assert.Contains("ShackSpeakerPutBackSkip(", helper, StringComparison.Ordinal);
         }

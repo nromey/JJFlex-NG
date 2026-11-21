@@ -38,19 +38,8 @@ namespace Radios.Tests
         private static string Dialog(string part) => Source("JJFlexWpf/Dialogs/" + part + ".cs");
 
         /// <summary>The body of a member, from its signature to the matching close brace.</summary>
-        private static string Body(string source, string signature)
-        {
-            int at = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, "Could not find \"" + signature + "\"; the rule built on it is proving nothing.");
-            int open = source.IndexOf('{', at);
-            int depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}' && --depth == 0) return source.Substring(open, i - open + 1);
-            }
-            throw new InvalidOperationException("Unbalanced braces after " + signature);
-        }
+        private static string Body(string source, string signature) =>
+            SourceMember.CSharpBlock(source, signature);
 
         /// <summary>The text of a switch arm, from its case label to its break.</summary>
         private static string Arm(string source, string label)
