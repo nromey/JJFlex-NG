@@ -796,6 +796,14 @@ namespace JJFlexWpf
         internal PerChannelDenoiserBank? RunningBank => Volatile.Read(ref _runningBuild)?.Bank;
 
         /// <summary>
+        /// The failure the current choice's build left, or null while it is
+        /// building, built or never failed. Read only, any thread (Sprint 49 Track
+        /// Q phase B: the audition's twin reports a failed build at once rather
+        /// than at its time limit).
+        /// </summary>
+        internal string? ChoiceFailure => Volatile.Read(ref Volatile.Read(ref _choice).Failure);
+
+        /// <summary>
         /// What one buffer through <paramref name="bank"/> proves: "" when any frame
         /// passed through because the engine was unavailable (the id stays, the
         /// processing does not); <paramref name="id"/> when the engine itself took

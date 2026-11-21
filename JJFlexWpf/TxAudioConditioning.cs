@@ -202,10 +202,8 @@ namespace JJFlexWpf
             // for a VOX operator. FlexBase hands the same question to the
             // conditioner itself when the transmit stream opens; the chain
             // asks it on the control side to say whether a change waits.
-            cond.KeySource = rig.TransmitKeySource;
             chain.KeySource = rig.TransmitKeySource;
-            cond.NoiseReducer = NrStage;
-            cond.NoiseReducerAppliedLatencySamples = AppliedNrLatency;
+            PlugNoiseStage(cond, rig.TransmitKeySource, NrStage, AppliedNrLatency);
             cond.MonitorSink = MonitorStage;
             PushGate(cond);
 
@@ -270,14 +268,39 @@ namespace JJFlexWpf
         private static void NrStage(float[] buffer, int count, uint sampleRate)
         {
             _nrAppliedLatency = 0;
-            var chain = _chain;
-            if (chain == null) return;
-            // Every engine is 48 kHz-native (480-sample frames are 10 ms only
-            // there). The chain passes any other rate through honestly, and
-            // honestly means the residual goes silent, which is the designed
-            // tell that the stage is not live.
-            chain.Process(buffer, count, sampleRate, _rig?.TxConditioner.Keyed ?? false);
-            _nrAppliedLatency = chain.AppliedLatencySamples;
+            _nrAppliedLatency = NoiseStage(_chain, _rig?.TxConditioner.Keyed ?? false, buffer, count, sampleRate);
+        }
+
+        /// <summary>
+        /// The noise stage itself: the chain cleans the buffer in place under this
+        /// buffer's key state, and the delay it went out with is returned. ONE body
+        /// for the live wiring (<see cref="NrStage"/>) and the audition's positive
+        /// control (Sprint 49 Track Q phase B repair 1, Codex's drift caveat), so a
+        /// change here reaches both. Every engine is 48 kHz-native (480-sample
+        /// frames are 10 ms only there); the chain passes any other rate through
+        /// honestly, and honestly means the residual goes silent, which is the
+        /// designed tell that the stage is not live.
+        /// </summary>
+        internal static int NoiseStage(TxNoiseChain chain, bool keyed, float[] buffer, int count, uint sampleRate)
+        {
+            if (chain == null) return 0;
+            chain.Process(buffer, count, sampleRate, keyed);
+            return chain.AppliedLatencySamples;
+        }
+
+        /// <summary>
+        /// Plug a noise stage into a conditioner: the key source it reads each
+        /// buffer, the stage it runs before the gate, and where it reads that
+        /// stage's delay. ONE wiring for <see cref="Attach"/> and the audition's
+        /// positive control (repair 1), so a change to how Attach plugs the stage
+        /// reaches the control too.
+        /// </summary>
+        internal static void PlugNoiseStage(JJPortaudio.TxAudioConditioner cond, Func<bool> keySource,
+            Action<float[], int, uint> stage, Func<int> appliedLatency)
+        {
+            cond.KeySource = keySource;
+            cond.NoiseReducer = stage;
+            cond.NoiseReducerAppliedLatencySamples = appliedLatency;
         }
 
         private static int AppliedNrLatency() => _nrAppliedLatency;
@@ -595,7 +618,7 @@ namespace JJFlexWpf
         }
 
         /// <summary>A setup's gate as the conditioner's one record.</summary>
-        private static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, bool auto, float margin) => new()
+        internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, bool auto, float margin) => new()
         {
             Enabled = g.Enabled,
             HasThreshold = !auto,

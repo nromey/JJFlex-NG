@@ -279,6 +279,10 @@ public sealed class RulingsRoundTests : IDisposable
         }
         var expected = new SortedDictionary<string, int>(StringComparer.Ordinal)
         {
+            // Sprint 49 Track Q phase B: the audition's twin puts the setup on its
+            // OWN chain, built for one offline render and torn down after it; never
+            // the live chain (ChainAuditionTwinTests proves the live one untouched).
+            ["ChainAuditionTwin.cs"] = 1,
             // The Workshop: a microphone's setup, and the old settings migrated onto the neural slot.
             ["Dialogs/AudioWorkshopDialog.MicProfiles.cs"] = 2,
             // Escape puts back only the slots the layer changed, as they were.

@@ -586,6 +586,17 @@ namespace Radios.Speech
         /// <see cref="ComputerRecorder"/>.
         /// </summary>
         public const string RecordedQsos = "recorded-qsos";
+
+        /// <summary>
+        /// Check your audio's audition (#262, Sprint 49 Track Q phase B): its
+        /// verdict on a take, and the line saying the take is still being
+        /// processed. One subject, because the verdict makes an unheard
+        /// "processing" line worthless, and a newer take's verdict makes an
+        /// unheard older one worthless. Not <see cref="ComputerRecorder"/>: the
+        /// recorder's own start and stop are said before the verdict and stay
+        /// true beside it.
+        /// </summary>
+        public const string AuditionVerdict = "audition-verdict";
         /// A global-profile write refused because the radio is not declared
         /// the operator's, or its ownership is not yet answered (junkbox
         /// #777). Spoken from the funnel every global save passes through,

@@ -2777,6 +2777,27 @@ namespace Radios.Tests
                 "audio.audition.keep_help",
                 "audio.audition.kept",
                 "audio.audition.keep_failed",
+                // Sprint 49 Track Q phase B: the verdict's new clauses (where the threshold came from, the live gate's figure, the transmit mode, nothing on). DRAFT PROSE, for Codex.
+                "audio.audition.verdict.threshold_from_take",
+                "audio.audition.verdict.threshold_from_live",
+                "audio.audition.verdict.threshold_default",
+                "audio.audition.verdict.threshold_by_hand",
+                "audio.audition.verdict.live_threshold",
+                "audio.audition.verdict.live_not_measured",
+                "audio.audition.verdict.mode_stands_aside",
+                "audio.audition.verdict.nothing_on",
+                // Sprint 49 Track Q phase B: why the twin of the transmit chain could not render. DRAFT PROSE, for Codex.
+                "audio.audition.verdict.wrong_rate",
+                "audio.audition.verdict.engine_unavailable",
+                "audio.audition.verdict.engine_not_ready",
+                "audio.audition.verdict.engine_failed",
+                "audio.audition.verdict.render_incomplete",
+                "audio.audition.verdict.render_failed",
+                // Sprint 49 Track Q phase B: processing off the window's thread, and Process again. DRAFT PROSE, for Codex.
+                "audio.audition.processing",
+                "audio.audition.analysis_failed",
+                "audio.audition.process_again",
+                "audio.audition.process_again_help",
                 "audio.countdown.method.audition",
             };
 
