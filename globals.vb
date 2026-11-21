@@ -1043,6 +1043,28 @@ Module globals
     End Sub
 
     ''' <summary>
+    ''' Where this run's settings actually came from. Decided before tracing
+    ''' existed, so it is reported once tracing is on or not at all, and a run
+    ''' using settings that are not the operator's must never be silent about
+    ''' it, in either direction. Written at boot when the standing log is on,
+    ''' and at the head of every detailed capture (#1057), so a capture made
+    ''' with the standing log off still says which tree it used. A run on the
+    ''' operator's own settings writes nothing here, as before.
+    ''' </summary>
+    Private Sub TraceConfigLocation()
+        If UsingTemporaryConfigDir Then
+            Tracing.TraceLine(
+                "ConfigLocation: TEMPORARY settings tree in use at " & BaseConfigDir &
+                " (" & Radios.RadioConfig.ConfigDirOverrideVariable & " is set). " &
+                "The operator's normal settings are NOT being read or written by this run.",
+                TraceLevel.Warning)
+        End If
+        If ConfigDirRefusal IsNot Nothing Then
+            Tracing.TraceLine("ConfigLocation: " & ConfigDirRefusal, TraceLevel.Warning)
+        End If
+    End Sub
+
+    ''' <summary>
     ''' Start a detailed capture: archive whatever session is open, begin a
     ''' fresh one at maximum detail, and remember the standing level so Stop can
     ''' put it back.
@@ -1101,6 +1123,11 @@ Module globals
             Tracing.TraceLine(
                 $"Detailed capture started {Date.Now:O} reason={reason} level={Tracing.TheSwitch.Level}")
             TraceCaptureStateMarker()
+            ' Which settings tree this run uses, restated at the head of every
+            ' capture (#1057): with the standing log off, the boot lines never
+            ' reached any file, so a capture made under a throwaway tree could
+            ' not say so.
+            TraceConfigLocation()
             ' Which speech backend, which reader, which TIER — restated at the
             ' head of EVERY capture, not only at startup (#283). The startup
             ' line already said "reader=NVDA" on an evening spent under JAWS,
@@ -2389,6 +2416,20 @@ Module globals
         ' unchanged, and the operator's KeepDiagnosticLog choice is the new
         ' half. This is the control that never existed for BootTrace.
         BootTrace = (Not Debugger.IsAttached) AndAlso DiagnosticsSettings.KeepDiagnosticLog
+        ' The facts a terminal record needs, handed over as DATA before
+        ' anything can archive. The boundary never calls back into this
+        ' assembly to have a string formatted — that would take the
+        ' framework's trace lock in the wrong order.
+        '
+        ' Set whether or not the standing log is on (#1057). A detailed
+        ' capture started with the standing log off closes through the same
+        ' terminal record, and while this sat inside the BootTrace block that
+        ' record read "version=unknown app=".
+        TraceCoordinator.AppIdentity = New TraceEnvironment With {
+            .Instance = ProgramInstance,
+            .AppVersion = If(myVersion IsNot Nothing, myVersion.ToString(), "unknown"),
+            .AppPath = If(myAssembly IsNot Nothing, myAssembly.Location, String.Empty)
+        }
         If BootTrace Then
             RotateBootTraceIfNeeded()
             TraceArchiveBootMaintenance()
@@ -2417,15 +2458,6 @@ Module globals
                 End If
             End If
             Tracing.TheSwitch.Level = bootLevel
-            ' The facts a terminal record needs, handed over as DATA before
-            ' anything can archive. The boundary never calls back into this
-            ' assembly to have a string formatted — that would take the
-            ' framework's trace lock in the wrong order.
-            TraceCoordinator.AppIdentity = New TraceEnvironment With {
-                .Instance = ProgramInstance,
-                .AppVersion = If(myVersion IsNot Nothing, myVersion.ToString(), "unknown"),
-                .AppPath = If(myAssembly IsNot Nothing, myAssembly.Location, String.Empty)
-            }
             TraceCoordinator.SetStandingIntent(DiagnosticsSettings.KeepDiagnosticLog,
                                                DiagnosticsSettings.TraceLevel)
             ' The boundary raises the emission gate itself when it opens a
@@ -2433,20 +2465,7 @@ Module globals
             ' settings change, a restart - gets it without having to remember.
             ReportTraceTransition(TraceCoordinator.Begin(BootTraceFileName, bootLevel, asDetailedCapture:=False))
             Tracing.TraceLine("Boot Tracing on instance:" & ProgramInstance & " " & myAssembly.Location & " " & myVersion.ToString() & " " & Date.Now & " level=" & bootLevel.ToString)
-            ' Where this run's settings actually came from. Decided before
-            ' tracing existed, so it is reported here or not at all — and a run
-            ' using settings that are not the operator's must never be silent
-            ' about it, in either direction.
-            If UsingTemporaryConfigDir Then
-                Tracing.TraceLine(
-                    "ConfigLocation: TEMPORARY settings tree in use at " & BaseConfigDir &
-                    " (" & Radios.RadioConfig.ConfigDirOverrideVariable & " is set). " &
-                    "The operator's normal settings are NOT being read or written by this run.",
-                    TraceLevel.Warning)
-            End If
-            If ConfigDirRefusal IsNot Nothing Then
-                Tracing.TraceLine("ConfigLocation: " & ConfigDirRefusal, TraceLevel.Warning)
-            End If
+            TraceConfigLocation()
             ' Whether this machine has a debug monitor registered, and whether
             ' this process can be hurt by one. #434 was a launch that took ten
             ' seconds PER TRACE LINE, diagnosed only by reconstructing tick
