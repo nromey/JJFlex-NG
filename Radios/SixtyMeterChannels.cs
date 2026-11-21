@@ -66,7 +66,7 @@ namespace Radios
 
         /// <summary>
         /// US channels (97.303(h)(3), US23). The labels are the ARRL's
-        /// numbering, 1 to 4 (DRAFT words, for Codex).
+        /// numbering, 1 to 4 (approved by Noel 2026-11-21).
         /// </summary>
         public static readonly Channel[] USChannels =
         {

@@ -123,7 +123,7 @@ namespace Radios.Tests
             string said = SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.Equal(1, rig.q.Count); // positive control: the request really went out
-            Assert.Equal(Segment + ", 60 meter segment needs USB, switching", said);
+            Assert.Equal(Segment + ", switching to USB", said);
             Assert.Equal(said, SpokenPastTheGate());
             Assert.DoesNotContain("set to", said);
             // Even after the write runs, nothing on this path heard the radio:
@@ -143,7 +143,7 @@ namespace Radios.Tests
 
             Assert.Equal("AM", slice!.DemodMode);
             Assert.Equal(0, rig.q.Count);
-            Assert.Equal(Segment + ", 60 meter segment needs USB, mode not changed while transmitting", SpokenPastTheGate());
+            Assert.Equal(Segment + ", the mode could not be changed to USB while transmitting", SpokenPastTheGate());
             Assert.DoesNotContain("nothing was changed", said);
         }
 
@@ -156,7 +156,7 @@ namespace Radios.Tests
             SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.Equal(0, rig.q.Count);
-            Assert.Equal(Segment + ", 60 meter segment needs USB, mode not changed", SpokenPastTheGate());
+            Assert.Equal(Segment + ", the mode could not be changed to USB", SpokenPastTheGate());
         }
 
         [Fact]
@@ -168,7 +168,7 @@ namespace Radios.Tests
             SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.Equal("AM", slice!.DemodMode);
-            Assert.Equal(Segment + ", 60 meter segment needs USB, mode not changed", SpokenPastTheGate());
+            Assert.Equal(Segment + ", the mode could not be changed to USB", SpokenPastTheGate());
         }
 
         [Fact]
