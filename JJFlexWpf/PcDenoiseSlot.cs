@@ -1730,6 +1730,11 @@ namespace JJFlexWpf
         private readonly TraceRecord[] _traceRing = new TraceRecord[TraceCapacity];
         private long _traceHead, _traceTail, _traceDropped;
         private int _tracePending;
+        // One drain at a time (Codex's re-check 2 of 0d8ecb3c): 1 from the moment a drain
+        // is queued until it has finished, so a slow writer never collects a queue of
+        // redundant work items, each of which can make the pool allocate on this thread.
+        private int _traceDrainState;
+        private long _traceDrainsQueued;
         private readonly object _traceLock = new();
         private TraceDrainer? _traceDrainer;
 
@@ -1738,6 +1743,12 @@ namespace JJFlexWpf
 
         /// <summary>Tests only: lines recorded and not yet handed to a writer.</summary>
         internal bool TracePendingForTest => Volatile.Read(ref _tracePending) != 0;
+
+        /// <summary>Tests only: drains handed to the thread pool, ever.</summary>
+        internal long TraceDrainsQueuedForTest => Interlocked.Read(ref _traceDrainsQueued);
+
+        /// <summary>Tests only: record a turn-off line carrying <paramref name="delay"/>, as the audio path does.</summary>
+        internal void TraceForTest(int delay) => TraceDrain(LagCause.TurnOff, default, fellBack: false, onOff: -1, delay: delay);
 
         private void TraceDrain(LagCause cause, in RxLagEvent e, bool fellBack, int onOff, int delay)
         {
@@ -1768,8 +1779,11 @@ namespace JJFlexWpf
         private void RequestTraceDrain()
         {
             if (Volatile.Read(ref _tracePending) == 0) return;
-            if (Interlocked.Exchange(ref _tracePending, 0) == 0) return;
-            ThreadPool.UnsafeQueueUserWorkItem(_traceDrainer ??= new TraceDrainer(this), preferLocal: false);
+            // A drain queued or running will write these too: it looks again before it stops.
+            if (Interlocked.CompareExchange(ref _traceDrainState, 1, 0) != 0) return;
+            Interlocked.Exchange(ref _tracePending, 0);
+            Interlocked.Increment(ref _traceDrainsQueued);
+            ThreadPool.UnsafeQueueUserWorkItem(_traceDrainer!, preferLocal: false);
         }
 
         /// <summary>Format and write every recorded line, in order (a pool thread, or the slot's disposal).</summary>
@@ -1817,7 +1831,23 @@ namespace JJFlexWpf
         {
             private readonly PcDenoiseSlot _slot;
             public TraceDrainer(PcDenoiseSlot slot) => _slot = slot;
-            public void Execute() => _slot.DrainTraces();
+
+            /// <summary>
+            /// Write, then stand down; and if lines arrived while writing, take the drain
+            /// back and write again, so the last line is never left waiting for a buffer
+            /// that may not come.
+            /// </summary>
+            public void Execute()
+            {
+                while (true)
+                {
+                    _slot.DrainTraces();
+                    Volatile.Write(ref _slot._traceDrainState, 0);
+                    if (Volatile.Read(ref _slot._tracePending) == 0) return;
+                    if (Interlocked.CompareExchange(ref _slot._traceDrainState, 1, 0) != 0) return;
+                    Interlocked.Exchange(ref _slot._tracePending, 0);
+                }
+            }
         }
 
         private void TraceEvents(PadLine line, LagCause cause)

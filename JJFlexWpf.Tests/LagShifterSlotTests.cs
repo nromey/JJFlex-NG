@@ -616,6 +616,56 @@ public sealed class LagShifterSlotTests
         finally { slot.CloseAdmission(); slot.DisposeOwned(); }
     }
 
+    /// <summary>
+    /// Codex's re-check 2 of 0d8ecb3c (trace-pending): with the writer held, every new
+    /// line queued another drain, 64 redundant work items, and with the pool held to one
+    /// worker a Process call allocated 1,280 bytes for the queue. Now one drain is queued
+    /// and held from then until it finishes: 128 lines with a Process call after each
+    /// queue nothing more, and no call allocates. When the writer is released the
+    /// lines are written in order without any further buffer, and the loss is counted.
+    /// </summary>
+    [Fact]
+    public void A_blocked_trace_writer_gets_one_drain_and_nothing_queues_behind_it()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "", 48000, 2, new DenoiseEngineCatalog(Array.Empty<DenoiseEngineEntry>()));
+        using var entered = new System.Threading.ManualResetEventSlim(false);
+        using var release = new System.Threading.ManualResetEventSlim(false);
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        try
+        {
+            slot.TraceObserverForTest = l => { lines.Enqueue(l); entered.Set(); release.Wait(TimeSpan.FromSeconds(20)); };
+            var audio = new float[2 * F];
+            for (int i = 0; i < 32; i++) slot.Process(audio, true, true, false, null);
+            Assert.Equal(0, slot.TraceDrainsQueuedForTest);          // nothing recorded, nothing queued
+            slot.TraceForTest(0);
+            slot.Process(audio, true, true, false, null);
+            Assert.True(entered.Wait(5000), "the writer never started");
+            Assert.Equal(1, slot.TraceDrainsQueuedForTest);
+            var bytes = new long[128];
+            for (int i = 0; i < 128; i++)
+            {
+                slot.TraceForTest(i + 1);
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                slot.Process(audio, true, true, false, null);
+                bytes[i] = GC.GetAllocatedBytesForCurrentThread() - before;
+            }
+            Assert.Equal(1, slot.TraceDrainsQueuedForTest);          // still the one, held
+            Assert.All(bytes, b => Assert.Equal(0, b));
+            release.Set();
+            var wait = System.Diagnostics.Stopwatch.StartNew();
+            while (lines.Count < 66 && wait.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(5);
+            var got = lines.ToArray();
+            _out.WriteLine($"{got.Length} lines; drains queued {slot.TraceDrainsQueuedForTest}; {got.Count(l => l.Contains("lost"))} loss line(s)");
+            Assert.Equal(1, slot.TraceDrainsQueuedForTest);          // the held drain wrote the rest itself
+            Assert.Equal(66, got.Length);                            // the first, the loss line, and the 64 the ring kept
+            Assert.Contains("64 trace line(s) lost", got[1]);
+            var delays = got.Skip(2).Select(l => int.Parse(System.Text.RegularExpressions.Regex.Match(l, @"at (\d+) samples").Groups[1].Value)).ToArray();
+            Assert.Equal(Enumerable.Range(1, 64), delays);
+        }
+        finally { release.Set(); slot.CloseAdmission(); slot.DisposeOwned(); }
+    }
+
     /// <summary>A pipeline whose neural slot runs "rnnoise" (480) and can choose a forever-late "b".</summary>
     private sealed class LateRigLag : IDisposable
     {
