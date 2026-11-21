@@ -22,7 +22,8 @@ namespace JJFlexWpf.Tests;
 /// <para><b>What this cannot see:</b> that <c>CommitQuickType</c> and
 /// <c>BandJump</c> hand these to <c>SixtyMeterModeDelivery.Deliver</c>; that is
 /// read in the source. Bench half: type 5.360 and Enter on the frequency field
-/// while on USB, jump to 60 meters on CW, and listen.</para>
+/// while on AM, jump to 60 meters on LSB, and listen. Rewritten for the 2026
+/// 60 m rule (#1172): CW on a channel and phone in the segment are kept now.</para>
 /// </remarks>
 public sealed class QuickTypeCommitTests
 {
@@ -32,36 +33,44 @@ public sealed class QuickTypeCommitTests
     // ---------------- typed entry ----------------
 
     [Fact]
-    public void Typing_a_frequency_inside_the_60m_digital_segment_on_USB_asks_for_CW()
+    public void Typing_a_frequency_inside_the_60m_segment_on_AM_asks_for_USB()
     {
-        var o = FreqOutHandlers.QuickTypeCommitOutcome("US", 5_360_000, "USB", "5.360 megahertz");
+        // Since the 2026 rule (#1172) phone, CW and data are all lawful in the
+        // segment; AM is a mode it still corrects.
+        var o = FreqOutHandlers.QuickTypeCommitOutcome("US", 5_360_000, "AM", "5.360 megahertz");
 
-        Assert.Equal("CW", o.Correction?.RequiredMode);
+        Assert.Equal("USB", o.Correction?.RequiredMode);
         Assert.Equal("Frequency set to 5.360 megahertz", o.Arrival);
-        Assert.Equal("Frequency set to 5.360 megahertz, digital segment needs CW, switching",
+        Assert.Equal("Frequency set to 5.360 megahertz, 60 meter segment needs USB, switching",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.Sent));
-        Assert.Equal("Frequency set to 5.360 megahertz, digital segment needs CW, mode not changed while transmitting",
+        Assert.Equal("Frequency set to 5.360 megahertz, 60 meter segment needs USB, mode not changed while transmitting",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedTransmitting));
-        Assert.Equal("Frequency set to 5.360 megahertz, digital segment needs CW, mode not changed",
+        Assert.Equal("Frequency set to 5.360 megahertz, 60 meter segment needs USB, mode not changed",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedNoSlice));
-        Assert.Equal("Frequency set to 5.360 megahertz, digital segment needs CW, mode not changed",
+        Assert.Equal("Frequency set to 5.360 megahertz, 60 meter segment needs USB, mode not changed",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedNotRunning));
     }
 
     [Fact]
-    public void Typing_a_60m_channel_on_CW_asks_for_the_channel_mode_as_the_band_jump_does()
+    public void Typing_a_60m_channel_on_LSB_asks_for_USB_as_the_band_jump_does()
     {
-        var o = FreqOutHandlers.QuickTypeCommitOutcome("US", 5_332_000, "CW", "5.332 megahertz");
+        var o = FreqOutHandlers.QuickTypeCommitOutcome("US", 5_330_500, "LSB", "5.3305 megahertz");
 
         Assert.Equal("USB", o.Correction?.RequiredMode);
-        Assert.Equal("Frequency set to 5.332 megahertz, Channel 1 needs USB, switching",
+        Assert.Equal("Frequency set to 5.3305 megahertz, Channel 1 needs USB, switching",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.Sent));
     }
 
     [Theory]
     [InlineData(5_360_000UL, "DIGU")]
     [InlineData(5_360_000UL, "CW")]
-    [InlineData(5_332_000UL, "USB")]
+    [InlineData(5_360_000UL, "USB")]       // phone in the segment is lawful now
+    [InlineData(5_360_000UL, "LSB")]
+    [InlineData(5_360_000UL, "RTTY")]
+    [InlineData(5_332_000UL, "CW")]        // CW on a channel centre is the rule's own placement
+    [InlineData(5_346_500UL, "DIGU")]      // data on a channel is lawful now
+    [InlineData(5_330_500UL, "USB")]
+    [InlineData(5_332_000UL, "USB")]       // the mode is kept; typed entry never moves the dial (judged at transmit time)
     [InlineData(14_200_000UL, "USB")]
     [InlineData(7_030_000UL, "LSB")]
     public void Anything_already_permitted_or_off_60m_is_unchanged(ulong hz, string mode)
@@ -121,30 +130,63 @@ public sealed class QuickTypeCommitTests
     // ---------------- band jump ----------------
 
     [Fact]
-    public void A_band_jump_to_a_60m_channel_on_CW_asks_for_USB_and_says_only_what_is_known()
+    public void A_band_jump_to_a_60m_channel_on_LSB_asks_for_USB_and_says_only_what_is_known()
     {
-        var o = FreqOutHandlers.BandJumpOutcome("60 meter", "5.332 megahertz", true, "US", 5_332_000, "CW");
+        var o = FreqOutHandlers.BandJumpOutcome("60 meter", "5.3305 megahertz", true, "US", 5_330_500, "LSB");
 
         Assert.Equal("USB", o.Correction?.RequiredMode);
-        Assert.Equal("60 meter band, 5.332 megahertz", o.Arrival);
-        Assert.Equal("60 meter band, 5.332 megahertz, Channel 1 needs USB, switching",
+        Assert.Equal("60 meter band, 5.3305 megahertz", o.Arrival);
+        Assert.Equal("60 meter band, 5.3305 megahertz, Channel 1 needs USB, switching",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.Sent));
-        Assert.Equal("60 meter band, 5.332 megahertz, Channel 1 needs USB, mode not changed while transmitting",
+        Assert.Equal("60 meter band, 5.3305 megahertz, Channel 1 needs USB, mode not changed while transmitting",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedTransmitting));
-        Assert.Equal("60 meter band, 5.332 megahertz, Channel 1 needs USB, mode not changed",
+        Assert.Equal("60 meter band, 5.3305 megahertz, Channel 1 needs USB, mode not changed",
             Say(o.Arrival, o.Correction!, ModeRequestOutcome.RefusedNoSlice));
+    }
+
+    [Fact]
+    public void A_band_jump_to_a_60m_channel_on_CW_keeps_CW()
+    {
+        // Until the 2026 rule (#1172) this asked for USB at the centre, which
+        // turned a lawful CW carrier into a USB signal half outside the channel.
+        var o = FreqOutHandlers.BandJumpOutcome("60 meter", "5.332 megahertz", true, "US", 5_332_000, "CW");
+        Assert.Null(o.Correction);
     }
 
     [Fact]
     public void A_band_jump_that_needs_no_correction_is_the_old_sentence()
     {
-        var onChannel = FreqOutHandlers.BandJumpOutcome("60 meter", "5.332 megahertz", true, "US", 5_332_000, "USB");
+        var onChannel = FreqOutHandlers.BandJumpOutcome("60 meter", "5.3305 megahertz", true, "US", 5_330_500, "USB");
         Assert.Null(onChannel.Correction);
-        Assert.Equal("60 meter band, 5.332 megahertz", onChannel.Arrival);
+        Assert.Equal("60 meter band, 5.3305 megahertz", onChannel.Arrival);
 
         var elsewhere = FreqOutHandlers.BandJumpOutcome("20 meter", "14.200 megahertz", false, "US", 14_200_000, "LSB");
         Assert.Null(elsewhere.Correction);
         Assert.Equal("20 meter band, 14.200 megahertz", elsewhere.Arrival);
+    }
+
+    [Fact]
+    public void The_band_jump_snaps_60m_through_the_table_and_no_longer_hardcodes_a_channel()
+    {
+        // Read in the source: the no-memory default and the snap both come
+        // from SixtyMeterChannels, so a remembered 5330.5 USB is not moved to
+        // the centre, and no 5_332_000 survives in the jump (#1172). The snap
+        // itself is asserted in Radios.Tests' SixtyMeterRotationTests.
+        var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "JJFlexWpf", "FreqOutHandlers.cs"));
+        int jump = text.IndexOf("public void BandJump(Bands.BandNames targetBand)", System.StringComparison.Ordinal);
+        Assert.True(jump > 0);
+        int tune = text.IndexOf("if (!TuneTo(targetFreq))", jump, System.StringComparison.Ordinal);
+        Assert.True(tune > jump);
+        string body = text.Substring(jump, tune - jump);
+        Assert.Contains("SixtyMeterChannels.DefaultDialHz(", body, System.StringComparison.Ordinal);
+        Assert.Contains("targetFreq = SixtyMeterChannels.SnapToDial(", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("5_332_000", body, System.StringComparison.Ordinal);
+        Assert.True(body.IndexOf("SnapToDial(", System.StringComparison.Ordinal)
+            > body.IndexOf("BandMem.GetFrequency(", System.StringComparison.Ordinal),
+            "the snap must run after the remembered frequency is read");
     }
 
     // ---------------- J28: a typed frequency waits for the radio ----------------

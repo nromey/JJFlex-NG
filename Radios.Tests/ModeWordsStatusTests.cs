@@ -171,9 +171,10 @@ namespace Radios.Tests
             Assert.Contains("RadioStatusBuilder.BuildFullSliceStatusForDisplay(Rig)", dialog);
             Assert.DoesNotContain("RadioStatusBuilder.BuildFullSliceStatus(Rig)", dialog);
 
-            // The 60 metre channel arrival is spoken too. Every allocation's
-            // channels are USB today, so this is a pin, not a behaviour.
-            Assert.Contains("(\"mode\", ModeWords.Spoken(ch.Mode))", Read("Radios", "SixtyMeterChannels.cs"));
+            // The 60 metre channel arrival is spoken too, naming the mode the
+            // slice ends in (USB, Digital USB or CW since the 2026 rule, #1172);
+            // SixtyMeterRotationTests asserts the words, this pins the route.
+            Assert.Contains("(\"mode\", ModeWords.Spoken(finalMode))", Read("Radios", "SixtyMeterChannels.cs"));
         }
 
         private FlexBase TwoSlices(string modeA, string modeB)

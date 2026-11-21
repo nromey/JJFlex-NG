@@ -27,10 +27,11 @@ public sealed class SixtyMeterBandNoticeTests
     public void A_step_between_60_meter_channels_is_not_a_band_change_even_with_another_band_remembered()
     {
         AssertWindowless();
-        // The harness's own numbers: channel 3 (5.3585 MHz), Control+Up by 5 kHz,
-        // with 40 m remembered from the band jump before the channel stop.
-        var before = FreqOutHandlers.BandBefore(5_358_500, Bands.BandNames.m40);
-        var after = Bands.Query(5_363_500UL)?.Band;
+        // The harness's shape: a channel stop (Channel 3's phone dial, 5.3715 MHz;
+        // the harness used 5.3585, a channel the 2026 rule deleted), Control+Up
+        // by 5 kHz, with 40 m remembered from the band jump before the channel stop.
+        var before = FreqOutHandlers.BandBefore(5_371_500, Bands.BandNames.m40);
+        var after = Bands.Query(5_376_500UL)?.Band;
         Assert.Equal(Bands.BandNames.m60, before);
         Assert.Equal(Bands.BandNames.m60, after);
         Assert.False(FreqOutHandlers.SaysBandEntry(before, after));
@@ -40,9 +41,9 @@ public sealed class SixtyMeterBandNoticeTests
     public void Leaving_the_channels_for_the_digital_segment_and_back_stays_inside_60_meters()
     {
         AssertWindowless();
-        // Channel 1, the digital segment and channel 5: one band for Bands.Query.
+        // Channel 1, the segment and Channel 4: one band for Bands.Query.
         foreach (var (from, to) in new (ulong, ulong)[]
-                 { (5_332_000, 5_337_000), (5_348_000, 5_353_000), (5_405_000, 5_410_000), (5_356_500, 5_351_500) })
+                 { (5_330_500, 5_335_500), (5_346_500, 5_357_000), (5_403_500, 5_408_500), (5_357_000, 5_351_500) })
         {
             Assert.False(FreqOutHandlers.SaysBandEntry(
                 FreqOutHandlers.BandBefore(from, Bands.BandNames.m17), Bands.Query(to)?.Band));
@@ -117,13 +118,13 @@ public sealed class SixtyMeterBandNoticeTests
     {
         AssertWindowless();
         // Receiving on 40 m, the slice locked: the channel key's tune to
-        // 5.3585 MHz is refused, so reading the receive frequency back still
+        // 5.3715 MHz is refused, so reading the receive frequency back still
         // gives 7.150 MHz. A typed 7.200 MHz afterwards makes the typed
         // entry's own decision (no starting frequency, the memory) and must
         // not say "Entering 40 meter band".
         var h = Handlers();
         h.InitializeBandTracking(7_150_000);
-        h.FollowChannelStop(5_358_500, nowHz: 7_150_000);
+        h.FollowChannelStop(5_371_500, nowHz: 7_150_000);
         Assert.Equal(Bands.BandNames.m40, h.RememberedBand);
         Assert.False(FreqOutHandlers.SaysBandEntry(
             FreqOutHandlers.BandBefore(null, h.RememberedBand), Bands.Query(7_200_000UL)?.Band));
@@ -136,7 +137,7 @@ public sealed class SixtyMeterBandNoticeTests
         // Positive control for the refusal above: the same stop, taken.
         var h = Handlers();
         h.InitializeBandTracking(7_150_000);
-        h.FollowChannelStop(5_358_500, nowHz: 5_358_500);
+        h.FollowChannelStop(5_371_500, nowHz: 5_371_500);
         Assert.Equal(Bands.BandNames.m60, h.RememberedBand);
         // So a typed 40 m frequency afterwards IS a band change.
         Assert.True(FreqOutHandlers.SaysBandEntry(
@@ -150,9 +151,9 @@ public sealed class SixtyMeterBandNoticeTests
     public void A_stop_is_judged_taken_by_band_so_a_rounded_echo_still_counts()
     {
         AssertWindowless();
-        Assert.True(FreqOutHandlers.ChannelStopWasTaken(5_358_500, 5_358_499));
-        Assert.False(FreqOutHandlers.ChannelStopWasTaken(5_358_500, 7_150_000));
-        Assert.False(FreqOutHandlers.ChannelStopWasTaken(5_358_500, 0));
+        Assert.True(FreqOutHandlers.ChannelStopWasTaken(5_371_500, 5_371_499));
+        Assert.False(FreqOutHandlers.ChannelStopWasTaken(5_371_500, 7_150_000));
+        Assert.False(FreqOutHandlers.ChannelStopWasTaken(5_371_500, 0));
     }
 
     private static FreqOutHandlers Handlers() =>

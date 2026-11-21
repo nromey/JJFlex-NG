@@ -3042,6 +3042,11 @@ namespace Radios.Tests
                 "settings.operator.not_saved",
                 // #1189 item 2, a typed notch frequency outside the range a notch can go.
                 "settings.tnf.frequency_out_of_range",
+                // Junk box #1172 (2026-11-19, the 60 m table to the FCC's 2026
+                // rule): the segment carries phone now, so "digital" was
+                // untrue. Approved by Noel 2026-11-21.
+                "connect.home.sixty_meter_digital",
+                "settings.band.digital_segment",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from
@@ -3099,7 +3104,11 @@ namespace Radios.Tests
             // Two fewer (3037 to 3035): junk box batch 15's words (#1173)
             // reworded and classified audio.ptt.blocked_by_license and its
             // companion settings.band.tx_lockout_message.
-            Assert.Equal(3035, unclassified);
+            // Two fewer (3035 to 3033): the 60 m table to the 2026 rule (junk box,
+            // 2026-11-19) reworded and classified connect.home.sixty_meter_digital
+            // and settings.band.digital_segment (DRAFT words; the segment carries
+            // phone now).
+            Assert.Equal(3033, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
