@@ -15,6 +15,8 @@ namespace Radios.Tests
     /// clauses come after the threshold sentence. Pure: synthetic samples and a
     /// fake chain, no device, no radio.
     /// </summary>
+    // In the collection because the verdict reads the lexicon, a store under the settings root (#232).
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class ChainAuditionPhaseBVerdictTests
     {
         private const int Rate = ChainAuditionAnalysisTests.Rate;
