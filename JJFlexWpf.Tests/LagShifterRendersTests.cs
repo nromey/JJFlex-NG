@@ -48,7 +48,12 @@ public sealed class LagShifterRendersTests
 
     private static float[] Materials(string name, int frames)
     {
-        var rng = new Random(name.GetHashCode() & 0x7fff);
+        // A stable seed: string.GetHashCode() differs in every process, so the noise,
+        // voice and CW materials (and every file made from them) differed on every
+        // render, and two renders could not be compared (found in repair 1).
+        int seed = 17;
+        foreach (char ch in name) seed = unchecked(seed * 31 + ch);
+        var rng = new Random(seed & 0x7fff);
         float[] Band(float amp) { var a = new float[frames]; double lp = 0, hpIn = 0, hp = 0; for (int i = 0; i < frames; i++) { double x = rng.NextDouble() * 2 - 1; lp += (x - lp) * 0.3; hp = 0.97 * (hp + lp - hpIn); hpIn = lp; a[i] = (float)(hp * amp); } return a; }
         switch (name)
         {
