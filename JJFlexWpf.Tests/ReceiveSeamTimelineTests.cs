@@ -176,6 +176,19 @@ public class ReceiveSeamTimelineTests
     }
 
     [Fact]
+    public void A_seam_that_comes_out_in_the_turn_off_buffer_itself_is_where_the_audio_is()
+    {
+        // Held at 3408, the seam comes out 48 frames into buffer 207; turning off at that
+        // buffer puts it inside the turn-off's own fade from the processed to the dry audio.
+        int at = (int)(((long)SeamBuffer * F + 3408) / F);
+        var r = Run(p => { p.NeuralSlot.SharedPlan = Plan(3408, "rnnoise", "b"); p.RnnEnabled = true; },
+            (p, b) => { if (b == at) p.RnnEnabled = false; });
+        Assert.Equal(at, (int)(r.Actual / F));
+        Assert.True(r.Note.Contains("On = False"), "the turn-off did not happen: " + r.Note);
+        Check("in the turn-off buffer", r, 3408);
+    }
+
+    [Fact]
     public void While_turning_on_the_seam_comes_out_with_the_dry_audio()
     {
         var r = Run(p => { p.NeuralSlot.SharedPlan = Plan(3408, "rnnoise", "b"); p.RnnEnabled = false; },

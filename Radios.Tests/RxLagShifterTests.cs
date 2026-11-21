@@ -486,6 +486,85 @@ namespace Radios.Tests
             }
         }
 
+        // ── Carried seams (owner one's pad lines; Codex's check of 2567a596, B1) ──
+
+        /// <summary>
+        /// In carry mode a seam is never joined, only reported where it comes out.
+        /// Seams marked every 20 ms through random drains and growths, by gap and by
+        /// period: every seam the read point reaches or a splice passes over comes out
+        /// exactly once, in order, and none comes out that was not marked. A seam on
+        /// either side of a fade, or inside a removed span, counts.
+        /// </summary>
+        [Fact]
+        public void A_carried_seam_comes_out_exactly_once_through_any_drain_or_growth()
+        {
+            const RxContentClass noise = RxContentClass.Classified | RxContentClass.NotVoiceRun;
+            for (int seed = 0; seed < 6; seed++)
+            {
+                var rng = new Random(seed);
+                int diag = 0;
+                var reported = new HashSet<long>();
+                var s = new RxLagShifter(2, Rate * 2) { CarrySeams = true, LogSplices = true };
+                // Even seeds: band noise, so gap splices. Odd: a voiced 220 Hz buzz with a
+                // little noise, so period splices (the class still allows gaps; the
+                // buzz's own periodicity keeps them off it).
+                var input = Noise(Rate * 30, 100 + seed, seed % 2 == 0 ? 0.1 : 0.01);
+                if (seed % 2 == 1)
+                    for (int n = 0; n < Rate * 30; n++)
+                    {
+                        double ph = 2 * Math.PI * 220 * n / Rate;
+                        float v = (float)(0.3 * (Math.Sin(ph) + 0.5 * Math.Sin(2 * ph) + 0.25 * Math.Sin(3 * ph)));
+                        input[2 * n] += v; input[2 * n + 1] += v;
+                    }
+                var buf = new float[Block * 2];
+                var marked = new List<long>();
+                var cameOut = new List<(long Pos, long Out)>();
+                long nextSeam = 4800;
+                void Write(int at)
+                {
+                    while (nextSeam < at + Block) { s.MarkSeamAt(nextSeam); marked.Add(nextSeam); nextSeam += 2400 + rng.Next(0, 480); }   // 50 to 60 ms apart: at most 40 in the 2 s ring
+                    s.Write(input.AsSpan(at * 2, Block * 2), noise);
+                }
+                int pos = 0;
+                for (; pos < 9600; pos += Block) Write(pos);
+                for (; pos + Block <= Rate * 30; pos += Block)
+                {
+                    if (rng.Next(0, 40) == 0) s.Request(rng.Next(0, 2) == 0 ? rng.Next(2000, 8000) : -rng.Next(2000, 6000), LagPolicy.CatchUp, LagCause.LateAudio);
+                    Write(pos);
+                    s.ClearEmerged();
+                    long r0 = s.ReadPosition, o0 = s.OutputPosition; bool f0 = s.Fading;
+                    int logged0 = s.SpliceLogCount;
+                    s.Render(buf);
+                    for (int i = 0; i < s.EmergedCount; i++) cameOut.Add((s.EmergedSeam(i), s.EmergedAt(i)));
+                    if (diag < 3 && !s.Fading)
+                    {
+                        var got = cameOut.Select(c => c.Pos).ToHashSet();
+                        var miss = marked.Where(m => m < s.ReadPosition && !got.Contains(m) && !reported.Contains(m)).ToList();
+                        if (miss.Count > 0)
+                        {
+                            diag++;
+                            reported.UnionWith(miss);
+                            var recs = Enumerable.Range(logged0 > 0 ? logged0 - 1 : 0, s.SpliceLogCount - (logged0 > 0 ? logged0 - 1 : 0)).Select(i => s.SpliceLog[i % s.SpliceLog.Length].ToString());
+                            _out.WriteLine($"DIAG seed {seed}: missed {string.Join(",", miss)}; read {r0} -> {s.ReadPosition}, out {o0}, fading before {f0}, after {s.Fading}; splices: {string.Join(" | ", recs)}");
+                        }
+                    }
+                }
+                var reached = marked.Where(m => m < s.ReadPosition).ToList();
+                var lost = reached.Except(cameOut.Select(c => c.Pos)).Take(4).ToList();
+                foreach (var l in lost)
+                {
+                    var near = Enumerable.Range(0, Math.Min(s.SpliceLogCount, s.SpliceLog.Length)).Select(i => s.SpliceLog[i])
+                        .Where(r => Math.Abs(r.OldSide - l) < 3000 || Math.Abs(r.NewSide - l) < 3000).Take(4);
+                    _out.WriteLine($"DIAG lost {l}: " + string.Join(" | ", near));
+                }
+                _out.WriteLine($"seed {seed}: {marked.Count} marked, {reached.Count} reached, {cameOut.Count} came out; {s.TotalGapSplices} gap and {s.TotalPeriodSplices} period splices, removed {s.TotalRemoved}, added {s.TotalAdded}");
+                Assert.True(s.TotalAdded > 0 && s.TotalRemoved > 0, "no growth or no drain, so not everything was tested");
+                Assert.True(seed % 2 == 0 ? s.TotalGapSplices > 20 : s.TotalPeriodSplices > 20, $"seed {seed}: too few splices of its kind to test anything");
+                Assert.Equal(reached, cameOut.Select(c => c.Pos).ToList());
+                for (int i = 1; i < cameOut.Count; i++) Assert.True(cameOut[i].Out >= cameOut[i - 1].Out, "seams came out of order");
+            }
+        }
+
         // ── Growth: no region repeated twice ──
 
         [Fact]
@@ -567,8 +646,16 @@ namespace Radios.Tests
 
         // ── The pause floor, and the digital modes ──
 
-        [Fact]
-        public void No_pause_is_shortened_below_150_ms()
+        /// <summary>
+        /// Labelled as the classifier would (speech held 80 ms into each pause, the
+        /// noise policy 100 ms after that), the classes alone keep 180 ms of every
+        /// pause; labelled confirmed not-voice from a pause's first block, only the
+        /// 150 ms floor does, which is the case that proves the floor (mutation M2).
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void No_pause_is_shortened_below_150_ms(bool pauseConfirmedAtOnce)
         {
             // Bursts of a 300 Hz buzz (not a carrier: amplitude modulated) between
             // pauses of 80 to 400 ms of quiet noise.
@@ -591,7 +678,8 @@ namespace Radios.Tests
                     float v = (float)((rng.NextDouble() - 0.5) * 0.004); x.Add(v); x.Add(v);
                     // As the classifier labels a pause: speech held for the 80 ms hangover,
                     // then not-voice, and the fast noise policy only from 100 ms after that.
-                    cls.Add(n < 80 * 48 ? RxContentClass.Classified | RxContentClass.Speech
+                    cls.Add(pauseConfirmedAtOnce ? RxContentClass.Classified | RxContentClass.NotVoiceRun
+                        : n < 80 * 48 ? RxContentClass.Classified | RxContentClass.Speech
                         : n < 180 * 48 ? RxContentClass.Classified : RxContentClass.Classified | RxContentClass.NotVoiceRun);
                 }
             }

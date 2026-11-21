@@ -149,7 +149,9 @@ namespace JJPortaudio
         // joined here: each is reported, as an output position, when the read point
         // reaches it (or passes it in a splice), so the slot can say where the seam
         // comes OUT. Kept, not consumed, because a fixed pad re-reads its history.
-        private readonly long[] _carry = new long[16];
+        // 64: a pad line holds well under a second, and a lost-packet seam is rare; past
+        // 64 unread the oldest goes (it is long played, or the line is far behind).
+        private readonly long[] _carry = new long[64];
         private int _carryCount;
         private readonly long[] _emitOut = new long[8], _emitPos = new long[8];
         private int _emitCount;
@@ -350,6 +352,9 @@ namespace JJPortaudio
 
         /// <summary>Where the <paramref name="index"/>-th carried seam came out, in <see cref="OutputPosition"/>'s timeline.</summary>
         public long EmergedAt(int index) => _emitOut[index];
+
+        /// <summary>Which seam (its write position) the <paramref name="index"/>-th to come out was.</summary>
+        public long EmergedSeam(int index) => _emitPos[index];
 
         /// <summary>Forget the seams reported so far (the owner reads them after each call).</summary>
         public void ClearEmerged() => _emitCount = 0;
