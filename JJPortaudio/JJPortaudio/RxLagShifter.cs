@@ -211,6 +211,21 @@ namespace JJPortaudio
         /// <param name="capacityFrames">Frames the ring holds: the longest delay or backlog, plus history for growth.</param>
         /// <param name="sampleRate">48 kHz on every receive path today.</param>
         /// <param name="budget">A budget shared with other shifters, advanced by its owner; null for one of its own, advanced as this renders.</param>
+        /// <summary>
+        /// The first <c>Span&lt;float&gt;.Sort</c> in a process sets up the runtime's
+        /// sort helper, 24 bytes, on whatever thread sorts first; the floor's
+        /// percentile sorts on the audio thread. Done here, off it (Codex's check of
+        /// 2567a596, B4: the 24 bytes on the buffer after a first turn-off).
+        /// </summary>
+        static RxLagShifter() => WarmSort();
+
+        /// <summary>Sort two floats once, so the sort helper exists before any audio thread sorts.</summary>
+        public static void WarmSort()
+        {
+            Span<float> two = stackalloc float[2] { 2f, 1f };
+            two.Sort();
+        }
+
         public RxLagShifter(int channels, int capacityFrames, int sampleRate = 48000, RxLagBudget budget = null)
         {
             _ch = Math.Max(1, channels);

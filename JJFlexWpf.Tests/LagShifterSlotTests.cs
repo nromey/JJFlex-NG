@@ -474,6 +474,62 @@ public sealed class LagShifterSlotTests
         Assert.Equal(0, allocated);
     }
 
+    /// <summary>
+    /// Codex's check of 2567a596 (B4): the first smooth turn-off of a stream that
+    /// had never switched engines allocated its scratch (3,864 bytes) on the audio
+    /// thread, and the next buffer 24 more; the warmed loop above never saw either,
+    /// because it does its first turn-off before it counts. Here every call is
+    /// counted on its own from the first turn-off on: the turn-off, the drain after
+    /// it, a turn-on and its growth, and the fade back. A fresh slot each time.
+    /// </summary>
+    [Theory]
+    [InlineData(480)]
+    [InlineData(960)]   // not the 10 ms buffer the slot sizes for when it is made
+    public void The_first_turn_off_and_the_first_turn_on_allocate_nothing(int frames)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        DenoiseEngineEntry Row() => new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
+            (_, _) => new AlignedSwitchTests.DelayGainEngine("rnnoise", 480, 1), () => Unavailability.None);
+        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "rnnoise", 48000, 2, new DenoiseEngineCatalog(new[] { Row() }));
+        try
+        {
+            slot.CrossFadeOverrideForTest = true; slot.ShifterOverrideForTest = true; slot.MuteOverrideForTest = false;
+            slot.SetStrength("rnnoise", 1);
+            slot.Enabled = true;
+            var x = new float[2 * frames];
+            var rng = new Random(4);
+            void Next() { for (int i = 0; i < frames; i++) x[2 * i] = x[2 * i + 1] = (float)(rng.NextDouble() - 0.5) * 0.2f; }
+            for (int i = 0; i < 80; i++) { Next(); slot.Process(x, true, true, false, null, RxContentClass.Classified | RxContentClass.NotVoiceRun); }
+            Assert.Equal("rnnoise", slot.RunningEngineId);
+            // A new length is handed to a pool thread on its first buffer; it is long ready by now.
+            var wait = System.Diagnostics.Stopwatch.StartNew();
+            while (!slot.ScratchReadyForTest(2 * frames) && wait.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(1);
+            Assert.True(slot.ScratchReadyForTest(2 * frames));
+            var hits = new List<string>();
+            void Count(string what, int buffers)
+            {
+                for (int i = 0; i < buffers; i++)
+                {
+                    Next();
+                    long before = GC.GetAllocatedBytesForCurrentThread();
+                    slot.Process(x, true, true, false, null, RxContentClass.Classified | RxContentClass.NotVoiceRun);
+                    long d = GC.GetAllocatedBytesForCurrentThread() - before;
+                    if (d != 0) hits.Add($"{what} buffer {i}: {d} bytes");
+                }
+            }
+            slot.Enabled = false;
+            Count("turn-off and its drain", 150 * F / frames);    // 1.5 s either way
+            Assert.False(slot.TurningForTest, "the drain never ended");
+            slot.Enabled = true;
+            Count("turn-on, its growth and the fade", 150 * F / frames);
+            Assert.Equal("rnnoise", slot.ProcessingEngineId);
+            Assert.True(slot.LastTurn is { On: true, FellBack: false }, $"the turn-on was not the smooth one: {slot.LastTurn}");
+            _out.WriteLine(hits.Count == 0 ? "nothing allocated" : string.Join("; ", hits));
+            Assert.Empty(hits);
+        }
+        finally { slot.CloseAdmission(); slot.DisposeOwned(); }
+    }
+
     /// <summary>A pipeline whose neural slot runs "rnnoise" (480) and can choose a forever-late "b".</summary>
     private sealed class LateRigLag : IDisposable
     {

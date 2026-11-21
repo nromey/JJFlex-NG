@@ -93,6 +93,9 @@ namespace JJFlexWpf
 
         public RxContentClassifier(string? libraryPath = null, bool timeDetector = false)
         {
+            // The floor's percentile sorts on the receive thread; the sort helper's
+            // one-time set-up happens here instead (Codex's check of 2567a596, B4).
+            RxLagShifter.WarmSort();
             _hangBlocks = (int)Math.Round(HangoverMilliseconds / 10);
             _runBlocks = (int)Math.Round(NotVoiceRunMilliseconds / 10);
             try { _detector = new RnnoiseVoiceDetector(libraryPath); }

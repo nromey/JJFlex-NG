@@ -113,6 +113,13 @@ namespace JJFlexWpf
         private int _enabled;
         private bool _wasActive;
         private float[] _nextAudio = Array.Empty<float>();
+        // Codex's check of 2567a596 (B4): the scratch is never allocated on the audio
+        // thread in the ordinary case. It is made in the constructor at one 10 ms
+        // buffer; a buffer of any other length asks a pool thread for one the first
+        // time it is seen (ScratchMaker), long before a switch or a turn-off needs
+        // it; the audio thread only adopts it.
+        private float[]? _preparedScratch;
+        private readonly ScratchMaker _scratchMaker;
         public DenoiseFamily Family { get; }
 
         private readonly DenoiseDirection _direction;
@@ -254,6 +261,9 @@ namespace JJFlexWpf
             // The direction first: the default parameters below read it.
             _direction = direction;
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
+            _nextAudio = new float[Math.Max(1, sampleRate / 100) * Math.Max(1, channels)];
+            _retimeAudio = new float[_nextAudio.Length];
+            _scratchMaker = new ScratchMaker(this);
             if (direction == DenoiseDirection.Receive)
             {
                 // The shared delay's lines, allocated here and never on the audio thread (#873).
@@ -575,6 +585,7 @@ namespace JJFlexWpf
             Action<PerChannelDenoiserBank>? prepareSpectral, RxContentClass cls = RxContentClass.Unclassified, bool gap = false)
         {
             if (_direction == DenoiseDirection.Transmit) { ProcessTransmit(audio, permitted); return; }
+            if (audio.Length != _nextAudio.Length) _scratchMaker.Request(audio.Length);
             var choice = Volatile.Read(ref _choice);
             if (Volatile.Read(ref choice.Failure) != null)
             {
@@ -689,7 +700,7 @@ namespace JJFlexWpf
                         && !ReferenceEquals(_warming, _warmFellBack))
                     { _warmLag = true; _warmDecidedFor = null; WarmStepLag(audio, choice, run!, running, cls); return; }
                 }
-                if (_nextAudio.Length != audio.Length) _nextAudio = new float[audio.Length];
+                EnsureScratch(audio.Length);
                 audio.CopyTo(_nextAudio, 0);
                 long late = _warming.Bank.LateFrames, failed = _warming.Bank.FallbackFrames;
                 _warming.Bank.Process(_nextAudio, GetStrength(_warming.Choice.Id));
@@ -1153,6 +1164,47 @@ namespace JJFlexWpf
         /// the difference, and is faded, never jumped. On the audio thread: no
         /// allocation beyond the existing switch buffer, no wait.
         /// </summary>
+        /// <summary>
+        /// The scratch at <paramref name="n"/> floats: as it is, or the one the build
+        /// worker prepared. Allocates on this thread only when the buffer length
+        /// changed with no build since, which the receive stream never does.
+        /// </summary>
+        private void EnsureScratch(int n)
+        {
+            if (_nextAudio.Length == n) return;
+            var prepared = Interlocked.Exchange(ref _preparedScratch, null);
+            _nextAudio = prepared != null && prepared.Length == n ? prepared : new float[n];
+        }
+
+        /// <summary>Tests only: a scratch of <paramref name="n"/> floats is ready for the audio thread.</summary>
+        internal bool ScratchReadyForTest(int n) => _nextAudio.Length == n || Volatile.Read(ref _preparedScratch)?.Length == n;
+
+        /// <summary>
+        /// Makes the scratch for a new buffer length on a pool thread, from one work
+        /// item made with the slot, so the audio thread allocates nothing for it (B4).
+        /// </summary>
+        private sealed class ScratchMaker : IThreadPoolWorkItem
+        {
+            private readonly PcDenoiseSlot _slot;
+            private int _busy, _length;
+            public ScratchMaker(PcDenoiseSlot slot) => _slot = slot;
+
+            public void Request(int length)
+            {
+                if (Volatile.Read(ref _slot._preparedScratch)?.Length == length) return;
+                if (Interlocked.Exchange(ref _busy, 1) != 0) return;
+                Volatile.Write(ref _length, length);
+                ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
+            }
+
+            public void Execute()
+            {
+                int length = Volatile.Read(ref _length);
+                Volatile.Write(ref _slot._preparedScratch, new float[length]);
+                Volatile.Write(ref _busy, 0);
+            }
+        }
+
         private void PadRunning(float[] audio, PerChannelDenoiserBank running, RxContentClass cls)
         {
             if (_lagThisBuffer) PadRunningLag(audio, running, cls);
@@ -1310,7 +1362,7 @@ namespace JJFlexWpf
             bool first = !ReferenceEquals(_warmDecidedFor, warming);
             if (first || !ReferenceEquals(_warmPlan, plan)) DecideWarmLag(warming, running, plan, first);
             int n = audio.Length, frames = n / _channels;
-            if (_nextAudio.Length != n) _nextAudio = new float[n];
+            EnsureScratch(n);
             audio.CopyTo(_nextAudio, 0);
             int runBefore = RunningActual(running);
             long late = warming.Bank.LateFrames, failed = warming.Bank.FallbackFrames;
@@ -1424,7 +1476,7 @@ namespace JJFlexWpf
         private void TurnOff(float[] audio, RunningBuild run, PerChannelDenoiserBank running, RxContentClass cls)
         {
             int n = audio.Length;
-            if (_nextAudio.Length != n) _nextAudio = new float[n];
+            EnsureScratch(n);
             audio.CopyTo(_nextAudio, 0);
             var processed = _nextAudio.AsSpan(0, n);
             ApplyParameters(running, run.Id, ref _runningApplied);
@@ -1479,7 +1531,7 @@ namespace JJFlexWpf
         private void TurnOnStep(float[] audio, RunningBuild run, PerChannelDenoiserBank running, RxContentClass cls)
         {
             int n = audio.Length, frames = n / _channels;
-            if (_nextAudio.Length != n) _nextAudio = new float[n];
+            EnsureScratch(n);
             audio.CopyTo(_nextAudio, 0);
             var processed = _nextAudio.AsSpan(0, n);
             running.ListenToRemoved = ListenToRemoved;
@@ -1589,7 +1641,7 @@ namespace JJFlexWpf
                 int oldPad = Effective(_held, own) - own, newPad = Effective(_retimeTarget, own) - own;
                 if (_runPad.Filled >= newPad)
                 {
-                    if (_retimeAudio.Length != audio.Length) _retimeAudio = new float[audio.Length];
+                    if (_retimeAudio.Length != audio.Length) _retimeAudio = new float[audio.Length];  // phase 1's, sized once like the scratch above
                     var next = _retimeAudio.AsSpan(0, audio.Length);
                     _runPad.ProcessTwo(audio, oldPad, next, newPad);
                     AlignedSwitch.Correlation(audio, next, _channels, _retimeCorr);
