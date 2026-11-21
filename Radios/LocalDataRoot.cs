@@ -78,17 +78,42 @@ namespace Radios
                 return Path.Combine(localAppData ?? "", FallbackFolderName);
 
             string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(appDataRoot));
-            bool ordinary = !string.IsNullOrWhiteSpace(roamingAppData)
-                && string.Equals(root,
-                                 Path.Combine(
-                                     Path.TrimEndingDirectorySeparator(Path.GetFullPath(roamingAppData!)),
-                                     FallbackFolderName),
-                                 StringComparison.OrdinalIgnoreCase);
+            bool ordinary = !IsRelocated(appDataRoot, roamingAppData);
 
             if (ordinary && !string.IsNullOrWhiteSpace(localAppData))
                 return Path.Combine(localAppData!, Path.GetFileName(root));
 
             return Path.Combine(root, RelocatedFolderName);
+        }
+
+        /// <summary>
+        /// Whether this run's settings root has been moved by
+        /// <c>JJFLEX_CONFIG_DIR</c>: the one rule every store that must follow
+        /// the throwaway tree asks (#937, #1066).
+        /// </summary>
+        public static bool RunIsRelocated => IsRelocated(
+            RadioConfig.AppDataRoot,
+            SafeFolder(Environment.SpecialFolder.ApplicationData));
+
+        /// <summary>
+        /// The rule behind <see cref="RunIsRelocated"/>, without the
+        /// environment. Ordinary means the standard folder exactly
+        /// (<c>%AppData%\JJFlexRadio</c>, in any letter case, with or without
+        /// a trailing separator), not any folder whose parent is roaming app
+        /// data (#937). A root that cannot be resolved at all is the ordinary
+        /// one, as <see cref="Resolve"/> treats it; an unknown roaming folder
+        /// means nothing can be shown to be ordinary, so it is relocated.
+        /// </summary>
+        public static bool IsRelocated(string? appDataRoot, string? roamingAppData)
+        {
+            if (string.IsNullOrWhiteSpace(appDataRoot)) return false;
+            if (string.IsNullOrWhiteSpace(roamingAppData)) return true;
+
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(appDataRoot));
+            string standard = Path.Combine(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(roamingAppData)),
+                FallbackFolderName);
+            return !string.Equals(root, standard, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string SafeFolder(Environment.SpecialFolder folder)

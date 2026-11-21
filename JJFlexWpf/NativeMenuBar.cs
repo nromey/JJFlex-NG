@@ -3190,8 +3190,7 @@ public class NativeMenuBar : IDisposable
                     export, Rig.ConnectedSerial);
                 SpeakAfterMenuClose(Radios.Lexicon.Get(
                     "settings.station_export.saved", ("path", path)));
-                System.Diagnostics.Process.Start(
-                    new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+                ProfileReporter.OpenExport(path);
             }
             catch (Exception ex)
             {
@@ -3275,8 +3274,7 @@ public class NativeMenuBar : IDisposable
                             Radios.ScreenReaderOutput.Speak(
                                 ProfileReporter.RestoreFinishedSentence(export, savedPath),
                                 Radios.VerbosityLevel.Critical, interrupt: true);
-                            System.Diagnostics.Process.Start(
-                                new System.Diagnostics.ProcessStartInfo(savedPath) { UseShellExecute = true });
+                            ProfileReporter.OpenExport(savedPath);
                         }
                         catch (Exception ex)
                         {

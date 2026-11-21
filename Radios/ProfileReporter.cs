@@ -1879,6 +1879,56 @@ namespace Radios
 
         private static string OnOff(bool value) => value ? "on" : "off";
 
+        /// <summary>The folder inside a relocated settings tree that stands in
+        /// for Documents\JJFlexRadio (#1066).</summary>
+        public const string RelocatedExportFolderName = "Exports";
+
+        /// <summary>
+        /// Where the two exports go on this run: Documents\JJFlexRadio
+        /// normally, and a folder inside the throwaway settings tree when
+        /// <c>JJFLEX_CONFIG_DIR</c> has moved it (#1066). An isolated run must
+        /// not write into the operator's own places, as #909 and #937 already
+        /// hold for the browser cache.
+        /// </summary>
+        public static string ExportFolder => ResolveExportFolder(
+            RadioConfig.AppDataRoot,
+            LocalDataRoot.RunIsRelocated,
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+
+        /// <summary>The rule behind <see cref="ExportFolder"/>, without the
+        /// environment. Whether the root was relocated is
+        /// <see cref="LocalDataRoot.IsRelocated"/>'s answer, never decided
+        /// again here.</summary>
+        public static string ResolveExportFolder(string? appDataRoot, bool relocated, string? documents) =>
+            relocated && !string.IsNullOrWhiteSpace(appDataRoot)
+                ? Path.Combine(appDataRoot!, RelocatedExportFolderName)
+                : Path.Combine(documents ?? "", "JJFlexRadio");
+
+        /// <summary>
+        /// Open a saved export for the operator, as both exports always have.
+        /// On an isolated run (<c>JJFLEX_CONFIG_DIR</c>) the file is written
+        /// but NOT opened (#1066): a window on the real desktop is exactly what
+        /// an isolated run must not produce. The trace says so.
+        /// </summary>
+        public static void OpenExport(string path) => OpenExport(path, LocalDataRoot.RunIsRelocated, OpenWithShell);
+
+        /// <summary>The decision behind <see cref="OpenExport(string)"/>, with
+        /// the opener supplied, so a test can see it without a window.</summary>
+        internal static bool OpenExport(string path, bool relocated, Action<string> open)
+        {
+            if (relocated)
+            {
+                Tracing.TraceLine("Export: not opened, isolated run (" + path + ")", TraceLevel.Info);
+                return false;
+            }
+            open(path);
+            return true;
+        }
+
+        private static void OpenWithShell(string path) =>
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+
         /// <summary>
         /// Save the station settings export where a person can find it
         /// WITHOUT this app: Documents\JJFlexRadio. AppData would survive the
@@ -1889,9 +1939,7 @@ namespace Radios
         /// </summary>
         public static string SaveStationSettingsExport(string report, string radioSerial)
         {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "JJFlexRadio");
+            var dir = ExportFolder;
             Directory.CreateDirectory(dir);
 
             string serialPart = string.IsNullOrWhiteSpace(radioSerial)
@@ -2631,9 +2679,7 @@ namespace Radios
         /// </summary>
         public static string SaveRestoreGradeExport(string text, string radioSerial)
         {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "JJFlexRadio");
+            var dir = ExportFolder;
             Directory.CreateDirectory(dir);
 
             string serialPart = string.IsNullOrWhiteSpace(radioSerial)
