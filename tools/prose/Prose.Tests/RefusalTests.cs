@@ -107,11 +107,13 @@ public sealed class RefusalTests
         const string key = "fixer.stage.microphone-check.title";
         string file = w.Path_("Radios/Fixer/TransmitStageSet.cs");
 
-        // Somebody else edits the code under him.
-        File.WriteAllText(file,
-            File.ReadAllText(file).Replace("Title = \"Microphone check\"",
-                                           "Title = \"Microphone test\"", StringComparison.Ordinal),
-            new UTF8Encoding(false));
+        // Somebody else edits the code under him. Positive control: the
+        // replacement really happened, or this test would prove nothing.
+        string code0 = File.ReadAllText(file);
+        string moved = code0.Replace("Title = \"Microphone test\"",
+                                     "Title = \"Microphone check\"", StringComparison.Ordinal);
+        Assert.NotEqual(code0, moved);
+        File.WriteAllText(file, moved, new UTF8Encoding(false));
 
         Dictionary<string, string> before = w.Hashes();
         w.Edit(key, "Microphone, checked");
@@ -120,7 +122,7 @@ public sealed class RefusalTests
 
         Assert.NotEqual(0, code);
         Assert.Contains(key, err, StringComparison.Ordinal);
-        Assert.Contains("Microphone test", err, StringComparison.Ordinal);
+        Assert.Contains("Microphone check", err, StringComparison.Ordinal);
         Assert.Equal(before, w.Hashes());
     }
 
@@ -137,10 +139,11 @@ public sealed class RefusalTests
         Assert.Equal(0, w.Run("extract").Code);
 
         string file = w.Path_("Radios/Fixer/TransmitStageSet.cs");
-        File.WriteAllText(file,
-            File.ReadAllText(file).Replace("Title = \"Microphone check\"",
-                                           "Title = \"Microphone test\"", StringComparison.Ordinal),
-            new UTF8Encoding(false));
+        string code0 = File.ReadAllText(file);
+        string moved = code0.Replace("Title = \"Microphone test\"",
+                                     "Title = \"Microphone check\"", StringComparison.Ordinal);
+        Assert.NotEqual(code0, moved);   // positive control: the code really moved
+        File.WriteAllText(file, moved, new UTF8Encoding(false));
 
         // He edits a DIFFERENT sentence in the same file.
         w.Edit("fixer.stage.audio-setup.title", "Audio setup, checked");
@@ -148,7 +151,7 @@ public sealed class RefusalTests
         Assert.Equal(0, w.Run("apply").Code);
 
         string after = File.ReadAllText(file);
-        Assert.Contains("Microphone test", after, StringComparison.Ordinal);
+        Assert.Contains("Microphone check", after, StringComparison.Ordinal);
         Assert.Contains("Audio setup, checked", after, StringComparison.Ordinal);
     }
 
@@ -169,7 +172,48 @@ public sealed class RefusalTests
         Assert.Equal("Audio setup, checked", w.TextOf("fixer.stage.audio-setup.title"));
 
         Assert.Equal(0, w.Run("extract", "--force").Code);
-        Assert.Equal("Audio setup", w.TextOf("fixer.stage.audio-setup.title"));
+        Assert.Equal("Audio setup and receive", w.TextOf("fixer.stage.audio-setup.title"));
+    }
+
+    /// <summary>
+    /// The step the tool itself recommends after an apply ("run `prose
+    /// extract` again so this file matches the code") is not refused (#390).
+    /// An applied edit differs from the fingerprint recorded when the file was
+    /// made, but it is what the code now says, so it is not an unapplied edit.
+    /// Until this, extract counted it as one and refused without --force.
+    /// </summary>
+    [Fact]
+    public void ExtractingAfterAnApplyIsNotRefused()
+    {
+        using var w = new Workspace();
+        Assert.Equal(0, w.Run("extract").Code);
+        w.Edit("fixer.stage.audio-setup.title", "Audio setup, checked");
+        (int applied, string outp, _) = w.Run("apply");
+        Assert.Equal(0, applied);
+        Assert.Contains("run `prose extract` again", outp, StringComparison.Ordinal);   // the advice it gives
+
+        (int code, _, string err) = w.Run("extract");
+        Assert.True(code == 0, "extract after apply was refused: " + err);
+        Assert.Equal("Audio setup, checked", w.TextOf("fixer.stage.audio-setup.title"));
+    }
+
+    /// <summary>
+    /// And an edit that was applied, then changed again in the file, is
+    /// unapplied once more and still protected.
+    /// </summary>
+    [Fact]
+    public void AnEditMadeAfterAnApplyIsStillProtected()
+    {
+        using var w = new Workspace();
+        Assert.Equal(0, w.Run("extract").Code);
+        w.Edit("fixer.stage.audio-setup.title", "Audio setup, checked");
+        Assert.Equal(0, w.Run("apply").Code);
+        w.Edit("fixer.stage.audio-setup.title", "Audio setup, checked twice");
+
+        (int code, _, string err) = w.Run("extract");
+        Assert.NotEqual(0, code);
+        Assert.Contains("not been applied", err, StringComparison.Ordinal);
+        Assert.Equal("Audio setup, checked twice", w.TextOf("fixer.stage.audio-setup.title"));
     }
 
     /// <summary>

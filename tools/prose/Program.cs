@@ -206,10 +206,18 @@ public sealed class Session
         // unapplied edits would destroy them with nothing to show for it.
         if (!force && File.Exists(EditingPath))
         {
+            // An edit is unapplied when its words differ from the words the
+            // file was made from AND from what the code says now. The second
+            // half is #390: after `prose apply` the words differ from the
+            // recorded fingerprint but ARE the code's, and counting them made
+            // the very next step apply recommends ("run `prose extract`
+            // again") refuse without --force.
             EditingFile.Parsed old = EditingFile.Parse(File.ReadAllText(EditingPath, Encoding.UTF8));
+            Dictionary<string, string> now = _entries.ToDictionary(e => e.Key, e => e.Fingerprint, StringComparer.Ordinal);
             int pending = old.Texts.Count(kv =>
                 old.Fingerprints.TryGetValue(kv.Key, out string? f)
-                && Entry.Hash(kv.Value) != f);
+                && Entry.Hash(kv.Value) != f
+                && !(now.TryGetValue(kv.Key, out string? code) && Entry.Hash(kv.Value) == code));
 
             if (pending > 0)
             {
