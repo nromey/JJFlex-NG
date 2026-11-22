@@ -522,38 +522,54 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The zero beat's worker, on a bare thread <see cref="ZeroBeatFreq"/>
+        /// starts. Its boundary catch (#484) traces and leaves
+        /// <see cref="zeroBeatValue"/> at 0, which ZeroBeatFreq already returns
+        /// for "no zero beat": an exception here, such as a disconnect mid-press
+        /// or the pan being closed under it, used to be unhandled on a thread
+        /// with nothing above it, and ended the process.
+        /// </summary>
         private void zeroBeatProc()
         {
-            int sanity = iterations;
-            Dictionary<ulong, freqCount> freqs = new Dictionary<ulong, freqCount>();
-            while (sanity-- != 0)
+            try
             {
-                freqCount freqCT = new freqCount(flexPan.ZeroBeatFreq(), 1);
-                if (freqs.Keys.Contains(freqCT.Freq))
+                int sanity = iterations;
+                Dictionary<ulong, freqCount> freqs = new Dictionary<ulong, freqCount>();
+                while (sanity-- != 0)
                 {
-                    freqs[freqCT.Freq].Count++;
-                    if (freqCT.Count == (iterations / 2))
+                    freqCount freqCT = new freqCount(flexPan.ZeroBeatFreq(), 1);
+                    if (freqs.Keys.Contains(freqCT.Freq))
                     {
-                        zeroBeatValue = freqCT.Freq;
-                        break;
+                        freqs[freqCT.Freq].Count++;
+                        if (freqCT.Count == (iterations / 2))
+                        {
+                            zeroBeatValue = freqCT.Freq;
+                            break;
+                        }
+                    }
+                    else freqs.Add(freqCT.Freq, freqCT);
+                    Thread.Sleep(totalTime / iterations);
+                }
+                if (zeroBeatValue == 0)
+                {
+                    int maxCount = 0;
+                    foreach (freqCount fc in freqs.Values)
+                    {
+                        if (fc.Count > maxCount)
+                        {
+                            maxCount = fc.Count;
+                            zeroBeatValue = fc.Freq;
+                        }
                     }
                 }
-                else freqs.Add(freqCT.Freq, freqCT);
-                Thread.Sleep(totalTime / iterations);
+                Tracing.TraceLine("zeroBeatProc finished:" + zeroBeatValue.ToString(), TraceLevel.Info);
             }
-            if (zeroBeatValue == 0)
+            catch (Exception ex)
             {
-                int maxCount = 0;
-                foreach (freqCount fc in freqs.Values)
-                {
-                    if (fc.Count > maxCount)
-                    {
-                        maxCount = fc.Count;
-                        zeroBeatValue = fc.Freq;
-                    }
-                }
+                zeroBeatValue = 0;
+                Tracing.TraceLine("zeroBeatProc: the zero beat failed, so none is reported: " + ex, TraceLevel.Error);
             }
-            Tracing.TraceLine("zeroBeatProc finished:" + zeroBeatValue.ToString(), TraceLevel.Info);
         }
 
         // --- Pan segment info (for UI consumers) ---

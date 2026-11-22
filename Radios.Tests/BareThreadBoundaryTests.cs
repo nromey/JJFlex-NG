@@ -142,6 +142,77 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // #484 item 2 — the CW zero beat's worker thread
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// <c>zeroBeatProc</c> runs on a bare thread that
+        /// <c>PanAdapterManager.ZeroBeatFreq</c> starts from the zero-beat key.
+        /// The whole body sits inside one boundary catch that records the
+        /// exception and leaves the answer at 0, the "no zero beat" value
+        /// ZeroBeatFreq already returns.
+        /// </summary>
+        /// <remarks>
+        /// Read with <see cref="SourceMember.CSharp"/>: this class's own
+        /// <see cref="MethodBody"/> reads only the FlexBase partials and cannot
+        /// see <c>PanAdapterManager.cs</c>.
+        /// </remarks>
+        [Fact]
+        public void TheZeroBeatThreadHasABoundaryCatchAroundItsWholeBody()
+        {
+            string body = ZeroBeatProc();
+
+            int tryAt = body.IndexOf("try", StringComparison.Ordinal);
+            int poll = body.IndexOf("flexPan.ZeroBeatFreq()", StringComparison.Ordinal);
+            int finished = body.IndexOf("zeroBeatProc finished:", StringComparison.Ordinal);
+            int catchAt = body.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+            Assert.True(tryAt >= 0 && poll > tryAt, "the poll of the pan must be inside the try");
+            Assert.True(catchAt > finished && finished > poll, "the catch must close the whole body, after its last line");
+
+            string handler = body.Substring(catchAt);
+            Assert.Contains("zeroBeatValue = 0;", handler, StringComparison.Ordinal);
+            Assert.Contains("TraceLevel.Error", handler, StringComparison.Ordinal);
+            Assert.DoesNotContain("throw", handler, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// And it holds when it runs: the worker with its pan gone (closed
+        /// under it, as a disconnect mid-press can) returns, rather than
+        /// throwing, and leaves the answer at 0. Run on this thread through
+        /// reflection on an unconstructed manager, so no radio is needed.
+        /// </summary>
+        [Fact]
+        public void TheZeroBeatWorkerWithItsPanGoneReturnsNoZeroBeat()
+        {
+            var manager = (Radios.PanAdapterManager)System.Runtime.CompilerServices.RuntimeHelpers
+                .GetUninitializedObject(typeof(Radios.PanAdapterManager));
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var value = typeof(Radios.PanAdapterManager).GetField("zeroBeatValue", flags)!;
+            value.SetValue(manager, 7_074_000UL);   // a stale answer the failure must not leave behind
+            Assert.Null(typeof(Radios.PanAdapterManager).GetField("flexPan", flags)!.GetValue(manager));
+
+            typeof(Radios.PanAdapterManager).GetMethod("zeroBeatProc", flags)!.Invoke(manager, null);
+
+            Assert.Equal(0UL, (ulong)value.GetValue(manager)!);
+        }
+
+        /// <summary>Positive control: the zero beat's worker is really what is read.</summary>
+        [Fact]
+        public void TheZeroBeatScannerReallyReadsTheMethod()
+        {
+            string body = ZeroBeatProc();
+            Assert.Contains("Dictionary<ulong, freqCount> freqs", body, StringComparison.Ordinal);
+            Assert.Contains("Thread.Sleep(totalTime / iterations);", body, StringComparison.Ordinal);
+            // And the thread it runs on is the bare one the key starts.
+            string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "PanAdapterManager.cs"));
+            Assert.Contains("new Thread(zeroBeatProc)", SourceMember.CSharp(source, "public ulong ZeroBeatFreq()"), StringComparison.Ordinal);
+        }
+
+        private static string ZeroBeatProc() =>
+            SourceMember.CSharp(File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "PanAdapterManager.cs")),
+                                "private void zeroBeatProc()");
+
+        // ------------------------------------------------------------------
 
         /// <summary>
         /// Text of a VB Sub, from its signature to its <c>End Sub</c>.
