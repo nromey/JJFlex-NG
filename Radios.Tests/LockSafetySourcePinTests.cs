@@ -31,12 +31,12 @@ namespace Radios.Tests
             // ToggleTransmit, the Audio Check's start) and PttDown (Home's
             // Ctrl+Space, the dialog door, the system-wide push to talk). Both
             // only from Idle: an unlock is never refused.
-            Assert.Contains("if (State == PttState.Idle && RefuseIfHeldAfterCut(\"the lock key\")) return;", Body(ctl, "public void ToggleLock()"));
-            Assert.Contains("if (State == PttState.Idle && RefuseIfHeldAfterCut(\"push to talk\")) return;", Body(ctl, "public void PttDown()"));
+            Assert.Contains("if (State == PttState.Idle && RefuseIfHeldAfterCut(\"the lock key\")) return;", SourceMember.CSharp(ctl, "public void ToggleLock()"));
+            Assert.Contains("if (State == PttState.Idle && RefuseIfHeldAfterCut(\"push to talk\")) return;", SourceMember.CSharp(ctl, "public void PttDown()"));
 
             // The Audio Check's start reaches that same body through its own door,
             // so the hold still answers it (a rig at 0 watts does not: #859).
-            Assert.Contains("try { ToggleLock(); }", Body(ctl, "public void KeyForCheck()"));
+            Assert.Contains("try { ToggleLock(); }", SourceMember.CSharp(ctl, "public void KeyForCheck()"));
 
             // Outside it: the voice message keys, before the recording is even looked for.
             string voice = ReadSource("JJFlexWpf/VoiceMessageSender.cs");
@@ -47,7 +47,12 @@ namespace Radios.Tests
 
             // And the transmit checks, at the one write that puts their RF on the air.
             string ks = ReadSource("Radios/TransmitKillSwitch.cs");
-            string raise = Body(ks, "public static bool RaiseCarrier(FlexBase rig, Carrier carrier)");
+            // The two-argument overload only forwards (an expression body), so
+            // the hold is pinned in the overload that holds it, and the hand-off
+            // is pinned separately: a forwarder that stopped forwarding would
+            // otherwise leave this green while reading the wrong member (#1256).
+            Assert.Contains("=> RaiseCarrier(rig, carrier, null);", SourceMember.CSharp(ks, "public static bool RaiseCarrier(FlexBase rig, Carrier carrier)"));
+            string raise = SourceMember.CSharp(ks, "public static bool RaiseCarrier(FlexBase rig, Carrier carrier, object admission)");
             Assert.Contains("HeldAfterCut()", raise);
             Assert.True(raise.IndexOf("HeldAfterCut()", StringComparison.Ordinal) < raise.IndexOf("_carrierRaised = true;", StringComparison.Ordinal),
                 "the hold must be consulted before the carrier is recorded as raised");
@@ -60,12 +65,12 @@ namespace Radios.Tests
             // queue drops a write made outside its loop), which is why it is a
             // pin and not a behaviour test.
             string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
-            Assert.Contains("_pttController.ToggleLock();", Body(main, "private void ToggleTransmit()"));
-            Assert.Contains("_pttController.ToggleLock();", Body(main, "internal void HandleSystemWideLockToggle()"));
-            Assert.Contains("_pttController?.ToggleLock();", Body(main, "internal void LockKeyDown(bool isRepeat)"));
+            Assert.Contains("_pttController.ToggleLock();", SourceMember.CSharp(main, "private void ToggleTransmit()"));
+            Assert.Contains("_pttController.ToggleLock();", SourceMember.CSharp(main, "internal void HandleSystemWideLockToggle()"));
+            Assert.Contains("_pttController?.ToggleLock();", SourceMember.CSharp(main, "internal void LockKeyDown(bool isRepeat)"));
 
             // The tune carrier keys the radio directly and consults nothing: as main has it.
-            string tune = Body(main, "public void ToggleTuneCarrier()");
+            string tune = SourceMember.CSharp(main, "public void ToggleTuneCarrier()");
             Assert.Contains("RigControl.TxTune = newState;", tune);
             Assert.DoesNotContain("RefuseIfHeldAfterCut", tune);
             Assert.DoesNotContain("CutHold", tune);
@@ -79,11 +84,11 @@ namespace Radios.Tests
             // after RF is off and before the confirm wait; the controller
             // publishes the hook and begins the hold from any thread.
             string ks = ReadSource("Radios/TransmitKillSwitch.cs");
-            string watch = Body(ks, "private static void WatchReflectedPower()");
+            string watch = SourceMember.CSharp(ks, "private static void WatchReflectedPower()");
             Assert.Contains("_pendingCut = new ReflectedCutNotice(cut, reading, antenna);", watch);
             Assert.True(watch.IndexOf("_pendingCut = new ReflectedCutNotice", StringComparison.Ordinal)
                         < watch.IndexOf("Request(Source.ReflectedPower,", StringComparison.Ordinal));
-            string request = Body(ks, "public static void Request(Source source, string spokenOverride = null)");
+            string request = SourceMember.CSharp(ks, "public static void Request(Source source, string spokenOverride = null)");
             Assert.Contains("if (source == Source.ReflectedPower)", request);
             Assert.Contains("NotifyReflectedCut(notice);", request);
             Assert.True(request.IndexOf("NotifyReflectedCut(notice);", StringComparison.Ordinal)
@@ -94,8 +99,8 @@ namespace Radios.Tests
                 "RF off first, then the hold");
 
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("TransmitKillSwitch.ReflectedCutHappened = BeginCutHoldFromKillSwitch;", Body(ctl, "private void PublishHoldGate()"));
-            Assert.Contains("BeginCutHold(rig, notice, voxNoteNow: false);", Body(ctl, "private void BeginCutHoldFromKillSwitch(ReflectedCutNotice notice)"));
+            Assert.Contains("TransmitKillSwitch.ReflectedCutHappened = BeginCutHoldFromKillSwitch;", SourceMember.CSharp(ctl, "private void PublishHoldGate()"));
+            Assert.Contains("BeginCutHold(rig, notice, voxNoteNow: false);", SourceMember.CSharp(ctl, "private void BeginCutHoldFromKillSwitch(ReflectedCutNotice notice)"));
         }
 
         [Fact]
@@ -105,11 +110,11 @@ namespace Radios.Tests
             // app's go to the app-write event, the operator's to the hook as
             // before; the controller feeds the app-write event to AppWrote.
             string flex = ReadSource("Radios/FlexBase.cs");
-            Assert.Contains("NoteRadioSettingWritten(\"XmitPower\", value.ToString());", Body(flex, "public int XmitPower"));
-            Assert.Contains("NoteRadioSettingWritten(\"TunePower\", value.ToString());", Body(flex, "public int TunePower"));
-            Assert.Contains("NoteRadioSettingWritten(\"TXAntennaName\", value);", Body(ReadSource("Radios/FlexBase.Antennas.cs"), "public string TXAntennaName"));
+            Assert.Contains("NoteRadioSettingWritten(\"XmitPower\", value.ToString());", SourceMember.CSharp(flex, "public int XmitPower"));
+            Assert.Contains("NoteRadioSettingWritten(\"TunePower\", value.ToString());", SourceMember.CSharp(flex, "public int TunePower"));
+            Assert.Contains("NoteRadioSettingWritten(\"TXAntennaName\", value);", SourceMember.CSharp(ReadSource("Radios/FlexBase.Antennas.cs"), "public string TXAntennaName"));
             string multi = ReadSource("Radios/FlexBase.MultiUser.cs");
-            string note = Body(multi, "internal void NoteRadioSettingWritten(string what, string value)");
+            string note = SourceMember.CSharp(multi, "internal void NoteRadioSettingWritten(string what, string value)");
             Assert.Contains("if (_appInitiatedSettingDepth > 0)", note);
             Assert.Contains("AppInitiatedRadioSettingWritten?.Invoke(what, value ?? \"\");", note);
             Assert.Contains("NoteOperatorChangedRadioSetting(what);", note);
@@ -135,15 +140,15 @@ namespace Radios.Tests
             Assert.True(unwire >= 0 && dispose > unwire, "CloseTheRadio must unwire before it disposes the rig");
 
             string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
-            string unwireBody = Body(main, "public void UnwireRadioEvents()");
+            string unwireBody = SourceMember.CSharp(main, "public void UnwireRadioEvents()");
             int release = unwireBody.IndexOf("_pttController?.ReleaseRigForTeardown(\"radio events unwired\");", StringComparison.Ordinal);
             int handlers = unwireBody.IndexOf("RigControl.TransmitChange -= TransmitChangeHandler;", StringComparison.Ordinal);
             Assert.True(release >= 0 && release < handlers, "the hold must be released before the radio's handlers come off");
-            Assert.Contains("UnwireRadioEvents();", Body(main, "public bool RequestShutdown()"));
+            Assert.Contains("UnwireRadioEvents();", SourceMember.CSharp(main, "public bool RequestShutdown()"));
 
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("_cutHold.Abandon(why, Environment.TickCount64, immediate: true);", Body(ctl, "public void ReleaseRigForTeardown(string why)"));
-            Assert.Contains("ReleaseRigForTeardown(\"the PTT controller is going away\");", Body(ctl, "public void Dispose()"));
+            Assert.Contains("_cutHold.Abandon(why, Environment.TickCount64, immediate: true);", SourceMember.CSharp(ctl, "public void ReleaseRigForTeardown(string why)"));
+            Assert.Contains("ReleaseRigForTeardown(\"the PTT controller is going away\");", SourceMember.CSharp(ctl, "public void Dispose()"));
 
             // And the immediate write is a direct FlexLib write, the pattern
             // the old scratch setup (removed with #59) used for these two properties.
@@ -165,13 +170,13 @@ namespace Radios.Tests
             Assert.Contains("PauseVoxIfOnLocked(firstTime: false);", hold);   // a mode change re-pauses
 
             string flex = ReadSource("Radios/FlexBase.cs");
-            Assert.Contains("if (CwKeyingRefused(\"a CW message\")) return false;", Body(flex, "public bool SendCW(string str)"));
-            Assert.Contains("if (CwKeyingRefused(\"CW typing\")) return false;", Body(flex, "public bool SendCW(char c)"));
+            Assert.Contains("if (CwKeyingRefused(\"a CW message\")) return false;", SourceMember.CSharp(flex, "public bool SendCW(string str)"));
+            Assert.Contains("if (CwKeyingRefused(\"CW typing\")) return false;", SourceMember.CSharp(flex, "public bool SendCW(char c)"));
             string mainThread = ReadSource("Radios/FlexBase.MainThread.cs");
-            Assert.Contains("if (CwKeyingHeldSilently()) return;", Body(mainThread, "private void sendCWChar(char c)"));
-            Assert.Contains("if (CwKeyingHeldSilently()) return;", Body(mainThread, "private void sendCWString(string str)"));
-            Assert.Contains("FlexBase.RefuseIfTransmitHeld = RefuseIfHeldAfterCut;", Body(ctl, "private void PublishHoldGate()"));
-            Assert.Contains("FlexBase.IsTransmitHeld = () => _cutHold.Holding;", Body(ctl, "private void PublishHoldGate()"));
+            Assert.Contains("if (CwKeyingHeldSilently()) return;", SourceMember.CSharp(mainThread, "private void sendCWChar(char c)"));
+            Assert.Contains("if (CwKeyingHeldSilently()) return;", SourceMember.CSharp(mainThread, "private void sendCWString(string str)"));
+            Assert.Contains("FlexBase.RefuseIfTransmitHeld = RefuseIfHeldAfterCut;", SourceMember.CSharp(ctl, "private void PublishHoldGate()"));
+            Assert.Contains("FlexBase.IsTransmitHeld = () => _cutHold.Holding;", SourceMember.CSharp(ctl, "private void PublishHoldGate()"));
         }
 
         [Fact]
@@ -181,23 +186,23 @@ namespace Radios.Tests
             // on main; it now also tells the episode, as do the ATU cycle and
             // the radio's own transmit status.
             string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
-            string tune = Body(main, "public void ToggleTuneCarrier()");
+            string tune = SourceMember.CSharp(main, "public void ToggleTuneCarrier()");
             Assert.Contains("RigControl.TxTune = newState;", tune);
             Assert.Contains("_pttController?.NoteTuneCarrier(newState);", tune);
             Assert.DoesNotContain("RefuseIfHeldAfterCut", tune);
-            Assert.Contains("_pttController?.NoteAtuTuning(true);", Body(main, "private void TunePressFor(bool ours)"));
+            Assert.Contains("_pttController?.NoteAtuTuning(true);", SourceMember.CSharp(main, "private void TunePressFor(bool ours)"));
             // Batch 14 repair round 4: the ATU note follows the one rule for an ATU
             // cycle's start (the radio's own ATU status), not every InProgress.
-            string handler = Body(main, "private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)");
+            string handler = SourceMember.CSharp(main, "private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)");
             Assert.Contains("bool atuStart = IsAtuCycleStart(e.Status, atuRunning);", handler);
             Assert.Contains("_pttController?.NoteAtuTuning(atuStart);", handler);
-            string tx = Body(main, "private void TransmitChangeHandler(object sender, bool transmit)");
+            string tx = SourceMember.CSharp(main, "private void TransmitChangeHandler(object sender, bool transmit)");
             Assert.Contains("_pttController?.NoteRadioTransmit(transmit);", tx);
 
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
             Assert.Contains("_transmitEpisode.RfIs(_rfCommandedOn || _externalWatchers > 0 || _radioReportsTransmit || _tuneCarrierOn || _atuTuning)",
-                Body(ctl, "private void NoteRf()"));
-            Assert.Contains("if (!on) { _tuneCarrierOn = false; _atuTuning = false; }", Body(ctl, "public void NoteRadioTransmit(bool on)"));
+                SourceMember.CSharp(ctl, "private void NoteRf()"));
+            Assert.Contains("if (!on) { _tuneCarrierOn = false; _atuTuning = false; }", SourceMember.CSharp(ctl, "public void NoteRadioTransmit(bool on)"));
         }
 
         [Fact]
@@ -211,9 +216,9 @@ namespace Radios.Tests
                                               "public void OperatorChanged(string what, long nowMs)",
                                               "public void AppWrote(string what, string value)",
                                               "public void Abandon(string why, long nowMs, bool immediate = false)" })
-                Assert.Contains("lock (_gate)", Body(hold, method));
+                Assert.Contains("lock (_gate)", SourceMember.CSharp(hold, method));
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("if (generation != _cutHoldWiredGeneration) return;", Body(ctl, "private void OnCutHoldEnded(int generation, ReflectedCutHold.EndReason reason, string detail)"));
+            Assert.Contains("if (generation != _cutHoldWiredGeneration) return;", SourceMember.CSharp(ctl, "private void OnCutHoldEnded(int generation, ReflectedCutHold.EndReason reason, string detail)"));
             Assert.Contains("[ThreadStatic] private static string _lastRaiseRefusal;", ReadSource("Radios/TransmitKillSwitch.cs"));
         }
 
@@ -241,7 +246,7 @@ namespace Radios.Tests
 
             string flex = ReadSource("Radios/FlexBase.cs");
             // The setter's comment names the scope to say it is NOT opened here; the assertion is on the using, not the word.
-            Assert.DoesNotContain("using (OperatorChoseThisChange())", Body(flex, "public bool DummyLoadMode"));
+            Assert.DoesNotContain("using (OperatorChoseThisChange())", SourceMember.CSharp(flex, "public bool DummyLoadMode"));
             Assert.Equal(0, Regex.Matches(flex, @"using \(OperatorChoseThisChange\(\)\)").Count);
             // The scope is opened in exactly one production place, the menu.
             int opens = 0;
@@ -253,7 +258,7 @@ namespace Radios.Tests
             Assert.Equal(1, opens);
 
             string multi = ReadSource("Radios/FlexBase.MultiUser.cs");
-            string note = Body(multi, "internal void NoteRadioSettingWritten(string what, string value)");
+            string note = SourceMember.CSharp(multi, "internal void NoteRadioSettingWritten(string what, string value)");
             Assert.True(note.IndexOf("if (_operatorChoseSettingDepth > 0)", StringComparison.Ordinal)
                         < note.IndexOf("if (_appInitiatedSettingDepth > 0)", StringComparison.Ordinal),
                 "the operator's choice must be asked before the app scope");
@@ -273,7 +278,7 @@ namespace Radios.Tests
             // delegate), asks the hold ahead of _context.SendCW, WriteTextX and
             // the "Sending" sentence. KeyCommandContext.SendCW keeps its shape.
             string kc = ReadSource("JJFlexWpf/KeyCommands.cs");
-            string send = Body(kc, "protected void SendCWMessage()");
+            string send = SourceMember.CSharp(kc, "protected void SendCWMessage()");
             int ask = send.IndexOf("ptt.RefuseIfHeldAfterCut(\"a CW message\")", StringComparison.Ordinal);
             int cw = send.IndexOf("_context.SendCW(msg);", StringComparison.Ordinal);
             int shown = send.IndexOf("_context.WriteTextX(1, msg, 0, false);", StringComparison.Ordinal);
@@ -289,7 +294,7 @@ namespace Radios.Tests
             // the owner's handler takes the wiring lock, which the owner takes
             // first when it begins a hold.
             string hold = ReadSource("Radios/ReflectedCutHold.cs");
-            string refuse = Body(hold, "public bool RefusePress(string door, long nowMs, Func<bool>? stillValid)");
+            string refuse = SourceMember.CSharp(hold, "public bool RefusePress(string door, long nowMs, Func<bool>? stillValid)");
             int lockOpen = refuse.IndexOf("lock (_gate)", StringComparison.Ordinal);
             int lockClose = refuse.IndexOf("// Outside the lock", StringComparison.Ordinal);
             Assert.True(lockOpen >= 0 && lockClose > lockOpen);
@@ -302,13 +307,13 @@ namespace Radios.Tests
         {
             // N4.
             string ks = ReadSource("Radios/TransmitKillSwitch.cs");
-            string request = Body(ks, "public static void Request(Source source, string spokenOverride = null)");
+            string request = SourceMember.CSharp(ks, "public static void Request(Source source, string spokenOverride = null)");
             Assert.Equal(3, Regex.Matches(request, @"if \(source == Source\.ReflectedPower\) NotifyReflectedCutSpoken\(\);").Count);
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("TransmitKillSwitch.ReflectedCutSpoken = _cutHold.SpeakPendingVoxNote;", Body(ctl, "private void PublishHoldGate()"));
-            Assert.Contains("BeginCutHold(rig, notice, voxNoteNow: false);", Body(ctl, "private void BeginCutHoldFromKillSwitch(ReflectedCutNotice notice)"));
+            Assert.Contains("TransmitKillSwitch.ReflectedCutSpoken = _cutHold.SpeakPendingVoxNote;", SourceMember.CSharp(ctl, "private void PublishHoldGate()"));
+            Assert.Contains("BeginCutHold(rig, notice, voxNoteNow: false);", SourceMember.CSharp(ctl, "private void BeginCutHoldFromKillSwitch(ReflectedCutNotice notice)"));
             // The controller's own cut keeps the note immediate: the rung overload defaults voxNoteNow true.
-            Assert.Contains("voxNoteNow: true);", Body(ReadSource("Radios/ReflectedCutHold.cs"),
+            Assert.Contains("voxNoteNow: true);", SourceMember.CSharp(ReadSource("Radios/ReflectedCutHold.cs"),
                 "public int Begin(TransmitSafety.ReflectedCut rung, in TransmitPowerReading reading, string? antennaName,"));
         }
 
@@ -318,10 +323,10 @@ namespace Radios.Tests
             // N6. FlexBase.ModeChanged fires for the ACTIVE slice's mode, so the
             // handler re-reads the TX slice's mode; the poll stays as backstop.
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("rig.ModeChanged += OnModeChangedDuringCutHold;", Body(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)"));
-            Assert.Contains("rig.ModeChanged -= OnModeChangedDuringCutHold;", Body(ctl, "private void EndCutHoldWiringLocked()"));
-            Assert.Contains("rig.TXModeAsReported", Body(ctl, "private void OnModeChangedDuringCutHold(string mode)"));
-            Assert.Contains("_cutHold.NoteMode(txMode, Environment.TickCount64);", Body(ctl, "private void OnModeChangedDuringCutHold(string mode)"));
+            Assert.Contains("rig.ModeChanged += OnModeChangedDuringCutHold;", SourceMember.CSharp(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)"));
+            Assert.Contains("rig.ModeChanged -= OnModeChangedDuringCutHold;", SourceMember.CSharp(ctl, "private void EndCutHoldWiringLocked()"));
+            Assert.Contains("rig.TXModeAsReported", SourceMember.CSharp(ctl, "private void OnModeChangedDuringCutHold(string mode)"));
+            Assert.Contains("_cutHold.NoteMode(txMode, Environment.TickCount64);", SourceMember.CSharp(ctl, "private void OnModeChangedDuringCutHold(string mode)"));
             Assert.Contains("if (s.Active)", ReadSource("Radios/FlexBase.cs").Substring(ReadSource("Radios/FlexBase.cs").IndexOf("case \"DemodMode\":", StringComparison.Ordinal), 600));
         }
 
@@ -332,7 +337,7 @@ namespace Radios.Tests
             // hard kill, nor a temperature over-run.
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
             Assert.Equal(1, Regex.Matches(ctl, @"\bBeginCutHold\(rig, cut, reading, cutAntenna\);").Count);
-            string reflected = Body(ctl, "private void CheckReflectedPower(FlexBase rig)");
+            string reflected = SourceMember.CSharp(ctl, "private void CheckReflectedPower(FlexBase rig)");
             Assert.Contains("BeginCutHold(rig, cut, reading, cutAntenna);", reflected);
             // The other producer of a hold is the kill switch's reflected cut,
             // through the hook, and nothing else in the controller.
@@ -344,14 +349,14 @@ namespace Radios.Tests
                 "private void FinishOwnedKill()",
                 "private void StartHardKillTimer()",
             })
-                Assert.DoesNotContain("BeginCutHold", Body(ctl, other));
+                Assert.DoesNotContain("BeginCutHold", SourceMember.CSharp(ctl, other));
         }
 
         [Fact]
         public void The_hold_begins_after_the_cut_sentence_so_the_VOX_note_queues_behind_it()
         {
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            string reflected = Body(ctl, "private void CheckReflectedPower(FlexBase rig)");
+            string reflected = SourceMember.CSharp(ctl, "private void CheckReflectedPower(FlexBase rig)");
             int goIdle = reflected.IndexOf("GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna,", StringComparison.Ordinal);
             int begin = reflected.IndexOf("BeginCutHold(rig, cut, reading, cutAntenna);", StringComparison.Ordinal);
             Assert.True(goIdle >= 0 && begin > goIdle);
@@ -367,25 +372,32 @@ namespace Radios.Tests
             // The write is FlexBase.WriteVoxSetting, which wraps itself in the
             // app scope; the controller hands the rig's own levers to the hold.
             string voxHold = ReadSource("Radios/FlexBase.VoxHold.cs");
-            Assert.Contains("using (AppInitiatedSettingChanges())", Body(voxHold, "public bool WriteVoxSetting(VoxSetting which, bool on, bool immediate)"));
+            // WriteVoxSetting only forwards to WriteVoxSettingTo, which holds the
+            // scope; pin the hand-off and the scope each in its own member (#1256).
+            Assert.Contains("WriteVoxSettingTo(theRadio, which, on, immediate);", SourceMember.CSharp(voxHold, "public bool WriteVoxSetting(VoxSetting which, bool on, bool immediate)"));
+            string voxWrite = SourceMember.CSharp(voxHold, "private bool WriteVoxSettingTo(Radio? radio, VoxSetting which, bool on, bool immediate)");
+            Assert.Contains("using (AppInitiatedSettingChanges())", voxWrite);
+            Assert.True(voxWrite.IndexOf("using (AppInitiatedSettingChanges())", StringComparison.Ordinal)
+                        < voxWrite.IndexOf("FunctionDel write", StringComparison.Ordinal),
+                "the app scope must be opened before the VOX write is built");
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false), EarconPlayer.CutHoldEndedTone)", Body(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)"));
+            Assert.Contains("ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false), EarconPlayer.CutHoldEndedTone)", SourceMember.CSharp(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)"));
 
             string multi = ReadSource("Radios/FlexBase.MultiUser.cs");
-            string note = Body(multi, "internal void NoteOperatorChangedRadioSetting(string what)");
+            string note = SourceMember.CSharp(multi, "internal void NoteOperatorChangedRadioSetting(string what)");
             Assert.True(note.IndexOf("if (_appInitiatedSettingDepth > 0) return;", StringComparison.Ordinal)
                         < note.IndexOf("OperatorChangedRadioSetting?.Invoke(what);", StringComparison.Ordinal),
                 "the event must be raised after the app-initiated guard");
 
             string flex = ReadSource("Radios/FlexBase.cs");
-            Assert.Contains("NoteOperatorChangedRadioSetting(\"Vox\");", Body(flex, "public OffOnValues Vox"));
+            Assert.Contains("NoteOperatorChangedRadioSetting(\"Vox\");", SourceMember.CSharp(flex, "public OffOnValues Vox"));
         }
 
         [Fact]
         public void The_hold_goes_with_its_owner()
         {
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("ReleaseRigForTeardown(", Body(ctl, "public void Dispose()"));
+            Assert.Contains("ReleaseRigForTeardown(", SourceMember.CSharp(ctl, "public void Dispose()"));
         }
 
         [Fact]
@@ -421,7 +433,7 @@ namespace Radios.Tests
             // press. The audit's grep targets are unchanged by construction:
             // no table row, no leader chord, no inventory line.
             string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
-            string edge = Body(main, "internal void LockKeyDown(bool isRepeat)");
+            string edge = SourceMember.CSharp(main, "internal void LockKeyDown(bool isRepeat)");
             Assert.Contains("if (isRepeat) return;", edge);
             Assert.True(edge.IndexOf("if (isRepeat) return;", StringComparison.Ordinal)
                         < edge.IndexOf("ToggleLock()", StringComparison.Ordinal));
@@ -430,20 +442,6 @@ namespace Radios.Tests
         }
 
         // ── plumbing ──
-
-        private static string Body(string src, string signature)
-        {
-            int start = src.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(start >= 0, "signature not found: " + signature);
-            int open = src.IndexOf('{', start);
-            int depth = 0;
-            for (int i = open; i < src.Length; i++)
-            {
-                if (src[i] == '{') depth++;
-                else if (src[i] == '}' && --depth == 0) return src.Substring(start, i - start + 1);
-            }
-            throw new InvalidOperationException("unbalanced braces after " + signature);
-        }
 
         private static string ReadSource(string relative)
         {

@@ -1829,15 +1829,23 @@ namespace Radios.Tests
             Assert.True(replay > subscribe, "The picker subscribes after its opening replay, so a drop during the opening pass is missed.");
             Assert.Contains("_listCurrencySource = Radios.SmartLink.SmartLinkServices.Coordinator;", source, StringComparison.Ordinal);
 
-            string closing = Body(source, "private void RigSelectorDialog_Closing(");
+            string closing = SourceMember.CSharp(source, "private void RigSelectorDialog_Closing(");
             Assert.Contains("_listCurrencySource.SessionListCurrencyMayHaveChanged -= OnWanListCurrencyMayHaveChanged;", closing, StringComparison.Ordinal);
 
-            string handler = Body(source, "private void OnWanListCurrencyMayHaveChanged(");
-            Assert.Contains("Dispatcher.BeginInvoke(new Action(ReassessWanRows))", handler, StringComparison.Ordinal);
-            Assert.DoesNotContain("lock (", handler, StringComparison.Ordinal);
-            Assert.DoesNotContain("Dispatcher.Invoke(", handler, StringComparison.Ordinal);
+            // The handler only forwards (an expression body) to QueueSessionReask,
+            // which holds the BeginInvoke; pin the hand-off and the queueing each
+            // in its own member, so neither passes by reading its neighbour (#1256).
+            string handler = SourceMember.CSharp(source, "private void OnWanListCurrencyMayHaveChanged(");
+            Assert.Contains("=> QueueSessionReask(nameof(OnWanListCurrencyMayHaveChanged));", handler, StringComparison.Ordinal);
+            string queue = SourceMember.CSharp(source, "private void QueueSessionReask(string from)");
+            Assert.Contains("Dispatcher.BeginInvoke(new Action(ReassessWanRows))", queue, StringComparison.Ordinal);
+            foreach (string member in new[] { handler, queue })
+            {
+                Assert.DoesNotContain("lock (", member, StringComparison.Ordinal);
+                Assert.DoesNotContain("Dispatcher.Invoke(", member, StringComparison.Ordinal);
+            }
 
-            string reassess = Body(source, "private void ReassessWanRows()");
+            string reassess = SourceMember.CSharp(source, "private void ReassessWanRows()");
             int lockAt = reassess.IndexOf("lock (_radiosLock)", StringComparison.Ordinal);
             int ask = reassess.IndexOf("Radios.PickerSighting.Reassess(row.Paths, row.WanSighting)", StringComparison.Ordinal);
             int write = reassess.IndexOf("row.WanUnconfirmed = outcome.Paths.WanUnconfirmed;", StringComparison.Ordinal);
@@ -1847,28 +1855,13 @@ namespace Radios.Tests
                 "The re-ask does not go through PickerSighting.Reassess under the list lock (#619).");
             Assert.True(repaint > flag, "The rows are withdrawn but the list is not repainted.");
 
-            string tick = Body(source, "private void AutoConnectTimer_Tick(");
+            string tick = SourceMember.CSharp(source, "private void AutoConnectTimer_Tick(");
             Assert.Contains("Radios.PickerSighting.AutoConnectMayChoose(r.Paths)", tick, StringComparison.Ordinal);
             Assert.DoesNotContain("r.IsLive", tick, StringComparison.Ordinal);
 
-            string found = Body(source, "private void OnRadioFound(RadioListItem radio)");
+            string found = SourceMember.CSharp(source, "private void OnRadioFound(RadioListItem radio)");
             Assert.Contains("row?.Paths, row?.WanSighting ?? row?.RigData);", found, StringComparison.Ordinal);
             Assert.Equal(4, Count(found, "WanSighting = Radios.PickerSighting.WanHalfSighting(radio.RigData,"));
-
-            static string Body(string text, string signature)
-            {
-                int start = text.IndexOf(signature, StringComparison.Ordinal);
-                Assert.True(start >= 0, signature + " is not where this test reads it.");
-                int open = text.IndexOf('{', start);
-                int depth = 0;
-                for (int i = open; i < text.Length; i++)
-                {
-                    if (text[i] == '{') depth++;
-                    else if (text[i] == '}' && --depth == 0) return text.Substring(start, i - start + 1);
-                }
-                Assert.Fail("The body of " + signature + " never closes.");
-                return "";
-            }
 
             static int Count(string text, string what)
             {
@@ -2285,20 +2278,20 @@ namespace Radios.Tests
         {
             string dialog = ReadRepoFile("JJFlexWpf/Dialogs/RigSelectorDialog.xaml.cs");
 
-            string reconcile = Body(dialog, "private void ReconcileAvailability()");
+            string reconcile = SourceMember.CSharp(dialog, "private void ReconcileAvailability()");
             Assert.Contains("Radios.PickerSighting.Reconcile(", reconcile, StringComparison.Ordinal);
             Assert.Contains("avail.wanSighting", reconcile, StringComparison.Ordinal);
             Assert.Contains("r.WanSighting = wanSighting;", reconcile, StringComparison.Ordinal);
             Assert.Contains("r.WanUnconfirmed = paths.WanUnconfirmed;", reconcile, StringComparison.Ordinal);
             Assert.DoesNotContain("r.WanAvailable = avail.wan;", reconcile, StringComparison.Ordinal);
 
-            string removed = Body(dialog, "private void OnRadioRemoved(");
+            string removed = SourceMember.CSharp(dialog, "private void OnRadioRemoved(");
             Assert.Contains("Radios.PickerSighting.Reconcile(", removed, StringComparison.Ordinal);
             Assert.Contains("avail.wanSighting", removed, StringComparison.Ordinal);
             Assert.Contains("row.WanUnconfirmed = paths.WanUnconfirmed;", removed, StringComparison.Ordinal);
             Assert.DoesNotContain("row.WanAvailable = avail.wan;", removed, StringComparison.Ordinal);
 
-            string refresh = Body(dialog, "private void RefreshRadiosList(");
+            string refresh = SourceMember.CSharp(dialog, "private void RefreshRadiosList(");
             Assert.Contains(".Where(r => r.WanAvailable && !r.WanUnconfirmed && !r.OccupancyKnown", refresh, StringComparison.Ordinal);
             Assert.Contains("if (!r.OccupancyKnown && r.WanAvailable && !r.WanUnconfirmed", refresh, StringComparison.Ordinal);
 
@@ -2307,7 +2300,7 @@ namespace Radios.Tests
             Assert.Contains("Return (avail.lan, avail.wan, wanSighting)", globals, StringComparison.Ordinal);
 
             string flexBase = FlexBasePartials.JoinedText();   // every FlexBase partial
-            string reconnect = Body(flexBase, "public bool ReconnectRemote(");
+            string reconnect = SourceMember.CSharp(flexBase, "public bool ReconnectRemote(");
             Assert.Contains("foundRadio = findRadioForConnect(serial, forceWanPath);", reconnect, StringComparison.Ordinal);
             Assert.DoesNotContain("findCurrentWanRadio(serial)", reconnect, StringComparison.Ordinal);
             Assert.DoesNotContain("StillCurrent()", reconnect, StringComparison.Ordinal);
@@ -2315,24 +2308,9 @@ namespace Radios.Tests
             Assert.Contains("Noel's ruling on #619", reconnect, StringComparison.Ordinal);
             // And what the held handle is: on the SmartLink leg the bank's
             // handle, whatever list wrote it — never only a current one.
-            string forConnect = Body(flexBase, "private Radio findRadioForConnect(");
+            string forConnect = SourceMember.CSharp(flexBase, "private Radio findRadioForConnect(");
             Assert.Contains("if (preferWan) return findWanRadio(serial);", forConnect, StringComparison.Ordinal);
             Assert.DoesNotContain("findCurrentWanRadio", forConnect, StringComparison.Ordinal);
-
-            static string Body(string text, string signature)
-            {
-                int start = text.IndexOf(signature, StringComparison.Ordinal);
-                Assert.True(start >= 0, signature + " is not where this test reads it.");
-                int open = text.IndexOf('{', start);
-                int depth = 0;
-                for (int i = open; i < text.Length; i++)
-                {
-                    if (text[i] == '{') depth++;
-                    else if (text[i] == '}' && --depth == 0) return text.Substring(start, i - start + 1);
-                }
-                Assert.Fail("The body of " + signature + " never closes.");
-                return "";
-            }
         }
 
         private static string ReadRepoFile(string relative)
