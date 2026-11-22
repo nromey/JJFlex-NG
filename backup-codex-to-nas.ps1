@@ -25,9 +25,11 @@
 # the run then leaves out every *.sqlite, -wal and -shm file AT ANY DEPTH,
 # names them, and exits 5.
 #
-# NEVER TAKEN, at the top and AT ANY DEPTH below an allowed folder, as a file
-# or a folder, in any letter case (repair 1: a recursive copy of an allowed
-# folder used to carry them through): auth.json,
+# NEVER TAKEN (the secrets at the top and AT ANY DEPTH below an allowed
+# folder, as a file or a folder, in any letter case; repair 1: a recursive
+# copy of an allowed folder used to carry them through; the regenerable
+# folders packages, cache, tmp, .tmp and plugins at the TOP LEVEL only, so a
+# skill's own folder of that name is kept, repair 2): auth.json,
 # auth.json.lock and auth.lock (a live ChatGPT sign-in, left out for the reason
 # the Claude backup leaves out .credentials.json); cap_sid and .sandbox-secrets
 # (the sandbox's identity and secrets); packages (the installed CLI, about
@@ -135,11 +137,13 @@ $links      = @()
 $made = $false
 
 # WHAT IS NEVER TAKEN, AT ANY DEPTH (repair 1). The allow-list says which
-# root items are entered; these say what may never come out of them, at any
-# depth, case-insensitively, as a file or a folder. Applied while choosing
-# what to copy, and again over the whole stage before it is zipped.
-$neverNames = @('auth.json', 'auth.json.lock', 'auth.lock', 'cap_sid', 'models_cache.json',
-                'packages', 'cache', 'tmp', '.tmp', 'plugins')
+# root items are entered; the SECRETS below may never come out of them, at
+# any depth, case-insensitively, as a file or a folder. Applied while
+# choosing what to copy, and again over the whole stage before it is zipped.
+$neverNames = @('auth.json', 'auth.json.lock', 'auth.lock', 'cap_sid', 'models_cache.json')
+# The home's own regenerable folders, refused at the TOP LEVEL only (repair
+# 2): a custom skill's own plugins or cache folder is its content, and is taken.
+$topOnlyNames = @('packages', 'cache', 'tmp', '.tmp', 'plugins')
 function NeverTaken([string]$name) {
     $n = $name.ToLowerInvariant()
     return ($neverNames -contains $n) -or $n.StartsWith('.sandbox') -or
@@ -243,6 +247,7 @@ try {
             $parts = $item.FullName.Substring($stage.Length).TrimStart('\').Split('\')
             (IsLink $item) -or
             @($parts | Where-Object { NeverTaken $_ }).Count -gt 0 -or
+            ($topOnlyNames -contains $parts[0].ToLowerInvariant()) -or
             ($running -and -not $item.PSIsContainer -and (IsDatabaseFile $item.Name))
         })
         if ($forbidden.Count -gt 0) { throw "the stage holds something that must never be taken: $($forbidden[0].FullName)" }

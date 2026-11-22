@@ -318,6 +318,43 @@ namespace Radios.Tests
             Assert.Contains("skills/custom/queue.sqlite-wal", Entries(Newest()));
         }
 
+        [Fact]
+        public void A_skills_own_plugins_and_cache_folders_are_taken()
+        {
+            // Regenerable at the home's top level only (repair 2): inside a
+            // custom skill they are its content.
+            Write("skills/custom/plugins/helper.txt", "a skill's own helper");
+            Write("skills/custom/cache/ref.txt", "a skill's own reference");
+
+            var (exit, output) = Run(Home, Nas, codexRunning: false);
+            Assert.True(exit == 0, "exit " + exit + ":\n" + output);
+            var entries = Entries(Newest());
+            Assert.Contains("skills/custom/plugins/helper.txt", entries);
+            Assert.Contains("skills/custom/cache/ref.txt", entries);
+        }
+
+        [Fact]
+        public void The_homes_own_plugins_folder_is_still_not_taken()
+        {
+            Assert.True(File.Exists(Path.Combine(Home, "plugins", "p", "plugin.json")));   // the fixture has one
+            var (exit, output) = Run(Home, Nas, codexRunning: false);
+            Assert.True(exit == 0, "exit " + exit + ":\n" + output);
+            Assert.DoesNotContain(Entries(Newest()), e => e.StartsWith("plugins/", StringComparison.OrdinalIgnoreCase));
+
+            // And the stage check refuses it at the top level, should a copy of
+            // the script ever allow the folder in.
+            string real = File.ReadAllText(Path.Combine(RepoRoot(), "backup-codex-to-nas.ps1"));
+            const string allow = "$allowFolders = @('rules', 'skills', 'sessions')";
+            Assert.Contains(allow, real);
+            string copy = Path.Combine(_base, "mutated-plugins-backup-codex-to-nas.ps1");
+            File.WriteAllText(copy, real.Replace(allow, "$allowFolders = @('rules', 'skills', 'sessions', 'plugins')"));
+            System.Threading.Thread.Sleep(1100);
+            int before = Snapshots().Length;
+            var (exit2, output2) = Run(Home, Nas, codexRunning: false, script: copy);
+            Assert.True(exit2 == 4, "exit " + exit2 + ":\n" + output2);
+            Assert.Equal(before, Snapshots().Length);
+        }
+
         /// <summary>
         /// The last line of defence is real: a copy of the script whose
         /// allow-list wrongly names a root <c>.sandbox-secrets</c> FILE stages
