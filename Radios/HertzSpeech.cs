@@ -80,6 +80,12 @@ namespace Radios
         /// has at most three decimal places in kilohertz, so nothing is ever
         /// rounded.
         /// </summary>
+        /// <summary>
+        /// How far from zero a width is, as a long: <c>Math.Abs(int.MinValue)</c>
+        /// throws, and no width should ever bring a spoken line down.
+        /// </summary>
+        private static long Magnitude(int hz) => Math.Abs((long)hz);
+
         public static string KiloDigits(int hz)
             => (hz / 1000m).ToString("0.###", CultureInfo.CurrentCulture);
 
@@ -94,7 +100,7 @@ namespace Radios
         /// <summary>A width to SPEAK, at the given verbosity, with units on or off (<see cref="SpeakUnits"/>).</summary>
         public static string Width(int hz, HertzUnitStyle style, VerbosityLevel level, bool units)
         {
-            bool kilo = Math.Abs(hz) >= KiloThresholdHz && SpeaksKiloForm(level);
+            bool kilo = Magnitude(hz) >= KiloThresholdHz && SpeaksKiloForm(level);
             // Spoken, so the switch decides the word "hertz" on a whole number
             // of hertz; the kilo form keeps its "k" either way (#979).
             if (!kilo && style != HertzUnitStyle.Symbols) return WholeHertz(hz, units);
@@ -165,7 +171,7 @@ namespace Radios
                 return units
                     ? Lexicon.Get("settings.filter.width_named_hertz", ("width", digits))
                     : Lexicon.Get("settings.filter.width_named", ("width", digits));
-            if (Math.Abs(hz) < KiloThresholdHz) return WholeHertz(hz, units);
+            if (Magnitude(hz) < KiloThresholdHz) return WholeHertz(hz, units);
             return Width(hz, terseStyle, level, units);
         }
 
@@ -174,7 +180,7 @@ namespace Radios
         /// whatever the verbosity.
         /// </summary>
         public static string DisplayedWidth(int hz, HertzUnitStyle style = HertzUnitStyle.Symbols)
-            => Format(hz, style, kilo: Math.Abs(hz) >= KiloThresholdHz);
+            => Format(hz, style, kilo: Magnitude(hz) >= KiloThresholdHz);
 
         private static string Format(int hz, HertzUnitStyle style, bool kilo)
         {
