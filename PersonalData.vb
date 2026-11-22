@@ -541,38 +541,40 @@ Public Class PersonalData
             ' Create initial operator.
             Add()
         Else
-            ' Get operators
-            Dim err As Boolean = False
+            ' Get operators. A file that cannot be read is traced, skipped and
+            ' left where it is, and the rest still load (#1253): one bad file
+            ' used to show an "Exception" box with the stack and stop the loop,
+            ' so no operator loaded at all.
+            '
+            ' Every file is read BEFORE any operator is set up, because setting
+            ' up writes (the old-format conversion, the credential migration)
+            ' and an operator's write goes to the path named INSIDE its file,
+            ' which can be another file's: a file that failed to read must be
+            ' known as such before the first write can reach it (TryWrite).
+            Dim notLoaded As New List(Of String)
+            Dim reads As New List(Of OperatorFileRead)
             For Each fn As String In opFiles
-                Dim cfgFile As Stream = Nothing
-                Dim p As personal_v1 = Nothing
-                Try
-                    cfgFile = File.Open(fn, FileMode.Open)
-                    Dim xs As New XmlSerializer(GetType(personal_v1))
-                    p = xs.Deserialize(cfgFile)
-                    setupOpData(p, False)
-                Catch ex As InvalidOperationException
-                    ' See if an old format file.
-                    Tracing.TraceLine("PersonalData new exception:" & ex.Message, TraceLevel.Error)
-                    cfgFile.Close()
-                    cfgFile = File.Open(fn, FileMode.Open)
-                    Dim xs As New XmlSerializer(GetType(personal))
-                    Dim pOld As personal
-                    pOld = xs.Deserialize(cfgFile)
-                    cfgFile.Dispose()
-                    cfgFile = Nothing
-                    ' Convert to the current format.
-                    p = New personal_v1(pOld)
-                    setupOpData(p, True)
-                Catch ex As Exception
-                    Tracing.ErrMessageTrace(ex)
-                    err = True
-                End Try
-                If cfgFile IsNot Nothing Then
-                    cfgFile.Dispose()
+                Dim read As OperatorFileRead = ReadOperatorFile(fn)
+                If read.Op Is Nothing Then NoteNotLoaded(fn)
+                reads.Add(read)
+            Next
+            For Each read As OperatorFileRead In reads
+                Dim fn As String = read.FilePath
+                Dim p As personal_v1 = read.Op
+                If p IsNot Nothing Then
+                    Try
+                        setupOpData(p, read.Converted)
+                    Catch ex As Exception
+                        Tracing.TraceLine("PersonalData: the operator file " & fn &
+                                          " was read but could not be set up, so it is not loaded and is left where it is: " &
+                                          ex.Message, TraceLevel.Error)
+                        p = Nothing
+                    End Try
                 End If
-                If err Then
-                    Exit For
+                If p Is Nothing Then
+                    NoteNotLoaded(fn)
+                    notLoaded.Add(Path.GetFileName(fn))
+                    Continue For
                 End If
 
                 ' Decrypt callbook credentials (or migrate plaintext → DPAPI).
@@ -598,8 +600,144 @@ Public Class PersonalData
                     write(p)
                 End If
             Next
+            ' Said once, after the loop, naming every file that was skipped;
+            ' no exception text (#1253). The trace has each file's reason.
+            If notLoaded.Count > 0 AndAlso OperatorFilesNotLoadedNotice IsNot Nothing Then
+                OperatorFilesNotLoadedNotice(notLoaded)
+            End If
         End If
     End Sub
+
+    ''' <summary>
+    ''' What reading one operator file produced (#1253): the operator, or
+    ''' Nothing and the reason it could not be read.
+    ''' </summary>
+    Friend NotInheritable Class OperatorFileRead
+        ''' <summary>The file that was read.</summary>
+        Public ReadOnly FilePath As String
+        ''' <summary>The operator, or Nothing when the file could not be read.</summary>
+        Public ReadOnly Op As personal_v1
+        ''' <summary>True when the file was in the old format and was converted.</summary>
+        Public ReadOnly Converted As Boolean
+        ''' <summary>Why the file could not be read; Nothing when it was.</summary>
+        Public ReadOnly Failure As String
+
+        Friend Sub New(filePath As String, op As personal_v1, converted As Boolean, failure As String)
+            Me.FilePath = filePath
+            Me.Op = op
+            Me.Converted = converted
+            Me.Failure = failure
+        End Sub
+    End Class
+
+    ''' <summary>
+    ''' Read one operator file, in the current format or the old one, and say
+    ''' what happened. Never throws and never shows anything: a file that
+    ''' cannot be opened (permissions deny it, or another program holds it),
+    ''' does not parse, or fails the old format's read as well comes back with
+    ''' no operator and its reason, traced (#1253).
+    '''
+    ''' <para>Opened for reading only and shared for reading, so a read-only
+    ''' file loads. It used to be opened read-write, which a read-only file
+    ''' refuses.</para>
+    ''' </summary>
+    Friend Shared Function ReadOperatorFile(fn As String) As OperatorFileRead
+        Try
+            Using cfgFile As New FileStream(fn, FileMode.Open, FileAccess.Read, FileShare.Read)
+                Dim xs As New XmlSerializer(GetType(personal_v1))
+                Return New OperatorFileRead(fn, CType(xs.Deserialize(cfgFile), personal_v1), False, Nothing)
+            End Using
+        Catch ex As InvalidOperationException
+            ' Not the current format: see if it is the old one.
+            Tracing.TraceLine("PersonalData: " & fn & " is not in the current operator format (" & ex.Message &
+                              "); trying the old format", TraceLevel.Warning)
+            Try
+                Dim pOld As personal
+                Using cfgFile As New FileStream(fn, FileMode.Open, FileAccess.Read, FileShare.Read)
+                    Dim xs As New XmlSerializer(GetType(personal))
+                    pOld = CType(xs.Deserialize(cfgFile), personal)
+                End Using
+                ' Convert to the current format.
+                Return New OperatorFileRead(fn, New personal_v1(pOld), True, Nothing)
+            Catch exOld As Exception
+                Return NotRead(fn, "it is in neither operator format (" & ex.Message & "; " & exOld.Message & ")")
+            End Try
+        Catch ex As Exception
+            Return NotRead(fn, "it could not be opened (" & ex.GetType().Name & ": " & ex.Message & ")")
+        End Try
+    End Function
+
+    Private Shared Function NotRead(fn As String, reason As String) As OperatorFileRead
+        Tracing.TraceLine("PersonalData: the operator file " & fn & " was not loaded, and is left where it is: " & reason,
+                          TraceLevel.Error)
+        Return New OperatorFileRead(fn, Nothing, False, reason)
+    End Function
+
+    ''' <summary>
+    ''' The operator files that could not be loaded this session (#1253), by
+    ''' full path, ignoring case. An operator's write goes to the path named
+    ''' inside its file (<see cref="personal_v1.pathName"/>), so a save can
+    ''' reach one of these: <see cref="TryWrite"/> keeps a copy first, and
+    ''' <see cref="RemoveAt"/> and <see cref="Update"/> never delete one.
+    ''' </summary>
+    Private ReadOnly notLoadedFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+    Private Sub NoteNotLoaded(fn As String)
+        notLoadedFiles.Add(FullPathOrSelf(fn))
+    End Sub
+
+    ''' <summary>True when <paramref name="path"/> is a file that could not be loaded this session.</summary>
+    Friend Function FailedToLoadThisSession(path As String) As Boolean
+        Return Not String.IsNullOrEmpty(path) AndAlso notLoadedFiles.Contains(FullPathOrSelf(path))
+    End Function
+
+    Private Shared Function FullPathOrSelf(p As String) As String
+        Try
+            Return Path.GetFullPath(p)
+        Catch
+            Return p
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Tells the operator once, after start-up's load, which operator files
+    ''' could not be loaded and that each was left where it is (#1253): a
+    ''' plain box carrying one sentence and no exception text. Replaceable so a
+    ''' test never opens it. Receives the files' names.
+    ''' </summary>
+    Friend Shared OperatorFilesNotLoadedNotice As Action(Of IReadOnlyList(Of String)) = AddressOf ShowOperatorFilesNotLoaded
+
+    Private Shared Sub ShowOperatorFilesNotLoaded(names As IReadOnlyList(Of String))
+        ' DRAFT wording, settings.operator.not_loaded. No owner, as the
+        ' operator list's own boxes have none.
+        MessageBox.Show(Radios.Lexicon.Get("settings.operator.not_loaded", ("files", CObj(String.Join(", ", names)))),
+                        Radios.Lexicon.Get("settings.lister.operator_title"), MessageBoxButtons.OK)
+    End Sub
+
+    ''' <summary>
+    ''' Tells the operator that changes to an operator cannot be kept while its
+    ''' file is read-only (#1253): once per file per session for a save, and
+    ''' for each delete that could not remove the file. Replaceable so a test
+    ''' never opens it. Receives the file's name.
+    ''' </summary>
+    Friend Shared OperatorFileReadOnlyNotice As Action(Of String) = AddressOf ShowOperatorFileReadOnly
+
+    Private Shared Sub ShowOperatorFileReadOnly(name As String)
+        ' DRAFT wording, settings.operator.read_only.
+        MessageBox.Show(Radios.Lexicon.Get("settings.operator.read_only", ("file", CObj(name))),
+                        Radios.Lexicon.Get("settings.lister.operator_title"), MessageBoxButtons.OK)
+    End Sub
+
+    ''' <summary>The read-only files the operator has already been told about this session.</summary>
+    Private ReadOnly toldReadOnly As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+    Private Shared Function IsReadOnlyFile(p As String) As Boolean
+        Try
+            Return File.Exists(p) AndAlso (File.GetAttributes(p) And FileAttributes.ReadOnly) = FileAttributes.ReadOnly
+        Catch
+            Return False
+        End Try
+    End Function
     Private Sub setupOpData(p As personal_v1, save As Boolean)
         ' Setup the log file stack.
         p.LogfileStack = New Stack(Of String)(p.NumberOfLogs)
@@ -754,6 +892,15 @@ Public Class PersonalData
             ' a new file, and the old one goes only once the new one is written
             ' (SaveThenRetireOld): deleted first, a failed write lost the record.
             Dim oldPath As String = ops(id).pathName
+            ' #1253: an old file that could not be loaded this session is never
+            ' retired (deleted) by the rename; it is left where it is, so the
+            ' step is given the new path as the old one and removes nothing.
+            If FailedToLoadThisSession(oldPath) AndAlso
+               Not String.Equals(oldPath, theOp.pathName, StringComparison.OrdinalIgnoreCase) Then
+                Tracing.TraceLine("PersonalData: the edit moves the operator, but its old file " & oldPath &
+                                  " could not be loaded at start-up, so it is not removed", TraceLevel.Warning)
+                oldPath = theOp.pathName
+            End If
             ' #1175: the edited operator replaces the old one in memory only
             ' after the save succeeds (SaveThenReplace). Swapped first, a failed
             ' save left the session holding the new name, so the next good save
@@ -976,7 +1123,29 @@ Public Class PersonalData
     End Function
 
     Public Function RemoveAt(ByVal id As Integer) As Boolean
-        File.Delete(ops(id).pathName)
+        ' #1253: the delete never throws out of the operator list's Delete
+        ' button, and never removes a file that could not be loaded this
+        ' session. Either way the operator leaves the list for this session
+        ' and the file stays, so it is back at the next start; the operator
+        ' is told plainly why.
+        Dim fileName As String = ops(id).pathName
+        If FailedToLoadThisSession(fileName) Then
+            Tracing.TraceLine("PersonalData: the operator was removed from the list, but its file " & fileName &
+                              " could not be loaded at start-up, so it is not deleted and is left where it is", TraceLevel.Warning)
+            If OperatorFilesNotLoadedNotice IsNot Nothing Then
+                OperatorFilesNotLoadedNotice(New String() {Path.GetFileName(fileName)})
+            End If
+        Else
+            Try
+                File.Delete(fileName)
+            Catch ex As Exception
+                Tracing.TraceLine("PersonalData: the operator was removed from the list, but its file could not be deleted: " &
+                                  fileName & " (" & ex.Message & ")", TraceLevel.Error)
+                If OperatorFileReadOnlyNotice IsNot Nothing Then
+                    OperatorFileReadOnlyNotice(Path.GetFileName(fileName))
+                End If
+            End Try
+        End If
         ops.RemoveAt(id)
         If ops.Count = 0 Then
             dfltID = -1
@@ -1047,6 +1216,19 @@ Public Class PersonalData
     ''' </summary>
     Friend Sub Write(ByVal op As personal_v1)
         If Not TryWrite(op) Then
+            ' A file that could not be loaded, which could not be copied
+            ' first: TryWrite traced why the write did not happen (#1253).
+            If LastWriteKeptUnreadableFile Then Return
+            ' A read-only operator file (it loads, since #1253): traced, and
+            ' the operator told once, never the "Exception" box.
+            If IsReadOnlyFile(op.pathName) Then
+                Tracing.TraceLine("PersonalData: the operator file " & op.pathName &
+                                  " is read-only, so this change to the operator was not kept", TraceLevel.Warning)
+                If toldReadOnly.Add(FullPathOrSelf(op.pathName)) AndAlso OperatorFileReadOnlyNotice IsNot Nothing Then
+                    OperatorFileReadOnlyNotice(Path.GetFileName(op.pathName))
+                End If
+                Return
+            End If
             Tracing.ErrMessageTrace(LastWriteFailure)
         End If
     End Sub
@@ -1056,6 +1238,57 @@ Public Class PersonalData
     ''' write that succeeded.
     ''' </summary>
     Friend Property LastWriteFailure As Exception
+
+    ''' <summary>
+    ''' True when the last <see cref="TryWrite"/> did not write because its
+    ''' target is a file that could not be loaded this session and no copy of
+    ''' it could be kept first (#1253). Traced there; nothing is shown.
+    ''' </summary>
+    Friend Property LastWriteKeptUnreadableFile As Boolean
+
+    ''' <summary>
+    ''' Before a write to <paramref name="target"/>: when it is a file that
+    ''' could not be loaded this session, COPY it beside itself under
+    ''' <see cref="KeptCopyPath"/> first (a copy; it is never moved, renamed or
+    ''' deleted here), so whatever it holds survives the write. False when the
+    ''' copy could not be made, and the write must not happen. True for every
+    ''' other target, and for one that is no longer there.
+    ''' </summary>
+    Private Function KeepUnloadedFileBeforeWrite(target As String) As Boolean
+        If Not FailedToLoadThisSession(target) Then Return True
+        Dim full As String = FullPathOrSelf(target)
+        If Not File.Exists(full) Then
+            notLoadedFiles.Remove(full)
+            Tracing.TraceLine("PersonalData: the operator file that could not be loaded is gone, so there is nothing to keep before writing " &
+                              full, TraceLevel.Info)
+            Return True
+        End If
+        Dim kept As String = KeptCopyPath(full, DateTime.UtcNow)
+        Try
+            File.Copy(full, kept, overwrite:=False)
+        Catch ex As Exception
+            Tracing.TraceLine("PersonalData: not written: " & full & " could not be loaded at start-up and could not be copied first (" &
+                              ex.Message & "), so it is left exactly as it is", TraceLevel.Error)
+            Return False
+        End Try
+        notLoadedFiles.Remove(full)
+        Tracing.TraceLine("PersonalData: the operator file that could not be loaded was copied to " & kept &
+                          " before being written over", TraceLevel.Warning)
+        Return True
+    End Function
+
+    ''' <summary>
+    ''' Where a file that could not be loaded is kept before a write replaces
+    ''' it: beside it, named <c>&lt;name&gt;.unreadable-&lt;UTC time&gt;.bak</c>.
+    ''' <para><b>Never an .xml name</b>, because the loader reads every *.xml
+    ''' in the folder as an operator, and <b>never AtomicFile's temporary
+    ''' pattern</b> (<c>&lt;name&gt;.&lt;32 hex&gt;.tmp</c>), which a later save
+    ''' deletes once it is ten minutes old.</para>
+    ''' </summary>
+    Friend Shared Function KeptCopyPath(path As String, utc As DateTime) As String
+        Return path & ".unreadable-" &
+            utc.ToString("yyyyMMdd'T'HHmmssfff'Z'", System.Globalization.CultureInfo.InvariantCulture) & ".bak"
+    End Function
 
     ''' <summary>
     ''' Write, saying whether the operator was written: false when the write
@@ -1068,6 +1301,15 @@ Public Class PersonalData
         ' Encrypt credentials before writing to disk.
         op.EncryptCredentials()
         LastWriteFailure = Nothing
+        LastWriteKeptUnreadableFile = False
+
+        ' A file that could not be loaded this session is never written over
+        ' unkept (#1253): a copy goes beside it first, and without one the
+        ' write does not happen.
+        If Not KeepUnloadedFileBeforeWrite(op.pathName) Then
+            LastWriteKeptUnreadableFile = True
+            Return False
+        End If
 
         ' Whole or not at all: an operator file cut short by a failure part-way
         ' through would lose the operator.

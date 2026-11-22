@@ -3040,6 +3040,11 @@ namespace Radios.Tests
                 "connect.update.settings_need_fixing",
                 // #1195, an added or edited operator that could not be saved.
                 "settings.operator.not_saved",
+                // Junk box batch 20 (2026-11-22), #1253: an operator file that
+                // could not be read at start-up, and one that is read-only.
+                // DRAFT facts for Codex to word; not approved copy.
+                "settings.operator.not_loaded",
+                "settings.operator.read_only",
                 // #1189 item 2, a typed notch frequency outside the range a notch can go.
                 "settings.tnf.frequency_out_of_range",
                 // Junk box #1172 (2026-11-19, the 60 m table to the FCC's 2026
