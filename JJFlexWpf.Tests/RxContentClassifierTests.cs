@@ -144,11 +144,36 @@ public sealed class RxContentClassifierTests
         int blocks = voice.Length / 2 / F;
         for (int b = 0; b < 20; b++) c.Classify(voice.AsSpan(b * 2 * F, 2 * F), 2);
         var sw = new System.Diagnostics.Stopwatch();
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        sw.Start();
-        for (int b = 20; b < blocks; b++) c.Classify(voice.AsSpan(b * 2 * F, 2 * F), 2);
-        sw.Stop();
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        // Counted inside a no-collection region (repair 3): this is the suite's longest
+        // counting window (1,000 blocks of native calls), and a background collection that
+        // STARTS inside it, set off by any other test's large allocations, makes the
+        // per-thread counter report up to 8 KB that this thread never allocated (measured
+        // 8,184 here on x86). With no collection able to start, the count is exact. If the
+        // rest of the suite allocates enough to force one anyway, the region ends, which is
+        // detectable, and only then is the count taken again.
+        long allocated = -1;
+        int forced = 0;
+        for (int attempt = 0; attempt < 3 && allocated < 0; attempt++)
+        {
+            for (int b = 0; b < 20; b++) c.Classify(voice.AsSpan(b * 2 * F, 2 * F), 2);
+            bool region = false;
+            // The largest region the runtime allows: 16 MB on x64; x86 allows less.
+            for (long size = 16L * 1024 * 1024; size >= 1024 * 1024 && !region; size /= 2)
+            {
+                try { region = GC.TryStartNoGCRegion(size); break; }
+                catch (ArgumentOutOfRangeException) { }
+            }
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            sw.Restart();
+            for (int b = 20; b < blocks; b++) c.Classify(voice.AsSpan(b * 2 * F, 2 * F), 2);
+            sw.Stop();
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            bool held = System.Runtime.GCSettings.LatencyMode == System.Runtime.GCLatencyMode.NoGCRegion;
+            if (held) GC.EndNoGCRegion();
+            if (region && held) allocated = bytes; else forced++;
+        }
+        if (forced > 0) _out.WriteLine($"{forced} count(s) taken again: a collection was forced inside the window");
+        Assert.True(allocated >= 0, "no window was free of collections in three tries");
         double perBlock = sw.Elapsed.TotalMilliseconds * 1000 / (blocks - 20);
         double detector = c.DetectorTime.TotalMilliseconds * 1000 / blocks;
         _out.WriteLine($"{Environment.Is64BitProcess switch { true => "x64", false => "x86" }}: {perBlock:0.0} µs per 10 ms block in all ({detector:0.0} µs in the detector), {perBlock / 100:0.00} percent of one core, one detector on the mix of both ears");
