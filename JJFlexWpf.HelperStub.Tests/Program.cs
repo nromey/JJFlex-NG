@@ -19,6 +19,9 @@
 //   --invalid-hello          answer with a HelloAck that breaks a rule
 //   --omit <engine>          leave an engine out of the offer
 //   --late <seq>:<ms>        hold the FrameOut for that seq back by ms
+//   --answer-behind <n>      hold each channel's FrameOut until n more of its frames have
+//                            arrived: every answer late by n frames however fast the client
+//                            sends, while the answers (and the connection) keep flowing
 //   --stall-after <n>:<ms>   after n frames, send nothing at all for ms
 //   --crash-after <n>:<code> after n frames, exit with that code
 //   --break-after <n>        after n frames, close the pipe
@@ -107,6 +110,7 @@ internal static class Program
     private static readonly HashSet<uint> UsedIds = new();
     private static int _delay = 2448, _slowStart, _stallAfter = -1, _stallMs, _crashAfter = -1, _crashCode, _breakAfter = -1;
     private static long _lateSeq = -1;
+    private static int _answerBehind;
     private static int _lateMs;
     private static bool _reject, _invalidHello, _noServerCheck;
     private static readonly HashSet<string> Omit = new(StringComparer.Ordinal);
@@ -141,6 +145,8 @@ internal static class Program
         public required float[] Line;
         public int Position;
         public long LastSeq = -1;
+        /// <summary>--answer-behind only: answers processed and not yet sent, oldest first. Processing thread only.</summary>
+        public readonly Queue<WdspFrameOut> Held = new();
     }
 
     private static int Main(string[] args)
@@ -168,6 +174,7 @@ internal static class Program
                     case "--invalid-hello": _invalidHello = true; break;
                     case "--omit": Omit.Add(Next()); break;
                     case "--late": { var (s, ms) = Pair(); _lateSeq = s; _lateMs = ms; break; }
+                    case "--answer-behind": _answerBehind = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--stall-after": (_stallAfter, _stallMs) = Pair(); break;
                     case "--crash-after": (_crashAfter, _crashCode) = Pair(); break;
                     case "--break-after": _breakAfter = int.Parse(Next(), CultureInfo.InvariantCulture); break;
@@ -585,6 +592,15 @@ internal static class Program
                     }
                     uint nanos = (uint)Math.Min(uint.MaxValue, timer.Elapsed.TotalMilliseconds * 1_000_000);
                     if ((long)frame.Seq == _lateSeq) Thread.Sleep(_lateMs);
+                    if (_answerBehind > 0)
+                    {
+                        // Late by frames, not by time: the answer to frame s leaves only when frame s + n arrives.
+                        ch.Held.Enqueue(new WdspFrameOut(frame.Channel, frame.Seq, nanos, output.ToArray()));
+                        if (ch.Held.Count <= _answerBehind) break;
+                        Send(ch.Held.Dequeue());
+                        lastEmit.Restart();
+                        break;
+                    }
                     Send(new WdspFrameOut(frame.Channel, frame.Seq, nanos, output));
                     lastEmit.Restart();
                     break;

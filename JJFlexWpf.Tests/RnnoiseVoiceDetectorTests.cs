@@ -242,11 +242,13 @@ public sealed class RnnoiseVoiceDetectorTests
     }
 
     [Fact]
-    public void Nothing_in_the_app_calls_the_detector_yet()
+    public void The_one_app_caller_is_the_lag_shifter_s_content_classifier()
     {
-        // Ruled 2026-11-08 (#873): stored, not wired. Its callers are its tests (and an
-        // offline bench under tools/) until Noel rules otherwise. When he does, this
-        // test is the one to retire, deliberately.
+        // Ruled 2026-11-08 (#873): stored, not wired, until Noel ruled otherwise.
+        // He did on 2026-11-20 11:25 (S10): the lag shifter uses the stored v0.1.1
+        // detector, with the loudness check beside it. This replaced the test
+        // "Nothing_in_the_app_calls_the_detector_yet", retired deliberately as it
+        // asked (Sprint 49 Track P2). Any OTHER caller is still a ruling's to make.
         string root = RepoPaths.RequireRoot();
         var mentions = Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories)
             .Where(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".vb", StringComparison.OrdinalIgnoreCase))
@@ -262,7 +264,7 @@ public sealed class RnnoiseVoiceDetectorTests
         var appCallers = mentions.Where(p => p != "JJFlexWpf/RnnoiseVoiceDetector.cs"
             && !p.StartsWith("JJFlexWpf.Tests/", StringComparison.Ordinal)
             && !p.StartsWith("tools/", StringComparison.Ordinal)).ToArray();
-        Assert.Empty(appCallers);
+        Assert.Equal(new[] { "JJFlexWpf/RxContentClassifier.cs" }, appCallers);
     }
 
     private static string[] ExportNames(byte[] image)

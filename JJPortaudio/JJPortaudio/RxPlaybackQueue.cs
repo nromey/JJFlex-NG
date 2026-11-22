@@ -1,9 +1,21 @@
 using System;
+using System.Collections;
 using System.Diagnostics;
 using JJTrace;
 
 namespace JJPortaudio
 {
+    /// <summary>The receive catch-up's mode for a launch (<c>JJFLEX_RX_CATCHUP</c>, test-only).</summary>
+    public enum RxCatchUpMode
+    {
+        /// <summary>Today's trims and re-prime exactly; nothing is caught up.</summary>
+        Off,
+        /// <summary>Today's output, with every decision the shifter would make traced beside it.</summary>
+        Shadow,
+        /// <summary>The default: late audio caught up, a low queue stretched over, drift corrected, seams joined.</summary>
+        On,
+    }
+
     /// <summary>
     /// What one output callback should do, decided before it touches the queue.
     /// </summary>
@@ -45,10 +57,19 @@ namespace JJPortaudio
     /// <c>outputCallback</c> already drains as many queued packets as fit — the
     /// "one buffer per call" cap is not a policy anybody wrote, it is the shape
     /// of the callback contract, and no comment, commit message or register
-    /// entry in this tree gives any other reason. <b>So a backlog cannot be
-    /// consumed away; it can only be discarded.</b> That is what
-    /// <see cref="RxCallbackPlan.Discard"/> is for, and it is the only thing
-    /// that turns the ratchet back into a queue.
+    /// entry in this tree gives any other reason. <b>Copying, a backlog cannot
+    /// be consumed away; it can only be discarded</b>, which is what
+    /// <see cref="RxCallbackPlan.Discard"/> does on today's path.
+    /// </para>
+    /// <para>
+    /// <b>Since Sprint 49 Track P2 (#473, #873 phase 2) the callback does not
+    /// only copy.</b> With a reserve, and unless <c>JJFLEX_RX_CATCHUP</c> says
+    /// off, it renders through the lag shifter (<see cref="RxLagShifter"/>),
+    /// which CAN play a backlog slightly faster than nominal, by cutting whole
+    /// periods and gap time in audio already in hand: so a backlog is caught
+    /// up, not discarded, and a queue running low is stretched over. The
+    /// paragraph above is still true of today's path, which the CW monitor
+    /// and <c>JJFLEX_RX_PRIME_MS=0</c> take.
     /// </para>
     /// <para>
     /// <b>Priming, and re-priming.</b> With no reserve the queue settles at
@@ -102,6 +123,468 @@ namespace JJPortaudio
         /// to set in ordinary use.
         /// </summary>
         public const string ReserveEnvironmentVariable = "JJFLEX_RX_PRIME_MS";
+
+        // ══ Catch-up: the lag shifter at the playback queue (#473, #873 phase 2, #1154; owner two) ══
+        //
+        // With a reserve, and unless JJFLEX_RX_CATCHUP says off, the callback no
+        // longer copies buffers straight out of the queue: it moves them into the
+        // lag shifter's ring (RxLagShifter) and renders the device buffer from
+        // there, and this controller steers the ring's depth toward the target.
+        // A backlog is caught up (played slightly faster, gaps first) instead of
+        // discarded; a queue running low is stretched over (played slightly
+        // slower) instead of starving; a slow clock difference is corrected by a
+        // period splice now and then; a join across lost audio is faded; and a
+        // backlog over 1.5 s is cut once, at a quiet moment. The CW monitor (no
+        // reserve), JJFLEX_RX_PRIME_MS=0 and JJFLEX_RX_CATCHUP=off take today's
+        // path below, untouched, and so are sample for sample what shipped.
+
+        /// <summary>Environment variable: <c>off</c>, <c>shadow</c> or <c>on</c> (the default). Test-only, never in any interface (Noel's S11: no operator switch).</summary>
+        public const string CatchUpEnvironmentVariable = "JJFLEX_RX_CATCHUP";
+
+        /// <summary>Below this excess nothing is done: one packet, below the queue's own granularity (first report, section 5).</summary>
+        public const double DeadBandMilliseconds = 10;
+        /// <summary>An excess between the dead band and this, held for <see cref="DriftHoldSeconds"/>, is clock drift (first report, section 5).</summary>
+        public const double DriftCeilingMilliseconds = 30;
+        /// <summary>How long a small excess must hold before it is called drift (first report, section 5).</summary>
+        public const double DriftHoldSeconds = 30;
+        /// <summary>Above this much late audio, one faded cut at a quiet moment, down to <see cref="CutLeaveMilliseconds"/> over target (Noel 2026-11-20 11:25, S9).</summary>
+        public const double CutAboveMilliseconds = 1500;
+        /// <summary>A cut leaves this much over target, caught up by speeding (first report, section 5).</summary>
+        public const double CutLeaveMilliseconds = 200;
+        /// <summary>Above this, something is broken: cut at the next buffer (first report, section 5).</summary>
+        public const double CutNowMilliseconds = 3000;
+
+        /// <summary>
+        /// Whether a digital mode (DIGU, DIGL, RTTY: <see cref="RxContentClass.NoSplice"/>)
+        /// takes the long-backlog cuts above (<see cref="CutAboveMilliseconds"/> and
+        /// <see cref="CutNowMilliseconds"/>). False is the brief's "nothing is cut or
+        /// repeated" in those modes; the follow-up research (2026-11-08, section 3)
+        /// proposed keeping the cut above about 1.5 s there. Codex's check of
+        /// 2567a596 (C1) found the two disagree, and the question is Noel's: the
+        /// other answer is this one line. With false, a digital-mode backlog is held
+        /// until the ring is full (4.5 s), where the ring's overflow drops the
+        /// oldest audio.
+        /// </summary>
+        public const bool DigitalModesTakeTheLongCut = false;
+
+        /// <summary>Tests only: the other answer to <see cref="DigitalModesTakeTheLongCut"/>, or null for the constant.</summary>
+        internal static bool? DigitalModesTakeTheLongCutOverrideForTest { get; set; }
+        /// <summary>How far ahead the quiet moment for a cut is looked for, and the gap that counts as one (first report, section 5).</summary>
+        public const double QuietHorizonMilliseconds = 1000, QuietGapMilliseconds = 50;
+        /// <summary>
+        /// Bridging starts when the depth at a callback's entry is short of the
+        /// target by more than this share of the reserve (my judgement: half, so
+        /// ordinary arrival jitter inside the reserve does not set it off).
+        /// </summary>
+        public const double BridgeAtReserveFraction = 0.5;
+        /// <summary>
+        /// After running dry, play the moment audio returns, unless it ran dry
+        /// once already within this long: then wait for the full reserve as today
+        /// (Noel 2026-11-20 11:25, S8).
+        /// </summary>
+        public const double SecondDryWithinSeconds = 5;
+        /// <summary>Tests only: false keeps today's wait after every dry spell (the other refill choice, rendered for Noel).</summary>
+        internal bool PlayAtOnce { get; set; } = true;
+
+        private readonly RxCatchUpMode _mode;
+        private readonly RxLagShifter _shifter;
+        private readonly int _fpb;
+        private readonly long _targetFrames, _callbackFrames, _reserveFrames, _bridgeAtFrames;
+        private readonly long _driftHoldCallbacks, _secondDryCallbacks, _minuteCallbacks;
+        private readonly float[] _scratch;
+        private readonly long[] _entryDepth;
+        private int _entryAt, _entryCount;
+        private long _driftSince = -1, _deficitSince = -1, _lastDry = long.MinValue / 2;
+        private bool _waitFull;
+        private long _minuteStart;
+        private double _minuteMinMs = double.MaxValue, _minuteMaxMs = double.MinValue;
+        private long _minuteRemoved, _minuteAdded, _minuteRemovedMark, _minuteAddedMark;
+        private long _catchUps, _catchUpRemoved, _catchUpAdded, _cutFrames, _seamJoins;
+
+        // The class and seam mark of each enqueued buffer, travelling beside it:
+        // written by the thread that enqueues (before the enqueue), read by the
+        // callback as it dequeues, matched by reference so a cleared queue only
+        // leaves entries that are skipped. Preallocated; no allocation either side.
+        private const int MetaCapacity = 512;
+        private readonly float[][] _metaBuf = new float[MetaCapacity][];
+        private readonly byte[] _metaCls = new byte[MetaCapacity];
+        private readonly int[] _metaSeam = new int[MetaCapacity];   // frames into the buffer, or -1
+        private long _metaHead, _metaTail, _metaDropped;
+
+        /// <summary>The catch-up mode this queue runs in: off for a queue with no reserve, whatever the variable says.</summary>
+        public RxCatchUpMode CatchUp => _mode;
+
+        /// <summary>Tests only: the core this queue renders through (null on today's path).</summary>
+        internal RxLagShifter ShifterForTest => _shifter;
+
+        /// <summary>True when the ring and the queue hold nothing (today's path: the queue alone).</summary>
+        public bool RingEmpty => _mode != RxCatchUpMode.On || _shifter.Available <= 0;
+
+        /// <summary>Drift and catch-up totals for the summary.</summary>
+        public long CatchUpEvents => _catchUps;
+        public long CatchUpRemovedFrames => _catchUpRemoved;
+        public long CatchUpAddedFrames => _catchUpAdded;
+        public long CutFrames => _cutFrames;
+        public long SeamJoins => _seamJoins;
+
+        /// <summary>
+        /// Called by the thread that feeds the queue, just BEFORE it enqueues
+        /// <paramref name="buffer"/>: what the buffer is (the classifier's class)
+        /// and where a seam (a join across lost audio) sits in it, in frames, or -1
+        /// (Codex's check of 2567a596, B1: the receive processing delays the audio,
+        /// so the seam can come out part-way into a buffer, or a buffer later).
+        /// Lock-free and allocation-free; on today's path it does nothing.
+        /// </summary>
+        public void NoteEnqueued(float[] buffer, RxContentClass cls, int seamAt)
+        {
+            if (_mode == RxCatchUpMode.Off) return;
+            long head = _metaHead;
+            if (head - System.Threading.Volatile.Read(ref _metaTail) >= MetaCapacity) { System.Threading.Interlocked.Increment(ref _metaDropped); return; }
+            int i = (int)(head % MetaCapacity);
+            _metaBuf[i] = buffer; _metaCls[i] = (byte)cls; _metaSeam[i] = seamAt;
+            System.Threading.Volatile.Write(ref _metaHead, head + 1);
+        }
+
+        /// <summary>As above, with a seam just before the buffer or none.</summary>
+        public void NoteEnqueued(float[] buffer, RxContentClass cls, bool seamBefore) => NoteEnqueued(buffer, cls, seamBefore ? 0 : -1);
+
+        /// <summary>The buffer's audio into the ring, its seam marked where it sits (never in a digital mode).</summary>
+        private void WriteWithSeam(float[] b, RxContentClass cls, int seamAt)
+        {
+            if (seamAt >= 0 && (cls & RxContentClass.NoSplice) == 0) _shifter.MarkSeamAt(_shifter.WritePosition + seamAt);
+            _shifter.Write(b, cls);
+        }
+
+        private (RxContentClass Cls, int Seam) TakeMeta(float[] buffer)
+        {
+            long head = System.Threading.Volatile.Read(ref _metaHead);
+            while (_metaTail < head)
+            {
+                int i = (int)(_metaTail % MetaCapacity);
+                var b = _metaBuf[i];
+                var cls = (RxContentClass)_metaCls[i]; int seam = _metaSeam[i];
+                _metaBuf[i] = null;
+                System.Threading.Volatile.Write(ref _metaTail, _metaTail + 1);
+                if (ReferenceEquals(b, buffer)) return (cls, seam);
+            }
+            return (RxContentClass.Unclassified, -1);
+        }
+
+        /// <summary>Shadow: the next enqueued buffer, from the meta ring alone (the real queue is today's path's).</summary>
+        private bool TakeShadow(out float[] buffer, out RxContentClass cls, out int seam)
+        {
+            long head = System.Threading.Volatile.Read(ref _metaHead);
+            if (_metaTail >= head) { buffer = null; cls = 0; seam = -1; return false; }
+            int i = (int)(_metaTail % MetaCapacity);
+            buffer = _metaBuf[i]; cls = (RxContentClass)_metaCls[i]; seam = _metaSeam[i];
+            _metaBuf[i] = null;
+            System.Threading.Volatile.Write(ref _metaTail, _metaTail + 1);
+            return buffer != null;
+        }
+
+        // ── A third owner's step (item 6): SilkTune, #199's 2026-11-08 14:05 ruling ──
+        private long _externalStep;
+        private int _externalPending;
+
+        /// <summary>
+        /// A step handed in from outside the queue: the content moved by
+        /// <paramref name="frames"/> (positive: there is that much more than the
+        /// timeline needs, drain it; negative: that much less, grow it), on the
+        /// engine-switch policy. Any thread; applied by the next callback, and the
+        /// queue's own controller waits while it runs. A seam travels with its
+        /// buffer instead (<c>JJAudioStream.MarkSeam</c>). Built for SilkTune
+        /// (#199), which is not built here.
+        /// </summary>
+        public void ExternalStep(long frames)
+        {
+            if (_mode == RxCatchUpMode.Off) return;
+            System.Threading.Interlocked.Exchange(ref _externalStep, frames);
+            System.Threading.Volatile.Write(ref _externalPending, 1);
+        }
+
+        /// <summary>After the stream stops (AudioStream.StopAudio, which clears the queue too): forget the ring and the marks, so a restart plays nothing stale.</summary>
+        public void ClearAfterStop()
+        {
+            if (_mode == RxCatchUpMode.Off) return;
+            _shifter.Clear();
+            long head = System.Threading.Volatile.Read(ref _metaHead);
+            for (long t = _metaTail; t < head; t++) _metaBuf[t % MetaCapacity] = null;
+            System.Threading.Volatile.Write(ref _metaTail, head);
+            _entryCount = 0; _entryAt = 0;
+            if (ReserveBuffers > 0) _priming = true;
+        }
+
+        /// <summary>
+        /// One output callback's work, after the stream's own checks: decide,
+        /// take from the queue, and fill <paramref name="output"/>. On today's
+        /// path (no reserve, or catch-up off) this is exactly what
+        /// <c>Audio.outputCallback</c> did before (moved here so tests can drive
+        /// it); otherwise it renders through the lag shifter. Shadow runs today's
+        /// path for what is heard and the shifter beside it, unheard, tracing
+        /// what it would have done. Allocation-free.
+        /// </summary>
+        public void RenderCallback(Queue queue, ref float[] buffer, ref uint offset, Span<float> output, bool monoOut,
+            int streamChannels, Func<bool> active)
+        {
+            if (_mode != RxCatchUpMode.On)
+            {
+                RenderToday(this, queue, ref buffer, ref offset, output, monoOut, streamChannels, active);
+                if (_mode == RxCatchUpMode.Shadow) ShadowStep(output.Length / (monoOut ? 1 : streamChannels));
+                return;
+            }
+            BeginCallback();
+            while (queue.Count > 0)
+            {
+                var b = (float[])queue.Dequeue();
+                var (cls, seam) = TakeMeta(b);
+                WriteWithSeam(b, cls, seam);
+            }
+            int frames = output.Length / (monoOut ? 1 : streamChannels);
+            long depth = _shifter.Available;
+            if (_priming)
+            {
+                long need = (_waitFull || !_everPlayed) ? _targetFrames : 1;
+                if (depth < need)
+                {
+                    output.Clear();
+                    NotePrimingBuffer(frames);
+                    return;
+                }
+                _priming = false;
+                if (!_everPlayed && depth > _targetFrames)
+                {
+                    // The release trim at a stream's start stays: nothing has been
+                    // played, so the cut falls inside silence (first report, section 5).
+                    long drop = (depth - _targetFrames) / _fpb * _fpb;
+                    if (drop > 0) { _shifter.SetDelay(depth - drop); _releaseTrims++; _releaseTrimmedBuffers += drop / _fpb; depth -= drop; }
+                }
+                _shifter.ArmFadeIn();
+            }
+            int buffersDeep = (int)(depth / _fpb);
+            if (buffersDeep < _depthMin) _depthMin = buffersDeep;
+            if (buffersDeep > _depthMax) _depthMax = buffersDeep;
+            _depthLast = buffersDeep;
+            NoteDepth(depth);
+            Steer(depth, shadow: false);
+            long silent;
+            if (monoOut)
+            {
+                var stereo = new Span<float>(_scratch, 0, frames * 2);
+                silent = _shifter.Render(stereo);
+                for (int f = 0; f < frames; f++) output[f] = (stereo[2 * f] + stereo[2 * f + 1]) * 0.5f;
+            }
+            else silent = _shifter.Render(output.Slice(0, frames * 2));
+            bool played = silent < frames;
+            bool wasPriming = _priming;
+            NotePlayed(played ? 1 : 0, silent);
+            if (silent > 0 && _everPlayed && !_callbackAfterFeedEnded)
+            {
+                // A starvation spends the excess: abandon a drain (first report, section 5).
+                if (_shifter.Pending > 0) _shifter.Cancel();
+                // S8: play at once when audio returns, unless it ran dry within 5 s already.
+                _waitFull = !PlayAtOnce || _callbacks - _lastDry <= _secondDryCallbacks;
+                _lastDry = _callbacks;
+            }
+            TakeEvents(shadow: false);
+        }
+
+        /// <summary>Today's callback body, exactly as it stood in <c>Audio.outputCallback</c> before Track P2 moved it here.</summary>
+        internal static void RenderToday(RxPlaybackQueue q, Queue queue, ref float[] buffer, ref uint offset, Span<float> output,
+            bool monoOut, int streamChannels, Func<bool> active)
+        {
+            int floatsPerFrame = monoOut ? 1 : streamChannels;
+            int outAt = 0, outEnd = output.Length;
+            long silentFrames = 0;
+            int buffersConsumed = 0;
+            if (q != null)
+            {
+                RxCallbackPlan plan = q.Begin(queue.Count, offset != 0);
+                for (int i = 0; i < plan.Discard && queue.Count > 0; i++) queue.Dequeue();
+                if (plan.HoldForPrime)
+                {
+                    long primingFrames = (outEnd - outAt) / floatsPerFrame;
+                    while (outAt != outEnd) output[outAt++] = 0f;
+                    q.NotePrimingBuffer(primingFrames);
+                    return;
+                }
+            }
+            while (active())
+            {
+                bool silence = false;
+                if (offset == 0)
+                {
+                    if (queue.Count == 0)
+                    {
+                        Tracing.TraceLine("silence", TraceLevel.Verbose);
+                        silence = true;
+                        silentFrames += (outEnd - outAt) / floatsPerFrame;
+                    }
+                    else
+                    {
+                        buffer = (float[])queue.Dequeue();
+                        buffersConsumed++;
+                    }
+                }
+                if (silence)
+                {
+                    while (outAt != outEnd) output[outAt++] = 0f;
+                }
+                else if (monoOut)
+                {
+                    while ((offset < buffer.Length) & (outAt != outEnd))
+                    {
+                        float l = buffer[offset++];
+                        float r = (offset < buffer.Length) ? buffer[offset++] : l;
+                        output[outAt++] = (l + r) * 0.5f;
+                    }
+                    if (offset >= buffer.Length) offset = 0;
+                }
+                else
+                {
+                    while ((offset < buffer.Length) & (outAt != outEnd))
+                    {
+                        output[outAt++] = buffer[offset++];
+                    }
+                    if (offset == buffer.Length) offset = 0;
+                }
+                if (outAt == outEnd) break;
+            }
+            q?.NotePlayed(buffersConsumed, silentFrames);
+        }
+
+        /// <summary>Shadow: the shifter runs beside today's path on the same arrivals, unheard; its decisions are traced.</summary>
+        private void ShadowStep(int frames)
+        {
+            while (TakeShadow(out var b, out var cls, out int seam)) WriteWithSeam(b, cls, seam);
+            long depth = _shifter.Available;
+            if (_shadowPriming)
+            {
+                if (depth < _targetFrames) return;
+                _shadowPriming = false;
+                if (depth > _targetFrames) _shifter.SetDelay(_targetFrames);
+                depth = _shifter.Available;
+            }
+            Steer(depth, shadow: true);
+            long silent = _shifter.Render(new Span<float>(_scratch, 0, frames * 2));
+            if (silent > 0) { if (_shifter.Pending > 0) _shifter.Cancel(); _shadowPriming = true; }
+            TakeEvents(shadow: true);
+        }
+        private bool _shadowPriming = true;
+
+        /// <summary>
+        /// The controller (owner two). The excess is the LEAST depth over the
+        /// last second of callbacks, less the target: a burst that only refills
+        /// the reserve is not surplus, and a retune's short pause and burst
+        /// leave the least depth where it was (first report, section 1).
+        /// </summary>
+        private void Steer(long depth, bool shadow)
+        {
+            if (System.Threading.Interlocked.Exchange(ref _externalPending, 0) != 0)
+                _shifter.Request(System.Threading.Interlocked.Read(ref _externalStep), LagPolicy.EngineSwitch, LagCause.External);
+            // A step handed in from outside runs to its end before the controller steers again.
+            if (_shifter.Pending != 0 && _shifter.Cause == LagCause.External) return;
+            _entryDepth[_entryAt] = depth;
+            _entryAt = (_entryAt + 1) % _entryDepth.Length;
+            if (_entryCount < _entryDepth.Length) _entryCount++;
+            long least = long.MaxValue;
+            for (int i = 0; i < _entryCount; i++) if (_entryDepth[i] < least) least = _entryDepth[i];
+            long excess = _entryCount >= _entryDepth.Length ? least - _targetFrames : 0;
+            double ms = MillisecondsFor(Math.Abs(excess)) * Math.Sign(excess);
+            if (!shadow) { if (ms < _minuteMinMs) _minuteMinMs = ms; if (ms > _minuteMaxMs) _minuteMaxMs = ms; }
+            if (_shifter.CutPending) return;
+            double over = MillisecondsFor(depth - _targetFrames);
+            // A digital mode is never cut unless the constant says so (C1, Noel's to rule).
+            bool mayCut = (DigitalModesTakeTheLongCutOverrideForTest ?? DigitalModesTakeTheLongCut)
+                || (_shifter.ClassAtRead & RxContentClass.NoSplice) == 0;
+            if (mayCut && depth > _targetFrames && over > CutNowMilliseconds)
+            {
+                _shifter.RequestCut(_shifter.ReadPosition, depth - _targetFrames - FramesFor(CutLeaveMilliseconds));
+                RecordCut(depth - _targetFrames - FramesFor(CutLeaveMilliseconds), shadow);
+                return;
+            }
+            if (mayCut && ms > CutAboveMilliseconds)
+            {
+                long at = _shifter.FindQuietMoment(FramesFor(QuietHorizonMilliseconds), FramesFor(QuietGapMilliseconds));
+                _shifter.RequestCut(at, excess - FramesFor(CutLeaveMilliseconds));
+                RecordCut(excess - FramesFor(CutLeaveMilliseconds), shadow);
+                return;
+            }
+            if (ms >= DeadBandMilliseconds)
+            {
+                _deficitSince = -1;
+                if (ms > DriftCeilingMilliseconds) { _driftSince = -1; _shifter.Request(excess, LagPolicy.CatchUp, LagCause.LateAudio); return; }
+                if (_driftSince < 0) _driftSince = _callbacks;
+                if (_shifter.Pending > 0 && _shifter.Cause == LagCause.LateAudio) { _shifter.Request(excess, LagPolicy.CatchUp, LagCause.LateAudio); return; }
+                if (_callbacks - _driftSince >= _driftHoldCallbacks) _shifter.Request(excess, LagPolicy.Drift, LagCause.Drift);
+                return;
+            }
+            _driftSince = -1;
+            if (_everPlayed && depth < _bridgeAtFrames)
+            {
+                _deficitSince = -1;
+                _shifter.Request(-(_targetFrames - depth), LagPolicy.CatchUp, LagCause.Bridge);
+                return;
+            }
+            if (ms <= -DeadBandMilliseconds && ms >= -DriftCeilingMilliseconds)
+            {
+                if (_deficitSince < 0) _deficitSince = _callbacks;
+                if (_callbacks - _deficitSince >= _driftHoldCallbacks) _shifter.Request(excess, LagPolicy.Drift, LagCause.Drift);
+                return;
+            }
+            _deficitSince = -1;
+            // Inside the dead band: a catch-up or a bridge in progress has done its work.
+            if (_shifter.Pending != 0 && (_shifter.Cause == LagCause.LateAudio || (_shifter.Cause == LagCause.Bridge && depth >= _targetFrames)))
+                _shifter.Request(0, LagPolicy.CatchUp, _shifter.Cause);
+        }
+
+        private long FramesFor(double ms) => (long)Math.Round(ms * _sampleRate / 1000.0);
+
+        private void RecordCut(long frames, bool shadow)
+        {
+            var r = new LineRecord { Kind = LineKind.CatchUp, First = _callbacks, Cause = (byte)LagCause.Cut, Removed = frames, Shadow = shadow, Cuts = 1 };
+            Record(ref r);
+            if (!shadow) _cutFrames += frames;
+        }
+
+        private void TakeEvents(bool shadow)
+        {
+            if (!_shifter.TryTakeCompleted(out var e)) return;
+            var r = new LineRecord
+            {
+                Kind = LineKind.CatchUp, First = _callbacks, Cause = (byte)e.Cause, Policy = (byte)e.Policy, Requested = e.Requested,
+                Removed = e.Removed, Added = e.Added, Taken = e.FramesTaken, PeriodSplices = e.PeriodSplices, GapSplices = e.GapSplices,
+                Cuts = e.Cuts, Seams = e.SeamJoins, Worst = e.WorstCorrelation, Abandoned = e.Abandoned, Remainder = e.Remainder, Shadow = shadow,
+            };
+            Record(ref r);
+            if (!shadow) { _catchUps++; _catchUpRemoved += e.Removed; _catchUpAdded += e.Added; }
+        }
+
+        /// <summary>The per-minute depth line (item 7): drift shows as a slope across them. One line a minute for this queue.</summary>
+        private void NoteDepth(long depthFrames)
+        {
+            if (_minuteStart == 0) _minuteStart = _callbacks;
+            if (_mode != RxCatchUpMode.On)
+            {
+                double ms = MillisecondsFor(Math.Abs(depthFrames - _targetFrames)) * Math.Sign(depthFrames - _targetFrames);
+                if (ms < _minuteMinMs) _minuteMinMs = ms;
+                if (ms > _minuteMaxMs) _minuteMaxMs = ms;
+            }
+        }
+
+        private void FlushMinute(bool final)
+        {
+            if (_minuteStart == 0 || _minuteMinMs == double.MaxValue) { _minuteStart = 0; return; }
+            long removed = _mode == RxCatchUpMode.On ? _shifter.TotalRemoved + _shifter.TotalCutFrames : 0;
+            long added = _mode == RxCatchUpMode.On ? _shifter.TotalAdded : 0;
+            var r = new LineRecord
+            {
+                Kind = LineKind.MinuteDepth, First = _minuteStart, Last = _callbacks, Final = final,
+                Ms = _minuteMinMs, RunningMs = _minuteMaxMs, Removed = removed - _minuteRemovedMark, Added = added - _minuteAddedMark,
+            };
+            Record(ref r);
+            _minuteRemovedMark = removed; _minuteAddedMark = added;
+            _minuteStart = 0; _minuteMinMs = double.MaxValue; _minuteMaxMs = double.MinValue;
+        }
 
         private readonly int _buffersPerCallback;
         private readonly double _bufferMilliseconds;   // one queued packet
@@ -178,7 +661,7 @@ namespace JJPortaudio
         // callback it happened at. One writer, the callback; readers serialised
         // by a lock the callback never takes. A full ring drops a record and
         // counts it, never overwrites one being read.
-        private enum LineKind : byte { FirstStarvation, StarvationSecond, FirstTrim, TrimSecond }
+        private enum LineKind : byte { FirstStarvation, StarvationSecond, FirstTrim, TrimSecond, CatchUp, MinuteDepth }
 
         private struct LineRecord
         {
@@ -186,6 +669,12 @@ namespace JJPortaudio
             public bool Final;
             public long First, Last, WrittenAt, Count, Buffers, RunningCount, RunningBuffers;
             public double Ms, RunningMs;
+            // Track P2: one catch-up event, or a minute of depth.
+            public byte Cause, Policy;
+            public bool Abandoned, Shadow;
+            public long Requested, Removed, Added, Taken, Remainder;
+            public int PeriodSplices, GapSplices, Cuts, Seams;
+            public float Worst;
         }
 
         private const int LineCapacity = 64;
@@ -196,7 +685,7 @@ namespace JJPortaudio
         private readonly LineDrainer _drainer;
 
         public RxPlaybackQueue(string streamName, int buffersPerCallback,
-            double bufferMilliseconds, uint sampleRate, double reserveMilliseconds)
+            double bufferMilliseconds, uint sampleRate, double reserveMilliseconds, RxCatchUpMode? catchUp = null)
         {
             _streamName = string.IsNullOrEmpty(streamName) ? "output" : streamName;
             _buffersPerCallback = Math.Max(1, buffersPerCallback);
@@ -228,6 +717,26 @@ namespace JJPortaudio
             double callbackMs = _buffersPerCallback * _bufferMilliseconds;
             _windowCallbacks = callbackMs > 0 ? Math.Max(1, (int)Math.Ceiling(1000.0 / callbackMs)) : 10;
             _drainer = new LineDrainer(this);
+
+            // Catch-up (Track P2): only with a reserve, so the CW monitor and
+            // JJFLEX_RX_PRIME_MS=0 always take today's path.
+            _mode = reserve > 0 && _sampleRate > 0 ? (catchUp ?? ConfiguredCatchUp()) : RxCatchUpMode.Off;
+            _fpb = Math.Max(1, (int)Math.Round(_bufferMilliseconds * _sampleRate / 1000.0));
+            _callbackFrames = (long)_buffersPerCallback * _fpb;
+            _reserveFrames = (long)reserve * _fpb;
+            _targetFrames = _callbackFrames + _reserveFrames;
+            _bridgeAtFrames = _callbackFrames + (long)(_reserveFrames * (1 - BridgeAtReserveFraction));
+            _driftHoldCallbacks = (long)Math.Ceiling(DriftHoldSeconds * _windowCallbacks);
+            _secondDryCallbacks = (long)Math.Ceiling(SecondDryWithinSeconds * _windowCallbacks);
+            _minuteCallbacks = 60L * _windowCallbacks;
+            _entryDepth = new long[_windowCallbacks];
+            if (_mode != RxCatchUpMode.Off)
+            {
+                // 4.5 s: a backlog up to the 3 s cut-now line, the reserve, a callback and history.
+                _shifter = new RxLagShifter(2, (int)(_sampleRate * 4.5), (int)_sampleRate) { DryFades = _mode == RxCatchUpMode.On };
+                _scratch = new float[(int)(_callbackFrames * 2) + 2];
+            }
+            else _scratch = Array.Empty<float>();
         }
 
         /// <summary>Callbacks that make one second of playback: the length of a per-second window.</summary>
@@ -365,6 +874,24 @@ namespace JJPortaudio
                         + "-buffer ceiling at callback " + r.First + "; " + r.Buffers + " buffer(s) discarded, "
                         + (r.Buffers * _bufferMilliseconds).ToString("F0") + " ms. Each later second with any "
                         + "such trim gets one line, written as that second ends.";
+                case LineKind.CatchUp:
+                    return "audio " + _streamName + " stream" + (r.Shadow ? " (shadow: what catch-up WOULD have done; the output is untouched)" : "")
+                        + ": " + (LagCause)r.Cause + " at callback " + r.First
+                        + ((LagCause)r.Cause == LagCause.Cut
+                            ? ", one faded cut of " + MillisecondsFor(r.Removed).ToString("F0") + " ms at a quiet moment"
+                            // One home for the event's sentence: RxLagEvent.Describe, as the slot's trace uses.
+                            : ": " + new RxLagEvent
+                            {
+                                Cause = (LagCause)r.Cause, Policy = (LagPolicyKind)r.Policy, Requested = r.Requested, Removed = r.Removed,
+                                Added = r.Added, FramesTaken = r.Taken, PeriodSplices = r.PeriodSplices, GapSplices = r.GapSplices,
+                                Cuts = r.Cuts, SeamJoins = r.Seams, WorstCorrelation = r.Worst, Abandoned = r.Abandoned, Remainder = r.Remainder,
+                            }.Describe((int)_sampleRate));
+                case LineKind.MinuteDepth:
+                    return "audio " + _streamName + " depth" + (r.Final ? " in the final part-minute" : " this minute")
+                        + " (callbacks " + r.First + " to " + r.Last + "): least excess over target "
+                        + r.Ms.ToString("+0;-0;0") + " ms, most " + r.RunningMs.ToString("+0;-0;0") + " ms; caught up "
+                        + MillisecondsFor(r.Removed).ToString("F0") + " ms, stretched " + MillisecondsFor(r.Added).ToString("F0")
+                        + " ms (a steady slope across these lines is clock drift)";
                 default:
                     return "audio " + _streamName + " stream: " + r.Count + " trim(s) above the "
                         + DrainCeiling + "-buffer ceiling"
@@ -430,6 +957,13 @@ namespace JJPortaudio
         /// </param>
         public RxCallbackPlan Begin(int queueDepth, bool midBuffer)
         {
+            BeginCallback();
+            return Decide(queueDepth, midBuffer);
+        }
+
+        /// <summary>What every callback does first, on either path: count it, read the feed mark once, close any second (or minute) that ended.</summary>
+        private void BeginCallback()
+        {
             _callbacks++;
             // #1229 repair 1, the boundary policy: a callback is classified by
             // whether the feed had been marked ended when it BEGAN. A shortage
@@ -445,7 +979,12 @@ namespace JJPortaudio
             // is placed in time without waiting for another.
             if (_windowStart != 0 && _callbacks - _windowStart >= _windowCallbacks) FlushStarvationWindow(false);
             if (_trimWindowStart != 0 && _callbacks - _trimWindowStart >= _windowCallbacks) FlushTrimWindow(false);
+            if (_minuteStart != 0 && _callbacks - _minuteStart >= _minuteCallbacks) FlushMinute(false);
+        }
 
+        /// <summary>Today's decision (the release and ceiling trims, the hold for a prime), on today's path.</summary>
+        private RxCallbackPlan Decide(int queueDepth, bool midBuffer)
+        {
             if (midBuffer) return new RxCallbackPlan(0, false);
 
             bool releasing = false;
@@ -467,6 +1006,7 @@ namespace JJPortaudio
             _depthLast = queueDepth;
 
             if (ReserveBuffers <= 0) return new RxCallbackPlan(0, false);
+            NoteDepth((long)queueDepth * _fpb);
 
             // Two moments deserve a trim, and they are the same arithmetic.
             //
@@ -479,10 +1019,11 @@ namespace JJPortaudio
             // discarding is free: nothing has been played yet, so the splice
             // falls inside silence the operator is already hearing.
             //
-            // CEILING. A burst leaves a surplus that nothing ever drains,
-            // because the callback cannot consume more than one device buffer
-            // however far ahead the queue runs — that surplus is pure latency
-            // and it is permanent. Above the ceiling it is given back.
+            // CEILING. On today's path a burst leaves a surplus that nothing ever
+            // drains, because copying cannot consume more than one device buffer
+            // however far ahead the queue runs; above the ceiling it is given back.
+            // With catch-up on (Track P2) this decision is not taken at all: the
+            // surplus is played slightly faster instead (Steer).
             bool overCeiling = queueDepth > DrainCeiling;
             if ((releasing || overCeiling) && queueDepth > PrimeTarget)
             {
@@ -666,6 +1207,8 @@ namespace JJPortaudio
         {
             FlushStarvationWindow(true);
             FlushTrimWindow(true);
+            if (ReserveBuffers > 0) FlushMinute(true);
+            if (_mode != RxCatchUpMode.Off) TakeEvents(_mode == RxCatchUpMode.Shadow);
             DrainLines();
 
             Write("audio " + _streamName + " queue policy: primed to "
@@ -694,13 +1237,20 @@ namespace JJPortaudio
             }
 
             // The one number that answers "how far behind the radio did this
-            // session leave the operator". Silence inserted is never played
-            // back: the callback cannot consume more than one device buffer per
-            // call, so nothing anywhere runs faster afterwards to catch up.
+            // session leave the operator". On today's path silence inserted is
+            // never played back: copying cannot consume faster than nominal. With
+            // catch-up on (Track P2) the shifter plays late audio slightly faster,
+            // so that is said instead, with what it took back.
             Write("audio " + _streamName + " standing latency: "
                 + InsertedSilenceMilliseconds.ToString("F0")
-                + " ms of silence inserted over the life of the stream, none of it ever "
-                + "played back — the callback cannot consume faster than nominal",
+                + " ms of silence inserted over the life of the stream"
+                + (_mode == RxCatchUpMode.On
+                    ? "; catch-up played late audio faster, taking back " + MillisecondsFor(_catchUpRemoved + _cutFrames).ToString("F0")
+                        + " ms (" + MillisecondsFor(_cutFrames).ToString("F0") + " of it by a cut at a quiet moment) and stretching "
+                        + MillisecondsFor(_catchUpAdded).ToString("F0") + " ms over a low queue, in " + _catchUps + " event(s); "
+                        + _shifter.TotalSeamJoins + " seam(s) joined"
+                    : ", none of it ever played back: on today's path the callback cannot consume faster than nominal"
+                        + (_mode == RxCatchUpMode.Shadow ? " (shadow catch-up traced what it would have done)" : "")),
                 TraceLevel.Info);
 
             // Separately, and in the other direction: audio deliberately
@@ -790,6 +1340,40 @@ namespace JJPortaudio
             _reserveResolved = true;
             return _reserveMs;
         }
+
+        /// <summary>
+        /// The catch-up mode for this launch: on, unless <c>JJFLEX_RX_CATCHUP</c>
+        /// says <c>off</c> or <c>shadow</c>. Read once and traced, like
+        /// <c>JJFLEX_RX_PRIME_MS</c>. Test-only; never surfaced in any interface.
+        /// </summary>
+        public static RxCatchUpMode ConfiguredCatchUp()
+        {
+            if (_catchUpResolved) return _catchUp;
+            _catchUp = RxCatchUpMode.On;
+            string raw = null;
+            try { raw = Environment.GetEnvironmentVariable(CatchUpEnvironmentVariable); }
+            catch (Exception ex) { Tracing.TraceLine("RxPlaybackQueue: could not read " + CatchUpEnvironmentVariable + ": " + ex.Message, TraceLevel.Error); }
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                string v = raw.Trim().ToLowerInvariant();
+                _catchUp = v == "off" ? RxCatchUpMode.Off : v == "shadow" ? RxCatchUpMode.Shadow : RxCatchUpMode.On;
+                Tracing.TraceLine("RxPlaybackQueue: test switch " + CatchUpEnvironmentVariable + "=" + raw + ": receive catch-up is "
+                    + (_catchUp == RxCatchUpMode.Off ? "OFF this launch (today's trims and re-prime exactly)"
+                        : _catchUp == RxCatchUpMode.Shadow ? "in SHADOW this launch (today's output; what it would do is traced)"
+                        : "on (only off and shadow change it)"), TraceLevel.Error);
+            }
+            _catchUpResolved = true;
+            return _catchUp;
+        }
+
+        /// <summary>True when a receive stream opened now would join seams: catch-up on, and a reserve to catch up with.</summary>
+        public static bool JoinsSeams => ConfiguredCatchUp() == RxCatchUpMode.On && ConfiguredReserveMilliseconds() > 0;
+
+        private static bool _catchUpResolved;
+        private static RxCatchUpMode _catchUp = RxCatchUpMode.On;
+
+        /// <summary>Forget the cached catch-up read. Tests only.</summary>
+        public static void ResetConfiguredCatchUp() { _catchUpResolved = false; _catchUp = RxCatchUpMode.On; }
 
         private static bool _reserveResolved;
         private static double _reserveMs = DefaultReserveMilliseconds;

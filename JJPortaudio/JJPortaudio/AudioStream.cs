@@ -47,7 +47,10 @@ namespace JJPortaudio
 
         public JJAudioStream()
         {
-            _rx = new RxOpusChain(buf => aud.TheQ.Enqueue(buf), () => SampleRate);
+            // Track P2: each buffer's class and seam mark go to the playback queue
+            // just before the buffer itself, so its catch-up keeps them together.
+            _rx = new RxOpusChain(buf => aud.TheQ.Enqueue(buf), () => SampleRate,
+                (buf, cls, seamAt) => aud.Playback?.NoteEnqueued(buf, cls, seamAt));
         }
 
         /// <summary>
@@ -403,6 +406,8 @@ namespace JJPortaudio
             // Nothing is lost by moving it: workItems.start clears the queue
             // again on the way in, so a restart still cannot play stale audio.
             aud.TheQ?.Clear(); // null once the stream is closed (#1145)
+            // Track P2: the catch-up's ring and marks too, so a restart plays nothing stale.
+            aud.Playback?.ClearAfterStop();
             return true;
         }
 
@@ -431,6 +436,14 @@ namespace JJPortaudio
             // lines; they are handed to the thread pool from here.
             aud.RequestPlaybackLineDrain();
         }
+
+        /// <summary>
+        /// The next packet written follows lost audio that was not made up (a gap
+        /// over the concealment cap): the playback queue joins across it with a
+        /// matched fade instead of a splice (#1155, Track P2). See
+        /// <see cref="RxOpusChain.MarkSeam"/>.
+        /// </summary>
+        public void MarkSeam() => _rx.MarkSeam();
 
         /// <summary>
         /// Nothing more will be written to this receive stream: the loop that

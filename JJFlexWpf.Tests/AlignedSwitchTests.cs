@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using JJPortaudio;
 using Radios;
 using Xunit;
 using Xunit.Abstractions;
@@ -64,7 +65,7 @@ public sealed class AlignedSwitchTests
         public RxAudioPipeline P { get; }
         public PcDenoiseSlot Slot => P.NeuralSlot;
         public long At;
-        public Rig(int delayA, int delayB, float gainB, bool shared, bool? mute = null)
+        public Rig(int delayA, int delayB, float gainB, bool shared, bool? mute = null, bool shifter = true)
         {
             DenoiseEngineEntry Row(string id, int delay, float gain) =>
                 new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
@@ -74,6 +75,8 @@ public sealed class AlignedSwitchTests
                 Slot.SharedPlan = new SharedDelayPlan(Math.Max(delayA, delayB),
                     new[] { new ReceiveSharedDelay.Member("rnnoise", null), new ReceiveSharedDelay.Member("b", null) });
             Slot.MuteOverrideForTest = mute ?? false;
+            // Phase 2 (Track P2): false runs phase 1's paths, today's code, as the positive control.
+            Slot.ShifterOverrideForTest = shifter;
             Slot.SetStrength("rnnoise", 1);
             Slot.SetStrength("b", 1);
             P.RnnEnabled = true;
@@ -116,9 +119,11 @@ public sealed class AlignedSwitchTests
     /// of the switch buffer.
     /// </summary>
     private static (float[] Output, long SwitchAt, PcDenoiseSlot.SwitchNote? Note, int HeldBefore, int HeldAfter) Switch(
-        int delayA, int delayB, bool shared, Func<long, float> signal, float gainB = 0.8f, bool? mute = null)
+        int delayA, int delayB, bool shared, Func<long, float> signal, float gainB = 0.8f, bool? mute = null, bool shifter = true,
+        RxContentClass? classAs = null)
     {
-        using var rig = new Rig(delayA, delayB, gainB, shared, mute);
+        using var rig = new Rig(delayA, delayB, gainB, shared, mute, shifter);
+        rig.P.ClassOverrideForTest = classAs;
         var output = new List<float>();
         rig.Feed(signal, PreBuffers, output);
         int heldBefore = rig.Slot.HeldSamples;
@@ -165,23 +170,43 @@ public sealed class AlignedSwitchTests
         return count;
     }
 
-    private int Markers(int delayA, int delayB, bool shared)
+    internal int Markers(int delayA, int delayB, bool shared, bool shifter = true)
     {
         // First run finds the switch instant (silence); it is the same on the second.
-        var probe = Switch(delayA, delayB, shared, _ => 0f);
+        // The markers are loud, so the classifier would call them voice and the lag
+        // shifter's gap path would wait for them to pass (Codex's check of 2567a596,
+        // B2): this test is about the switch's time, so its audio is labelled
+        // confirmed noise; the class gate is tested in RxLagShifterTests.
+        const RxContentClass asNoise = RxContentClass.Classified | RxContentClass.NotVoiceRun;
+        var probe = Switch(delayA, delayB, shared, _ => 0f, shifter: shifter, classAs: asNoise);
         var signal = BurstsAround(probe.SwitchAt, delayA, delayB);
-        var run = Switch(delayA, delayB, shared, signal);
-        Assert.Equal(probe.SwitchAt, run.SwitchAt);
+        var run = Switch(delayA, delayB, shared, signal, shifter: shifter, classAs: asNoise);
+        // A pre-growth (Track P2) can take a buffer more or less on the markers than
+        // on silence: place them again around the instant they produced, until it holds.
+        for (int tries = 0; tries < 4 && run.SwitchAt != probe.SwitchAt; tries++)
+        {
+            probe = run;
+            signal = BurstsAround(probe.SwitchAt, delayA, delayB);
+            run = Switch(delayA, delayB, shared, signal, shifter: shifter, classAs: asNoise);
+        }
+        // Phase 1's timing and an aligned switch's do not depend on the material; a
+        // pre-growth's can settle a buffer either side, and the markers then still
+        // straddle it (they span the slower delay plus a buffer either side).
+        bool preGrowth = shifter && !shared && delayB > delayA;
+        if (!preGrowth) Assert.Equal(probe.SwitchAt, run.SwitchAt);
+        else Assert.InRange(Math.Abs(probe.SwitchAt - run.SwitchAt), 0, 20 * F);
         int bursts = CountBursts(run.Output);
-        _out.WriteLine($"markers {delayA} to {delayB}, {(shared ? "shared delay" : "today")}: {Bursts} in, {bursts} out (switch at sample {run.SwitchAt})");
+        _out.WriteLine($"markers {delayA} to {delayB}, {(shared ? "shared delay" : "outside the set")}, {(shifter ? "lag shifter" : "today's code")}: {Bursts} in, {bursts} out (switch at sample {run.SwitchAt})");
         return bursts;
     }
 
     [Fact]
     public void Positive_control_today_s_switch_repeats_markers_to_a_later_engine_and_drops_them_to_an_earlier_one()
     {
-        Assert.True(Markers(480, 3408, shared: false) > Bursts);
-        Assert.True(Markers(3408, 480, shared: false) < Bursts);
+        // Today's code: phase 1's outside-set switch (Track P2 moved this control onto
+        // the shifter-off path, because phase 2 makes an outside-set switch aligned too).
+        Assert.True(Markers(480, 3408, shared: false, shifter: false) > Bursts);
+        Assert.True(Markers(3408, 480, shared: false, shifter: false) < Bursts);
     }
 
     [Fact]
@@ -231,7 +256,7 @@ public sealed class AlignedSwitchTests
         Func<long, float> tone = n => 0.5f * MathF.Sin(2 * MathF.PI * 500 * n / 48000f);
         foreach (var (a, b) in new[] { (480, 3408), (3408, 480) })
         {
-            var today = Switch(a, b, shared: false, tone, gainB: 1f);
+            var today = Switch(a, b, shared: false, tone, gainB: 1f, shifter: false);
             var aligned = Switch(a, b, shared: true, tone, gainB: 1f);
             double dToday = DipDb(today.Output, today.SwitchAt), dAligned = DipDb(aligned.Output, aligned.SwitchAt);
             _out.WriteLine($"500 Hz, {a} to {b}: today's switch dips {dToday:0.0} dB, the aligned one {dAligned:0.00} dB");
@@ -242,21 +267,47 @@ public sealed class AlignedSwitchTests
 
     // ── Nothing on the audio thread allocates ──
 
+    /// <summary>
+    /// The least of up to <paramref name="attempts"/> measurements, stopping at the
+    /// first that reads nothing. Track P2 measured why one is not enough
+    /// (2026-11-21): once receive pipelines have been built on the test thread,
+    /// <c>GC.GetAllocatedBytesForCurrentThread</c> moves by 1 to 8 KB at intervals
+    /// even across a loop of plain arithmetic that cannot allocate, with no
+    /// collection counted, so a single window fails by chance (about one run in
+    /// three, on x86 and x64). A real allocation on the audio path is the same on
+    /// every attempt, so the least still catches it.
+    /// </summary>
+    internal static long LeastAllocated(Func<long> measure, int attempts = 5)
+    {
+        long least = long.MaxValue;
+        for (int a = 0; a < attempts && least != 0; a++) least = Math.Min(least, measure());
+        return least;
+    }
+
     [Fact]
     public void A_padded_slot_and_its_warm_up_allocate_nothing_per_buffer()
     {
-        using var rig = new Rig(480, 3408, 0.8f, shared: true);
         var audio = new float[2 * F];
-        for (int b = 0; b < 20; b++) rig.P.Process(audio);           // running, padded to 3408
-        Assert.Equal(3408, rig.Slot.HeldSamples);
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int b = 0; b < 50; b++) rig.P.Process(audio);
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
-        rig.ChooseB();
-        rig.P.Process(audio);                                       // the warm-up's first buffer sizes its scratch once, as before
-        before = GC.GetAllocatedBytesForCurrentThread();
-        for (int b = 0; b < 5; b++) rig.P.Process(audio);           // warming: two banks, two pads, the correlation
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        long steady = 0, warming = LeastAllocated(() =>
+        {
+            using var rig = new Rig(480, 3408, 0.8f, shared: true);
+            for (int b = 0; b < 20; b++) rig.P.Process(audio);           // running, padded to 3408
+            Assert.Equal(3408, rig.Slot.HeldSamples);
+            steady = LeastAllocated(() =>
+            {
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                for (int b = 0; b < 50; b++) rig.P.Process(audio);
+                return GC.GetAllocatedBytesForCurrentThread() - before;
+            });
+            Assert.Equal(0, steady);
+            rig.ChooseB();
+            rig.P.Process(audio);                                       // the warm-up's first buffer sizes its scratch once, as before
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int b = 0; b < 5; b++) rig.P.Process(audio);           // warming: two banks, two pads, the correlation
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        });
+        Assert.Equal(0, steady);
+        Assert.Equal(0, warming);
     }
 
     // ── Outside the set, nothing changes ──

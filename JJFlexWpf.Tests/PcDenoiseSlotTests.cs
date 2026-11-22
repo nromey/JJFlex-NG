@@ -684,6 +684,9 @@ public sealed class PcDenoiseSlotTests
                 Assert.True(engine.IsAvailable, engine.UnavailabilityDetail); made.Add(engine); return engine;
             } } : e));
         using var p = new RxAudioPipeline(catalog: catalog); p.RnnEnabled = true;
+        // Its subject is native lifetime through swaps, timed in buffers (Step(10) per swap):
+        // phase 1's switch, so a pre-growth to the slower engine (Track P2) does not stretch it.
+        p.NeuralSlot.ShifterOverrideForTest = false;
         var events = new ConcurrentQueue<DenoiseSelectionResult>(); p.SelectionResult += (_, e) => events.Enqueue(e);
         using var run = new AutoResetEvent(false); using var done = new AutoResetEvent(false);
         bool stop = false; int requested = 0;

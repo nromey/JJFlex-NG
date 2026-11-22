@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+using JJPortaudio;
 using Radios;
 
 namespace JJFlexWpf
@@ -23,7 +24,7 @@ namespace JJFlexWpf
     /// before freeing their native state.
     /// Sprint 25 Phase 20.
     /// </summary>
-    public class RxAudioPipeline : IDisposable
+    public class RxAudioPipeline : IDisposable, IRxReceiveTimeline
     {
         private SpectralSubtractionProvider _spectralSub;
         private SpectralSubtractionProvider _processingCapture;
@@ -83,8 +84,12 @@ namespace JJFlexWpf
             _channels = channels;
             _sampleRate = sampleRate;
             _catalog = catalog ?? new DenoiseEngineCatalog();
-            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog);
-            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog);
+            // One engine-switch budget for both slots (#873 phase 2): they run in series
+            // on one thread, so two drains at once must not double the rate.
+            _switchBudget = new RxLagBudget(sampleRate);
+            _classifier = new RxContentClassifier();
+            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget);
+            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget);
             SpectralSlot.SelectionResult += ForwardSelection;
             NeuralSlot.SelectionResult += ForwardSelection;
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
@@ -151,13 +156,62 @@ namespace JJFlexWpf
         // --- Mode tracking ---
 
         /// <summary>
-        /// Set the current radio mode (SSB, CW, etc.) so RNNoise can
-        /// auto-disable for non-voice modes. Called by the UI when mode changes.
+        /// Set the current slice mode (USB, CW, DIGU and so on). Called by the UI
+        /// when the mode changes. It no longer turns any engine off (the mode gate
+        /// was retired 2026-11-07, above); it tells the lag shifter what it is
+        /// hearing (#873 phase 2): nothing is cut or repeated in DIGU, DIGL and
+        /// RTTY, and CW's gap splices are kept short.
         /// </summary>
         public void SetCurrentMode(string mode)
         {
             Volatile.Write(ref _mode, mode ?? "");
+            _classifier.SetMode(mode);
         }
+
+        // --- The lag shifter's budget and classes (#873 phase 2, Sprint 49 Track P2) ---
+
+        private readonly RxLagBudget _switchBudget;
+        private readonly RxContentClassifier _classifier;
+
+        /// <summary>Tests only: the engine-switch budget both slots spend from.</summary>
+        internal RxLagBudget SwitchBudget => _switchBudget;
+
+        /// <summary>Tests only: the content classifier.</summary>
+        internal RxContentClassifier Classifier => _classifier;
+
+        /// <summary>
+        /// Tests only: every buffer is this class, in both slots and to the queue,
+        /// whatever the classifier says. For a test of a switch's time mechanics,
+        /// whose loud markers would otherwise be voice and hold the lag shifter's
+        /// gap path shut (the class gate has its own tests).
+        /// </summary>
+        internal RxContentClass? ClassOverrideForTest { get; set; }
+
+        private RxContentClass _lastOutClass;
+
+        /// <summary>
+        /// The class of the buffer <see cref="Process"/> just returned, as it comes
+        /// OUT (#873 phase 2, item 2): the input's class from as many blocks ago as
+        /// the two slots delay the audio now, so the playback queue's catch-up
+        /// splices audio by what that audio is, not by what the newest input is.
+        /// Unclassified when the buffer was not processed.
+        /// </summary>
+        public RxContentClass LastBufferClass => _lastOutClass;
+
+        private bool _seamInPending;
+        private int _lastSeamAt = -1;
+
+        /// <summary>
+        /// The next buffer given to <see cref="Process"/> starts just after lost
+        /// audio. The seam goes into the spectral slot at frame 0, comes out of it
+        /// wherever that slot's delay puts it, goes into the neural slot there, and
+        /// <see cref="LastBufferSeamAt"/> reports where it came out of both, which
+        /// may be a later buffer (Codex's check of 2567a596, B1).
+        /// </summary>
+        public void MarkSeamIn() => _seamInPending = true;
+
+        /// <summary>Where a seam came out of the buffer <see cref="Process"/> just returned, in frames into it, or -1.</summary>
+        public int LastBufferSeamAt => _lastSeamAt;
 
         // --- Noise profile management ---
 
@@ -207,10 +261,16 @@ namespace JJFlexWpf
         /// </summary>
         public void Process(float[] buffer)
         {
+            _lastOutClass = RxContentClass.Unclassified;
+            bool seamIn = _seamInPending;
+            _seamInPending = false;
+            // Not processed: the buffer is unchanged in time, so its seam is where it went in.
+            _lastSeamAt = seamIn ? 0 : -1;
             if (Volatile.Read(ref _disposed) != 0 || Interlocked.CompareExchange(ref _processMark, 1, 0) != 0) return;
             try
             {
                 if (Volatile.Read(ref _disposed) != 0) return;
+                _lastSeamAt = -1;
                 // A gap is time the audio was absent: from the end of the last
                 // buffer's processing to the start of this one. Never from start
                 // to start, which counts the pipeline's own processing as a pause
@@ -218,6 +278,10 @@ namespace JJFlexWpf
                 long entered = Stopwatch.GetTimestamp();
                 bool gap = _lastProcessEnd != 0 && entered - _lastProcessEnd > KeepUpGapTicks;
                 int count = buffer.Length;
+                // What this buffer is, for the lag shifter, read on the dry input
+                // before anything changes it; each slot reads it at its own delay.
+                var cls = _classifier.Classify(buffer, _channels);
+                if (ClassOverrideForTest is RxContentClass forced) cls = forced;
                 var capture = Volatile.Read(ref _spectralSub);
                 bool capturing = capture.IsSampling;
                 capture.ProcessInPlace(buffer, 0, count, _channels); // capture only, never enabled
@@ -228,11 +292,22 @@ namespace JJFlexWpf
                 long start = Stopwatch.GetTimestamp();
                 var spectralBank = SpectralSlot.RunningBank;
                 long spectralLate = spectralBank?.LateFrames ?? 0;
-                SpectralSlot.Process(buffer, true, capture.HasProfile, capturing, _prepareSpectral);
+                if (seamIn) SpectralSlot.NoteInputSeam(0);
+                SpectralSlot.Process(buffer, true, capture.HasProfile, capturing, _prepareSpectral, cls, gap);
+                // The neural slot's input is the spectral slot's output: its seams go in
+                // where they came out, and its class is the class of the audio that came
+                // out, as many blocks back as the spectral slot delays it (B1's provenance).
+                for (int i = 0; i < SpectralSlot.SeamsOut; i++) NeuralSlot.NoteInputSeam(SpectralSlot.SeamOut(i));
+                int frames = count / Math.Max(1, _channels);
+                long seen = _classifier.Frames;
+                int spectralDelay = SpectralSlot.HeardDelaySamples;
+                var neuralCls = ClassOverrideForTest ?? _classifier.ClassOfSpan(seen - frames - spectralDelay, seen - spectralDelay);
                 long afterSpectral = Stopwatch.GetTimestamp();
                 var neuralBank = NeuralSlot.RunningBank;
                 long neuralLate = neuralBank?.LateFrames ?? 0;
-                NeuralSlot.Process(buffer, true, true, false, null);
+                NeuralSlot.Process(buffer, true, true, false, null, neuralCls, gap);
+                if (NeuralSlot.SeamsOut > 0) _lastSeamAt = NeuralSlot.SeamOut(0);
+                _switchBudget.Advance(count / Math.Max(1, _channels));
                 long afterNeural = Stopwatch.GetTimestamp();
                 long bufferTicks = _channels > 0 && _sampleRate > 0
                     ? (long)((double)(count / _channels) * Stopwatch.Frequency / _sampleRate) : 0;
@@ -240,6 +315,10 @@ namespace JJFlexWpf
                 _neuralKeepUp.After(NeuralSlot, neuralBank, neuralLate, afterNeural - afterSpectral, bufferTicks, gap, false, afterNeural);
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
+                // The class of the audio coming OUT: every input block this buffer holds,
+                // at the delay both slots add now, partial ends included (with B2).
+                int outDelay = SpectralSlot.HeardDelaySamples + NeuralSlot.HeardDelaySamples;
+                _lastOutClass = ClassOverrideForTest ?? _classifier.ClassOfSpan(seen - frames - outDelay, seen - outDelay);
                 _lastProcessEnd = Stopwatch.GetTimestamp();
             }
             finally { Interlocked.Exchange(ref _processMark, 0); }
@@ -764,6 +843,7 @@ namespace JJFlexWpf
                 spin.SpinOnce();
             }
             SpectralSlot.DisposeOwned(); NeuralSlot.DisposeOwned();
+            _classifier.Dispose();
             Trace.WriteLine("RxAudioPipeline: disposed");
         }
     }

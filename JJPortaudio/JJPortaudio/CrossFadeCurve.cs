@@ -1,6 +1,6 @@
 using System;
 
-namespace JJFlexWpf
+namespace JJPortaudio
 {
     /// <summary>
     /// THE ramp (#199's ruling, 2026-10-18: "SilkTune and that fade share one
@@ -9,10 +9,18 @@ namespace JJFlexWpf
     /// </summary>
     /// <remarks>
     /// <para>
+    /// <b>Moved down from JJFlexWpf into JJPortaudio by Sprint 49 Track P2</b>
+    /// (#873 phase 2), so the lag shifter (<see cref="RxLagShifter"/>), which
+    /// lives here because both of its owners can reach it here, fades on the
+    /// same ramp as everything else. Its JJFlexWpf callers reach it through a
+    /// global alias (<c>JJFlexWpf/CrossFadeCurveAlias.cs</c>) and are unchanged,
+    /// sample for sample. There is still exactly one curve.
+    /// </para>
+    /// <para>
     /// <b>r = 0 is the equal-power pair the app already had</b>, sample for
-    /// sample: the band's rising sine in <see cref="RxAudioPipeline.GlideGain"/>
-    /// and the recording's falling cosine in <c>RecordingPlayer</c> (bench
-    /// 2026-10-25, Noel: "perfect"). Both now ask this class, with r = 0, and get
+    /// sample: the band's rising sine in <c>RxAudioPipeline.GlideGain</c> and
+    /// the recording's falling cosine in <c>RecordingPlayer</c> (bench
+    /// 2026-10-25, Noel: "perfect"). Both ask this class, with r = 0, and get
     /// the same float arithmetic they always did.
     /// </para>
     /// <para>

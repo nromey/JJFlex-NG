@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using JJPortaudio;
 using Radios;
 
 namespace JJFlexWpf
@@ -112,6 +113,13 @@ namespace JJFlexWpf
         private int _enabled;
         private bool _wasActive;
         private float[] _nextAudio = Array.Empty<float>();
+        // Codex's check of 2567a596 (B4): the scratch is never allocated on the audio
+        // thread in the ordinary case. It is made in the constructor at one 10 ms
+        // buffer; a buffer of any other length asks a pool thread for one the first
+        // time it is seen (ScratchMaker), long before a switch or a turn-off needs
+        // it; the audio thread only adopts it.
+        private float[]? _preparedScratch;
+        private readonly ScratchMaker _scratchMaker;
         public DenoiseFamily Family { get; }
 
         private readonly DenoiseDirection _direction;
@@ -216,6 +224,13 @@ namespace JJFlexWpf
             set => Volatile.Write(ref _crossFadeOff, value ? 0 : 1);
         }
 
+
+        /// <summary>Tests only: this slot's cross-fade switch, instead of the app-wide one, so a test never changes what another test's slots do.</summary>
+        internal bool? CrossFadeOverrideForTest { get; set; }
+
+        /// <summary>The cross-fade switch as this slot reads it, once per use on the audio thread.</summary>
+        private bool CrossFadeOn => CrossFadeOverrideForTest ?? CrossFadeEnabled;
+
         private int _listenRemoved;
         /// <summary>
         /// Listen to what was removed (Sprint 49 Track E, E13; ruled 2026-11-07,
@@ -241,16 +256,27 @@ namespace JJFlexWpf
         }
 
         internal PcDenoiseSlot(DenoiseFamily family, string initialId, int sampleRate, int channels,
-            DenoiseEngineCatalog catalog, DenoiseDirection direction = DenoiseDirection.Receive)
+            DenoiseEngineCatalog catalog, DenoiseDirection direction = DenoiseDirection.Receive, RxLagBudget? budget = null)
         {
             // The direction first: the default parameters below read it.
             _direction = direction;
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
+            _nextAudio = new float[Math.Max(1, sampleRate / 100) * Math.Max(1, channels)];
+            _retimeAudio = new float[_nextAudio.Length];
+            _scratchMaker = new ScratchMaker(this);
+            _traceDrainer = new TraceDrainer(this);
+            if (direction == DenoiseDirection.Receive) _seamTrail = new SeamTrail(sampleRate);
             if (direction == DenoiseDirection.Receive)
             {
                 // The shared delay's lines, allocated here and never on the audio thread (#873).
-                _runPad = new PadLine(MaxPadSamples, channels);
-                _warmPad = new PadLine(MaxPadSamples, channels);
+                // Phase 2 (Track P2): each is a client of the lag shifter's core, all three
+                // spending from one engine-switch budget (the pipeline's, shared by both
+                // slots, or this slot's own when it stands alone in a test).
+                _budget = budget;
+                _runPad = new PadLine(MaxPadSamples, channels, sampleRate, budget);
+                _warmPad = new PadLine(MaxPadSamples, channels, sampleRate, budget);
+                // The dry line holds the delay in force at a turn-off: an engine's own delay plus its pad.
+                _dryPad = new PadLine(2 * MaxPadSamples, channels, sampleRate, budget);
                 _corr = new float[channels];
                 _retimeCorr = new float[channels];
             }
@@ -558,9 +584,93 @@ namespace JJFlexWpf
         }
 
         internal void Process(float[] audio, bool permitted, bool profilePresent, bool capturing,
-            Action<PerChannelDenoiserBank>? prepareSpectral)
+            Action<PerChannelDenoiserBank>? prepareSpectral, RxContentClass cls = RxContentClass.Unclassified, bool gap = false)
         {
             if (_direction == DenoiseDirection.Transmit) { ProcessTransmit(audio, permitted); return; }
+            RequestTraceDrain();
+            BeginSeams(audio.Length / Math.Max(1, _channels));
+            try { ProcessReceive(audio, permitted, profilePresent, capturing, prepareSpectral, cls, gap); }
+            finally { EndSeams(); }
+        }
+
+        // -- Seams through the slot (Codex's check of 2567a596, B1) --
+        //
+        // A seam enters at a frame of this buffer's input (NoteInputSeam, from the
+        // pipeline) and comes out wherever the audio after it is HEARD: through the
+        // running engine's pad line, the dry line while turning on or off, the bank
+        // alone at its own delay, or the input itself while off. Each line is marked
+        // when it is written (SeamTrail), and carries the mark through its own
+        // drains and growths (RxLagShifter.CarrySeams); the branch that ran says
+        // which of them was heard.
+
+        private enum SeamSource : byte { Passthrough, Bank, Line }
+
+        private readonly SeamTrail? _seamTrail;
+        private readonly int[] _seamIn = new int[4], _seamOut = new int[4];
+        private int _seamInCount, _seamOutCount, _seamLatency;
+        private SeamSource _seamSource;
+        private PadLine? _seamLine;
+
+        /// <summary>Receive: a seam sits <paramref name="frameOffset"/> frames into the next buffer given to <see cref="Process"/>.</summary>
+        internal void NoteInputSeam(int frameOffset)
+        {
+            if (_seamInCount < _seamIn.Length) _seamIn[_seamInCount++] = frameOffset;
+        }
+
+        /// <summary>Receive: seams that came out of the buffer <see cref="Process"/> just returned.</summary>
+        internal int SeamsOut => _seamOutCount;
+
+        /// <summary>Where the <paramref name="index"/>-th came out, in frames into that buffer.</summary>
+        internal int SeamOut(int index) => _seamOut[index];
+
+        private void BeginSeams(int frames)
+        {
+            _seamOutCount = 0;
+            _seamSource = SeamSource.Passthrough;
+            _seamLine = null;
+            _seamLatency = 0;
+            if (_seamTrail == null) { _seamInCount = 0; return; }
+            _seamTrail.Begin(frames);
+            for (int i = 0; i < _seamInCount; i++) _seamTrail.Add(_seamIn[i]);
+            _seamInCount = 0;
+        }
+
+        private void EndSeams()
+        {
+            if (_seamTrail == null) return;
+            switch (_seamSource)
+            {
+                case SeamSource.Passthrough: _seamOutCount = _seamTrail.Direct(0, _seamOut, 0); break;
+                case SeamSource.Bank: _seamOutCount = _seamTrail.Direct(_seamLatency, _seamOut, 0); break;
+                default:
+                    var line = _seamLine!;
+                    for (int i = 0; i < line.SeamCount && _seamOutCount < _seamOut.Length; i++)
+                    {
+                        int off = line.SeamOffset(i);
+                        if (off >= 0 && off < _seamTrail.Frames) _seamOut[_seamOutCount++] = off;
+                    }
+                    break;
+            }
+        }
+
+        /// <summary>What this buffer played: the input, the bank alone at <paramref name="latency"/>, or <paramref name="line"/>.</summary>
+        private void Heard(SeamSource source, PadLine? line = null, int latency = 0)
+        {
+            _seamSource = source;
+            _seamLine = line;
+            _seamLatency = latency;
+        }
+
+        /// <summary>Mark <paramref name="line"/>'s seams just before it is written, for audio <paramref name="latency"/> frames behind the input.</summary>
+        private void MarkSeams(PadLine? line, int latency)
+        {
+            if (line != null && _seamTrail != null) line.MarkSeams(_seamTrail, latency);
+        }
+
+        private void ProcessReceive(float[] audio, bool permitted, bool profilePresent, bool capturing,
+            Action<PerChannelDenoiserBank>? prepareSpectral, RxContentClass cls, bool gap)
+        {
+            if (audio.Length != _nextAudio.Length) _scratchMaker.Request(audio.Length);
             var choice = Volatile.Read(ref _choice);
             if (Volatile.Read(ref choice.Failure) != null)
             {
@@ -594,31 +704,96 @@ namespace JJFlexWpf
             bool active = Enabled && permitted;
             if (Family == DenoiseFamily.Spectral && capturing) active = false;
             if (choice.Id == "spectral_capture" && !profilePresent) active = false;
+            // Phase 2 (#873, Sprint 49 Track P2): the lag shifter's paths run only
+            // with the cross-fade switch on (ruled 2026-11-20, S11: engine changes
+            // keep their switch). Off, every path below is phase 1's: a cut.
+            bool shifting = Shifting && _runPad != null;
+            _lagThisBuffer = shifting;
+            if (gap) ForgetDryFlow();
             if (!active)
             {
-                if (_wasActive) { running?.ClearCarry(); _warming?.Bank.ClearCarry(); }
+                if (_onPhase)
+                {
+                    // Turned off while turning on: the dry signal was what was heard all
+                    // along, so it carries on and drains from where its growth had got to.
+                    _onPhase = false;
+                    running?.ClearCarry();
+                    _offPhase = shifting;
+                    if (shifting) DrainDry(audio, cls); else _dryPad?.Clear();
+                }
+                else if (shifting && _wasActive && running != null && !gap) TurnOff(audio, run!, running, cls);
+                else
+                {
+                    if (_wasActive) { running?.ClearCarry(); _warming?.Bank.ClearCarry(); }
+                    if (_offPhase) { if (shifting) DrainDry(audio, cls); else ForgetDryFlow(); }
+                }
                 _wasActive = false;
+                _dryFlowing = true;
                 Volatile.Write(ref _processingId, "");
                 // Keep the built choice, but do not warm or announce it with no audio.
                 return;
             }
-            if (!_wasActive) BeginActive(run, running);
+            if (!_wasActive)
+            {
+                BeginActive(run, running);
+                // A smooth turn-on only when dry audio was flowing a buffer ago: at a
+                // stream's start, or after a gap, there is nothing to be continuous with.
+                if (shifting && _dryFlowing && running != null && _warming == null) BeginTurnOn(running);
+                else { _dryPad?.Clear(); _offPhase = false; }
+            }
             _wasActive = true;
+            _dryFlowing = false;
+            if (_onPhase)
+            {
+                if (_warming == null && running != null && shifting) { TurnOnStep(audio, run!, running, cls); return; }
+                EndTurnOn(fellBack: true);
+            }
+            // The dry signal's history, kept current while processing, so a turn-off
+            // can fade to it at the delay in force (phase 2).
+            if (shifting) { MarkSeams(_dryPad, 0); _dryPad!.Feed(audio, cls); }
             bool listen = ListenToRemoved;
             if (running != null) { running.ListenToRemoved = listen; ApplyParameters(running, run!.Id, ref _runningApplied); }
             if (_warming != null) _warming.Bank.ListenToRemoved = listen;
             if (_warming != null)
             {
+                if (!ReferenceEquals(_warmDecidedFor, _warming))
+                {
+                    // Decided once per warm-up: the lag shifter's switch, or phase 1's
+                    // (the cross-fade switch off, the Mute switch on, nothing running).
+                    bool mute = (MuteOverrideForTest ?? SwitchMuteEnabled) && running != null;
+                    _warmLag = shifting && !mute && running != null && !ReferenceEquals(_warming, _warmFellBack);
+                    // A switch inside the shared set is already content-aligned and moves no
+                    // time: it stays phase 1's, sample for sample (the brief, item 3).
+                    if (_warmLag)
+                    {
+                        DecideWarm(_warming, run, running, SharedPlan);
+                        if (_warmAligned) _warmLag = false; else _warmDecidedFor = null;
+                    }
+                }
+                else if (_warmLag && (!shifting || running == null)) { _warmLag = false; _warmDecidedFor = null; _preGrowTo = -1; }
+                if (_warmLag) { WarmStepLag(audio, choice, run!, running!, cls); return; }
                 ApplyParameters(_warming.Bank, _warming.Choice.Id, ref _warming.Applied);
                 // Decided when the warm-up starts, again if a new plan arrives while it warms (repair 1, B2),
                 // and again after the running engine retimed under it (repair 2, R1-B1).
                 var warmPlan = SharedPlan;
-                if (!ReferenceEquals(_warmDecidedFor, _warming) || !ReferenceEquals(_warmPlan, warmPlan) || _warmStale) DecideWarm(_warming, run, running, warmPlan);
-                if (_nextAudio.Length != audio.Length) _nextAudio = new float[audio.Length];
+                if (!ReferenceEquals(_warmDecidedFor, _warming) || !ReferenceEquals(_warmPlan, warmPlan) || _warmStale)
+                {
+                    DecideWarm(_warming, run, running, warmPlan);
+                    // Shifting, and phase 1 would now move time (the plan changed under
+                    // an in-set switch): the lag shifter takes it over.
+                    if (shifting && !_warmAligned && running != null && !((MuteOverrideForTest ?? SwitchMuteEnabled))
+                        && !ReferenceEquals(_warming, _warmFellBack))
+                    { _warmLag = true; _warmDecidedFor = null; WarmStepLag(audio, choice, run!, running, cls); return; }
+                }
+                EnsureScratch(audio.Length);
                 audio.CopyTo(_nextAudio, 0);
                 long late = _warming.Bank.LateFrames, failed = _warming.Bank.FallbackFrames;
                 _warming.Bank.Process(_nextAudio, GetStrength(_warming.Choice.Id));
-                if (_warmTarget >= 0) _warmPad!.Process(_nextAudio.AsSpan(0, audio.Length), _warmTarget - _warming.Bank.LatencySamples);
+                if (_warmTarget >= 0)
+                {
+                    MarkSeams(_warmPad, _warming.Bank.LatencySamples);
+                    _warmPad!.Process(_nextAudio.AsSpan(0, audio.Length), _warmTarget - _warming.Bank.LatencySamples);
+                }
                 bool produced = late == _warming.Bank.LateFrames && failed == _warming.Bank.FallbackFrames;
                 if (failed != _warming.Bank.FallbackFrames)
                 {
@@ -643,7 +818,7 @@ namespace JJFlexWpf
                     // waiting for the switch could wait forever.
                     int heldWas = _held, basisWas = _heldBasis;
                     CheckPlan(run!, running);
-                    PadRunning(audio, running);
+                    PadRunning(audio, running, cls);
                     retimed = _held != heldWas || _heldBasis != basisWas;
                     processedBy = ProcessedBy(running, run.Id, runningTook, runningFailed);
                 }
@@ -662,22 +837,32 @@ namespace JJFlexWpf
                 {
                     InstallHook?.Invoke("before-running-id");
                     bool mute = (MuteOverrideForTest ?? SwitchMuteEnabled) && running != null;
-                    bool aligned = _warmAligned && !mute && CrossFadeEnabled;
+                    bool aligned = _warmAligned && !mute && CrossFadeOn;
                     if (mute) FadeOutForMute(audio);
-                    else if (!CrossFadeEnabled) _nextAudio.AsSpan(0, audio.Length).CopyTo(audio);
+                    else if (!CrossFadeOn) _nextAudio.AsSpan(0, audio.Length).CopyTo(audio);
                     else if (aligned) AlignedSwitch.Fade(audio, _nextAudio.AsSpan(0, audio.Length), _channels, _corr);
                     else CrossFade(audio, _nextAudio, _channels);
+                    // The seams follow what this buffer ends on (Codex's re-check of 5a0a8c93,
+                    // B1): with the cross-fade off it IS the incoming engine, and a fade ends on
+                    // it; only the Mute switch's buffer is the outgoing one, fading out.
+                    if (!mute)
+                    {
+                        if (_warmTarget >= 0) Heard(SeamSource.Line, _warmPad);
+                        else Heard(SeamSource.Bank, latency: _warming.Bank.LatencySamples);
+                    }
                     var note = new SwitchNote(aligned, _channels > 0 ? _corr[0] : 0, _channels > 1 ? _corr[1] : 0, _warmTarget, mute);
                     LastSwitch = note;
                     // The incoming bank's pad line becomes the running one, so the
                     // padded timeline carries straight on (#873).
                     (_runPad, _warmPad) = (_warmPad, _runPad);
+                    _runLineActive = _warmTarget >= 0;
                     Volatile.Write(ref _held, _warmTarget);
                     // The hold now rests on the plan the warm-up was decided on, which is the one in force (repair 1, B2).
                     _heldBasis = _warmBasis;
                     _planSeen = _warmPlan;
                     // The switch lands the plan it was decided on, so a retime still waiting is dropped.
                     _retimePending = false;
+                    _transitional = false;
                     if (mute) { _muteLeft = MuteSamples; _rampLeft = MuteRampSamples; }
                     // One reference: the bank, its id and its build, made on the
                     // worker, so nothing is allocated here and no reader can see
@@ -704,7 +889,7 @@ namespace JJFlexWpf
                 long late = running.LateFrames, failed = running.FallbackFrames, took = running.EngineFrames;
                 running.Process(audio, GetStrength(run!.Id));
                 CheckPlan(run, running);
-                PadRunning(audio, running);
+                PadRunning(audio, running, cls);
                 ApplyMute(audio);
                 if (ProcessedBy(running, run.Id, took, failed) is { } processedBy) Volatile.Write(ref _processingId, processedBy);
                 if (choice.Id == run.Id && !choice.Force && _announced != choice.Generation &&
@@ -896,10 +1081,10 @@ namespace JJFlexWpf
         /// engine at its next safe point (repair 1, B2), and until then this still
         /// says the old figure. Read by the Advanced tab's readout off the audio thread.
         /// </summary>
-        internal int HeldSamples => Volatile.Read(ref _held);
+        internal int HeldSamples => Volatile.Read(ref _draining) != 0 ? Volatile.Read(ref _actualReport) : Volatile.Read(ref _held);
 
         /// <summary>What one retime did (repair 1, B2): the delay it moved from and to (the engine's own delay when unpadded), the correlation of the two taps across the fade, and whether it was faded or cut (the cross-fade switch off).</summary>
-        internal readonly record struct RetimeNote(int From, int To, float R0, float R1, bool Faded);
+        internal readonly record struct RetimeNote(int From, int To, float R0, float R1, bool Faded, bool Drained = false);
 
         /// <summary>Tests only: the last retime this slot made.</summary>
         internal RetimeNote? LastRetime { get; private set; }
@@ -926,7 +1111,6 @@ namespace JJFlexWpf
         private SharedDelayPlan? _planSeen, _warmPlan;
         private bool _retimePending;
         private int _retimeTarget = -1, _retimeBasis = -1;
-        private readonly RetimeTrace _retimeTrace = new();
 
         private static string? ModelOf(IReadOnlyDictionary<string, EngineSettingValue>? values) =>
             values != null && values.TryGetValue("model", out var v) ? v.Choice : null;
@@ -954,6 +1138,11 @@ namespace JJFlexWpf
             _warmDecidedFor = null;
             _warmStale = false;
             _muteLeft = 0; _rampLeft = 0;
+            _runLineActive = false;
+            _transitional = false;
+            _preGrowTo = -1;
+            _startFixed = true;
+            Volatile.Write(ref _draining, 0);
         }
 
         /// <summary>The delay to hold an engine at when it is the one running: the plan's shared figure (or its own, if larger) when it is in the plan; -1 otherwise.</summary>
@@ -1055,13 +1244,15 @@ namespace JJFlexWpf
             {
                 // Nothing moves in time: adopt it. A pad line that starts being
                 // fed starts empty, so its history is this engine's alone.
-                if (!fed && target >= 0) _runPad!.Clear();
+                if (!fed && target >= 0 && !_lagThisBuffer) _runPad!.Clear();
                 Volatile.Write(ref _held, target);
                 _heldBasis = basis;
                 _retimePending = false;
+                _transitional = false;
                 return;
             }
-            if (!fed) _runPad!.Clear();
+            // Phase 2's lines clear themselves when they start being fed (PadRunningLag).
+            if (!fed && !_lagThisBuffer) _runPad!.Clear();
             _retimeTarget = target;
             _retimeBasis = basis;
             _retimePending = true;
@@ -1077,20 +1268,619 @@ namespace JJFlexWpf
         /// the difference, and is faded, never jumped. On the audio thread: no
         /// allocation beyond the existing switch buffer, no wait.
         /// </summary>
-        private void PadRunning(float[] audio, PerChannelDenoiserBank running)
+        /// <summary>
+        /// The scratch at <paramref name="n"/> floats: as it is, or the one the build
+        /// worker prepared. Allocates on this thread only when the buffer length
+        /// changed with no build since, which the receive stream never does.
+        /// </summary>
+        private void EnsureScratch(int n)
         {
-            if (_runPad == null) return;
+            if (_nextAudio.Length == n) return;
+            var prepared = Interlocked.Exchange(ref _preparedScratch, null);
+            _nextAudio = prepared != null && prepared.Length == n ? prepared : new float[n];
+        }
+
+        /// <summary>
+        /// Tests only: while set and not signalled, the scratch maker waits before it
+        /// makes anything, as it would behind a busy pool. Opens, deterministically,
+        /// the window the constructor's scratch exists to cover.
+        /// </summary>
+        internal ManualResetEventSlim? ScratchMakerGateForTest { get; set; }
+
+        /// <summary>Tests only: a scratch of <paramref name="n"/> floats is ready for the audio thread.</summary>
+        internal bool ScratchReadyForTest(int n) => _nextAudio.Length == n || Volatile.Read(ref _preparedScratch)?.Length == n;
+
+        /// <summary>
+        /// Makes the scratch for a new buffer length on a pool thread, from one work
+        /// item made with the slot, so the audio thread allocates nothing for it (B4).
+        /// </summary>
+        private sealed class ScratchMaker : IThreadPoolWorkItem
+        {
+            private readonly PcDenoiseSlot _slot;
+            private int _busy, _length;
+            public ScratchMaker(PcDenoiseSlot slot) => _slot = slot;
+
+            public void Request(int length)
+            {
+                if (Volatile.Read(ref _slot._preparedScratch)?.Length == length) return;
+                if (Interlocked.Exchange(ref _busy, 1) != 0) return;
+                Volatile.Write(ref _length, length);
+                ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
+            }
+
+            public void Execute()
+            {
+                // Tests only: hold the maker, as a busy pool would (Codex's re-check, R4a).
+                _slot.ScratchMakerGateForTest?.Wait(TimeSpan.FromSeconds(10));
+                int length = Volatile.Read(ref _length);
+                Volatile.Write(ref _slot._preparedScratch, new float[length]);
+                Volatile.Write(ref _busy, 0);
+            }
+        }
+
+        private void PadRunning(float[] audio, PerChannelDenoiserBank running, RxContentClass cls)
+        {
+            if (_lagThisBuffer) PadRunningLag(audio, running, cls);
+            else PadRunningPhaseOne(audio, running);
+        }
+
+        // ── Phase 2: the lag shifter in the slot (#873, Sprint 49 Track P2) ──
+        //
+        // Receive only, and only while the cross-fade switch is on. Every delay
+        // change is a drain or a growth of a line by whole splices
+        // (RxLagShifter), so time never jumps: a retime, the hold left over by a
+        // switch, the pre-growth before a slower engine, and turning computer
+        // noise reduction on or off.
+
+        /// <summary>The hold a switch leaves behind until the plan is read again: no plan says this, so the next look at the plan always moves it.</summary>
+        private const int TransitionalBasis = -2;
+
+        /// <summary>
+        /// The longest a pre-growth may run before the switch falls back to
+        /// today's: the ease-in plus twice the time the growth
+        /// takes at the engine-switch policy's period rate (its slowest path, voice
+        /// with no pauses, or a carrier spliced one period at a time), between 1 and
+        /// 8 seconds. My judgement: on noise the
+        /// gap path does it in a fraction of that; a bound shorter than the
+        /// period path's own time would fall back on every voiced switch.
+        /// </summary>
+        internal static int PreGrowBoundFrames(int frames, int sampleRate)
+        {
+            double seconds = RxLagBudget.EaseInMilliseconds / 1000.0 + 2.0 * frames / (double)sampleRate / LagPolicy.EngineSwitch.PeriodRate;
+            return (int)(Math.Clamp(seconds, PreGrowMinSeconds, PreGrowMaxSeconds) * sampleRate);
+        }
+        internal const double PreGrowMinSeconds = 1.0, PreGrowMaxSeconds = 8.0;
+
+        private readonly RxLagBudget? _budget;
+        private PadLine? _dryPad;
+        private bool _lagThisBuffer, _runLineActive, _transitional, _warmLag, _startFixed;
+        private Built? _warmFellBack;
+        private int _preGrowTo = -1, _preGrowFrames, _preGrowBound;
+        private bool _onPhase, _offPhase, _dryFlowing;
+        private int _onFrames, _onTarget, _onBound;
+        private int _draining, _actualReport = -1;
+
+        /// <summary>Tests only: false runs phase 1's paths with the cross-fade switch on (today's code, the positive control).</summary>
+        internal bool? ShifterOverrideForTest { get; set; }
+
+        /// <summary>Whether this buffer's delay changes go through the lag shifter: the cross-fade switch on, and no test override.</summary>
+        private bool Shifting => CrossFadeOn && (ShifterOverrideForTest ?? true);
+
+        /// <summary>What one turn on or off did, for the trace and tests: on or off, the delay it grew to or drained from, the fade's correlation, and whether it fell back.</summary>
+        internal readonly record struct TurnNote(bool On, int Delay, float R0, bool FellBack);
+
+        /// <summary>Tests only: the last turn on or off made through the lag shifter.</summary>
+        internal TurnNote? LastTurn { get; private set; }
+
+        /// <summary>Tests only: a turn-on or turn-off is still in progress (the dry line is being grown or drained).</summary>
+        internal bool TurningForTest => _onPhase || _offPhase;
+
+        /// <summary>Tests only: the running line is draining, growing or pre-growing.</summary>
+        internal bool DrainingForTest => Volatile.Read(ref _draining) != 0 || _transitional || _retimePending || _preGrowTo >= 0 || _onPhase || _offPhase;
+
+        /// <summary>Tests only: the lines' cores, for their counters.</summary>
+        internal (RxLagShifter Run, RxLagShifter Warm, RxLagShifter Dry)? LinesForTest =>
+            _runPad == null ? null : (_runPad.Shifter, _warmPad!.Shifter, _dryPad!.Shifter);
+
+        /// <summary>
+        /// Receive, on the audio thread: how far behind its input this slot's
+        /// output is heard now, in samples: the dry line's delay while turning on
+        /// or off, the running engine's delay and pad while processing, nothing
+        /// while off. The pipeline reads it to give the playback queue the class
+        /// of the audio coming out (#873 phase 2).
+        /// </summary>
+        internal int HeardDelaySamples
+        {
+            get
+            {
+                if (_runPad == null) return 0;
+                if (_onPhase || _offPhase) return _dryPad!.Delay;
+                if (!_wasActive) return 0;
+                var bank = Volatile.Read(ref _runningBuild)?.Bank;
+                return bank == null ? 0 : RunningActual(bank);
+            }
+        }
+
+        /// <summary>The delay the running engine's output is heard at now: its own, plus its line when the line is in use.</summary>
+        private int RunningActual(PerChannelDenoiserBank running) => running.LatencySamples + (_runLineActive ? _runPad!.Delay : 0);
+
+        private static long Splices(PadLine line) => line.Shifter.TotalPeriodSplices + line.Shifter.TotalGapSplices + line.Shifter.TotalSeamJoins;
+
+        /// <summary>
+        /// The running engine's line, steered toward what it should hold: the
+        /// pre-growth target while a slower engine warms; else a pending retime's
+        /// target; else the hold. A line that starts being fed starts empty, so its
+        /// history is this engine's alone (repair 3's rule); a line drained to no
+        /// pad stops being used, and the output is then the bank's, exactly.
+        /// </summary>
+        private void PadRunningLag(float[] audio, PerChannelDenoiserBank running, RxContentClass cls)
+        {
+            if (_runPad == null) { Heard(SeamSource.Bank, latency: running.LatencySamples); return; }
             int own = running.LatencySamples;
+            int target = _preGrowTo >= 0 ? _preGrowTo : _retimePending ? Effective(_retimeTarget, own) : Effective(_held, own);
+            int targetPad = Math.Max(0, target - own);
+            if (!_runLineActive && targetPad == 0) { Volatile.Write(ref _draining, 0); _startFixed = false; Heard(SeamSource.Bank, latency: own); return; }
+            if (!_runLineActive)
+            {
+                _runPad.Clear();
+                _runLineActive = true;
+                // At the start of processing nothing has been heard from this engine, so
+                // its pad starts as phase 1's did: silence for the pad's length. Only a
+                // line that joins a plan while its engine is heard grows by splices.
+                if (_startFixed) _runPad.SetDelay(targetPad);
+            }
+            _startFixed = false;
+            _runPad.ClassLag = own;
+            int from = RunningActual(running);
+            var cause = _preGrowTo >= 0 || _transitional ? LagCause.EngineSwitch : LagCause.Retime;
+            MarkSeams(_runPad, own);
+            _runPad.Steer(audio, targetPad, LagPolicy.EngineSwitch, cause, cls);
+            Heard(SeamSource.Line, _runPad);
+            TraceEvents(_runPad, cause);
+            if (_retimePending && _preGrowTo < 0 && _runPad.SettledAt(targetPad))
+            {
+                // Landed: the retime is a drain or a growth, never a jump, and never a fade between two taps.
+                var e = _runPad.Shifter.TryPeekActive(out var active) ? active : default;
+                var note = new RetimeNote(Effective(_held, own), Effective(_retimeTarget, own),
+                    e.WorstCorrelation == 0 ? 1f : e.WorstCorrelation, e.WorstCorrelation == 0 ? 1f : e.WorstCorrelation, true, Drained: true);
+                LastRetime = note;
+                Volatile.Write(ref _held, _retimeTarget);
+                _heldBasis = _retimeBasis;
+                _retimePending = false;
+                _transitional = false;
+                if (!_transitional && cause == LagCause.Retime) TraceRetime(note);
+            }
+            if (targetPad == 0 && _runPad.Delay == 0 && !_runPad.Shifter.Fading && !_retimePending && _preGrowTo < 0) _runLineActive = false;
+            int heldPad = Math.Max(0, Effective(_held, own) - own);
+            bool moving = _retimePending || _preGrowTo >= 0 || (_runLineActive && _runPad.Delay != heldPad);
+            Volatile.Write(ref _actualReport, RunningActual(running));
+            Volatile.Write(ref _draining, moving ? 1 : 0);
+        }
+
+        /// <summary>
+        /// A warm-up through the lag shifter. The incoming engine is padded to the
+        /// delay the running engine is heard at NOW when it is faster, and the
+        /// running engine's line is pre-grown to the incoming delay when it is
+        /// slower; either way the switch is the matched fade between two outputs
+        /// of the same content, and time does not move. The switch waits for a
+        /// buffer on which the running line made no splice (phase 1's
+        /// <c>!retimed</c> guard, generalised), and afterwards the hold is
+        /// transitional, so the plan is read again and the new engine's line is
+        /// drained or grown to its own figure.
+        /// </summary>
+        private void WarmStepLag(float[] audio, Choice choice, RunningBuild run, PerChannelDenoiserBank running, RxContentClass cls)
+        {
+            var warming = _warming!;
+            ApplyParameters(warming.Bank, warming.Choice.Id, ref warming.Applied);
+            var plan = SharedPlan;
+            bool first = !ReferenceEquals(_warmDecidedFor, warming);
+            if (first || !ReferenceEquals(_warmPlan, plan)) DecideWarmLag(warming, running, plan, first);
+            int n = audio.Length, frames = n / _channels;
+            EnsureScratch(n);
+            audio.CopyTo(_nextAudio, 0);
+            int runBefore = RunningActual(running);
+            long late = warming.Bank.LateFrames, failed = warming.Bank.FallbackFrames;
+            warming.Bank.Process(_nextAudio, GetStrength(warming.Choice.Id));
+            int ownIn = warming.Bank.LatencySamples;
+            // The running engine may be draining under a new plan while this warms
+            // (R1-B1), so faster or slower is asked again on every buffer.
+            if (_preGrowTo < 0 && ownIn > runBefore + _runPad!.Shifter.MinLagFrames - 1)
+            { _preGrowTo = ownIn; _preGrowFrames = 0; _preGrowBound = PreGrowBoundFrames(ownIn - runBefore, _sampleRate); }
+            else if (_preGrowTo >= 0) _preGrowTo = ownIn;
+            bool slower = _preGrowTo >= 0;
+            int pad = slower ? 0 : Math.Max(0, runBefore - ownIn);
+            _warmPad!.ClassLag = ownIn;
+            MarkSeams(_warmPad, ownIn);
+            _warmPad.Process(_nextAudio.AsSpan(0, n), pad, cls);
+            bool produced = late == warming.Bank.LateFrames && failed == warming.Bank.FallbackFrames;
+            if (failed != warming.Bank.FallbackFrames)
+            {
+                // A throw or lost availability is a failed start, not endless warming (as phase 1).
+                _warming = null;
+                _preGrowTo = -1;
+                Retire(warming.Bank);
+                Volatile.Write(ref warming.Choice.Failure, "processing-failed");
+                StopFailedChoice(warming.Choice);
+                return;
+            }
+            long runningTook = running.EngineFrames, runningFailed = running.FallbackFrames;
+            running.Process(audio, GetStrength(run.Id));
+            long splicesBefore = Splices(_runPad!);
+            // The running engine follows a new plan while another warms (repair 2, R1-B1);
+            // a pre-growth takes precedence until it ends (PadRunningLag).
+            CheckPlan(run, running);
+            PadRunningLag(audio, running, cls);
+            string? processedBy = ProcessedBy(running, run.Id, runningTook, runningFailed);
+            int runNow = RunningActual(running);
+            bool moved = Splices(_runPad!) != splicesBefore || _runPad!.Shifter.Fading || runNow != runBefore;
+            if (produced) _warmSamples += frames; else _warmSamples = 0;
+            if (slower) _preGrowFrames += frames;
+            int heard = slower ? ownIn : runBefore;
+            int need = Math.Max(_sampleRate / 10, heard + 2 * frames);
+            // Exact: a switch within a splice of the target would replay (or skip) the
+            // difference, and a region the growth just repeated could be heard a third time.
+            bool lined = !slower || runNow == ownIn;
+            if (!moved && lined && _warmSamples >= need && _warmPad.Filled >= pad && ReferenceEquals(choice, Volatile.Read(ref _choice)))
+            {
+                InstallHook?.Invoke("before-running-id");
+                var next = _nextAudio.AsSpan(0, n);
+                AlignedSwitch.Correlation(audio, next, _channels, _corr);
+                AlignedSwitch.Fade(audio, next, _channels, _corr);
+                var note = new SwitchNote(true, _channels > 0 ? _corr[0] : 0, _channels > 1 ? _corr[1] : 0, heard, false);
+                LastSwitch = note;
+                (_runPad, _warmPad) = (_warmPad, _runPad);
+                _runLineActive = true;
+                // Transitional: no plan says this hold, so the plan is read again on the
+                // next buffer and the new engine is drained or grown to its own figure.
+                Volatile.Write(ref _held, heard);
+                _heldBasis = TransitionalBasis;
+                _planSeen = null;
+                _retimePending = false;
+                _transitional = true;
+                _preGrowTo = -1;
+                Volatile.Write(ref _runningBuild, warming.Running);
+                InstallHook?.Invoke("after-running-id");
+                _runningApplied = warming.Applied;
+                _warming = null;
+                Retire(running);
+                _announced = choice.Generation;
+                Publish(choice, true, note: note);
+                Volatile.Write(ref _processingId, choice.Id);
+                return;
+            }
+            if (slower && _preGrowFrames > _preGrowBound)
+            {
+                // The pre-growth did not land in time: this switch falls back to
+                // today's (phase 1's decision and fade), and the trace says so.
+                _runPad.Shifter.MarkFallback();
+                TraceDrain(LagCause.EngineSwitch, default, fellBack: true, onOff: 0, delay: ownIn);
+                _preGrowTo = -1;
+                _warmLag = false;
+                _warmFellBack = warming;
+                _warmDecidedFor = null;
+            }
+            ApplyMute(audio);
+            if (processedBy != null) Volatile.Write(ref _processingId, processedBy);
+        }
+
+        /// <summary>A lag-shifter warm-up begins, or the plan changed under it: is the incoming engine faster or slower than what is heard now?</summary>
+        private void DecideWarmLag(Built warming, PerChannelDenoiserBank running, SharedDelayPlan plan, bool first)
+        {
+            _warmDecidedFor = warming;
+            _warmPlan = plan;
+            _warmStale = false;
+            _warmAligned = true;
+            _warmBasis = Basis(plan, warming.Choice.Id, ModelOf(warming.Running?.Initial));
+            if (first) { _warmPad!.Clear(); _warmSamples = 0; }
+            int ownIn = warming.Bank.LatencySamples, heard = RunningActual(running);
+            if (ownIn > heard + _runPad!.Shifter.MinLagFrames - 1)
+            {
+                if (_preGrowTo != ownIn) { _preGrowTo = ownIn; _preGrowFrames = 0; _preGrowBound = PreGrowBoundFrames(ownIn - heard, _sampleRate); }
+            }
+            else _preGrowTo = -1;
+        }
+
+        /// <summary>
+        /// Computer noise reduction turned off with the lag shifter: the dry
+        /// signal, from its line, at the delay in force, faded in against the
+        /// processed output by the matched fade (the follow-up measured their
+        /// correlation at 0.09 to 0.15, which is what the matched fade is for);
+        /// then the dry line drains to no delay at all, and the slot keeps running
+        /// until it has. #1169: the bank is cleared as before, after its last buffer.
+        /// </summary>
+        private void TurnOff(float[] audio, RunningBuild run, PerChannelDenoiserBank running, RxContentClass cls)
+        {
+            int n = audio.Length;
+            EnsureScratch(n);
+            audio.CopyTo(_nextAudio, 0);
+            var processed = _nextAudio.AsSpan(0, n);
+            ApplyParameters(running, run.Id, ref _runningApplied);
+            running.Process(_nextAudio, GetStrength(run.Id));
+            int own = running.LatencySamples;
+            if (_runLineActive) { MarkSeams(_runPad, own); _runPad!.Process(processed, _runPad.Delay, cls); }
+            int delay = own + (_runLineActive ? _runPad!.Delay : 0);
+            _dryPad!.ClassLag = 0;
+            MarkSeams(_dryPad, 0);
+            _dryPad.Process(audio, delay, cls);
+            // The fade ends on the dry signal, at the same delay: its seams are the ones heard.
+            Heard(SeamSource.Line, _dryPad);
+            AlignedSwitch.Correlation(processed, audio, _channels, _corr);
+            AlignedSwitch.Fade(processed, audio, _channels, _corr);
+            processed.CopyTo(audio);
+            running.ClearCarry();
+            _warming?.Bank.ClearCarry();
+            _runLineActive = false;
+            Volatile.Write(ref _draining, 0);
+            _offPhase = true;
+            var note = new TurnNote(false, delay, _channels > 0 ? _corr[0] : 0, false);
+            LastTurn = note;
+            TraceDrain(LagCause.TurnOff, default, fellBack: false, onOff: -1, delay: delay);
+        }
+
+        /// <summary>After a turn-off: the dry line drains to no delay on the engine-switch policy, and the slot keeps running until it has.</summary>
+        private void DrainDry(float[] audio, RxContentClass cls)
+        {
+            _dryPad!.ClassLag = 0;
+            MarkSeams(_dryPad, 0);
+            _dryPad.Steer(audio, 0, LagPolicy.EngineSwitch, LagCause.TurnOff, cls);
+            Heard(SeamSource.Line, _dryPad);
+            TraceEvents(_dryPad, LagCause.TurnOff);
+            if (_dryPad.Delay == 0 && !_dryPad.Shifter.Fading) _offPhase = false;
+        }
+
+        /// <summary>
+        /// Computer noise reduction turned on with the lag shifter: the dry signal
+        /// keeps playing, its line grows to the engine's delay while the engine
+        /// warms, and then the matched fade from dry to processed. Today's
+        /// start-up silence for the pad's length goes away.
+        /// </summary>
+        private void BeginTurnOn(PerChannelDenoiserBank running)
+        {
+            _onPhase = true;
+            _onFrames = 0;
+            // A dry line not being fed has a gap in its history: start it afresh, so a
+            // growth repeats only audio that was just played. One still draining
+            // from a turn-off carries on from where it is.
+            if (!_offPhase) _dryPad!.Clear();
+            _offPhase = false;
+            int own = running.LatencySamples;
+            _onTarget = Effective(_held, own);
+            _onBound = PreGrowBoundFrames(Math.Max(0, _onTarget - _dryPad!.Delay), _sampleRate);
+        }
+
+        private void TurnOnStep(float[] audio, RunningBuild run, PerChannelDenoiserBank running, RxContentClass cls)
+        {
+            int n = audio.Length, frames = n / _channels;
+            EnsureScratch(n);
+            audio.CopyTo(_nextAudio, 0);
+            var processed = _nextAudio.AsSpan(0, n);
+            running.ListenToRemoved = ListenToRemoved;
+            ApplyParameters(running, run.Id, ref _runningApplied);
+            running.Process(_nextAudio, GetStrength(run.Id));
+            int own = running.LatencySamples;
+            _onTarget = Effective(_held, own);
+            int pad = _onTarget - own;
+            if (pad > 0) { _runPad!.ClassLag = own; MarkSeams(_runPad, own); _runPad.Process(processed, pad, cls); _runLineActive = true; }
+            else _runLineActive = false;
+            long splicesBefore = Splices(_dryPad!);
+            _dryPad!.ClassLag = 0;
+            MarkSeams(_dryPad, 0);
+            _dryPad.Steer(audio, _onTarget, LagPolicy.EngineSwitch, LagCause.TurnOn, cls);
+            // The dry signal is what is heard while it grows, and the fade into the
+            // processed audio lines the two up first, so its seams are the heard ones.
+            Heard(SeamSource.Line, _dryPad);
+            TraceEvents(_dryPad, LagCause.TurnOn);
+            bool moved = Splices(_dryPad) != splicesBefore || _dryPad.Shifter.Fading;
+            _onFrames += frames;
+            int need = Math.Max(_sampleRate / 10, _onTarget + 2 * frames);
+            bool lined = _dryPad.Delay == _onTarget;
+            if (!moved && lined && _onFrames >= need)
+            {
+                AlignedSwitch.Correlation(audio, processed, _channels, _corr);
+                AlignedSwitch.Fade(audio, processed, _channels, _corr);
+                LastTurn = new TurnNote(true, _onTarget, _channels > 0 ? _corr[0] : 0, false);
+                TraceDrain(LagCause.TurnOn, default, fellBack: false, onOff: 1, delay: _onTarget);
+                EndTurnOn(fellBack: false);
+                Volatile.Write(ref _processingId, run.Id);
+                return;
+            }
+            if (_onFrames >= _onBound)
+            {
+                // The dry line did not reach the engine's delay in time: today's turn-on, a cut.
+                processed.CopyTo(audio);
+                if (_runLineActive) Heard(SeamSource.Line, _runPad); else Heard(SeamSource.Bank, latency: own);
+                _dryPad.Shifter.MarkFallback();
+                LastTurn = new TurnNote(true, _onTarget, 0, true);
+                TraceDrain(LagCause.TurnOn, default, fellBack: true, onOff: 1, delay: _onTarget);
+                EndTurnOn(fellBack: true);
+                Volatile.Write(ref _processingId, run.Id);
+                return;
+            }
+            Volatile.Write(ref _processingId, "");
+        }
+
+        private void EndTurnOn(bool fellBack)
+        {
+            _onPhase = false;
+            _dryPad?.Clear();
+        }
+
+        /// <summary>A gap in the audio (or a stream's start): nothing to be continuous with, so no dry line is grown or drained.</summary>
+        private void ForgetDryFlow()
+        {
+            _dryPad?.Clear();
+            _offPhase = false;
+            _dryFlowing = false;
+            if (_onPhase) _onPhase = false;
+        }
+
+        // -- Trace lines: Track T's record-and-drain (Codex's re-check of 5a0a8c93) --
+        //
+        // The audio path only copies a fixed record into a preallocated ring. The
+        // next Process call, before it processes anything, asks for the ring to be
+        // written (as Track T's feeding thread does for the playback queue, once a
+        // packet); a preallocated work item formats and writes, in order. Nothing
+        // is queued from inside a buffer's processing, and nothing is formatted there.
+
+        private enum TraceKind : byte { Drain, Retime }
+
+        private struct TraceRecord
+        {
+            public TraceKind Kind;
+            public LagCause Cause;
+            public RxLagEvent Event;
+            public bool FellBack;
+            public int OnOff, Delay;
+            public RetimeNote Note;
+        }
+
+        private const int TraceCapacity = 64;
+        private readonly TraceRecord[] _traceRing = new TraceRecord[TraceCapacity];
+        private long _traceHead, _traceTail, _traceDropped;
+        private int _tracePending;
+        // One drain at a time (Codex's re-check 2 of 0d8ecb3c): 1 from the moment a drain
+        // is queued until it has finished, so a slow writer never collects a queue of
+        // redundant work items, each of which can make the pool allocate on this thread.
+        private int _traceDrainState;
+        private long _traceDrainsQueued;
+        private readonly object _traceLock = new();
+        private TraceDrainer? _traceDrainer;
+
+        /// <summary>Tests only: each trace line, as it is written.</summary>
+        internal Action<string>? TraceObserverForTest { get; set; }
+
+        /// <summary>Tests only: lines recorded and not yet handed to a writer.</summary>
+        internal bool TracePendingForTest => Volatile.Read(ref _tracePending) != 0;
+
+        /// <summary>Tests only: drains handed to the thread pool, ever.</summary>
+        internal long TraceDrainsQueuedForTest => Interlocked.Read(ref _traceDrainsQueued);
+
+        /// <summary>Tests only: record a turn-off line carrying <paramref name="delay"/>, as the audio path does.</summary>
+        internal void TraceForTest(int delay) => TraceDrain(LagCause.TurnOff, default, fellBack: false, onOff: -1, delay: delay);
+
+        private void TraceDrain(LagCause cause, in RxLagEvent e, bool fellBack, int onOff, int delay)
+        {
+            var r = new TraceRecord { Kind = TraceKind.Drain, Cause = cause, Event = e, FellBack = fellBack, OnOff = onOff, Delay = delay };
+            RecordTrace(ref r);
+        }
+
+        private void TraceRetime(in RetimeNote note)
+        {
+            var r = new TraceRecord { Kind = TraceKind.Retime, Note = note };
+            RecordTrace(ref r);
+        }
+
+        /// <summary>The audio path's side: copy one record into the ring. No allocation, no lock, no wait.</summary>
+        private void RecordTrace(ref TraceRecord r)
+        {
+            long head = _traceHead;
+            if (head - Volatile.Read(ref _traceTail) >= TraceCapacity) { Interlocked.Increment(ref _traceDropped); return; }
+            _traceRing[head % TraceCapacity] = r;
+            Volatile.Write(ref _traceHead, head + 1);
+            Volatile.Write(ref _tracePending, 1);
+        }
+
+        /// <summary>
+        /// Once a buffer, before processing it: when lines are waiting, hand their
+        /// writing to the thread pool. An interlocked read when there is nothing to do.
+        /// </summary>
+        private void RequestTraceDrain()
+        {
+            if (Volatile.Read(ref _tracePending) == 0) return;
+            // A drain queued or running will write these too: it looks again before it stops.
+            if (Interlocked.CompareExchange(ref _traceDrainState, 1, 0) != 0) return;
+            Interlocked.Exchange(ref _tracePending, 0);
+            Interlocked.Increment(ref _traceDrainsQueued);
+            ThreadPool.UnsafeQueueUserWorkItem(_traceDrainer!, preferLocal: false);
+        }
+
+        /// <summary>Format and write every recorded line, in order (a pool thread, or the slot's disposal).</summary>
+        internal void DrainTraces()
+        {
+            lock (_traceLock)
+            {
+                long dropped = Interlocked.Exchange(ref _traceDropped, 0);
+                if (dropped > 0) WriteTrace($"PcDenoiseSlot: {Family} lag shifter: {dropped} trace line(s) lost: the ring filled before they were written");
+                long head = Volatile.Read(ref _traceHead);
+                for (long tail = _traceTail; tail < head; tail++)
+                {
+                    var r = _traceRing[tail % TraceCapacity];
+                    Volatile.Write(ref _traceTail, tail + 1);
+                    WriteTrace(FormatTrace(in r));
+                }
+            }
+        }
+
+        private string FormatTrace(in TraceRecord r)
+        {
+            if (r.Kind == TraceKind.Retime)
+            {
+                var n = r.Note;
+                return $"PcDenoiseSlot: {Family} retimed to a new shared delay: from {n.From} to {n.To} samples, " +
+                    (n.Faded ? "faded" : "cut") + $", correlation {n.R0:0.000} and {n.R1:0.000}";
+            }
+            var e = r.Event;
+            string head = $"PcDenoiseSlot: {Family} lag shifter: ";
+            string body = r.OnOff > 0
+                ? (r.FellBack ? $"turned on by a cut: the dry signal did not reach {r.Delay} samples in time (fell back)" : $"turned on, the dry signal grown to {r.Delay} samples, matched fade")
+                : r.OnOff < 0 ? $"turned off: the dry signal at {r.Delay} samples, matched fade, draining to none"
+                : r.FellBack && e.Requested == 0 ? $"switch fell back to today's: the pre-growth to {r.Delay} samples did not land in time"
+                : $"{r.Cause} {e.Describe(48000)}";
+            return head + body;
+        }
+
+        private void WriteTrace(string line)
+        {
+            Trace.WriteLine(line);
+            TraceObserverForTest?.Invoke(line);
+        }
+
+        private sealed class TraceDrainer : IThreadPoolWorkItem
+        {
+            private readonly PcDenoiseSlot _slot;
+            public TraceDrainer(PcDenoiseSlot slot) => _slot = slot;
+
+            /// <summary>
+            /// Write, then stand down; and if lines arrived while writing, take the drain
+            /// back and write again, so the last line is never left waiting for a buffer
+            /// that may not come.
+            /// </summary>
+            public void Execute()
+            {
+                while (true)
+                {
+                    _slot.DrainTraces();
+                    Volatile.Write(ref _slot._traceDrainState, 0);
+                    if (Volatile.Read(ref _slot._tracePending) == 0) return;
+                    if (Interlocked.CompareExchange(ref _slot._traceDrainState, 1, 0) != 0) return;
+                    Interlocked.Exchange(ref _slot._tracePending, 0);
+                }
+            }
+        }
+
+        private void TraceEvents(PadLine line, LagCause cause)
+        {
+            if (line.Shifter.TryTakeCompleted(out var e)) TraceDrain(cause, e, fellBack: e.FellBack, onOff: 0, delay: line.Delay);
+        }
+
+        private void PadRunningPhaseOne(float[] audio, PerChannelDenoiserBank running)
+        {
+            Volatile.Write(ref _draining, 0);
+            int own = running.LatencySamples;
+            Heard(SeamSource.Bank, latency: own);
+            if (_runPad == null) return;
             if (_retimePending)
             {
                 int oldPad = Effective(_held, own) - own, newPad = Effective(_retimeTarget, own) - own;
                 if (_runPad.Filled >= newPad)
                 {
-                    if (_retimeAudio.Length != audio.Length) _retimeAudio = new float[audio.Length];
+                    if (_retimeAudio.Length != audio.Length) _retimeAudio = new float[audio.Length];  // phase 1's, sized once like the scratch above
                     var next = _retimeAudio.AsSpan(0, audio.Length);
+                    MarkSeams(_runPad, own);
                     _runPad.ProcessTwo(audio, oldPad, next, newPad);
+                    Heard(SeamSource.Line, _runPad);
                     AlignedSwitch.Correlation(audio, next, _channels, _retimeCorr);
-                    bool faded = CrossFadeEnabled;
+                    bool faded = CrossFadeOn;
                     if (faded) AlignedSwitch.Fade(audio, next, _channels, _retimeCorr);
                     else next.CopyTo(audio);
                     var note = new RetimeNote(Effective(_held, own), Effective(_retimeTarget, own),
@@ -1099,43 +1889,20 @@ namespace JJFlexWpf
                     Volatile.Write(ref _held, _retimeTarget);
                     _heldBasis = _retimeBasis;
                     _retimePending = false;
-                    _retimeTrace.Queue(Family, note);
+                    TraceRetime(note);
+                    _runLineActive = _held >= 0;
                     return;
                 }
+                MarkSeams(_runPad, own);
                 _runPad.Process(audio, oldPad);
+                Heard(SeamSource.Line, _runPad);
+                _runLineActive = true;
                 return;
             }
-            if (_held >= 0) _runPad.Process(audio, _held - own);
+            if (_held >= 0) { MarkSeams(_runPad, own); _runPad.Process(audio, _held - own); Heard(SeamSource.Line, _runPad); }
+            _runLineActive = _held >= 0;
         }
 
-        /// <summary>
-        /// The retime's trace line, written on a pool thread from one work item
-        /// made with the slot, so the audio thread allocates nothing for it. A
-        /// second retime while the first line is still being written is not
-        /// traced (they are seconds apart in practice; the note is kept either way).
-        /// </summary>
-        private sealed class RetimeTrace : IThreadPoolWorkItem
-        {
-            private int _busy;
-            private DenoiseFamily _family;
-            private RetimeNote _note;
-
-            public void Queue(DenoiseFamily family, RetimeNote note)
-            {
-                if (Interlocked.Exchange(ref _busy, 1) != 0) return;
-                _family = family; _note = note;
-                ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
-            }
-
-            public void Execute()
-            {
-                var n = _note;
-                var family = _family;
-                Volatile.Write(ref _busy, 0);
-                Trace.WriteLine($"PcDenoiseSlot: {family} retimed to a new shared delay: from {n.From} to {n.To} samples, " +
-                    (n.Faded ? "faded" : "cut") + $", correlation {n.R0:0.000} and {n.R1:0.000}");
-            }
-        }
 
         /// <summary>The Mute switch's first part: the outgoing engine fades out across the switch buffer.</summary>
         private void FadeOutForMute(Span<float> audio)
@@ -1208,6 +1975,7 @@ namespace JJFlexWpf
         }
         internal void DisposeOwned()
         {
+            DrainTraces();
             // The id stays, as it always did; only the bank goes, so the delay reads 0.
             var run = Volatile.Read(ref _runningBuild);
             if (run?.Bank != null) { run.Bank.Dispose(); Volatile.Write(ref _runningBuild, run with { Bank = null }); }

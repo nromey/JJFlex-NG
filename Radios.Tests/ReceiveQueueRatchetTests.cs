@@ -448,5 +448,49 @@ namespace Radios.Tests
             public override void Write(string message) { }
             public override void WriteLine(string message) { _lines.Add(message); }
         }
+
+        // ── Track P2: with catch-up on, a burst drains at the budget instead of being discarded ──
+
+        [Fact]
+        public void With_catch_up_a_burst_drains_at_the_budget_instead_of_being_discarded()
+        {
+            (long trimmed, long caughtUp, int callbacks) Run(RxCatchUpMode mode)
+            {
+                var q = new System.Collections.Queue();
+                var playback = new RxPlaybackQueue("receive", BuffersPerCallback, BufferMs, Rate, 60, mode);
+                var output = new float[BuffersPerCallback * FramesPerBuffer * 2];
+                float[] buffer = Array.Empty<float>(); uint offset = 0;
+                var rng = new Random(1);
+                void Arrive(int n)
+                {
+                    for (int p = 0; p < n; p++)
+                    {
+                        var b = new float[FramesPerBuffer * 2];
+                        for (int i = 0; i < b.Length; i++) b[i] = (float)(rng.NextDouble() - 0.5) * 0.2f;
+                        playback.NoteEnqueued(b, RxContentClass.Classified | RxContentClass.NotVoiceRun, false);
+                        q.Enqueue(b);
+                    }
+                }
+                for (int c = 0; c < 20; c++) { Arrive(BuffersPerCallback); playback.RenderCallback(q, ref buffer, ref offset, output, false, 2, () => true); }
+                Arrive(20);                                            // a 200 ms burst on top: over the ceiling
+                int back = -1;
+                for (int c = 0; c < 150; c++)
+                {
+                    Arrive(BuffersPerCallback);
+                    playback.RenderCallback(q, ref buffer, ref offset, output, false, 2, () => true);
+                    long depth = q.Count * (long)FramesPerBuffer + (playback.ShifterForTest?.Available ?? 0);
+                    if (back < 0 && depth <= 6 * FramesPerBuffer + 480) back = c + 1;
+                }
+                return (playback.TrimmedBuffers, playback.CatchUpRemovedFrames, back);
+            }
+            var on = Run(RxCatchUpMode.On);
+            var off = Run(RxCatchUpMode.Off);
+            _out.WriteLine($"catch-up: {on.trimmed} buffer(s) trimmed, {on.caughtUp / 48.0:0} ms caught up, back to the reserve after {on.callbacks} callbacks; today: {off.trimmed} buffer(s) trimmed, back after {off.callbacks}");
+            Assert.Equal(0, on.trimmed);
+            Assert.True(on.caughtUp >= 190 * 48, $"only {on.caughtUp / 48.0:0} ms caught up");
+            // 200 ms at the 50 percent gap rate, eased in: about a second; well inside three.
+            Assert.InRange(on.callbacks, 2, 30);
+            Assert.True(off.trimmed >= 20, "today's ceiling trim did not discard the burst");
+        }
     }
 }

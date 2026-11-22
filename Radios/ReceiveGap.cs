@@ -58,6 +58,14 @@ namespace Radios
         /// forced-loss bench step measures it.
         /// </summary>
         public const int ConcealCapFrames = 4;
+
+        /// <summary>
+        /// Whether a gap over the cap is first concealed for <see cref="ConcealCapFrames"/>
+        /// before its seam is joined (Sprint 49 Track P2, item 5: "build it the way
+        /// that measures better"). Measured in <c>RxSeamJoinTests</c> on real Opus;
+        /// see the report for the figures behind this value.
+        /// </summary>
+        public const bool ConcealBeforeSeam = false;
     }
 
     /// <summary>What the receive loop does about one consumed packet's gap.</summary>
@@ -101,8 +109,21 @@ namespace Radios
         public long GapsSwitchedOff { get; private set; }
         public long GapsWhileMuted { get; private set; }
         public long PacketsDroppedForTest { get; private set; }
+        public long SeamsJoined { get; private set; }
 
-        public ReceiveGapTracker(bool concealEnabled = true) { ConcealEnabled = concealEnabled; }
+        /// <summary>
+        /// Whether a gap the loop does not make up is joined by the playback
+        /// queue (a seam mark and a matched fade) rather than spliced: true when
+        /// receive catch-up is on (Track P2). Fixed for the run.
+        /// </summary>
+        public bool JoinsSeams { get; }
+
+        public ReceiveGapTracker(bool concealEnabled = true) : this(concealEnabled, JJPortaudio.RxPlaybackQueue.JoinsSeams) { }
+
+        public ReceiveGapTracker(bool concealEnabled, bool joinsSeams) { ConcealEnabled = concealEnabled; JoinsSeams = joinsSeams; }
+
+        /// <summary>A seam mark went with the packet after a gap (Track P2).</summary>
+        public void NoteSeam() => SeamsJoined++;
 
         /// <summary>Playback (re)started at this packet; the next one is consecutive to it.</summary>
         public void Seed(int sequence, double timestamp)
@@ -148,10 +169,12 @@ namespace Radios
         {
             return "receive gaps this run: " + FramesConcealed + " frame(s) concealed and "
                 + FramesRecovered + " recovered by FEC, across " + GapsConcealed + " gap(s); "
-                + GapsOverCap + " gap(s) over the " + ReceiveGap.ConcealCapFrames + "-frame cap spliced ("
+                + GapsOverCap + " gap(s) over the " + ReceiveGap.ConcealCapFrames + "-frame cap "
+                + (JoinsSeams ? "joined with a matched fade" : "spliced") + " ("
                 + FramesOverCap + " frame(s))"
                 + (ConcealEnabled ? "" : "; concealment SWITCHED OFF by JJFLEX_RX_CONCEAL, "
-                    + GapsSwitchedOff + " gap(s) spliced")
+                    + GapsSwitchedOff + " gap(s) " + (JoinsSeams ? "joined" : "spliced"))
+                + (JoinsSeams ? "; " + SeamsJoined + " seam mark(s) sent to the playback queue" : "")
                 + "; " + GapsWhileMuted + " gap(s) while muted for take playback"
                 + (PacketsDroppedForTest > 0 ? "; " + PacketsDroppedForTest + " packet(s) dropped by JJFLEX_RX_DROP_TEST" : "");
         }

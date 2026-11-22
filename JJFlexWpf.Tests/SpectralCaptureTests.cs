@@ -49,6 +49,10 @@ public sealed class SpectralCaptureTests
         try
         {
             using var p = new RxAudioPipeline(); p.SpectralEnabled = true;
+            // Its subject is passthrough with no profile, buffer by buffer: today's path. With the
+            // lag shifter (Sprint 49 Track P2) loading or clearing a profile turns the slot on or
+            // off smoothly over many buffers instead (LagShifterSlotTests).
+            p.SpectralSlot.ShifterOverrideForTest = false;
             for (int frame = 0; frame < 4; frame++) { var a = Audio(frame); p.Process(a); Assert.Equal(Audio(frame), a); }
             Assert.True(p.LoadNoiseProfile(ProfileFile(dir)));
             bool changed = false;
