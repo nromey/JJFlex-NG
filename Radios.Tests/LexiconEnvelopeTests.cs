@@ -3045,6 +3045,9 @@ namespace Radios.Tests
                 // DRAFT facts for Codex to word; not approved copy.
                 "settings.operator.not_loaded",
                 "settings.operator.read_only",
+                // Repair 2: a Delete that could not remove the file says so,
+                // for any reason. DRAFT, not approved copy.
+                "settings.operator.delete_failed",
                 // #1189 item 2, a typed notch frequency outside the range a notch can go.
                 "settings.tnf.frequency_out_of_range",
                 // Junk box #1172 (2026-11-19, the 60 m table to the FCC's 2026

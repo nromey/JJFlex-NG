@@ -716,8 +716,8 @@ Public Class PersonalData
 
     ''' <summary>
     ''' Tells the operator that changes to an operator cannot be kept while its
-    ''' file is read-only (#1253): once per file per session for a save, and
-    ''' for each delete that could not remove the file. Replaceable so a test
+    ''' file is read-only (#1253): once per file per session, for a save. A
+    ''' failed delete has its own notice. Replaceable so a test
     ''' never opens it. Receives the file's name.
     ''' </summary>
     Friend Shared OperatorFileReadOnlyNotice As Action(Of String) = AddressOf ShowOperatorFileReadOnly
@@ -725,6 +725,21 @@ Public Class PersonalData
     Private Shared Sub ShowOperatorFileReadOnly(name As String)
         ' DRAFT wording, settings.operator.read_only.
         MessageBox.Show(Radios.Lexicon.Get("settings.operator.read_only", ("file", CObj(name))),
+                        Radios.Lexicon.Get("settings.lister.operator_title"), MessageBoxButtons.OK)
+    End Sub
+
+    ''' <summary>
+    ''' Tells the operator that Delete could not remove an operator file
+    ''' (#1253 repair 2): for any failure, read-only or held open by another
+    ''' program, so it never claims a cause. Once per failed Delete, with no
+    ''' once-per-file gate. Replaceable so a test never opens it. Receives the
+    ''' file's name.
+    ''' </summary>
+    Friend Shared OperatorFileNotDeletedNotice As Action(Of String) = AddressOf ShowOperatorFileNotDeleted
+
+    Private Shared Sub ShowOperatorFileNotDeleted(name As String)
+        ' DRAFT wording, settings.operator.delete_failed.
+        MessageBox.Show(Radios.Lexicon.Get("settings.operator.delete_failed", ("file", CObj(name))),
                         Radios.Lexicon.Get("settings.lister.operator_title"), MessageBoxButtons.OK)
     End Sub
 
@@ -1141,8 +1156,11 @@ Public Class PersonalData
             Catch ex As Exception
                 Tracing.TraceLine("PersonalData: the operator was removed from the list, but its file could not be deleted: " &
                                   fileName & " (" & ex.Message & ")", TraceLevel.Error)
-                If OperatorFileReadOnlyNotice IsNot Nothing Then
-                    OperatorFileReadOnlyNotice(Path.GetFileName(fileName))
+                ' Its own notice (repair 2): the failure may be read-only or a
+                ' file another program holds, so the read-only sentence would
+                ' be untrue for the second.
+                If OperatorFileNotDeletedNotice IsNot Nothing Then
+                    OperatorFileNotDeletedNotice(Path.GetFileName(fileName))
                 End If
             End Try
         End If

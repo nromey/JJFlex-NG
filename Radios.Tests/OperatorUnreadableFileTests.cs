@@ -306,7 +306,36 @@ namespace Radios.Tests
             });
 
             Assert.True(File.Exists(b), "positive control: the read-only file really could not be deleted");
-            Assert.Equal(new[] { "B_Second.xml" }, seen.ReadOnlyTold);
+            // Its own notice since repair 2: a failed Delete says it could not
+            // delete the file, never the save's read-only sentence.
+            Assert.Equal(new[] { "B_Second.xml" }, seen.NotDeleted);
+            Assert.Empty(seen.ReadOnlyTold);
+        }
+
+        /// <summary>
+        /// A file another program holds open (sharing no delete) cannot be
+        /// deleted either, and it is NOT read-only: the delete's own notice,
+        /// never the read-only one (repair 2; both #1253 checkers found the
+        /// read-only sentence said for any failure).
+        /// </summary>
+        [Fact]
+        public void Deleting_an_operator_whose_file_another_program_holds_says_it_was_not_deleted()
+        {
+            Good("A_First.xml", isDefault: true);
+            string b = Good("B_Second.xml");
+
+            var seen = Load(app =>
+            {
+                // Held after the load, so the file loaded and only the delete fails.
+                using (new FileStream(b, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    Assert.True(app.RemoveAt(1));
+                Assert.Equal(new[] { "A_First" }, app.Handles());
+            });
+
+            Assert.True(File.Exists(b), "positive control: the held file really could not be deleted");
+            Assert.False(File.GetAttributes(b).HasFlag(FileAttributes.ReadOnly), "positive control: it is not read-only");
+            Assert.Equal(new[] { "B_Second.xml" }, seen.NotDeleted);
+            Assert.Empty(seen.ReadOnlyTold);
         }
 
         [Fact]
@@ -332,6 +361,7 @@ namespace Radios.Tests
             var seen = Load(app => Assert.True(app.RemoveAt(1)));
             Assert.False(File.Exists(b));
             Assert.Empty(seen.ReadOnlyTold);
+            Assert.Empty(seen.NotDeleted);
             Assert.Empty(seen.NotLoaded);
         }
 
@@ -414,6 +444,7 @@ namespace Radios.Tests
             public List<string> NotLoaded { get; } = new();
             public int NotLoadedCalls { get; set; }
             public List<string> ReadOnlyTold { get; } = new();
+            public List<string> NotDeleted { get; } = new();
             public int NotSavedCalls { get; set; }
             public string[] Handles { get; set; } = Array.Empty<string>();
         }
@@ -481,6 +512,8 @@ namespace Radios.Tests
                     new Action<IReadOnlyList<string>>(names => { seen.NotLoadedCalls++; seen.NotLoaded.AddRange(names); }));
                 pd.GetField("OperatorFileReadOnlyNotice", statics)!.SetValue(null,
                     new Action<string>(name => seen.ReadOnlyTold.Add(name)));
+                pd.GetField("OperatorFileNotDeletedNotice", statics)!.SetValue(null,
+                    new Action<string>(name => seen.NotDeleted.Add(name)));
                 pd.GetField("OperatorNotSavedNotice", statics)!.SetValue(null, new Action(() => seen.NotSavedCalls++));
 
                 object instance = pd.GetConstructor(new[] { typeof(string) })!.Invoke(new object[] { _base });
