@@ -253,14 +253,16 @@ public sealed class EngineKeepUpHelperTests
     /// <summary>A receive pipeline whose NNR runs on the stub helper, as HelperSlotTests builds it.</summary>
     private sealed class Pipe : IDisposable
     {
-        public readonly HelperTestRig Rig = new();
+        public readonly HelperTestRig Rig;
         public readonly RxAudioPipeline Pipeline;
         public readonly ConcurrentBag<WdspHelperEngine> Made = new();
         public readonly ConcurrentQueue<EngineKeepUpResult> Results = new(), Delivery = new();
         private int _salt;
 
-        public Pipe()
+        /// <param name="args">The stub's test options, if any (by launch).</param>
+        public Pipe(Func<int, IReadOnlyList<string>>? args = null)
         {
+            Rig = new HelperTestRig(args);
             var host = Rig.Host;
             var rows = new[] {
                 new DenoiseEngineEntry("nnr", DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise.nnr",
@@ -335,19 +337,39 @@ public sealed class EngineKeepUpHelperTests
         Assert.Equal(0, meter.Read(bank, Stopwatch.GetTimestamp()).Frames);
     }
 
+    /// <summary>
+    /// Sprint 49 Track P2 repair 4, for Track L's record (Codex's re-check 3 of the P2
+    /// branch at 7a8b2f90): this starved the warm-up by feeding buffers as fast as
+    /// possible and assuming the fast echo helper could not answer in time. That is a
+    /// throughput race: any extra work per buffer (P2's classifier, a loaded machine) gave
+    /// the answers time to arrive, the warm-up ended, and it failed one run in eight
+    /// alone and once in a full x86 run. The starvation is now explicit, in the test
+    /// only: the stub holds each channel's answer until sixteen more of that channel's
+    /// frames have arrived (past the deepest pipeline the Advanced tab allows), so every
+    /// answer is late by frames whatever the pace, while answers keep arriving and the
+    /// connection stays healthy. Nothing in the product changed; no deadline moved.
+    /// </summary>
     [Fact]
     public void Through_the_real_pipeline_a_fast_helper_whose_warm_up_is_starved_of_answers_raises_only_the_delivery_diagnostic()
     {
-        using var p = new Pipe();
+        const int behind = 16;
+        Assert.True(behind > WdspPipelineDepth.MaxReceiveDepth, "the gate must hold answers past every pipeline depth");
+        using var p = new Pipe(_ => new[] { "--answer-behind", behind.ToString(System.Globalization.CultureInfo.InvariantCulture) });
         p.Pipeline.RnnEnabled = true;
         Assert.True(p.Pipeline.SelectPcEngine("nnr"));
-        // Hurried from the start: the answers never arrive in time, so the warm-up never ends.
         // One buffer asks for the build; then wait, feeding nothing, until it is delivered.
         p.Hurried();
         HelperTestRig.Until(() => p.Pipeline.NeuralSlot.BuildDelivered("nnr"), "the nnr bank delivered");
         for (int i = 0; i < EngineKeepUpRule.DefaultStuckWarmup + 50; i++) p.Hurried();
         Assert.True(p.Has(p.Delivery, EngineKeepUpChange.FellBehind), "the warm-up that never ended was never seen");
         Assert.False(p.Has(p.Results, EngineKeepUpChange.FellBehind, 100), "a fast helper whose warm-up was starved was warned about");
+        // Starved by the gate, not by silence: the answers kept coming, each one fast.
+        long answers = 0, nanos = 0;
+        foreach (var e in p.Made)
+            if (e.Channel is { } ch && ch.TryReadServed(out long a, out long t)) { answers += a; nanos += t; }
+        _out.WriteLine($"{answers} answers arrived, every one {behind} frames late, at {(answers > 0 ? nanos / answers : 0)} ns each; the connection stayed up");
+        Assert.True(answers >= EngineKeepUpRule.DefaultStuckWarmup, "the answers stopped: the connection, not the gate, starved the warm-up");
+        Assert.False(HelperServiceTime.Late(nanos / answers), "the stub's echo is far inside 10 ms");
     }
 
     [Fact]
