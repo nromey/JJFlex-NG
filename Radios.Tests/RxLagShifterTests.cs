@@ -615,13 +615,228 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// Codex's re-check 3 of 7a8b2f90, from source: a cut moves the read point to its
+        /// new side at once while its fade goes on reading the old side from the ring, and
+        /// Write measured its room from the read point only. So a write that did not
+        /// overflow could overwrite a part-heard cut's old side, and the fade then played
+        /// the replaced audio, or a later overflow kept it as the continuation. Codex's
+        /// sequence: a 96,000-frame ring, 90,000 frames written (0.2, then 0.8 from 40,000),
+        /// a cut at 0 of 40,000 with 100 frames heard, 30,000 more written (wrapping over
+        /// positions 0 to 23,999 without overflowing), then 15,000 more (which overflow).
+        /// The control is the same shifter with nothing more written: what it plays next is
+        /// what was about to be heard, and the history must not have changed it.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void A_write_that_does_not_overflow_leaves_a_part_heard_cut_its_old_side(bool thenOverflow)
+        {
+            const int cap = 96000, F = 480;
+            RxLagShifter Start()
+            {
+                var sh = new RxLagShifter(2, cap, Rate);
+                var x = new float[90000 * 2];
+                for (int f = 0; f < 90000; f++) x[2 * f] = x[2 * f + 1] = f < 40000 ? 0.2f : 0.8f;
+                sh.Write(x, RxContentClass.NoSplice);
+                sh.RequestCut(0, 40000);
+                sh.Render(new float[100 * 2]);
+                return sh;
+            }
+            var control = Start();
+            var expected = new float[F * 2];
+            control.Render(expected);
+            var s = Start();
+            Assert.Equal(3, s.FadeKindForTest);
+            var more = new float[30000 * 2];
+            Array.Fill(more, 0.8f);
+            s.Write(more, RxContentClass.NoSplice);
+            Assert.Equal(0, s.OverflowFrames);
+            float[] got;
+            if (thenOverflow)
+            {
+                s.Write(more.AsSpan(0, 15000 * 2), RxContentClass.NoSplice);
+                Assert.True(s.OverflowFrames > 0, "the last write did not overflow");
+                got = s.KeptForTest(F);
+            }
+            else
+            {
+                got = new float[F * 2];
+                s.Render(got);
+            }
+            int wrong = Enumerable.Range(0, got.Length).Count(i => got[i] != expected[i]);
+            _out.WriteLine($"{(thenOverflow ? "kept by the overflow" : "rendered")}: {wrong} of {got.Length} samples differ from the control; first {got[0]:0.000000} against {expected[0]:0.000000}, frame 200 {got[400]:0.000000} against {expected[400]:0.000000}");
+            Assert.Equal(0, s.ReadsPastWrite);
+            Assert.Equal(expected, got);
+        }
+
+        /// <summary>The audit for every other fade (repair 4): a fuzz's content, a function of its position, so the ring can be checked against it anywhere.</summary>
+        private static float Content(long p, int c)
+        {
+            // 200 ms of noise, then 300 ms near the floor, over and over: gap splices and seam joins both find work.
+            double amp = p % 24000 < 9600 ? 0.3 : 0.002;
+            uint h = unchecked((uint)p * 2654435761u ^ (uint)(c * 40503 + 1));
+            h ^= h >> 15; h = unchecked(h * 2246822519u); h ^= h >> 13;
+            return (float)(amp * ((h & 0xFFFF) / 32768.0 - 1.0));
+        }
+
+        /// <summary>
+        /// Codex's re-check 3 asked for part-heard splices and seams to be audited the same
+        /// way as the cut. Every write that does not overflow (a third of them fill the ring
+        /// exactly to its limit) is followed by a check that whatever the fade in progress
+        /// still plays for its old side, from the ring or from the copy a far one makes when
+        /// it begins, is still the audio written at those positions.
+        /// </summary>
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        public void No_write_that_fits_overwrites_what_a_part_heard_fade_still_reads(int seed)
+        {
+            const int cap = 24000;
+            int reserve = 2 * RxLagShifter.MaxLagFramesAt(Rate) + 480;
+            var rng = new Random(seed);
+            var s = new RxLagShifter(2, cap, Rate);
+            var w = new float[cap * 2];
+            var r = new float[960 * 2];
+            var seen = new int[5];
+            int copied = 0;
+            long longest = 0;
+            for (int step = 0; step < 30000; step++)
+            {
+                int op = rng.Next(12);
+                if (op < 5)
+                {
+                    long room = cap - reserve - s.Available;
+                    int n = rng.Next(3) == 0 ? (int)Math.Max(0, room) : rng.Next(1, 1500);
+                    if (n == 0) continue;
+                    long at = s.WritePosition;
+                    for (int f = 0; f < n; f++) { w[2 * f] = Content(at + f, 0); w[2 * f + 1] = Content(at + f, 1); }
+                    long overflowed = s.OverflowFrames;
+                    s.Write(w.AsSpan(0, n * 2), RxContentClass.Classified | RxContentClass.NotVoiceRun, seamBefore: rng.Next(12) == 0);
+                    if (s.OverflowFrames != overflowed) continue;
+                    var (from, to) = s.OldSideStillPlayedForTest;
+                    if (to <= from) continue;
+                    seen[s.FadeKindForTest]++;
+                    if (s.OldSideCopiedForTest) copied++;
+                    else longest = Math.Max(longest, s.ReadPosition - from);
+                    for (long p = from; p < to; p++)
+                        for (int c = 0; c < 2; c++)
+                            Assert.True(s.OldSideForTest(p, c) == Content(p, c),
+                                $"step {step}: fade kind {s.FadeKindForTest} still plays position {p}, {s.ReadPosition - p} behind the read point{(s.OldSideCopiedForTest ? " from its copy" : "")}, and a write that fit replaced it");
+                }
+                else if (op < 10) s.Render(r.AsSpan(0, rng.Next(1, 960) * 2));
+                else if (op == 10) s.Request(rng.Next(480, 6000), LagPolicy.CatchUp, LagCause.LateAudio);
+                else if (rng.Next(4) == 0) s.RequestCut(s.ReadPosition + rng.Next(0, 2400), rng.Next(480, 12000));
+                Assert.Equal(0, s.ReadsPastWrite);
+            }
+            _out.WriteLine($"seed {seed}: checked after writes that fit, part-way through {seen[1]} splices, {seen[2]} seam joins and {seen[3]} cuts ({copied} of them playing a copied old side); an old side read from the ring reached {longest} frames behind the read point (the history kept is {reserve}); {s.TotalGapSplices} gap and {s.TotalPeriodSplices} period splices, {s.TotalSeamJoins} seams, {s.TotalCutFrames} frames cut, {s.OverflowFrames} overflowed");
+            Assert.True(seen[1] > 0 && seen[2] > 0 && seen[3] > 0, "the audit never caught a splice, a seam and a cut part-way");
+        }
+
+        /// <summary>
+        /// Codex's re-check 3: the continuation an overflow keeps skipped a pending dry
+        /// fade-in when no fade was in progress. Audio that has run dry and comes back in
+        /// one burst large enough to overflow (a stalled stream's backlog) then started at
+        /// full level out of silence, and the fade-in was played later instead, as a dip in
+        /// the middle of the audio. The control is the same shifter with nothing more written.
+        /// </summary>
+        [Fact]
+        public void An_overflow_straight_after_running_dry_keeps_the_fade_in_and_plays_it_once()
+        {
+            const int cap = 96000, F = 480;
+            int reserve = 2 * RxLagShifter.MaxLagFramesAt(Rate) + 480;
+            RxLagShifter Start()
+            {
+                var sh = new RxLagShifter(2, cap, Rate) { DryFades = true };
+                var x = new float[4800 * 2];
+                Array.Fill(x, 0.5f);
+                sh.Write(x, RxContentClass.NoSplice);
+                sh.Render(new float[9600 * 2]);
+                Assert.True(sh.Dry, "the shifter did not run dry");
+                var fill = new float[(cap - reserve) * 2];
+                Array.Fill(fill, 0.5f);
+                sh.Write(fill, RxContentClass.NoSplice);
+                Assert.Equal(0, sh.OverflowFrames);
+                return sh;
+            }
+            var control = Start();
+            var expected = new float[F * 2];
+            control.Render(expected);
+            Assert.True(expected[0] < 0.05f && expected[^1] == 0.5f, "positive control: Render fades in out of the dry spell");
+            var s = Start();
+            var more = new float[1000 * 2];
+            Array.Fill(more, 0.5f);
+            s.Write(more, RxContentClass.NoSplice);
+            Assert.True(s.OverflowFrames > 0, "the burst did not overflow");
+            var kept = s.KeptForTest(F);
+            var y = new float[3 * F * 2];
+            s.Render(y);
+            float after = y.Skip(F * 2).Min();
+            _out.WriteLine($"kept first {kept[0]:0.000000} (control {expected[0]:0.000000}); first heard {y[0]:0.000000}; quietest after the overflow's fade {after:0.000000}");
+            Assert.Equal(expected, kept);
+            Assert.True(y[0] < 0.05f, $"the burst started at {y[0]:0.000} out of silence");
+            Assert.Equal(0.5f, after);
+        }
+
+        /// <summary>
+        /// The other half of Codex's re-check 3 on the kept continuation: it does not run
+        /// Render's decision loop once the fade in progress ends, so it is NOT what Render
+        /// would play when Render would start something new inside it. The claim is now
+        /// narrowed to say so. Here a cut part-way ends inside the kept frames and a second
+        /// cut is due exactly where it ends: the kept frames are the first cut's fade, then
+        /// the ring straight on, and the control (the same shifter, rendered) shows Render
+        /// starting the second cut there instead.
+        /// </summary>
+        [Fact]
+        public void The_kept_continuation_is_the_fade_in_progress_then_the_ring_straight_on()
+        {
+            const int cap = 96000, F = 480;
+            var x = Noise(90000, 61, 0.3);
+            RxLagShifter Start()
+            {
+                var sh = new RxLagShifter(2, cap, Rate);
+                sh.Write(x, RxContentClass.NoSplice);
+                sh.RequestCut(0, 2000);
+                sh.Render(new float[100 * 2]);
+                sh.RequestCut(2000 + F, 3000);
+                return sh;
+            }
+            var control = Start();
+            var rendered = new float[F * 2];
+            control.Render(rendered);
+            var s = Start();
+            var more = new float[7000 * 2];
+            Array.Fill(more, 0.1f);
+            s.Write(more, RxContentClass.NoSplice);
+            Assert.True(s.OverflowFrames > 0, "the write did not overflow");
+            var kept = s.KeptForTest(F);
+            int fadeLeft = F - 100;
+            var straight = x.AsSpan((2000 + F) * 2, 100 * 2).ToArray();
+            float differs = 0;
+            for (int i = fadeLeft * 2; i < F * 2; i++) differs = Math.Max(differs, Math.Abs(rendered[i] - straight[i - fadeLeft * 2]));
+            _out.WriteLine($"kept: the cut's last {fadeLeft} frames, then {F - fadeLeft} straight; Render instead starts the second cut there (largest difference {differs:0.000})");
+            Assert.Equal(rendered.AsSpan(0, fadeLeft * 2).ToArray(), kept.AsSpan(0, fadeLeft * 2).ToArray());
+            Assert.Equal(straight, kept.AsSpan(fadeLeft * 2).ToArray());
+            Assert.True(differs > 0.05f, "positive control: Render did not start the second cut inside the kept frames");
+        }
+
+        /// <summary>
         /// No shifter puts anything on the large-object heap (repair 3, the cause of the
         /// allocation-test flakes): a large-object allocation starts background
         /// collections, and a background collection retires every thread's allocation
         /// block, which GC.GetAllocatedBytesForCurrentThread then reports as up to 8 KB
         /// allocated on threads that allocated nothing. The ring is held in segments of
-        /// at most 64 KB. A large object reports generation 2 the moment it exists.
-        /// Sizes: a pad line (12,000 plus 8,192), a dry line, the queue's 4.5 s ring, mono.
+        /// at most 64 KB. Sizes: a pad line (12,000 plus 8,192), a dry line, the queue's
+        /// 4.5 s ring, mono.
+        /// <para>
+        /// Repair 4 (Codex's re-check 3): this asserted each segment was still in
+        /// generation 0, which is only true if no collection ran since it was allocated; one
+        /// full run caught a segment in generation 1. What makes an array a large object is
+        /// its size against the runtime's threshold, so that is what is checked, against the
+        /// threshold this process actually runs with. The plain array of the same size is
+        /// still the positive control: a large object reports generation 2 from the moment it
+        /// exists, whatever has collected since.
+        /// </para>
         /// </summary>
         [Theory]
         [InlineData(2, 20192)]
@@ -632,11 +847,15 @@ namespace Radios.Tests
         {
             var s = new RxLagShifter(channels, capacity, Rate);
             var segments = s.SegmentsForTest;
-            Assert.True(segments.Length > 1 || capacity * channels * 4 < 85000);
+            long threshold = GC.GetConfigurationVariables().TryGetValue("LOHThreshold", out var configured) ? Convert.ToInt64(configured) : 85000;
+            // An array's size on the heap: its elements plus the object header, method table and length.
+            long Size(float[] a) => (long)a.Length * sizeof(float) + 3 * IntPtr.Size;
+            _out.WriteLine($"{channels} channel(s), {capacity} frames: {segments.Length} segments, the largest {segments.Max(Size)} bytes; the large-object threshold here is {threshold} bytes");
+            Assert.True(segments.Length > 1 || capacity * channels * 4 < threshold);
             foreach (var segment in segments)
             {
                 Assert.True(segment.Length * sizeof(float) <= 65536, $"a segment of {segment.Length * 4} bytes");
-                Assert.Equal(0, GC.GetGeneration(segment));
+                Assert.True(Size(segment) < threshold, $"a segment of {Size(segment)} bytes is a large object");
             }
             Assert.Equal(capacity * channels, segments.Sum(g => g.Length));
             // Positive control: a plain array of the same size IS a large object.

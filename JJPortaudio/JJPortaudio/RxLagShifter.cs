@@ -182,6 +182,10 @@ namespace JJPortaudio
         private long _fadeA, _fadeB;          // old side and new side, at fade frame 0
         private readonly float[] _fadeR;
         private float[] _overflowTail, _overflowNext;
+        // A fade whose old side lies further behind the read point than the history Write
+        // keeps (a cut, which skips a whole backlog) plays its old side from this copy.
+        private readonly float[] _oldCopy;
+        private bool _oldFromCopy;
 
         private long _out;                    // frames rendered, ever
         private long _nextDecision;
@@ -292,6 +296,9 @@ namespace JJPortaudio
             _cutFade = Ms(CutFadeMilliseconds);
             _overflowTail = new float[Math.Max(1, _cutFade) * _ch];
             _overflowNext = new float[_overflowTail.Length];
+            // The longest old side a ring fade reads: a cut's fade, or one period (a period
+            // splice fades over one lag; a seam's extension repeats one period).
+            _oldCopy = new float[Math.Max(Math.Max(1, _cutFade), _maxLag) * _ch];
             _seamFade = Ms(SeamFadeMilliseconds);
             _dryFade = Math.Max(1, Ms(DryFadeMilliseconds));
             _onsetBlock = Math.Max(1, Ms(OnsetBlockMilliseconds));
@@ -300,6 +307,9 @@ namespace JJPortaudio
         }
 
         private int Ms(double ms) => (int)Math.Round(_rate * ms / 1000.0);
+
+        /// <summary>The history Write keeps behind the read point: two longest lags and a cut's fade.</summary>
+        private int HistoryFrames => 2 * _maxLag + _cutFade;
 
         // ── Facts ──
 
@@ -470,8 +480,10 @@ namespace JJPortaudio
             if (seamBefore && _write > _validFrom) MarkSeamAt(_write);
             // Never overwrite audio not yet read, nor the history a fade needs:
             // the oldest unread audio is dropped instead, and counted (owner two
-            // only reaches this when a backlog passes the ring).
-            long room = _cap - (2 * _maxLag + _cutFade) - (_write - _read) - frames;
+            // only reaches this when a backlog passes the ring). A fade's old side
+            // further back than this history is copied when the fade begins
+            // (BeginFade), so the room is measured from the read point.
+            long room = _cap - HistoryFrames - (_write - _read) - frames;
             if (room < 0) Overflow(-room);
             int at = 0;
             while (at < frames)
@@ -547,6 +559,10 @@ namespace JJPortaudio
             Log(a, newSide, (int)(drop + best), F, _fadeR[0], 5);
             _fade = FadeKind.None;
             BeginFade(FadeKind.Overflow, a, newSide, F);
+            // The kept audio carries any dry fade-in Render would have played over it, and
+            // the fade brings the new side in from nothing: no fade-in is left to play
+            // after it (it would be a dip in the middle of the audio).
+            _fadeInLeft = 0;
             OverflowFrames += drop + best;
         }
 
@@ -611,13 +627,25 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// The next <paramref name="frames"/> frames exactly as Render would play them
-        /// from the state as it stands (any fade part-way included), into the kept
-        /// audio, with the state left as it was. Allocation-free.
+        /// The next <paramref name="frames"/> frames as Render would play them from the
+        /// state as it stands, PROVIDED Render starts nothing new in them: the fade in
+        /// progress (a splice, seam join, cut or earlier overflow part-way) to its end,
+        /// then the ring straight from the read point, with the dry fade-in Render would
+        /// apply. Into the kept audio, with the state left as it was. Allocation-free.
+        /// <para>
+        /// Narrowed in repair 4 (Codex's re-check 3 of 7a8b2f90): this used to claim
+        /// exact Render equivalence. It does NOT run Render's decision loop once the fade
+        /// in progress ends, so a splice, seam join or cut Render would have started
+        /// inside these frames is not in the copy. These frames are the old side of the
+        /// overflow's fade, faded out over the same 10 ms: a splice or cut there would only
+        /// remove or repeat audio the overflow is dropping anyway, and a seam inside them
+        /// (a lost packet's join, inside the 10 ms being faded away) is played straight
+        /// across, under the fade-out. The pending dry fade-in, which the old fast path for
+        /// "no fade" skipped, IS applied: it is part of what is about to be heard.
+        /// </para>
         /// </summary>
         private void CaptureContinuation(int frames)
         {
-            if (_fade == FadeKind.None) { CaptureFromRing(frames); return; }
             var fade = _fade; int fadeAt = _fadeAt, fadeHold = _fadeHold, fadeLen = _fadeLen, fadePeriod = _fadePeriod;
             long fadeA = _fadeA, fadeB = _fadeB, read = _read, outPos = _out, past = ReadsPastWrite, grow = _growGuard, lastEmitted = _lastEmitted;
             int fadeIn = _fadeInLeft, emitCount = _emitCount;
@@ -635,13 +663,6 @@ namespace JJPortaudio
             _fadeA = fadeA; _fadeB = fadeB; _read = read; _out = outPos; ReadsPastWrite = past; _growGuard = grow; _lastEmitted = lastEmitted;
             _fadeInLeft = fadeIn; _emitCount = emitCount;
             (_overflowTail, _overflowNext) = (_overflowNext, _overflowTail);
-        }
-
-        /// <summary>The next <paramref name="frames"/> frames straight from the ring at the read point (no fade in progress).</summary>
-        private void CaptureFromRing(int frames)
-        {
-            for (int f = 0; f < frames; f++)
-                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = R(_read + f, c);
         }
 
         /// <summary>Tests only: keep the ring's audio from <paramref name="pos"/> as the kept continuation.</summary>
@@ -1053,6 +1074,36 @@ namespace JJPortaudio
         /// <summary>Tests only: the ring's segments.</summary>
         internal float[][] SegmentsForTest => _seg;
 
+        /// <summary>Tests only: channel <paramref name="c"/> of the ring at <paramref name="pos"/>.</summary>
+        internal float RingForTest(long pos, int c) => R(pos, c);
+
+        /// <summary>Tests only: the first <paramref name="frames"/> frames of the kept continuation (an overflow's old side).</summary>
+        internal float[] KeptForTest(int frames) => _overflowTail.AsSpan(0, frames * _ch).ToArray();
+
+        /// <summary>Tests only: what the fade in progress plays for its old side at <paramref name="pos"/>, from wherever it reads it.</summary>
+        internal float OldSideForTest(long pos, int c) => _oldFromCopy ? _oldCopy[(int)(pos - _fadeA) * _ch + c] : R(pos, c);
+
+        /// <summary>Tests only: the fade in progress reads its old side from a copy made when it began.</summary>
+        internal bool OldSideCopiedForTest => _oldFromCopy;
+
+        /// <summary>Tests only: the fade in progress (0 none, 1 splice, 2 seam, 3 cut, 4 overflow).</summary>
+        internal int FadeKindForTest => (int)_fade;
+
+        /// <summary>
+        /// Tests only: the positions [From, To) whose audio the fade in progress still
+        /// plays for its old side (from the ring or from its copy), or an empty range for
+        /// none, or for an overflow (whose old side is the continuation kept).
+        /// </summary>
+        internal (long From, long To) OldSideStillPlayedForTest
+        {
+            get
+            {
+                if (_fade == FadeKind.None || _fade == FadeKind.Overflow) return (0, 0);
+                if (_fade == FadeKind.Seam) return (_fadeA, _fadeA + Math.Min(_fadePeriod, _fadeHold + _fadeLen));
+                return (_fadeA + _fadeAt, _fadeA + _fadeHold + _fadeLen);
+            }
+        }
+
         private float Sample(long pos, int c)
         {
             if (pos >= _write) ReadsPastWrite++;
@@ -1071,7 +1122,7 @@ namespace JJPortaudio
                 if (k < _fadeHold)
                 {
                     // A seam's extension of the audio before, alone, until its phase meets the audio after.
-                    for (int c = 0; c < _ch; c++) dst[f * _ch + c] = Sample(oldPos, c);
+                    for (int c = 0; c < _ch; c++) dst[f * _ch + c] = OldSide(oldPos, c);
                     continue;
                 }
                 int j = k - _fadeHold;
@@ -1080,9 +1131,7 @@ namespace JJPortaudio
                 for (int c = 0; c < _ch; c++)
                 {
                     float r = _fade == FadeKind.Cut ? 0f : _fadeR[c];
-                    // An overflow's old side may already be overwritten: it plays from the copy kept.
-                    float old = _fade == FadeKind.Overflow ? _overflowTail[j * _ch + c] : Sample(oldPos, c);
-                    dst[f * _ch + c] = old * CrossFadeCurve.Out(t, r) + Sample(newPos, c) * CrossFadeCurve.In(t, r);
+                    dst[f * _ch + c] = OldSide(oldPos, c) * CrossFadeCurve.Out(t, r) + Sample(newPos, c) * CrossFadeCurve.In(t, r);
                 }
             }
             if (CarrySeams && _carryCount > 0)
@@ -1100,6 +1149,18 @@ namespace JJPortaudio
             return n;
         }
 
+        /// <summary>
+        /// The fade's old side at <paramref name="oldPos"/>: an overflow's from the
+        /// continuation kept, a far one's from its copy, any other's from the ring.
+        /// </summary>
+        private float OldSide(long oldPos, int c)
+        {
+            int k = (int)(oldPos - _fadeA);
+            if (_fade == FadeKind.Overflow) return _overflowTail[k * _ch + c];
+            if (_oldFromCopy) return _oldCopy[k * _ch + c];
+            return Sample(oldPos, c);
+        }
+
         private void BeginFade(FadeKind kind, long oldSide, long newSide, int length, int period = 0, int hold = 0)
         {
             _fadeHold = Math.Max(0, hold);
@@ -1109,6 +1170,25 @@ namespace JJPortaudio
             _fadeLen = Math.Max(1, length);
             _fadeAt = 0;
             _fadePeriod = period > 0 ? period : int.MaxValue;
+            // The read point moves to the new side now, but the fade reads its old side
+            // until it ends, and Write keeps only HistoryFrames behind the read point. An
+            // old side further back than that (a cut skips a whole backlog) would be
+            // overwritten by a write that fits, so it is copied now, while it is intact
+            // (Codex's re-check 3 of 7a8b2f90). A seam's old side stays put while the read
+            // point moves on through the fade, so its distance is measured at the end.
+            _oldFromCopy = false;
+            if (kind != FadeKind.Overflow)
+            {
+                bool seam = kind == FadeKind.Seam;
+                long farthest = newSide + (seam ? _fadeLen : 0) - oldSide;
+                int span = seam ? Math.Min(_fadePeriod, _fadeHold + _fadeLen) : _fadeHold + _fadeLen;
+                if (farthest > HistoryFrames && span * _ch <= _oldCopy.Length)
+                {
+                    for (int f = 0; f < span; f++)
+                        for (int c = 0; c < _ch; c++) _oldCopy[f * _ch + c] = Sample(oldSide + f, c);
+                    _oldFromCopy = true;
+                }
+            }
             // A removal never plays [old side's end, new side): a carried seam there comes out at the fade.
             if (CarrySeams && _carryCount > 0 && newSide > oldSide + _fadeLen) EmitRange(oldSide + _fadeLen, newSide - oldSide - _fadeLen, _out);
             _read = newSide;
