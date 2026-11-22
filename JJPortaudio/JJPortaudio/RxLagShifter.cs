@@ -117,7 +117,14 @@ namespace JJPortaudio
         // ── The ring ──
 
         private readonly int _ch, _cap, _rate;
-        private readonly float[] _ring;
+        // The ring, in segments of at most 64 KB, so no shifter puts anything on the
+        // large-object heap. Found in repair 3: large-object allocations start background
+        // collections, and a background collection retires every thread's allocation
+        // block, which GC.GetAllocatedBytesForCurrentThread then reports as up to 8 KB
+        // "allocated" on threads that allocated nothing. With the branch's rings three
+        // times phase one's, the test suite's allocation checks failed at random.
+        private readonly float[][] _seg;
+        private readonly int _segShift, _segMask;
         private long _write, _read, _validFrom;
 
         // ── Per-block facts, 10 ms blocks aligned to the write position ──
@@ -247,7 +254,13 @@ namespace JJPortaudio
             _block = Math.Max(1, _rate / 100);
             int minCap = 4 * _block + 4 * MaxLagFramesAt(_rate);
             _cap = Math.Max(capacityFrames, minCap);
-            _ring = new float[_cap * _ch];
+            int segFrames = 1;
+            while (segFrames * 2 * _ch * sizeof(float) <= 65536) segFrames *= 2;
+            _segShift = System.Numerics.BitOperations.Log2((uint)segFrames);
+            _segMask = segFrames - 1;
+            int segments = (_cap + segFrames - 1) / segFrames;
+            _seg = new float[segments][];
+            for (int k = 0; k < segments; k++) _seg[k] = new float[Math.Min(segFrames, _cap - k * segFrames) * _ch];
             _blocks = _cap / _block + 4;
             _blockEnergy = new float[_blocks * _ch];
             _blockSum = new float[_blocks];
@@ -468,11 +481,13 @@ namespace JJPortaudio
                 n = Math.Min(n, _block - _accFrames);
                 for (int f = 0; f < n; f++)
                 {
-                    int src = (at + f) * _ch, dst = (idx + f) * _ch;
+                    int src = (at + f) * _ch, i = idx + f;
+                    var segment = _seg[i >> _segShift];
+                    int dst = (i & _segMask) * _ch;
                     for (int c = 0; c < _ch; c++)
                     {
                         float v = data[src + c];
-                        _ring[dst + c] = v;
+                        segment[dst + c] = v;
                         _acc[c] += (double)v * v;
                     }
                 }
@@ -566,10 +581,12 @@ namespace JJPortaudio
             for (int c = 0; c < _ch; c++)
             {
                 double xy = 0, xx = 0, yy = 0;
+                int ib = Idx(b);
                 for (int i = 0; i < _window; i += stride)
                 {
-                    float x = _overflowTail[i * _ch + c], y = _ring[Idx(b + i) * _ch + c];
+                    float x = _overflowTail[i * _ch + c], y = _seg[ib >> _segShift][(ib & _segMask) * _ch + c];
                     xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
+                    ib += stride; if (ib >= _cap) ib -= _cap;
                 }
                 if (xx < 1e-12 && yy < 1e-12) continue;
                 float r = xx < 1e-12 || yy < 1e-12 ? 0f : (float)(xy / Math.Sqrt(xx * yy));
@@ -586,7 +603,7 @@ namespace JJPortaudio
                 double xy = 0, xx = 0, yy = 0;
                 for (int k = 0; k < len; k++)
                 {
-                    float x = _overflowTail[k * _ch + c], y = _ring[Idx(newSide + k) * _ch + c];
+                    float x = _overflowTail[k * _ch + c], y = R(newSide + k, c);
                     xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
                 }
                 _fadeR[c] = xx < 1e-12 || yy < 1e-12 ? 0f : (float)Math.Clamp(xy / Math.Sqrt(xx * yy), 0, 1);
@@ -624,14 +641,14 @@ namespace JJPortaudio
         private void CaptureFromRing(int frames)
         {
             for (int f = 0; f < frames; f++)
-                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = _ring[Idx(_read + f) * _ch + c];
+                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = R(_read + f, c);
         }
 
         /// <summary>Tests only: keep the ring's audio from <paramref name="pos"/> as the kept continuation.</summary>
         internal void KeepForTest(long pos)
         {
             for (int f = 0; f < _cutFade; f++)
-                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = _ring[Idx(pos + f) * _ch + c];
+                for (int c = 0; c < _ch; c++) _overflowTail[f * _ch + c] = R(pos + f, c);
         }
 
         private void CompleteBlock()
@@ -717,7 +734,7 @@ namespace JJPortaudio
         /// <summary>Forget everything: the next reads are silence for what was never written.</summary>
         public void Clear()
         {
-            Array.Clear(_ring);
+            foreach (var segment in _seg) Array.Clear(segment);
             _write = 0; _read = 0; _validFrom = 0;
             _accFrames = 0; Array.Clear(_acc);
             for (int i = 0; i < _blocks; i++) _blockId[i] = -1;
@@ -789,10 +806,7 @@ namespace JJPortaudio
         private void ReadInto(Span<float> dst, long from, int frames)
         {
             for (int f = 0; f < frames; f++)
-            {
-                int src = Idx(from + f) * _ch;
-                for (int c = 0; c < _ch; c++) dst[f * _ch + c] = _ring[src + c];
-            }
+                for (int c = 0; c < _ch; c++) dst[f * _ch + c] = R(from + f, c);
         }
 
         // ── Steered: write, then render through the request ──
@@ -1000,7 +1014,9 @@ namespace JJPortaudio
             {
                 long p = _read + f;
                 if (p >= _write) ReadsPastWrite++;
-                int src = Idx(p) * _ch;
+                int i = Idx(p);
+                var segment = _seg[i >> _segShift];
+                int src = (i & _segMask) * _ch;
                 float g = 1f;
                 if (_fadeInLeft > 0)
                 {
@@ -1012,7 +1028,7 @@ namespace JJPortaudio
                     long len = _write - fadeOutFrom;
                     g *= CrossFadeCurve.Out((p - fadeOutFrom + 1f) / len);
                 }
-                for (int c = 0; c < _ch; c++) dst[f * _ch + c] = _ring[src + c] * g;
+                for (int c = 0; c < _ch; c++) dst[f * _ch + c] = segment[src + c] * g;
             }
             if (CarrySeams && _carryCount > 0) EmitRange(_read, n, _out);
             _read += n;
@@ -1026,10 +1042,21 @@ namespace JJPortaudio
             return (int)m;
         }
 
+        /// <summary>Channel <paramref name="c"/> of the frame at <paramref name="pos"/> in the ring (no read-past check).</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private float R(long pos, int c)
+        {
+            int i = Idx(pos);
+            return _seg[i >> _segShift][(i & _segMask) * _ch + c];
+        }
+
+        /// <summary>Tests only: the ring's segments.</summary>
+        internal float[][] SegmentsForTest => _seg;
+
         private float Sample(long pos, int c)
         {
             if (pos >= _write) ReadsPastWrite++;
-            return _ring[Idx(pos) * _ch + c];
+            return R(pos, c);
         }
 
         /// <summary>One or more frames of the fade in progress.</summary>
@@ -1178,10 +1205,16 @@ namespace JJPortaudio
         private float Corr(long p, long q, int w, int c, int stride, out double ep, out double eq)
         {
             double xy = 0, xx = 0, yy = 0;
+            // The hot loop of every search: step through the segments directly, one
+            // modulo per call, no call per sample (a Debug build does not inline R).
+            var seg = _seg; int sh = _segShift, m = _segMask, ch = _ch, cap = _cap;
+            int ip = Idx(p), iq = Idx(q);
             for (int i = 0; i < w; i += stride)
             {
-                float x = _ring[Idx(p + i) * _ch + c], y = _ring[Idx(q + i) * _ch + c];
+                float x = seg[ip >> sh][(ip & m) * ch + c], y = seg[iq >> sh][(iq & m) * ch + c];
                 xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
+                ip += stride; if (ip >= cap) ip -= cap;
+                iq += stride; if (iq >= cap) iq -= cap;
             }
             ep = xx; eq = yy;
             if (xx < 1e-12 || yy < 1e-12) return 0f;
@@ -1220,7 +1253,8 @@ namespace JJPortaudio
             for (int c = 0; c < _ch; c++)
             {
                 double e = 0;
-                for (int i = 0; i < _window; i++) { float x = _ring[Idx(a + i) * _ch + c]; e += (double)x * x; }
+                var seg = _seg; int sh = _segShift, m = _segMask, ia = Idx(a);
+                for (int i = 0; i < _window; i++) { float x = seg[ia >> sh][(ia & m) * _ch + c]; e += (double)x * x; if (++ia == _cap) ia = 0; }
                 bool loud = e / _window > GapLimit(_floor[c]);
                 bool periodic = false;
                 if (!loud && hi >= lo)
@@ -1277,7 +1311,7 @@ namespace JJPortaudio
                 for (int k = 0; k < len; k++)
                 {
                     long op = period > 0 ? oldSide + (k % period) : oldSide + k;
-                    float x = _ring[Idx(op) * _ch + c], y = _ring[Idx(newSide + k) * _ch + c];
+                    float x = R(op, c), y = R(newSide + k, c);
                     xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
                 }
                 _fadeR[c] = xx < 1e-12 || yy < 1e-12 ? 0f : (float)Math.Clamp(xy / Math.Sqrt(xx * yy), 0, 1);
@@ -1292,7 +1326,7 @@ namespace JJPortaudio
                 double eo = 0, en = 0;
                 for (int k = 0; k < len; k++)
                 {
-                    float x = _ring[Idx(oldSide + k) * _ch + c], y = _ring[Idx(newSide + k) * _ch + c];
+                    float x = R(oldSide + k, c), y = R(newSide + k, c);
                     eo += (double)x * x; en += (double)y * y;
                 }
                 double floor = GapLimit(_floor[c]) * len;
@@ -1305,8 +1339,13 @@ namespace JJPortaudio
             for (long p = spanFrom; p + _onsetBlock <= spanTo; p += _onsetBlock)
             {
                 double e = 0;
+                int ip = Idx(p);
                 for (int k = 0; k < _onsetBlock; k++)
-                    for (int c = 0; c < _ch; c++) { float x = _ring[Idx(p + k) * _ch + c]; e += (double)x * x; }
+                {
+                    var row = _seg[ip >> _segShift]; int o = (ip & _segMask) * _ch;
+                    for (int c = 0; c < _ch; c++) { float x = row[o + c]; e += (double)x * x; }
+                    if (++ip == _cap) ip = 0;
+                }
                 e /= (_onsetBlock * _ch);
                 if (prev >= 0 && e > GapLimit(_floor[_ch]) && e > prev * Math.Pow(10, OnsetDb / 10)) return false;
                 prev = e;
@@ -1561,7 +1600,7 @@ namespace JJPortaudio
                 double xy = 0, xx = 0, yy = 0;
                 for (int i = 0; i < len; i += stride)
                 {
-                    float x = _ring[Idx(ext + ((offset + i) % P)) * _ch + c], y = _ring[Idx(after + i) * _ch + c];
+                    float x = R(ext + ((offset + i) % P), c), y = R(after + i, c);
                     xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
                 }
                 float r = xx < 1e-12 || yy < 1e-12 ? 0f : (float)(xy / Math.Sqrt(xx * yy));
@@ -1577,7 +1616,7 @@ namespace JJPortaudio
                 double xy = 0, xx = 0, yy = 0;
                 for (int k = 0; k < len; k++)
                 {
-                    float x = _ring[Idx(ext + ((offset + k) % P)) * _ch + c], y = _ring[Idx(after + k) * _ch + c];
+                    float x = R(ext + ((offset + k) % P), c), y = R(after + k, c);
                     xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
                 }
                 _fadeR[c] = xx < 1e-12 || yy < 1e-12 ? 0f : (float)Math.Clamp(xy / Math.Sqrt(xx * yy), 0, 1);
@@ -1593,7 +1632,7 @@ namespace JJPortaudio
                 double xy = 0, xx = 0, yy = 0;
                 for (int i = 0; i < len; i += stride)
                 {
-                    float x = _ring[Idx(ext + (i % P)) * _ch + c], y = _ring[Idx(after + i) * _ch + c];
+                    float x = R(ext + (i % P), c), y = R(after + i, c);
                     xy += (double)x * y; xx += (double)x * x; yy += (double)y * y;
                 }
                 float r = xx < 1e-12 || yy < 1e-12 ? 0f : (float)(xy / Math.Sqrt(xx * yy));

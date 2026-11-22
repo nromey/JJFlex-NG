@@ -614,6 +614,35 @@ namespace Radios.Tests
             Assert.Equal(fine, chosen);
         }
 
+        /// <summary>
+        /// No shifter puts anything on the large-object heap (repair 3, the cause of the
+        /// allocation-test flakes): a large-object allocation starts background
+        /// collections, and a background collection retires every thread's allocation
+        /// block, which GC.GetAllocatedBytesForCurrentThread then reports as up to 8 KB
+        /// allocated on threads that allocated nothing. The ring is held in segments of
+        /// at most 64 KB. A large object reports generation 2 the moment it exists.
+        /// Sizes: a pad line (12,000 plus 8,192), a dry line, the queue's 4.5 s ring, mono.
+        /// </summary>
+        [Theory]
+        [InlineData(2, 20192)]
+        [InlineData(2, 32192)]
+        [InlineData(2, 216000)]
+        [InlineData(1, 216000)]
+        public void A_shifter_puts_nothing_on_the_large_object_heap(int channels, int capacity)
+        {
+            var s = new RxLagShifter(channels, capacity, Rate);
+            var segments = s.SegmentsForTest;
+            Assert.True(segments.Length > 1 || capacity * channels * 4 < 85000);
+            foreach (var segment in segments)
+            {
+                Assert.True(segment.Length * sizeof(float) <= 65536, $"a segment of {segment.Length * 4} bytes");
+                Assert.Equal(0, GC.GetGeneration(segment));
+            }
+            Assert.Equal(capacity * channels, segments.Sum(g => g.Length));
+            // Positive control: a plain array of the same size IS a large object.
+            Assert.Equal(2, GC.GetGeneration(new float[capacity * channels]));
+        }
+
         [Fact]
         public void CW_key_ups_still_take_gap_splices_with_or_without_a_detector()
         {
