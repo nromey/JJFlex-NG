@@ -245,6 +245,40 @@ public sealed class RefusalTests
     }
 
     /// <summary>
+    /// After an apply, the code is changed independently and the file is not
+    /// touched (#390 repair 2, Codex's reproduction): applying again keeps the
+    /// code's new wording, and does NOT claim the code already says what the
+    /// file says. It names the sentence and what the code now says.
+    /// </summary>
+    [Fact]
+    public void AnApplyAfterTheCodeMovedOnKeepsTheCodeAndDoesNotClaimTheyMatch()
+    {
+        using var w = new Workspace();
+        const string key = "fixer.stage.audio-setup.title";
+        string file = w.Path_("Radios/Fixer/TransmitStageSet.cs");
+        Assert.Equal(0, w.Run("extract").Code);
+        w.Edit(key, "Audio setup, checked");
+        Assert.Equal(0, w.Run("apply").Code);
+
+        string code0 = File.ReadAllText(file);
+        string moved = code0.Replace("Title = \"Audio setup, checked\"",
+                                     "Title = \"Audio setup from elsewhere\"", StringComparison.Ordinal);
+        Assert.NotEqual(code0, moved);   // positive control: the code really moved
+        File.WriteAllText(file, moved, new UTF8Encoding(false));
+        string markdown = w.Markdown;
+
+        (int code, string outp, string err) = w.Run("apply");
+
+        Assert.Equal(0, code);
+        Assert.Empty(err);
+        Assert.DoesNotContain("already says exactly what this file says", outp, StringComparison.Ordinal);
+        Assert.Contains(key, outp, StringComparison.Ordinal);
+        Assert.Contains("Audio setup from elsewhere", outp, StringComparison.Ordinal);
+        Assert.Equal(moved, File.ReadAllText(file));             // the code's own wording is kept
+        Assert.Equal(markdown, w.Markdown);                      // and the file is not touched
+    }
+
+    /// <summary>
     /// And the same undo, not yet applied, is protected: extract refuses
     /// without --force rather than replacing it with the applied wording.
     /// </summary>

@@ -289,6 +289,7 @@ public sealed class Session
         var gone = new List<string>();
         var byFile = new Dictionary<string, List<Splice>>(StringComparer.Ordinal);
         var changed = new List<Entry>();
+        var movedOn = new List<Entry>();
 
         foreach ((string key, string text) in edited.Texts)
         {
@@ -297,8 +298,14 @@ public sealed class Session
 
             // Unchanged by the operator: leave the code alone, whatever has
             // happened to it since. That is what lets somebody else edit the
-            // same file while this file is open.
-            if (Entry.Hash(text) == was) continue;
+            // same file while this file is open. Noted when the code now says
+            // something else, so the summary never claims they match (#390
+            // repair 2).
+            if (Entry.Hash(text) == was)
+            {
+                if (entry.Fingerprint != was) movedOn.Add(entry);
+                continue;
+            }
 
             // Changed by the operator AND changed in the code: nobody can
             // decide that but a person.
@@ -348,7 +355,22 @@ public sealed class Session
 
         if (changed.Count == 0)
         {
-            o.WriteLine("No changes. The code already says exactly what this file says.");
+            // Equality is claimed only once it is established: every sentence
+            // in the file that is still in the code says what the code says.
+            if (movedOn.Count == 0)
+            {
+                o.WriteLine("No changes. The code already says exactly what this file says.");
+                return 0;
+            }
+            o.WriteLine("Nothing to apply: you have not changed any sentence since this file was "
+                      + "made or last applied. The code has changed since, and was left as it is, for "
+                      + movedOn.Count + " sentence" + (movedOn.Count == 1 ? "" : "s") + ":");
+            foreach (Entry e in movedOn)
+            {
+                o.WriteLine(e.Key);
+                o.WriteLine("  The code now says: " + e.Text);
+            }
+            o.WriteLine("Run `prose extract` to bring this file up to date with the code.");
             return 0;
         }
 
