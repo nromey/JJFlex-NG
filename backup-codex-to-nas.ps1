@@ -22,19 +22,28 @@
 #
 # The SQLite databases are taken ONLY when Codex is not running. While it
 # runs they are open with write-ahead logs, and a copy can be half-written;
-# the run then leaves them all out, says so, and exits 5.
+# the run then leaves out every *.sqlite, -wal and -shm file AT ANY DEPTH,
+# names them, and exits 5.
 #
-# NEVER TAKEN, by construction (none is on the allow-list): auth.json,
+# NEVER TAKEN, at the top and AT ANY DEPTH below an allowed folder, as a file
+# or a folder, in any letter case (repair 1: a recursive copy of an allowed
+# folder used to carry them through): auth.json,
 # auth.json.lock and auth.lock (a live ChatGPT sign-in, left out for the reason
 # the Claude backup leaves out .credentials.json); cap_sid and .sandbox-secrets
 # (the sandbox's identity and secrets); packages (the installed CLI, about
 # 3.3 GB); cache, models_cache.json, tmp, .tmp, .sandbox, .sandbox-bin;
-# sandbox.*.log and logs_2.sqlite (regenerable logs). Everything else not
-# named above is left out too: the orchestrator's rule for what was not judged.
+# sandbox.*.log and logs_2.sqlite (regenerable logs); and plugins. Everything
+# else not named above is left out too: the orchestrator's rule for what was
+# not judged. NO junction or symbolic link is followed or copied, at the top
+# or below: an allowed item that is one is left out and named (exit 5), since
+# a link can point outside the Codex home. The whole stage is checked again
+# for all of this, at every depth, before it is zipped (exit 4 on a hit).
 #
 # HOW IT WORKS (the private backup's pattern, task 872):
-#   1. Stage: robocopy each allowed item to a local temp folder. A file
-#      robocopy cannot read is left out, named, and the run says so (exit 5).
+#   1. Choose every file by walking the allowed items one level at a time
+#      (never a recursive copy), then stage the chosen files with robocopy,
+#      named per folder. A file robocopy cannot read is left out, named, and
+#      the run says so (exit 5).
 #   2. Zip the staged copy locally, copy the zip to the NAS, read it back.
 #   3. Prune: keep the newest -KeepLast snapshots (12, as the Claude-state
 #      backup keeps). Only files named codex-YYYYMMDD-HHMMSS.zip are ever
@@ -51,8 +60,8 @@
 #   3  NAS folder could not be created (NAS offline?)
 #   4  backup failed: no snapshot was made (nothing was pruned)
 #   5  snapshot made, but something is not in it: the SQLite databases while
-#      Codex runs, or files that could not be read (named above); pruning
-#      still ran
+#      Codex runs, a junction or symbolic link (never followed), or files
+#      that could not be read (each named above); pruning still ran
 
 param(
     [string] $Source       = "$env:USERPROFILE\.codex",
@@ -61,6 +70,8 @@ param(
     [int]    $KeepLast     = 12,
     # Auto asks Windows whether a Codex process is running. Yes and No are
     # for tests, and for a person who knows better than the process list.
+    # Auto is asked ONCE, at the start: a Codex started part-way through a
+    # run is not seen, so run this while Codex is stopped for a clean copy.
     [ValidateSet('Auto', 'Yes', 'No')]
     [string] $CodexRunning = 'Auto'
 )
@@ -111,24 +122,77 @@ $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $zipName   = "codex-$timestamp.zip"
 $zipPath   = Join-Path $destDir $zipName
 $tempRoot  = [System.IO.Path]::GetTempPath()
-$stage     = Join-Path $tempRoot "codex-stage-$timestamp"
-$tempZip   = Join-Path $tempRoot $zipName
-$rcLog     = Join-Path $tempRoot "codex-stage-$timestamp.log"
+# The local working names carry milliseconds and this process's id, so two
+# runs started in the same second never share a stage, zip or log (repair 1).
+$unique    = (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + "-$PID"
+$stage     = Join-Path $tempRoot "codex-stage-$unique"
+$tempZip   = Join-Path $tempRoot "codex-$unique.zip"
+$rcLog     = Join-Path $tempRoot "codex-stage-$unique.log"
 
 $unreadable = @()
 $leftOut    = @()
+$links      = @()
 $made = $false
 
-# One robocopy call; returns its exit code. Robocopy's code is a bitmask:
-# 0-7 copied or had nothing to do; 8 some files could not be copied; 16 a
-# fatal error with no copying at all.
-function Stage([string]$from, [string]$to, [string[]]$files, [bool]$tree) {
-    $a = @($from, $to)
-    if ($files) { $a += $files }
-    if ($tree)  { $a += '/E' }
-    $a += @('/R:0', '/W:0', '/NP', '/NJH', '/NJS', '/NDL', "/LOG+:$rcLog")
-    robocopy @a | Out-Null
-    return $LASTEXITCODE
+# WHAT IS NEVER TAKEN, AT ANY DEPTH (repair 1). The allow-list says which
+# root items are entered; these say what may never come out of them, at any
+# depth, case-insensitively, as a file or a folder. Applied while choosing
+# what to copy, and again over the whole stage before it is zipped.
+$neverNames = @('auth.json', 'auth.json.lock', 'auth.lock', 'cap_sid', 'models_cache.json',
+                'packages', 'cache', 'tmp', '.tmp', 'plugins')
+function NeverTaken([string]$name) {
+    $n = $name.ToLowerInvariant()
+    return ($neverNames -contains $n) -or $n.StartsWith('.sandbox') -or
+           ($n -like 'sandbox.*.log') -or $n.StartsWith('logs_2.sqlite')
+}
+# While Codex runs, no database file is taken, at any depth.
+function IsDatabaseFile([string]$name) {
+    $n = $name.ToLowerInvariant()
+    return $n.EndsWith('.sqlite') -or $n.EndsWith('.sqlite-wal') -or $n.EndsWith('.sqlite-shm') -or
+           $n.EndsWith('-wal') -or $n.EndsWith('-shm')
+}
+function IsLink($item) {
+    return ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+}
+
+# The files to copy, chosen by this script, never by a recursive copy: a
+# folder is walked one level at a time and a junction or symbolic link is
+# never entered or copied (it is named instead). Adds relative paths to $picked.
+$picked = New-Object System.Collections.Generic.List[string]
+function Choose([string]$root, [string]$rel) {
+    foreach ($item in @(Get-ChildItem -LiteralPath (Join-Path $root $rel) -Force)) {
+        $childRel = if ($rel) { Join-Path $rel $item.Name } else { $item.Name }
+        if (NeverTaken $item.Name) { continue }
+        if (IsLink $item) { $script:links += $childRel; continue }
+        if ($item.PSIsContainer) {
+            Choose $root $childRel
+        } elseif ($script:running -and (IsDatabaseFile $item.Name)) {
+            $script:leftOut += $childRel
+        } else {
+            $script:picked.Add($childRel)
+        }
+    }
+}
+
+# Copy the chosen files, one robocopy call per folder with the files named,
+# so a file another program holds is left out and named rather than failing
+# the run. /XJ is belt and braces: robocopy documents it as excluding both
+# file and directory symbolic links and junctions. Returns the worst code
+# (a bitmask: 0-7 copied or nothing to do; 8 some files not copied; 16 fatal).
+function Stage([string[]]$relFiles) {
+    $worst = 0
+    foreach ($g in ($relFiles | Group-Object { Split-Path $_ -Parent })) {
+        $from = if ($g.Name) { Join-Path $Source $g.Name } else { $Source }
+        $to   = if ($g.Name) { Join-Path $stage $g.Name } else { $stage }
+        $names = @($g.Group | ForEach-Object { Split-Path $_ -Leaf })
+        for ($i = 0; $i -lt $names.Count; $i += 40) {
+            $a = @($from, $to) + $names[$i..([Math]::Min($i + 39, $names.Count - 1))]
+            $a += @('/XJ', '/R:0', '/W:0', '/NP', '/NJH', '/NJS', '/NDL', "/LOG+:$rcLog")
+            robocopy @a | Out-Null
+            if ($LASTEXITCODE -gt $worst) { $worst = $LASTEXITCODE }
+        }
+    }
+    return $worst
 }
 
 try {
@@ -136,29 +200,24 @@ try {
         Write-Host ""
         Write-Host "Staging..."
         New-Item -ItemType Directory -Force -Path $stage | Out-Null
-        $worst = 0
 
-        $files = @($allowFiles | Where-Object { Test-Path -LiteralPath (Join-Path $Source $_) -PathType Leaf })
-        if ($running) {
-            $leftOut = @($allowSqlite | Where-Object { Test-Path -LiteralPath (Join-Path $Source $_) -PathType Leaf })
-        } else {
-            foreach ($db in $allowSqlite) {
-                foreach ($f in @($db, "$db-wal", "$db-shm")) {
-                    if (Test-Path -LiteralPath (Join-Path $Source $f) -PathType Leaf) { $files += $f }
-                }
-            }
-        }
-        if ($files.Count -gt 0) {
-            $rc = Stage $Source $stage $files $false
-            if ($rc -gt $worst) { $worst = $rc }
+        $files = @()
+        foreach ($f in $allowFiles + $allowSqlite + @($allowSqlite | ForEach-Object { "$_-wal"; "$_-shm" })) {
+            $p = Join-Path $Source $f
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+            $item = Get-Item -LiteralPath $p -Force
+            if (IsLink $item) { $links += $f; continue }
+            if ($running -and (IsDatabaseFile $f)) { $leftOut += $f; continue }
+            $files += $f
         }
         foreach ($d in $allowFolders) {
-            $from = Join-Path $Source $d
-            if (Test-Path -LiteralPath $from -PathType Container) {
-                $rc = Stage $from (Join-Path $stage $d) $null $true
-                if ($rc -gt $worst) { $worst = $rc }
-            }
+            $p = Join-Path $Source $d
+            if (-not (Test-Path -LiteralPath $p -PathType Container)) { continue }
+            if (IsLink (Get-Item -LiteralPath $p -Force)) { $links += $d; continue }
+            Choose $Source $d
         }
+        $files += @($picked)
+        $worst = if ($files.Count -gt 0) { Stage $files } else { 0 }
 
         if ($worst -ge 16) { throw "robocopy could not stage the Codex home (exit code $worst)" }
         if ($worst -ge 8) {
@@ -175,15 +234,16 @@ try {
         Write-Host "  staged $($staged.Count) files ($rawMB MB)"
         if ($staged.Count -eq 0) { throw "nothing was staged" }
 
-        # Belt and braces over the allow-list: a sign-in token or a sandbox
-        # secret in the stage is a defect, and no snapshot is better than one
-        # that carries it.
-        # Checked at the top of the stage, where the home folder's own items
-        # land, so a folder of the same name deep inside skills is not refused.
-        $forbidden = @($staged | Where-Object {
-            $rel = $_.FullName.Substring($stage.Length)
-            $rel -match '^\\(auth\.json|auth\.json\.lock|auth\.lock|cap_sid|models_cache\.json|logs_2\.sqlite[^\\]*|sandbox\.[^\\]*\.log)$' -or
-            $rel -match '^\\(\.sandbox[^\\]*|packages|cache|tmp|\.tmp|plugins)\\'
+        # Belt and braces over the choice above: the WHOLE stage, at every
+        # depth, every file and every folder on its path. A sign-in token, a
+        # sandbox secret, a link, or a database while Codex runs in the stage
+        # is a defect, and no snapshot is better than one that carries it.
+        $forbidden = @(Get-ChildItem -LiteralPath $stage -Recurse -Force | Where-Object {
+            $item = $_
+            $parts = $item.FullName.Substring($stage.Length).TrimStart('\').Split('\')
+            (IsLink $item) -or
+            @($parts | Where-Object { NeverTaken $_ }).Count -gt 0 -or
+            ($running -and -not $item.PSIsContainer -and (IsDatabaseFile $item.Name))
         })
         if ($forbidden.Count -gt 0) { throw "the stage holds something that must never be taken: $($forbidden[0].FullName)" }
 
@@ -233,6 +293,13 @@ try {
 }
 
 $partial = $false
+if ($links.Count -gt 0) {
+    Write-Host ""
+    Write-Host "These are junctions or symbolic links, and were NOT followed or taken (a link can point outside the Codex home):"
+    foreach ($f in ($links | Select-Object -First 20)) { Write-Host "  $f" }
+    if ($links.Count -gt 20) { Write-Host "  ... and $($links.Count - 20) more" }
+    $partial = $true
+}
 if ($leftOut.Count -gt 0) {
     Write-Host ""
     Write-Host "Codex is running, so these SQLite databases are NOT in this snapshot (a copy could be half-written):"

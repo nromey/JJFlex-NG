@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -63,9 +64,34 @@ namespace Radios.Tests
             foreach (string f in NeverTaken) Write(f, "placeholder, never to be taken: " + f);
         }
 
+        private readonly List<string> _junctions = new();
+
         public void Dispose()
         {
+            // The junctions first, as links only: never a recursive delete
+            // through one into what it points at.
+            foreach (string j in _junctions)
+                try { if (Directory.Exists(j)) Directory.Delete(j, recursive: false); } catch { }
             try { Directory.Delete(_base, recursive: true); } catch { }
+        }
+
+        /// <summary>A directory junction at <paramref name="link"/> to <paramref name="target"/>,
+        /// both inside this class's scratch folder. Made with mklink /J, which needs no
+        /// administrator rights.</summary>
+        private void Junction(string link, string target)
+        {
+            string scratch = Path.GetFullPath(_base) + Path.DirectorySeparatorChar;
+            Assert.StartsWith(scratch, Path.GetFullPath(link), StringComparison.OrdinalIgnoreCase);
+            Assert.StartsWith(scratch, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase);
+            var psi = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true,
+                                                         RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (string a in new[] { "/c", "mklink", "/J", link, target }) psi.ArgumentList.Add(a);
+            using var p = Process.Start(psi)!;
+            p.StandardOutput.ReadToEnd();
+            Assert.True(p.WaitForExit(30_000) && p.ExitCode == 0, "could not make a junction in the scratch folder");
+            _junctions.Add(link);
+            Assert.True(new DirectoryInfo(link).Attributes.HasFlag(FileAttributes.ReparsePoint),
+                        "positive control: the junction really is a link");
         }
 
         private void Write(string relative, string text)
@@ -85,7 +111,7 @@ namespace Radios.Tests
             return ps51;
         }
 
-        private (int Exit, string Output) Run(string source, string nas, bool codexRunning)
+        private (int Exit, string Output) Run(string source, string nas, bool codexRunning, string? script = null)
         {
             // The guard this whole class rests on: nothing here may ever reach
             // the real Codex home or the real NAS.
@@ -103,7 +129,7 @@ namespace Radios.Tests
                 CreateNoWindow = true,
             };
             foreach (string a in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                                         "-File", Path.Combine(RepoRoot(), "backup-codex-to-nas.ps1"),
+                                         "-File", script ?? Path.Combine(RepoRoot(), "backup-codex-to-nas.ps1"),
                                          "-Source", source, "-Nas", nas, "-CodexRunning", codexRunning ? "Yes" : "No" })
                 psi.ArgumentList.Add(a);
             using var p = Process.Start(psi)!;
@@ -210,6 +236,109 @@ namespace Radios.Tests
             var (exit, output) = Run(Path.Combine(_base, "no-such-folder"), Nas, codexRunning: false);
             Assert.True(exit == 2, "exit " + exit + ":\n" + output);
             Assert.Equal(14, Snapshots().Length);
+        }
+
+        // ---- repair 1: the allow-list holds at every depth, and no link is followed ----
+
+        [Fact]
+        public void A_forbidden_name_nested_below_an_allowed_folder_is_never_taken_in_any_case()
+        {
+            Write("rules/auth.json.lock", "placeholder lock");
+            Write("sessions/cap_sid", "placeholder sid");
+            Write("skills/custom/AUTH.JSON", "placeholder token");
+            Write("skills/custom/.SaNdBoX-secrets/key.txt", "placeholder secret");
+            Write("skills/custom/SKILL.md", "kept: a nested skill");
+
+            var (exit, output) = Run(Home, Nas, codexRunning: false);
+            Assert.True(exit == 0, "exit " + exit + ":\n" + output);
+            var entries = Entries(Newest());
+            Assert.Contains("skills/custom/SKILL.md", entries);   // positive control: the folder was entered
+            Assert.DoesNotContain(entries, e => e.EndsWith("auth.json.lock", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(entries, e => e.EndsWith("cap_sid", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(entries, e => e.EndsWith("auth.json", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(entries, e => e.Contains(".sandbox", StringComparison.OrdinalIgnoreCase));
+        }
+
+        [Fact]
+        public void A_junction_below_an_allowed_folder_is_not_followed_and_is_named()
+        {
+            string outside = Path.Combine(_base, "outside");
+            Directory.CreateDirectory(outside);
+            File.WriteAllText(Path.Combine(outside, "auth.json"), "placeholder token outside the home");
+            File.WriteAllText(Path.Combine(outside, "notes.md"), "outside the home");
+            Junction(Path.Combine(Home, "skills", "linked"), outside);
+
+            var (exit, output) = Run(Home, Nas, codexRunning: false);
+            Assert.True(exit == 5, "exit " + exit + ":\n" + output);
+            var entries = Entries(Newest());
+            Assert.Contains("skills/review/SKILL.md", entries);
+            Assert.DoesNotContain(entries, e => e.StartsWith("skills/linked", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("linked", output);
+        }
+
+        [Fact]
+        public void An_allowed_folder_that_is_itself_a_junction_is_left_out_and_named()
+        {
+            string outside = Path.Combine(_base, "outside");
+            Directory.CreateDirectory(outside);
+            File.WriteAllText(Path.Combine(outside, "auth.json"), "placeholder token outside the home");
+            File.WriteAllText(Path.Combine(outside, "SKILL.md"), "outside the home");
+            Directory.Delete(Path.Combine(Home, "skills"), recursive: true);
+            Junction(Path.Combine(Home, "skills"), outside);
+
+            var (exit, output) = Run(Home, Nas, codexRunning: false);
+            Assert.True(exit == 5, "exit " + exit + ":\n" + output);
+            var entries = Entries(Newest());
+            Assert.Contains("config.toml", entries);
+            Assert.DoesNotContain(entries, e => e.StartsWith("skills", StringComparison.OrdinalIgnoreCase));
+            int named = output.IndexOf("NOT followed", StringComparison.Ordinal);
+            Assert.True(named >= 0, "the run does not name the link it left out:\n" + output);
+            Assert.Contains("skills", output.Substring(named));
+        }
+
+        [Fact]
+        public void With_Codex_running_a_database_nested_below_an_allowed_folder_is_left_out_and_named()
+        {
+            Write("sessions/state_5.sqlite", "a nested database");
+            Write("skills/custom/queue.sqlite-wal", "its log");
+            Write("skills/custom/queue.sqlite-shm", "its shared memory");
+
+            var (exit, output) = Run(Home, Nas, codexRunning: true);
+            Assert.True(exit == 5, "exit " + exit + ":\n" + output);
+            var entries = Entries(Newest());
+            Assert.Contains("sessions/2026/11/22/rollout-1.jsonl", entries);
+            Assert.DoesNotContain(entries, e => e.Contains(".sqlite", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("queue.sqlite-wal", output);
+            Assert.Contains("queue.sqlite-shm", output);
+
+            // And with Codex stopped, the same nested files are ordinary content.
+            System.Threading.Thread.Sleep(1100);
+            var (exit2, output2) = Run(Home, Nas, codexRunning: false);
+            Assert.True(exit2 == 0, "exit " + exit2 + ":\n" + output2);
+            Assert.Contains("skills/custom/queue.sqlite-wal", Entries(Newest()));
+        }
+
+        /// <summary>
+        /// The last line of defence is real: a copy of the script whose
+        /// allow-list wrongly names a root <c>.sandbox-secrets</c> FILE stages
+        /// it, and the whole-stage check refuses the snapshot. Its old pattern
+        /// needed a trailing folder separator and let a leaf through.
+        /// </summary>
+        [Fact]
+        public void The_stage_check_refuses_a_forbidden_leaf_file_the_choice_let_through()
+        {
+            Directory.Delete(Path.Combine(Home, ".sandbox-secrets"), recursive: true);   // the fixture's folder of that name
+            File.WriteAllText(Path.Combine(Home, ".sandbox-secrets"), "a placeholder secret as a file");
+            string real = File.ReadAllText(Path.Combine(RepoRoot(), "backup-codex-to-nas.ps1"));
+            const string allow = "$allowFiles   = @('config.toml',";
+            Assert.Contains(allow, real);
+            string copy = Path.Combine(_base, "mutated-backup-codex-to-nas.ps1");
+            File.WriteAllText(copy, real.Replace(allow, "$allowFiles   = @('.sandbox-secrets', 'config.toml',"));
+
+            var (exit, output) = Run(Home, Nas, codexRunning: false, script: copy);
+            Assert.True(exit == 4, "exit " + exit + ":\n" + output);
+            Assert.Empty(Snapshots());
+            Assert.Contains("must never be taken", output);
         }
 
         [Fact]
