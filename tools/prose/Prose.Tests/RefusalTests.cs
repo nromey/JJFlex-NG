@@ -217,6 +217,56 @@ public sealed class RefusalTests
     }
 
     /// <summary>
+    /// An ordinary undo after an apply (#390 repair 1, Codex's reproduction):
+    /// the file goes back to the original wording A after B was applied.
+    /// That is a pending edit, so apply puts A back into the code rather than
+    /// saying "No changes" while the code still says B.
+    /// </summary>
+    [Fact]
+    public void UndoingAnAppliedEditAppliesTheUndo()
+    {
+        using var w = new Workspace();
+        const string key = "fixer.stage.audio-setup.title";
+        Assert.Equal(0, w.Run("extract").Code);
+        string original = w.TextOf(key);
+        string file = w.Path_("Radios/Fixer/TransmitStageSet.cs");
+
+        w.Edit(key, "Audio setup, checked");
+        Assert.Equal(0, w.Run("apply").Code);
+        Assert.Contains("Audio setup, checked", File.ReadAllText(file), StringComparison.Ordinal);
+
+        w.Edit(key, original);                                   // the undo
+        (int code, string outp, _) = w.Run("apply");
+        Assert.Equal(0, code);
+        Assert.DoesNotContain("No changes", outp, StringComparison.Ordinal);
+        string code1 = File.ReadAllText(file);
+        Assert.Contains("Title = \"" + original + "\"", code1, StringComparison.Ordinal);
+        Assert.DoesNotContain("Audio setup, checked", code1, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// And the same undo, not yet applied, is protected: extract refuses
+    /// without --force rather than replacing it with the applied wording.
+    /// </summary>
+    [Fact]
+    public void AnUnappliedUndoAfterAnApplyIsProtectedFromExtract()
+    {
+        using var w = new Workspace();
+        const string key = "fixer.stage.audio-setup.title";
+        Assert.Equal(0, w.Run("extract").Code);
+        string original = w.TextOf(key);
+
+        w.Edit(key, "Audio setup, checked");
+        Assert.Equal(0, w.Run("apply").Code);
+        w.Edit(key, original);                                   // the undo
+
+        (int code, _, string err) = w.Run("extract");
+        Assert.NotEqual(0, code);
+        Assert.Contains("not been applied", err, StringComparison.Ordinal);
+        Assert.Equal(original, w.TextOf(key));
+    }
+
+    /// <summary>
     /// A key that no longer exists is reported and stepped over, not treated
     /// as an error: an editing file outlives the code it came from.
     /// </summary>

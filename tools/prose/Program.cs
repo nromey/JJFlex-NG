@@ -392,6 +392,17 @@ public sealed class Session
             File.WriteAllText(full, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
 
+        // The applied wording is the new baseline for each sentence written
+        // (#390 repair 1). Left at the wording the file was made from, an
+        // ordinary undo back to that wording after this apply looked
+        // unedited: apply said "No changes" while the code kept the applied
+        // words, and extract replaced the undo without asking.
+        var rebased = changed.ToDictionary(e => e.Key, e => Entry.Hash(edited.Texts[e.Key]),
+                                           StringComparer.Ordinal);
+        File.WriteAllText(EditingPath,
+                          EditingFile.Rebase(File.ReadAllText(EditingPath, Encoding.UTF8), rebased),
+                          new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
         o.WriteLine(changed.Count + " sentence" + (changed.Count == 1 ? "" : "s")
                   + " written, across " + results.Count + " file"
                   + (results.Count == 1 ? "" : "s") + ".");
