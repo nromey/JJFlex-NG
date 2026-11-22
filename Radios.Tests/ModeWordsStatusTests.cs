@@ -160,7 +160,7 @@ namespace Radios.Tests
             string keys = Read("JJFlexWpf", "KeyCommands.cs");
             int at = keys.IndexOf("private void SpeakStatusHandler()", StringComparison.Ordinal);
             Assert.True(at >= 0, "the status key's handler is gone");
-            Assert.Contains("RadioStatusBuilder.BuildFullSliceStatus(rig)", keys.Substring(at, 400));
+            Assert.Contains("RadioStatusBuilder.BuildFullSliceStatus(rig)", SourceMember.CSharpAt(keys, at));
 
             string main = Read("JJFlexWpf", "MainWindow.xaml.cs");
             Assert.Contains("censusFull = Radios.RadioStatusBuilder.BuildConnectCensusForDisplay(RigControl, model, connType);", main);

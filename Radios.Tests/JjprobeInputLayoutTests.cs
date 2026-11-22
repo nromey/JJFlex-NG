@@ -97,7 +97,7 @@ internal static partial class Native
             string press = File.ReadAllText(Path.Combine(FlexBasePartials.RepoRoot(), "tools", "uia-probe", "Press.cs"));
             int at = press.IndexOf("catch (SendInputFailedException ex)", StringComparison.Ordinal);
             Assert.True(at > 0, "Press.Send no longer turns a refused send into a verdict");
-            Assert.Contains("result.Verdict = \"not-sent\";", press.Substring(at, 600), StringComparison.Ordinal);
+            Assert.Contains("result.Verdict = \"not-sent\";", SourceMember.CSharpAt(press, at), StringComparison.Ordinal);
         }
     }
 }

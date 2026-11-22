@@ -77,7 +77,7 @@ public sealed class FilterPresetSelectionTests : IDisposable
         Assert.Equal(2, menu.Split("_subscribedRig.ActiveSliceChanged -= OnActiveSliceChanged;").Length - 1);
         int handler = menu.IndexOf("private void OnActiveSliceChanged()", StringComparison.Ordinal);
         Assert.True(handler > 0);
-        Assert.Contains("QueueMenuRebuild(", menu.Substring(handler, 120));
+        Assert.Contains("QueueMenuRebuild(", SourceMember.CSharpAt(menu, handler));
 
         int refuse = menu.IndexOf("if (!Radios.FilterPresets.SameList(mode, currentMode))", StringComparison.Ordinal);
         int apply = menu.IndexOf("rig.ApplyFilterPreset(preset, currentMode,", StringComparison.Ordinal);

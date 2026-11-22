@@ -74,7 +74,7 @@ namespace Radios.Tests.StationConnect
             // and its write is pinned at the bytes, so the window is wider).
             int at = text.IndexOf("GuardSkips(\"" + guard + "\")", StringComparison.Ordinal);
             Assert.True(at > 0, "the guarded write '" + guard + "' is gone");
-            string body = text.Substring(at, 300);
+            string body = text.Substring(at, 300);   // #604: deliberately bounded, the guarded write right after its hold
             Assert.Contains("IsMuteLocalAudioWhenRemoteOn = " + (muted ? "true" : "false") + ";", body, StringComparison.Ordinal);
         }
 
@@ -96,7 +96,7 @@ namespace Radios.Tests.StationConnect
             {
                 int at = text.IndexOf("GuardSkips(\"" + guard + "\")", StringComparison.Ordinal);
                 Assert.True(at > 0, "the guarded write '" + guard + "' is gone");
-                string body = text.Substring(at, 300);
+                string body = text.Substring(at, 300);   // #604: deliberately bounded, the guarded write right after its hold
                 foreach (var forbidden in new[] { "Roster", "OnlyUs", "Ownership", "OwnerShared" })
                 {
                     Assert.DoesNotContain(forbidden, body, StringComparison.Ordinal);

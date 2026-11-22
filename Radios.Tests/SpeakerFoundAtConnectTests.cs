@@ -189,7 +189,7 @@ public sealed class SpeakerFoundAtConnectTests : IDisposable
         {
             int at = text.IndexOf(write, StringComparison.Ordinal);
             Assert.True(at > 0, "write gone: " + write);
-            Assert.Contains(note, text.Substring(at, 120), StringComparison.Ordinal);
+            Assert.Contains(note, text.Substring(at, 120), StringComparison.Ordinal);   // #604: deliberately bounded, the statement right after each write
         }
     }
 

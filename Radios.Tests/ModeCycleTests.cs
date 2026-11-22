@@ -275,7 +275,7 @@ namespace Radios.Tests
             string menu = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "NativeMenuBar.cs"));
             int at = menu.IndexOf("var modeSub = AddSubmenu(slice, \"Mode\");", StringComparison.Ordinal);
             Assert.True(at >= 0, "the Mode submenu has moved; re-check what the settings page claims about it");
-            Assert.Contains("foreach (string modeName in Radios.ModeCycle.KnownModes(Rig?.RadioModeList))", menu.Substring(at, 200));
+            Assert.Contains("foreach (string modeName in Radios.ModeCycle.KnownModes(Rig?.RadioModeList))", menu.Substring(at, 200));   // #604: deliberately bounded, the statements right after the submenu is made
             string page = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.ModeCycle.cs"));
             Assert.Contains("!ModeCycle.Contains(ModeCycle.KnownModes(radioModes), m)", page);
             Assert.DoesNotContain("RigCaps.ModeTable, m)", page);

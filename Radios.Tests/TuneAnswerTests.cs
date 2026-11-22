@@ -246,7 +246,7 @@ namespace Radios.Tests
             int end = main.IndexOf("private void EndTuneAnswer(string why)", StringComparison.Ordinal);
             Assert.True(end > 0);
             Assert.Contains("ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.TuneNotKeyed, why);",
-                main.Substring(end, 220), StringComparison.Ordinal);
+                SourceMember.CSharpAt(main, end), StringComparison.Ordinal);
 
             // The one exit that must NOT retire it is the one that said it.
             int said = main.IndexOf("else if (step == Radios.TuneWatchStep.NotKeyed)", StringComparison.Ordinal);

@@ -78,7 +78,7 @@ namespace Radios.Tests.StationConnect
             var text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir.FullName, "Radios", "FlexBase.StationConnect.cs"));
             int at = text.IndexOf("private void ObserveClientRemoved(ObservationBinding binding, GUIClient client)", StringComparison.Ordinal);
             Assert.True(at >= 0);
-            string body = text.Substring(at, 700);
+            string body = SourceMember.CSharpAt(text, at);
             Assert.Contains("System.Threading.Monitor.IsEntered(r.GuiClientsLockObj)", body, StringComparison.Ordinal);
             Assert.Contains("RosterRemovalOrigin.Discovery", body, StringComparison.Ordinal);
             Assert.Contains("RosterRemovalOrigin.RadioStatus", body, StringComparison.Ordinal);

@@ -2483,7 +2483,7 @@ namespace Radios.Tests
             Assert.True(bind > 0 && build > bind, "Home's return status is not bound before it is built");
             int speak = text.IndexOf("subject: Radios.Speech.SpeechSubject.ReturnStatus", build, StringComparison.Ordinal);
             Assert.True(speak > 0, "Home's return status is no longer spoken under its subject");
-            Assert.Contains("stillValid: stillTrue", text.Substring(speak, 120), StringComparison.Ordinal);
+            Assert.Contains("stillValid: stillTrue", text.Substring(speak, 120), StringComparison.Ordinal);   // #604: deliberately bounded, the speak call's own arguments
         }
     
 

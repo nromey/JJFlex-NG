@@ -60,7 +60,7 @@ public sealed class DisconnectPutBackOrderTests
         int hangUp = body.IndexOf("theRadio.Disconnect();", StringComparison.Ordinal);
         int late = body.IndexOf("PCAudio = false;", hangUp, StringComparison.Ordinal);
         if (late < 0) return;   // no backstop at all is also honest
-        string around = body.Substring(Math.Max(0, late - 400), 400);
+        string around = body.Substring(Math.Max(0, late - 400), 400);   // #604: deliberately bounded, the lines just before the backstop, not a member
         Assert.Contains("nothing it puts back can reach the radio", around, StringComparison.Ordinal);
     }
 
@@ -72,7 +72,7 @@ public sealed class DisconnectPutBackOrderTests
         // The mic input: only while the radio still reports the PC we chose.
         int putBack = text.IndexOf("private void PutBackNow(Radio radio, MicInputSwap swap, string when, long run)", StringComparison.Ordinal);
         Assert.True(putBack > 0, "PutBackNow moved");
-        string mic = text.Substring(putBack, 2600);   // widened again: repair round 5 made it one pinned step
+        string mic = SourceMember.CSharpAt(text, putBack);   // the whole of PutBackNow (#604)
         // Repair round 4 (Codex's F3): the PC check comes first, so a newer
         // choice leaves no debt, and the write is gated on it. Repair round 5:
         // both inside the pinned step, before the write.
@@ -84,13 +84,13 @@ public sealed class DisconnectPutBackOrderTests
         // The shack speaker: only while the radio still mutes it.
         int write = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
         Assert.True(write > 0);
-        string speaker = text.Substring(Math.Max(0, write - 300), 300);
+        string speaker = text.Substring(Math.Max(0, write - 300), 300);   // #604: deliberately bounded, the lines just before the write, not a member
         // Round four (S1): the decision is ShackSpeakerKeepFor's, which asks
         // the radio's own reading after asking whether another station chose since.
         Assert.Contains("ShackSpeakerKeepFor(run, speakerRadio)", speaker, StringComparison.Ordinal);
         int keepFor = text.IndexOf("internal string ShackSpeakerKeepFor(", StringComparison.Ordinal);
         Assert.True(keepFor > 0, "the stop's speaker decision moved");
-        Assert.Contains("speakerRadio.IsMuteLocalAudioWhenRemoteOn);", text.Substring(keepFor, 700), StringComparison.Ordinal);
+        Assert.Contains("speakerRadio.IsMuteLocalAudioWhenRemoteOn);", SourceMember.CSharpAt(text, keepFor), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public sealed class DisconnectPutBackOrderTests
         Assert.Contains("if (theRadio == null) DisconnectVoxPauses(restore: true);", beforeDisconnect, StringComparison.Ordinal);
         // Every restoration entry point asks the interlock.
         int plan = text.IndexOf("private void PutProfilesBackOnDisconnect()", StringComparison.Ordinal);
-        string planBody = text.Substring(plan, 4000);
+        string planBody = SourceMember.CSharpAt(text, plan);
         int barrier = planBody.IndexOf("if (TeardownRefusesRestore(\"the profiles and the live transmit audio\")) return;", StringComparison.Ordinal);
         // Repair round 3: every step runs under the one restore gate.
         int run = planBody.IndexOf("var step = RunRestoreStepAtTheWrite(label, () => RunProfileAction(action), TeardownRestoreStepBound);", StringComparison.Ordinal);
@@ -161,12 +161,12 @@ public sealed class DisconnectPutBackOrderTests
         Assert.True(now > 0 && queued > 0, "a put-back moved");
         // Repair round 5 (Codex's B1): asked of the write's own radio and
         // connection, inside the pinned step, before the write.
-        string nowBody = text.Substring(now, 9500);   // rounds 6 and 7 added the at-the-write predicate, the debt hand-over and the report provenance
+        string nowBody = SourceMember.CSharpAt(text, now);
         int nowAsk = nowBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved, radio, swap.Connection)) { withheld = true; return null; }", StringComparison.Ordinal);
         int nowWrite = nowBody.IndexOf("written = radio.SendMicInput(swap.Saved);", StringComparison.Ordinal);
         Assert.True(nowAsk > 0 && nowWrite > nowAsk, "the direct mic put-back writes without asking the interlock of its own target");
         Assert.Contains("KeepOwedOrAbandon(swap, when,", nowBody, StringComparison.Ordinal);   // round 9: owed on its own run and connection, or abandoned
-        string queuedBody = text.Substring(queued, 6000);   // repair round 4 added the newer-choice check ahead
+        string queuedBody = SourceMember.CSharpAt(text, queued);
         int withhold = queuedBody.IndexOf("if (MicPutBackWithheld(when, swap.Saved, radio, pin.Connection)) { withheld = true; return null; }", StringComparison.Ordinal);
         int raw = queuedBody.IndexOf("SendRadioCommandWithReply(radio, command", StringComparison.Ordinal);
         Assert.True(withhold > 0 && raw > withhold, "the raw switch-back write can go out without asking the teardown");

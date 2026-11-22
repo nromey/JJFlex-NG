@@ -3162,7 +3162,7 @@ namespace Radios.Tests
             Assert.Contains("DialogTransmitKeys.SessionOwnsTransmitter = () => Dialogs.AudioWorkshopDialog.AnAudioCheckIsActive;", main);
             int escape = main.IndexOf("internal bool HandleDialogEscapeUnkey()", StringComparison.Ordinal);
             Assert.True(escape >= 0);
-            string escapeBody = main.Substring(escape, 400);
+            string escapeBody = SourceMember.CSharpAt(main, escape);
             Assert.Contains("_pttController.EscapeUnlock()", escapeBody);   // #1089: through EndTransmitOutsideTheEdges
             // The session moved into Check your audio in #835; the Workshop's
             // property forwards there, so the wiring above did not move.
@@ -3199,7 +3199,7 @@ namespace Radios.Tests
             Assert.Contains("_pttKeyDown = false;\n        }\n        else ResetPttInput();", outsideBody.Replace("\r\n", "\n"));
             int helper = main.IndexOf("private void ResetPttInput()", StringComparison.Ordinal);
             Assert.True(helper >= 0);
-            string helperBody = main.Substring(helper, 400);
+            string helperBody = SourceMember.CSharpAt(main, helper);
             foreach (string line in new[] { "_pttDeferTimer?.Stop();", "_pttHoldFilter.Reset();", "_pttKeyDown = false;", "_pttHoldDoor = PttDoor.None;" })
                 Assert.Contains(line, helperBody);
             int home = main.IndexOf("private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)", StringComparison.Ordinal);
@@ -3207,7 +3207,7 @@ namespace Radios.Tests
             Assert.True(home >= 0 && homeStep4 > home);
             int step3Escape = main.IndexOf("if (rawKey == Key.Escape && _pttController.IsTransmitting)", home, StringComparison.Ordinal);
             Assert.True(step3Escape > home && step3Escape < homeStep4);
-            Assert.Contains("EndTransmitOutsideTheEdges(\"Escape on Home\", () => _pttController.EscapeUnlock());", main.Substring(step3Escape, 1200));
+            Assert.Contains("EndTransmitOutsideTheEdges(\"Escape on Home\", () => _pttController.EscapeUnlock());", SourceMember.CSharpAt(main, step3Escape));
             int txChange = main.IndexOf("private void TransmitChangeHandler(object sender, bool transmit)", StringComparison.Ordinal);
             Assert.True(txChange >= 0);
             int txChangeEnd = main.IndexOf("private void FlexAntTuneStartStopHandler(", txChange, StringComparison.Ordinal);
@@ -3227,7 +3227,7 @@ namespace Radios.Tests
             Assert.Contains("_pttHoldDoor != PttDoor.Dialog", lostBody);
             int tick = main.IndexOf("if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))", StringComparison.Ordinal);
             Assert.True(tick >= 0);
-            string tickBody = main.Substring(tick, 600);
+            string tickBody = SourceMember.CSharpAt(main, tick);
             Assert.True(tickBody.IndexOf("DialogTransmitKeys.HoldReleased();", StringComparison.Ordinal)
                         > tickBody.IndexOf("_pttController?.PttUp();", StringComparison.Ordinal),
                 "the timer must tell the dialog door the hold ended, after unkeying");
@@ -3355,7 +3355,8 @@ namespace Radios.Tests
                 "        }\n";
             int keyUp = main.IndexOf("private void MainWindow_PreviewKeyUp(object sender, KeyEventArgs e)", StringComparison.Ordinal);
             Assert.True(keyUp >= 0);
-            Assert.Contains(keyUpAsOnMain, main.Substring(keyUp, 1400));
+            // The whole member, which ends at its closing brace (#604).
+            Assert.Contains(keyUpAsOnMain.TrimEnd('\n'), SourceMember.CSharpAt(main, keyUp));
 
             // Nothing of the lock classifier, round two's edges, or round one's
             // hold filter survives, in MainWindow or in Radios.
@@ -3390,7 +3391,7 @@ namespace Radios.Tests
             Assert.True(homeDown.IndexOf("SpaceKeyTimingTrace.Note(down: true,", StringComparison.Ordinal)
                         < homeDown.IndexOf("if (rawKey == Key.Tab && !KeyCommands.AValueLayerIsLive)", StringComparison.Ordinal),
                 "the Home key-down trace must run before any branch can return");
-            Assert.Contains("SpaceKeyTimingTrace.Note(down: false,", main.Substring(keyUp, 1200));
+            Assert.Contains("SpaceKeyTimingTrace.Note(down: false,", SourceMember.CSharpAt(main, keyUp));
             Assert.Equal(2, Regex.Matches(main, @"SpaceKeyTimingTrace\.Note\(").Count);
             Assert.Equal(2, Regex.Matches(main, @"SpaceKeyTimingTrace\.HomeDoor").Count);
             Assert.Equal(2, Regex.Matches(door, @"SpaceKeyTimingTrace\.Note\(").Count);

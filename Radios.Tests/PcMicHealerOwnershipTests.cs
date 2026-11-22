@@ -2135,7 +2135,7 @@ namespace Radios.Tests
             string text = FlexBasePartials.JoinedText();
             int at = text.IndexOf("private static void MicDebtAbandoned(MicInputSwap swap, string when, string why)", StringComparison.Ordinal);
             Assert.True(at > 0, "MicDebtAbandoned moved");
-            string body = text.Substring(at, 1800);
+            string body = SourceMember.CSharpAt(text, at);
             Assert.Contains("no write was made", body, StringComparison.Ordinal);
             Assert.Contains("The last mic input known for that radio is '", body, StringComparison.Ordinal);
             Assert.DoesNotContain("stays on PC", body, StringComparison.Ordinal);

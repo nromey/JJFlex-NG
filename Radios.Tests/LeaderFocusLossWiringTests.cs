@@ -40,14 +40,13 @@ namespace Radios.Tests
             string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf/KeyCommands.cs"));
             int at = src.IndexOf("public static void ApplicationDeactivated()", StringComparison.Ordinal);
             Assert.True(at >= 0, "KeyCommands.ApplicationDeactivated was not found");
-            string head = src.Substring(at, 200);
+            string head = SourceMember.CSharpAt(src, at);
             Assert.Contains("_globalRoutingOwner?.ReleaseOneShotWaits(", head);
 
             // And it must not relay to the hook: that choice is the point.
             int body = src.IndexOf("internal void ReleaseOneShotWaits(string why)", StringComparison.Ordinal);
             Assert.True(body >= 0);
-            int bodyEnd = src.IndexOf("\n    }", body, StringComparison.Ordinal);
-            string release = src.Substring(body, bodyEnd - body);
+            string release = SourceMember.CSharpAt(src, body);
             Assert.DoesNotContain("NoteHelpArmed", release);
         }
     }

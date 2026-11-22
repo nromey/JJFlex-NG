@@ -92,7 +92,7 @@ public sealed class FilterPresetMenuRowsTests
         Assert.Equal(2, menu.Split("_subscribedRig.ModeChanged -= OnModeChanged;").Length - 1);   // resubscribe and Dispose
         int at = menu.IndexOf("private void OnModeChanged(string mode)", StringComparison.Ordinal);
         Assert.True(at > 0);
-        Assert.Contains("QueueMenuRebuild(", menu.Substring(at, 200));
+        Assert.Contains("QueueMenuRebuild(", SourceMember.CSharpAt(menu, at));
         Assert.Contains("FilterPresets.RowIsActive(mode, Rig.Mode, Rig.FilterLow, Rig.FilterHigh, index)", menu);
     }
 }

@@ -841,7 +841,7 @@ public sealed class RadioPowerFloorTests
         int toggle = check.IndexOf("public void ToggleAudioCheck()", StringComparison.Ordinal);
         int door = check.IndexOf("!_rig.CheckPowersReported", toggle, StringComparison.Ordinal);
         // Test your microphone saves both powers, so only the two arrangements are left out.
-        Assert.Contains("SelectedMethod is not (AudioCheckListenMethods.OffAir or AudioCheckListenMethods.Loopback)", check.Substring(door, 120));
+        Assert.Contains("SelectedMethod is not (AudioCheckListenMethods.OffAir or AudioCheckListenMethods.Loopback)", check.Substring(door, 120));   // #604: deliberately bounded, the rest of the door's own condition
         int start = check.IndexOf("_ = StartAudioCheckSessionAsync(", toggle, StringComparison.Ordinal);
         Assert.True(door > toggle && door < start);
         int session = check.IndexOf("public async Task<bool> StartAsync(", StringComparison.Ordinal);

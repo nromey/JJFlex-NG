@@ -340,7 +340,7 @@ namespace Radios.Tests
             string radio = File.ReadAllText(Path.Combine(RepoRoot(), "FlexLib_API", "FlexLib", "Radio.cs"));
             int at = radio.IndexOf("public void UpdateIdentityFromList(", StringComparison.Ordinal);
             Assert.True(at > 0, "UpdateIdentityFromList is gone from the vendored Radio.cs.");
-            string before = radio.Substring(Math.Max(0, at - 900), Math.Min(900, at));
+            string before = radio.Substring(Math.Max(0, at - 900), Math.Min(900, at));   // #604: deliberately bounded, the doc comment above the member
             Assert.Contains("JJFlex patch: identity from a radio LIST", before, StringComparison.Ordinal);
             string body = Body(radio, "public void UpdateIdentityFromList(");
             Assert.DoesNotContain("SendCommand", body, StringComparison.Ordinal);

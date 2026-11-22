@@ -102,7 +102,7 @@ namespace Radios.Tests.StationConnect
             var text = FlexBasePartials.JoinedText();   // every FlexBase partial
             int at = text.IndexOf("private void CheckMicProfileForSilentTx(bool mayRepair)", StringComparison.Ordinal);
             Assert.True(at >= 0);
-            string body = text.Substring(at, 7000);
+            string body = SourceMember.CSharpAt(text, at);
             Assert.Contains("SilentMicrophoneAssessment.Decide(", body, StringComparison.Ordinal);
             Assert.Contains("ReportedSelectionOf(ProfileTypes.mic)", body, StringComparison.Ordinal);
             Assert.DoesNotContain("!string.IsNullOrEmpty(theRadio.ProfileMICSelection), 1500", body, StringComparison.Ordinal);
@@ -111,7 +111,7 @@ namespace Radios.Tests.StationConnect
 
             int repair = text.IndexOf("private bool RepairSilentMicrophoneChecked(", StringComparison.Ordinal);
             Assert.True(repair >= 0);
-            string repairBody = text.Substring(repair, 3500);
+            string repairBody = SourceMember.CSharpAt(text, repair);
             int dispatch = repairBody.IndexOf("DispatchStationWork(", StringComparison.Ordinal);
             int refusal = repairBody.IndexOf("SilentMicrophoneAssessment.RepairRefusal(", StringComparison.Ordinal);
             // The write is the reply-bearing send, never the FlexLib setter:

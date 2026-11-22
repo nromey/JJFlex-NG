@@ -432,7 +432,7 @@ namespace Radios.Tests
             string src = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
             int bare = src.IndexOf("private bool OperatorWriteUnlessHeld(", StringComparison.Ordinal);
             Assert.True(bare >= 0);
-            Assert.Contains("=> OperatorWriteOutcome(actionKey, write) == GuardedOutcome.Done;", src.Substring(bare, 200));
+            Assert.Contains("=> OperatorWriteOutcome(actionKey, write) == GuardedOutcome.Done;", SourceMember.CSharpAt(src, bare));
             int at = src.IndexOf("private GuardedOutcome OperatorWriteOutcome(", StringComparison.Ordinal);
             Assert.True(at >= 0);
             string body = src.Substring(at, src.IndexOf("\n        }", at, StringComparison.Ordinal) - at);

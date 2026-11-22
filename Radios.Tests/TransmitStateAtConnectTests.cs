@@ -340,7 +340,7 @@ namespace Radios.Tests
             int fresh = connect.IndexOf("_radioReportedAutosave = false;", StringComparison.Ordinal);
             Assert.True(fresh > 0);
             // Through the one commit since repair round 11 (CommitSliceFacts).
-            Assert.Contains("ForgetTransmitCaches(null)", connect.Substring(fresh, 400), StringComparison.Ordinal);
+            Assert.Contains("ForgetTransmitCaches(null)", connect.Substring(fresh, 400), StringComparison.Ordinal);   // #604: deliberately bounded, the statements right after the reset
         }
 
         private static string Repo()

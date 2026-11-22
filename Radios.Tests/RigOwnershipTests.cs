@@ -70,7 +70,7 @@ namespace Radios.Tests
             string f = Read("Radios", "FlexBase.cs");
             int guard = f.IndexOf("            if (!disposed)\n            {", StringComparison.Ordinal);
             Assert.True(guard > 0);
-            string after = f.Substring(guard, 1600);
+            string after = SourceMember.CSharpAt(f, guard);   // the whole if (!disposed) block (#604)
             int claim = after.IndexOf("disposed = true;", StringComparison.Ordinal);
             int firstStep = after.IndexOf("component.Dispose();", StringComparison.Ordinal);
             Assert.True(claim > 0 && claim < firstStep, "the flag must be claimed before the first teardown step");

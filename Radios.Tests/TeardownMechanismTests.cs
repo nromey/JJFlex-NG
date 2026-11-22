@@ -443,7 +443,7 @@ namespace Radios.Tests
             string check = Repo("JJFlexWpf/Dialogs/CheckYourAudioDialog.Check.cs");
             int force = check.IndexOf("public void ForceEnd(string? reason, bool connectionEnding = false)", StringComparison.Ordinal);
             int keyed = check.IndexOf("if (OwnKeyHeld)", force, StringComparison.Ordinal);
-            string release = check.Substring(keyed, 900);
+            string release = SourceMember.CSharpAt(check, keyed);   // the whole if (OwnKeyHeld) block (#604)
             Assert.Contains("if (connectionEnding) _ptt.ReleaseForTeardown();", release);
             Assert.Contains("else _ptt.EscapeUnlock();", release);
             int gone = check.IndexOf("audio.check.radio_disconnected", StringComparison.Ordinal);
@@ -455,7 +455,7 @@ namespace Radios.Tests
             Assert.Contains("ForceEnd(\"Radio disconnected, audio check ended\", connectionEnding: true);", dialog);
             int changed = dialog.IndexOf("\"Radio changed, audio check ended\",", StringComparison.Ordinal);
             Assert.True(changed > 0);
-            Assert.Contains("connectionEnding: true);", dialog.Substring(changed, 120));
+            Assert.Contains("connectionEnding: true);", dialog.Substring(changed, 120));   // #604: deliberately bounded, one call's own arguments
             // The window closing and Escape keep the ordinary unkey.
             Assert.Contains("_session?.ForceEnd(\"Audio check ended\");", dialog);
             Assert.Contains("_session?.ForceEnd(null);", dialog);

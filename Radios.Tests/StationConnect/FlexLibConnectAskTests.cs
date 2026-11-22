@@ -361,7 +361,7 @@ namespace Radios.Tests.StationConnect
                 int endIf = ifZero < 0 ? -1 : text.IndexOf("#endif", ifZero, StringComparison.Ordinal);
                 if (ifZero >= 0 && endIf > at) continue;               // dead code
                 live++;
-                int windowStart = Math.Max(0, at - 700);
+                int windowStart = Math.Max(0, at - 700);   // #604: deliberately bounded, the lines just before each Connect
                 string before = text.Substring(windowStart, at - windowStart);
                 Assert.True(before.Contains("NoteFlexLibConnectTimeProfileAsk(", StringComparison.Ordinal),
                     "a live vendor Connect is not preceded by the record of FlexLib's connect-time profile ask: ..."

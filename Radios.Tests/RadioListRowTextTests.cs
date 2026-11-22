@@ -50,11 +50,11 @@ namespace Radios.Tests
             string src = Read("JJFlexWpf", "Dialogs", "RigSelectorDialog.xaml.cs");
             int at = src.IndexOf("private void UpdateListAutomationName()", StringComparison.Ordinal);
             Assert.True(at >= 0);
-            string body = src.Substring(at, src.IndexOf("private bool _listNamingOnFocus;", at, StringComparison.Ordinal) - at);
+            string body = SourceMember.CSharpAt(src, at);
             Assert.Contains("ListNaming.RenameNow(RadiosBox.IsKeyboardFocused, _listNamingOnFocus, RadiosBox.Items.Count)", body);
             Assert.Contains("_listNameOwed = true;", body);
             int lost = src.IndexOf("private void RadiosBox_LostFocus(", StringComparison.Ordinal);
-            Assert.Contains("_listNameOwed", src.Substring(lost, 600));
+            Assert.Contains("_listNameOwed", SourceMember.CSharpAt(src, lost));
         }
     }
 }

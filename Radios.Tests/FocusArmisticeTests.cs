@@ -149,7 +149,7 @@ namespace Radios.Tests
             Assert.True(wiring >= 0, "ShowErrorCallback is no longer wired in globals.vb — #331's "
                 + "whole path moved, and this test must follow it.");
 
-            string region = source.Substring(wiring, Math.Min(900, source.Length - wiring));
+            string region = source.Substring(wiring, Math.Min(900, source.Length - wiring));   // #604: deliberately bounded, a lambda assigned in a statement, not a member
 
             Assert.Contains("PushAttentionWindow", region, StringComparison.Ordinal);
             Assert.Contains("Finally", region, StringComparison.Ordinal);
