@@ -3139,8 +3139,7 @@ public class NativeMenuBar : IDisposable
                             // the path.
                             try
                             {
-                                System.Diagnostics.Process.Start(
-                                    new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+                                ProfileReporter.OpenExport(path);   // not opened on an isolated run (#1255)
                             }
                             catch (Exception openEx)
                             {

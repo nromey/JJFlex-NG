@@ -563,8 +563,9 @@ namespace JJFlexWpf.Dialogs
             {
                 var path = KeyManifest.WriteToFile(_commands);
                 Announce(Radios.Lexicon.Get("settings.keys.editor.list_saved", ("path", path)));
-                System.Diagnostics.Process.Start(
-                    new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+                // Not opened on an isolated run, which must not open a window
+                // on the real desktop (#1255).
+                Radios.ProfileReporter.OpenExport(path);
             }
             catch (Exception ex)
             {

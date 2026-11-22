@@ -6073,8 +6073,9 @@ RadioConnected:
             If reportPath IsNot Nothing Then
                 Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tester.results_saved",
                                                                     ("latestDate", latestDate), ("reportPath", reportPath)))
-                ' Open the file in the default text editor
-                Process.Start(New ProcessStartInfo(reportPath) With {.UseShellExecute = True})
+                ' Open the file in the default text editor; not on an isolated
+                ' run, which must not open a window on the real desktop (#1255).
+                Radios.ProfileReporter.OpenExport(reportPath)
             Else
                 Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tester.results_save_failed"), VerbosityLevel.Critical)
             End If
