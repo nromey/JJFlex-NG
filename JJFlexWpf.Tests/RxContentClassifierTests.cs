@@ -150,9 +150,12 @@ public sealed class RxContentClassifierTests
         // per-thread counter report up to 8 KB that this thread never allocated (measured
         // 8,184 here on x86). With no collection able to start, the count is exact. If the
         // rest of the suite allocates enough to force one anyway, the region ends, which is
-        // detectable, and only then is the count taken again.
+        // detectable, and only then is the count taken again. Repair 4 (Codex's re-check 3):
+        // a region the runtime refused to start is reported as that, not as a forced
+        // collection, and the detector's figure is its time over the accepted window only.
         long allocated = -1;
-        int forced = 0;
+        int forced = 0, refused = 0;
+        TimeSpan detectorInWindow = TimeSpan.Zero;
         for (int attempt = 0; attempt < 3 && allocated < 0; attempt++)
         {
             for (int b = 0; b < 20; b++) c.Classify(voice.AsSpan(b * 2 * F, 2 * F), 2);
@@ -163,19 +166,24 @@ public sealed class RxContentClassifierTests
                 try { region = GC.TryStartNoGCRegion(size); break; }
                 catch (ArgumentOutOfRangeException) { }
             }
+            var detectorBefore = c.DetectorTime;
             long before = GC.GetAllocatedBytesForCurrentThread();
             sw.Restart();
             for (int b = 20; b < blocks; b++) c.Classify(voice.AsSpan(b * 2 * F, 2 * F), 2);
             sw.Stop();
             long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            var detectorSpent = c.DetectorTime - detectorBefore;
             bool held = System.Runtime.GCSettings.LatencyMode == System.Runtime.GCLatencyMode.NoGCRegion;
             if (held) GC.EndNoGCRegion();
-            if (region && held) allocated = bytes; else forced++;
+            if (region && held) { allocated = bytes; detectorInWindow = detectorSpent; }
+            else if (region) forced++;
+            else refused++;
         }
         if (forced > 0) _out.WriteLine($"{forced} count(s) taken again: a collection was forced inside the window");
-        Assert.True(allocated >= 0, "no window was free of collections in three tries");
+        if (refused > 0) _out.WriteLine($"{refused} count(s) taken again: the runtime would not start a no-collection region");
+        Assert.True(allocated >= 0, "no window was held free of collections in three tries");
         double perBlock = sw.Elapsed.TotalMilliseconds * 1000 / (blocks - 20);
-        double detector = c.DetectorTime.TotalMilliseconds * 1000 / blocks;
+        double detector = detectorInWindow.TotalMilliseconds * 1000 / (blocks - 20);
         _out.WriteLine($"{Environment.Is64BitProcess switch { true => "x64", false => "x86" }}: {perBlock:0.0} µs per 10 ms block in all ({detector:0.0} µs in the detector), {perBlock / 100:0.00} percent of one core, one detector on the mix of both ears");
         Assert.Equal(0, allocated);
         Assert.True(perBlock < 500, $"{perBlock:0} µs per block");
