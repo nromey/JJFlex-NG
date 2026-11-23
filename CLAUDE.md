@@ -716,6 +716,15 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    SharpCompress 0.40.0 sat in the tree with a known moderate-severity
    vulnerability, surfacing in eighteen projects, unnoticed because nobody ever
    ran the check.
+
+   **Freshness has its own WEEKLY sweep now, ruled by Noel 2026-11-23** (#867):
+   a track takes every STABLE release (never a prerelease) after writing down
+   its changelog delta, and the build tools are updated, every week, by
+   `C:\dev\jjf-private\planning\dependency-sweep\WEEKLY-SWEEP.md`. This step
+   cannot see the gap that prompted it: the app ships its own .NET runtime, so
+   the build machine's SDK decides what users get, and on 2026-11-22 that
+   runtime was four security releases behind with this check green. NuGet
+   advisories say nothing about the runtime or the hand-pinned native DLLs.
 3c. **Memory drift check:** run `& "C:\dev\JJFlex-NG\check-memory-drift.ps1"`.
    Seconds, and it is the only automated defence against the project's dominant
    defect class. It walks every memory entry, extracts the file paths each one
