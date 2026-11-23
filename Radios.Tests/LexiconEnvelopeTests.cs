@@ -3042,11 +3042,11 @@ namespace Radios.Tests
                 "settings.operator.not_saved",
                 // Junk box batch 20 (2026-11-22), #1253: an operator file that
                 // could not be read at start-up, and one that is read-only.
-                // DRAFT facts for Codex to word; not approved copy.
+                // Codex's words with Noel's edits, approved 2026-11-23.
                 "settings.operator.not_loaded",
                 "settings.operator.read_only",
                 // Repair 2: a Delete that could not remove the file says so,
-                // for any reason. DRAFT, not approved copy.
+                // for any reason. Approved by Noel 2026-11-23.
                 "settings.operator.delete_failed",
                 // #1189 item 2, a typed notch frequency outside the range a notch can go.
                 "settings.tnf.frequency_out_of_range",

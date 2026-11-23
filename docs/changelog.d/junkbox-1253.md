@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- An operator file that cannot be read when JJ Flexible starts no longer shows a box full of technical detail and stops every operator loading. The other operators load, and one plain notice names the file and says it was left where it is, unchanged. A read-only operator file now loads too; if you change that operator, you are told once that the change cannot be kept while the file is read-only.
+- The other operators now load in JJ Flexible Radio Access even when an operator file cannot be loaded. One plain notice lists the affected files. Read-only operator files now load normally. A notice explains when a read-only file prevents changes from being saved.
