@@ -141,6 +141,13 @@ namespace Radios.Tests
             guard.GetType().GetField("_clock", Private)!.SetValue(guard, clock);
         }
 
+        /// <summary>The slice's echo guard's state, expiry applied (its <c>Now</c>).</summary>
+        private static string EchoGuardState(FlexBase rig, Slice s)
+        {
+            object guard = typeof(FlexBase).GetMethod("EchoGuardFor", Private)!.Invoke(rig, new object[] { s })!;
+            return guard.GetType().GetProperty("Now", Private)!.GetValue(guard)!.ToString()!;
+        }
+
         private static string Mhz(ulong hz) => (hz / 1_000_000.0).ToString("0.0000", CultureInfo.InvariantCulture);
 
         /// <summary>Every reader of a slice's one number agrees on <paramref name="hz"/>: the getters, both roles and F.</summary>
@@ -2274,7 +2281,14 @@ namespace Radios.Tests
             Clock(b.Rig, a, () => now);
             b.Rig.RXFrequency = 14_100_100;
             Drain(b.Rig);
+            // The premise, proved before the refusal arrives (#972): the tune is
+            // pending, then the read at the deadline gives it up and reads where
+            // the radio last was. Before this the test advanced the clock and
+            // drained, and nothing read or expired the guard first.
+            Assert.Equal(14_100_100UL, b.Rig.RXFrequency);
             now = FrequencyEchoGuard.GiveUpMs;
+            Assert.Equal(14_100_000UL, b.Rig.RXFrequency);
+            Assert.Equal("Idle", EchoGuardState(b.Rig, a));
             Drain(b.Rig);
             RejectTune(b, 0, "14.100050");
             EveryReaderSays(b.Rig, 14_100_050);
@@ -2469,7 +2483,7 @@ namespace Radios.Tests
             Assert.True(bind > 0 && build > bind, "Home's return status is not bound before it is built");
             int speak = text.IndexOf("subject: Radios.Speech.SpeechSubject.ReturnStatus", build, StringComparison.Ordinal);
             Assert.True(speak > 0, "Home's return status is no longer spoken under its subject");
-            Assert.Contains("stillValid: stillTrue", text.Substring(speak, 120), StringComparison.Ordinal);
+            Assert.Contains("stillValid: stillTrue", text.Substring(speak, 120), StringComparison.Ordinal);   // #604: deliberately bounded, the speak call's own arguments
         }
     
 

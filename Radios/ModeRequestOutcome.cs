@@ -7,7 +7,13 @@ namespace Radios
     /// </summary>
     public enum ModeRequestOutcome
     {
-        /// <summary>Queued to our slice. Read the slice back before saying it changed.</summary>
+        /// <summary>
+        /// Queued to our slice, and nothing more: never say the mode changed.
+        /// Reading the slice back proves nothing, because FlexLib's setter
+        /// writes that field before the command goes out, so a read-back is our
+        /// own echo, not the radio (#312). Say only that it was asked for, as
+        /// <see cref="SixtyMeterModeDelivery"/> does ("switching").
+        /// </summary>
         Sent,
 
         /// <summary>Not requested: the radio is transmitting, and the mode is never changed under a carrier.</summary>

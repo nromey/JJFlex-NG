@@ -856,7 +856,11 @@ namespace Radios.Tests
             int settle = At(body, "System.Threading.Thread.Sleep(4000)");
             int walk = At(body, "ProfileReporter.GenerateReport(reservation, plan, reportRig,");
             int save = At(body, "ProfileReporter.SaveReport(report.Text)");
-            int open = At(body, "System.Diagnostics.Process.Start(");
+            // Through the isolation-aware helper since #1255 (an isolated run
+            // traces "not opened" rather than putting an editor on the desktop);
+            // this pinned the shell open itself until then.
+            int open = At(body, "ProfileReporter.OpenExport(path);");
+            Assert.DoesNotContain("Process.Start(", body);
             int spoken = At(body, "ProfileReporter.ComparisonFinishedSentence(report, path)");
 
             Assert.True(reserve < task, "the walk is reserved at the press, before the task");

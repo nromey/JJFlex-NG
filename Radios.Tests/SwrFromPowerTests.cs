@@ -227,7 +227,7 @@ namespace Radios.Tests
                 "ReadTransmitPowerWatts moved; reconcile it with CommandedPowerWatts "
                 + "rather than deleting this guard");
 
-            string body = src.Substring(at, Math.Min(400, src.Length - at));
+            string body = SourceMember.CSharpAt(src, at);
             Assert.Contains("TunePower", body);
             Assert.Contains("XmitPower", body);
         }
@@ -411,7 +411,7 @@ namespace Radios.Tests
             // they have been corrected one at a time before.
             foreach (int idx in AllIndexesOf(src, "SpeakSwrAfterTune("))
             {
-                string call = src.Substring(idx, Math.Min(120, src.Length - idx));
+                string call = src.Substring(idx, Math.Min(120, src.Length - idx));   // #604: deliberately bounded, one call's own arguments
                 Assert.DoesNotContain("SWRValue", call);
             }
 

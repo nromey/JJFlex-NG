@@ -207,6 +207,36 @@ public static class EditingFile
         public List<string> Orphans { get; } = [];
     }
 
+    /// <summary>
+    /// The same file with the recorded fingerprint of each named sentence
+    /// replaced, everything else byte for byte as it was (line endings
+    /// included). After an apply, the applied wording becomes the baseline an
+    /// edit is measured against (#390 repair 1).
+    /// </summary>
+    public static string Rebase(string markdown, IReadOnlyDictionary<string, string> fingerprints)
+    {
+        string[] lines = markdown.Split('\n');
+        bool inProvenance = false;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i].TrimEnd('\r');
+            if (line.StartsWith("# ", StringComparison.Ordinal))
+            {
+                inProvenance = line[2..].Trim() == ProvenanceHeading;
+                continue;
+            }
+            if (line.StartsWith("## ", StringComparison.Ordinal)) { inProvenance = false; continue; }
+            if (!inProvenance || !line.StartsWith('>')) continue;
+
+            string[] bits = line[1..].Trim().Split('·', StringSplitOptions.TrimEntries);
+            if (bits.Length != 3 || !fingerprints.TryGetValue(bits[0], out string? now)) continue;
+            int last = line.LastIndexOf('·');
+            string ending = lines[i].EndsWith('\r') ? "\r" : "";
+            lines[i] = line[..(last + 1)] + " " + now + ending;
+        }
+        return string.Join('\n', lines);
+    }
+
     public static Parsed Parse(string markdown)
     {
         var result = new Parsed();

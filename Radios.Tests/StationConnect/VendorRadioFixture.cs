@@ -209,10 +209,23 @@ namespace Radios.Tests.StationConnect
         /// <summary>A status line from the radio, e.g. "profile tx current=K5NER-TX".
         /// Parsed by FlexLib, and delivered through the transport as the real
         /// line would be, so the app's own readers of it see it too.</summary>
+        /// <remarks>
+        /// Both under the transport's <c>ConnectionSync</c>, as in production (#972):
+        /// there FlexLib's parser runs from <c>PublishData</c>'s DataReceived
+        /// dispatch, inside that lock, so the app's handlers of a status (the
+        /// tuning commit, the roster lock) always run under the reader's gate.
+        /// Parsed outside it, no test ever exercised that lock order. The
+        /// monitor is re-entrant, so <c>PublishData</c>'s own lock still works.
+        /// <b>A test that deadlocks or goes red under this is a finding about
+        /// production's lock order; never loosen this to make it pass.</b>
+        /// </remarks>
         public void Status(string body)
         {
-            ParseStatusMethod.Invoke(Radio, new object[] { "S0|" + body });
-            Transport.Deliver("S0|" + body);
+            lock (Transport.ConnectionSync)
+            {
+                ParseStatusMethod.Invoke(Radio, new object[] { "S0|" + body });
+                Transport.Deliver("S0|" + body);
+            }
         }
 
         /// <summary>The last command written, as text.</summary>

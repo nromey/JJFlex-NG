@@ -50,20 +50,8 @@ namespace Radios.Tests
         private static string Source() => File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
             "Radios", "AuthFormWebView2.cs")).Replace("\r\n", "\n");
 
-        private static string MethodBody(string source, string signature)
-        {
-            int start = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(start >= 0, $"not found: {signature}");
-            int open = source.IndexOf('{', start);
-            int depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}' && --depth == 0)
-                    return source.Substring(open, i - open + 1);
-            }
-            throw new InvalidOperationException("unbalanced braces after " + signature);
-        }
+        private static string MethodBody(string source, string signature) =>
+            SourceMember.CSharpBlock(source, signature);
 
         private const string ExchangeSignature =
             "private async Task<bool> ExchangeCodeForTokens(string code, CancellationToken ct)";
@@ -269,6 +257,100 @@ namespace Radios.Tests
             Assert.DoesNotContain("DialogResult", guardBlock);
             Assert.DoesNotContain("MessageBox", guardBlock);
             Assert.DoesNotContain("Tokens", guardBlock);
+        }
+
+        // ---- A close during WebView2's start-up (#1245) ----
+
+        private const string LoadSignature = "private async void AuthFormWebView2_Load(object sender, EventArgs e)";
+
+        private static bool LoadStopped(AuthFormWebView2 form)
+        {
+            var method = typeof(AuthFormWebView2).GetMethod("LoadStoppedByClose", Instance);
+            Assert.NotNull(method);
+            return (bool)method.Invoke(form, new object[] { "test" })!;
+        }
+
+        [Theory]
+        [InlineData(CloseReason.UserClosing)]          // Alt+F4, the title bar
+        [InlineData(CloseReason.None)]                 // Escape's own close
+        public void After_any_close_the_start_up_stops(CloseReason reason)
+        {
+            var form = UnbuiltForm(null);
+            Close(form, reason);
+            Assert.True(LoadStopped(form), "a close during start-up must stop the load handler");
+        }
+
+        [Fact]
+        public void Positive_control_an_open_form_carries_on_starting()
+        {
+            // If the check said "stopped" on an open form, every start-up
+            // would end quietly and the tests above would prove nothing.
+            Assert.False(LoadStopped(UnbuiltForm(null)));
+        }
+
+        [Fact]
+        public void Every_await_in_the_load_handler_is_followed_by_the_close_check()
+        {
+            string body = MethodBody(Source(), LoadSignature);
+            var awaits = Regex.Matches(body, @"await [^;]*;");
+            // CreateAsync, the retry delay, the profile's start-up, the
+            // shared start-up and the cookie read.
+            Assert.Equal(5, awaits.Count);
+            for (int i = 0; i < awaits.Count; i++)
+            {
+                int from = awaits[i].Index + awaits[i].Length;
+                int to = i + 1 < awaits.Count ? awaits[i + 1].Index : body.Length;
+                string after = body.Substring(from, to - from);
+                int check = after.IndexOf("if (LoadStoppedByClose(", StringComparison.Ordinal);
+                Assert.True(check >= 0, $"no close check after: {awaits[i].Value}");
+                // The check is the very next statement, not somewhere later.
+                string between = after.Substring(0, check);
+                Assert.True(between.Trim().Length == 0, $"something runs between the await and its check: {awaits[i].Value}");
+                string checkLine = after.Substring(check).Split('\n')[0];
+                Assert.EndsWith(") return;", checkLine.TrimEnd());
+            }
+        }
+
+        [Fact]
+        public void A_failed_profile_start_up_never_falls_through_to_the_shared_profile_after_a_close()
+        {
+            string body = MethodBody(Source(), LoadSignature);
+            int profileCatch = body.IndexOf("using shared profile", StringComparison.Ordinal);
+            int shared = body.IndexOf("if (!profileApplied)", StringComparison.Ordinal);
+            Assert.True(profileCatch >= 0 && shared > profileCatch);
+            Assert.Contains("if (LoadStoppedByClose(", body.Substring(profileCatch, shared - profileCatch));
+        }
+
+        [Fact]
+        public void The_start_up_error_box_is_never_shown_on_a_closed_form()
+        {
+            string body = MethodBody(Source(), LoadSignature);
+            int outer = body.LastIndexOf("catch (Exception ex)", StringComparison.Ordinal);
+            Assert.True(outer >= 0);
+            string handler = MethodBody(body.Substring(outer), "catch (Exception ex)");
+
+            int closedCheck = handler.IndexOf("if (_closed || IsDisposed)", StringComparison.Ordinal);
+            int box = handler.IndexOf("MessageBox.Show(", StringComparison.Ordinal);
+            int abort = handler.IndexOf("DialogResult = DialogResult.Abort;", StringComparison.Ordinal);
+            Assert.True(closedCheck >= 0, "the catch must test for a close");
+            Assert.True(box > closedCheck && abort > closedCheck, "the test comes before the box and the Abort");
+
+            string quiet = MethodBody(handler.Substring(closedCheck), "if (_closed || IsDisposed)");
+            Assert.Contains("return;", quiet);
+            Assert.DoesNotContain("MessageBox", quiet);
+            Assert.DoesNotContain("DialogResult", quiet);
+
+            // Positive control: the real failure on an open form still shows
+            // the box and still closes with Abort.
+            Assert.Contains("connect.smartlink.browser.init_failed_body", handler);
+        }
+
+        [Fact]
+        public void Every_close_sets_the_flag_the_start_up_reads()
+        {
+            string body = MethodBody(Source(), "private void AuthFormWebView2_FormClosing(object sender, FormClosingEventArgs e)");
+            Assert.Contains("_closed = true;", body);
+            Assert.Contains("CancelExchange(", body);
         }
 
         [Fact]

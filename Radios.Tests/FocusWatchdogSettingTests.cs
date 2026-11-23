@@ -149,7 +149,7 @@ namespace Radios.Tests
                 "JJFlexDialog no longer has a ReportSuppressedReclaim method. A test that "
                 + "cannot find its subject passes every absence check it makes.");
 
-            string body = source.Substring(at, Math.Min(2_200, source.Length - at));
+            string body = SourceMember.CSharpAt(source, at);
             Assert.Contains("TraceLevel.Info", body, StringComparison.Ordinal);
             Assert.Contains("NoteTheft", body, StringComparison.Ordinal);
         }

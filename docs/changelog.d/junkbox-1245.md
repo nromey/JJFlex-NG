@@ -1,0 +1,1 @@
+- The SmartLink browser sign-in page no longer shows a startup error after you close the page with Escape or Alt+F4 while it is still starting up.

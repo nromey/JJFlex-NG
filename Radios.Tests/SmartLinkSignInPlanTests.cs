@@ -506,20 +506,8 @@ namespace Radios.Tests
             Assert.Contains("\"connect.failure.smartlink_lists_no_radios\"", tail, StringComparison.Ordinal);
         }
 
-        private static string Body(string text, string signature)
-        {
-            int start = text.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(start >= 0, signature + " is not where this test reads it.");
-            int open = text.IndexOf('{', start);
-            int depth = 0;
-            for (int i = open; i < text.Length; i++)
-            {
-                if (text[i] == '{') depth++;
-                else if (text[i] == '}' && --depth == 0) return text.Substring(start, i - start + 1);
-            }
-            Assert.Fail("The body of " + signature + " never closes.");
-            return "";
-        }
+        private static string Body(string text, string signature) =>
+            SourceMember.CSharp(text, signature);
 
         /// <summary>
         /// The decision itself, on one snapshot: arrived and empty answers;

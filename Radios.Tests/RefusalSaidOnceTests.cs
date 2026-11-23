@@ -153,7 +153,7 @@ public sealed class RefusalSaidOnceTests : IDisposable
         string text = Read("JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs");
         int at = text.IndexOf("var outcome = PerformPortForwardApply(wantEnabled, tcp, udp);", StringComparison.Ordinal);
         Assert.True(at > 0);
-        string branch = text.Substring(at, 400);
+        string branch = text.Substring(at, 400);   // #604: deliberately bounded, the statements right after the apply
         // Filed by one router since #1088's repair: a refusal returns before
         // the failure's sentence is reached.
         Assert.Contains("FilePortForwardOutcome(outcome,", branch, StringComparison.Ordinal);
@@ -222,23 +222,12 @@ public sealed class RefusalSaidOnceTests : IDisposable
         string text = Read("Radios", "FlexBase.SmartLink.cs");
         int retry = text.IndexOf("The retry could not be sent.", StringComparison.Ordinal);
         Assert.True(retry > 0);
-        string before = text.Substring(retry - 250, 250);
+        string before = text.Substring(retry - 250, 250);   // #604: deliberately bounded, the lines just before the sentence
         Assert.Contains("== GuardedOutcome.Failed)", before, StringComparison.Ordinal);
     }
 
-    private static string Body(string text, string signature)
-    {
-        int at = text.IndexOf(signature, StringComparison.Ordinal);
-        Assert.True(at > 0, "not found: " + signature);
-        int open = text.IndexOf('{', at);
-        int depth = 0;
-        for (int i = open; i < text.Length; i++)
-        {
-            if (text[i] == '{') depth++;
-            else if (text[i] == '}' && --depth == 0) return text.Substring(at, i - at + 1);
-        }
-        return text.Substring(at);
-    }
+    private static string Body(string text, string signature) =>
+        SourceMember.CSharp(text, signature);
 
     private static string Read(params string[] parts)
     {

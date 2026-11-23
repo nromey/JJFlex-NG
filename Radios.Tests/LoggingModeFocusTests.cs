@@ -50,7 +50,7 @@ namespace Radios.Tests
             string xaml = Read("JJFlexWpf/LogEntryControl.xaml");
             int box = xaml.IndexOf("x:Name=\"CallSignBox\"", StringComparison.Ordinal);
             Assert.True(box >= 0);
-            Assert.Contains("AutomationProperties.Name=\"Call Sign\"", xaml.Substring(box, 120), StringComparison.Ordinal);
+            Assert.Contains("AutomationProperties.Name=\"Call Sign\"", xaml.Substring(box, 120), StringComparison.Ordinal);   // #604: deliberately bounded, one XAML element's attributes
         }
     }
 }

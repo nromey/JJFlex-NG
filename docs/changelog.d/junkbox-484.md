@@ -1,0 +1,1 @@
+- The CW zero beat command (`Alt+Z` by default) no longer closes JJ Flexible Radio Access if the radio disconnects or its panadapter closes during the command. A failed attempt now leaves the tuning unchanged.

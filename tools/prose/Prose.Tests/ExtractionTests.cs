@@ -39,7 +39,7 @@ public sealed class ExtractionTests
         using var w = new Workspace();
         Entry e = w.Open().Entries.Single(x => x.Key == "fixer.stage.audio-setup.explanation");
 
-        Assert.StartsWith("Reads the open audio stream directly", e.Text, StringComparison.Ordinal);
+        Assert.StartsWith("This stage runs two separate tests", e.Text, StringComparison.Ordinal);
         Assert.EndsWith("Nothing here keys the radio.", e.Text, StringComparison.Ordinal);
         Assert.DoesNotContain('\n', e.Text);
     }
@@ -78,7 +78,7 @@ public sealed class ExtractionTests
         Assert.Contains("<button", stop.ShellOpen, StringComparison.Ordinal);
 
         Assert.Contains(entries, e => e.ShellKind == "bullet"
-                                   && e.Text.StartsWith("Each check is a heading",
+                                   && e.Text.StartsWith("Each test is a heading",
                                                         StringComparison.Ordinal));
     }
 
@@ -88,7 +88,7 @@ public sealed class ExtractionTests
     /// files, before trusting it about the things it left behind.
     /// </summary>
     [Theory]
-    [InlineData("fixer.stage.audio-setup.title", "Audio setup")]
+    [InlineData("fixer.stage.audio-setup.title", "Audio setup and receive")]
     [InlineData("fixer.stage.spoken-transmit.question",
                 "Does your voice reach the radio through your microphone?")]
     [InlineData("fixer.finding.pc-audio-off.us.what-to-do", "Turn PC audio on")]

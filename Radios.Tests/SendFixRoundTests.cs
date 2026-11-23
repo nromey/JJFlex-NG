@@ -289,19 +289,8 @@ namespace Radios.Tests
 
         // ── helpers ─────────────────────────────────────────────────────────
 
-        internal static string Body(string src, string signature)
-        {
-            int start = src.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(start >= 0, "signature not found: " + signature);
-            int open = src.IndexOf('{', start);
-            int depth = 0;
-            for (int i = open; i < src.Length; i++)
-            {
-                if (src[i] == '{') depth++;
-                else if (src[i] == '}' && --depth == 0) return src.Substring(start, i - start + 1);
-            }
-            throw new InvalidOperationException("unbalanced braces after " + signature);
-        }
+        internal static string Body(string src, string signature) =>
+            SourceMember.CSharp(src, signature);
 
         internal static string ReadSource(string relative)
         {

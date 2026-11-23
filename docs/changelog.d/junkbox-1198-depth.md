@@ -1,0 +1,1 @@
+- The tracking notch window no longer sends an unchanged depth setting to the radio when you leave the Depth box or press Enter.

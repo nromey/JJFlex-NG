@@ -1,7 +1,8 @@
 namespace Prose.Tests;
 
 /// <summary>
-/// The round trip, against the real Fixer prose.
+/// The round trip, against the suite's frozen copy of the Fixer prose; the
+/// byte-identity property, which holds for ANY prose, against the live tree too.
 /// </summary>
 public sealed class RoundTripTests
 {
@@ -18,10 +19,12 @@ public sealed class RoundTripTests
     /// a tool that rewrites a file it was never asked to touch is exactly the
     /// failure this proves against.
     /// </remarks>
-    [Fact]
-    public void ApplyingAnUneditedFileChangesNoByteOfAnySourceFile()
+    [Theory]
+    [InlineData(false)]   // the suite's frozen copy
+    [InlineData(true)]    // the live tree: a property of the tool, not of any wording
+    public void ApplyingAnUneditedFileChangesNoByteOfAnySourceFile(bool live)
     {
-        using var w = new Workspace();
+        using var w = new Workspace(live);
         Dictionary<string, string> before = w.Hashes();
 
         Assert.Equal(0, w.Run("extract").Code);

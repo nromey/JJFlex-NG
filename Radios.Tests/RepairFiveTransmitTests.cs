@@ -1617,7 +1617,7 @@ namespace Radios.Tests
             string main = System.IO.File.ReadAllText(Repo("JJFlexWpf/MainWindow.xaml.cs"));
             int body = main.IndexOf("private void PowerNowOffInternal()", StringComparison.Ordinal);
             Assert.True(body > 0, "PowerNowOffInternal moved");
-            string text = main.Substring(body, 2500);
+            string text = SourceMember.CSharpAt(main, body);
             int importing = text.IndexOf("bool importing = RigControl?.TakeImportPowerOff() == true;", StringComparison.Ordinal);
             int release = text.IndexOf("ReleaseKeyForTeardown(\"the radio powered off\");", StringComparison.Ordinal);
             int unwire = text.IndexOf("UnwireDropHandler();", StringComparison.Ordinal);
@@ -1626,9 +1626,12 @@ namespace Radios.Tests
                 "an import's power-off runs the teardown release or unwires the drop handler");
             string flex = System.IO.File.ReadAllText(Repo("Radios/FlexBase.MainThread.cs"));
             int import = flex.IndexOf("internal void ImportProfile(string name)", StringComparison.Ordinal);
-            string importBody = flex.Substring(import, 600);
-            Assert.True(importBody.IndexOf("Interlocked.Exchange(ref _importPowerOffPending, 1);", StringComparison.Ordinal)
-                < importBody.IndexOf("try { raisePowerEvent(false); }", StringComparison.Ordinal));
+            string importBody = SourceMember.CSharpAt(flex, import);
+            // Both found, then ordered (#604 spot check: with only the "<" an
+            // absent claim read as -1 and passed).
+            int claimAt = importBody.IndexOf("Interlocked.Exchange(ref _importPowerOffPending, 1);", StringComparison.Ordinal);
+            int raiseAt = importBody.IndexOf("try { raisePowerEvent(false); }", StringComparison.Ordinal);
+            Assert.True(claimAt >= 0 && raiseAt > claimAt, "the import claims its power-off before raising the event");
             Assert.Contains("finally { System.Threading.Interlocked.Exchange(ref _importPowerOffPending, 0); }", importBody);
         }
 

@@ -18,19 +18,8 @@ namespace Radios.Tests
     /// </remarks>
     public sealed class HomeShiftSStepsTests
     {
-        private static string Body(string source, string signature)
-        {
-            int at = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, signature + " was not found");
-            int open = source.IndexOf('{', at);
-            int depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}' && --depth == 0) return source.Substring(open, i - open + 1);
-            }
-            throw new InvalidOperationException(signature + " has no end");
-        }
+        private static string Body(string source, string signature) =>
+            SourceMember.CSharpBlock(source, signature);
 
         [Fact]
         public void Shift_S_is_a_universal_Home_key_in_Modern_tuning_only()
@@ -40,7 +29,7 @@ namespace Radios.Tests
             const string branch = "if (key == Key.S && Keyboard.Modifiers == ModifierKeys.Shift && _window.FreqOut.IsModernMode)";
             int at = universal.IndexOf(branch, StringComparison.Ordinal);
             Assert.True(at >= 0, "Shift+S is no longer a universal Home key gated on Modern tuning");
-            Assert.Contains("SpeakCurrentStepFromMenu();", universal.Substring(at, 200));
+            Assert.Contains("SpeakCurrentStepFromMenu();", SourceMember.CSharpAt(universal, at));
 
             // One home: the Modern Frequency field keeps no copy of its own.
             string modern = Body(src, "public void AdjustFreqModern(FrequencyDisplay.DisplayField field, KeyEventArgs e)");

@@ -31,7 +31,12 @@ namespace Radios.Tests
 
         public void Dispose()
         {
-            try { Directory.Delete(_dir, recursive: true); } catch { }
+            try
+            {
+                foreach (string f in Directory.GetFiles(_dir)) File.SetAttributes(f, FileAttributes.Normal);
+                Directory.Delete(_dir, recursive: true);
+            }
+            catch { }
         }
 
         private string FileIn(string name, string? text = null)
@@ -165,6 +170,235 @@ namespace Radios.Tests
             Assert.Equal(new[] { renamed }, paths);
             Assert.False(File.Exists(old), "two operator files would load at the next start");
             Assert.True(File.Exists(renamed));
+        }
+
+        // ---- #1241: an old file a rename could not remove ----
+
+        private const string Record = "retired-operator-files.txt";
+
+        private string RecordPath => Path.Combine(_dir, Record);
+
+        /// <summary>A rename whose save works and whose delete fails: the old
+        /// file is read-only, so File.Delete throws.</summary>
+        private (string Old, string Renamed) RenameWithStuckOldFile()
+        {
+            string old = FileIn("OLD_Operator.xml", "the operator's record");
+            string renamed = Path.Combine(_dir, "NEW_Operator.xml");
+            File.SetAttributes(old, FileAttributes.ReadOnly);
+            Assert.True(Run(old, renamed, () => { File.WriteAllText(renamed, "edited"); return true; }));
+            Assert.True(File.Exists(old), "positive control: the read-only old file really could not be deleted");
+            return (old, renamed);
+        }
+
+        private string[] Load() =>
+            ((string[])CallStatic("OperatorFilesToLoad", _dir)!).Select(Path.GetFileName).OrderBy(n => n).ToArray()!;
+
+        [Fact]
+        public void A_rename_whose_old_file_cannot_be_removed_records_it()
+        {
+            RenameWithStuckOldFile();
+            Assert.True(File.Exists(RecordPath), "the stuck old file must be recorded");
+            string[] lines = File.ReadAllLines(RecordPath);
+            Assert.Single(lines);
+            string[] parts = lines[0].Split('\t');
+            Assert.Equal(new[] { "OLD_Operator.xml", "NEW_Operator.xml" }, parts.Take(2).ToArray());
+        }
+
+        [Fact]
+        public void The_next_start_skips_a_stuck_old_file_and_keeps_it_on_record()
+        {
+            var (old, _) = RenameWithStuckOldFile();
+            Assert.Equal(new[] { "NEW_Operator.xml" }, Load());
+            Assert.True(File.Exists(old), "nothing deletes it while it still cannot be deleted");
+            Assert.True(File.Exists(RecordPath), "still stuck, so still on record");
+            File.SetAttributes(old, FileAttributes.Normal);
+        }
+
+        [Fact]
+        public void The_next_start_removes_the_old_file_once_it_can_and_clears_the_record()
+        {
+            var (old, renamed) = RenameWithStuckOldFile();
+            File.SetAttributes(old, FileAttributes.Normal);
+
+            Assert.Equal(new[] { "NEW_Operator.xml" }, Load());
+            Assert.False(File.Exists(old), "the retired file is removed at the next start");
+            Assert.False(File.Exists(RecordPath), "an empty record is removed");
+            Assert.Equal("edited", File.ReadAllText(renamed));
+        }
+
+        [Fact]
+        public void A_newer_operator_file_at_the_old_name_is_kept_and_loaded()
+        {
+            var (old, _) = RenameWithStuckOldFile();
+            File.SetAttributes(old, FileAttributes.Normal);
+            // A later operator saved under the old name: written after the record.
+            File.WriteAllText(old, "a different operator");
+            File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddMinutes(1));
+
+            Assert.Equal(new[] { "NEW_Operator.xml", "OLD_Operator.xml" }, Load());
+            Assert.Equal("a different operator", File.ReadAllText(old));
+            Assert.False(File.Exists(RecordPath), "the entry is settled");
+        }
+
+        [Fact]
+        public void With_the_renamed_file_gone_the_old_file_is_the_only_copy_and_is_loaded()
+        {
+            var (old, renamed) = RenameWithStuckOldFile();
+            File.SetAttributes(old, FileAttributes.Normal);
+            File.Delete(renamed);
+
+            Assert.Equal(new[] { "OLD_Operator.xml" }, Load());
+            Assert.Equal("the operator's record", File.ReadAllText(old));
+        }
+
+        [Fact]
+        public void A_later_good_rename_carries_the_record_to_the_newest_file()
+        {
+            var (old, renamed) = RenameWithStuckOldFile();
+            string third = Path.Combine(_dir, "THIRD_Operator.xml");
+            Assert.True(Run(renamed, third, () => { File.WriteAllText(third, "edited again"); return true; }));
+            Assert.False(File.Exists(renamed));
+
+            File.SetAttributes(old, FileAttributes.Normal);
+            Assert.Equal(new[] { "THIRD_Operator.xml" }, Load());
+            Assert.False(File.Exists(old), "the first old file is still known to be stale, and goes");
+        }
+
+        [Fact]
+        public void A_record_never_names_a_file_outside_the_folder_or_a_non_operator_file()
+        {
+            string outside = Path.Combine(Path.GetTempPath(), "jjf-outside-" + Guid.NewGuid().ToString("N") + ".xml");
+            File.WriteAllText(outside, "not ours");
+            try
+            {
+                FileIn("NEW_Operator.xml", "edited");
+                FileIn("notes.txt", "not an operator");
+                long ticks = DateTime.UtcNow.AddDays(1).Ticks;
+                File.WriteAllLines(RecordPath, new[]
+                {
+                    outside + "\tNEW_Operator.xml\t" + ticks,
+                    "..\\" + Path.GetFileName(outside) + "\tNEW_Operator.xml\t" + ticks,
+                    "notes.txt\tNEW_Operator.xml\t" + ticks,
+                    "garbled line",
+                    "",
+                });
+                Assert.Equal(new[] { "NEW_Operator.xml" }, Load());
+                Assert.True(File.Exists(outside), "a file outside the operators folder is never touched");
+                Assert.True(File.Exists(Path.Combine(_dir, "notes.txt")), "a file that is not an operator is never touched");
+                Assert.False(File.Exists(RecordPath), "unreadable entries are dropped");
+            }
+            finally
+            {
+                File.Delete(outside);
+            }
+        }
+
+        [Fact]
+        public void The_record_is_never_read_as_an_operator_so_startup_survives_it()
+        {
+            RenameWithStuckOldFile();
+            Assert.True(File.Exists(RecordPath));
+            Assert.DoesNotContain(Record, Load());
+            Assert.False(Record.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(Record, (string)ConstantOf("RetiredFilesRecordName"));
+            File.SetAttributes(Path.Combine(_dir, "OLD_Operator.xml"), FileAttributes.Normal);
+        }
+
+        [Fact]
+        public void Positive_control_with_no_record_every_operator_file_loads()
+        {
+            FileIn("A_Operator.xml", "a");
+            FileIn("B_Operator.xml", "b");
+            Assert.Equal(new[] { "A_Operator.xml", "B_Operator.xml" }, Load());
+        }
+
+        [Fact]
+        public void Startup_reads_its_operators_through_the_settled_list()
+        {
+            string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalData.vb")).Replace("\r\n", "\n");
+            int start = src.IndexOf("Public Sub New(ByVal baseDir As String)", StringComparison.Ordinal);
+            Assert.True(start >= 0);
+            string ctor = src.Substring(start, src.IndexOf("\n    End Sub\n", start, StringComparison.Ordinal) - start);
+            Assert.Contains("Dim opFiles As String() = OperatorFilesToLoad(opsDir)", ctor);
+            Assert.DoesNotContain("GetFiles(opsDir", ctor);
+        }
+
+        private object? CallStatic(string method, params object[] args)
+        {
+            string? app = BuiltAppAssembly();
+            Assert.True(app != null,
+                "Build JJFlexRadio.vbproj (Debug, x64) first: this test calls the operator store "
+                + "from the built app assembly.");
+            object? result = null;
+            WeakReference unloaded = CallInIsolatedContext(app!, method, args, r => result = r);
+            for (int i = 0; unloaded.IsAlive && i < 20; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+            return result;
+        }
+
+        private static object ConstantOf(string name)
+        {
+            object? value = null;
+            WeakReference unloaded = ConstantInIsolatedContext(BuiltAppAssembly()!, name, v => value = v);
+            for (int i = 0; unloaded.IsAlive && i < 20; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+            return value!;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static WeakReference ConstantInIsolatedContext(string app, string name, Action<object?> report)
+        {
+            var context = new AssemblyLoadContext("operator-constant", isCollectible: true);
+            string folder = Path.GetDirectoryName(app)!;
+            context.Resolving += (ctx, assemblyName) =>
+            {
+                string candidate = Path.Combine(folder, assemblyName.Name + ".dll");
+                return File.Exists(candidate) ? ctx.LoadFromAssemblyPath(candidate) : null;
+            };
+            try
+            {
+                Assembly assembly = context.LoadFromAssemblyPath(app);
+                Type personal = assembly.GetTypes().Single(t => t.Name == "PersonalData");
+                FieldInfo? field = personal.GetField(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                Assert.True(field != null, "PersonalData." + name + " is missing");
+                report(field!.GetValue(null));
+            }
+            finally
+            {
+                context.Unload();
+            }
+            return new WeakReference(context);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static WeakReference CallInIsolatedContext(string app, string method, object[] args, Action<object?> report)
+        {
+            var context = new AssemblyLoadContext("operator-store", isCollectible: true);
+            string folder = Path.GetDirectoryName(app)!;
+            context.Resolving += (ctx, name) =>
+            {
+                string candidate = Path.Combine(folder, name.Name + ".dll");
+                return File.Exists(candidate) ? ctx.LoadFromAssemblyPath(candidate) : null;
+            };
+            try
+            {
+                Assembly assembly = context.LoadFromAssemblyPath(app);
+                Type personal = assembly.GetTypes().Single(t => t.Name == "PersonalData");
+                MethodInfo? step = personal.GetMethod(method, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                Assert.True(step != null, "PersonalData." + method + " is missing");
+                report(step!.Invoke(null, args));
+            }
+            finally
+            {
+                context.Unload();
+            }
+            return new WeakReference(context);
         }
 
         private static bool Replace(System.Collections.Generic.List<string> entries, int id, string edited,

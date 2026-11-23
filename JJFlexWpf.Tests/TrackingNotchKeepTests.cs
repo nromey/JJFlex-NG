@@ -327,6 +327,96 @@ public sealed class TrackingNotchKeepTests
         });
     }
 
+    // ---- #1198, the Depth half: Depth writes only a change, as Width does ----
+
+    private static (TNFDialog Dialog, TextBox Depth, List<(int, int)> Writes) DepthDialog()
+    {
+        var (dialog, list, _, _) = Dialog(new[] { false, false });
+        var writes = new List<(int, int)>();
+        dialog.SetTNFDepth = (i, d) => writes.Add((i, d));
+        list.SelectedIndex = 1;
+        Invoke(dialog, "UpdateTNFProperties");
+        var depth = (TextBox)typeof(TNFDialog).GetField("DepthBox", Private | BindingFlags.Public)!.GetValue(dialog)!;
+        return (dialog, depth, writes);
+    }
+
+    [Fact]
+    public void TabbingThroughAnUnchangedDepthWritesNothing()
+    {
+        Run(() =>
+        {
+            var (dialog, depth, writes) = DepthDialog();
+            Assert.Equal("2", depth.Text);   // the radio's, shown on selection
+            Handler(dialog, "DepthBox_LostFocus")(depth, new RoutedEventArgs());
+            Assert.Empty(writes);
+
+            // Positive control: a changed depth is written, once.
+            depth.Text = "3";
+            Handler(dialog, "DepthBox_LostFocus")(depth, new RoutedEventArgs());
+            Handler(dialog, "DepthBox_LostFocus")(depth, new RoutedEventArgs());
+            Assert.Equal(new[] { (1, 3) }, writes.ToArray());
+        });
+    }
+
+    [Fact]
+    public void EnterOnAnUnchangedDepthWritesNothing()
+    {
+        Run(() =>
+        {
+            var (dialog, depth, writes) = DepthDialog();
+            typeof(TNFDialog).GetMethod("ApplyDepth", Private)!.Invoke(dialog, new object[] { 1 });
+            Assert.Empty(writes);
+            Assert.Equal("2", depth.Text);
+        });
+    }
+
+    [Fact]
+    public void LeavingTheDepthAfterAnArrowWritesNothingMore()
+    {
+        Run(() =>
+        {
+            var (dialog, depth, writes) = DepthDialog();
+            typeof(TNFDialog).GetMethod("AdjustDepth", Private)!.Invoke(dialog, new object[] { 1, 1 });
+            Assert.Equal(new[] { (1, 3) }, writes.ToArray());
+            Assert.Equal("3", depth.Text);
+            // The radio's read-back still says 2 (a queued write lags); the
+            // comparison is with what was shown, so nothing more goes out.
+            Handler(dialog, "DepthBox_LostFocus")(depth, new RoutedEventArgs());
+            Assert.Single(writes);
+        });
+    }
+
+    [Fact]
+    public void DepthTextThatIsNotANumberPutsTheShownDepthBackAndWritesNothing()
+    {
+        Run(() =>
+        {
+            var (dialog, depth, writes) = DepthDialog();
+            depth.Text = "deep";
+            Handler(dialog, "DepthBox_LostFocus")(depth, new RoutedEventArgs());
+            Assert.Empty(writes);
+            Assert.Equal("2", depth.Text);
+        });
+    }
+
+    [Fact]
+    public void ADepthOutsideTheRangeIsClampedAndWrittenOnlyWhenTheClampChangesIt()
+    {
+        Run(() =>
+        {
+            var (dialog, depth, writes) = DepthDialog();
+            depth.Text = "9";   // clamps to 3, a change from 2
+            Handler(dialog, "DepthBox_LostFocus")(depth, new RoutedEventArgs());
+            Assert.Equal(new[] { (1, 3) }, writes.ToArray());
+            Assert.Equal("3", depth.Text);
+
+            depth.Text = "7";   // clamps to 3 again: no change, no write
+            Handler(dialog, "DepthBox_LostFocus")(depth, new RoutedEventArgs());
+            Assert.Single(writes);
+            Assert.Equal("3", depth.Text);
+        });
+    }
+
     [Theory]
     [InlineData("60.0")]        // 60 MHz, read by the tuning entry's parser
     [InlineData("0.020.000")]   // 20 kHz, in the box's own shown form

@@ -183,10 +183,9 @@ namespace Radios.Tests
             string source = Read(relative);
             int at = source.IndexOf("public int SimpleVOXDelay", StringComparison.Ordinal);
             Assert.True(at >= 0, "No `public int SimpleVOXDelay` in " + relative + ".");
-            // The property body is short; 1200 characters comfortably covers
-            // the getter, the clamp and the send without reaching the next
-            // property's clamp.
-            return source.Substring(at, Math.Min(1200, source.Length - at));
+            // The whole property, to its closing brace: the getter, the clamp
+            // and the send, and never the next property's clamp.
+            return SourceMember.CSharpAt(source, at);
         }
 
         private static string Read(string relative)

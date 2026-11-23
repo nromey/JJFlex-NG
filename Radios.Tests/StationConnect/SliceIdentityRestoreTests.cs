@@ -119,7 +119,7 @@ namespace Radios.Tests.StationConnect
             int begin = text.IndexOf("public void BeginClientLocalAllocation()", StringComparison.Ordinal);
             int end = text.IndexOf("public void EndClientLocalAllocation(AllocationResult allocation)", StringComparison.Ordinal);
             Assert.True(begin > 0 && end > begin);
-            string endBody = text.Substring(end, 1200);
+            string endBody = SourceMember.CSharpAt(text, end);
             Assert.Contains("SliceIdentityRestore.Decide(", endBody, StringComparison.Ordinal);
         }
     }

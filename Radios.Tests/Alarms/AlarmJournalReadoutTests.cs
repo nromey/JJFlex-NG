@@ -94,19 +94,8 @@ namespace Radios.Tests.Alarms
         private static string Read(params string[] parts) =>
             File.ReadAllText(Path.Combine(FlexBasePartials.RepoRoot(), Path.Combine(parts)));
 
-        private static string Body(string src, string signature)
-        {
-            int at = src.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, "Could not find '" + signature + "'; re-anchor this rule.");
-            int open = src.IndexOf('{', at + signature.Length), depth = 0;
-            for (int i = open; i < src.Length; i++)
-            {
-                if (src[i] == '{') depth++;
-                else if (src[i] == '}' && --depth == 0) return src.Substring(at, i - at + 1);
-            }
-            Assert.Fail("Unbalanced braces after '" + signature + "'.");
-            return "";
-        }
+        private static string Body(string src, string signature) =>
+            SourceMember.CSharp(src, signature);
 
         [Fact]
         public void The_tab_reads_the_journal_off_the_UI_thread_when_shown_and_never_speaks_it()

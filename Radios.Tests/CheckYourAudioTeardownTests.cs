@@ -34,18 +34,8 @@ namespace Radios.Tests
     {
         private static string Read(string path) => File.ReadAllText(Path.Combine(IntegrationPassTree.Root, path)).Replace("\r\n", "\n");
 
-        private static string Body(string source, string signature)
-        {
-            int at = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, "Could not find " + signature);
-            int open = source.IndexOf('{', at), depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}' && --depth == 0) return source.Substring(open, i - open + 1);
-            }
-            throw new InvalidOperationException("Unbalanced braces after " + signature);
-        }
+        private static string Body(string source, string signature) =>
+            SourceMember.CSharpBlock(source, signature);
 
         [Fact]
         public void The_session_restores_the_radio_it_changed_not_the_windows_current_one()

@@ -631,7 +631,7 @@ public sealed class TransmitSliceNoticeTests
         string countdown = Source("JJFlexWpf/Dialogs/CheckYourAudioDialog.Countdown.cs");
         int refuse = countdown.IndexOf("internal static void RefuseTransmit(string? sentence, TransmitSliceNotice.Notice? notice)", StringComparison.Ordinal);
         Assert.True(refuse > 0);
-        string body = countdown.Substring(refuse, 400);
+        string body = SourceMember.CSharpAt(countdown, refuse);
         int retire = body.IndexOf("TransmitSliceNotice.Retire(notice,", StringComparison.Ordinal);
         int speak = body.IndexOf("ScreenReaderOutput.Speak(", StringComparison.Ordinal);
         Assert.True(retire > 0 && speak > retire, "the refusal is spoken before its notice is retired");

@@ -8441,7 +8441,13 @@ namespace Flex.Smoothlake.FlexLib
                             if (!string.IsNullOrEmpty(value) && reason == InterlockReason.None && !value.Contains("PG-XL"))
                             {
                                 Debug.WriteLine("ParseInterlockStatus: Error - Invalid reason (" + value + ")");
-                                continue;
+                                // JJFlex patch (MIGRATION.md item 32): the radio now names
+                                // an amplifier this parser does not know, so the reason
+                                // held before it is certainly stale. Clear it to None
+                                // rather than skip; any other unknown reason is skipped
+                                // as stock code does.
+                                if (!value.StartsWith("AMP:", StringComparison.Ordinal))
+                                    continue;
                             }
 
                             InterlockReason = reason;

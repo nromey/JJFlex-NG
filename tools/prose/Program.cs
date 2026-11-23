@@ -206,10 +206,18 @@ public sealed class Session
         // unapplied edits would destroy them with nothing to show for it.
         if (!force && File.Exists(EditingPath))
         {
+            // An edit is unapplied when its words differ from the words the
+            // file was made from AND from what the code says now. The second
+            // half is #390: after `prose apply` the words differ from the
+            // recorded fingerprint but ARE the code's, and counting them made
+            // the very next step apply recommends ("run `prose extract`
+            // again") refuse without --force.
             EditingFile.Parsed old = EditingFile.Parse(File.ReadAllText(EditingPath, Encoding.UTF8));
+            Dictionary<string, string> now = _entries.ToDictionary(e => e.Key, e => e.Fingerprint, StringComparer.Ordinal);
             int pending = old.Texts.Count(kv =>
                 old.Fingerprints.TryGetValue(kv.Key, out string? f)
-                && Entry.Hash(kv.Value) != f);
+                && Entry.Hash(kv.Value) != f
+                && !(now.TryGetValue(kv.Key, out string? code) && Entry.Hash(kv.Value) == code));
 
             if (pending > 0)
             {
@@ -281,6 +289,7 @@ public sealed class Session
         var gone = new List<string>();
         var byFile = new Dictionary<string, List<Splice>>(StringComparer.Ordinal);
         var changed = new List<Entry>();
+        var movedOn = new List<Entry>();
 
         foreach ((string key, string text) in edited.Texts)
         {
@@ -289,8 +298,14 @@ public sealed class Session
 
             // Unchanged by the operator: leave the code alone, whatever has
             // happened to it since. That is what lets somebody else edit the
-            // same file while this file is open.
-            if (Entry.Hash(text) == was) continue;
+            // same file while this file is open. Noted when the code now says
+            // something else, so the summary never claims they match (#390
+            // repair 2).
+            if (Entry.Hash(text) == was)
+            {
+                if (entry.Fingerprint != was) movedOn.Add(entry);
+                continue;
+            }
 
             // Changed by the operator AND changed in the code: nobody can
             // decide that but a person.
@@ -340,7 +355,22 @@ public sealed class Session
 
         if (changed.Count == 0)
         {
-            o.WriteLine("No changes. The code already says exactly what this file says.");
+            // Equality is claimed only once it is established: every sentence
+            // in the file that is still in the code says what the code says.
+            if (movedOn.Count == 0)
+            {
+                o.WriteLine("No changes. The code already says exactly what this file says.");
+                return 0;
+            }
+            o.WriteLine("Nothing to apply: you have not changed any sentence since this file was "
+                      + "made or last applied. The code has changed since, and was left as it is, for "
+                      + movedOn.Count + " sentence" + (movedOn.Count == 1 ? "" : "s") + ":");
+            foreach (Entry e in movedOn)
+            {
+                o.WriteLine(e.Key);
+                o.WriteLine("  The code now says: " + e.Text);
+            }
+            o.WriteLine("Run `prose extract` to bring this file up to date with the code.");
             return 0;
         }
 
@@ -383,6 +413,17 @@ public sealed class Session
             string full = Path.Combine(_root, file.Replace('/', Path.DirectorySeparatorChar));
             File.WriteAllText(full, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
+
+        // The applied wording is the new baseline for each sentence written
+        // (#390 repair 1). Left at the wording the file was made from, an
+        // ordinary undo back to that wording after this apply looked
+        // unedited: apply said "No changes" while the code kept the applied
+        // words, and extract replaced the undo without asking.
+        var rebased = changed.ToDictionary(e => e.Key, e => Entry.Hash(edited.Texts[e.Key]),
+                                           StringComparer.Ordinal);
+        File.WriteAllText(EditingPath,
+                          EditingFile.Rebase(File.ReadAllText(EditingPath, Encoding.UTF8), rebased),
+                          new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         o.WriteLine(changed.Count + " sentence" + (changed.Count == 1 ? "" : "s")
                   + " written, across " + results.Count + " file"

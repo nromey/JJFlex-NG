@@ -69,7 +69,7 @@ namespace Radios.Tests
         Elsewhere();
     }
 ";
-            string body = MethodBody(sample, "private bool Wanted(Keys k)");
+            string body = SourceMember.CSharp(sample, "private bool Wanted(Keys k)");
             Assert.Contains("Marker()", body);
             Assert.DoesNotContain("Elsewhere()", body);
         }
@@ -197,7 +197,7 @@ namespace Radios.Tests
             // then ("the near-miss does not"), which was #303's reasoning for
             // a sentence that said nothing about help. Stickiness still
             // follows the sentence that earns it; both sentences now earn it.
-            string body = MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
+            string body = SourceMember.CSharp(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
             string code = Code(body);
 
             Assert.Equal(2, Occurrences(code, "_leaderHelpArmed = true"));
@@ -253,7 +253,7 @@ namespace Radios.Tests
 
             // The dispatcher fills {pressed}; a missing argument would be
             // spoken as the placeholder itself.
-            string arm = DefaultArm(MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)"));
+            string arm = DefaultArm(SourceMember.CSharp(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)"));
             Assert.Contains("(\"pressed\", KeyManifest.FormatKey(k))", arm);
             Assert.Contains("_miss\", verbosity,", arm);   // the ladder is asked at the operator's level
         }
@@ -290,7 +290,7 @@ namespace Radios.Tests
             //  - neither arming is inside a gate — verbosity changes what is
             //    said, never what happens, or H after a thunk would mean one
             //    thing at Chatty and another at Terse.
-            string body = MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
+            string body = SourceMember.CSharp(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
             string code = Code(body);
 
             Assert.Equal(1, Occurrences(code, "RefusalVoice.ToneStandsAlone("));
@@ -334,7 +334,7 @@ namespace Radios.Tests
         public void Only_H_the_slash_key_and_escape_keep_the_layer_armed()
         {
             string src = Source(KeyCommandsFile);
-            string helpKeys = MethodBody(src, "private static bool IsLeaderHelpKey(Keys k)");
+            string helpKeys = SourceMember.CSharp(src, "private static bool IsLeaderHelpKey(Keys k)");
 
             // Both arrival forms of the glyph. "?" is Shift+/ on a US layout
             // and arrives as Oem2|Shift; a bare Oem2 case alone never fires,
@@ -376,7 +376,7 @@ namespace Radios.Tests
             Assert.True(guard >= 0 && guard < dispatch, "the only dispatch must be behind the near-miss chord test");
 
             // And the test is the chord a near miss recorded, never "any key".
-            string predicate = MethodBody(Source(KeyCommandsFile), "private bool IsNearMissChord(Keys k)");
+            string predicate = SourceMember.CSharp(Source(KeyCommandsFile), "private bool IsNearMissChord(Keys k)");
             Assert.Contains("_leaderNearMissChord != Keys.None", predicate);
             Assert.Contains("k == _leaderNearMissChord", predicate);
         }
@@ -472,7 +472,7 @@ namespace Radios.Tests
         [Fact]
         public void The_unknown_key_arm_names_the_near_miss_and_executes_nothing()
         {
-            string body = MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
+            string body = SourceMember.CSharp(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
             string arm = DefaultArm(body);
 
             // It names: the inventory is asked, and the answer is spoken
@@ -553,7 +553,7 @@ namespace Radios.Tests
                 "public static string SpeakTextFor(string fieldKey, string fieldLabel, bool modern)",
             })
             {
-                string body = MethodBody(src, signature);
+                string body = SourceMember.CSharp(src, signature);
                 Assert.Contains("SpokenKey", body);
                 Assert.DoesNotContain("KeyDisplay", Code(body));
             }
@@ -646,36 +646,6 @@ namespace Radios.Tests
                 at += needle.Length;
             }
             return count;
-        }
-
-        private static string MethodBody(string source, string signature)
-        {
-            int at = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, "signature not found: " + signature);
-
-            int open = source.IndexOf('{', at);
-            int arrow = source.IndexOf("=>", at, StringComparison.Ordinal);
-            if (arrow >= 0 && (open < 0 || arrow < open))
-            {
-                // Expression-bodied member: everything to the terminating ';'.
-                int semi = source.IndexOf(';', arrow);
-                Assert.True(semi > arrow, "unterminated expression body: " + signature);
-                return source.Substring(at, semi - at + 1);
-            }
-
-            Assert.True(open >= 0, "no body for: " + signature);
-            int depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0) return source.Substring(at, i - at + 1);
-                }
-            }
-            Assert.Fail("unbalanced braces after: " + signature);
-            return "";
         }
 
         private static string Source(string relative)

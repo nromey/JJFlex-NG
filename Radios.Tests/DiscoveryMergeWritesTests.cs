@@ -340,7 +340,7 @@ namespace Radios.Tests
             string radio = File.ReadAllText(Path.Combine(RepoRoot(), "FlexLib_API", "FlexLib", "Radio.cs"));
             int at = radio.IndexOf("public void UpdateIdentityFromList(", StringComparison.Ordinal);
             Assert.True(at > 0, "UpdateIdentityFromList is gone from the vendored Radio.cs.");
-            string before = radio.Substring(Math.Max(0, at - 900), Math.Min(900, at));
+            string before = radio.Substring(Math.Max(0, at - 900), Math.Min(900, at));   // #604: deliberately bounded, the doc comment above the member
             Assert.Contains("JJFlex patch: identity from a radio LIST", before, StringComparison.Ordinal);
             string body = Body(radio, "public void UpdateIdentityFromList(");
             Assert.DoesNotContain("SendCommand", body, StringComparison.Ordinal);
@@ -465,20 +465,8 @@ namespace Radios.Tests
             return list;
         }
 
-        internal static string Body(string text, string signature)
-        {
-            int start = text.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(start >= 0, signature + " is not where this test reads it.");
-            int open = text.IndexOf('{', start);
-            int depth = 0;
-            for (int i = open; i < text.Length; i++)
-            {
-                if (text[i] == '{') depth++;
-                else if (text[i] == '}' && --depth == 0) return text.Substring(start, i - start + 1);
-            }
-            Assert.Fail("The body of " + signature + " never closes.");
-            return "";
-        }
+        internal static string Body(string text, string signature) =>
+            SourceMember.CSharp(text, signature);
 
         internal static string RepoRoot()
         {

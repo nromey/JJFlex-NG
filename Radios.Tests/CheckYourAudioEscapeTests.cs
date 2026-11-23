@@ -135,18 +135,8 @@ namespace Radios.Tests
             Assert.Contains("DialogTransmitKeys.CheckEscapeElsewhere = Dialogs.CheckYourAudioDialog.StopTransmittingCheckFromElsewhere;", main);
         }
 
-        private static string Body(string source, string signature)
-        {
-            int at = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(at >= 0, "Could not find " + signature);
-            int open = source.IndexOf('{', at), depth = 0;
-            for (int i = open; i < source.Length; i++)
-            {
-                if (source[i] == '{') depth++;
-                else if (source[i] == '}' && --depth == 0) return source.Substring(open, i - open + 1);
-            }
-            throw new InvalidOperationException("Unbalanced braces after " + signature);
-        }
+        private static string Body(string source, string signature) =>
+            SourceMember.CSharpBlock(source, signature);
 
         private static string Check() => File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
             "JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs")).Replace("\r\n", "\n");

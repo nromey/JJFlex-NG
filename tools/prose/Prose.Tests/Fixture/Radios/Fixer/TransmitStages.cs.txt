@@ -1,0 +1,667 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text;
+using Radios.ChainChecks;
+
+namespace Radios.Fixer
+{
+    /// <summary>Stage 1's facts: what the existing microphone measurement
+    /// (#36) found. The measurement itself is the host's — this carries its
+    /// result, and above all its VERDICT, which is decided by the measurement
+    /// and not re-derived here.</summary>
+    public sealed class MicCheckFacts
+    {
+        /// <summary>Did a measurement actually happen?</summary>
+        public bool Measured { get; set; }
+
+        /// <summary>The measurement's own verdict: did sound arrive?</summary>
+        public bool AudioArrived { get; set; }
+
+        public string Device { get; set; } = "";
+        public string HostApi { get; set; } = "";
+
+        /// <summary>dBFS. NaN when not measured.</summary>
+        public double PeakDb { get; set; } = double.NaN;
+
+        /// <summary>dBFS. NaN when not measured.</summary>
+        public double NoiseFloorDb { get; set; } = double.NaN;
+
+        /// <summary>Whatever else the measurement reported, verbatim.</summary>
+        public string Detail { get; set; } = "";
+    }
+
+    /// <summary>Stage 3's facts: the injected probes as the host ran them.
+    /// The probe set's judgement already exists (<see cref="TxProbeSet"/>);
+    /// this hands it the results rather than re-deciding.</summary>
+    public sealed class InjectedTransmitFacts
+    {
+        public IReadOnlyList<TxProbeSet.ProbeResult> Probes { get; set; }
+            = Array.Empty<TxProbeSet.ProbeResult>();
+
+        /// <summary>Is the transmit conditioning chain on? Null: not read —
+        /// and the explanation must then hedge rather than name it.</summary>
+        public bool? ConditioningActive { get; set; }
+
+        /// <summary>
+        /// The thirteen-stage transmit walk, taken WHILE THIS STAGE WAS KEYED
+        /// with the tone injected (#400). Null when the host wired no walk or
+        /// the stage never keyed — in which case nothing here invents one.
+        /// </summary>
+        /// <remarks>
+        /// This is the whole point of the stage from a diagnostic's point of
+        /// view. Three stages of that walk exist only during a transmission, and
+        /// this is the one moment in the application where a radio is keyed with
+        /// audio of a known level and a known source.
+        /// </remarks>
+        public TransmitCheckResult ChainWalk { get; set; }
+
+        /// <summary>
+        /// Where the radio actually transmitted: frequency, mode and antenna,
+        /// read while keyed (#399). Empty when nothing keyed.
+        /// </summary>
+        public string Conditions { get; set; } = "";
+
+        public string Detail { get; set; } = "";
+
+        /// <summary>Did the radio confirm it keyed? True from that moment, so
+        /// a run that fails afterwards still says so: see
+        /// <see cref="SpokenTransmitFacts.Keyed"/>.</summary>
+        public bool Keyed { get; set; }
+
+        /// <summary>The PA temperature at key-down and just before the carrier
+        /// dropped (#236). Reported, never judged. Null when nothing keyed.</summary>
+        public PaTemperatureSpan PaTemperature { get; set; }
+    }
+
+    /// <summary>Stage 4's facts: the operator spoke; did it reach the radio?</summary>
+    public sealed class SpokenTransmitFacts
+    {
+        /// <summary>Did the spoken check produce a measurement at all?</summary>
+        public bool Attempted { get; set; }
+
+        /// <summary>Did the radio confirm it keyed? True from that moment, so
+        /// a run stopped afterwards still says so: the gate has charged the
+        /// stage, and only the Run again gesture reaches it now.</summary>
+        public bool Keyed { get; set; }
+
+        public bool ReachedRadio { get; set; }
+        public string Device { get; set; } = "";
+        public string HostApi { get; set; } = "";
+
+        /// <summary>
+        /// The thirteen-stage transmit walk, taken WHILE THIS STAGE WAS KEYED
+        /// with the operator's own microphone in the path (#400). Null when the
+        /// host wired no walk or the stage never keyed.
+        /// </summary>
+        /// <remarks>
+        /// Stage 3's walk and this one differ in exactly the same one thing the
+        /// stages themselves differ in — the microphone — so a stage that dies
+        /// here and lives there names the microphone, and one that dies in both
+        /// names the path beyond it.
+        /// </remarks>
+        public TransmitCheckResult ChainWalk { get; set; }
+
+        /// <summary>
+        /// Where the radio actually transmitted: frequency, mode and antenna,
+        /// read while keyed (#399). Empty when nothing keyed.
+        /// </summary>
+        public string Conditions { get; set; } = "";
+
+        public string Detail { get; set; } = "";
+
+        /// <summary>The PA temperature at key-down and just before the carrier
+        /// dropped (#236). Reported, never judged. Null when nothing keyed.</summary>
+        public PaTemperatureSpan PaTemperature { get; set; }
+    }
+
+    /// <summary>
+    /// The transmit stages' decisions — pure, so every branch an operator can
+    /// be told is testable without a radio, a microphone or a WebView.
+    /// </summary>
+    public static class TransmitStages
+    {
+        // ---- stage 1: microphone ----
+
+        /// <summary>
+        /// Stage 1's outcome, advised BY stage 0's facts when they exist
+        /// (#241). Stage 0 measures the Windows mute and the privacy block
+        /// definitively; advice from this stage that tells the operator to go
+        /// and check them ignores an answer sitting one card up — it wastes
+        /// their time, undermines the tool's authority, and buries the real
+        /// remedy. Three cases: stage 0 named a cause (point at it, do not
+        /// repeat the remedy), stage 0 cleared both (the cable and the device
+        /// are the whole remaining answer), or stage 0 has nothing to say
+        /// (the full checklist is then correct, and only then).
+        /// </summary>
+        /// <param name="setup">Stage 0's payload, or null when stage 0 has
+        /// not run or could not observe. Both mute facts are tristate —
+        /// true, false, or never observed — and only an OBSERVED value
+        /// changes the advice.</param>
+        public static FixerOutcome Microphone(MicCheckFacts facts, AudioSetupFacts setup = null)
+        {
+            if (facts == null) throw new ArgumentNullException(nameof(facts));
+
+            string answer;
+            var findings = new List<FixerFinding>();
+
+            if (!facts.Measured)
+            {
+                answer = "The microphone was not measured — the measurement did not produce "
+                       + "a result, so whether sound is arriving cannot be said either way."
+                       + Reason(facts.Detail);
+            }
+            else if (facts.AudioArrived)
+            {
+                // Sentence rebuilt whole rather than patched, and the host API
+                // goes through AudioSetupCheck.HostApiPhrase.
+                //
+                // Noel read this live on 2026-08-25 and it said "on Windows
+                // WASAPI" — the bare-acronym form he had already corrected
+                // TWICE that same day, in stage 0. HostApiPhrase exists
+                // precisely so the correction has one home; this site simply
+                // never called it. That is the S-meter shape again: the fault
+                // is never one wrong line, it is N independent copies that
+                // happen to be right.
+                //
+                // Note the subject changed. Stage 0 says "You are recording
+                // from X using the Y audio subsystem" — there the operator is
+                // doing the using. Here the subject is the sound, and sound
+                // does not USE a subsystem, it comes THROUGH one.
+                answer = "Yes — sound is arriving in this computer from "
+                       + NameOr(facts.Device, "your microphone")
+                       + (facts.HostApi.Length > 0
+                            ? ", through " + AudioSetupCheck.HostApiPhrase(facts.HostApi)
+                            : "")
+                       + ". No radio was involved in this test, so this stands "
+                       + "on its own whatever happens later.";
+            }
+            else
+            {
+                answer = "No — the measurement ran and heard nothing above the noise floor "
+                       + "from " + NameOr(facts.Device, "your microphone") + ".";
+                findings.Add(new FixerFinding("mic-silent", FixOwner.Operator,
+                    "Your microphone was measured and nothing arrived.",
+                    SilentMicAdvice(setup)));
+            }
+
+            return new FixerOutcome
+            {
+                Answer = answer,
+                Findings = findings,
+                Evidence = MicEvidence(facts),
+                NothingMeasured = !facts.Measured,
+                // The whole point of keeping this: stage 4 is read against it.
+                Payload = facts,
+            };
+        }
+
+        /// <summary>
+        /// What to do about a silent microphone, given what stage 0 already
+        /// knows. The sentences are written whole per case — read them
+        /// assembled, not as fragments.
+        /// </summary>
+        private static string SilentMicAdvice(AudioSetupFacts setup)
+        {
+            bool muted = setup?.WindowsInputMuted == true;
+            bool blocked = setup?.MicrophonePrivacyBlocked == true;
+
+            // Stage 0 found the cause. Two findings for one cause is how a
+            // report starts feeling long — point at the one that names it.
+            if (muted && blocked)
+                return "Stage 0 has already named the cause: Windows has this microphone "
+                     + "muted, and Windows privacy is blocking it as well. Its findings in "
+                     + "the stage 0 card carry the steps — clear both, then run this "
+                     + "stage again.";
+            if (muted)
+                return "Stage 0 has already named the cause: Windows itself has this "
+                     + "microphone muted. Its finding in the stage 0 card carries the "
+                     + "steps — clear the mute, then run this stage again.";
+            if (blocked)
+                return "Stage 0 has already named the cause: Windows privacy is blocking "
+                     + "desktop apps from the microphone. Its finding in the stage 0 card "
+                     + "carries the steps — allow it, then run this stage again.";
+
+            // Stage 0 checked both and cleared both, so the remaining answer
+            // is short and deserves to be given cleanly rather than third in
+            // a list of three.
+            if (setup?.WindowsInputMuted == false && setup?.MicrophonePrivacyBlocked == false)
+                return "Windows is not muting this microphone and is not blocking it — "
+                     + "stage 0 checked both — so what is left is the cable, the "
+                     + "connector, or the device itself. Check those, then run this "
+                     + "stage again.";
+
+            // Stage 0 has not run, or could not observe the Windows facts.
+            // This is the one case where the full checklist is correct.
+            return "Check the cable, the Windows mute, and the Windows microphone privacy "
+                 + "setting, then run this stage again.";
+        }
+
+        private static string MicEvidence(MicCheckFacts f)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Microphone, no radio involved");
+            sb.AppendLine("-----------------------------");
+            sb.AppendLine("Measured: " + (f.Measured ? "yes" : "no"));
+            sb.AppendLine("Device: " + NameOr(f.Device, "not reported"));
+            sb.AppendLine("Host API: " + NameOr(f.HostApi, "not reported"));
+            sb.AppendLine("Peak: " + Db(f.PeakDb));
+            sb.AppendLine("Noise floor: " + Db(f.NoiseFloorDb));
+            if (f.Detail.Length > 0) sb.AppendLine(f.Detail.TrimEnd());
+            return sb.ToString();
+        }
+
+        // ---- stage 2: transmitter ----
+
+        /// <summary>
+        /// Reads a tune-probe result into a stage outcome. The probe itself —
+        /// including keying the radio — belongs to the host; the verdicts,
+        /// wording and evidence layout belong to <see cref="TxTuneProbe"/>
+        /// and are reused rather than restated. A NotRun result may already
+        /// carry the host's own refusal words (SkipDetail), and Explain
+        /// prefers them — nothing here overwrites them with a generic line.
+        /// </summary>
+        /// <param name="loadDeclaration">
+        /// What the operator said the antenna socket is connected to, from the
+        /// host's gate. It travels with the evidence because a power reading
+        /// with no stated load cannot be read afterwards by anyone — FlexRadio
+        /// will ask what the measurement was taken into (#188).
+        /// </param>
+        public static FixerOutcome Transmitter(TxTuneProbe.Result probe,
+                                               string loadDeclaration = null)
+        {
+            var findings = new List<FixerFinding>();
+
+            switch (probe.Verdict)
+            {
+                case TxTuneProbe.Verdict.NoPower:
+                    // THE critical interrupt of the whole tool. The operator
+                    // came here because transmit audio does not work, and this
+                    // one sentence redirects the entire session away from
+                    // microphones. Criticality was the other way round until
+                    // 2026-08-25 — load-suspect was marked critical and this
+                    // was not — and that had it backwards: a suspect load
+                    // still means the transmitter WORKS, and the probe already
+                    // drops the carrier early on a bad reading, so the
+                    // immediate hazard is handled before any words render.
+                    findings.Add(new FixerFinding("tx-no-power", FixOwner.Operator,
+                        "This is not an audio problem, and no amount of microphone testing "
+                        + "will find it. A tune carrier is the radio's own signal, with "
+                        + "nothing of yours in the path, and no RF came out — so the fault "
+                        + "sits upstream of anything the remaining stages can measure.",
+                        "Check the antenna connection, the band, whether the slice is set "
+                        + "to transmit, and whether anything is inhibiting transmit. Then "
+                        + "run this stage again.",
+                        critical: true));
+                    break;
+
+                case TxTuneProbe.Verdict.NotJudgedAtZeroTunePower:
+                    // Not critical, and not tx-no-power: at tune power 0 the
+                    // radio's milliwatts say nothing either way, so "no RF came
+                    // out, check the antenna" would be false. A finding so the
+                    // stage does not read "passed" for a transmitter nobody
+                    // judged. DRAFT PROSE, in the lexicon.
+                    findings.Add(new FixerFinding("tx-zero-tune-power", FixOwner.Operator,
+                        Lexicon.Get("settings.transmit_check.zero_tune_power_finding"),
+                        Lexicon.Get("settings.transmit_check.zero_tune_power_remedy")));
+                    break;
+
+                case TxTuneProbe.Verdict.MakesPowerLoadSuspect:
+                    // Reported, not shouted. An assertive region that fires
+                    // for everything is one an operator learns to ignore.
+                    findings.Add(new FixerFinding("tx-load-suspect", FixOwner.Operator,
+                        "The transmitter works, but a large share of its power came straight "
+                        + "back instead of going out.",
+                        "Check what is connected to the antenna port before transmitting "
+                        + "again."));
+                    break;
+
+                case TxTuneProbe.Verdict.NotRun when probe.Skipped == TxTuneProbe.SkipReason.Cancelled:
+                    // A stop can land before the carrier or during it, and the
+                    // result does not say which. Once it has keyed, the gate
+                    // only takes the Run again gesture, so this stays a Ran
+                    // stage, with a finding so it cannot read "passed".
+                    // DRAFT PROSE.
+                    findings.Add(new FixerFinding("tx-stopped", FixOwner.Operator,
+                        "The test was stopped before it measured anything.",
+                        "Run this test again when you are ready."));
+                    break;
+            }
+
+            string evidence = TxTuneProbe.EvidenceSection(probe) + LoadLine(loadDeclaration);
+
+            return new FixerOutcome
+            {
+                Answer = TxTuneProbe.Explain(probe),
+                Findings = findings,
+                Evidence = evidence,
+                Payload = probe,
+                // Refused before the key. A pass here would tell an operator
+                // whose transmitter was never tried that it works.
+                NothingMeasured = probe.Verdict == TxTuneProbe.Verdict.NotRun
+                                  && probe.Skipped != TxTuneProbe.SkipReason.Cancelled,
+            };
+        }
+
+        // ---- stage 3: injected transmit ----
+
+        /// <param name="loadDeclaration">
+        /// What the operator said the antenna socket is connected to, from the
+        /// host's gate — same as stage 2's. This stage KEYS the transmitter,
+        /// so its evidence needs the stated load for the same reason: a
+        /// transmission whose load is unrecorded cannot be read afterwards by
+        /// anyone (#247).
+        /// </param>
+        public static FixerOutcome Injected(InjectedTransmitFacts facts,
+                                            string loadDeclaration = null)
+        {
+            if (facts == null) throw new ArgumentNullException(nameof(facts));
+
+            var sb = new StringBuilder();
+            sb.AppendLine("Injected transmit, microphone bypassed");
+            sb.AppendLine("--------------------------------------");
+            foreach (TxProbeSet.ProbeResult p in facts.Probes)
+            {
+                sb.Append(TxProbeSet.Name(p.Probe)).Append(": ").Append(p.Outcome);
+                if (p.Detail.Length > 0) sb.Append(" — ").Append(p.Detail);
+                sb.AppendLine();
+            }
+            sb.AppendLine("Conditioning chain: " + (facts.ConditioningActive == null
+                ? "could not be read"
+                : facts.ConditioningActive.Value ? "on" : "off"));
+            if (facts.Detail.Length > 0) sb.AppendLine(facts.Detail.TrimEnd());
+            sb.Append(ConditionsLines(facts.Conditions));
+            sb.Append(PaTemperatureSpan.EvidenceLines(facts.PaTemperature));
+            sb.Append(LoadLine(loadDeclaration));
+
+            // The boundary hands over its probes only at the end of a keyed
+            // run, so none at all, with no confirmed key, means it refused or
+            // stopped before keying: the gate, a shut path, the tone refusing
+            // to arm under VOX. The reason is the answer, and it reads "could
+            // not run", not "passed".
+            bool neverKeyed = facts.Probes.Count == 0 && !facts.Keyed;
+            var findings = new List<FixerFinding>();
+            if (!neverKeyed && TxProbeSet.Judge(facts.Probes) == TxProbeSet.Agreement.NothingToGoOn)
+            {
+                // DRAFT PROSE.
+                findings.Add(new FixerFinding("tx-too-few-probes", FixOwner.Operator,
+                    "The radio keyed, but too few probes finished to say whether audio "
+                    + "reaches it.",
+                    "Run this test again."));
+            }
+            findings.AddRange(WalkFindings(facts.ChainWalk));
+
+            return new FixerOutcome
+            {
+                Answer = (neverKeyed && facts.Detail.Length > 0
+                              ? facts.Detail.Trim()
+                              : TxProbeSet.OperatorSummary(facts.Probes, facts.ConditioningActive)
+                                + (facts.Probes.Count == 0 ? Reason(facts.Detail) : ""))
+                       + WalkAnswer(facts.ChainWalk),
+                Findings = findings,
+                Evidence = sb.ToString() + WalkEvidence(facts.ChainWalk),
+                Payload = facts,
+                NothingMeasured = neverKeyed,
+            };
+        }
+
+        // ---- stage 4: spoken transmit ----
+
+        /// <summary>
+        /// The spoken stage's answer, READ AGAINST the microphone baseline.
+        /// Stages 3 and 4 differ in exactly one thing — the microphone — and
+        /// a stage-4 failure means something quite different depending on
+        /// whether that microphone measured well earlier. So the baseline is
+        /// not a gate; it is half of the conclusion.
+        /// </summary>
+        /// <param name="loadDeclaration">
+        /// What the operator said the antenna socket is connected to — this
+        /// stage keys the transmitter, so its evidence carries the stated
+        /// load like stage 2's and stage 3's do (#247).
+        /// </param>
+        public static FixerOutcome Spoken(SpokenTransmitFacts facts, MicCheckFacts micBaseline,
+                                          string loadDeclaration = null)
+        {
+            if (facts == null) throw new ArgumentNullException(nameof(facts));
+
+            string answer;
+            if (!facts.Attempted)
+            {
+                answer = "The spoken test did not produce a measurement, so whether your "
+                       + "voice reaches the radio cannot be said either way."
+                       + (facts.Keyed ? "" : Reason(facts.Detail));
+            }
+            else if (facts.ReachedRadio)
+            {
+                answer = "Yes — your voice, through " + NameOr(facts.Device, "your microphone")
+                       + ", reached the radio.";
+            }
+            else if (micBaseline != null && micBaseline.Measured && micBaseline.AudioArrived)
+            {
+                answer = "No — your voice did not reach the radio. But when the microphone "
+                       + "check ran, sound from " + NameOr(micBaseline.Device, "that microphone")
+                       + " WAS arriving in this computer, so the microphone itself is the "
+                       + "least likely culprit. The difference lies between this computer "
+                       + "and the radio — and the injected test just walked that same path, "
+                       + "so read the two side by side.";
+            }
+            else if (micBaseline != null && micBaseline.Measured && !micBaseline.AudioArrived)
+            {
+                answer = "No — your voice did not reach the radio, and the microphone test "
+                       + "heard nothing either. Start at the microphone: until sound arrives "
+                       + "in this computer, nothing further along can carry it.";
+            }
+            else
+            {
+                answer = "No — your voice did not reach the radio, and because the microphone "
+                       + "test was not run, whether the microphone or the path beyond it is "
+                       + "at fault cannot be separated. Run the microphone test; it splits "
+                       + "this question in two.";
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine("Spoken transmit, microphone in the path");
+            sb.AppendLine("---------------------------------------");
+            sb.AppendLine("Attempted: " + (facts.Attempted ? "yes" : "no"));
+            sb.AppendLine("Reached the radio: " + (facts.Attempted
+                ? (facts.ReachedRadio ? "yes" : "no") : "not measured"));
+            sb.AppendLine("Device: " + NameOr(facts.Device, "not reported"));
+            sb.AppendLine("Host API: " + NameOr(facts.HostApi, "not reported"));
+            sb.AppendLine("Microphone baseline: " + (micBaseline == null
+                ? "none — the microphone test was not run"
+                : micBaseline.Measured
+                    ? (micBaseline.AudioArrived
+                        ? "sound was arriving from " + NameOr(micBaseline.Device, "the microphone")
+                        : "measured, and nothing arrived")
+                    : "attempted, but nothing was measured"));
+            if (facts.Detail.Length > 0) sb.AppendLine(facts.Detail.TrimEnd());
+            sb.Append(ConditionsLines(facts.Conditions));
+            sb.Append(PaTemperatureSpan.EvidenceLines(facts.PaTemperature));
+            sb.Append(LoadLine(loadDeclaration));
+
+            var findings = new List<FixerFinding>();
+            if (!facts.Attempted && facts.Keyed)
+            {
+                // DRAFT PROSE.
+                findings.Add(new FixerFinding("tx-spoken-not-measured", FixOwner.Operator,
+                    "The radio keyed, but nothing was measured, so this test cannot say "
+                    + "whether your voice reaches it.",
+                    "Run this test again."));
+            }
+            findings.AddRange(WalkFindings(facts.ChainWalk));
+
+            return new FixerOutcome
+            {
+                Answer = answer + WalkAnswer(facts.ChainWalk),
+                Findings = findings,
+                Evidence = sb.ToString() + WalkEvidence(facts.ChainWalk),
+                Payload = facts,
+                NothingMeasured = !facts.Attempted && !facts.Keyed,
+            };
+        }
+
+        /// <summary>A refusal's own words as a second sentence of an answer, or
+        /// nothing. A could-not-run stage's answer is all the page shows of it,
+        /// so a reason left only in the evidence never reaches the operator.</summary>
+        private static string Reason(string detail)
+            => string.IsNullOrWhiteSpace(detail) ? "" : " " + detail.Trim();
+
+        // ---- the transmit chain walk, in ONE home for both keying stages ----
+        //
+        // #400. Stages 3 and 4 both key the radio with audio in the path, so
+        // both are moments the thirteen-stage walk can be taken — and if each
+        // grew its own way of saying what the walk found, the two stages of one
+        // report would describe the same radio in two vocabularies. That is the
+        // duplication this project keeps finding, and it does not produce a
+        // merge conflict.
+        //
+        // Shaped exactly on AudioSetupCheck's receive trio (#367): an answer
+        // fragment, a findings list, an evidence block. Nothing here decides
+        // what the walk MEANS — every verdict and remedy came out of
+        // tx-chain-rules.txt and every self-written sentence out of the
+        // analyzer.
+
+        /// <summary>
+        /// The walk's half of the stage's spoken answer: the verdict, but only
+        /// when no finding already carries those exact words.
+        /// </summary>
+        /// <remarks>
+        /// A BLANK LINE, not a space. This is the second half of a stage that
+        /// now has two, and both the page and the report render one paragraph
+        /// per block; a single run of six sentences is readable and
+        /// unnavigable.
+        /// </remarks>
+        private static string WalkAnswer(TransmitCheckResult walk)
+        {
+            if (walk == null) return "";
+
+            var sb = new StringBuilder();
+
+            // WHERE IT STOPS, named — and ONLY named. The rule's verdict and
+            // its remedy are carried word for word by the finding below, and
+            // repeating them here would be two vocabularies for one answer on
+            // one card. This is a pointer: it is what the operator HEARS the
+            // moment the stage ends, because the spoken verdict is the stage's
+            // Answer, and a run whose whole purpose was to find the failing
+            // link should say which one it is out loud rather than leave it to
+            // be discovered by reading.
+            //
+            // The acceptance test for the task this belongs to is Don's radio:
+            // run the Fixer, and the answer must name the failing stage without
+            // anyone reading a trace or holding a PTT with their third hand.
+            StageResult first = walk.Report.FirstBroken;
+            if (first != null)
+                sb.Append(Environment.NewLine).Append(Environment.NewLine)
+                  .Append("Walking your whole transmit path while the radio was keyed, it "
+                          + "stops at ").Append(first.Title)
+                  .Append(". What to do about it is below.");
+
+            // Then how much of the path was actually seen. This stage's own
+            // probes already answered "did audio arrive"; the census is the
+            // sentence that stops a partial check reading as a clean bill of
+            // health.
+            if (walk.Census.Length != 0)
+                sb.Append(sb.Length == 0
+                    ? Environment.NewLine + Environment.NewLine : " ").Append(walk.Census);
+
+            string verdict = walk.VerdictNotCarriedByProblems;
+            if (verdict.Length != 0)
+                sb.Append(sb.Length == 0
+                    ? Environment.NewLine + Environment.NewLine : " ").Append(verdict);
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Every broken stage of the walk as a finding, in walk order.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>None of them gets a one-press button, and that is a decision.</b>
+        /// The transmit rules' remedies are mic profiles, mic inputs, transmit
+        /// slices, antenna ports and power settings — every one of them a choice
+        /// about how somebody's station is set up, several of them able to put
+        /// RF where the operator did not intend it. The walk names the control;
+        /// the operator turns it.
+        /// </para>
+        /// <para>
+        /// <b>"Nothing could be checked" is carried as a finding like any
+        /// other</b>, because it is the third answer and collapsing it into
+        /// "nothing is wrong" is the worst available collapse (#370). It is
+        /// owned by nobody here — no operator action restores a rule file — so
+        /// it is marked as such rather than being given advice nobody can act
+        /// on.
+        /// </para>
+        /// </remarks>
+        private static IReadOnlyList<FixerFinding> WalkFindings(TransmitCheckResult walk)
+        {
+            if (walk == null) return Array.Empty<FixerFinding>();
+
+            var findings = new List<FixerFinding>();
+            foreach (TransmitProblem p in walk.Problems)
+            {
+                bool nothingChecked = string.Equals(p.Id, TransmitChainCheck.NothingCheckedId,
+                                                    StringComparison.OrdinalIgnoreCase);
+                try
+                {
+                    findings.Add(new FixerFinding(p.Id,
+                        nothingChecked ? FixOwner.NobodyHere : FixOwner.Operator,
+                        p.WhatIsWrong, p.WhatToDo));
+                }
+                catch (ArgumentException ex)
+                {
+                    // A rule with no id, or a verdict this build could not fill
+                    // in, is a fault in the rule FILE — and an operator whose
+                    // rule file has one bad line must still get the other
+                    // twelve stages. The walk's own evidence block still carries
+                    // the line verbatim, so nothing is lost from the report.
+                    JJTrace.Tracing.TraceLine("TransmitStages: a transmit rule could not be "
+                        + "rendered as a finding — " + ex.Message,
+                        System.Diagnostics.TraceLevel.Warning);
+                }
+            }
+            return findings;
+        }
+
+        private static string WalkEvidence(TransmitCheckResult walk)
+            => walk == null ? "" : Environment.NewLine + walk.Evidence;
+
+        // ---- helpers ----
+
+        /// <summary>
+        /// The stated-load evidence line, in its ONE phrasing. Every stage
+        /// that keys the transmitter carries it — stages 2, 3 and 4 — because
+        /// a transmission whose load is unrecorded cannot be read afterwards
+        /// by anyone (#188, #247). One home for the words, so three stages
+        /// cannot drift into saying it three ways. Empty when nothing was
+        /// declared: an empty line would read as a value.
+        /// </summary>
+        private static string LoadLine(string loadDeclaration)
+            => string.IsNullOrWhiteSpace(loadDeclaration)
+                ? ""
+                : "Antenna socket, as stated by the operator: "
+                  + loadDeclaration.Trim() + Environment.NewLine;
+
+        /// <summary>
+        /// Where the transmission actually happened — frequency, mode and
+        /// antenna port, read while the radio was keyed (#399).
+        /// </summary>
+        /// <remarks>
+        /// <b>Per stage, deliberately, and not once per run.</b> The operator
+        /// can now retune between stages to find a quiet spot, so a run whose
+        /// stages were measured at different frequencies must say which stage
+        /// ran where. One line at the top of the report would be a misleading
+        /// document the moment the frequency moved.
+        /// </remarks>
+        private static string ConditionsLines(string conditions)
+            => string.IsNullOrWhiteSpace(conditions) ? "" : conditions;
+
+        private static string NameOr(string name, string fallback)
+            => string.IsNullOrWhiteSpace(name) ? fallback : name;
+
+        private static string Db(double v)
+            => double.IsNaN(v) ? "not measured"
+                               : v.ToString("0.#", CultureInfo.InvariantCulture) + " dBFS";
+    }
+}

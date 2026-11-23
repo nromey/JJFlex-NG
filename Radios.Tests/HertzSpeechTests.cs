@@ -36,6 +36,27 @@ namespace Radios.Tests
 
         public void Dispose() => CultureInfo.CurrentCulture = _savedCulture;
 
+        /// <summary>
+        /// The most negative int has no positive twin, so <c>Math.Abs</c> on it
+        /// throws (#984). No real width reaches it; a width line must still
+        /// never be what throws.
+        /// </summary>
+        [Fact]
+        public void The_most_negative_width_still_reads_rather_than_throwing()
+        {
+            foreach (HertzUnitStyle style in Enum.GetValues<HertzUnitStyle>())
+            {
+                Assert.False(string.IsNullOrEmpty(HertzSpeech.DisplayedWidth(int.MinValue, style)));
+                foreach (VerbosityLevel level in Enum.GetValues<VerbosityLevel>())
+                {
+                    Assert.False(string.IsNullOrEmpty(HertzSpeech.Width(int.MinValue, style, level, units: true)));
+                    Assert.False(string.IsNullOrEmpty(HertzSpeech.ReadoutWidth(int.MinValue, style, level, units: true)));
+                }
+            }
+            // Positive control: an ordinary width still reads the same way.
+            Assert.Contains("2.75", HertzSpeech.DisplayedWidth(2750));
+        }
+
         private static IEnumerable<int> FiftyHertzSteps()
         {
             for (int hz = 1000; hz <= 5000; hz += 50) yield return hz;

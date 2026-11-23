@@ -1,0 +1,1 @@
+- A renamed operator no longer appears under both the old and new names the next time JJ Flexible Radio Access starts.

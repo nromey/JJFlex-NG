@@ -91,7 +91,7 @@ namespace Radios.Tests
 
             int start = text.IndexOf("private void startRemoteAudioThread()", StringComparison.Ordinal);
             Assert.True(start > 0);
-            string starter = text.Substring(start, 900);
+            string starter = SourceMember.CSharpAt(text, start);
             Assert.Contains("Interlocked.Increment(ref _remoteAudioRun)", starter, StringComparison.Ordinal);
             Assert.Contains("remoteAudioProc(run)", starter, StringComparison.Ordinal);
 
@@ -101,7 +101,7 @@ namespace Radios.Tests
             int write = text.IndexOf("GiveShackSpeakerBack(run, speakerRadio);", StringComparison.Ordinal);
             Assert.True(write > 0);
             // 1100 since rulings round two: the found-value check sits between them.
-            string before = text.Substring(Math.Max(0, write - 1100), Math.Min(1100, write));
+            string before = text.Substring(Math.Max(0, write - 1100), Math.Min(1100, write));   // #604: deliberately bounded, the lines just before the call
             // Both arguments pinned: this run's own number, against the
             // number of the run that is current NOW. Passing the same value
             // twice would compile, read as guarded, and check nothing.
@@ -142,11 +142,11 @@ namespace Radios.Tests
             // the run, so a test can drive it; the run must still call it.
             Assert.Contains("MuteShackSpeakerForRun(run);", text, StringComparison.Ordinal);
             int unmute = text.IndexOf("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", StringComparison.Ordinal);
-            string before = text.Substring(Math.Max(0, unmute - 600), Math.Min(600, unmute));
+            string before = text.Substring(Math.Max(0, unmute - 600), Math.Min(600, unmute));   // #604: deliberately bounded, the lines just before the write
             Assert.Contains("ShackSpeakerKeepFor(run, speakerRadio)", before, StringComparison.Ordinal);
             int keepFor = text.IndexOf("internal string ShackSpeakerKeepFor(", StringComparison.Ordinal);
             Assert.True(keepFor > 0, "the stop's put-back decision is gone");
-            string helper = text.Substring(keepFor, Math.Min(700, text.Length - keepFor));
+            string helper = SourceMember.CSharpAt(text, keepFor);
             Assert.Contains("mutedBy.Run == run && ReferenceEquals(mutedBy.Radio, speakerRadio)", helper, StringComparison.Ordinal);
             Assert.Contains("ShackSpeakerPutBackSkip(", helper, StringComparison.Ordinal);
         }

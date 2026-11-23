@@ -291,7 +291,20 @@ Public Class LogClass
     ''' it, so nothing already logged can be lost here.
     ''' </remarks>
     Private Function AskForFile(operater As PersonalData.personal_v1, createNew As Boolean) As String
-        Dim folder As String = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+        ' Documents on an ordinary run; on an isolated one (JJFLEX_CONFIG_DIR)
+        ' a folder inside the throwaway tree, made first, so the dialog never
+        ' starts in, nor a new log lands in, the operator's real Documents (#1255).
+        Dim relocated As Boolean = Radios.LocalDataRoot.RunIsRelocated
+        Dim folder As String = LogDialogStartFolder(relocated, Radios.ProfileReporter.ExportFolder,
+                                                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments))
+        If relocated Then
+            Try
+                Directory.CreateDirectory(folder)
+            Catch ex As Exception
+                Tracing.TraceLine("LogClass: the isolated run's log folder could not be made: " & folder & " (" & ex.Message & ")",
+                                  TraceLevel.Warning)
+            End Try
+        End If
         If operater.LogFile <> vbNullString Then
             Try
                 Dim parent = Directory.GetParent(operater.LogFile)
@@ -324,6 +337,18 @@ Public Class LogClass
             End If
         End Using
         Return Nothing
+    End Function
+
+    ''' <summary>
+    ''' Where the log file's Open or Save dialog starts when the operator has
+    ''' no log yet: <paramref name="documents"/> on an ordinary run, and on an
+    ''' isolated one the export folder inside the throwaway tree
+    ''' (<see cref="Radios.ProfileReporter.ExportFolder"/>), never the real
+    ''' Documents (#1255).
+    ''' </summary>
+    Friend Shared Function LogDialogStartFolder(relocated As Boolean, isolatedFolder As String, documents As String) As String
+        If relocated AndAlso Not String.IsNullOrWhiteSpace(isolatedFolder) Then Return isolatedFolder
+        Return documents
     End Function
 
     ''' <summary>

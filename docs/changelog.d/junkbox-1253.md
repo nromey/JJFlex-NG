@@ -1,0 +1,1 @@
+- The other operators now load in JJ Flexible Radio Access even when an operator file cannot be loaded. One plain notice lists the affected files. Read-only operator files now load normally. A notice explains when a read-only file prevents changes from being saved.

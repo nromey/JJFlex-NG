@@ -346,7 +346,7 @@ namespace Radios.Tests.StationConnect
             string text = FlexBasePartials.JoinedText();   // every FlexBase partial
             int helper = text.IndexOf("private void AbandonUnappliedLiveAudio()", StringComparison.Ordinal);
             Assert.True(helper > 0);
-            string body = text.Substring(helper, 1600);
+            string body = SourceMember.CSharpAt(text, helper);
             Assert.Contains("LiveAudioAbortPlan.Decide(", body, StringComparison.Ordinal);
             Assert.Contains("priorRecord", body, StringComparison.Ordinal);
             // Three calls, and no site that reaches past the helper to delete
@@ -369,7 +369,7 @@ namespace Radios.Tests.StationConnect
 
             int apply = text.IndexOf("private bool ApplyLocalTransmitAudioPayloadNow(AudioChainPreset payload, string presetName, out string receipt)", StringComparison.Ordinal);
             Assert.True(apply > 0, "the apply must hand its receipt back");
-            Assert.Contains("receipt = payload.ApplyTo(this) ?? \"\";", text.Substring(apply, 900), StringComparison.Ordinal);
+            Assert.Contains("receipt = payload.ApplyTo(this) ?? \"\";", SourceMember.CSharpAt(text, apply), StringComparison.Ordinal);
 
             int deferred = text.IndexOf("internal void ApplyDeferredGuestTransmitAudio()", StringComparison.Ordinal);
             string body = text.Substring(deferred, text.IndexOf("private void AbandonUnappliedLiveAudio()", StringComparison.Ordinal) - deferred);
@@ -400,7 +400,7 @@ namespace Radios.Tests.StationConnect
             var text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "Radios", "FlexBase.StationConnect.cs"));
             int method = text.IndexOf("private ProfileActionOutcome RunLiveAudioActionChecked(", StringComparison.Ordinal);
             Assert.True(method > 0);
-            string body = text.Substring(method, 5000);
+            string body = SourceMember.CSharpAt(text, method);
             Assert.Contains("q.Enqueue((FunctionDel)ApplyDeferredGuestTransmitAudio, \"deferred guest transmit audio (post-import)\");", body, StringComparison.Ordinal);
             Assert.DoesNotContain("ApplyLocalTransmitAudioNow(action.ProfileName) ? ProfileActionOutcome.Confirmed", body, StringComparison.Ordinal);
             Assert.Contains("if (confirmed) _autosaveTurnedOffThisSession = true;", body, StringComparison.Ordinal);

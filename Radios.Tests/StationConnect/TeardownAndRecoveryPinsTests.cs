@@ -34,7 +34,7 @@ namespace Radios.Tests.StationConnect
             var text = Read("Radios/FlexBase.cs");
             int at = text.IndexOf("public GuardedOutcome TurnRadioProfileAutosaveBackOn()", StringComparison.Ordinal);
             Assert.True(at >= 0);
-            string body = text.Substring(at, 1500);
+            string body = SourceMember.CSharpAt(text, at);
             Assert.Contains("ProfileEvidence.Snapshot().RadioReportedAutosave == true) return GuardedOutcome.Skipped;", body, StringComparison.Ordinal);
             Assert.DoesNotContain("if (theRadio.ProfileAutoSave) return GuardedOutcome.Skipped;", body, StringComparison.Ordinal);
         }
@@ -45,13 +45,9 @@ namespace Radios.Tests.StationConnect
             var text = Read("Radios/FlexBase.cs");
             int at = text.IndexOf("public GuardedOutcome SaveProfileGuarded(Profile_t p, bool immediately = false)", StringComparison.Ordinal);
             Assert.True(at >= 0);
-            // 3600, not 3000: junkbox #777 round two put the ownership gate,
-            // the hold and the not-global skip ahead of the enqueue, so the
-            // delegate this pins starts about 540 characters later. The
-            // ordering assertions below are unchanged. 4400 since junk box
-            // #976 repair one asked the hold again at the save inside the
-            // delegate (about 600 characters more); the ordering is unchanged.
-            string body = text.Substring(at, 4400);
+            // The whole member (#604): it had been widened from 3000 to 3600
+            // to 4400 characters as the member grew (junk box #777, #976).
+            string body = SourceMember.CSharpAt(text, at);
             int enqueue = body.IndexOf("q.Enqueue((FunctionDel)(() =>", StringComparison.Ordinal);
             // Round three of #777 replaced the vendor's void SaveGlobalProfile
             // with the reply-bearing send, so the pinned "save" line moved
