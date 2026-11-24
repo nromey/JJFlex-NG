@@ -191,6 +191,25 @@ public sealed class ProcessorHandoffTests : IDisposable
     }
 
     [Fact]
+    public void A_turn_on_and_our_compressor_going_off_between_two_ticks_writes_nothing_and_says_nothing_more()
+    {
+        // Found by a mutation run: the put-back's own "does the radio still
+        // hold our value" check had no test, because every other case is
+        // settled earlier (in the session, or by the connect rule).
+        var b = NewBench();
+        b.Compressor = true;
+        b.Tick();
+        b.Settle();
+        // Between two ticks the operator turns the processor on AND our compressor goes off.
+        b.Radio.On = true;
+        b.Compressor = false;
+        b.Tick(3);
+        Assert.Equal(new[] { false }, b.Radio.Writes);                    // nothing is put "back": it is already theirs
+        Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOff }, b.Said); // and no "back on" sentence, which would be false
+        Assert.Null(b.Store.Find(Serial));
+    }
+
+    [Fact]
     public void The_radios_own_microphone_ends_the_session_and_the_processor_comes_back()
     {
         var b = NewBench();
