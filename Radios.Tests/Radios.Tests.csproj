@@ -22,6 +22,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- jjprobe's injection self-check decisions: one pure file with no Win32,
+         compiled in here so they are tested behaviourally. Radios.Tests does not
+         reference the probe itself (see JjprobeConfigDirTests). -->
+    <Compile Include="..\tools\uia-probe\InjectionSelfCheck.cs" Link="Jjprobe\InjectionSelfCheck.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Radios\Radios.csproj" />
     <ProjectReference Include="..\FlexLib_API\FlexLib\FlexLib.csproj" />
     <!-- TxFactAudit's trace parser (tools/TxFactAudit/TraceMeters.cs) had no

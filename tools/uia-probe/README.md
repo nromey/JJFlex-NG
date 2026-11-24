@@ -68,6 +68,8 @@ Default process name is `jjflexible`. Every command takes `--pid N` or
   NVDA announces from.
 - `press --chord "..."` — press a chord for real and report what changed. **The
   Tier 3 seam.** See below.
+- `selfcheck` — prove the probe's own key injection works, before anything
+  trusts a press. See "The self-check" below.
 - `act --op invoke|toggle|select|expand|focus|value|listitems` — drive an
   element through its automation pattern. For getting the app into a starting
   position, *not* for verifying key bindings: invoking a button proves the
@@ -256,15 +258,40 @@ stderr and in the report, with the state things were left in. A capture that
 was **already running** when the sweep started belongs to the operator and is
 left exactly as found.
 
+## The self-check
+
+`foregrounded: true` with `routed: []` once came back from a press whose key
+never arrived, and an empty routing list reads exactly like an app that
+ignored the key. So the probe can prove its own injection first.
+
+`jjprobe selfcheck` presses ONE key, `Ctrl+Shift+F12` unless
+`--selfcheck-chord` names another, and looks for its one effect: the key
+dispatcher's `DoCommand:` line for that key, as eight hex digits in WinForms
+`Keys` terms (`DoCommand:0003007b` for the default). It is written at Info
+level for every key that reaches the dispatcher, so it needs no detailed
+capture. Before pressing, it checks the build's own key inventory and REFUSES
+a key that is bound, or one the inventory cannot vouch for, because a
+self-check that does something is not a self-check.
+
+It fails loudly, and a sweep that presses runs it first and stops if it
+fails: when the window was not in front for the press, when Windows refused
+the key, when the window lost the foreground during the press, when no trace
+file is being read, or when everything was in order and the dispatcher never
+logged the key. `--no-selfcheck` skips it, and says so on stderr. Exit codes:
+0 passed, 4 no window, 5 pressed and failed, 6 refused before pressing.
+
+The decisions (`InjectionSelfCheck.cs`) have no Win32 in them and are tested
+in `Radios.Tests` through a linked copy of that one file.
+
 ## Which commands can take your keyboard, and which provably cannot
 
-Only two commands inject synthetic input: `press` and `sweep`. Everything else
+Only three commands inject synthetic input: `press`, `selfcheck` and `sweep`. Everything else
 — `windows`, `tree`, `focus`, `watch`, `inventory`, `unbound`, `expand`,
 `altcheck`, and `sweep --dry-run` — only observes.
 
 That is enforced rather than asserted. `Native.SendKeyEvent` is the single
 injection point, it is called from exactly one file, and it returns immediately
-unless `Native.InjectionArmed` has been set, which only the two typing commands
+unless `Native.InjectionArmed` has been set, which only the three typing commands
 do — plus one codicil: `CaptureGuard` re-arms at exit to press the capture
 toggle back off, and it can only have been armed from inside an armed `sweep`.
 It is that sweep's cleanup, not a third typist. The distinction is worth the four lines because of how Windows draws it:
