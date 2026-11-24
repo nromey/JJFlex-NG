@@ -552,6 +552,102 @@ namespace Radios.Tests
                 "the record is marked inside the Try, after a delete that succeeded");
         }
 
+        // ---- #1276: a delete keeps the current operator current ----
+
+        /// <summary>
+        /// Five operators, E the default (so no test deletes the default, which
+        /// writes through Write and its box), and the current one at
+        /// <paramref name="current"/>. Deletes <paramref name="delete"/> through
+        /// the real <c>RemoveAt</c>, then reports who is current.
+        /// </summary>
+        private (string Before, string After, int AfterId) DeleteWithCurrent(int current, int delete)
+        {
+            foreach (string n in new[] { "A_First", "B_Second", "C_Third", "D_Fourth" })
+                WriteOperator(Path.Combine(_dir, n + ".xml"));
+            WriteOperator(Path.Combine(_dir, "E_Default.xml"), isDefault: true);
+            string before = "", after = "";
+            int afterId = -2;
+            LoadOperators(app =>
+            {
+                Assert.Equal(new[] { "A_First", "B_Second", "C_Third", "D_Fourth", "E_Default" }, app.Handles());
+                app.CurrentID = current;
+                object was = app.CurrentItem!;
+                before = app.HandleOf(was);
+                Assert.True(app.RemoveAt(delete));
+                after = app.HandleOf(app.CurrentItem);
+                afterId = app.CurrentID;
+                if (delete != current)
+                    Assert.Same(was, app.CurrentItem);   // the SAME operator, by identity
+            });
+            return (before, after, afterId);
+        }
+
+        [Fact]
+        public void Deleting_the_operator_just_above_the_current_one_keeps_it_current()
+        {
+            var r = DeleteWithCurrent(current: 1, delete: 0);
+            Assert.Equal(("B_Second", "B_Second", 0), r);
+        }
+
+        /// <summary>
+        /// The current operator THIRD or lower: lowered twice, the id landed on
+        /// the operator above it, so a different operator became current with
+        /// nothing said and every per-operator store still the old one's.
+        /// </summary>
+        [Fact]
+        public void Deleting_an_operator_two_above_the_current_one_keeps_it_current()
+        {
+            var r = DeleteWithCurrent(current: 3, delete: 0);
+            Assert.Equal(("D_Fourth", "D_Fourth", 2), r);
+        }
+
+        [Fact]
+        public void Deleting_the_operator_just_above_a_third_current_one_keeps_it_current()
+        {
+            var r = DeleteWithCurrent(current: 2, delete: 1);
+            Assert.Equal(("C_Third", "C_Third", 1), r);
+        }
+
+        [Fact]
+        public void Deleting_an_operator_below_the_current_one_changes_nothing()
+        {
+            var r = DeleteWithCurrent(current: 2, delete: 3);
+            Assert.Equal(("C_Third", "C_Third", 2), r);
+        }
+
+        /// <summary>
+        /// Deleting the current operator itself: the Operators list refuses it,
+        /// and <c>RemoveAt</c> makes the default current, as it always has.
+        /// </summary>
+        [Fact]
+        public void Deleting_the_current_operator_through_the_store_makes_the_default_current()
+        {
+            var r = DeleteWithCurrent(current: 2, delete: 2);
+            Assert.Equal(("C_Third", "E_Default", 3), r);
+        }
+
+        /// <summary>
+        /// One place lowers the current id: <c>RemoveAt</c>. The Operators
+        /// list's Delete only removes and refreshes, and never touches the
+        /// current id itself.
+        /// </summary>
+        [Fact]
+        public void The_operator_list_leaves_the_current_id_to_the_store()
+        {
+            string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "Lister.vb")).Replace("\r\n", "\n");
+            string delete = SourceMember.VisualBasic(src, "Private Sub DeleteButton_Click(");
+            int remove = delete.IndexOf("listObj.RemoveAT(id)", StringComparison.Ordinal);
+            Assert.True(remove > 0, "positive control: the Delete button still removes through the store");
+            string after = delete.Substring(remove);
+            Assert.DoesNotContain("currentID -=", after, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("currentID =", after, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("CurrentOpID", after, StringComparison.Ordinal);
+
+            string store = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalData.vb")).Replace("\r\n", "\n");
+            string removeAt = SourceMember.VisualBasic(store, "Public Function RemoveAt(ByVal id As Integer) As Boolean");
+            Assert.Contains("ElseIf id < CurrentID Then", removeAt, StringComparison.Ordinal);
+        }
+
         // ---- loading the folder as PersonalData ----
 
         private sealed class Seen

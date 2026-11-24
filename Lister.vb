@@ -111,11 +111,12 @@ Friend Class Lister
                 End If
             End If
             If removeIt Then
+                ' RemoveAt keeps the current operator current itself: it
+                ' lowers the current id when an operator above it goes
+                ' (#1276). Lowered here as well, the id moved twice, so the
+                ' operator above the current one became current with nothing
+                ' said, or nobody was current.
                 listObj.RemoveAT(id)
-                ' May need to adjust the current id.
-                If id <= currentID Then
-                    currentID -= 1
-                End If
                 refreshScreenList(id)
             End If
         Else
