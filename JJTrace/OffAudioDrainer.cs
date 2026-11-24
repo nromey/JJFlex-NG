@@ -177,28 +177,55 @@ namespace JJTrace
         public const int DefaultPeriodMilliseconds = 50;
 
         private static readonly Lazy<OffAudioDrainer> s_shared =
-            new Lazy<OffAudioDrainer>(() => new OffAudioDrainer(DefaultPeriodMilliseconds, "JJFlex off-audio writer"));
+            new Lazy<OffAudioDrainer>(() => new OffAudioDrainer(DefaultPeriodMilliseconds, "JJFlex off-audio writer", ThreadPriority.BelowNormal));
 
-        /// <summary>The one the app uses. Made on first use; its thread starts at the first registration.</summary>
+        private static readonly Lazy<OffAudioDrainer> s_events =
+            new Lazy<OffAudioDrainer>(() => new OffAudioDrainer(DefaultPeriodMilliseconds, "JJFlex off-audio events", ThreadPriority.Normal));
+
+        /// <summary>
+        /// The app's writer for DIAGNOSTICS: trace lines and summaries, at below
+        /// normal priority, because a late line costs nothing. Made on first use;
+        /// its thread starts at the first registration.
+        /// </summary>
         public static OffAudioDrainer Shared { get { return s_shared.Value; } }
+
+        /// <summary>
+        /// The app's writer for EVENTS (Sprint 49 Track RT, repair 3): work whose
+        /// effect an operator hears, or that holds a resource. The keep-up
+        /// warning, an engine's result (its confirmation, its "could not start"),
+        /// a retired bank's disposal (a helper channel stays open until then), a
+        /// build or a scratch asked for from the audio thread. NORMAL priority,
+        /// because a below-normal thread is starved for seconds on a busy machine
+        /// (measured: 95th percentile 491 ms, worst 2.4 s with every core busy,
+        /// against 62 and 68 ms at normal), and the keep-up warning matters most
+        /// exactly then. Same type, same discipline, still never an audio thread.
+        /// </summary>
+        public static OffAudioDrainer Events { get { return s_events.Value; } }
 
         private readonly object _gate = new object();
         private OffAudioWork[] _works = Array.Empty<OffAudioWork>();
         private OffAudioWork[] _retiring = Array.Empty<OffAudioWork>();
         private readonly AutoResetEvent _wake = new AutoResetEvent(false);
         private readonly string _name;
+        private readonly ThreadPriority _priority;
         private Thread _thread;
         private volatile bool _stopping;
         private long _ticks, _faults;
 
         /// <param name="periodMilliseconds">How often pending work is drained.</param>
         /// <param name="name">The thread's name, for a debugger and a crash dump.</param>
-        public OffAudioDrainer(int periodMilliseconds = DefaultPeriodMilliseconds, string name = "off-audio writer")
+        /// <param name="priority">The thread's priority: below normal for diagnostics, normal for events (<see cref="Events"/>).</param>
+        public OffAudioDrainer(int periodMilliseconds = DefaultPeriodMilliseconds, string name = "off-audio writer",
+            ThreadPriority priority = ThreadPriority.BelowNormal)
         {
             if (periodMilliseconds < 1) throw new ArgumentOutOfRangeException(nameof(periodMilliseconds));
             Period = periodMilliseconds;
             _name = name ?? "off-audio writer";
+            _priority = priority;
         }
+
+        /// <summary>The priority this writer's thread runs at.</summary>
+        public ThreadPriority Priority { get { return _priority; } }
 
         /// <summary>Milliseconds between passes while anything is registered.</summary>
         public int Period { get; }
@@ -230,7 +257,7 @@ namespace JJTrace
                 if (Array.IndexOf(_works, work) < 0) Volatile.Write(ref _works, Append(_works, work));
                 if (_thread == null)
                 {
-                    _thread = new Thread(Run) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = _name };
+                    _thread = new Thread(Run) { IsBackground = true, Priority = _priority, Name = _name };
                     _thread.Start();
                 }
             }

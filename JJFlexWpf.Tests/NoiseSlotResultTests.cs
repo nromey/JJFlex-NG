@@ -19,7 +19,7 @@ public sealed class NoiseSlotResultTests
 {
     public NoiseSlotResultTests() => NoiseReductionPerChannelTests.AssertWindowless();
 
-    private static RxAudioPipeline PipelineWhoseDefaultCannotBuild()
+    private static RxAudioPipeline PipelineWhoseDefaultCannotBuild(SettledOffAudioWriter writer)
     {
         var rows = new[]
         {
@@ -29,29 +29,30 @@ public sealed class NoiseSlotResultTests
                 (_, _) => new NoiseFixture.Engine("spectral_capture", SpectralCaptureEngine.SettingDescriptors, new Dictionary<string, EngineSettingValue>(), 0),
                 () => Unavailability.None, SettingDescriptors: SpectralCaptureEngine.SettingDescriptors),
         };
-        return new RxAudioPipeline(catalog: new DenoiseEngineCatalog(rows));
+        return new RxAudioPipeline(48000, 2, new DenoiseEngineCatalog(rows), 0, writer);
     }
 
-    private static void Feed(RxAudioPipeline p, int buffers)
+    private static void Feed(RxAudioPipeline p, SettledOffAudioWriter writer, int buffers)
     {
-        for (int i = 0; i < buffers; i++) { p.Process(new float[960]); Thread.Sleep(1); }
+        for (int i = 0; i < buffers; i++) { p.Process(new float[960]); writer.Settle(); Thread.Sleep(1); }
     }
 
     [Fact]
     public void A_default_that_cannot_build_says_nothing_while_the_slot_was_never_used_and_once_after_it_is_turned_on()
     {
-        using var p = PipelineWhoseDefaultCannotBuild();
+        using var writer = new SettledOffAudioWriter();
+        using var p = PipelineWhoseDefaultCannotBuild(writer);
         var results = new ConcurrentQueue<DenoiseSelectionResult>();
         p.SelectionResult += (_, r) => results.Enqueue(r);
-        Feed(p, 30);
-        Thread.Sleep(100); // results are published on the thread pool
+        Feed(p, writer, 30);
+        writer.Settle(); // every result published so far has been raised (repair 2: was a fixed 100 ms wait for the pool)
         Assert.Empty(results);
 
         p.NeuralSlot.Enabled = true;
         var time = Stopwatch.StartNew();
-        while (results.IsEmpty && time.ElapsedMilliseconds < 3000) Feed(p, 1);
-        Feed(p, 30);
-        Thread.Sleep(100);
+        while (results.IsEmpty && time.ElapsedMilliseconds < 3000) Feed(p, writer, 1);
+        Feed(p, writer, 30);
+        writer.Settle();
         var only = Assert.Single(results);
         Assert.False(only.Processing);
         Assert.True(only.SlotStopped);

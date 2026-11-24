@@ -420,7 +420,7 @@ namespace Radios.Tests
             {
                 s.Feed(); s.Callback();
                 s.Callback(PortAudio.PaStreamCallbackFlags.paOutputUnderflow);   // a record: the writer takes it and blocks
-                Assert.True(entered.Wait(5000), "the writer never started");
+                Assert.True(entered.Wait(15000), "the writer never started");
                 Assert.Equal(1, s.Cb.Lines.Drains);
                 using var watch = new PoolQueueWatch();
                 Assert.True(watch.Probe(), "the watch sees nothing, so its zero proves nothing");
