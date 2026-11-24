@@ -46,6 +46,17 @@ public partial class ScreenFieldsPanel
     private CheckBox _txNoiseFavourite = null!;
     private CheckBox _txGateOn = null!;
     private CycleFieldControl _txGateMargin = null!;
+    // Sprint 49 Track I: the expander's strength, its side-chain filter,
+    // "Learn the room", the equaliser's flat rows and the de-esser. Flat rows
+    // only: the fields panel's navigation is flat by construction (#489).
+    private CycleFieldControl _txGateStrength = null!;
+    private CheckBox _txSideChain = null!;
+    private Button _txLearnRoom = null!;
+    private CheckBox _txEqOn = null!;
+    private Button _txEqEdit = null!;
+    private TextBlock _txEqSummary = null!;
+    private CheckBox _txDeEsserOn = null!;
+    private readonly List<(CycleFieldControl Field, DeEsserLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> _txDeEsserFields = new();
     private CheckBox _txGateAdvanced = null!;
     private StackPanel _txGateAdvancedFields = null!;
     private CheckBox _txGateAuto = null!;
@@ -186,6 +197,14 @@ public partial class ScreenFieldsPanel
         WireGateField(_txGateMargin);
         TxContent.Children.Add(_txGateMargin);
 
+        _txGateStrength = MakeCycle(Lexicon.Get("audio.noise_surface.tx.gate.strength"), Array.Empty<string>());
+        WireGateField(_txGateStrength);
+        TxContent.Children.Add(_txGateStrength);
+
+        _txLearnRoom = MakeTxButton("audio.noise_home.tx.learn_room", "audio.noise_help.tx_home.learn_room");
+        _txLearnRoom.Click += (s, e) => NoiseCtl?.LearnTheRoom(TxNoiseSource);
+        TxContent.Children.Add(_txLearnRoom);
+
         _txGateAdvanced = MakeToggle(Lexicon.Get("audio.noise_home.tx.gate_advanced"));
         _txGateAdvanced.Checked += (s, e) => TransmitGateAdvancedChanged(true);
         _txGateAdvanced.Unchecked += (s, e) => TransmitGateAdvancedChanged(false);
@@ -221,6 +240,52 @@ public partial class ScreenFieldsPanel
 
         _txSaveSetup = MakeTxButton("audio.noise_home.tx.save_setup", "audio.noise_help.tx_home.save_setup");
         _txSaveSetup.Click += (s, e) => FindMainWindow()?.ShowTransmitSetupSave();
+
+        _txSideChain = MakeToggle(Lexicon.Get("audio.noise_home.tx.side_chain"));
+        _txSideChain.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) NoiseCtl?.SetSideChainOn(true, TxNoiseSource); };
+        _txSideChain.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) NoiseCtl?.SetSideChainOn(false, TxNoiseSource); };
+        JJFlexHelp.SetText(_txSideChain, Lexicon.Get("audio.noise_help.tx_home.side_chain"));
+
+        // ── The parametric equaliser (Sprint 49 Track I, #1240): on, a door to
+        //    the editor, and a one-line summary ──
+        _txEqOn = MakeToggle(Lexicon.Get("audio.noise_home.tx.eq_on"));
+        _txEqOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetEqualizerOn(DenoiseDirection.Transmit, true, TxNoiseSource); RefreshTransmitStageValues(); } };
+        _txEqOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetEqualizerOn(DenoiseDirection.Transmit, false, TxNoiseSource); RefreshTransmitStageValues(); } };
+        JJFlexHelp.SetText(_txEqOn, Lexicon.Get("audio.noise_help.tx_home.eq_on"));
+        TxContent.Children.Add(_txEqOn);
+        _txEqEdit = MakeTxButton("audio.noise_home.tx.eq_edit", "audio.noise_help.tx_home.eq_edit");
+        _txEqEdit.Click += (s, e) => FindMainWindow()?.ShowEqualizerEditor(DenoiseDirection.Transmit);
+        TxContent.Children.Add(_txEqEdit);
+        _txEqSummary = new TextBlock { TextWrapping = TextWrapping.Wrap, Focusable = true };
+        JJFlexHelp.SetText(_txEqSummary, Lexicon.Get("audio.noise_help.tx_home.eq_summary"));
+        TxContent.Children.Add(_txEqSummary);
+
+        // ── The de-esser (Sprint 49 Track I): on, then its three levers ──
+        _txDeEsserOn = MakeToggle(Lexicon.Get("audio.noise_home.tx.deesser_on"));
+        _txDeEsserOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) NoiseCtl?.SetDeEsserOn(true, TxNoiseSource); };
+        _txDeEsserOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) NoiseCtl?.SetDeEsserOn(false, TxNoiseSource); };
+        JJFlexHelp.SetText(_txDeEsserOn, Lexicon.Get("audio.noise_help.tx_home.deesser_on"));
+        TxContent.Children.Add(_txDeEsserOn);
+        foreach (var lever in NoiseController.DeEsserLevers)
+        {
+            var l = lever;
+            var field = MakeCycle(Lexicon.Get(l.LabelKey), Array.Empty<string>());
+            field.SelectionChanged += (s, i) =>
+            {
+                if (_polling || _txNoiseRebuilding || i < 0) return;
+                var entry = _txDeEsserFields.FirstOrDefault(f => ReferenceEquals(f.Field, field));
+                if (entry.Field == null || i >= entry.Steps.Count) return;
+                NoiseCtl?.SetDeEsser(entry.Lever, entry.Steps[i].Value, TxNoiseSource);
+            };
+            JJFlexHelp.SetText(field, Lexicon.Get(l.Key switch
+            {
+                DeEsserLever.Frequency => "audio.noise_help.tx_home.deesser.frequency",
+                DeEsserLever.Amount => "audio.noise_help.tx_home.deesser.amount",
+                _ => "audio.noise_help.tx_home.deesser.sensitivity",
+            }));
+            _txDeEsserFields.Add((field, l, Array.Empty<(double, string)>()));
+            TxContent.Children.Add(field);
+        }
 
         _txGateDefaults = MakeTxButton("audio.noise_home.tx.gate_defaults", "audio.noise_help.tx_home.gate_defaults");
         _txGateDefaults.Click += (s, e) =>
@@ -330,6 +395,8 @@ public partial class ScreenFieldsPanel
             _txGateFields.Clear();
             _txGateOn.IsChecked = noise.TransmitGate.Enabled;
             if (noise.GateLever(TxGateLever.Margin) is { } margin) SetupGateField(_txGateMargin, noise, margin);
+            if (noise.GateLever(TxGateLever.Strength) is { } strength) SetupGateField(_txGateStrength, noise, strength);
+            SetupTransmitStageFields(noise);
 
             _txGateAdvancedFields.Children.Clear();
             // Radio or no radio (bench round, item 1): the controller holds the
@@ -341,6 +408,8 @@ public partial class ScreenFieldsPanel
             if (!advanced) return;
             _txGateAuto.IsChecked = noise.TransmitGate.AutoThreshold;
             _txGateAdvancedFields.Children.Add(_txGateAuto);
+            _txSideChain.IsChecked = noise.TransmitGate.SideChainFilter;
+            _txGateAdvancedFields.Children.Add(_txSideChain);
             foreach (var lever in noise.GateLevers(includeAdvanced: true).Where(l => l.Advanced))
             {
                 var field = MakeCycle(noise.GateLeverName(lever), Array.Empty<string>());
@@ -363,6 +432,57 @@ public partial class ScreenFieldsPanel
             _txGateAdvancedFields.Children.Add(_txSaveSetup);
         }
         finally { _txNoiseRebuilding = false; }
+    }
+
+    /// <summary>The de-esser's fields' steps and the stages' toggles and summary, set from the controller (Sprint 49 Track I).</summary>
+    private void SetupTransmitStageFields(NoiseController noise)
+    {
+        for (int k = 0; k < _txDeEsserFields.Count; k++)
+        {
+            var (field, lever, _) = _txDeEsserFields[k];
+            var steps = noise.DeEsserSteps(lever);
+            field.Setup(noise.DeEsserLeverName(lever), steps.Select(s => s.Text).ToArray(), NearestStep(steps, noise.DeEsserNumber(lever)));
+            field.Wraps = false;
+            field.HomeEndJump = true;
+            _txDeEsserFields[k] = (field, lever, steps);
+        }
+        RefreshTransmitStageValues();
+    }
+
+    /// <summary>The Track I rows' values, from the controller: equaliser and de-esser on, the de-esser's levers, the side-chain filter, the summary.</summary>
+    private void RefreshTransmitStageValues()
+    {
+        if (NoiseCtl is not { } noise || _txEqOn == null) return;
+        bool wasPolling = _polling;
+        _polling = true;
+        try
+        {
+            _txEqOn.IsChecked = noise.EqualizerOn(DenoiseDirection.Transmit);
+            string summary = noise.EqualizerSummary(DenoiseDirection.Transmit);
+            if (_txEqSummary.Text != summary)
+            {
+                _txEqSummary.Text = summary;
+                AutomationProperties.SetName(_txEqSummary, summary);
+            }
+            _txDeEsserOn.IsChecked = noise.DeEsserOn;
+            _txSideChain.IsChecked = noise.TransmitGate.SideChainFilter;
+            foreach (var (field, lever, steps) in _txDeEsserFields)
+            {
+                if (steps.Count == 0) continue;
+                field.SuppressEvents = true;
+                try { field.SelectedIndex = NearestStep(steps, noise.DeEsserNumber(lever)); }
+                finally { field.SuppressEvents = false; }
+            }
+        }
+        finally { _polling = wasPolling; }
+    }
+
+    private static int NearestStep(IReadOnlyList<(double Value, string Text)> steps, double now)
+    {
+        int best = 0;
+        for (int i = 1; i < steps.Count; i++)
+            if (Math.Abs(steps[i].Value - now) < Math.Abs(steps[best].Value - now)) best = i;
+        return best;
     }
 
     private void SetupGateField(CycleFieldControl field, NoiseController noise, TxGateLever lever)
@@ -397,6 +517,10 @@ public partial class ScreenFieldsPanel
         TxGateLever.Hold => "audio.noise_help.tx_home.gate.hold",
         TxGateLever.Release => "audio.noise_help.tx_home.gate.release",
         TxGateLever.Depth => "audio.noise_help.tx_home.gate.depth",
+        TxGateLever.Strength => "audio.noise_help.tx_home.gate.strength",
+        TxGateLever.SideChainLow => "audio.noise_help.tx_home.gate.sidechain_low",
+        TxGateLever.SideChainHigh => "audio.noise_help.tx_home.gate.sidechain_high",
+        TxGateLever.LookAhead => "audio.noise_help.tx_home.gate.lookahead",
         _ => "audio.noise_help.tx_home.gate.monitor_volume",
     };
 
@@ -471,6 +595,7 @@ public partial class ScreenFieldsPanel
             _txListen.SuppressEvents = true;
             try { _txListen.SelectedIndex = noise.TransmitGate.MonitorMode; }
             finally { _txListen.SuppressEvents = false; }
+            RefreshTransmitStageValues();
             // The Delay readout follows the running engine (bench round, item 4):
             // it was set only when the engine was shown, so it went on saying
             // "measured once it is running" after the engine had run.

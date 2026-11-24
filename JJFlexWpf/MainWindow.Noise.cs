@@ -52,4 +52,22 @@ public partial class MainWindow
     /// <summary>"Manage setups...": apply, rename, delete, and copy to another radio (Sprint 49 Track H2).</summary>
     public void ShowTransmitSetupManager() =>
         Dispatcher.BeginInvoke(() => Dialogs.TransmitSetupManagerDialog.Show(Window.GetWindow(this), Noise));
+
+    /// <summary>
+    /// "Edit equaliser...": the parametric equaliser's editor on one side
+    /// (Sprint 49 Track I, #1240; one editor for both sides, ruled S2). The
+    /// transmit menu, the DSP menu's receive side, Home and the noise layer
+    /// all open it here.
+    /// </summary>
+    public void ShowEqualizerEditor(Radios.DenoiseDirection side)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            const string source = "equalizer editor";
+            var dialog = new ParametricEqEditorDialog(Noise.EqualizerEditor(side, source),
+                on => Noise.SetEqualizerOn(side, on, source), id => Noise.LoadEqualizerPreset(side, id, source))
+            { Owner = Window.GetWindow(this) };
+            dialog.ShowDialog();
+        });
+    }
 }

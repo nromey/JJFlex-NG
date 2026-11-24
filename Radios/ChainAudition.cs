@@ -766,7 +766,7 @@ namespace Radios
             // rendered with the equaliser or the de-esser on says so.
             if (result.RenderedStages.Count > 0)
                 parts.Add(Lexicon.Get("audio.audition.verdict.stages",
-                    ("stages", string.Join(", ", result.RenderedStages.Select(id => Lexicon.Get("audio.audition.stage." + id))))));
+                    ("stages", string.Join(", ", result.RenderedStages.Select(StageName)))));
             if (!result.GateEnabled) parts.Add(Lexicon.Get("audio.audition.verdict.gate_off"));
             else if (result.ThresholdDb is float threshold)
                 parts.Add(Lexicon.Get("audio.audition.verdict.threshold", ("threshold", Number(threshold))));
@@ -795,6 +795,24 @@ namespace Radios
             if (!result.LevelMatched) parts.Add(Lexicon.Get("audio.audition.verdict.not_level_matched"));
             return string.Join(" ", parts);
         }
+
+        /// <summary>A rendered stage's name by its id, each a whole key so the lexicon scans see it (DRAFT PROSE, Sprint 49 Track I).</summary>
+        internal static string StageName(string id)
+        {
+            string key = id switch
+            {
+                TxAudioConditioner.StageIds.NoiseReduction => "audio.audition.stage.noise",
+                TxAudioConditioner.StageIds.Expander => "audio.audition.stage.expander",
+                GateStageId => "audio.audition.stage.gate",
+                TxAudioConditioner.StageIds.Equaliser => "audio.audition.stage.eq",
+                TxAudioConditioner.StageIds.DeEsser => "audio.audition.stage.deesser",
+                _ => "audio.audition.stage.unknown",
+            };
+            return Lexicon.Get(key);
+        }
+
+        /// <summary>The audition's name for the expander at its gate setting: a display id, not a chain stage.</summary>
+        public const string GateStageId = "gate";
 
         /// <summary>
         /// The live gate's figure is said beside the take's whenever there is

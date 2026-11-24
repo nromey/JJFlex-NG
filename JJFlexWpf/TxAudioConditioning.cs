@@ -588,6 +588,11 @@ namespace JJFlexWpf
             "hold" => GateLever(g => g.HoldMs = value, g => g.HoldMs = value, g => g.HoldMs = value),
             "release" => GateLever(g => g.ReleaseMs = value, g => g.ReleaseMs = value, g => g.ReleaseMs = value),
             "depth" => GateLever(g => g.RangeDb = value, g => g.RangeDb = value, g => g.RangeDb = value),
+            // Sprint 49 Track I: the side-chain's corners are continuous (live);
+            // the look-ahead's length is a switch (it moves the stream in time).
+            "sidechain_low" => GateLever(g => g.SideChainLowCutHz = value, g => g.SideChainLowHz = value, g => g.SideChainLowHz = value),
+            "sidechain_high" => GateLever(g => g.SideChainHighCutHz = value, g => g.SideChainHighHz = value, g => g.SideChainHighHz = value),
+            "lookahead" => SetLookAhead(value),
             "margin" => SetThresholdMargin(value),
             _ => new TxChangeResult(TxChangeTiming.Refused, "unknown-gate-lever"),
         };
@@ -909,7 +914,7 @@ namespace JJFlexWpf
             if (!cond.HasRecentAudio) return LearnRoomOutcome.NoComputerAudio;
             System.Threading.Interlocked.Exchange(ref _learnBaseline, cond.RoomFloor.LearnsFinished);
             cond.RoomFloor.Learn();
-            Trace.WriteLine("TxAudioConditioning: learning the room at the expander's input (#1252)");
+            Trace.WriteLine("TxAudioConditioning: learning the room at the expander's input");
             return rig!.TransmitKeyedOrInterlock ? LearnRoomOutcome.WaitsForUnkey : LearnRoomOutcome.Started;
         }
 

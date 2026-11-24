@@ -351,7 +351,7 @@ namespace JJFlexWpf
 
                 var stages = new List<string>(4);
                 if (plans.Count > 0) stages.Add(TxAudioConditioner.StageIds.NoiseReduction);
-                if (gate.Enabled) stages.Add(gate.GateSetting ? "gate" : TxAudioConditioner.StageIds.Expander);
+                if (gate.Enabled) stages.Add(gate.GateSetting ? ChainAudition.GateStageId : TxAudioConditioner.StageIds.Expander);
                 if (eqOn) stages.Add(TxAudioConditioner.StageIds.Equaliser);
                 if (deEssOn) stages.Add(TxAudioConditioner.StageIds.DeEsser);
                 Trace.WriteLine("ChainAuditionTwin: rendered " + rawMono.Length + " samples, stages " + string.Join(",", stages) + ", gate "

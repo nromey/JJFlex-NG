@@ -635,33 +635,24 @@ public sealed class FixerDialog : JJFlexDialog
             FlexBase? rig = _radio();
             if (rig == null) return "";
 
-            var gate = rig.TxConditioner.Gate;
+            // Sprint 49 Track I (#1252): the threshold's source is the room meter
+            // at the expander's INPUT (after noise reduction, learned while not
+            // transmitting), no longer the meter after the chain. Words: DRAFT
+            // PROSE keys for Codex.
+            var cond = rig.TxConditioner;
+            var gate = cond.Gate;
             if (!gate.Enabled)
-                return "The transmit noise gate is currently off, so no threshold applies.";
+                return Radios.Lexicon.Get("audio.fixer.gate.off");
 
+            string N(float v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
             float threshold = gate.ThresholdDb;
-            var profile = rig.TxLoudnessProfile;
-            bool derived = profile.IsValid
-                           && profile.NoiseFloorLufs > JJPortaudio.LufsMeter.Floor;
-
-            if (!derived)
-                return "The transmit noise gate is holding its deliberately low default "
-                     + "threshold of "
-                     + threshold.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
-                     + " dB, because no transmitted speech has taught it your room's noise "
-                     + "floor yet.";
-
-            return "Your transmit noise gate's threshold is currently "
-                 + threshold.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
-                 + " dB, derived from the noise floor measured in your own transmitted "
-                 + "audio ("
-                 + profile.NoiseFloorLufs.ToString("0.#",
-                       System.Globalization.CultureInfo.InvariantCulture)
-                 + " LUFS, plus a "
-                 + TxAudioConditioning.ThresholdMarginDb.ToString("0.#",
-                       System.Globalization.CultureInfo.InvariantCulture)
-                 + " dB margin). Stated here so you can see where it came from; whether "
-                 + "it is right for your room is not judged by this test.";
+            if (!cond.AutoThresholdInForce)
+                return Radios.Lexicon.Get("audio.fixer.gate.by_hand", ("threshold", N(threshold)));
+            var room = cond.RoomFloor;
+            if (!room.HasFloor)
+                return Radios.Lexicon.Get("audio.fixer.gate.default", ("threshold", N(threshold)));
+            return Radios.Lexicon.Get("audio.fixer.gate.derived", ("threshold", N(threshold)), ("floor", N(room.FloorDb)),
+                ("margin", N(cond.ThresholdMarginInForceDb)));
         }
         catch (Exception ex)
         {

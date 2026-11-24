@@ -1191,6 +1191,19 @@ public static class KeyInventory
         // is a draft for Codex, like the rest of the noise layer's wording.
         new(NoiseLayerContext, "Noise layer", "T", "Switches the noise layer between receive and transmit.",
             new[] { "transmit", "receive", "direction", "tx", "rx", "microphone", "mic", "cleanup", "gate", "switch" }, "Radio", "DSP"),
+        // Sprint 49 Track I: the parametric equaliser and the de-esser on the
+        // layer. PROPOSED chords, descriptions drafts for Codex. Not "on or
+        // off" at the end: that suffix marks the engine rows (NoiseLayerKeysTests).
+        new(NoiseLayerContext, "Noise layer", "Ctrl+E", "Switch the parametric equaliser, and put the arrows on its bands",
+            new[] { "equaliser", "equalizer", "eq", "parametric", "bands", "tone", "shape", "computer", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+Y", "Switch the de-esser, transmit only, and put the arrows on its levers",
+            new[] { "de-esser", "deesser", "sibilance", "ess", "s sounds", "transmit", "computer", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Left / Right", "Previous or next equaliser band",
+            new[] { "equaliser", "equalizer", "eq", "band", "next", "previous", "left", "right" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Insert", "Add an equaliser band",
+            new[] { "equaliser", "equalizer", "eq", "band", "add", "insert", "new" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Delete", "Remove the equaliser band you are on",
+            new[] { "equaliser", "equalizer", "eq", "band", "remove", "delete" }, "Radio", "DSP"),
         new(NoiseLayerContext, "Noise layer", "Up / Down", "Adjust the lever you are on",
             new[] { "up", "down", "level", "strength", "lever", "adjust", "more", "less" }, "Radio", "DSP"),
         new(NoiseLayerContext, "Noise layer", "Tab / Shift+Tab", "Next or previous lever of the engine you are on",

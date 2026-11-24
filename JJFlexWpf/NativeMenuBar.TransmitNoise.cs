@@ -51,6 +51,25 @@ public partial class NativeMenuBar
         _txSetupsHookedOn = noise;
     }
 
+    /// <summary>
+    /// The parametric equaliser's rows for one side (Sprint 49 Track I): on or
+    /// off, each preset for that side, "Edit equaliser...", and say it. ONE
+    /// builder for the Transmit menu and the DSP menu's receive side.
+    /// </summary>
+    internal void BuildEqualizerItems(IntPtr eq, Radios.DenoiseDirection side, string source)
+    {
+        AddNoiseToggle(eq, Radios.Lexicon.Get("audio.noise_menu.eq_on"),
+            () => AfterMenu(n => n.ToggleEqualizer(side, source)), () => _window.Noise.EqualizerOn(side));
+        var presets = AddSubmenu(eq, Radios.Lexicon.Get("audio.noise_menu.presets"));
+        foreach (var p in Radios.ParametricEqPresets.For(side == Radios.DenoiseDirection.Transmit))
+        {
+            string id = p.Id;
+            AddWired(presets, Radios.Lexicon.Get(p.NameKey), () => AfterMenu(n => n.LoadEqualizerPreset(side, id, source)));
+        }
+        AddWired(eq, Radios.Lexicon.Get("audio.noise_menu.eq_edit"), () => _window.ShowEqualizerEditor(side));
+        AddWired(eq, Radios.Lexicon.Get("audio.noise_menu.eq_say"), () => AfterMenu(n => n.SayEqualizer(side)));
+    }
+
     /// <summary>Build the transmit noise rows into a Transmit submenu: the summary, the engines, the gate, the setups and the presets.</summary>
     private void BuildTransmitNoiseItems(IntPtr parent)
     {
@@ -119,8 +138,41 @@ public partial class NativeMenuBar
             AddWired(gate, Radios.Lexicon.Get("audio.noise_menu.down", ("lever", marginName)),
                 () => AfterMenu(n => n.AdjustGate(margin, -1, TransmitMenuSource)));
         }
+        // Sprint 49 Track I: the expander's strength (its stops, the gate at the
+        // top), its side-chain filter, and "Learn the room" (#1252).
+        if (noise.GateLever(TxGateLever.Strength) is { } strength)
+        {
+            string strengthName = noise.GateLeverName(strength);
+            AddWired(gate, Radios.Lexicon.Get("audio.noise_menu.up", ("lever", strengthName)),
+                () => AfterMenu(n => n.AdjustGate(strength, +1, TransmitMenuSource)));
+            AddWired(gate, Radios.Lexicon.Get("audio.noise_menu.down", ("lever", strengthName)),
+                () => AfterMenu(n => n.AdjustGate(strength, -1, TransmitMenuSource)));
+        }
+        AddNoiseToggle(gate, Radios.Lexicon.Get("audio.noise_menu.tx.side_chain"),
+            () => AfterMenu(n => n.ToggleSideChain(TransmitMenuSource)), () => _window.Noise.TransmitGate.SideChainFilter);
+        AddWired(gate, Radios.Lexicon.Get("audio.noise_menu.tx.learn_room"),
+            () => AfterMenu(n => n.LearnTheRoom(TransmitMenuSource)));
         AddWired(gate, Radios.Lexicon.Get("audio.noise_menu.advanced"),
             () => _window.OpenTransmitNoiseOnHome(null, advanced: true, gate: true));
+
+        // ── The parametric equaliser, transmit side (Sprint 49 Track I, #1240) ──
+        BuildEqualizerItems(AddSubmenu(parent, Radios.Lexicon.Get("audio.noise_menu.eq")), Radios.DenoiseDirection.Transmit, TransmitMenuSource);
+
+        // ── The de-esser (Sprint 49 Track I) ──
+        var deEsser = AddSubmenu(parent, Radios.Lexicon.Get("audio.noise_menu.tx.deesser"));
+        AddNoiseToggle(deEsser, Radios.Lexicon.Get("audio.noise_menu.tx.deesser_on"),
+            () => AfterMenu(n => n.ToggleDeEsser(TransmitMenuSource)), () => _window.Noise.DeEsserOn);
+        foreach (var lever in NoiseController.DeEsserLevers)
+        {
+            var l = lever;
+            string leverName = noise.DeEsserLeverName(l);
+            AddWired(deEsser, Radios.Lexicon.Get("audio.noise_menu.up", ("lever", leverName)),
+                () => AfterMenu(n => n.AdjustDeEsser(l, +1, TransmitMenuSource)));
+            AddWired(deEsser, Radios.Lexicon.Get("audio.noise_menu.down", ("lever", leverName)),
+                () => AfterMenu(n => n.AdjustDeEsser(l, -1, TransmitMenuSource)));
+        }
+        AddWired(deEsser, Radios.Lexicon.Get("audio.noise_menu.tx.settings_on_home"),
+            () => _window.OpenTransmitNoiseOnHome(null, advanced: false, gate: true));
 
         // ── Transmit noise setups: this radio's, each applying; Save; Manage ──
         // The list follows the store (bench round, item 3): a setup saved,

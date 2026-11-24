@@ -56,6 +56,38 @@ namespace JJFlexWpf
         /// <summary>Switch the layer between receive and transmit (ruled 2026-11-07, question 6). One constant, so moving it is one line.</summary>
         public const Keys DirectionKey = Keys.T;
 
+        // ── Sprint 49 Track I: the parametric equaliser and the de-esser on the
+        //    layer (#488, #489: the equaliser works with no window open). PROPOSED
+        //    keys, for Noel to rule; one constant each, so moving one is one line.
+        //    Ctrl and a letter switches a computer stage, as Ctrl and a letter
+        //    switches a computer engine here. ──
+
+        /// <summary>The parametric equaliser on or off, in the layer's direction (proposed: E for equaliser).</summary>
+        public const Keys EqualizerKey = Keys.E | Keys.Control;
+
+        /// <summary>The de-esser on or off, transmit (proposed: Y, the free letter nearest "sibilance"; S and D are taken).</summary>
+        public const Keys DeEsserKey = Keys.Y | Keys.Control;
+
+        /// <summary>The equaliser's previous and next band, which also puts the arrows, Tab and Space on the equaliser.</summary>
+        public const Keys PreviousBandKey = Keys.Left, NextBandKey = Keys.Right;
+
+        /// <summary>Add a band after the one you are on.</summary>
+        public const Keys AddBandKey = Keys.Insert;
+
+        /// <summary>Remove the band you are on.</summary>
+        public const Keys RemoveBandKey = Keys.Delete;
+
+        /// <summary>What the arrows, Tab and Space work: the engine last touched (as before), the equaliser, or the de-esser.</summary>
+        private enum StageCursor { Engine, Equalizer, DeEsser }
+
+        private StageCursor _cursor = StageCursor.Engine;
+        private int _deEsserLever;
+        private ParametricEqEditorModel? _eqReceive, _eqTransmit;
+
+        private ParametricEqEditorModel Eq(bool transmit) =>
+            transmit ? (_eqTransmit ??= _noise.EqualizerEditor(Radios.DenoiseDirection.Transmit, Source))
+                     : (_eqReceive ??= _noise.EqualizerEditor(Radios.DenoiseDirection.Receive, Source));
+
         /// <summary>Every engine key, chord to catalog id. The H list, the explorer and the near miss read <c>KeyInventory.NoiseLayerCommands</c>, which names the same chords; <c>NoiseLayerKeysTests</c> holds the two together.</summary>
         public static readonly IReadOnlyDictionary<Keys, string> EngineKeys = new Dictionary<Keys, string>
         {
@@ -107,8 +139,10 @@ namespace JJFlexWpf
         public bool Handle(Keys k)
         {
             bool transmit = _noise.LayerDirection == Radios.DenoiseDirection.Transmit;
+            if (HandleStage(k, transmit)) return true;
             if (EngineKeys.TryGetValue(k, out string? id))
             {
+                _cursor = StageCursor.Engine;
                 bool before = transmit ? _noise.TransmitIsOn(id) : _noise.IsOn(id);
                 if (transmit) _noise.TransmitToggle(id, Source);
                 else _noise.Toggle(id, Source);
@@ -118,7 +152,7 @@ namespace JJFlexWpf
             }
             switch (k)
             {
-                case DirectionKey: _noise.SwitchLayerDirection(); return true;
+                case DirectionKey: _cursor = StageCursor.Engine; _noise.SwitchLayerDirection(); return true;
                 // The arrows, Home, End and Tab work the engine last touched, in
                 // the layer's direction (the controller's lever cursor follows it).
                 case Keys.Up: _noise.AdjustCurrent(+1, Source); return true;
@@ -136,6 +170,66 @@ namespace JJFlexWpf
                 case DefaultsKey: WithCurrent(id2 => { if (transmit) _noise.TransmitReturnToDefaults(id2, Source); else _noise.ReturnToDefaults(id2, Source); }); return true;
                 case NextPresetKey: if (transmit) _noise.StepTransmitPreset(+1, Source); else _noise.StepPreset(+1, Source); return true;
                 case PreviousPresetKey: if (transmit) _noise.StepTransmitPreset(-1, Source); else _noise.StepPreset(-1, Source); return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The equaliser's and the de-esser's keys (Sprint 49 Track I), and the
+        /// arrows, Tab and Space while one of them is what the layer last
+        /// touched. True when handled.
+        /// </summary>
+        private bool HandleStage(Keys k, bool transmit)
+        {
+            var side = transmit ? Radios.DenoiseDirection.Transmit : Radios.DenoiseDirection.Receive;
+            switch (k)
+            {
+                case EqualizerKey:
+                {
+                    bool before = _noise.EqualizerOn(side);
+                    _noise.ToggleEqualizer(side, Source);
+                    bool after = _noise.EqualizerOn(side);
+                    if (after != before) _tone?.Invoke(after);
+                    _cursor = StageCursor.Equalizer;
+                    return true;
+                }
+                case DeEsserKey:
+                {
+                    if (!transmit) { _noise.SayDeEsserTransmitOnly(); return true; }
+                    bool before = _noise.DeEsserOn;
+                    _noise.ToggleDeEsser(Source);
+                    bool after = _noise.DeEsserOn;
+                    if (after != before) _tone?.Invoke(after);
+                    _cursor = StageCursor.DeEsser;
+                    return true;
+                }
+                case PreviousBandKey: _cursor = StageCursor.Equalizer; _noise.SayInLayer(Eq(transmit).SelectBand(-1), side); return true;
+                case NextBandKey: _cursor = StageCursor.Equalizer; _noise.SayInLayer(Eq(transmit).SelectBand(+1), side); return true;
+                case AddBandKey: _cursor = StageCursor.Equalizer; _noise.SayInLayer(Eq(transmit).AddBand(), side); return true;
+                case RemoveBandKey: _cursor = StageCursor.Equalizer; _noise.SayInLayer(Eq(transmit).RemoveBand(), side); return true;
+            }
+            if (_cursor == StageCursor.Equalizer)
+            {
+                var eq = Eq(transmit);
+                switch (k)
+                {
+                    case Keys.Up: _noise.SayInLayer(eq.Adjust(+1), side); return true;
+                    case Keys.Down: _noise.SayInLayer(eq.Adjust(-1), side); return true;
+                    case Keys.Tab: _noise.SayInLayer(eq.SelectField(+1), side); return true;
+                    case Keys.Tab | Keys.Shift: _noise.SayInLayer(eq.SelectField(-1), side); return true;
+                    case Keys.Space: _noise.SayInLayer(eq.SayBand(), side); return true;
+                }
+            }
+            if (_cursor == StageCursor.DeEsser && transmit)
+            {
+                var levers = NoiseController.DeEsserLevers;
+                switch (k)
+                {
+                    case Keys.Up: _noise.AdjustDeEsser(levers[_deEsserLever], +1, Source); return true;
+                    case Keys.Down: _noise.AdjustDeEsser(levers[_deEsserLever], -1, Source); return true;
+                    case Keys.Tab: _deEsserLever = (_deEsserLever + 1) % levers.Length; _noise.SayDeEsserLever(levers[_deEsserLever]); return true;
+                    case Keys.Tab | Keys.Shift: _deEsserLever = (_deEsserLever + levers.Length - 1) % levers.Length; _noise.SayDeEsserLever(levers[_deEsserLever]); return true;
+                }
             }
             return false;
         }

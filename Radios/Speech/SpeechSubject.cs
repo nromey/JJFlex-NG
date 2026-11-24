@@ -832,6 +832,18 @@ namespace Radios.Speech
         /// <summary>The transmit noise gate or the cleanup monitor: on or off, a lever's value, its defaults, what the monitor plays. No receive twin; the newest covers an unheard older one.</summary>
         public const string TransmitNoiseGate = "transmit-noise-gate";
 
+        /// <summary>"Learn the room" (Sprint 49 Track I, #1252): started, waiting for the unkey, refused, and what it found. No receive twin; the newest covers an unheard older one.</summary>
+        public const string TransmitRoomLearn = "transmit-room-learn";
+
+        /// <summary>The transmit de-esser (Sprint 49 Track I): on or off, a lever's value, its band clamped to the transmit filter. No receive twin; the newest covers an unheard older one.</summary>
+        public const string TransmitDeEsser = "transmit-deesser";
+
+        /// <summary>The transmit parametric equaliser (Sprint 49 Track I, #1240): on or off, a preset, a band or field, the summary. The receive twin is <see cref="ReceiveEqualizer"/>; the newest covers an unheard older one.</summary>
+        public const string TransmitEqualizer = "transmit-equalizer";
+
+        /// <summary>The receive parametric equaliser (Sprint 49 Track I, #1240, ruled S2). The transmit twin is <see cref="TransmitEqualizer"/>; the newest covers an unheard older one.</summary>
+        public const string ReceiveEqualizer = "receive-equalizer";
+
         /// <summary>A preset applied from a transmit road, a transmit-only preset saved, or no transmit presets (Track H2 repair round 1). The receive twin is <see cref="NoisePreset"/>; the newest covers an unheard older one.</summary>
         public const string TransmitNoisePreset = "transmit-noise-preset";
 
