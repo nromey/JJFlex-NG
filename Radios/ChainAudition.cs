@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Globalization;
 using System.Threading;
 using JJPortaudio;
@@ -160,9 +161,23 @@ namespace Radios
         /// <summary>Every noise slot and the gate were off, so the chain would change nothing (Noel's S4: only the raw take is offered, and the verdict says so).</summary>
         public bool NothingOn { get; private init; }
 
+        /// <summary>
+        /// The output as it left the cleanup stages only (noise reduction and the
+        /// expander), at the same latency as <see cref="Processed"/>: what "what
+        /// was removed" is measured against (Sprint 49 Track I, S8: the
+        /// equaliser and the de-esser are heard in what goes out, never in what
+        /// was removed). Null when no stage after the cleanup ran, which means
+        /// it is <see cref="Processed"/>.
+        /// </summary>
+        public float[]? CleanupOnly { get; private init; }
+
+        /// <summary>The stages that produced the render, by stable id, in the order they ran (Sprint 49 Track I); empty when the chain does not say.</summary>
+        public IReadOnlyList<string> Stages { get; private init; } = Array.Empty<string>();
+
         /// <summary>The chain ran.</summary>
         public static ChainProcessing Rendered(float[] processed, int latencySamples, bool gateEnabled, float? thresholdDb,
-            AuditionThresholdSource? thresholdSource = null, float? thresholdFloorLufs = null, AuditionLiveState? live = null) => new()
+            AuditionThresholdSource? thresholdSource = null, float? thresholdFloorLufs = null, AuditionLiveState? live = null,
+            float[]? cleanupOnly = null, IReadOnlyList<string>? stages = null) => new()
         {
             Available = true,
             Processed = processed ?? throw new ArgumentNullException(nameof(processed)),
@@ -172,6 +187,8 @@ namespace Radios
             ThresholdSource = gateEnabled ? thresholdSource : null,
             ThresholdFloorLufs = gateEnabled ? thresholdFloorLufs : null,
             Live = live,
+            CleanupOnly = cleanupOnly,
+            Stages = stages ?? Array.Empty<string>(),
         };
 
         /// <summary>The chain could not run; <paramref name="reasonKey"/> says why, in the lexicon, filled with <paramref name="args"/>.</summary>
@@ -298,6 +315,9 @@ namespace Radios
         public float? ThresholdDb { get; internal init; }
 
         public bool GateEnabled { get; internal init; }
+
+        /// <summary>The stages that produced the cleaned take, by stable id (Sprint 49 Track I); empty when the chain did not say.</summary>
+        public IReadOnlyList<string> RenderedStages { get; internal init; } = Array.Empty<string>();
 
         public AuditionGateFault Faults { get; internal init; }
 
@@ -496,8 +516,12 @@ namespace Radios
             float gainDb = matched ? match : 0f;
             float gain = (float)Math.Pow(10, gainDb / 20.0);
 
+            // "What was removed" is the cleanup stages only (S8, Sprint 49 Track
+            // I): measured against the output as it left the expander, so an
+            // equaliser boost is never heard as something taken away.
+            var cleanup = processing.CleanupOnly ?? processing.Processed;
             var removed = new float[length];
-            for (int i = 0; i < length; i++) removed[i] = raw[i] - aligned[i];
+            for (int i = 0; i < length; i++) removed[i] = raw[i] - (latency + i < cleanup.Length ? cleanup[latency + i] : 0f);
 
             float peak = Math.Max(Peak(raw, length), Math.Max(Peak(aligned, length) * gain, Peak(removed, length)));
             float scale = ScaleFor(peak);
@@ -540,6 +564,7 @@ namespace Radios
                 SpeechToNoiseChangeLu = valid ? cleanedProfile.SpeechToNoiseLu - rawPart.SpeechToNoiseLu : null,
                 ThresholdDb = processing.ThresholdDb,
                 GateEnabled = processing.GateEnabled,
+                RenderedStages = processing.Stages,
                 ThresholdSource = processing.ThresholdSource,
                 ThresholdFloorLufs = processing.ThresholdFloorLufs,
                 Live = processing.Live,
@@ -737,6 +762,11 @@ namespace Radios
                     parts.Add(Lexicon.Get("audio.audition.verdict.no_comparison_nothing_came_out"));
                     break;
             }
+            // Sprint 49 Track I: which stages produced the render, so a take
+            // rendered with the equaliser or the de-esser on says so.
+            if (result.RenderedStages.Count > 0)
+                parts.Add(Lexicon.Get("audio.audition.verdict.stages",
+                    ("stages", string.Join(", ", result.RenderedStages.Select(id => Lexicon.Get("audio.audition.stage." + id))))));
             if (!result.GateEnabled) parts.Add(Lexicon.Get("audio.audition.verdict.gate_off"));
             else if (result.ThresholdDb is float threshold)
                 parts.Add(Lexicon.Get("audio.audition.verdict.threshold", ("threshold", Number(threshold))));

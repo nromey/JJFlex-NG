@@ -771,3 +771,71 @@ public static class TxNoiseSetupMigration
         return new(outcome, name);
     }
 }
+
+/// <summary>A named starting shape for the parametric equaliser (Sprint 49 Track I; ruled 2026-11-23 11:38: "easy to use presets for sure").</summary>
+/// <param name="Id">Stable id, saved in <see cref="ParametricEqSetup.PresetId"/>.</param>
+/// <param name="NameKey">The lexicon key of its spoken name (DRAFT PROSE until Codex words it).</param>
+/// <param name="ForTransmit">Offered on the transmit side.</param>
+/// <param name="ForReceive">Offered on the receive side.</param>
+public sealed record ParametricEqPreset(string Id, string NameKey, bool ForTransmit, bool ForReceive, float OutputGainDb,
+    IReadOnlyList<ParametricEqBandSetup> Bands);
+
+/// <summary>
+/// The equaliser's presets: DATA, not code paths, so adding one later is a
+/// line here. A preset is a list of bands loaded into the editor; choosing one
+/// never hides a parameter, and every field is the operator's afterwards. The
+/// set and the reason for each is Track I's proposal, in its report, for Noel.
+/// </summary>
+public static class ParametricEqPresets
+{
+    private static ParametricEqBandSetup B(string kind, float hz, float db, float q) =>
+        new() { Kind = kind, FrequencyHz = hz, GainDb = db, Q = q };
+
+    /// <summary>Every preset, transmit ones first.</summary>
+    public static IReadOnlyList<ParametricEqPreset> All { get; } = new[]
+    {
+        // Flat: no bands; the honest starting point and the way back.
+        new ParametricEqPreset("flat", "audio.eq.preset.flat", true, true, 0, Array.Empty<ParametricEqBandSetup>()),
+        // A gentle presence lift for SSB: +3 dB around 2.5 kHz, where speech
+        // intelligibility lives inside a 2.7 to 3 kHz passband, with the
+        // sub-voice rumble rolled off below 100 Hz so the lift is not spent on it.
+        new ParametricEqPreset("presence", "audio.eq.preset.presence", true, false, 0, new[]
+        {
+            B(ParametricEqKinds.HighPass, 100, 0, 0.7071f),
+            B(ParametricEqKinds.Peaking, 2500, 3, 1.0f),
+        }),
+        // A boomy room or a close microphone: cut below 150 Hz and take 3 dB
+        // out of the 250 Hz "mud", which a proximity effect piles up.
+        new ParametricEqPreset("low_cut", "audio.eq.preset.low_cut", true, false, 0, new[]
+        {
+            B(ParametricEqKinds.HighPass, 150, 0, 0.7071f),
+            B(ParametricEqKinds.Peaking, 250, -3, 1.2f),
+        }),
+        // A DX contour: lean lows, a dip in the 400 Hz chest tone and a firm
+        // lift at 2.2 kHz, so the voice cuts through a pileup on the same power.
+        new ParametricEqPreset("dx", "audio.eq.preset.dx", true, false, 0, new[]
+        {
+            B(ParametricEqKinds.HighPass, 200, 0, 0.7071f),
+            B(ParametricEqKinds.Peaking, 400, -2, 1.0f),
+            B(ParametricEqKinds.Peaking, 2200, 4, 0.9f),
+        }),
+        // Receive: soften band hiss above 2.5 kHz without dulling the voice below it.
+        new ParametricEqPreset("hiss_cut", "audio.eq.preset.hiss_cut", false, true, 0, new[]
+        {
+            B(ParametricEqKinds.HighShelf, 2500, -6, 0.7071f),
+        }),
+        // Receive: take out hum and rumble below the voice band.
+        new ParametricEqPreset("rumble_cut", "audio.eq.preset.rumble_cut", false, true, 0, new[]
+        {
+            B(ParametricEqKinds.HighPass, 180, 0, 0.7071f),
+        }),
+    };
+
+    /// <summary>The preset with this id, or null.</summary>
+    public static ParametricEqPreset? Find(string? id) =>
+        All.FirstOrDefault(p => string.Equals(p.Id, (id ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The presets offered on one side.</summary>
+    public static IReadOnlyList<ParametricEqPreset> For(bool transmit) =>
+        All.Where(p => transmit ? p.ForTransmit : p.ForReceive).ToList();
+}

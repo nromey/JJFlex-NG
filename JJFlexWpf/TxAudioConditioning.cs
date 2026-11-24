@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Radios;
 
 namespace JJFlexWpf
@@ -70,6 +71,13 @@ namespace JJFlexWpf
         // The gate's settings as an intent (#1077): held with or without a
         // radio, copied onto the rig's gate whenever one is attached.
         private static TxNoiseGateSetup _gateIntent = new();
+
+        // The stages after the expander, and the stage order, as intents too
+        // (Sprint 49 Track I). Guarded by _gate with the gate's intent, and put
+        // on the conditioner as ONE staged record with it.
+        private static ParametricEqSetup _eqIntent = new();
+        private static TxDeEsserSetup _deEsserIntent = new();
+        private static string[] _orderIntent = JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
 
         /// <summary>The chain on the current rig, or null when detached.</summary>
         public static JJPortaudio.TxAudioConditioner Conditioner => _rig?.TxConditioner;
@@ -223,6 +231,11 @@ namespace JJFlexWpf
             _policyTimer.Elapsed += (s, e) =>
             {
                 RefreshDerivedThreshold();
+                // Sprint 49 Track I: the de-esser's band follows the transmit
+                // filter; a finished "Learn the room" is acted on and said; and
+                // the stages' per-over counts are written at the unkey, here,
+                // never on the audio thread.
+                PolicyTickStages();
                 // An over the microphone capture never saw end (a file over:
                 // the capture is stopped while a recording sends) ends by the key
                 // state (Sprint 49 Track H2 bench round, item 5).
@@ -336,11 +349,15 @@ namespace JJFlexWpf
                 // re-measuring during speech can count the voice as noise. It
                 // resumes on the first unkeyed tick. The continuous levers stay
                 // live while keyed (S15 itself; ContinuousLeversLiveWhileKeyed).
-                var profile = rig.TxLoudnessProfile;
+                //
+                // Sprint 49 Track I (#1252, ruled S3 2026-11-23): the floor is the
+                // conditioner's own room meter at the expander's INPUT, after
+                // noise reduction, learned while unkeyed; never the meter after
+                // the chain (rig.TxLoudnessProfile), which measured the gate's own
+                // effect and flipped the threshold from over to over. The rule is
+                // radio-neutral and lives beside the conditioner.
                 bool keyed = rig.TransmitKeyedOrInterlock;
-                var threshold = DerivedThreshold(cond.AutoThresholdInForce, keyed,
-                    profile.IsValid, profile.NoiseFloorLufs, cond.ThresholdMarginInForceDb);
-                if (threshold is float db) cond.Gate.ThresholdDb = db;
+                cond.RefreshDerivedThreshold(keyed);
                 TraceThresholdHold(cond.GateInForce.Enabled && cond.AutoThresholdInForce && keyed,
                     cond.Gate.ThresholdDb, cond.ThresholdMarginInForceDb);
             }
@@ -395,9 +412,11 @@ namespace JJFlexWpf
         /// </summary>
         internal static float? DerivedThreshold(bool autoInForce, bool keyed, bool profileValid, float noiseFloorLufs, float marginDb)
         {
-            if (!autoInForce || keyed || !profileValid) return null;
+            // THE rule now lives beside the conditioner (Sprint 49 Track I,
+            // #1252), radio-neutral; this keeps its old guard for a floor the
+            // loudness meter reports as "nothing".
             if (noiseFloorLufs <= JJPortaudio.LufsMeter.Floor) return null;
-            return noiseFloorLufs + marginDb;
+            return JJPortaudio.TxRoomFloor.ThresholdRule(autoInForce, keyed, profileValid, noiseFloorLufs, marginDb);
         }
 
         // The active slice's mode changing is one of the ways the transmit
@@ -612,13 +631,22 @@ namespace JJFlexWpf
         /// <summary>Put the held gate settings in force on a rig's conditioner (attach: there is no over yet to protect).</summary>
         private static void PushGate(JJPortaudio.TxAudioConditioner cond)
         {
-            TxNoiseGateSetup g;
-            lock (_gate) g = _gateIntent.Clone();
-            cond.SetGateInForce(ToConditioner(g, _autoThreshold, _thresholdMarginDb));
+            TxNoiseGateSetup g; ParametricEqSetup eq; TxDeEsserSetup de;
+            lock (_gate) { g = _gateIntent.Clone(); eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); }
+            cond.SetGateInForce(ToConditioner(g, eq, de, _autoThreshold, _thresholdMarginDb));
         }
 
-        /// <summary>A setup's gate as the conditioner's one record.</summary>
-        internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, bool auto, float margin) => new()
+        /// <summary>A setup's gate as the conditioner's one record, with the equaliser and the de-esser off.</summary>
+        internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, bool auto, float margin) =>
+            ToConditioner(g, null, null, auto, margin);
+
+        /// <summary>A whole setup's in-process stages as the conditioner's one record (Sprint 49 Track I): the expander, the equaliser and the de-esser. ONE function for the live wiring and the audition.</summary>
+        internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseSetup s) =>
+            ToConditioner(s.Gate ?? new TxNoiseGateSetup(), s.Eq, s.DeEsser, (s.Gate ?? new TxNoiseGateSetup()).AutoThreshold,
+                (s.Gate ?? new TxNoiseGateSetup()).ThresholdMarginDb);
+
+        /// <summary>The expander, the equaliser and the de-esser as the conditioner's one record. A null equaliser or de-esser is off.</summary>
+        internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, ParametricEqSetup? eq, TxDeEsserSetup? de, bool auto, float margin) => new()
         {
             Enabled = g.Enabled,
             HasThreshold = !auto,
@@ -629,6 +657,17 @@ namespace JJFlexWpf
             RangeDb = g.RangeDb,
             AutoThreshold = auto,
             ThresholdMarginDb = Math.Clamp(margin, 3f, 15f),
+            RatioToOne = g.RatioToOne,
+            GateSetting = g.GateSetting,
+            SideChainEnabled = g.SideChainFilter,
+            SideChainLowHz = g.SideChainLowCutHz,
+            SideChainHighHz = g.SideChainHighCutHz,
+            LookAheadMs = g.LookAheadMs,
+            Eq = eq?.ToDesign(),
+            DeEsserEnabled = de?.Enabled ?? false,
+            DeEsserFrequencyHz = de?.FrequencyHz ?? JJPortaudio.DeEsser.DefaultFrequencyHz,
+            DeEsserAmountDb = de?.AmountDb ?? JJPortaudio.DeEsser.DefaultAmountDb,
+            DeEsserThresholdDb = de?.SensitivityDb ?? JJPortaudio.DeEsser.DefaultThresholdDb,
         };
 
         /// <summary>What the monitor plays: Off, Output, Residual, or Split
@@ -663,6 +702,279 @@ namespace JJFlexWpf
         }
 
         // ------------------------------------------------------------------
+        // The expander's new levers, the equaliser and the de-esser
+        // (Sprint 49 Track I). Switches go through RunOrDefer and land at an
+        // unkeyed buffer (S2); continuous levers go through Continuous and are
+        // live (S15). Every one is an intent held with no radio (#1077).
+        // ------------------------------------------------------------------
+
+        /// <summary>The expander's ratio, n:1, as intended (used when <see cref="ExpanderIsGate"/> is false).</summary>
+        public static float ExpanderRatio { get { lock (_gate) return _gateIntent.RatioToOne; } }
+
+        /// <summary>Whether the expander is at its top setting, the gate.</summary>
+        public static bool ExpanderIsGate { get { lock (_gate) return _gateIntent.GateSetting; } }
+
+        /// <summary>
+        /// The expander's strength: a ratio, or the gate (its top stop). A
+        /// continuous lever, live while keyed (S15): it changes how hard the
+        /// stage works, not whether it is there. The ratio is kept when the
+        /// gate is chosen, so stepping back down returns to it.
+        /// </summary>
+        public static TxChangeResult SetExpanderStrength(float ratio, bool gate)
+        {
+            float r = Math.Clamp(float.IsFinite(ratio) ? ratio : JJPortaudio.TxNoiseGate.DefaultRatioToOne,
+                JJPortaudio.TxNoiseGate.MinRatioToOne, JJPortaudio.TxNoiseGate.MaxRatioToOne);
+            return GateLever(g => { g.RatioToOne = r; g.GateSetting = gate; },
+                g => { g.RatioToOne = r; g.GateSetting = gate; },
+                g => { g.RatioToOne = r; g.GateSetting = gate; });
+        }
+
+        /// <summary>Whether the expander's detector hears the voice band only, as intended.</summary>
+        public static bool SideChainFilter { get { lock (_gate) return _gateIntent.SideChainFilter; } }
+
+        /// <summary>The side-chain filter on or off: a switch, so it waits for the unkey (S2).</summary>
+        public static TxChangeResult SetSideChainFilter(bool on) => Chain.RunOrDefer(() =>
+        {
+            lock (_gate) _gateIntent.SideChainFilter = on;
+            Conditioner?.RequestSwitch(g => g.SideChainEnabled = on);
+        });
+
+        /// <summary>The side-chain filter's low and high corners, Hz, as intended.</summary>
+        public static (float Low, float High) SideChainCorners { get { lock (_gate) return (_gateIntent.SideChainLowCutHz, _gateIntent.SideChainHighCutHz); } }
+
+        /// <summary>The look-ahead, ms, as intended.</summary>
+        public static float LookAheadMs { get { lock (_gate) return _gateIntent.LookAheadMs; } }
+
+        /// <summary>
+        /// The look-ahead's length: a switch, because it moves the transmitted
+        /// stream in time, so it waits for the unkey like an engine change
+        /// (Track I, item 1b). 0 to 10 ms.
+        /// </summary>
+        public static TxChangeResult SetLookAhead(float ms)
+        {
+            float v = Math.Clamp(float.IsFinite(ms) ? ms : 0f, 0f, JJPortaudio.TxNoiseGate.MaxLookAheadMs);
+            return Chain.RunOrDefer(() =>
+            {
+                lock (_gate) _gateIntent.LookAheadMs = v;
+                Conditioner?.RequestSwitch(g => g.LookAheadMs = v);
+            });
+        }
+
+        /// <summary>The equaliser as intended: a copy.</summary>
+        public static ParametricEqSetup EqSetup { get { lock (_gate) return _eqIntent.Clone(); } }
+
+        /// <summary>The equaliser on or off: a switch (S2).</summary>
+        public static TxChangeResult SetEqEnabled(bool on) => Chain.RunOrDefer(() =>
+        {
+            ParametricEqSetup eq;
+            lock (_gate) { _eqIntent.Enabled = on; eq = _eqIntent.Clone(); }
+            var design = eq.ToDesign();
+            Conditioner?.RequestSwitch(g => g.Eq = design);
+        });
+
+        /// <summary>
+        /// Load a preset's bands into the equaliser: a switch (S2), because it
+        /// replaces the whole shape at once. The preset's bands become the
+        /// operator's to change; its on or off is left as it was.
+        /// </summary>
+        public static TxChangeResult LoadEqPreset(string presetId)
+        {
+            var preset = ParametricEqPresets.Find(presetId);
+            if (preset == null) return new TxChangeResult(TxChangeTiming.Refused, "unknown-eq-preset");
+            return Chain.RunOrDefer(() =>
+            {
+                ParametricEqSetup eq;
+                lock (_gate)
+                {
+                    _eqIntent.Bands = preset.Bands.Select(b => b.Clone()).ToList();
+                    _eqIntent.OutputGainDb = preset.OutputGainDb;
+                    _eqIntent.PresetId = preset.Id;
+                    eq = _eqIntent.Clone();
+                }
+                var design = eq.ToDesign();
+                Conditioner?.RequestSwitch(g => g.Eq = design);
+            });
+        }
+
+        /// <summary>
+        /// The equaliser's bands and output gain, edited: a continuous lever,
+        /// live while keyed (S15). Adding, removing or changing a band fades
+        /// to the new shape without a click (<see cref="JJPortaudio.ParametricEq"/>).
+        /// Its on or off is not changed here.
+        /// </summary>
+        public static TxChangeResult SetEqShape(IEnumerable<ParametricEqBandSetup> bands, float outputGainDb, string presetId = "")
+        {
+            var list = (bands ?? Array.Empty<ParametricEqBandSetup>()).Where(b => b != null).Select(b => b.Clone()).Take(JJPortaudio.ParametricEq.MaxBands).ToList();
+            return Chain.Continuous(() =>
+            {
+                ParametricEqSetup eq;
+                lock (_gate)
+                {
+                    _eqIntent.Bands = list.Select(b => b.Clone()).ToList();
+                    _eqIntent.OutputGainDb = Math.Clamp(float.IsFinite(outputGainDb) ? outputGainDb : 0f, -24f, 24f);
+                    _eqIntent.PresetId = presetId ?? "";
+                    eq = _eqIntent.Clone();
+                }
+                var design = eq.ToDesign();
+                Conditioner?.ChangeGate(g => g.Eq = design);
+            });
+        }
+
+        /// <summary>The de-esser as intended: a copy.</summary>
+        public static TxDeEsserSetup DeEsserSetup { get { lock (_gate) return _deEsserIntent.Clone(); } }
+
+        /// <summary>The de-esser on or off: a switch (S2).</summary>
+        public static TxChangeResult SetDeEsserEnabled(bool on) => Chain.RunOrDefer(() =>
+        {
+            lock (_gate) _deEsserIntent.Enabled = on;
+            Conditioner?.RequestSwitch(g => g.DeEsserEnabled = on);
+        });
+
+        /// <summary>One de-esser level by key, live (S15): "frequency" (Hz), "amount" (dB) or "sensitivity" (dB).</summary>
+        public static TxChangeResult SetDeEsserLevel(string key, float value)
+        {
+            if (!float.IsFinite(value)) return new TxChangeResult(TxChangeTiming.Refused, "not-a-number");
+            Action<TxDeEsserSetup>? intent = key switch
+            {
+                "frequency" => d => d.FrequencyHz = Math.Clamp(value, 1000f, 12000f),
+                "amount" => d => d.AmountDb = Math.Clamp(value, 1f, 24f),
+                "sensitivity" => d => d.SensitivityDb = Math.Clamp(value, -60f, -10f),
+                _ => null,
+            };
+            if (intent == null) return new TxChangeResult(TxChangeTiming.Refused, "unknown-deesser-lever");
+            return Chain.Continuous(() =>
+            {
+                TxDeEsserSetup d;
+                lock (_gate) { intent(_deEsserIntent); d = _deEsserIntent.Clone(); }
+                Conditioner?.ChangeGate(g => { g.DeEsserFrequencyHz = d.FrequencyHz; g.DeEsserAmountDb = d.AmountDb; g.DeEsserThresholdDb = d.SensitivityDb; });
+            });
+        }
+
+        /// <summary>The de-esser's band as it is applied now, Hz, and whether it is clamped below the transmit filter's edge.</summary>
+        public static (float AppliedHz, bool Clamped) DeEsserBand
+        {
+            get
+            {
+                var c = Conditioner;
+                if (c == null) { var d = DeEsserSetup; return (d.FrequencyHz, false); }
+                return (c.DeEsser.AppliedFrequencyHz, c.DeEsser.Clamped);
+            }
+        }
+
+        /// <summary>The chain's added delay on the last buffer, frames: noise reduction's plus the look-ahead (item 9). Zero with no radio.</summary>
+        public static int ChainDelayFrames => Conditioner?.AppliedDelayFrames ?? 0;
+
+        // ── Learn the room (#1252; Noel's ruling 2026-11-23 11:12) ──
+
+        /// <summary>How a "Learn the room" request was taken.</summary>
+        public enum LearnRoomOutcome
+        {
+            /// <summary>Listening now, unkeyed.</summary>
+            Started,
+            /// <summary>Asked while keyed: it listens from the unkey (keyed audio is speech, never the room).</summary>
+            WaitsForUnkey,
+            /// <summary>CW or digital: the chain stands aside, so nothing reaches the meter.</summary>
+            NotInThisMode,
+            /// <summary>No computer audio is reaching the chain (the radio's own microphone, or none).</summary>
+            NoComputerAudio,
+            /// <summary>No radio is connected.</summary>
+            NoRadio,
+        }
+
+        /// <summary>What a finished learn found and did.</summary>
+        public sealed record RoomLearnedResult(float FloorDb, float ThresholdDb, bool AutomaticThreshold);
+
+        /// <summary>Raised on the policy tick when a learn finishes, after it has acted (the hand-set threshold written when the automatic one is off).</summary>
+        public static event Action<RoomLearnedResult>? RoomLearned;
+
+        private static long _learnBaseline = -1;
+
+        /// <summary>
+        /// "Learn the room": the meter at the expander's input takes the floor
+        /// afresh from the next three seconds of unkeyed audio. With the
+        /// automatic threshold on, the slow tracking carries on from there; with
+        /// it off, the hand-set threshold is WRITTEN from the fresh floor by the
+        /// same rule, and holds until the next learn or a change by hand (what
+        /// Noel was told on 2026-11-23, register #1252 11:12). One command is
+        /// also "remeasure". Asked while keyed it waits for the unkey rather
+        /// than refusing, because keyed audio never reaches the meter and the
+        /// operator's intent is plain.
+        /// </summary>
+        public static LearnRoomOutcome LearnRoom()
+        {
+            var rig = _rig;
+            var cond = rig?.TxConditioner;
+            if (cond == null) return LearnRoomOutcome.NoRadio;
+            if (cond.BypassAll) return LearnRoomOutcome.NotInThisMode;
+            if (!cond.HasRecentAudio) return LearnRoomOutcome.NoComputerAudio;
+            System.Threading.Interlocked.Exchange(ref _learnBaseline, cond.RoomFloor.LearnsFinished);
+            cond.RoomFloor.Learn();
+            Trace.WriteLine("TxAudioConditioning: learning the room at the expander's input (#1252)");
+            return rig!.TransmitKeyedOrInterlock ? LearnRoomOutcome.WaitsForUnkey : LearnRoomOutcome.Started;
+        }
+
+        /// <summary>Whether a learn is under way.</summary>
+        public static bool LearningRoom => Conditioner?.RoomFloor.Learning ?? false;
+
+        /// <summary>The room's floor as the meter at the expander's input has it now, dB, and whether it has one.</summary>
+        public static (bool HasFloor, float FloorDb) RoomFloor
+        {
+            get { var c = Conditioner; return c == null ? (false, float.NaN) : (c.RoomFloor.HasFloor, c.RoomFloor.FloorDb); }
+        }
+
+        private static int _wasKeyedForStats;
+
+        /// <summary>The policy tick's Track I half; see <see cref="Attach"/>.</summary>
+        private static void PolicyTickStages()
+        {
+            var rig = _rig;
+            var cond = rig?.TxConditioner;
+            if (cond == null) return;
+            try
+            {
+                // The de-esser's band follows the transmit filter (radio-neutral:
+                // the conditioner only ever hears a number).
+                cond.DeEsser.PassbandHighEdgeHz = rig!.TXFilterHigh;
+                FinishLearnIfDone(cond);
+                bool keyed = rig.TransmitKeyedOrInterlock;
+                int now = keyed ? 1 : 0;
+                if (System.Threading.Interlocked.Exchange(ref _wasKeyedForStats, now) == 1 && now == 0)
+                    TraceOverStats(cond);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("TxAudioConditioning: the stages' tick failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>A finished learn: write the hand-set threshold when the automatic one is off, then tell whoever listens. Policy tick only.</summary>
+        internal static void FinishLearnIfDone(JJPortaudio.TxAudioConditioner cond)
+        {
+            long baseline = System.Threading.Interlocked.Read(ref _learnBaseline);
+            if (baseline < 0 || cond.RoomFloor.LearnsFinished <= baseline) return;
+            System.Threading.Interlocked.Exchange(ref _learnBaseline, -1);
+            float floor = cond.RoomFloor.LearnedDb;
+            bool auto = cond.AutoThresholdInForce;
+            float margin = cond.ThresholdMarginInForceDb;
+            float threshold = JJPortaudio.TxRoomFloor.ThresholdRule(true, false, true, floor, margin) ?? JJPortaudio.TxNoiseGate.DefaultThresholdDb;
+            if (auto) cond.RefreshDerivedThreshold(false);
+            else GateThresholdDb = threshold;
+            threshold = cond.Gate.ThresholdDb;
+            Trace.WriteLine(FormattableString.Invariant(
+                $"TxAudioConditioning: the room was learned: floor {floor:F1} dB at the expander's input; threshold {threshold:F1} dB ({(auto ? "automatic, tracking carries on from here" : "set by hand from the learn, holds until the next learn or a change by hand")})"));
+            RoomLearned?.Invoke(new RoomLearnedResult(floor, threshold, auto));
+        }
+
+        /// <summary>One trace line per over for the stages after the expander: samples past full scale after the equaliser (it never clips silently), and the de-esser's work. Policy tick only, never the audio thread.</summary>
+        private static void TraceOverStats(JJPortaudio.TxAudioConditioner cond)
+        {
+            var (clips, reduced, deepest) = cond.TakeOverStats();
+            var (hasFloor, floor) = (cond.RoomFloor.HasFloor, cond.RoomFloor.FloorDb);
+            Trace.WriteLine(FormattableString.Invariant(
+                $"TxAudioConditioning: over ended: equaliser {(cond.Eq.IsActive ? "on" : "off")}, {clips} samples past full scale; de-esser {(cond.DeEsser.Enabled ? "on" : "off")} at {cond.DeEsser.AppliedFrequencyHz:F0} Hz{(cond.DeEsser.Clamped ? " (clamped to the transmit filter)" : "")}, {reduced} frames reduced, deepest {deepest:F1} dB; chain delay {cond.AppliedDelayFrames} frames; room floor {(hasFloor ? floor.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " dB" : "not yet measured")}"));
+        }
+
+        // ------------------------------------------------------------------
         // Setups (item F)
         // ------------------------------------------------------------------
 
@@ -676,7 +988,9 @@ namespace JJFlexWpf
             gate.ThresholdMarginDb = _thresholdMarginDb;
             var live = Conditioner?.Gate;
             if (live != null) gate.ThresholdDb = live.ThresholdDb;
-            return new TxNoiseSetup { Name = name ?? "", Spectral = spectral, Neural = neural, Gate = gate };
+            ParametricEqSetup eq; TxDeEsserSetup de; string[] order;
+            lock (_gate) { eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); order = (string[])_orderIntent.Clone(); }
+            return new TxNoiseSetup { Name = name ?? "", Spectral = spectral, Neural = neural, Gate = gate, Eq = eq, DeEsser = de, StageOrder = order };
         }
 
         /// <summary>
@@ -700,7 +1014,37 @@ namespace JJFlexWpf
         private static void ApplySetupNow(TxNoiseSetup setup)
         {
             Chain.ApplySlotsNow(setup.Spectral, setup.Neural);
-            ApplyGateNow(setup.Gate);
+            ApplyStagesNow(setup);
+        }
+
+        /// <summary>
+        /// The in-process stages of a whole setup, now, as ONE staged record
+        /// (Sprint 49 Track I): the expander, the equaliser, the de-esser and
+        /// the stage order. For a caller that holds the whole change through
+        /// <see cref="TxNoiseChain.RunOrDefer"/> already.
+        /// </summary>
+        internal static void ApplyStagesNow(TxNoiseSetup setup) =>
+            ApplyStagesNow(setup.Eq, setup.DeEsser, setup.StageOrder, setup.Gate ?? new TxNoiseGateSetup());
+
+        /// <summary>
+        /// The equaliser, the de-esser and the stage order, now, with the gate
+        /// (or the gate as intended, when null) as ONE staged record. The noise
+        /// controller's whole-setup road (presets, a radio's setups) comes here.
+        /// </summary>
+        internal static void ApplyStagesNow(ParametricEqSetup? eq, TxDeEsserSetup? deEsser, string[]? order, TxNoiseGateSetup? gate)
+        {
+            var o = (string[])(order ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder).Clone();
+            lock (_gate)
+            {
+                _eqIntent = (eq ?? new ParametricEqSetup()).Clone();
+                _deEsserIntent = (deEsser ?? new TxDeEsserSetup()).Clone();
+                _orderIntent = o;
+                gate ??= _gateIntent.Clone();
+            }
+            if (!o.SequenceEqual(JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder))
+                Trace.WriteLine("TxAudioConditioning: the setup names the stage order " + string.Join(",", o)
+                    + "; this build runs only " + string.Join(",", JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder) + ", and keeps the saved order as it is.");
+            ApplyGateNow(gate);
         }
 
         /// <summary>
@@ -715,11 +1059,13 @@ namespace JJFlexWpf
             var g = (gate ?? new TxNoiseGateSetup()).Clone();
             _autoThreshold = g.AutoThreshold;
             _thresholdMarginDb = Math.Clamp(g.ThresholdMarginDb, 3f, 15f);
-            lock (_gate) _gateIntent = g;
+            ParametricEqSetup eq; TxDeEsserSetup de;
+            lock (_gate) { _gateIntent = g; eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); }
             // The gate as a whole, on or off, levels and threshold policy, staged
             // for the next unkeyed buffer (repair round 3): never partway through
-            // an over, even if this call is running when a key-down arrives.
-            Conditioner?.StageGate(ToConditioner(g, g.AutoThreshold, g.ThresholdMarginDb));
+            // an over, even if this call is running when a key-down arrives. The
+            // equaliser and the de-esser in force ride in the same record (Track I).
+            Conditioner?.StageGate(ToConditioner(g, eq, de, g.AutoThreshold, g.ThresholdMarginDb));
         }
 
         private static readonly HashSet<string> _missingSaid = new(StringComparer.OrdinalIgnoreCase);

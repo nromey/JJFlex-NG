@@ -280,7 +280,7 @@ namespace JJFlexWpf
                 changes.Add(new("tx:gate", "", "", "preset"));
                 phrases.Add(L("audio.noise_surface.tx.phrase_gate"));
             }
-            return ApplyWholeTransmit(section.Spectral ?? new TxNoiseSlotSetup(), section.Neural ?? new TxNoiseSlotSetup(), section.Gate);
+            return ApplyWholeTransmit(section.Spectral ?? new TxNoiseSlotSetup(), section.Neural ?? new TxNoiseSlotSetup(), section.Gate, section);
         }
 
         /// <summary>
@@ -302,7 +302,11 @@ namespace JJFlexWpf
             && Math.Abs(a.ThresholdMarginDb - b.ThresholdMarginDb) < 0.01f
             && (a.AutoThreshold || Math.Abs(a.ThresholdDb - b.ThresholdDb) < 0.01f)
             && Math.Abs(a.AttackMs - b.AttackMs) < 0.01f && Math.Abs(a.HoldMs - b.HoldMs) < 0.01f
-            && Math.Abs(a.ReleaseMs - b.ReleaseMs) < 0.01f && Math.Abs(a.RangeDb - b.RangeDb) < 0.01f;
+            && Math.Abs(a.ReleaseMs - b.ReleaseMs) < 0.01f && Math.Abs(a.RangeDb - b.RangeDb) < 0.01f
+            // Sprint 49 Track I: the expander's own settings.
+            && a.GateSetting == b.GateSetting && Math.Abs(a.RatioToOne - b.RatioToOne) < 0.01f
+            && a.SideChainFilter == b.SideChainFilter && Math.Abs(a.SideChainLowCutHz - b.SideChainLowCutHz) < 0.5f
+            && Math.Abs(a.SideChainHighCutHz - b.SideChainHighCutHz) < 0.5f && Math.Abs(a.LookAheadMs - b.LookAheadMs) < 0.01f;
 
         /// <summary>Every preset that holds transmit noise reduction (the Transmit menu's Presets, the layer's preset brackets after T).</summary>
         public IReadOnlyList<AudioChainPreset> TransmitNoisePresets() => AllPresets(LoadPresets()).Where(p => p.TransmitNoise != null).ToList();

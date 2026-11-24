@@ -69,8 +69,7 @@ namespace JJPortaudio
         // Side-chain, as the detector hears it (set by the conditioner from the expander's settings).
         private volatile bool _sideChain;
         private volatile float _scLowHz = TxNoiseGate.DefaultSideChainLowHz, _scHighHz = TxNoiseGate.DefaultSideChainHighHz;
-        private BiquadCoefficients _hp = BiquadCoefficients.Identity, _lp = BiquadCoefficients.Identity;
-        private BiquadState _hpL, _hpR, _lpL, _lpR;
+        private readonly SideChainFilter _filter = new SideChainFilter();
         private bool _designedOn;
         private float _designedLow = float.NaN, _designedHigh = float.NaN;
         private uint _designedRate;
@@ -157,9 +156,7 @@ namespace JJPortaudio
                 // What the detector hears changed: the floor's scale changed with
                 // it, so the window restarts (the floor itself is kept until the
                 // new window says otherwise).
-                _hp = TxNoiseGate.SideChainSection(true, lo, hi, sampleRate);
-                _lp = TxNoiseGate.SideChainSection(false, lo, hi, sampleRate);
-                _hpL.Clear(); _hpR.Clear(); _lpL.Clear(); _lpR.Clear();
+                _filter.Design(lo, hi, sampleRate);
                 if (_designedRate != 0) { _trackCount = 0; _trackAt = 0; _subCount = 0; _subAt = 0; _framesIn = 0; _sum = 0; }
                 _designedOn = sc; _designedLow = lo; _designedHigh = hi; _designedRate = sampleRate;
             }
@@ -179,8 +176,8 @@ namespace JJPortaudio
                 double l = buffer[i], r = buffer[i + 1];
                 if (sc)
                 {
-                    l = _lpL.Step(in _lp, _hpL.Step(in _hp, l));
-                    r = _lpR.Step(in _lp, _hpR.Step(in _hp, r));
+                    l = _filter.Step(0, l);
+                    r = _filter.Step(1, r);
                 }
                 _sum += l * l + r * r;
                 i += Channels;
@@ -192,7 +189,7 @@ namespace JJPortaudio
                 _framesIn = 0; _sum = 0;
                 if (_subCount == SubBlocksPerBlock) Block();
             }
-            if (sc) { _hpL.FlushTiny(); _hpR.FlushTiny(); _lpL.FlushTiny(); _lpR.FlushTiny(); }
+            if (sc) _filter.FlushTiny();
         }
 
         /// <summary>A 400 ms block has completed (every 100 ms once the first has filled).</summary>

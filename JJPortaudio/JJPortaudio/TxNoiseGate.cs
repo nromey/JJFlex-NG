@@ -156,10 +156,7 @@ namespace JJPortaudio
         // The detector's side-chain filter: a high-pass at the low corner and a
         // low-pass at the high corner, per channel. Designed on the audio thread
         // when a corner or the rate changes (no allocation: a few trig calls).
-        private BiquadCoefficients _scHigh = BiquadCoefficients.Identity, _scLow = BiquadCoefficients.Identity;
-        private BiquadState _scHighL, _scHighR, _scLowL, _scLowR;
-        private float _scDesignedLow = float.NaN, _scDesignedHigh = float.NaN;
-        private uint _scDesignedRate;
+        private readonly SideChainFilter _sideChainFilter = new SideChainFilter();
 
         // --- Audio-thread state ---
         private double _envPower;      // smoothed channel-power sum
@@ -378,7 +375,7 @@ namespace JJPortaudio
                 // A restarted stream's look-ahead holds dead audio; a key-down
                 // on a continuous stream (#565) does not, so only a gap clears it.
                 if (gap) { Array.Clear(_lookAhead, 0, _lookAhead.Length); _lookAheadAt = 0; }
-                _scHighL.Clear(); _scHighR.Clear(); _scLowL.Clear(); _scLowR.Clear();
+                _sideChainFilter.Clear();
             }
 
             // Read tunables once per buffer.
@@ -394,7 +391,7 @@ namespace JJPortaudio
             double ratioLess1 = _ratio - 1.0;
             double rangeDb = _rangeDb;
             bool sideChain = _sideChainEnabled;
-            if (sideChain) DesignSideChain(sampleRate);
+            if (sideChain) _sideChainFilter.Design(_sideChainLowHz, _sideChainHighHz, sampleRate);
             int la = _lookAheadFrames;
             int laLen = la * Channels;
             int laAt = _lookAheadAt;
@@ -412,8 +409,8 @@ namespace JJPortaudio
                 double power;
                 if (sideChain)
                 {
-                    double dl = _scLowL.Step(in _scLow, _scHighL.Step(in _scHigh, l));
-                    double dr = _scLowR.Step(in _scLow, _scHighR.Step(in _scHigh, r));
+                    double dl = _sideChainFilter.Step(0, l);
+                    double dr = _sideChainFilter.Step(1, r);
                     power = dl * dl + dr * dr;
                 }
                 else power = (double)l * l + (double)r * r;
@@ -479,31 +476,12 @@ namespace JJPortaudio
                 i += Channels;
             }
             _lookAheadAt = laAt;
-            if (sideChain) { _scHighL.FlushTiny(); _scHighR.FlushTiny(); _scLowL.FlushTiny(); _scLowR.FlushTiny(); }
+            if (sideChain) _sideChainFilter.FlushTiny();
             Volatile.Write(ref _appliedLookAheadFrames, la);
             _attenuationDb = (float)(-20.0 * Math.Log10(Math.Max(_gain, 1e-6f)));
         }
 
         private static readonly double DbToNeper = Math.Log(10.0) / 20.0;
-
-        /// <summary>Design the side-chain sections when a corner or the rate changed. Audio thread only; no allocation.</summary>
-        private void DesignSideChain(uint sampleRate)
-        {
-            float low = _sideChainLowHz, high = _sideChainHighHz;
-            if (low == _scDesignedLow && high == _scDesignedHigh && sampleRate == _scDesignedRate) return;
-            _scHigh = BiquadCoefficients.Design(BiquadKind.HighPass, low, 0, 0.7071, sampleRate);
-            _scLow = BiquadCoefficients.Design(BiquadKind.LowPass, Math.Max(high, low * 1.5f), 0, 0.7071, sampleRate);
-            _scDesignedLow = low; _scDesignedHigh = high; _scDesignedRate = sampleRate;
-        }
-
-        /// <summary>
-        /// Run interleaved stereo through a side-chain band-pass the way the
-        /// detector hears it, for a meter that must hear what the detector
-        /// hears (<see cref="TxRoomFloor"/>). Not used by the audio path.
-        /// </summary>
-        internal static BiquadCoefficients SideChainSection(bool high, float lowHz, float highHz, uint sampleRate) =>
-            high ? BiquadCoefficients.Design(BiquadKind.HighPass, lowHz, 0, 0.7071, sampleRate)
-                 : BiquadCoefficients.Design(BiquadKind.LowPass, Math.Max(highHz, lowHz * 1.5f), 0, 0.7071, sampleRate);
 
         private static float CoeffForMs(float ms, uint sampleRate)
         {

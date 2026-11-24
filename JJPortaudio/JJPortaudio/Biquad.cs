@@ -164,3 +164,53 @@ namespace JJPortaudio
         public void Clear() { S1 = 0; S2 = 0; }
     }
 }
+
+namespace JJPortaudio
+{
+    /// <summary>
+    /// The expander's side-chain filter (Sprint 49 Track I, ruled 2026-11-23
+    /// 11:35): a fourth-order Butterworth high-pass at the low corner and a
+    /// fourth-order Butterworth low-pass at the high corner (24 dB an octave
+    /// each side), per channel. ONE class for the expander's detector and the
+    /// room meter that must hear exactly what the detector hears. It filters
+    /// what a detector HEARS, never audio that is sent. Preallocated; Design
+    /// and Step allocate nothing.
+    /// </summary>
+    public sealed class SideChainFilter
+    {
+        // Butterworth fourth order as two second-order sections.
+        private const double Q1 = 0.5411961, Q2 = 1.3065630;
+        private readonly BiquadCoefficients[] _co = new BiquadCoefficients[4];
+        private readonly BiquadState[] _st = new BiquadState[8];
+        private float _low = float.NaN, _high = float.NaN;
+        private uint _rate;
+
+        /// <summary>Design for these corners and rate when any changed; true when it did (the state is cleared then).</summary>
+        public bool Design(float lowHz, float highHz, uint sampleRate)
+        {
+            if (lowHz == _low && highHz == _high && sampleRate == _rate) return false;
+            double high = Math.Max(highHz, lowHz * 1.5f);
+            _co[0] = BiquadCoefficients.Design(BiquadKind.HighPass, lowHz, 0, Q1, sampleRate);
+            _co[1] = BiquadCoefficients.Design(BiquadKind.HighPass, lowHz, 0, Q2, sampleRate);
+            _co[2] = BiquadCoefficients.Design(BiquadKind.LowPass, high, 0, Q1, sampleRate);
+            _co[3] = BiquadCoefficients.Design(BiquadKind.LowPass, high, 0, Q2, sampleRate);
+            _low = lowHz; _high = highHz; _rate = sampleRate;
+            Clear();
+            return true;
+        }
+
+        /// <summary>One sample of channel 0 or 1 through all four sections.</summary>
+        public double Step(int channel, double x)
+        {
+            int s = channel * 4;
+            x = _st[s].Step(in _co[0], x);
+            x = _st[s + 1].Step(in _co[1], x);
+            x = _st[s + 2].Step(in _co[2], x);
+            return _st[s + 3].Step(in _co[3], x);
+        }
+
+        public void Clear() { for (int i = 0; i < _st.Length; i++) _st[i].Clear(); }
+
+        public void FlushTiny() { for (int i = 0; i < _st.Length; i++) _st[i].FlushTiny(); }
+    }
+}

@@ -69,6 +69,25 @@ namespace JJFlexWpf
         /// as ONE change, so nothing in here may defer a second time.
         /// </summary>
         void ApplyNow(TxNoiseGateSetup gate);
+
+        /// <summary>
+        /// The stages after the gate as a setup carries them (Sprint 49 Track I):
+        /// the equaliser, the de-esser and the stage order. A gate that has none
+        /// (a test's fake) answers with them off and the default order.
+        /// </summary>
+        (ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order) CaptureStages() =>
+            (new ParametricEqSetup(), new TxDeEsserSetup(), JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder);
+
+        /// <summary>
+        /// Put a setup's equaliser, de-esser and stage order in place NOW with
+        /// its gate (or the gate as it is, when null), as ONE staged record. The
+        /// same contract as <see cref="ApplyNow"/>: only inside one change the
+        /// controller holds.
+        /// </summary>
+        void ApplyStagesNow(ParametricEqSetup eq, TxDeEsserSetup deEsser, string[] order, TxNoiseGateSetup? gate)
+        {
+            if (gate != null) ApplyNow(gate);
+        }
     }
 
     /// <summary>The app's gate: <see cref="TxAudioConditioning"/>, the session's one transmit chain.</summary>
@@ -100,6 +119,13 @@ namespace JJFlexWpf
         // default, off", so a gate-only setup through ApplySetup would reset the
         // engines. The gate's own half, now, inside the controller's one change.
         public void ApplyNow(TxNoiseGateSetup gate) => TxAudioConditioning.ApplyGateNow(gate);
+        public (ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order) CaptureStages()
+        {
+            var s = TxAudioConditioning.CaptureSetup("");
+            return (s.Eq, s.DeEsser, s.StageOrder);
+        }
+        public void ApplyStagesNow(ParametricEqSetup eq, TxDeEsserSetup deEsser, string[] order, TxNoiseGateSetup? gate) =>
+            TxAudioConditioning.ApplyStagesNow(eq, deEsser, order, gate);
     }
 
     /// <summary>One of the gate's levers: what it is, its range, its step and its unit.</summary>
@@ -1204,7 +1230,7 @@ namespace JJFlexWpf
                 Say(Lexicon.Get("audio.denoise.tx.setup_missing", ("setup", name)), SpeechSubject.TransmitNoiseSetup);
                 return;
             }
-            var timing = ApplyWholeTransmit(setup.Spectral, setup.Neural, setup.Gate ?? new TxNoiseGateSetup());
+            var timing = ApplyWholeTransmit(setup.Spectral, setup.Neural, setup.Gate ?? new TxNoiseGateSetup(), setup);
             NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, TxSource(source), "transmit setup", "", "", setup.Name);
             // Held for the unkey, the live state is not yet the setup's: name the
             // setup and say it waits, never a summary of what it will replace.
@@ -1224,13 +1250,27 @@ namespace JJFlexWpf
         /// the slots alone (the gate's defaults); a null gate leaves the gate
         /// alone (Escape). Every unsettled engine field choice is superseded.
         /// </summary>
-        private TxChangeResult ApplyWholeTransmit(TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate)
+        private TxChangeResult ApplyWholeTransmit(TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate,
+            TxNoiseSetup? stages = null)
         {
             bool slots = spectral != null || neural != null;
             var chain = _txChain();
+            // Sprint 49 Track I: a whole setup or preset carries the equaliser,
+            // the de-esser and the stage order too, applied with the gate as one
+            // staged record; null leaves them as they are (the gate's defaults,
+            // the layer's Escape).
+            var eqCopy = stages?.Eq?.Clone();
+            var deCopy = stages?.DeEsser?.Clone();
+            var orderCopy = stages?.StageOrder == null ? null : (string[])stages.StageOrder.Clone();
+            void ApplyGateAndStages(TxNoiseGateSetup? g)
+            {
+                if (stages != null) TransmitGate.ApplyStagesNow(eqCopy ?? new ParametricEqSetup(), deCopy ?? new TxDeEsserSetup(),
+                    orderCopy ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder, g);
+                else if (g != null) TransmitGate.ApplyNow(g);
+            }
             if (chain == null)
             {
-                if (gate != null) TransmitGate.ApplyNow(gate);
+                ApplyGateAndStages(gate);
                 return TxChangeResult.Now;
             }
             // A whole request identical to what is in place, with nothing waiting
@@ -1239,7 +1279,8 @@ namespace JJFlexWpf
             // Escape has nothing to withdraw and does not report a restoration.
             // With anything waiting it is queued as before, because it may be
             // overriding a different intent that would otherwise land.
-            if (!chain.HasDeferredChanges && _txSettling.Count == 0 && WholeAlreadyInPlace(chain, slots, spectral, neural, gate))
+            if (!chain.HasDeferredChanges && _txSettling.Count == 0 && WholeAlreadyInPlace(chain, slots, spectral, neural, gate)
+                && (stages == null || SameStages(TransmitGate.CaptureStages(), stages)))
                 return TxChangeResult.Now;
             if (slots) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
             var spectralCopy = spectral?.Clone();
@@ -1248,9 +1289,14 @@ namespace JJFlexWpf
             return chain.RunOrDefer(() =>
             {
                 if (slots) chain.ApplySlotsNow(spectralCopy, neuralCopy);
-                if (gateCopy != null) TransmitGate.ApplyNow(gateCopy);
+                ApplyGateAndStages(gateCopy);
             });
         }
+
+        /// <summary>Whether the equaliser, the de-esser and the order in place are a setup's (compared through the record's own serialized form, so a field added later is compared too).</summary>
+        private static bool SameStages((ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order) now, TxNoiseSetup want) =>
+            new TxNoiseSetup { Eq = now.Eq, DeEsser = now.DeEsser, StageOrder = now.Order }
+                .SameContentAs(new TxNoiseSetup { Eq = want.Eq ?? new(), DeEsser = want.DeEsser ?? new(), StageOrder = want.StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder });
 
         /// <summary>Whether a whole request would leave both slots (when it names them) and the gate (when it names one) exactly as they are.</summary>
         private bool WholeAlreadyInPlace(TxNoiseChain chain, bool slots, TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate)
@@ -1269,6 +1315,7 @@ namespace JJFlexWpf
         {
             var setup = new TxNoiseSetup { Name = name ?? "", Gate = TransmitGate.Capture() };
             if (_txChain() is { } chain) (setup.Spectral, setup.Neural) = chain.CaptureSlots();
+            (setup.Eq, setup.DeEsser, setup.StageOrder) = TransmitGate.CaptureStages();
             return setup;
         }
 

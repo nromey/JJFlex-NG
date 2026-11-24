@@ -129,7 +129,7 @@ namespace Radios.Tests
             cond.Gate.ReleaseMs = 50;
             // Half a second of near silence: the gate closes.
             for (int i = 0; i < 50; i++) cond.Process(Mic(0.0001f), Floats, 48000);
-            Assert.True(cond.Gate.CurrentGainDb < -10, "the gate never closed, so this proves nothing");
+            Assert.True(cond.Gate.AttenuationDb > 10, "the gate never closed, so this proves nothing");
             return cond;
         }
 
@@ -142,7 +142,7 @@ namespace Radios.Tests
             keyed = true;
             cond.Process(Mic(0.0001f), Floats, 48000);
             Assert.Equal(before + 1, cond.Gate.Resets);
-            Assert.True(cond.Gate.CurrentGainDb > -1, "the first buffer of the over met a closed gate");
+            Assert.True(cond.Gate.AttenuationDb < 1, "the first buffer of the over met a closed gate");
         }
 
         [Fact]
@@ -153,7 +153,7 @@ namespace Radios.Tests
             Thread.Sleep(150);
             cond.Process(Mic(0.0001f), Floats, 48000);
             Assert.Equal(before, cond.Gate.Resets);
-            Assert.True(cond.Gate.CurrentGainDb < -10);
+            Assert.True(cond.Gate.AttenuationDb > 10);
         }
 
         [Fact]
