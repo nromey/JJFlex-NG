@@ -291,22 +291,28 @@ namespace Radios.Tests
             Assert.Equal(cls, AtListIndex(ListIndex(cls), shown: Bands.Licenses.none));
         }
 
+        // These two pins read CODE, not text (#1284): comments are stripped
+        // first, so a real line commented out no longer satisfies its own pin,
+        // and all whitespace (line breaks and VB's " _" continuations included)
+        // is removed from both the source and the pinned text, so a harmless
+        // line break inside an argument list no longer fails one.
+
         [Fact]
         public void The_form_opens_and_closes_its_list_through_the_seams_and_nowhere_else()
         {
-            string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalInfo.vb")).Replace("\r\n", "\n");
+            string src = VbCodeWithoutComments(File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalInfo.vb")));
 
-            string load = SourceMember.VisualBasic(src, "Private Sub PersonalInfo_Load(");
-            Assert.Contains("LicenseList.SelectedIndex = PersonalData.LicenseListIndex(lic.Shown)", load, StringComparison.Ordinal);
-            Assert.Equal(1, Occurrences(src, "LicenseList.SelectedIndex = "));
+            string load = Flat(SourceMember.VisualBasic(src, "Private Sub PersonalInfo_Load("));
+            Assert.Contains(Flat("LicenseList.SelectedIndex = PersonalData.LicenseListIndex(lic.Shown)"), load, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(Flat(src), Flat("LicenseList.SelectedIndex = ")));
 
-            string ok = SourceMember.VisualBasic(src, "Private Sub OKButton_Click(");
-            Assert.Contains("LicenseChosen = PersonalData.LicenseAtListIndex(LicenseList.SelectedIndex, LicenseShown)", ok, StringComparison.Ordinal);
-            Assert.Equal(1, Occurrences(ok, "LicenseChosen = "));
-            Assert.DoesNotContain("CType(LicenseList.SelectedIndex", src, StringComparison.Ordinal);
+            string ok = Flat(SourceMember.VisualBasic(src, "Private Sub OKButton_Click("));
+            Assert.Contains(Flat("LicenseChosen = PersonalData.LicenseAtListIndex(LicenseList.SelectedIndex, LicenseShown)"), ok, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(ok, Flat("LicenseChosen = ")));
+            Assert.DoesNotContain(Flat("CType(LicenseList.SelectedIndex"), Flat(src), StringComparison.Ordinal);
             // The chosen class is set before the record's own class is taken from it.
-            Assert.True(ok.IndexOf("LicenseChosen = ", StringComparison.Ordinal)
-                        < ok.IndexOf(".License = PersonalData.RecordLicenseClass(", StringComparison.Ordinal));
+            Assert.True(ok.IndexOf(Flat("LicenseChosen = "), StringComparison.Ordinal)
+                        < ok.IndexOf(Flat(".License = PersonalData.RecordLicenseClass("), StringComparison.Ordinal));
         }
 
         [Fact]
@@ -314,12 +320,70 @@ namespace Radios.Tests
         {
             // Traded, SaveClass sees the old class as the choice and every class
             // change on the form is silently dropped.
-            string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalData.vb")).Replace("\r\n", "\n");
-            string save = SourceMember.VisualBasic(src, "Private Shared Sub SaveFormLicense(");
-            Assert.Contains("shown:=PersonalInfo.LicenseShown, chosen:=PersonalInfo.LicenseChosen, isNew:=isNew)", save, StringComparison.Ordinal);
-            Assert.Equal(1, Occurrences(save, "SaveOperatorLicense("));
+            string src = VbCodeWithoutComments(File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalData.vb")));
+            string save = Flat(SourceMember.VisualBasic(src, "Private Shared Sub SaveFormLicense("));
+            Assert.Contains(Flat("shown:=PersonalInfo.LicenseShown, chosen:=PersonalInfo.LicenseChosen, isNew:=isNew)"), save, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(save, Flat("SaveOperatorLicense(")));
             Assert.Equal(1, Occurrences(save, "PersonalInfo.LicenseShown"));
             Assert.Equal(1, Occurrences(save, "PersonalInfo.LicenseChosen"));
+        }
+
+        [Fact]
+        public void The_code_reader_drops_comments_and_whitespace_but_keeps_strings()
+        {
+            // Instrument control for the two pins above.
+            string src = "    x = 1 ' LicenseChosen = gone\n"
+                + "    ' SaveOperatorLicense(a)\n"
+                + "    s = \"it's ' kept\" ' gone\n"
+                + "    REM gone too\n"
+                + "    Call(a, _\n"
+                + "         b)\n";
+            string code = VbCodeWithoutComments(src);
+            Assert.DoesNotContain("LicenseChosen", code, StringComparison.Ordinal);
+            Assert.DoesNotContain("SaveOperatorLicense", code, StringComparison.Ordinal);
+            Assert.DoesNotContain("gone", code, StringComparison.Ordinal);
+            Assert.Contains("\"it's ' kept\"", code, StringComparison.Ordinal);
+            Assert.Contains(Flat("Call(a, b)"), Flat(code), StringComparison.Ordinal);
+            Assert.Equal(6, code.Split('\n').Length - 1);   // line structure kept, for SourceMember
+        }
+
+        /// <summary>
+        /// VB source with every comment removed (from an apostrophe outside a
+        /// string literal, or a REM statement, to the end of its line). Line
+        /// structure is kept, so <see cref="SourceMember.VisualBasic"/> can still
+        /// find a member's End line.
+        /// </summary>
+        private static string VbCodeWithoutComments(string source)
+        {
+            var lines = source.Replace("\r\n", "\n").Split('\n');
+            for (int n = 0; n < lines.Length; n++)
+            {
+                string line = lines[n];
+                string trimmed = line.TrimStart();
+                if (trimmed.StartsWith("REM ", StringComparison.OrdinalIgnoreCase)
+                    || trimmed.TrimEnd().Equals("REM", StringComparison.OrdinalIgnoreCase))
+                {
+                    lines[n] = "";
+                    continue;
+                }
+                bool inString = false;
+                for (int i = 0; i < line.Length; i++)
+                {
+                    if (line[i] == '"') inString = !inString;   // "" inside a string toggles twice
+                    else if (line[i] == '\'' && !inString) { line = line.Substring(0, i); break; }
+                }
+                lines[n] = line;
+            }
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>All whitespace removed, so line breaks and continuations cannot break a match.</summary>
+        private static string Flat(string text)
+        {
+            var sb = new System.Text.StringBuilder(text.Length);
+            foreach (char c in text.Replace(" _\n", " "))
+                if (!char.IsWhiteSpace(c)) sb.Append(c);
+            return sb.ToString();
         }
 
         private static int Occurrences(string text, string what)

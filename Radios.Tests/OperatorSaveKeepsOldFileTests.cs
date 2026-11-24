@@ -555,7 +555,7 @@ namespace Radios.Tests
         // ---- #1276: a delete keeps the current operator current ----
 
         /// <summary>
-        /// Five operators, E the default (so no test deletes the default, which
+        /// Five operators, E the default (so none of these deletes the default, which
         /// writes through Write and its box), and the current one at
         /// <paramref name="current"/>. Deletes <paramref name="delete"/> through
         /// the real <c>RemoveAt</c>, then reports who is current.
@@ -627,21 +627,90 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// Through the Operators list's own delete path, <c>Lister.RemoveFromStore</c>,
+        /// not the store alone: the five tests above call <c>RemoveAt</c> directly
+        /// and stay green when the list lowers the current id a second time, which
+        /// is the defect #1276 fixed. These go red on that. Operators are written
+        /// as <paramref name="names"/> (the one ending "_Default" is the default),
+        /// the current one at <paramref name="current"/>; deletes
+        /// <paramref name="delete"/> and reports who is current and who is the
+        /// default afterwards.
+        /// </summary>
+        private (string Before, string After, int AfterId, string Default) ListDelete(string[] names, int current, int delete)
+        {
+            foreach (string n in names)
+                WriteOperator(Path.Combine(_dir, n + ".xml"), isDefault: n.EndsWith("_Default", StringComparison.Ordinal));
+            string before = "", after = "", dflt = "";
+            int afterId = -2;
+            LoadOperators(app =>
+            {
+                Assert.Equal(names, app.Handles());
+                app.CurrentID = current;
+                object was = app.CurrentItem!;
+                before = app.HandleOf(was);
+                app.ListRemove(delete);
+                after = app.HandleOf(app.CurrentItem);
+                afterId = app.CurrentID;
+                dflt = app.HandleOf(app.DefaultItem);
+                Assert.Same(was, app.CurrentItem);   // the SAME operator, by identity
+            });
+            return (before, after, afterId, dflt);
+        }
+
+        [Fact]
+        public void Two_operators_deleting_the_one_above_the_current_one_through_the_list_keeps_it_current()
+        {
+            // Lowered twice, the id went to -1: nobody was current.
+            var r = ListDelete(new[] { "A_First", "B_Default" }, current: 1, delete: 0);
+            Assert.Equal(("B_Default", "B_Default", 0, "B_Default"), r);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        public void Three_operators_deleting_either_one_above_the_third_through_the_list_keeps_it_current(int delete)
+        {
+            // Lowered twice, the operator above the current one became current
+            // with nothing said.
+            var r = ListDelete(new[] { "A_First", "B_Second", "C_Default" }, current: 2, delete: delete);
+            Assert.Equal(("C_Default", "C_Default", 1, "C_Default"), r);
+        }
+
+        [Fact]
+        public void Deleting_the_default_above_the_current_one_through_the_list_keeps_it_current_and_moves_the_default()
+        {
+            // The list asks before deleting the default; this is the path once
+            // the operator says yes. RemoveAt makes the first operator the
+            // default and writes it, so the file it writes must be writable here
+            // (a failed write would put up the store's error box).
+            string first = Path.Combine(_dir, "B_Second.xml");
+            var r = ListDelete(new[] { "A_Default", "B_Second", "C_Third" }, current: 2, delete: 0);
+            Assert.Equal(("C_Third", "C_Third", 1, "B_Second"), r);
+            Assert.True(File.Exists(first));
+            Assert.False(File.Exists(Path.Combine(_dir, "A_Default.xml")), "the deleted operator's file is gone");
+        }
+
+        /// <summary>
         /// One place lowers the current id: <c>RemoveAt</c>. The Operators
-        /// list's Delete only removes and refreshes, and never touches the
-        /// current id itself.
+        /// list's Delete removes through <c>RemoveFromStore</c> and refreshes, and
+        /// neither touches the current id itself.
         /// </summary>
         [Fact]
         public void The_operator_list_leaves_the_current_id_to_the_store()
         {
             string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "Lister.vb")).Replace("\r\n", "\n");
             string delete = SourceMember.VisualBasic(src, "Private Sub DeleteButton_Click(");
-            int remove = delete.IndexOf("listObj.RemoveAT(id)", StringComparison.Ordinal);
+            int remove = delete.IndexOf("RemoveFromStore(listObj, id)", StringComparison.Ordinal);
             Assert.True(remove > 0, "positive control: the Delete button still removes through the store");
             string after = delete.Substring(remove);
             Assert.DoesNotContain("currentID -=", after, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("currentID =", after, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("CurrentOpID", after, StringComparison.Ordinal);
+            Assert.DoesNotContain("RemoveAT(", delete, StringComparison.OrdinalIgnoreCase);
+
+            string seam = SourceMember.VisualBasic(src, "Friend Shared Sub RemoveFromStore(");
+            Assert.Contains("store.RemoveAt(id)", seam, StringComparison.Ordinal);
+            Assert.DoesNotContain("CurrentID", seam.Substring(seam.IndexOf("store.RemoveAt(id)", StringComparison.Ordinal)), StringComparison.OrdinalIgnoreCase);
 
             string store = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalData.vb")).Replace("\r\n", "\n");
             string removeAt = SourceMember.VisualBasic(store, "Public Function RemoveAt(ByVal id As Integer) As Boolean");
@@ -673,6 +742,26 @@ namespace Radios.Tests
             /// <summary>The current operator itself, the object, not its index.</summary>
             public object? CurrentItem => _pd.GetType().GetProperty("CurrentItem", Any)!.GetValue(_pd);
             public object Item(int id) => List[id]!;
+            /// <summary>The default operator itself, by the store's default id.</summary>
+            public object? DefaultItem
+            {
+                get
+                {
+                    int id = (int)_pd.GetType().GetProperty("DefaultID", Any)!.GetValue(_pd)!;
+                    return id < 0 ? null : List[id];
+                }
+            }
+            /// <summary>
+            /// The Operators list's own delete, <c>Lister.RemoveFromStore</c>, called
+            /// as a shared method: no list is constructed and nothing is shown.
+            /// </summary>
+            public void ListRemove(int id)
+            {
+                Type lister = _pd.GetType().Assembly.GetTypes().Single(t => t.Name == "Lister");
+                MethodInfo? remove = lister.GetMethod("RemoveFromStore", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                Assert.True(remove != null, "Lister.RemoveFromStore is gone; the list's delete path is no longer tested");
+                remove!.Invoke(null, new object[] { _pd, id });
+            }
             public string HandleOf(object? op) => op == null ? "(nobody)" : (string)op.GetType().GetField("handl")!.GetValue(op)!;
         }
 
@@ -681,9 +770,10 @@ namespace Radios.Tests
         /// folder, every notice replaced by a recorder first, then run
         /// <paramref name="then"/>. The rules of
         /// <see cref="OperatorUnreadableFileTests"/>: the folder always holds an
-        /// operator file (an empty one opens the add-operator dialog), and no
-        /// test here deletes the default operator (which writes through
-        /// <c>Write</c> and its box).
+        /// operator file (an empty one opens the add-operator dialog), and a
+        /// test that deletes the default operator (which writes the new default
+        /// through <c>Write</c>, whose failure puts up a box) does it only in this
+        /// test's own writable folder.
         /// </summary>
         private Seen LoadOperators(Action<Ops> then)
         {

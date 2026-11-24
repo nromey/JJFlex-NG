@@ -57,6 +57,24 @@ namespace JJFlexWpf.Dialogs
         public int MaxRecentQsoCount { get; init; } = 100;
     }
 
+    /// <remarks>
+    /// <para><b>Dormant, and not safe to wire as it stands.</b> Nothing constructs
+    /// this dialog; the WinForms <c>PersonalInfo.vb</c> is the operator form
+    /// people reach. Its licence list still takes the list POSITION as the
+    /// licence class: <see cref="OperatorData.LicenseIndex"/> goes straight into
+    /// <c>LicenseList.SelectedIndex</c> and comes straight back out. The live form
+    /// offers Settings' four classes, so position 0 is Extra, and maps position
+    /// and class through <c>PersonalData.LicenseListIndex</c> and
+    /// <c>LicenseAtListIndex</c>, saving the class through
+    /// <c>PersonalData.SaveOperatorLicense</c>. Wired as it is, this dialog would
+    /// bring back the defect that mapping fixed: a class saved as the wrong one,
+    /// and with the transmit lockout on, every band refused.</para>
+    /// <para>Whoever wires it must take that four-class mapping (those are VB
+    /// <c>Friend</c> functions this project cannot call, so they move or are
+    /// passed in through <see cref="PersonalInfoCallbacks"/>).
+    /// <c>DialogReachabilityTests</c> refuses to drop this dialog's exemption
+    /// while the raw position is still read here.</para>
+    /// </remarks>
     public partial class PersonalInfoDialog : JJFlexDialog
     {
         private static string NoDupMsg => Radios.Lexicon.Get("settings.operator.duplicate");

@@ -97,9 +97,9 @@ public sealed class DeltaDownloader
     }
 
     /// <summary>
-    /// Fetch the .lzma blob, optionally verify the wire bytes against
+    /// Fetch the .xz blob, optionally verify the wire bytes against
     /// <see cref="FileEntry.CompressedSha256"/>, decompress via SharpCompress
-    /// LZMA Alone, and verify the decompressed bytes against
+    /// XZStream, and verify the decompressed bytes against
     /// <see cref="FileEntry.Sha256"/>. The post-decompression hash is the
     /// load-bearing identity check (matches the local-inventory walker's
     /// hash convention). The compressed-side check is a cheap belt-and
@@ -107,9 +107,9 @@ public sealed class DeltaDownloader
     /// </summary>
     private async Task DownloadOneAsync(FileEntry file, string targetPath, CancellationToken ct)
     {
-        // 1. Fetch the .lzma blob into memory. Per-file blobs are bounded
+        // 1. Fetch the .xz blob into memory. Per-file blobs are bounded
         //    (largest single JJF asset is the main exe at ~8 MB uncompressed
-        //    → ~4 MB compressed) so buffering avoids the LZMA stream having
+        //    → ~4 MB compressed) so buffering avoids the XZ stream having
         //    to seek backwards during decode.
         byte[] compressedBytes;
         using (var response = await HttpRetry.SendWithRetryAsync(

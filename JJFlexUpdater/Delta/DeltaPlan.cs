@@ -25,7 +25,7 @@ public sealed class DeltaPlan
 
     /// <summary>
     /// Total wire bytes the delta path will fetch — sum of compressed
-    /// .lzma sizes. Falls back to uncompressed size if the manifest
+    /// .xz sizes. Falls back to uncompressed size if the manifest
     /// didn't supply compressed_size_bytes (legacy / hand-edited
     /// manifests during early rollout).
     /// </summary>

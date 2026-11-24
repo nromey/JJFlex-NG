@@ -157,6 +157,7 @@ public sealed class SendPieceLoaderTests : IDisposable
     [Fact]
     public void APieceIsAlwaysLongerThanTheTenMinutesBeforeTheSendPauses()
     {
+        NoiseReductionPerChannelTests.AssertWindowless();
         // A piece that is not the file's end must never run out before the
         // pause, or the send would report "sent" with the rest unsent.
         Assert.True(TxAudioFile.MaxSeconds > VoiceMessageSend.PauseAfterSeconds + VoiceMessageSend.PauseEndMarginSeconds);

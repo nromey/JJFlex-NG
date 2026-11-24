@@ -286,9 +286,11 @@ namespace Radios
 
         /// <summary>
         /// One stop of the Alt+Shift+Up / Alt+Shift+Down rotation: where to tune,
-        /// the mode a channel stop sets (null when the current mode is kept),
-        /// the correction a segment stop owes (null when the mode is already
-        /// permitted), and the arrival sentence WITHOUT any correction clause.
+        /// <c>ChannelMode</c> (always null now: <see cref="Rotate"/> never fills
+        /// it, and a channel stop that changes the mode says so through
+        /// <c>Correction</c> like the segment does), the correction a stop owes
+        /// (null when the mode is already permitted), and the arrival sentence
+        /// WITHOUT any correction clause.
         /// </summary>
         /// <remarks>
         /// The correction clause is not here on purpose (#312, repair round one):

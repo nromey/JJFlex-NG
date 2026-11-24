@@ -338,7 +338,7 @@ public sealed class UpdatePlan
     public AvailableUpdate AvailableUpdate { get; }
     public FileManifest FileManifest { get; }
     public DeltaPlan Delta { get; }
-    /// <summary>Wire bytes — sum of compressed .lzma blob sizes.</summary>
+    /// <summary>Wire bytes — sum of compressed .xz blob sizes.</summary>
     public long DeltaBytes => Delta.DeltaBytes;
     /// <summary>On-disk install size after the swap.</summary>
     public long InstalledSizeBytes => Delta.InstalledSizeBytes;
