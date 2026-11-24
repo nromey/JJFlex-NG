@@ -327,41 +327,64 @@ namespace JJFlexWpf
         public bool ProcessorHandoffSetting => _config()?.RadioProcessorOffWithCompressor ?? AudioOutputConfig.RadioProcessorOffWithCompressorInForce;
 
         /// <summary>
-        /// Switch the handoff's setting and save it. With a config loaded it is
-        /// saved through the controller's own persist; with none yet (no radio
-        /// connected this session) the app-wide file is read, changed and
-        /// written, so the choice is there for the first radio.
+        /// Switch the handoff's setting and save it, and say so. With a config
+        /// loaded it is saved through the controller's own persist; with none
+        /// yet (no radio connected this session) the app-wide file is read,
+        /// changed and written, so the choice is there for the first radio.
         /// </summary>
         public void SetProcessorHandoffSetting(bool on, string source)
         {
             using var oneUtterance = OneUtterance();
             bool was = ProcessorHandoffSetting;
+            WriteProcessorHandoffSetting(on);
+            if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "processor-handoff", "", Words(was), Words(on));
+            Say(L(on ? "audio.processor_handoff.setting_on" : "audio.processor_handoff.setting_off"), SpeechSubject.ProcessorHandoff);
+        }
+
+        /// <summary>
+        /// Put the handoff's setting back, silently, as a SWITCH (the editor's
+        /// Cancel and Escape; repair 1, B5): held for the unkey while keyed, in
+        /// order behind anything already held, like the two stages it is put
+        /// back with. The setting decides what happens to the radio's speech
+        /// processor, so it does not change under an over.
+        /// </summary>
+        internal TxChangeResult RestoreProcessorHandoffSetting(bool on, string source)
+        {
+            void Apply()
+            {
+                bool was = ProcessorHandoffSetting;
+                WriteProcessorHandoffSetting(on);
+                if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "processor-handoff", "", Words(was), Words(on));
+            }
+            if (_txChain() is { } chain) return chain.RunOrDefer(Apply);
+            Apply();
+            return TxChangeResult.Now;
+        }
+
+        private void WriteProcessorHandoffSetting(bool on)
+        {
             if (_config() is { } config)
             {
                 config.RadioProcessorOffWithCompressor = on;
                 _persist();
+                return;
             }
-            else
+            try
             {
-                try
+                string root = RadioConfig.AppDataRoot;
+                if (!string.IsNullOrEmpty(root))
                 {
-                    string root = RadioConfig.AppDataRoot;
-                    if (!string.IsNullOrEmpty(root))
-                    {
-                        var file = AudioOutputConfig.Load(root);
-                        file.RadioProcessorOffWithCompressor = on;
-                        file.Save(root);
-                    }
-                    else AudioOutputConfig.RadioProcessorOffWithCompressorInForce = on;
+                    var file = AudioOutputConfig.Load(root);
+                    file.RadioProcessorOffWithCompressor = on;
+                    file.Save(root);
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Trace.WriteLine("NoiseController: the processor handoff setting could not be saved: " + ex.Message);
-                    AudioOutputConfig.RadioProcessorOffWithCompressorInForce = on;
-                }
+                else AudioOutputConfig.RadioProcessorOffWithCompressorInForce = on;
             }
-            if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "processor-handoff", "", Words(was), Words(on));
-            Say(L(on ? "audio.processor_handoff.setting_on" : "audio.processor_handoff.setting_off"), SpeechSubject.ProcessorHandoff);
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("NoiseController: the processor handoff setting could not be saved: " + ex.Message);
+                AudioOutputConfig.RadioProcessorOffWithCompressorInForce = on;
+            }
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -378,7 +401,10 @@ namespace JJFlexWpf
                 // Each as ONE switch, held for the unkey while keyed, behind anything already held.
                 TxAudioConditioning.SetCompressorWhole(compressor);
                 TxAudioConditioning.SetLimiterWhole(limiter);
-            });
+            },
+            // The editor offers the speech processor setting too, so its Cancel covers it (repair 1, B5).
+            () => ProcessorHandoffSetting,
+            on => RestoreProcessorHandoffSetting(on, source));
     }
 
     /// <summary>
@@ -393,23 +419,31 @@ namespace JJFlexWpf
         private readonly Func<(TxCompressorSetup Compressor, TxLimiterSetup Limiter)> _read;
         private readonly Action<DynamicsLever, double> _set;
         private readonly Action<TxCompressorSetup, TxLimiterSetup> _restore;
+        private readonly Func<bool> _readHandoff;
+        private readonly Action<bool> _restoreHandoff;
 
         public TxDynamicsEditorModel(Func<(TxCompressorSetup, TxLimiterSetup)> read, Action<DynamicsLever, double> set,
-            Action<TxCompressorSetup, TxLimiterSetup> restore)
+            Action<TxCompressorSetup, TxLimiterSetup> restore, Func<bool> readHandoff, Action<bool> restoreHandoff)
         {
             _read = read ?? throw new ArgumentNullException(nameof(read));
             _set = set ?? throw new ArgumentNullException(nameof(set));
             _restore = restore ?? throw new ArgumentNullException(nameof(restore));
+            _readHandoff = readHandoff ?? throw new ArgumentNullException(nameof(readHandoff));
+            _restoreHandoff = restoreHandoff ?? throw new ArgumentNullException(nameof(restoreHandoff));
             var (c, l) = _read();
             OpenedWith = (c.Clone(), l.Clone());
+            OpenedWithHandoff = _readHandoff();
         }
+
+        /// <summary>The speech processor setting the editor opened with: Cancel and Escape put it back too.</summary>
+        public bool OpenedWithHandoff { get; }
 
         /// <summary>An editor on settings of its own, applying nothing anywhere: the dialog harness's road.</summary>
         public static TxDynamicsEditorModel Detached()
         {
             var compressor = new TxCompressorSetup();
             var limiter = TxLimiterSetup.ForNewSetup();
-            return new TxDynamicsEditorModel(() => (compressor, limiter), (_, _) => { }, (_, _) => { });
+            return new TxDynamicsEditorModel(() => (compressor, limiter), (_, _) => { }, (_, _) => { }, () => true, _ => { });
         }
 
         /// <summary>The setting the editor opened with: what Cancel and Escape put back.</summary>
@@ -464,14 +498,20 @@ namespace JJFlexWpf
         /// <summary>The field changed: set the lever (a continuous lever live, a switch at the unkey).</summary>
         public void Set(DynamicsLever lever, int field) => _set(lever, FromField(lever, field));
 
-        /// <summary>Cancel and Escape: put back the setting the editor opened with, whole. True when anything had changed.</summary>
+        /// <summary>
+        /// Every way out but Close: put back everything the editor opened
+        /// with, both stages whole and the speech processor setting. True
+        /// when anything had changed.
+        /// </summary>
         public bool Restore()
         {
             var (c, l) = _read();
-            bool changed = !NoiseController.SameCompressor(c, OpenedWith.Compressor) || c.PresetId != OpenedWith.Compressor.PresetId
+            bool stages = !NoiseController.SameCompressor(c, OpenedWith.Compressor) || c.PresetId != OpenedWith.Compressor.PresetId
                 || !NoiseController.SameLimiter(l, OpenedWith.Limiter);
-            if (changed) _restore(OpenedWith.Compressor.Clone(), OpenedWith.Limiter.Clone());
-            return changed;
+            if (stages) _restore(OpenedWith.Compressor.Clone(), OpenedWith.Limiter.Clone());
+            bool handoff = _readHandoff() != OpenedWithHandoff;
+            if (handoff) _restoreHandoff(OpenedWithHandoff);
+            return stages || handoff;
         }
     }
 }

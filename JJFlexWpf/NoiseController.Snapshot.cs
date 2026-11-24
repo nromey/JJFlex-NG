@@ -115,15 +115,30 @@ namespace JJFlexWpf
         internal string[]? TransmitOrder { get; set; }
         internal string[]? LeftOrder { get; set; }
         internal string[]? EntryTransmitOrder { get; set; }
+        // Sprint 49 Track CL, repair 1 (B4): the compressor stage and the
+        // limiter, each on its own, by the same rule. A setup or a preset
+        // applied from the layer writes both, so the layer's Escape must be
+        // able to put both back.
+        internal TxCompressorSetup? TransmitCompressor { get; set; }
+        internal TxCompressorSetup? LeftCompressor { get; set; }
+        internal TxCompressorSetup? EntryTransmitCompressor { get; set; }
+        internal TxLimiterSetup? TransmitLimiter { get; set; }
+        internal TxLimiterSetup? LeftLimiter { get; set; }
+        internal TxLimiterSetup? EntryTransmitLimiter { get; set; }
         internal ParametricEqSetup? ReceiveEq { get; set; }
         internal ParametricEqSetup? LeftReceiveEq { get; set; }
         internal ParametricEqSetup? EntryReceiveEq { get; set; }
     }
 
     /// <summary>The transmit stages after the gate as one picture: the equaliser, the de-esser and the stage order (Sprint 49 Track I).</summary>
-    internal sealed record TxStagesPicture(ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order)
+    internal sealed record TxStagesPicture(ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order,
+        TxCompressorSetup Compressor, TxLimiterSetup Limiter)
     {
-        public TxStagesPicture Copy() => new(Eq.Clone(), DeEsser.Clone(), (string[])Order.Clone());
+        public TxStagesPicture Copy() => new(Eq.Clone(), DeEsser.Clone(), (string[])Order.Clone(), Compressor.Clone(), Limiter.Clone());
+
+        /// <summary>The compressor and the limiter compared as the controller compares them everywhere (the preset's id is a note, not a setting).</summary>
+        public static bool SameCompressor(TxCompressorSetup? a, TxCompressorSetup? b) => a != null && b != null && NoiseController.SameCompressor(a, b);
+        public static bool SameLimiter(TxLimiterSetup? a, TxLimiterSetup? b) => a != null && b != null && NoiseController.SameLimiter(a, b);
 
         /// <summary>Each stage compared on its own, through the record's own serialized form (repair 2).</summary>
         public static bool SameEq(ParametricEqSetup? a, ParametricEqSetup? b) =>
@@ -173,6 +188,8 @@ namespace JJFlexWpf
                 snap.TransmitEq = stages.Eq.Clone(); snap.EntryTransmitEq = stages.Eq.Clone();
                 snap.TransmitDeEsser = stages.DeEsser.Clone(); snap.EntryTransmitDeEsser = stages.DeEsser.Clone();
                 snap.TransmitOrder = (string[])stages.Order.Clone(); snap.EntryTransmitOrder = (string[])stages.Order.Clone();
+                snap.TransmitCompressor = stages.Compressor.Clone(); snap.EntryTransmitCompressor = stages.Compressor.Clone();
+                snap.TransmitLimiter = stages.Limiter.Clone(); snap.EntryTransmitLimiter = stages.Limiter.Clone();
             }
             return snap;
         }
@@ -306,7 +323,8 @@ namespace JJFlexWpf
         private TxStagesPicture ReadStages()
         {
             var (eq, deEsser, order) = TransmitGate.CaptureStages();
-            return new TxStagesPicture(eq.Clone(), deEsser.Clone(), (string[])order.Clone());
+            var (compressor, limiter) = TransmitGate.CaptureDynamics();
+            return new TxStagesPicture(eq.Clone(), deEsser.Clone(), (string[])order.Clone(), compressor.Clone(), limiter.Clone());
         }
 
         private static bool SameEq(ParametricEqSetup? a, ParametricEqSetup? b) =>
@@ -354,6 +372,19 @@ namespace JJFlexWpf
                 if (snap.TransmitOrder != null && !TxStagesPicture.SameOrder(before.Stages.Order, snap.LeftOrder ?? snap.TransmitOrder)) snap.TransmitOrder = (string[])before.Stages.Order.Clone();
                 snap.LeftOrder = (string[])now.Stages.Order.Clone();
             }
+            // Track CL, repair 1 (B4): the compressor and the limiter, the same way.
+            if (!TxStagesPicture.SameCompressor(now.Stages.Compressor, before.Stages.Compressor))
+            {
+                if (snap.TransmitCompressor != null && !TxStagesPicture.SameCompressor(before.Stages.Compressor, snap.LeftCompressor ?? snap.TransmitCompressor))
+                    snap.TransmitCompressor = before.Stages.Compressor.Clone();
+                snap.LeftCompressor = now.Stages.Compressor.Clone();
+            }
+            if (!TxStagesPicture.SameLimiter(now.Stages.Limiter, before.Stages.Limiter))
+            {
+                if (snap.TransmitLimiter != null && !TxStagesPicture.SameLimiter(before.Stages.Limiter, snap.LeftLimiter ?? snap.TransmitLimiter))
+                    snap.TransmitLimiter = before.Stages.Limiter.Clone();
+                snap.LeftLimiter = now.Stages.Limiter.Clone();
+            }
         }
 
         /// <summary>
@@ -377,7 +408,11 @@ namespace JJFlexWpf
                 && !TxStagesPicture.SameDeEsser(owned.DeEsser ? deTarget : now.Stages.DeEsser, snap.EntryTransmitDeEsser ?? deTarget);
             bool order = snap.TransmitOrder is { } orderTarget
                 && !TxStagesPicture.SameOrder(owned.Order ? orderTarget : now.Stages.Order, snap.EntryTransmitOrder ?? orderTarget);
-            bool stages = eq || deEsser || order;
+            bool compressor = snap.TransmitCompressor is { } compTarget
+                && !TxStagesPicture.SameCompressor(owned.Compressor ? compTarget : now.Stages.Compressor, snap.EntryTransmitCompressor ?? compTarget);
+            bool limiter = snap.TransmitLimiter is { } limiterTarget
+                && !TxStagesPicture.SameLimiter(owned.Limiter ? limiterTarget : now.Stages.Limiter, snap.EntryTransmitLimiter ?? limiterTarget);
+            bool stages = eq || deEsser || order || compressor || limiter;
             return Slot(owned.Spectral, snap.TransmitSpectral, snap.EntryTransmitSpectral, now.Spectral)
                 || Slot(owned.Neural, snap.TransmitNeural, snap.EntryTransmitNeural, now.Neural)
                 || gate || stages;
@@ -390,9 +425,9 @@ namespace JJFlexWpf
         /// else makes in between (held ahead of it, say) is kept.
         /// </summary>
         /// <summary>Which transmit parts Escape puts back, each on its own (repair 2 splits the stages).</summary>
-        private readonly record struct TxOwned(bool Spectral, bool Neural, bool Gate, bool Eq, bool DeEsser, bool Order)
+        private readonly record struct TxOwned(bool Spectral, bool Neural, bool Gate, bool Eq, bool DeEsser, bool Order, bool Compressor, bool Limiter)
         {
-            public bool AnyStage => Eq || DeEsser || Order;
+            public bool AnyStage => Eq || DeEsser || Order || Compressor || Limiter;
             public bool Any => Spectral || Neural || Gate || AnyStage;
         }
 
@@ -410,7 +445,11 @@ namespace JJFlexWpf
                 && TxStagesPicture.SameDeEsser(now.Stages.DeEsser, snap.LeftDeEsser) && !TxStagesPicture.SameDeEsser(now.Stages.DeEsser, snap.TransmitDeEsser);
             bool order = snap.LeftOrder != null && snap.TransmitOrder != null
                 && TxStagesPicture.SameOrder(now.Stages.Order, snap.LeftOrder) && !TxStagesPicture.SameOrder(now.Stages.Order, snap.TransmitOrder);
-            return new TxOwned(spectral, neural, gate, eq, deEsser, order);
+            bool compressor = snap.LeftCompressor != null && snap.TransmitCompressor != null
+                && TxStagesPicture.SameCompressor(now.Stages.Compressor, snap.LeftCompressor) && !TxStagesPicture.SameCompressor(now.Stages.Compressor, snap.TransmitCompressor);
+            bool limiter = snap.LeftLimiter != null && snap.TransmitLimiter != null
+                && TxStagesPicture.SameLimiter(now.Stages.Limiter, snap.LeftLimiter) && !TxStagesPicture.SameLimiter(now.Stages.Limiter, snap.TransmitLimiter);
+            return new TxOwned(spectral, neural, gate, eq, deEsser, order, compressor, limiter);
         }
 
         // ── Which receive changes are the layer's (#1150) ──
@@ -709,6 +748,8 @@ namespace JJFlexWpf
                     var eqBack = snap.TransmitEq?.Clone();
                     var deEsserBack = snap.TransmitDeEsser?.Clone();
                     var orderBack = snap.TransmitOrder == null ? null : (string[])snap.TransmitOrder.Clone();
+                    var compressorBack = snap.TransmitCompressor?.Clone();
+                    var limiterBack = snap.TransmitLimiter?.Clone();
                     LastRestoreTiming = chain.RunOrDefer(() =>
                     {
                         var current = ReadTx(chain);
@@ -722,6 +763,13 @@ namespace JJFlexWpf
                         // stage the layer does not own stays exactly as it reads now,
                         // published together as one staged record, asked again here
                         // when a held put-back runs.
+                        // Track CL, repair 1 (B4): the compressor and the limiter the
+                        // same way, held as intents just before the stages are staged,
+                        // so the ONE record carries them (the road a whole setup takes).
+                        if (still.AnyStage)
+                            TransmitGate.StageDynamics(
+                                still.Compressor && compressorBack != null ? compressorBack : current.Stages.Compressor,
+                                still.Limiter && limiterBack != null ? limiterBack : current.Stages.Limiter);
                         if (still.AnyStage)
                             TransmitGate.ApplyStagesNow(
                                 still.Eq && eqBack != null ? eqBack : current.Stages.Eq,

@@ -537,6 +537,246 @@ public sealed class TxDynamicsSurfaceTests
         Assert.Equal(Lexicon.Get("audio.compressor.now_not_running"), b.Noise.CompressorNowSentence().Split(" WORDING")[0]);
     }
 
+    // ── repair 1, B4: the layer's Escape owns the compressor and the limiter ──
+
+    private const string Layer = NoiseController.LayerSource;
+    private const string Radio8600 = "1234-5678-9012-3456";
+
+    /// <summary>A bridge whose controller has a setup store of its own, holding one setup with both stages on.</summary>
+    private sealed class LayerBench : IDisposable
+    {
+        public readonly Bridge B = new();
+        private readonly string _dir = Path.Combine(Path.GetTempPath(), "jjf-track-cl-layer-" + Guid.NewGuid().ToString("N"));
+        public LayerBench(bool withGate)
+        {
+            Directory.CreateDirectory(_dir);
+            var store = new TxNoiseSetupStore(_dir);
+            B.F.Radio.Serial = Radio8600;
+            B.Noise.TransmitSetupStore = () => store;
+            var setup = new TxNoiseSetup
+            {
+                Name = "Loud",
+                Compressor = new TxCompressorSetup { Enabled = true, ThresholdDb = -24, RatioToOne = 4, MakeupDb = 9 },
+                Limiter = new TxLimiterSetup { Enabled = true, CeilingDb = -3 },
+            };
+            if (withGate) setup.Gate = new TxNoiseGateSetup { Enabled = true, AutoThreshold = false, ThresholdDb = -40, RatioToOne = 3 };
+            Assert.True(store.Save(Radio8600, setup).Succeeded); // the positive control Codex's first probe lacked: the save took
+        }
+        public void Dispose()
+        {
+            B.Dispose();
+            try { Directory.Delete(_dir, recursive: true); } catch (IOException) { }
+        }
+        public bool CompressorOn => TxAudioConditioning.CompressorSetup.Enabled && B.Cond.Compressor.Settings.Enabled;
+        public bool LimiterOn => TxAudioConditioning.LimiterSetup.Enabled && B.Cond.Limiter.Settings.Enabled;
+        public bool BothOff => !TxAudioConditioning.CompressorSetup.Enabled && !B.Cond.Compressor.Settings.Enabled
+            && !TxAudioConditioning.LimiterSetup.Enabled && !B.Cond.Limiter.Settings.Enabled;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_setup_applied_from_the_layer_is_put_back_by_its_Escape_compressor_and_limiter_included(bool withGateChange)
+    {
+        using var l = new LayerBench(withGateChange);
+        var b = l.B;
+        var snap = b.Noise.TakeSnapshot();
+        b.Noise.ApplyTransmitSetup("Loud", Layer);
+        b.Unkey();
+        Assert.True(l.CompressorOn, "the setup did not switch the compressor on: the test proves nothing");
+        Assert.True(l.LimiterOn);
+        Assert.Equal(withGateChange, b.Cond.Gate.Enabled);
+
+        Assert.True(b.Noise.RestoreSnapshot(snap, Layer));
+        b.Unkey();
+        Assert.True(l.BothOff, "Escape left a stage on that the layer's setup switched on");
+        Assert.Equal(TxCompressorSettings.DefaultThresholdDb, TxAudioConditioning.CompressorSetup.ThresholdDb);
+        Assert.Equal(0f, TxAudioConditioning.LimiterSetup.CeilingDb);
+        Assert.False(b.Cond.Gate.Enabled);
+        Assert.False(b.Noise.LastRestoreKeptOutsideChanges);
+    }
+
+    [Fact]
+    public void The_layers_setup_goes_back_and_a_de_esser_switched_on_at_home_afterwards_stays()
+    {
+        using var l = new LayerBench(withGate: false);
+        var b = l.B;
+        var snap = b.Noise.TakeSnapshot();
+        b.Noise.ApplyTransmitSetup("Loud", Layer);
+        b.Unkey();
+        b.Noise.SetDeEsserOn(true, Home);
+        b.Unkey();
+        Assert.True(b.Noise.RestoreSnapshot(snap, Layer));
+        b.Unkey();
+        Assert.True(l.BothOff);
+        Assert.True(TxAudioConditioning.DeEsserSetup.Enabled); // the outside change to another stage is kept
+        Assert.True(b.Noise.LastRestoreKeptOutsideChanges);
+    }
+
+    [Fact]
+    public void A_change_made_at_home_to_the_compressor_after_the_layers_is_kept_and_the_limiter_still_goes_back()
+    {
+        using var l = new LayerBench(withGate: false);
+        var b = l.B;
+        var snap = b.Noise.TakeSnapshot();
+        b.Noise.ApplyTransmitSetup("Loud", Layer);
+        b.Unkey();
+        b.Noise.SetDynamics(NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "threshold")!, -40, Home);
+        b.Unkey();
+        b.Noise.RestoreSnapshot(snap, Layer);
+        b.Unkey();
+        // The compressor is no longer as the layer left it: somebody else's change, kept (each stage on its own).
+        Assert.True(TxAudioConditioning.CompressorSetup.Enabled);
+        Assert.Equal(-40f, TxAudioConditioning.CompressorSetup.ThresholdDb);
+        // The limiter is still the layer's, and goes back.
+        Assert.False(TxAudioConditioning.LimiterSetup.Enabled);
+        Assert.False(b.Cond.Limiter.Settings.Enabled);
+        Assert.True(b.Noise.LastRestoreKeptOutsideChanges);
+    }
+
+    [Fact]
+    public void The_layers_change_to_one_stage_goes_back_while_homes_change_to_the_other_stays()
+    {
+        // Home switches the limiter on BEFORE the layer's setup; the layer's setup changes both; the
+        // limiter's restore target is what Home left, the compressor's is the entry picture.
+        using var l = new LayerBench(withGate: false);
+        var b = l.B;
+        var snap = b.Noise.TakeSnapshot();
+        b.Noise.SetLimiterOn(true, Home);
+        b.Noise.SetDynamics(NoiseController.FindDynamicsLever(DynamicsLever.LimiterStage, "ceiling")!, -6, Home);
+        b.Unkey();
+        b.Noise.ApplyTransmitSetup("Loud", Layer);
+        b.Unkey();
+        Assert.Equal(-3f, b.Cond.Limiter.Settings.CeilingDb);
+        b.Noise.RestoreSnapshot(snap, Layer);
+        b.Unkey();
+        Assert.False(TxAudioConditioning.CompressorSetup.Enabled);
+        Assert.True(TxAudioConditioning.LimiterSetup.Enabled);          // back to what Home left, not to the entry
+        Assert.Equal(-6f, b.Cond.Limiter.Settings.CeilingDb);
+        Assert.True(b.Noise.LastRestoreKeptOutsideChanges);
+    }
+
+    [Fact]
+    public void A_layers_setup_still_held_for_the_unkey_is_withdrawn_by_Escape()
+    {
+        using var l = new LayerBench(withGate: true);
+        var b = l.B;
+        var snap = b.Noise.TakeSnapshot();
+        b.X.Keyed = true; b.X.Buffer();
+        b.Noise.ApplyTransmitSetup("Loud", Layer);
+        Assert.True(b.X.Chain.HasDeferredChanges);
+        Assert.False(b.Cond.Compressor.Settings.Enabled); // nothing landed yet
+        Assert.True(b.Noise.RestoreSnapshot(snap, Layer));
+        b.Unkey();
+        Assert.True(l.BothOff);
+        Assert.False(b.Cond.Gate.Enabled);
+    }
+
+    [Fact]
+    public void A_put_back_held_for_the_unkey_restores_both_stages_when_it_runs()
+    {
+        using var l = new LayerBench(withGate: false);
+        var b = l.B;
+        var snap = b.Noise.TakeSnapshot();
+        b.Noise.ApplyTransmitSetup("Loud", Layer);
+        b.Unkey();
+        b.X.Keyed = true; b.X.Buffer();
+        Assert.True(b.Noise.RestoreSnapshot(snap, Layer));
+        Assert.Equal(TxChangeTiming.AtUnkey, b.Noise.LastRestoreTiming);
+        b.X.Buffer();
+        Assert.True(b.Cond.Compressor.Settings.Enabled);  // still on under the over
+        b.Unkey();
+        Assert.True(l.BothOff);
+    }
+
+    // ── repair 1, B5: the editor ──
+
+    [Fact]
+    public void Every_way_out_of_the_editor_but_Close_puts_back_both_stages_and_the_speech_processor_setting()
+    {
+        bool settingWas = AudioOutputConfig.RadioProcessorOffWithCompressorInForce;
+        try
+        {
+            using var b = new Bridge();
+            const string editor = "compressor editor";
+            b.Noise.SetProcessorHandoffSetting(true, Home);
+            var model = b.Noise.DynamicsEditor(editor);
+            Assert.True(model.OpenedWithHandoff);
+
+            // In the editor: the setting cleared, the compressor switched on, a preset loaded.
+            b.Noise.SetProcessorHandoffSetting(false, editor);
+            b.Noise.SetCompressorOn(true, editor);
+            b.Noise.LoadCompressorPreset("dx", editor);
+            b.Unkey();
+            Assert.False(b.Noise.ProcessorHandoffSetting);
+            Assert.False(AudioOutputConfig.RadioProcessorOffWithCompressorInForce);
+
+            // Close keeps everything.
+            Assert.False(TxDynamicsEditorDialog.Dismissed(model, kept: true));
+            b.Unkey();
+            Assert.False(b.Noise.ProcessorHandoffSetting);
+            Assert.True(b.Noise.CompressorOn);
+
+            // The window closing any other way (Escape, the title bar, Alt+F4, Cancel) puts all of it back.
+            Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+            b.Unkey();
+            Assert.True(b.Noise.ProcessorHandoffSetting);
+            Assert.True(AudioOutputConfig.RadioProcessorOffWithCompressorInForce);
+            Assert.False(b.Noise.CompressorOn);
+            Assert.Equal("", TxAudioConditioning.CompressorSetup.PresetId);
+            Assert.Equal(0f, TxAudioConditioning.CompressorSetup.DriveDb);
+            // And with nothing left to put back, a second closing does nothing.
+            Assert.False(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+        }
+        finally { AudioOutputConfig.RadioProcessorOffWithCompressorInForce = settingWas; }
+    }
+
+    [Fact]
+    public void The_speech_processor_settings_put_back_waits_for_the_unkey_like_the_stages_it_goes_back_with()
+    {
+        bool settingWas = AudioOutputConfig.RadioProcessorOffWithCompressorInForce;
+        try
+        {
+            using var b = new Bridge();
+            b.Noise.SetProcessorHandoffSetting(true, Home);
+            var model = b.Noise.DynamicsEditor("compressor editor");
+            b.Noise.SetProcessorHandoffSetting(false, "compressor editor");
+            b.X.Keyed = true; b.X.Buffer();
+            Assert.True(model.Restore());
+            Assert.False(b.Noise.ProcessorHandoffSetting);  // held: the setting does not change under an over
+            b.Unkey();
+            Assert.True(b.Noise.ProcessorHandoffSetting);
+        }
+        finally { AudioOutputConfig.RadioProcessorOffWithCompressorInForce = settingWas; }
+    }
+
+    [Fact]
+    public void The_editors_window_puts_back_on_closing_not_on_one_button_and_its_Say_buttons_speak()
+    {
+        // What a windowless test can reach of the window itself: its source. The harness walk presses the keys.
+        string dialog = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "TxDynamicsEditorDialog.cs"));
+        Assert.Contains("Closing += (_, _) => Dismissed(_model, _kept);", dialog);
+        Assert.Contains("() => { _kept = true; DialogResult = true; }", dialog);
+        Assert.Equal(0, dialog.Split("_model.Restore()").Length - 1);   // no button restores by itself: every way out goes through the closing
+        Assert.Contains("_noise?.SayCompressorNow();", dialog);
+        Assert.Contains("_noise?.SayLimiterNow();", dialog);
+        // The base dialog closes on Escape in its own preview handler; the closing event is what both reach.
+        string baseDialog = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "JJFlexDialog.cs"));
+        Assert.Contains("PreviewKeyDown", baseDialog);
+    }
+
+    [Fact]
+    public void The_Say_doors_speak_the_reading_on_each_stages_own_subject()
+    {
+        using var b = new Bridge();
+        b.F.Spoken.Clear();
+        b.Noise.SayCompressorNow();
+        b.Noise.SayLimiterNow();
+        Assert.Equal(new[] { Radios.Speech.SpeechSubject.TransmitCompressor, Radios.Speech.SpeechSubject.TransmitLimiter },
+            b.F.Spoken.Said.Select(s => s.Subject));
+        Assert.Equal(Lexicon.Get("audio.compressor.now_off"), b.F.Spoken.Said[0].Text);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

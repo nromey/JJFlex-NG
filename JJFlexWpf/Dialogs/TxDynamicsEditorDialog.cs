@@ -31,6 +31,14 @@ namespace JJFlexWpf
         private readonly List<(ValueFieldControl Field, DynamicsLever Lever)> _fields = new();
         private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Focusable = true };
         private bool _filling;
+        private bool _kept;
+
+        /// <summary>
+        /// The window is closing: unless Close was pressed, put back everything
+        /// the editor opened with (both stages and the speech processor
+        /// setting). True when something was put back.
+        /// </summary>
+        internal static bool Dismissed(TxDynamicsEditorModel model, bool kept) => !kept && model.Restore();
 
         /// <summary>A detached editor (no radio, nothing applied): the dialog harness's road.</summary>
         public TxDynamicsEditorDialog() : this(TxDynamicsEditorModel.Detached(), null, "detached") { }
@@ -47,10 +55,16 @@ namespace JJFlexWpf
             var root = new DockPanel { Margin = new Thickness(12) };
             var buttons = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
             DockPanel.SetDock(buttons, Dock.Bottom);
-            buttons.Children.Add(Button("audio.dynamics.editor.close", () => { DialogResult = true; }, isDefault: true));
-            var cancel = Button("audio.dynamics.editor.cancel", () => { _model.Restore(); DialogResult = false; });
+            // Close KEEPS. Every other way out puts back the setting the editor
+            // opened with: Cancel, Escape (the base dialog closes on it in its
+            // own preview handler, before anything here sees the key), the
+            // title bar's close and Alt+F4. So the put-back hangs on the
+            // window closing, never on one button (repair 1, B5).
+            buttons.Children.Add(Button("audio.dynamics.editor.close", () => { _kept = true; DialogResult = true; }, isDefault: true));
+            var cancel = Button("audio.dynamics.editor.cancel", () => { DialogResult = false; });
             cancel.IsCancel = true;
             buttons.Children.Add(cancel);
+            Closing += (_, _) => Dismissed(_model, _kept);
             root.Children.Add(buttons);
 
             // ── The compressor ──
@@ -71,7 +85,8 @@ namespace JJFlexWpf
             _mode.SelectionChanged += (_, _) => { if (!_filling && _mode.SelectedIndex >= 0) { _noise?.SetCompressorSplitBand(_mode.SelectedIndex == 1, _source); Refresh(); } };
             compressor.Children.Add(Labelled("audio.dynamics.editor.mode", "audio.dynamics_help.mode", _mode));
             foreach (var lever in NoiseController.CompressorLevers.Where(l => !l.SplitBandOnly)) compressor.Children.Add(Field(lever));
-            compressor.Children.Add(Button("audio.dynamics.editor.say_compressor", () => Status(_noise?.CompressorNowSentence())));
+            // SAID, as Home's button and the menu's item say it, and shown on the reading line.
+            compressor.Children.Add(Button("audio.dynamics.editor.say_compressor", () => { _noise?.SayCompressorNow(); Status(_noise?.CompressorNowSentence()); }));
             Toggle(_handoff, "audio.dynamics.editor.handoff", "audio.dynamics_help.handoff",
                 on => _noise?.SetProcessorHandoffSetting(on, _source), compressor);
 
@@ -95,7 +110,7 @@ namespace JJFlexWpf
             Toggle(_limiterOn, "audio.dynamics.editor.limiter_on", "audio.dynamics_help.limiter_on",
                 on => _noise?.SetLimiterOn(on, _source), limiter);
             foreach (var lever in NoiseController.LimiterLevers) limiter.Children.Add(Field(lever));
-            limiter.Children.Add(Button("audio.dynamics.editor.say_limiter", () => Status(_noise?.LimiterNowSentence())));
+            limiter.Children.Add(Button("audio.dynamics.editor.say_limiter", () => { _noise?.SayLimiterNow(); Status(_noise?.LimiterNowSentence()); }));
 
             AutomationProperties.SetName(_status, Lexicon.Get("audio.dynamics.editor.status"));
             var statusGroup = Section("audio.dynamics.editor.section_status");

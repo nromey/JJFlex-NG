@@ -314,12 +314,10 @@ namespace JJFlexWpf
             _rig = null;
             if (rig != null)
             {
-                // An orderly leave: the radio's speech processor goes back on if
-                // our compressor turned it off (#1278; the brief's question 8).
-                // If the radio is already gone this writes nothing, and the
-                // record waits for the next connect.
-                try { rig.ProcessorHandoff.Leaving(); }
-                catch (Exception ex) { Trace.WriteLine("TxAudioConditioning: the processor handoff's leave failed: " + ex.Message); }
+                // The leave before a teardown is NOT here (repair 1, B2): an
+                // ordinary Disconnect or Exit never detaches this chain while
+                // the link is up, and Attach calls this for a rig that may
+                // still be live. See LeaveRadioBeforeTeardown.
                 rig.ProcessorHandoffNoticed -= OnProcessorHandoffNotice;
                 rig.ModeChanged -= OnModeChanged;
                 rig.TransmitModeMayHaveChanged -= OnTransmitModeMayHaveChanged;
@@ -1442,6 +1440,25 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// The live link to this radio is about to be torn down (Disconnect,
+        /// Exit, a retry's unwire): put the radio's speech processor back if
+        /// our compressor turned it off, NOW, while the rig and its transport
+        /// are still up (#1278; the brief's question 8; repair 1, B2). Called
+        /// from <c>MainWindow.UnwireRadioEvents</c>, which
+        /// <c>CloseTheRadio</c> calls before it disposes the rig: the one road
+        /// an ordinary Disconnect and Exit both take. The write is made at
+        /// once on this thread, never queued, because the command queue is
+        /// about to stop. If the radio is transmitting or already gone,
+        /// nothing is written and the record waits for the next connect.
+        /// </summary>
+        public static void LeaveRadioBeforeTeardown(FlexBase? rig)
+        {
+            if (rig == null) return;
+            try { rig.ProcessorHandoff.Leaving(); }
+            catch (Exception ex) { Trace.WriteLine("TxAudioConditioning: the processor handoff's leave failed: " + ex.Message); }
+        }
+
         /// <summary>The words (a DRAFT PROSE key) for each thing the handoff did.</summary>
         internal static string ProcessorHandoffKey(ProcessorHandoffNotice notice) => notice switch
         {
@@ -1530,8 +1547,15 @@ namespace JJFlexWpf
             lock (_gate) gate = _gateIntent.Clone();
             gate.AutoThreshold = _autoThreshold;
             gate.ThresholdMarginDb = _thresholdMarginDb;
+            // The live gate's figure is the truth for a DERIVED threshold (only
+            // the gate knows what the rule last gave). A threshold set by hand is
+            // the intent's: the live gate takes a staged record only on its next
+            // unkeyed buffer, so reading it here straight after a setup was
+            // applied gave the threshold from before the setup, and the layer's
+            // Escape then took the gate for somebody else's and left it on
+            // (Track CL repair 1, found by B4's test with a gate in the setup).
             var live = Conditioner?.Gate;
-            if (live != null) gate.ThresholdDb = live.ThresholdDb;
+            if (live != null && gate.AutoThreshold) gate.ThresholdDb = live.ThresholdDb;
             ParametricEqSetup eq; TxDeEsserSetup de; string[] order; TxCompressorSetup comp; TxLimiterSetup lim;
             lock (_gate)
             {
