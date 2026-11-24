@@ -29,7 +29,11 @@ internal sealed class SettledOffAudioWriter : IOffAudioScheduler, IDisposable
 
     public SettledOffAudioWriter()
     {
-        _thread = new Thread(Run) { IsBackground = true, Name = "settled off-audio writer (test)" };
+        // Above normal (repair 3): a settle is a hop between two buffers, and under a
+        // full CPU a hop that waits long enough reads as a gap in the stream to the
+        // keep-up rule (KeepUpGapTicks, 100 ms) and restarts its grace. The writer's
+        // own work is the app's; only the hop must not be starved.
+        _thread = new Thread(Run) { IsBackground = true, Priority = ThreadPriority.AboveNormal, Name = "settled off-audio writer (test)" };
         _thread.Start();
     }
 
