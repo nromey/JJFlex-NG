@@ -48,6 +48,31 @@ namespace JJPortaudio
     /// run on UI threads; delegate and enum reads are single-word and read
     /// once per buffer. The only allocation is growing the two scratch
     /// buffers and input delay line, on a stream shape or delay change.
+    ///
+    /// <para><b>The chain since Sprint 49 Track I</b> (#432, #1240, #1252):
+    /// noise reduction, then the downward expander (<see cref="Gate"/>, the
+    /// gate converted, with its side-chain filter and look-ahead), then the
+    /// parametric equaliser (<see cref="Eq"/>), then the de-esser
+    /// (<see cref="DeEsser"/>), then nothing. The order follows the
+    /// recommended chain order recorded on #432 (isolation, expander,
+    /// parametric EQ, compression last), with the de-esser after the EQ that
+    /// boosts presence; JJ Clarity (#736) would sit after the EQ and is not
+    /// built here. The order is data in the setup record; this build runs only
+    /// the default order (<see cref="StageIds.DefaultOrder"/>).</para>
+    /// <para><b>One owner, the whole chain.</b> <see cref="StagedGate"/>
+    /// (the name is kept: renaming it would ripple through four repair rounds
+    /// of tests) now carries the expander, the equaliser and the de-esser:
+    /// switches and whole setups wait for an unkeyed buffer, continuous levers
+    /// are live (S2, S15), and a whole setup lands on ONE buffer.</para>
+    /// <para><b>The room's floor is measured here</b>, at the expander's input,
+    /// after noise reduction, on unkeyed buffers only (<see cref="RoomFloor"/>,
+    /// #1252), and the threshold rule is applied here
+    /// (<see cref="RefreshDerivedThreshold"/>), so nothing about it needs a
+    /// radio.</para>
+    /// <para><b>The residual's "after" point</b> (S8, ruled 2026-11-23: "what
+    /// was removed" is the cleanup stages only; 20:56, the de-esser is not
+    /// one): <see cref="ResidualEndsAfter"/>, the expander's output. The EQ
+    /// and the de-esser are heard in what goes out, never in the residual.</para>
     /// </summary>
     public class TxAudioConditioner
     {
@@ -67,6 +92,35 @@ namespace JJPortaudio
         /// <summary>The transmit noise gate. Its threshold is set by the app
         /// from the measured noise floor (floor + margin), not by hand.</summary>
         public TxNoiseGate Gate { get; } = new TxNoiseGate();
+
+        /// <summary>The parametric equaliser, after the expander (Sprint 49 Track I, #1240).</summary>
+        public ParametricEq Eq { get; } = new ParametricEq();
+
+        /// <summary>The de-esser, after the equaliser (Sprint 49 Track I, item 4).</summary>
+        public DeEsser DeEsser { get; } = new DeEsser();
+
+        /// <summary>The room's floor at the expander's input, learned while unkeyed (#1252).</summary>
+        public TxRoomFloor RoomFloor { get; } = new TxRoomFloor();
+
+        /// <summary>The stages of this chain, by stable id, in the order they run.</summary>
+        public static class StageIds
+        {
+            public const string NoiseReduction = "noise";
+            public const string Expander = "expander";
+            public const string Equaliser = "eq";
+            public const string DeEsser = "deesser";
+
+            /// <summary>The default order, and the only one this build runs.</summary>
+            public static string[] DefaultOrder => new[] { NoiseReduction, Expander, Equaliser, DeEsser };
+        }
+
+        /// <summary>
+        /// Where "what was removed" ends (S8): the residual monitor plays the
+        /// delay-aligned input minus the audio as it left THIS stage. Named once
+        /// so it can be moved in one place; the de-esser was ruled out of it
+        /// (2026-11-23 20:56, "it's not noise reduction").
+        /// </summary>
+        public const string ResidualEndsAfter = StageIds.Expander;
 
         /// <summary>
         /// Pluggable noise-reduction stage, invoked in place ahead of the
@@ -133,7 +187,14 @@ namespace JJPortaudio
         // made after the take found nothing to update and was overwritten
         // (Codex's re-check 3). No lock and no allocation on the audio thread.
 
-        /// <summary>One complete set of gate settings. Immutable once published: change a <see cref="Copy"/>.</summary>
+        /// <summary>
+        /// One complete set of the in-process stages' settings: the expander
+        /// (the gate converted), the equaliser and the de-esser. Immutable once
+        /// published: change a <see cref="Copy"/>. Its defaults are the
+        /// <see cref="TxNoiseGate"/>'s, <see cref="ParametricEq"/>'s and
+        /// <see cref="JJPortaudio.DeEsser"/>'s own, so the state a new chain
+        /// starts with is already what its stages hold.
+        /// </summary>
         public sealed class StagedGate
         {
             public bool Enabled;
@@ -143,6 +204,20 @@ namespace JJPortaudio
             public float AttackMs = 3f, HoldMs = 150f, ReleaseMs = 200f, RangeDb = 25f;
             public bool AutoThreshold = true;
             public float ThresholdMarginDb = 8f;
+            // The expander (Sprint 49 Track I). The ratio and the side-chain's
+            // corners are continuous levers; the side-chain filter's on and off
+            // and the look-ahead's length are switches (the look-ahead moves the
+            // stream in time).
+            public float RatioToOne = TxNoiseGate.DefaultRatioToOne;
+            public bool GateSetting = true;
+            public bool SideChainEnabled;
+            public float SideChainLowHz = TxNoiseGate.DefaultSideChainLowHz, SideChainHighHz = TxNoiseGate.DefaultSideChainHighHz;
+            public float LookAheadMs;
+            /// <summary>The equaliser's design, or null for off. Immutable, so a copy may share it.</summary>
+            public ParametricEqDesign Eq;
+            public bool DeEsserEnabled;
+            public float DeEsserFrequencyHz = JJPortaudio.DeEsser.DefaultFrequencyHz, DeEsserAmountDb = JJPortaudio.DeEsser.DefaultAmountDb,
+                DeEsserThresholdDb = JJPortaudio.DeEsser.DefaultThresholdDb;
             public StagedGate Copy() => (StagedGate)MemberwiseClone();
         }
 
@@ -214,8 +289,20 @@ namespace JJPortaudio
         /// mid-over. It changes the waiting set (or starts one from the set in
         /// force), so it is ordered with a staged setup by when it was asked.
         /// </summary>
-        public void RequestGateEnabled(bool on) =>
-            PublishGate(was => new GateState(was.Live, With(was.Pending ?? was.Live, g => g.Enabled = on)));
+        public void RequestGateEnabled(bool on) => RequestSwitch(g => g.Enabled = on);
+
+        /// <summary>
+        /// Any switch on the in-process stages (Sprint 49 Track I): the
+        /// expander's side-chain filter on or off, its look-ahead's length, the
+        /// equaliser on or off or a preset loaded, the de-esser on or off. Like
+        /// <see cref="RequestGateEnabled"/>, it lands at the next UNKEYED buffer
+        /// and is ordered with a staged setup by when it was asked (S2).
+        /// </summary>
+        public void RequestSwitch(Action<StagedGate> change)
+        {
+            if (change == null) throw new ArgumentNullException(nameof(change));
+            PublishGate(was => new GateState(was.Live, With(was.Pending ?? was.Live, change)));
+        }
 
         /// <summary>Whether a whole gate (or an on-or-off) is waiting for an unkeyed buffer.</summary>
         public bool HasStagedGate => System.Threading.Volatile.Read(ref _gateState).Pending != null;
@@ -255,7 +342,20 @@ namespace JJPortaudio
             Gate.ReleaseMs = live.ReleaseMs;
             Gate.RangeDb = live.RangeDb;
             if (live.HasThreshold) Gate.ThresholdDb = live.ThresholdDb;
+            Gate.RatioToOne = live.RatioToOne;
+            Gate.GateSetting = live.GateSetting;
+            Gate.SideChainEnabled = live.SideChainEnabled;
+            Gate.SideChainLowHz = live.SideChainLowHz;
+            Gate.SideChainHighHz = live.SideChainHighHz;
+            Gate.LookAheadMs = live.LookAheadMs;
             Gate.Enabled = live.Enabled;
+            // The room's meter hears what the detector hears (#1252).
+            RoomFloor.SetSideChain(live.SideChainEnabled, Gate.SideChainLowHz, Gate.SideChainHighHz);
+            Eq.Use(live.Eq);
+            DeEsser.FrequencyHz = live.DeEsserFrequencyHz;
+            DeEsser.AmountDb = live.DeEsserAmountDb;
+            DeEsser.ThresholdDb = live.DeEsserThresholdDb;
+            DeEsser.Enabled = live.DeEsserEnabled;
             _appliedLive = live;
         }
 
@@ -306,6 +406,45 @@ namespace JJPortaudio
         // Scratch: the pre-processing copy of the input (for the residual)
         // and the buffer handed to the monitor sink.
         private float[] _inputCopy = Array.Empty<float>();
+        private float[] _cleanupCopy = Array.Empty<float>();
+        private int _appliedDelay;
+        private long _lastBufferMs;
+
+        /// <summary>
+        /// The chain's applied delay on the last buffer, frames: noise
+        /// reduction's plus the expander's look-ahead. The equaliser and the
+        /// de-esser add none (item 9). The residual, the audition and any
+        /// later unkey hold align to this.
+        /// </summary>
+        public int AppliedDelayFrames => System.Threading.Volatile.Read(ref _appliedDelay);
+
+        /// <summary>Whether a buffer reached this chain in the last half second: the honest "is the computer's audio reaching it" test (a radio's own microphone sends none).</summary>
+        public bool HasRecentAudio
+        {
+            get { long t = System.Threading.Volatile.Read(ref _lastBufferMs); return t != 0 && Environment.TickCount64 - t < 500; }
+        }
+
+        /// <summary>
+        /// Apply THE threshold rule (<see cref="TxRoomFloor.ThresholdRule"/>)
+        /// with the settings in force: set on the gate when it gives one, and
+        /// returned; null when it left the gate alone. Called by whoever owns
+        /// the policy tick; radio-neutral (#1252, ruled 2026-11-23 11:22).
+        /// </summary>
+        public float? RefreshDerivedThreshold(bool keyed)
+        {
+            var t = TxRoomFloor.ThresholdRule(AutoThresholdInForce, keyed, RoomFloor.HasFloor, RoomFloor.FloorDb, ThresholdMarginInForceDb);
+            if (t is float db) Gate.ThresholdDb = db;
+            return t;
+        }
+
+        /// <summary>One over's statistics from the stages after the expander, taken and zeroed: samples past full scale after the equaliser, and the de-esser's frames reduced and its deepest reduction. Counted on keyed buffers only.</summary>
+        public (long EqOverFullScale, long DeEsserReducedFrames, float DeEsserMaxReductionDb) TakeOverStats()
+        {
+            long clips = Eq.TakeOverFullScale();
+            var (frames, deepest) = DeEsser.TakeOverStats();
+            return (clips, frames, deepest);
+        }
+
         private float[] _monitorBuf = Array.Empty<float>();
         private float[] _inputDelay = Array.Empty<float>();
         private int _inputDelayAt;
@@ -317,7 +456,9 @@ namespace JJPortaudio
         /// </summary>
         public void Process(float[] buffer, int count, uint sampleRate)
         {
-            UpdateGate(ReadKey());
+            bool keyed = ReadKey();
+            UpdateGate(keyed);
+            System.Threading.Volatile.Write(ref _lastBufferMs, Environment.TickCount64);
             if (_bypassAll) return;
 
             var nr = NoiseReducer;
@@ -325,15 +466,18 @@ namespace JJPortaudio
             var sink = MonitorSink;
             var mode = (MonitorModes)_monitorMode;
             bool wantMonitor = mode != MonitorModes.Off && sink != null;
-            bool anyStage = nr != null || Gate.Enabled;
+            bool anyStage = nr != null || Gate.Enabled || Eq.IsActive || DeEsser.Enabled;
 
             // Nothing attached, nothing monitored: stay entirely out of the
             // way. (The gate still wants its clock stamped so enabling it
             // mid-stream is not mistaken for a key-down; Process with the
-            // gate disabled does exactly that and nothing else.)
+            // gate disabled does exactly that and nothing else.) The room is
+            // still learned, unkeyed (#1252): this input IS the expander's.
             if (!anyStage && !wantMonitor)
             {
+                if (!keyed) RoomFloor.Process(buffer, count, sampleRate);
                 Gate.Process(buffer, 0, sampleRate);
+                System.Threading.Volatile.Write(ref _appliedDelay, 0);
                 return;
             }
 
@@ -342,13 +486,34 @@ namespace JJPortaudio
             if (_inputCopy.Length < count) _inputCopy = new float[count];
             Array.Copy(buffer, _inputCopy, count);
 
-            // NR first, gate second — see class remarks.
+            // NR first, the expander second — see class remarks.
             nr?.Invoke(buffer, count, sampleRate);
+            int nrDelay = nr == null ? 0 : Math.Max(0, appliedLatency?.Invoke() ?? 0);
+            // The expander's input, after noise reduction: where the room's
+            // floor is measured, unkeyed only (#1252; S15).
+            if (!keyed) RoomFloor.Process(buffer, count, sampleRate);
+            Gate.Process(buffer, count, sampleRate);
             // Keep this history even while the monitor is off. Zero bypass
             // leaves it frozen, just as the bypassed engine freezes its state.
-            int delay = nr == null ? 0 : Math.Max(0, appliedLatency?.Invoke() ?? 0);
+            // The look-ahead is the expander's applied delay (item 9).
+            int delay = nrDelay + Gate.AppliedLookAheadFrames;
             DelayInputCopy(count, delay);
-            Gate.Process(buffer, count, sampleRate);
+            System.Threading.Volatile.Write(ref _appliedDelay, delay);
+
+            // The residual's "after" point (S8, ResidualEndsAfter): the audio
+            // as it left the cleanup stages, before anything that shapes.
+            bool wantResidual = wantMonitor && (mode == MonitorModes.Residual || mode == MonitorModes.Split);
+            if (wantResidual)
+            {
+                if (_cleanupCopy.Length < count) _cleanupCopy = new float[count];
+                Array.Copy(buffer, _cleanupCopy, count);
+            }
+
+            // Then the stages that shape: the equaliser, then the de-esser.
+            // Neither adds delay. Their per-over counts are kept for keyed
+            // buffers only; the policy tick writes them to the trace.
+            Eq.Process(buffer, count, sampleRate, keyed);
+            DeEsser.Process(buffer, count, sampleRate, keyed);
 
             if (!wantMonitor) return;
 
@@ -360,7 +525,7 @@ namespace JJPortaudio
                     break;
                 case MonitorModes.Residual:
                     for (int i = 0; i < count; i++)
-                        _monitorBuf[i] = _inputCopy[i] - buffer[i];
+                        _monitorBuf[i] = _inputCopy[i] - _cleanupCopy[i];
                     break;
                 case MonitorModes.Split:
                     // Left = output, right = residual. The stream carries the
@@ -369,7 +534,7 @@ namespace JJPortaudio
                     for (int i = 0; i + 1 < count; i += 2)
                     {
                         _monitorBuf[i] = buffer[i];
-                        _monitorBuf[i + 1] = _inputCopy[i] - buffer[i];
+                        _monitorBuf[i + 1] = _inputCopy[i] - _cleanupCopy[i];
                     }
                     break;
             }

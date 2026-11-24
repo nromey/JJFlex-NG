@@ -71,7 +71,145 @@ public sealed class TxNoiseGateSetup
     public float ReleaseMs { get; set; } = 200f;
     public float RangeDb { get; set; } = 25f;
 
+    // ── The downward expander (Sprint 49 Track I, #432) ──
+    //
+    // The gate became a downward expander; these fields carry what it gained.
+    // The DEFAULTS here are a newly switched-on expander's (S7, ruled
+    // 2026-11-23 11:29: 2:1), with the side-chain filter on and 3 ms of
+    // look-ahead. A version 1 setup whose gate was ON keeps exactly its old
+    // sound: it migrates to the gate setting with the filter off and no
+    // look-ahead (TxNoiseSetup's Gate setter, the one place a loaded record
+    // passes through). Turning the stage off and on never changes these.
+    // Every field here is a scalar, so the member-wise Clone carries it.
+
+    /// <summary>The expander's ratio, n:1. Used when <see cref="GateSetting"/> is off.</summary>
+    public float RatioToOne { get; set; } = JJPortaudio.TxNoiseGate.DefaultRatioToOne;
+
+    /// <summary>The top setting, the gate: today's fixed-depth gate exactly. Explicit, never a large ratio.</summary>
+    public bool GateSetting { get; set; }
+
+    /// <summary>The side-chain filter on what the detector hears (ruled 2026-11-23 11:35).</summary>
+    public bool SideChainFilter { get; set; } = true;
+    public float SideChainLowCutHz { get; set; } = JJPortaudio.TxNoiseGate.DefaultSideChainLowHz;
+    public float SideChainHighCutHz { get; set; } = JJPortaudio.TxNoiseGate.DefaultSideChainHighHz;
+
+    /// <summary>Look-ahead, ms (ruled 2026-11-23 20:56: adjustable, 3 ms to start).</summary>
+    public float LookAheadMs { get; set; } = JJPortaudio.TxNoiseGate.DefaultLookAheadMs;
+
+    /// <summary>
+    /// What a version 1 record's gate becomes (S7): one that was on keeps its
+    /// sound exactly (the gate setting, no side-chain filter, no look-ahead);
+    /// one that was off takes the new expander's defaults, which it already
+    /// holds, so its first switch-on gets them.
+    /// </summary>
+    public void UpgradeFromVersion1()
+    {
+        if (!Enabled) return;
+        GateSetting = true;
+        SideChainFilter = false;
+        LookAheadMs = 0f;
+    }
+
     public TxNoiseGateSetup Clone() => (TxNoiseGateSetup)MemberwiseClone();
+}
+
+/// <summary>
+/// One band of the parametric equaliser as a setup carries it (Sprint 49
+/// Track I, #1240). The kind is stored as a word, not an enum, so a kind a
+/// later build adds loads here as a band this build does not run, and is kept
+/// on save, rather than failing the whole file.
+/// </summary>
+public sealed class ParametricEqBandSetup
+{
+    /// <summary>"peaking", "low_shelf", "high_shelf", "high_pass", "low_pass" or "notch".</summary>
+    public string Kind { get; set; } = ParametricEqKinds.Peaking;
+    public float FrequencyHz { get; set; } = 1000f;
+    public float GainDb { get; set; }
+    public float Q { get; set; } = 1f;
+
+    public ParametricEqBandSetup Clone() => (ParametricEqBandSetup)MemberwiseClone();
+}
+
+/// <summary>The band kinds a setup may name, and their meaning to the equaliser.</summary>
+public static class ParametricEqKinds
+{
+    public const string Peaking = "peaking", LowShelf = "low_shelf", HighShelf = "high_shelf",
+        HighPass = "high_pass", LowPass = "low_pass", Notch = "notch";
+
+    /// <summary>Every kind, in the order an editor offers them.</summary>
+    public static IReadOnlyList<string> All { get; } = new[] { Peaking, LowShelf, HighShelf, HighPass, LowPass, Notch };
+
+    /// <summary>The equaliser's kind for a stored word, or null for one this build does not know.</summary>
+    public static JJPortaudio.BiquadKind? ToKind(string? kind) => (kind ?? "").Trim().ToLowerInvariant() switch
+    {
+        Peaking => JJPortaudio.BiquadKind.Peaking,
+        LowShelf => JJPortaudio.BiquadKind.LowShelf,
+        HighShelf => JJPortaudio.BiquadKind.HighShelf,
+        HighPass => JJPortaudio.BiquadKind.HighPass,
+        LowPass => JJPortaudio.BiquadKind.LowPass,
+        Notch => JJPortaudio.BiquadKind.Notch,
+        _ => null,
+    };
+
+    /// <summary>Whether a kind uses the band's gain (a pass or a notch does not).</summary>
+    public static bool UsesGain(string? kind) => kind is Peaking or LowShelf or HighShelf;
+}
+
+/// <summary>
+/// The parametric equaliser as a setup carries it (Sprint 49 Track I, #1240):
+/// on or off, the bands in order, and an output gain. The same shape serves
+/// the transmit setup and receive (ruled S2: one equaliser, both sides).
+/// </summary>
+public sealed class ParametricEqSetup
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>The preset the bands were last loaded from, by id, or empty. Informational: every field stays the operator's to change.</summary>
+    public string PresetId { get; set; } = "";
+
+    public float OutputGainDb { get; set; }
+
+    public List<ParametricEqBandSetup> Bands { get; set; } = new();
+
+    public ParametricEqSetup Clone() => new()
+    {
+        Enabled = Enabled,
+        PresetId = PresetId,
+        OutputGainDb = OutputGainDb,
+        Bands = (Bands ?? new()).Where(b => b != null).Select(b => b.Clone()).ToList(),
+    };
+
+    /// <summary>
+    /// The design the equaliser runs, or null when it is off. Bands of a kind
+    /// this build does not know are left out of what runs (and kept in the
+    /// setup); at most <see cref="JJPortaudio.ParametricEq.MaxBands"/> run.
+    /// </summary>
+    public JJPortaudio.ParametricEqDesign? ToDesign()
+    {
+        if (!Enabled) return null;
+        var bands = new List<JJPortaudio.ParametricEqBand>();
+        foreach (var b in Bands ?? new())
+        {
+            if (b == null || ParametricEqKinds.ToKind(b.Kind) is not JJPortaudio.BiquadKind kind) continue;
+            bands.Add(new JJPortaudio.ParametricEqBand(kind, b.FrequencyHz,
+                ParametricEqKinds.UsesGain(b.Kind) ? b.GainDb : 0, b.Q));
+        }
+        return new JJPortaudio.ParametricEqDesign(bands, OutputGainDb);
+    }
+}
+
+/// <summary>The de-esser as a setup carries it (Sprint 49 Track I, item 4).</summary>
+public sealed class TxDeEsserSetup
+{
+    public bool Enabled { get; set; }
+    /// <summary>The band's centre the operator chose, Hz. Applied clamped below the transmit filter's edge.</summary>
+    public float FrequencyHz { get; set; } = JJPortaudio.DeEsser.DefaultFrequencyHz;
+    /// <summary>The most the band is turned down, dB.</summary>
+    public float AmountDb { get; set; } = JJPortaudio.DeEsser.DefaultAmountDb;
+    /// <summary>The band level it acts above, dB. Lower is more sensitive.</summary>
+    public float SensitivityDb { get; set; } = JJPortaudio.DeEsser.DefaultThresholdDb;
+
+    public TxDeEsserSetup Clone() => (TxDeEsserSetup)MemberwiseClone();
 }
 
 /// <summary>
@@ -80,7 +218,11 @@ public sealed class TxNoiseGateSetup
 /// </summary>
 public sealed class TxNoiseSetup
 {
-    public const int CurrentVersion = 1;
+    /// <summary>
+    /// 2 since Sprint 49 Track I: the gate became a downward expander and the
+    /// equaliser, the de-esser and the stage order joined the record.
+    /// </summary>
+    public const int CurrentVersion = 2;
 
     /// <summary>Schema version of this record, for forward migration.</summary>
     public int Version { get; set; } = CurrentVersion;
@@ -91,7 +233,53 @@ public sealed class TxNoiseSetup
 
     public TxNoiseSlotSetup Neural { get; set; } = new();
 
-    public TxNoiseGateSetup Gate { get; set; } = new();
+    private TxNoiseGateSetup _gate = new();
+
+    /// <summary>
+    /// The gate, a downward expander since version 2.
+    /// </summary>
+    /// <remarks>
+    /// <b>This setter is where a version 1 record is upgraded (S7)</b>, because
+    /// it is the one place every loaded record passes through: the per-radio
+    /// store, a preset's transmit section and the live state in
+    /// <c>audioConfig.xml</c> are all read by <see cref="XmlSerializer"/>, which
+    /// reads the record's elements in order (<see cref="Version"/> is written
+    /// first) and assigns the gate whole once it has read it. A version 1 gate
+    /// that was on becomes the gate setting with no side-chain filter and no
+    /// look-ahead, so it sounds exactly as before; the record is then version
+    /// 2. Code that builds a record in memory gets version 2 from the start
+    /// and is never touched. A test reads a real version 1 file through all
+    /// three homes.
+    /// </remarks>
+    public TxNoiseGateSetup Gate
+    {
+        get => _gate;
+        set
+        {
+            _gate = value;
+            if (Version < 2 && value != null)
+            {
+                value.UpgradeFromVersion1();
+                Version = CurrentVersion;
+            }
+        }
+    }
+
+    /// <summary>The parametric equaliser, after the expander (Sprint 49 Track I, #1240). Off in a version 1 record.</summary>
+    public ParametricEqSetup Eq { get; set; } = new();
+
+    /// <summary>The de-esser, after the equaliser (Sprint 49 Track I). Off in a version 1 record.</summary>
+    public TxDeEsserSetup DeEsser { get; set; } = new();
+
+    /// <summary>
+    /// The stages' order, by stable id (<see cref="JJPortaudio.TxAudioConditioner.StageIds"/>),
+    /// written with the default. This build runs only the default order: an
+    /// order it does not understand is traced where it is applied, never
+    /// refused, and kept exactly as loaded so a later build's order survives a
+    /// save here. An array, not a list, because the serializer appends to an
+    /// initialised list and would double it.
+    /// </summary>
+    public string[] StageOrder { get; set; } = JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
 
     /// <summary>A deep copy, so a caller holding a setup can never change the store's copy behind its back.</summary>
     public TxNoiseSetup Clone() => new()
@@ -101,7 +289,15 @@ public sealed class TxNoiseSetup
         Spectral = (Spectral ?? new()).Clone(),
         Neural = (Neural ?? new()).Clone(),
         Gate = (Gate ?? new()).Clone(),
+        Eq = (Eq ?? new()).Clone(),
+        DeEsser = (DeEsser ?? new()).Clone(),
+        StageOrder = (string[])(StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder).Clone(),
     };
+
+    /// <summary>Whether <see cref="StageOrder"/> is the order this build runs.</summary>
+    public bool RunsDefaultOrder =>
+        (StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder)
+            .SequenceEqual(JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder);
 
     /// <summary>The same setup under another name.</summary>
     public TxNoiseSetup CloneAs(string name)
@@ -360,6 +556,10 @@ public sealed class TxNoiseSetupStore
                     s.Spectral ??= new();
                     s.Neural ??= new();
                     s.Gate ??= new();
+                    s.Eq ??= new();
+                    s.Eq.Bands ??= new();
+                    s.DeEsser ??= new();
+                    s.StageOrder ??= JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
                 }
                 return file;
             }
@@ -478,7 +678,18 @@ public static class TxNoiseSetupMigration
                 ReleaseMs = c.GateReleaseMs,
                 RangeDb = c.GateRangeDb,
             },
-        };
+        }.WithOldGateSound();
+    }
+
+    /// <summary>
+    /// The old per-microphone settings knew only the gate, so a gate that was
+    /// on there keeps exactly its sound here too (S7): the same upgrade a
+    /// version 1 setup gets.
+    /// </summary>
+    private static TxNoiseSetup WithOldGateSound(this TxNoiseSetup s)
+    {
+        s.Gate.UpgradeFromVersion1();
+        return s;
     }
 
     /// <summary>

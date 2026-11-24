@@ -42,6 +42,15 @@ namespace TxGateHarness
             CheckDelayedResidualAndBypass(480);
             CheckDelayedResidualAndBypass(2448);
 
+            // Sprint 49 Track I: the gate converted to a downward expander,
+            // and the stages after it.
+            CheckExpanderLawAtTwoToOne();
+            CheckSideChainIgnoresRumble();
+            CheckLookAheadOpensBeforeTheWord();
+            CheckEqualiserOffAndFlatAreExact();
+            CheckDeEsserIdleIsExact();
+            CheckResidualLeavesTheEqualiserOut();
+
             Console.WriteLine();
             Console.WriteLine($"{checks} checks, {failures} failed.");
             return failures;
@@ -63,7 +72,7 @@ namespace TxGateHarness
             double refEnergy = Energy(reference);
             Assert(energy > refEnergy * 0.99,
                 $"fresh gate passes first buffer at unity ({Ratio(energy, refEnergy):F3} of input energy)");
-            Assert(gate.IsOpen, "fresh gate reports open");
+            Assert(gate.AttenuationDb < 0.1f, $"fresh gate applies no attenuation ({gate.AttenuationDb:F2} dB)");
         }
 
         /// <summary>
@@ -79,7 +88,7 @@ namespace TxGateHarness
 
             // 1.5 s of quiet floor: past detector release + hold + gain release.
             FeedSine(gate, 997.0, -60f, seconds: 1.5);
-            Assert(!gate.IsOpen, "gate is closed after 1.5 s below threshold");
+            Assert(gate.AttenuationDb > 20f, $"gate attenuates after 1.5 s below threshold ({gate.AttenuationDb:F1} dB)");
 
             // Onset: 40 ms of -15 dB "speech", measured in 20 ms halves.
             int onsetFrames = (int)(0.040 * Fs);
@@ -143,7 +152,7 @@ namespace TxGateHarness
             float[] processed = ProcessMono(gate, quiet);
             double gainDb = 10.0 * Math.Log10(Energy(processed) / Energy(quiet));
 
-            Assert(!gate.IsOpen, "gate reports closed after a 1.4 s pause");
+            Assert(gate.AttenuationDb > 20f, $"gate reports its attenuation after a 1.4 s pause ({gate.AttenuationDb:F1} dB)");
             Assert(gainDb < -20.0 && gainDb > -30.0,
                 $"closed gate attenuates by the 25 dB range ({gainDb:F1} dB), within the 20-30 dB window");
             Assert(gainDb > -40.0,
@@ -336,6 +345,158 @@ namespace TxGateHarness
             Assert(split, $"{latency}-sample delay: split output left, exact zero residual right");
             Assert(bypassSilent, $"{latency}-sample reducer reports zero on bypass and wrong rate, residual stays silent");
             Assert(output, $"{latency}-sample reducer leaves Output monitor bit-identical");
+        }
+
+        // ---------------------------------------------------------------- //
+        // Sprint 49 Track I: expander, equaliser, de-esser
+        // ---------------------------------------------------------------- //
+
+        /// <summary>At 2:1 a steady tone 13 dB below the threshold (10 dB below the close point) is attenuated by about 10 dB, not by the full depth.</summary>
+        private static void CheckExpanderLawAtTwoToOne()
+        {
+            // A quadrature pair (sine left, cosine right) has a constant
+            // channel-power sum, so the detector reads its level with no
+            // ripple; a plain sine reads near its peak power, about 3 dB high,
+            // because the detector rises fast and falls slowly.
+            var gate = NewGate(thresholdDb: -40f);
+            gate.GateSetting = false;
+            gate.RatioToOne = 2f;
+            FeedQuadrature(gate, 997.0, -53f, seconds: 2.0);
+            Assert(Math.Abs(gate.AttenuationDb - 10f) < 0.3f, $"2:1 attenuates a level 10 dB below the close point by 10 dB ({gate.AttenuationDb:F2} dB)");
+            gate.RatioToOne = 1f;
+            FeedQuadrature(gate, 997.0, -53f, seconds: 1.0);
+            Assert(gate.AttenuationDb < 0.05f, $"1:1 attenuates nothing ({gate.AttenuationDb:F2} dB)");
+            var gateSet = NewGate(thresholdDb: -40f);
+            FeedSine(gateSet, 997.0, -53f, seconds: 2.0);
+            Assert(gateSet.AttenuationDb > 24f, $"the gate setting still takes the full depth ({gateSet.AttenuationDb:F2} dB)");
+        }
+
+        /// <summary>A loud 60 Hz rumble holds the stage open when the detector hears everything, and does not when it hears the voice band only.</summary>
+        private static void CheckSideChainIgnoresRumble()
+        {
+            var open = NewGate(thresholdDb: -40f);
+            FeedSine(open, 60.0, -30f, seconds: 2.0);
+            var filtered = NewGate(thresholdDb: -40f);
+            filtered.SideChainEnabled = true;
+            FeedSine(filtered, 60.0, -30f, seconds: 2.0);
+            Assert(open.AttenuationDb < 1f, $"without the side-chain filter, rumble holds the stage open ({open.AttenuationDb:F1} dB)");
+            Assert(filtered.AttenuationDb > 20f, $"with it, the same rumble does not ({filtered.AttenuationDb:F1} dB)");
+        }
+
+        /// <summary>After a long quiet, a word arriving with 10 ms look-ahead (1 ms attack) meets the stage already open; with none it meets it attenuated.</summary>
+        private static void CheckLookAheadOpensBeforeTheWord()
+        {
+            float with = FirstCycleGainDb(10f), without = FirstCycleGainDb(0f);
+            Assert(with > -0.5f, $"with 10 ms look-ahead the word's first cycle is at full gain ({with:F2} dB)");
+            Assert(without < -3f, $"with none it is still attenuated ({without:F2} dB): the control");
+        }
+
+        private static float FirstCycleGainDb(float lookAheadMs)
+        {
+            var gate = NewGate(thresholdDb: -45f);
+            gate.AttackMs = 1f;
+            gate.LookAheadMs = lookAheadMs;
+            FeedSilence(gate, 1.5);
+            int la = TxNoiseGate.LookAheadFramesFor(lookAheadMs, Fs);
+            int frames = (int)(0.040 * Fs);
+            var word = SineMono(997.0, -15f, frames);
+            var padded = new float[frames + la];
+            Array.Copy(word, padded, frames);
+            var outp = ProcessMono(gate, padded);
+            // The word's first sample comes out la frames later; compare the
+            // peaks of its first cycle in and out.
+            double inPeak = 0, outPeak = 0;
+            int cycle = (int)(Fs / 997.0);
+            for (int i = 0; i < cycle; i++)
+            {
+                inPeak = Math.Max(inPeak, Math.Abs(word[i]));
+                outPeak = Math.Max(outPeak, Math.Abs(outp[la + i]));
+            }
+            return (float)(20 * Math.Log10(outPeak / inPeak));
+        }
+
+        /// <summary>The equaliser off, and on with no bands at 0 dB, both pass audio bit for bit.</summary>
+        private static void CheckEqualiserOffAndFlatAreExact()
+        {
+            var eq = new ParametricEq();
+            float[] a = SineBuffer(997.0, -15f, FrameFloats), refA = (float[])a.Clone();
+            eq.Process(a, a.Length, Fs);
+            eq.Use(new ParametricEqDesign(Array.Empty<ParametricEqBand>()));
+            float[] b = SineBuffer(997.0, -15f, FrameFloats), refB = (float[])b.Clone();
+            eq.Process(b, b.Length, Fs);
+            bool same = true;
+            for (int i = 0; i < a.Length; i++) same &= a[i] == refA[i] && b[i] == refB[i];
+            Assert(same, "the equaliser off, or flat, passes samples bit-for-bit");
+        }
+
+        /// <summary>A de-esser hearing nothing in its band changes nothing.</summary>
+        private static void CheckDeEsserIdleIsExact()
+        {
+            var de = new DeEsser { Enabled = true, FrequencyHz = 6000f, ThresholdDb = -30f };
+            bool same = true;
+            for (int k = 0; k < 20; k++)
+            {
+                float[] buf = SineBuffer(300.0, -40f, FrameFloats), r = (float[])buf.Clone();
+                de.Process(buf, buf.Length, Fs);
+                for (int i = 0; i < buf.Length; i++) same &= buf[i] == r[i];
+            }
+            Assert(same, "an idle de-esser passes samples bit-for-bit");
+        }
+
+        /// <summary>A 6 dB boost after the cleanup stages leaves "what was removed" silent (S8).</summary>
+        private static void CheckResidualLeavesTheEqualiserOut()
+        {
+            var cond = new TxAudioConditioner();
+            cond.NoiseReducer = (buf, count, rate) => { };
+            var staged = cond.GateInForce.Copy();
+            staged.Eq = new ParametricEqDesign(new[] { new ParametricEqBand(BiquadKind.Peaking, 997, 6, 1) });
+            cond.SetGateInForce(staged);
+            cond.MonitorMode = TxAudioConditioner.MonitorModes.Residual;
+            float[] captured = null;
+            cond.MonitorSink = (buf, count, rate) => captured = (float[])buf.Clone();
+            double residual = 0;
+            bool changed = false;
+            for (int k = 0; k < 10; k++)
+            {
+                float[] buf = SineBuffer(997.0, -20f, FrameFloats), r = (float[])buf.Clone();
+                cond.Process(buf, buf.Length, Fs);
+                residual += Energy(captured);
+                for (int i = 0; i < buf.Length; i++) changed |= buf[i] != r[i];
+            }
+            Assert(changed, "the boost did change what goes out (the control)");
+            Assert(residual == 0.0, $"and the residual stays silent ({residual:E1})");
+        }
+
+        private static void FeedQuadrature(TxNoiseGate gate, double freq, float levelDb, double seconds)
+        {
+            int total = (int)(seconds * Fs), fed = 0;
+            double amp = Math.Pow(10.0, levelDb / 20.0), ph = 0;
+            var buf = new float[FrameFloats];
+            while (fed < total)
+            {
+                int frames = Math.Min(FrameFloats / 2, total - fed);
+                for (int f = 0; f < frames; f++)
+                {
+                    buf[f * 2] = (float)(amp * Math.Sin(ph));
+                    buf[f * 2 + 1] = (float)(amp * Math.Cos(ph));
+                    ph += 2.0 * Math.PI * freq / Fs;
+                }
+                gate.Process(buf, frames * 2, Fs);
+                fed += frames;
+            }
+        }
+
+        private static void FeedSilence(TxNoiseGate gate, double seconds)
+        {
+            int total = (int)(seconds * Fs), fed = 0;
+            var buf = new float[FrameFloats];
+            while (fed < total)
+            {
+                int frames = Math.Min(FrameFloats / 2, total - fed);
+                Array.Clear(buf, 0, buf.Length);
+                gate.Process(buf, frames * 2, Fs);
+                fed += frames;
+            }
         }
 
         // ---------------------------------------------------------------- //

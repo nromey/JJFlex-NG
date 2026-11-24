@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 namespace JJPortaudio
 {
@@ -24,11 +25,13 @@ namespace JJPortaudio
     ///    most 40) — a natural floor that reads as "still here, not talking."
     ///
     /// The threshold is DERIVED, not a constant: the app measures the room's
-    /// noise floor (LufsMeter.Profile.NoiseFloorLufs, the same figure the
-    /// Microphone Check reports) and sets <see cref="ThresholdDb"/> to
-    /// floor + 6..10 dB. Until a floor has been measured the default
-    /// threshold is deliberately LOW (-60 dB): an unmeasured gate that does
-    /// nothing is a far better failure than one that eats speech.
+    /// noise floor and sets <see cref="ThresholdDb"/> to floor + 6..10 dB.
+    /// Until a floor has been measured the default threshold is deliberately
+    /// LOW (-60 dB): an unmeasured gate that does nothing is a far better
+    /// failure than one that eats speech. Since Sprint 49 Track I (#1252) the
+    /// floor is measured at THIS stage's input, after noise reduction, by
+    /// <see cref="TxRoomFloor"/>; before that it was measured after the gate,
+    /// which measured the gate's own effect and flipped from over to over.
     ///
     /// Level model: the detector is an RMS-style envelope of the per-frame
     /// channel-power sum, the same accounting BS.1770 uses — a -10 dBFS sine
@@ -43,12 +46,49 @@ namespace JJPortaudio
     /// per buffer. No locks, no allocation on the audio path — the same
     /// contract as TxToneGenerator and LufsMeter, and this file is
     /// System-only on purpose so the numerical harness can link it directly.
+    ///
+    /// <para><b>A DOWNWARD EXPANDER since Sprint 49 Track I (#432, ruled by
+    /// Noel 2026-08-31: "we need to change the gate to a downward
+    /// expander").</b> The class keeps its name on purpose: the settings that
+    /// drive it are saved under the gate's names, and the operator meets ONE
+    /// stage whose strongest setting is a gate (2026-11-23 11:32).</para>
+    /// <list type="bullet">
+    /// <item><b>The ratio</b> (<see cref="RatioToOne"/>): below the point
+    /// where the decision closes (the threshold minus the 3 dB hysteresis),
+    /// the attenuation is (ratio - 1) times the distance below that point,
+    /// capped at <see cref="RangeDb"/>. Measured from the close point, so the
+    /// attenuation starts at zero at the moment the decision closes and there
+    /// is no step. 1:1 is no attenuation at all.</item>
+    /// <item><b>The gate setting</b> (<see cref="GateSetting"/>): the fixed
+    /// <see cref="RangeDb"/> attenuation whenever the decision is closed,
+    /// which is the gate as it was before the conversion, sample for sample.
+    /// It is a flag, not a large ratio, because no finite ratio reproduces
+    /// the old output exactly, and that exactness is what lets a saved gate
+    /// keep its sound (S7).</item>
+    /// <item><b>The side-chain filter</b> (ruled 2026-11-23 11:35): a band-pass
+    /// on what the DETECTOR hears, never on the audio passed, so rumble below
+    /// the voice and hiss above it do not open the stage. Zero delay on the
+    /// audio path; its state lives with the detector.</item>
+    /// <item><b>Look-ahead</b> (ruled 11:35, adjustable 20:56): the audio
+    /// path is delayed by up to <see cref="MaxLookAheadMs"/> while the
+    /// detector reads the undelayed signal, so the stage has opened before
+    /// the word arrives. It is the stage's only delay
+    /// (<see cref="AppliedLookAheadFrames"/>). At 0 ms the audio path is the
+    /// old one exactly.</item>
+    /// </list>
+    /// <para>The open, hold and close decision, its hysteresis, the reset
+    /// OPEN at key-down and the never-silence cap all survive. What does not
+    /// survive is reading the stage as "open" or "closed": #432, "do not leave
+    /// IsOpen returning something plausible". The reading is
+    /// <see cref="AttenuationDb"/>, the attenuation applied now.</para>
     /// </summary>
     public class TxNoiseGate
     {
         private const int Channels = 2;
         // Re-open faster than we close: hysteresis keeps a level hovering at
-        // the threshold from toggling the gate on every syllable tail.
+        // the threshold from toggling the gate on every syllable tail. The
+        // expander keeps it for its open/hold/close decision; its ratio law is
+        // measured from the close point this sets.
         private const float HysteresisDb = 3f;
         // A gap in Process calls longer than this means the input stream was
         // stopped (unkey) and restarted — reset, and reset OPEN.
@@ -59,16 +99,67 @@ namespace JJPortaudio
         private const float DetectorAttackSec = 0.0005f;
         private const float DetectorReleaseSec = 0.050f;
 
+        /// <summary>How far below the threshold the decision closes, dB: the law's zero point is the threshold minus this.</summary>
+        public const float CloseBelowThresholdDb = HysteresisDb;
+
         private volatile bool _enabled;
         private volatile float _thresholdDb = DefaultThresholdDb;
         private volatile float _attackMs = 3f;
         private volatile float _holdMs = 150f;
         private volatile float _releaseMs = 200f;
         private volatile float _rangeDb = 25f;
+        // The expander (Sprint 49 Track I). The DSP's own defaults are the
+        // gate as it was (gate setting, no side-chain filter, no look-ahead),
+        // so a TxNoiseGate made and used directly behaves exactly as before;
+        // the setup record carries the new expander's defaults (2:1, filter
+        // on, 3 ms) and the conditioner puts them here.
+        private volatile float _ratio = DefaultRatioToOne;
+        private volatile bool _gateSetting = true;
+        private volatile bool _sideChainEnabled;
+        private volatile float _sideChainLowHz = DefaultSideChainLowHz;
+        private volatile float _sideChainHighHz = DefaultSideChainHighHz;
+        private volatile float _lookAheadMs;
 
         /// <summary>The do-nothing threshold shipped before any floor has been
         /// measured. See class remarks: unmeasured means inert, never hungry.</summary>
         public const float DefaultThresholdDb = -60f;
+
+        /// <summary>The ratio a newly switched-on expander starts at (S7, ruled 2026-11-23 11:29).</summary>
+        public const float DefaultRatioToOne = 2f;
+
+        /// <summary>The ratio's range. 1:1 is no expansion.</summary>
+        public const float MinRatioToOne = 1f, MaxRatioToOne = 20f;
+
+        /// <summary>
+        /// The side-chain filter's default corners: 150 Hz to 4 kHz. Inside
+        /// what an SSB transmit filter passes, so the detector hears the voice
+        /// band the radio will send and none of what it throws away (fan
+        /// rumble below, hiss above). Sprint 49 Track I's judgement; see its report.
+        /// </summary>
+        public const float DefaultSideChainLowHz = 150f, DefaultSideChainHighHz = 4000f;
+
+        /// <summary>The look-ahead's default when the expander is new (ruled 2026-11-23 20:56: adjustable, with a default starting point).</summary>
+        public const float DefaultLookAheadMs = 3f;
+
+        /// <summary>The longest look-ahead, ms.</summary>
+        public const float MaxLookAheadMs = 10f;
+
+        // 10 ms at 192 kHz: the look-ahead line is allocated once, here, and
+        // never on the audio thread.
+        private const int MaxLookAheadFrames = 1920;
+        private readonly float[] _lookAhead = new float[MaxLookAheadFrames * Channels];
+        private int _lookAheadAt;
+        private int _lookAheadFrames;
+        private int _appliedLookAheadFrames;
+        private bool _wasEnabled;
+
+        // The detector's side-chain filter: a high-pass at the low corner and a
+        // low-pass at the high corner, per channel. Designed on the audio thread
+        // when a corner or the rate changes (no allocation: a few trig calls).
+        private BiquadCoefficients _scHigh = BiquadCoefficients.Identity, _scLow = BiquadCoefficients.Identity;
+        private BiquadState _scHighL, _scHighR, _scLowL, _scLowR;
+        private float _scDesignedLow = float.NaN, _scDesignedHigh = float.NaN;
+        private uint _scDesignedRate;
 
         // --- Audio-thread state ---
         private double _envPower;      // smoothed channel-power sum
@@ -76,6 +167,7 @@ namespace JJPortaudio
         private int _holdRemaining;    // frames of hold left once below threshold
         private bool _open = true;
         private long _lastProcessMs;
+        private volatile float _attenuationDb;
 
         /// <summary>Master switch. Off means Process returns without touching
         /// a sample — bypassed produces silence in the residual monitor,
@@ -126,11 +218,77 @@ namespace JJPortaudio
         /// How far the gate attenuates when closed, dB (6-40). Deliberately
         /// capped well short of silence: a fully-muted SSB signal reads as a
         /// dropped contact, an attenuated one reads as "quiet between words."
+        /// For the expander it is the DEPTH: the most the ratio law may take.
         /// </summary>
         public float RangeDb
         {
             get { return _rangeDb; }
             set { _rangeDb = Math.Clamp(value, 6f, 40f); }
+        }
+
+        /// <summary>
+        /// The expander's ratio, n:1 (1 to 20). Used whenever
+        /// <see cref="GateSetting"/> is off. See class remarks for the law.
+        /// </summary>
+        public float RatioToOne
+        {
+            get { return _ratio; }
+            set { _ratio = float.IsFinite(value) ? Math.Clamp(value, MinRatioToOne, MaxRatioToOne) : DefaultRatioToOne; }
+        }
+
+        /// <summary>
+        /// The top setting, the gate: a fixed <see cref="RangeDb"/> attenuation
+        /// whenever the decision is closed, exactly as before the conversion.
+        /// True by default on this class, so the DSP used directly is the old gate.
+        /// </summary>
+        public bool GateSetting
+        {
+            get { return _gateSetting; }
+            set { _gateSetting = value; }
+        }
+
+        /// <summary>Whether the detector hears the voice band only (see class remarks). Off by default on this class.</summary>
+        public bool SideChainEnabled
+        {
+            get { return _sideChainEnabled; }
+            set { _sideChainEnabled = value; }
+        }
+
+        /// <summary>The side-chain filter's low corner, Hz (40 to 1000).</summary>
+        public float SideChainLowHz
+        {
+            get { return _sideChainLowHz; }
+            set { _sideChainLowHz = float.IsFinite(value) ? Math.Clamp(value, 40f, 1000f) : DefaultSideChainLowHz; }
+        }
+
+        /// <summary>The side-chain filter's high corner, Hz (1500 to 10000).</summary>
+        public float SideChainHighHz
+        {
+            get { return _sideChainHighHz; }
+            set { _sideChainHighHz = float.IsFinite(value) ? Math.Clamp(value, 1500f, 10000f) : DefaultSideChainHighHz; }
+        }
+
+        /// <summary>
+        /// Look-ahead, ms (0 to <see cref="MaxLookAheadMs"/>): how far the audio
+        /// path is delayed behind the detector. A change of length moves the
+        /// stream in time, so the conditioner treats it as a switch that waits
+        /// for the unkey; the line restarts from silence when the length changes.
+        /// </summary>
+        public float LookAheadMs
+        {
+            get { return _lookAheadMs; }
+            set { _lookAheadMs = float.IsFinite(value) ? Math.Clamp(value, 0f, MaxLookAheadMs) : 0f; }
+        }
+
+        /// <summary>The look-ahead delay the last processed buffer went out with, frames. Zero when the stage is off: the stage's only delay.</summary>
+        public int AppliedLookAheadFrames => Volatile.Read(ref _appliedLookAheadFrames);
+
+        /// <summary>The look-ahead in frames at a rate, as <see cref="Process"/> applies it.</summary>
+        public static int LookAheadFramesFor(float ms, uint sampleRate)
+        {
+            if (sampleRate == 0) sampleRate = 48000;
+            if (!float.IsFinite(ms)) ms = 0f;
+            return Math.Clamp((int)Math.Round(Math.Clamp(ms, 0f, MaxLookAheadMs) * 0.001 * sampleRate), 0, MaxLookAheadFrames);
         }
 
         private volatile bool _resetPending;
@@ -156,14 +314,14 @@ namespace JJPortaudio
         /// <summary>Times the gate has reset open since it was made: key-downs, or stream gaps where those still count. A test and trace counter.</summary>
         public long Resets { get; private set; }
 
-        /// <summary>True while the gate is passing speech at unity (including
-        /// the hold time). For UI/announcement use.</summary>
-        public bool IsOpen => _open;
-
-        /// <summary>The gain currently applied, dB (0 when open, approaching
-        /// -RangeDb when closed). For UI/announcement use.</summary>
-        public float CurrentGainDb =>
-            (float)(20.0 * Math.Log10(Math.Max(_gain, 1e-6f)));
+        /// <summary>
+        /// The attenuation applied at the end of the last buffer, dB: 0 while
+        /// passing, up to <see cref="RangeDb"/> (never more than 40) below the
+        /// threshold. The one reading the stage gives (#432): a number, not
+        /// "open" or "closed", which stopped being true things to say when the
+        /// gate became an expander.
+        /// </summary>
+        public float AttenuationDb => _attenuationDb;
 
         /// <summary>
         /// Process one buffer of interleaved stereo float samples in place.
@@ -184,21 +342,43 @@ namespace JJPortaudio
 
             bool reset = _resetPending;
             if (reset) _resetPending = false;
-            if (!_enabled) return;
+            if (!_enabled)
+            {
+                _wasEnabled = false;
+                Volatile.Write(ref _appliedLookAheadFrames, 0);
+                _attenuationDb = 0f;
+                return;
+            }
 
             if (sampleRate == 0) sampleRate = 48000;
+
+            // Look-ahead line: a stage switched on, or a new length, starts from
+            // silence, never from audio left over from before (Track I, 1b).
+            int laFrames = LookAheadFramesFor(_lookAheadMs, sampleRate);
+            if (!_wasEnabled || laFrames != _lookAheadFrames)
+            {
+                Array.Clear(_lookAhead, 0, _lookAhead.Length);
+                _lookAheadAt = 0;
+                _lookAheadFrames = laFrames;
+                _wasEnabled = true;
+            }
 
             // Cold start (key-down): reset OPEN. The gate must never eat the
             // first syllable of a transmission while its detector warms up.
             // The key-down is told by ResetOpen; a stream gap still counts
             // only where nothing knows the key state.
-            if (reset || (ResetsOnStreamGap && (last == 0 || now - last > StreamGapMs)))
+            bool gap = ResetsOnStreamGap && (last == 0 || now - last > StreamGapMs);
+            if (reset || gap)
             {
                 Resets++;
                 _envPower = 0.0;
                 _gain = 1f;
                 _open = true;
                 _holdRemaining = int.MaxValue; // re-armed below on first frame
+                // A restarted stream's look-ahead holds dead audio; a key-down
+                // on a continuous stream (#565) does not, so only a gap clears it.
+                if (gap) { Array.Clear(_lookAhead, 0, _lookAhead.Length); _lookAheadAt = 0; }
+                _scHighL.Clear(); _scHighR.Clear(); _scLowL.Clear(); _scLowR.Clear();
             }
 
             // Read tunables once per buffer.
@@ -210,16 +390,33 @@ namespace JJPortaudio
             float releaseCoeff = CoeffForMs(_releaseMs, sampleRate);
             float detAttack = CoeffForSec(DetectorAttackSec, sampleRate);
             float detRelease = CoeffForSec(DetectorReleaseSec, sampleRate);
+            bool gateSetting = _gateSetting;
+            double ratioLess1 = _ratio - 1.0;
+            double rangeDb = _rangeDb;
+            bool sideChain = _sideChainEnabled;
+            if (sideChain) DesignSideChain(sampleRate);
+            int la = _lookAheadFrames;
+            int laLen = la * Channels;
+            int laAt = _lookAheadAt;
 
             int frames = count / Channels;
             int i = 0;
             for (int f = 0; f < frames; f++)
             {
                 // Detector: smoothed sum of channel powers (BS.1770-style
-                // accounting — see class remarks on comparability to LUFS).
+                // accounting — see class remarks on comparability to LUFS),
+                // through the side-chain filter when it is on. The audio itself
+                // never goes through that filter.
                 float l = buffer[i];
                 float r = buffer[i + 1];
-                double power = (double)l * l + (double)r * r;
+                double power;
+                if (sideChain)
+                {
+                    double dl = _scLowL.Step(in _scLow, _scHighL.Step(in _scHigh, l));
+                    double dr = _scLowR.Step(in _scLow, _scHighR.Step(in _scHigh, r));
+                    power = dl * dl + dr * dr;
+                }
+                else power = (double)l * l + (double)r * r;
                 double coeff = power > _envPower ? detAttack : detRelease;
                 _envPower += (power - _envPower) * coeff;
 
@@ -242,7 +439,17 @@ namespace JJPortaudio
                 }
 
                 bool passing = _open || _holdRemaining > 0;
-                float target = passing ? 1f : rangeGain;
+                float target;
+                if (passing) target = 1f;
+                else if (gateSetting) target = rangeGain;
+                else
+                {
+                    // The expander's law, measured from the close point: zero
+                    // attenuation where the decision closes, rising by
+                    // (ratio - 1) dB per dB below it, never past the depth.
+                    double attDb = Math.Min(rangeDb, ratioLess1 * (closeDb - envDb));
+                    target = attDb <= 0.0 ? 1f : (float)Math.Exp(-attDb * DbToNeper);
+                }
 
                 // Gain smoothing: fast toward open (attack), slow toward
                 // closed (release).
@@ -250,11 +457,53 @@ namespace JJPortaudio
                 g += (target - g) * (target > g ? attackCoeff : releaseCoeff);
                 _gain = g;
 
-                buffer[i] = l * g;
-                buffer[i + 1] = r * g;
+                if (la == 0)
+                {
+                    buffer[i] = l * g;
+                    buffer[i + 1] = r * g;
+                }
+                else
+                {
+                    // Look-ahead: the gain decided on THIS sample is applied to
+                    // the sample from la frames ago, so the gain has already
+                    // risen when a word's first sample reaches the output.
+                    float dl = _lookAhead[laAt];
+                    float dr = _lookAhead[laAt + 1];
+                    _lookAhead[laAt] = l;
+                    _lookAhead[laAt + 1] = r;
+                    laAt += Channels;
+                    if (laAt >= laLen) laAt = 0;
+                    buffer[i] = dl * g;
+                    buffer[i + 1] = dr * g;
+                }
                 i += Channels;
             }
+            _lookAheadAt = laAt;
+            if (sideChain) { _scHighL.FlushTiny(); _scHighR.FlushTiny(); _scLowL.FlushTiny(); _scLowR.FlushTiny(); }
+            Volatile.Write(ref _appliedLookAheadFrames, la);
+            _attenuationDb = (float)(-20.0 * Math.Log10(Math.Max(_gain, 1e-6f)));
         }
+
+        private static readonly double DbToNeper = Math.Log(10.0) / 20.0;
+
+        /// <summary>Design the side-chain sections when a corner or the rate changed. Audio thread only; no allocation.</summary>
+        private void DesignSideChain(uint sampleRate)
+        {
+            float low = _sideChainLowHz, high = _sideChainHighHz;
+            if (low == _scDesignedLow && high == _scDesignedHigh && sampleRate == _scDesignedRate) return;
+            _scHigh = BiquadCoefficients.Design(BiquadKind.HighPass, low, 0, 0.7071, sampleRate);
+            _scLow = BiquadCoefficients.Design(BiquadKind.LowPass, Math.Max(high, low * 1.5f), 0, 0.7071, sampleRate);
+            _scDesignedLow = low; _scDesignedHigh = high; _scDesignedRate = sampleRate;
+        }
+
+        /// <summary>
+        /// Run interleaved stereo through a side-chain band-pass the way the
+        /// detector hears it, for a meter that must hear what the detector
+        /// hears (<see cref="TxRoomFloor"/>). Not used by the audio path.
+        /// </summary>
+        internal static BiquadCoefficients SideChainSection(bool high, float lowHz, float highHz, uint sampleRate) =>
+            high ? BiquadCoefficients.Design(BiquadKind.HighPass, lowHz, 0, 0.7071, sampleRate)
+                 : BiquadCoefficients.Design(BiquadKind.LowPass, Math.Max(highHz, lowHz * 1.5f), 0, 0.7071, sampleRate);
 
         private static float CoeffForMs(float ms, uint sampleRate)
         {
