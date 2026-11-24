@@ -96,6 +96,29 @@ namespace JJFlexWpf
         internal TxNoiseSlotSetup? EntryTransmitSpectral { get; set; }
         internal TxNoiseSlotSetup? EntryTransmitNeural { get; set; }
         internal TxNoiseGateSetup? EntryTransmitGate { get; set; }
+
+        // ── Sprint 49 Track I, repair 1 (B1): the equaliser, the de-esser and the
+        //    stage order on transmit, and the equaliser on receive, under the same
+        //    rule as the slots and the gate: the restore TARGET (rebased onto a
+        //    change made elsewhere), what the layer itself LEFT each as (null when
+        //    it has not changed it), and the never-rebased ENTRY picture. ──
+        internal TxStagesPicture? TransmitStages { get; set; }
+        internal TxStagesPicture? LeftStages { get; set; }
+        internal TxStagesPicture? EntryTransmitStages { get; set; }
+        internal ParametricEqSetup? ReceiveEq { get; set; }
+        internal ParametricEqSetup? LeftReceiveEq { get; set; }
+        internal ParametricEqSetup? EntryReceiveEq { get; set; }
+    }
+
+    /// <summary>The transmit stages after the gate as one picture: the equaliser, the de-esser and the stage order (Sprint 49 Track I).</summary>
+    internal sealed record TxStagesPicture(ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order)
+    {
+        public TxStagesPicture Copy() => new(Eq.Clone(), DeEsser.Clone(), (string[])Order.Clone());
+
+        /// <summary>Whether two pictures would configure the stages identically (through the record's own serialized form).</summary>
+        public bool Same(TxStagesPicture? other) => other != null
+            && new TxNoiseSetup { Eq = Eq, DeEsser = DeEsser, StageOrder = Order }
+                .SameContentAs(new TxNoiseSetup { Eq = other.Eq, DeEsser = other.DeEsser, StageOrder = other.Order });
     }
 
     /// <summary>A receive computer slot as read: on or off, its chosen engine, and every engine's stored settings (#1150).</summary>
@@ -119,6 +142,8 @@ namespace JJFlexWpf
                 // A second export, so nothing the restore target shares can reach the entry picture.
                 snap.EntrySpectral = ReadRx(p.SpectralSlot);
                 snap.EntryNeural = ReadRx(p.NeuralSlot);
+                snap.ReceiveEq = p.EqualizerSetup;
+                snap.EntryReceiveEq = p.EqualizerSetup;
             }
             if (_config() is { } c)
             {
@@ -132,6 +157,8 @@ namespace JJFlexWpf
                 snap.EntryTransmitSpectral = snap.TransmitSpectral?.Clone();
                 snap.EntryTransmitNeural = snap.TransmitNeural?.Clone();
                 snap.EntryTransmitGate = snap.TransmitGate?.Clone();
+                snap.TransmitStages = ReadStages();
+                snap.EntryTransmitStages = snap.TransmitStages.Copy();
             }
             return snap;
         }
@@ -254,13 +281,22 @@ namespace JJFlexWpf
             }
         }
 
-        private sealed record TxPicture(TxNoiseSlotSetup Spectral, TxNoiseSlotSetup Neural, TxNoiseGateSetup Gate);
+        private sealed record TxPicture(TxNoiseSlotSetup Spectral, TxNoiseSlotSetup Neural, TxNoiseGateSetup Gate, TxStagesPicture Stages);
 
         private TxPicture ReadTx(TxNoiseChain chain)
         {
             var (spectral, neural) = chain.CaptureSlots();
-            return new TxPicture(spectral, neural, TransmitGate.Capture());
+            return new TxPicture(spectral, neural, TransmitGate.Capture(), ReadStages());
         }
+
+        private TxStagesPicture ReadStages()
+        {
+            var (eq, deEsser, order) = TransmitGate.CaptureStages();
+            return new TxStagesPicture(eq.Clone(), deEsser.Clone(), (string[])order.Clone());
+        }
+
+        private static bool SameEq(ParametricEqSetup? a, ParametricEqSetup? b) =>
+            a != null && b != null && new TxNoiseSetup { Eq = a }.SameContentAs(new TxNoiseSetup { Eq = b });
 
         /// <summary>
         /// After one of the layer's writes ran: each part it changed is the
@@ -288,6 +324,11 @@ namespace JJFlexWpf
                 if (snap.TransmitGate != null && !SameGate(before.Gate, snap.LeftGate ?? snap.TransmitGate)) snap.TransmitGate = before.Gate;
                 snap.LeftGate = now.Gate;
             }
+            if (!now.Stages.Same(before.Stages))
+            {
+                if (snap.TransmitStages != null && !before.Stages.Same(snap.LeftStages ?? snap.TransmitStages)) snap.TransmitStages = before.Stages;
+                snap.LeftStages = now.Stages;
+            }
         }
 
         /// <summary>
@@ -299,15 +340,17 @@ namespace JJFlexWpf
         /// entry picture, because the rebased target already contains the change
         /// it would be compared for.
         /// </summary>
-        private static bool KeptOutsideTx(NoiseSnapshot snap, TxPicture now, (bool Spectral, bool Neural, bool Gate) owned)
+        private static bool KeptOutsideTx(NoiseSnapshot snap, TxPicture now, (bool Spectral, bool Neural, bool Gate, bool Stages) owned)
         {
             static bool Slot(bool isOwned, TxNoiseSlotSetup? target, TxNoiseSlotSetup? entry, TxNoiseSlotSetup current) =>
                 target != null && DescribeTx(isOwned ? target : current) != DescribeTx(entry ?? target);
             bool gate = snap.TransmitGate is { } gateTarget
                 && !SameGate(owned.Gate ? gateTarget : now.Gate, snap.EntryTransmitGate ?? gateTarget);
+            bool stages = snap.TransmitStages is { } stagesTarget
+                && !(owned.Stages ? stagesTarget : now.Stages).Same(snap.EntryTransmitStages ?? stagesTarget);
             return Slot(owned.Spectral, snap.TransmitSpectral, snap.EntryTransmitSpectral, now.Spectral)
                 || Slot(owned.Neural, snap.TransmitNeural, snap.EntryTransmitNeural, now.Neural)
-                || gate;
+                || gate || stages;
         }
 
         /// <summary>
@@ -316,7 +359,7 @@ namespace JJFlexWpf
         /// Asked at Escape and again when the put-back runs, so a change someone
         /// else makes in between (held ahead of it, say) is kept.
         /// </summary>
-        private (bool Spectral, bool Neural, bool Gate) LayerOwnedTx(NoiseSnapshot snap, TxPicture now)
+        private (bool Spectral, bool Neural, bool Gate, bool Stages) LayerOwnedTx(NoiseSnapshot snap, TxPicture now)
         {
             bool spectral = snap.LeftSpectral != null && snap.TransmitSpectral != null
                 && DescribeTx(now.Spectral) == DescribeTx(snap.LeftSpectral) && DescribeTx(now.Spectral) != DescribeTx(snap.TransmitSpectral);
@@ -324,7 +367,9 @@ namespace JJFlexWpf
                 && DescribeTx(now.Neural) == DescribeTx(snap.LeftNeural) && DescribeTx(now.Neural) != DescribeTx(snap.TransmitNeural);
             bool gate = snap.LeftGate != null && snap.TransmitGate != null
                 && SameGate(now.Gate, snap.LeftGate) && !SameGate(now.Gate, snap.TransmitGate);
-            return (spectral, neural, gate);
+            bool stages = snap.LeftStages != null && snap.TransmitStages != null
+                && now.Stages.Same(snap.LeftStages) && !now.Stages.Same(snap.TransmitStages);
+            return (spectral, neural, gate, stages);
         }
 
         // ── Which receive changes are the layer's (#1150) ──
@@ -350,6 +395,7 @@ namespace JJFlexWpf
             private readonly NoiseSnapshot _snap;
             private readonly RxAudioPipeline _pipeline;
             private readonly ReceiveSlotPicture _spectral, _neural;
+            private readonly ParametricEqSetup _eq;
             private bool _done;
 
             public LayerRxWrite(NoiseController owner, NoiseSnapshot snap, RxAudioPipeline pipeline)
@@ -357,6 +403,7 @@ namespace JJFlexWpf
                 _owner = owner; _snap = snap; _pipeline = pipeline;
                 _spectral = ReadRx(pipeline.SpectralSlot);
                 _neural = ReadRx(pipeline.NeuralSlot);
+                _eq = pipeline.EqualizerSetup;
                 owner._ownRxDepth++;
             }
 
@@ -369,6 +416,7 @@ namespace JJFlexWpf
                 if (!ReferenceEquals(_owner._live, _snap) || !ReferenceEquals(_owner._pipeline(), _pipeline)) return;
                 NoteLayerLeftReceive(_snap, DenoiseFamily.Spectral, _spectral, ReadRx(_pipeline.SpectralSlot));
                 NoteLayerLeftReceive(_snap, DenoiseFamily.Neural, _neural, ReadRx(_pipeline.NeuralSlot));
+                NoteLayerLeftReceiveEq(_snap, _eq, _pipeline.EqualizerSetup);
             }
         }
 
@@ -399,6 +447,22 @@ namespace JJFlexWpf
                 else { snap.Neural = (before.On, before.Engine); snap.NeuralSettings = before.Settings; }
             }
             if (spectral) snap.LeftReceiveSpectral = now; else snap.LeftReceiveNeural = now;
+        }
+
+        /// <summary>The receive equaliser's twin of <see cref="NoteLayerLeftReceive"/> (Sprint 49 Track I, repair 1, B1).</summary>
+        private static void NoteLayerLeftReceiveEq(NoiseSnapshot snap, ParametricEqSetup before, ParametricEqSetup now)
+        {
+            if (snap.ReceiveEq == null || SameEq(now, before)) return;
+            if (!SameEq(before, snap.LeftReceiveEq ?? snap.ReceiveEq)) snap.ReceiveEq = before.Clone();
+            snap.LeftReceiveEq = now.Clone();
+        }
+
+        /// <summary>Whether Escape puts the receive equaliser back: the layer changed it, it still reads as the layer left it, and it differs from the picture.</summary>
+        private static bool LayerOwnsReceiveEq(NoiseSnapshot snap, RxAudioPipeline p)
+        {
+            if (snap.LeftReceiveEq == null || snap.ReceiveEq == null) return false;
+            var now = p.EqualizerSetup;
+            return SameEq(now, snap.LeftReceiveEq) && !SameEq(now, snap.ReceiveEq);
         }
 
         /// <summary>
@@ -559,8 +623,18 @@ namespace JJFlexWpf
                 // Repair 2, R1: an owned slot whose target was rebased is put back
                 // onto a change made elsewhere, so it counts as kept, and is
                 // remembered for the same reason.
+                // Sprint 49 Track I, repair 1 (B1): the receive equaliser, by the same rule.
+                bool eqOwned = LayerOwnsReceiveEq(snap, p);
+                if (eqOwned)
+                {
+                    p.SetEqualizer(snap.ReceiveEq!);
+                    NoiseSettingsJournal.Record(NoiseJournalKind.Switch, source, "equalizer", "", "layer changes", "put back");
+                    changed = true;
+                }
+                bool eqKept = snap.ReceiveEq != null && !SameEq(eqOwned ? snap.ReceiveEq : p.EqualizerSetup, snap.EntryReceiveEq ?? snap.ReceiveEq);
                 bool kept = KeptOutsideReceive(snap, DenoiseFamily.Spectral, spectralOwned, p.SpectralSlot)
-                    || KeptOutsideReceive(snap, DenoiseFamily.Neural, neuralOwned, p.NeuralSlot);
+                    || KeptOutsideReceive(snap, DenoiseFamily.Neural, neuralOwned, p.NeuralSlot)
+                    || eqKept;
                 if (kept) RememberModeState();
                 LastRestoreKeptOutsideChanges |= kept;
             }
@@ -585,18 +659,24 @@ namespace JJFlexWpf
                 var txNow = ReadTx(chain);
                 var owned = LayerOwnedTx(snap, txNow);
                 LastRestoreKeptOutsideChanges |= KeptOutsideTx(snap, txNow, owned);
-                if (owned.Spectral || owned.Neural || owned.Gate)
+                if (owned.Spectral || owned.Neural || owned.Gate || owned.Stages)
                 {
                     if (owned.Spectral || owned.Neural) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
                     var spectralBack = snap.TransmitSpectral?.Clone();
                     var neuralBack = snap.TransmitNeural?.Clone();
                     var gateBack = snap.TransmitGate?.Clone();
+                    var stagesBack = snap.TransmitStages?.Copy();
                     LastRestoreTiming = chain.RunOrDefer(() =>
                     {
                         var still = LayerOwnedTx(snap, ReadTx(chain));
                         if (still.Spectral) chain.ApplySlotNow(DenoiseFamily.Spectral, spectralBack);
                         if (still.Neural) chain.ApplySlotNow(DenoiseFamily.Neural, neuralBack);
-                        if (still.Gate && gateBack != null) TransmitGate.ApplyNow(gateBack);
+                        // Sprint 49 Track I, repair 1 (B1): the equaliser, the de-esser and
+                        // the order go back with the gate as ONE staged record; a gate the
+                        // layer did not change stays as it is (null keeps it).
+                        if (still.Stages && stagesBack != null)
+                            TransmitGate.ApplyStagesNow(stagesBack.Eq, stagesBack.DeEsser, stagesBack.Order, still.Gate ? gateBack : null);
+                        else if (still.Gate && gateBack != null) TransmitGate.ApplyNow(gateBack);
                     }).Timing;
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes", "put back");
                     changed = true;

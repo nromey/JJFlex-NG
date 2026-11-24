@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using System.Xml.Serialization;
 
@@ -293,6 +294,7 @@ public class AudioChainPreset
             var loaded = (AudioChainPreset?)serializer.Deserialize(fs);
             if (loaded == null)
                 return false;
+            loaded.TransmitNoise?.AfterLoad(); // Sprint 49 Track I: the version 1 upgrade (S7, N1)
             preset = loaded;
 
             if (loaded.SchemaVersion > CurrentSchemaVersion)
@@ -439,7 +441,11 @@ public class AudioChainPresets
                 var serializer = new XmlSerializer(typeof(AudioChainPresets));
                 var presets = (AudioChainPresets?)serializer.Deserialize(fs);
                 if (presets != null)
+                {
+                    // Sprint 49 Track I: the version 1 upgrade of every transmit section (S7, N1).
+                    foreach (var p in presets.Presets.Concat(presets.NoisePresets)) p?.TransmitNoise?.AfterLoad();
                     return presets;
+                }
             }
             // Deserialized to nothing — same recovery as an exception.
             corruptSidelinedPath = SidelineCorruptFile(filePath);
@@ -521,6 +527,13 @@ public class ReceiveNoisePresetSection
     public NoisePresetSlot Neural { get; set; } = new();
     /// <summary>Every radio noise engine the preset sets: its switch and, where it has one, its intended level.</summary>
     public List<NoisePresetRadioEngine> Radio { get; set; } = new();
+
+    /// <summary>
+    /// The receive parametric equaliser (Sprint 49 Track I, repair 1, N2), or
+    /// null for a preset that does not carry one: an older preset loads with
+    /// none, and applying it leaves the equaliser as it is.
+    /// </summary>
+    public ParametricEqSetup? Eq { get; set; }
 }
 
 /// <summary>One computer slot in a preset: on or off, its engine, and that engine's strength and settings.</summary>

@@ -211,7 +211,7 @@ namespace JJFlexWpf
             // conditioner itself when the transmit stream opens; the chain
             // asks it on the control side to say whether a change waits.
             chain.KeySource = rig.TransmitKeySource;
-            PlugNoiseStage(cond, rig.TransmitKeySource, NrStage, AppliedNrLatency);
+            PlugNoiseStage(cond, rig.TransmitKeySource, NrStage, AppliedNrLatency, EngagedOf(chain));
             cond.MonitorSink = MonitorStage;
             PushGate(cond);
 
@@ -262,6 +262,7 @@ namespace JJFlexWpf
                 var cond = rig.TxConditioner;
                 cond.NoiseReducer = null;
                 cond.NoiseReducerAppliedLatencySamples = null;
+                cond.NoiseReducerEngaged = null;
                 cond.MonitorSink = null;
                 cond.MonitorMode = JJPortaudio.TxAudioConditioner.MonitorModes.Off;
             }
@@ -309,12 +310,17 @@ namespace JJFlexWpf
         /// reaches the control too.
         /// </summary>
         internal static void PlugNoiseStage(JJPortaudio.TxAudioConditioner cond, Func<bool> keySource,
-            Action<float[], int, uint> stage, Func<int> appliedLatency)
+            Action<float[], int, uint> stage, Func<int> appliedLatency, Func<bool>? engaged = null)
         {
             cond.KeySource = keySource;
             cond.NoiseReducer = stage;
             cond.NoiseReducerAppliedLatencySamples = appliedLatency;
+            cond.NoiseReducerEngaged = engaged;
         }
+
+        /// <summary>Whether a chain's noise reduction is switched on in either slot (repair 1, N3): what the conditioner asks to say whether its noise stage does anything.</summary>
+        internal static Func<bool> EngagedOf(TxNoiseChain chain) =>
+            () => chain.WantsEnabled(DenoiseFamily.Spectral) || chain.WantsEnabled(DenoiseFamily.Neural);
 
         private static int AppliedNrLatency() => _nrAppliedLatency;
 
@@ -825,6 +831,22 @@ namespace JJFlexWpf
             });
         }
 
+        /// <summary>
+        /// A whole equaliser setting, on or off included, as ONE switch (repair 1,
+        /// B2): held for the unkey while keyed, in order behind anything already
+        /// held, so it is what stands once those land.
+        /// </summary>
+        public static TxChangeResult SetEqWhole(ParametricEqSetup setup)
+        {
+            var copy = (setup ?? new ParametricEqSetup()).Clone();
+            return Chain.RunOrDefer(() =>
+            {
+                lock (_gate) _eqIntent = copy.Clone();
+                var design = copy.ToDesign();
+                Conditioner?.RequestSwitch(g => g.Eq = design);
+            });
+        }
+
         /// <summary>The de-esser as intended: a copy.</summary>
         public static TxDeEsserSetup DeEsserSetup { get { lock (_gate) return _deEsserIntent.Clone(); } }
 
@@ -940,8 +962,8 @@ namespace JJFlexWpf
                 // The de-esser's band follows the transmit filter (radio-neutral:
                 // the conditioner only ever hears a number).
                 cond.DeEsser.PassbandHighEdgeHz = rig!.TXFilterHigh;
-                FinishLearnIfDone(cond);
                 bool keyed = rig.TransmitKeyedOrInterlock;
+                FinishLearnIfDone(cond, keyed);
                 int now = keyed ? 1 : 0;
                 if (System.Threading.Interlocked.Exchange(ref _wasKeyedForStats, now) == 1 && now == 0)
                     TraceOverStats(cond);
@@ -953,8 +975,12 @@ namespace JJFlexWpf
         }
 
         /// <summary>A finished learn: write the hand-set threshold when the automatic one is off, then tell whoever listens. Policy tick only.</summary>
-        internal static void FinishLearnIfDone(JJPortaudio.TxAudioConditioner cond)
+        internal static void FinishLearnIfDone(JJPortaudio.TxAudioConditioner cond, bool keyed)
         {
+            // Repair 1, N6: a learn that finished just before a key-down is acted
+            // on at the next UNKEYED tick, like every threshold change (S15), so
+            // it never moves the threshold during an over.
+            if (keyed) return;
             long baseline = System.Threading.Interlocked.Read(ref _learnBaseline);
             if (baseline < 0 || cond.RoomFloor.LearnsFinished <= baseline) return;
             System.Threading.Interlocked.Exchange(ref _learnBaseline, -1);

@@ -28,12 +28,16 @@ namespace JJFlexWpf
 
         private readonly Func<ParametricEqSetup> _read;
         private readonly Func<ParametricEqSetup, TxChangeResult?> _write;
+        private readonly Func<ParametricEqSetup, TxChangeResult?> _restore;
 
-        public ParametricEqEditorModel(DenoiseDirection side, Func<ParametricEqSetup> read, Func<ParametricEqSetup, TxChangeResult?> write)
+        /// <param name="restore">Puts a WHOLE setting back, on or off included (the editor's Cancel; repair 1, B2). Null uses <paramref name="write"/>, which is right only where the writer writes the whole setting.</param>
+        public ParametricEqEditorModel(DenoiseDirection side, Func<ParametricEqSetup> read, Func<ParametricEqSetup, TxChangeResult?> write,
+            Func<ParametricEqSetup, TxChangeResult?>? restore = null)
         {
             Side = side;
             _read = read ?? throw new ArgumentNullException(nameof(read));
             _write = write ?? throw new ArgumentNullException(nameof(write));
+            _restore = restore ?? write;
         }
 
         /// <summary>A model on its own setting, writing nowhere: for a detached editor.</summary>
@@ -258,7 +262,22 @@ namespace JJFlexWpf
         }
 
         /// <summary>Put a whole setting back (the editor's Cancel), unchanged in on or off.</summary>
-        public void Restore(ParametricEqSetup snapshot) => _write(snapshot.Clone());
+        public void Restore(ParametricEqSetup snapshot) => _restore(snapshot.Clone());
+
+        /// <summary>
+        /// What the editor's fields show for a setting and a band (repair 1, N7):
+        /// the output gain always, whether or not a band is selected; the band's
+        /// fields only when there is one. Tenths of a dB and hundredths of Q, as
+        /// the value fields hold them.
+        /// </summary>
+        public static (bool HasBand, int KindIndex, int FrequencyHz, int GainTenths, int QHundredths, bool GainUsed, int OutputTenths) Display(ParametricEqSetup s, int band)
+        {
+            int output = (int)Math.Round(s.OutputGainDb * 10);
+            if (band < 0 || band >= s.Bands.Count) return (false, 0, 0, 0, 0, false, output);
+            var b = s.Bands[band];
+            return (true, Math.Max(0, ParametricEqKinds.All.ToList().IndexOf(b.Kind)), (int)Math.Round(b.FrequencyHz),
+                (int)Math.Round(b.GainDb * 10), (int)Math.Round(b.Q * 100), ParametricEqKinds.UsesGain(b.Kind), output);
+        }
     }
 
     /// <summary>
@@ -409,17 +428,17 @@ namespace JJFlexWpf
             _filling = true;
             try
             {
-                var s = _model.Setting;
-                bool any = _model.Band >= 0 && _model.Band < s.Bands.Count;
-                foreach (UIElement e in new UIElement[] { _kind, _frequency, _gain, _q }) e.IsEnabled = any;
-                if (!any) return;
-                var b = s.Bands[_model.Band];
-                _kind.SelectedIndex = Math.Max(0, ParametricEqKinds.All.ToList().IndexOf(b.Kind));
-                _frequency.Value = (int)Math.Round(b.FrequencyHz);
-                _gain.Value = (int)Math.Round(b.GainDb * 10);
-                _gain.IsEnabled = ParametricEqKinds.UsesGain(b.Kind);
-                _q.Value = (int)Math.Round(b.Q * 100);
-                _output.Value = (int)Math.Round(s.OutputGainDb * 10);
+                // The output gain is refreshed whether or not a band is selected
+                // (repair 1, N7: Flat after a gain, or the last band removed).
+                var d = ParametricEqEditorModel.Display(_model.Setting, _model.Band);
+                _output.Value = d.OutputTenths;
+                foreach (UIElement e in new UIElement[] { _kind, _frequency, _gain, _q }) e.IsEnabled = d.HasBand;
+                if (!d.HasBand) return;
+                _kind.SelectedIndex = d.KindIndex;
+                _frequency.Value = d.FrequencyHz;
+                _gain.Value = d.GainTenths;
+                _gain.IsEnabled = d.GainUsed;
+                _q.Value = d.QHundredths;
             }
             finally { _filling = false; }
         }

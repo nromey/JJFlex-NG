@@ -82,19 +82,32 @@ public sealed class TxNoiseGateSetup
     // passes through). Turning the stage off and on never changes these.
     // Every field here is a scalar, so the member-wise Clone carries it.
 
+    // Each of the expander's fields notes that it was assigned, so a record
+    // read with no Version element can still tell a version 2 gate (which
+    // carries them) from a version 1 gate (repair 1, N1). The initializers
+    // write the fields, never the setters.
+    private float _ratio = JJPortaudio.TxNoiseGate.DefaultRatioToOne;
+    private bool _gateSetting, _sideChain = true;
+    private float _scLow = JJPortaudio.TxNoiseGate.DefaultSideChainLowHz, _scHigh = JJPortaudio.TxNoiseGate.DefaultSideChainHighHz;
+    private float _lookAhead = JJPortaudio.TxNoiseGate.DefaultLookAheadMs;
+
+    /// <summary>Whether any of the expander's own fields was assigned (on a load: present in the file).</summary>
+    [XmlIgnore]
+    public bool ExpanderFieldsRead { get; private set; }
+
     /// <summary>The expander's ratio, n:1. Used when <see cref="GateSetting"/> is off.</summary>
-    public float RatioToOne { get; set; } = JJPortaudio.TxNoiseGate.DefaultRatioToOne;
+    public float RatioToOne { get => _ratio; set { _ratio = value; ExpanderFieldsRead = true; } }
 
     /// <summary>The top setting, the gate: today's fixed-depth gate exactly. Explicit, never a large ratio.</summary>
-    public bool GateSetting { get; set; }
+    public bool GateSetting { get => _gateSetting; set { _gateSetting = value; ExpanderFieldsRead = true; } }
 
     /// <summary>The side-chain filter on what the detector hears (ruled 2026-11-23 11:35).</summary>
-    public bool SideChainFilter { get; set; } = true;
-    public float SideChainLowCutHz { get; set; } = JJPortaudio.TxNoiseGate.DefaultSideChainLowHz;
-    public float SideChainHighCutHz { get; set; } = JJPortaudio.TxNoiseGate.DefaultSideChainHighHz;
+    public bool SideChainFilter { get => _sideChain; set { _sideChain = value; ExpanderFieldsRead = true; } }
+    public float SideChainLowCutHz { get => _scLow; set { _scLow = value; ExpanderFieldsRead = true; } }
+    public float SideChainHighCutHz { get => _scHigh; set { _scHigh = value; ExpanderFieldsRead = true; } }
 
     /// <summary>Look-ahead, ms (ruled 2026-11-23 20:56: adjustable, 3 ms to start).</summary>
-    public float LookAheadMs { get; set; } = JJPortaudio.TxNoiseGate.DefaultLookAheadMs;
+    public float LookAheadMs { get => _lookAhead; set { _lookAhead = value; ExpanderFieldsRead = true; } }
 
     /// <summary>
     /// What a version 1 record's gate becomes (S7): one that was on keeps its
@@ -225,7 +238,17 @@ public sealed class TxNoiseSetup
     public const int CurrentVersion = 2;
 
     /// <summary>Schema version of this record, for forward migration.</summary>
-    public int Version { get; set; } = CurrentVersion;
+    public int Version
+    {
+        get => _version;
+        set { _version = value; _versionRead = true; }
+    }
+
+    // Whether Version was assigned (by the serializer, on a load); the
+    // initializer writes the field, so a record that never had the element
+    // reads false. Only AfterLoad asks.
+    private int _version = CurrentVersion;
+    private bool _versionRead;
 
     public string Name { get; set; } = "";
 
@@ -233,37 +256,45 @@ public sealed class TxNoiseSetup
 
     public TxNoiseSlotSetup Neural { get; set; } = new();
 
-    private TxNoiseGateSetup _gate = new();
+    /// <summary>
+    /// The gate, a downward expander since version 2. A loaded version 1 gate
+    /// is upgraded by <see cref="AfterLoad"/>, never by this setter.
+    /// </summary>
+    public TxNoiseGateSetup Gate { get; set; } = new();
 
     /// <summary>
-    /// The gate, a downward expander since version 2.
+    /// Bring a record just READ from a file up to this version (S7, Noel's
+    /// ruling: saved gates keep exactly today's sound). Called by every home
+    /// as it loads (the per-radio store, a preset file and the preset store,
+    /// and <c>audioConfig.xml</c>), once the whole record has been read, so
+    /// the decision does not depend on the order the serializer met the
+    /// elements in (Sprint 49 Track I, repair 1, N1):
+    /// <list type="bullet">
+    /// <item>The version read is the <c>Version</c> element if the file had
+    /// one; with none, it is 2 when the gate carries the expander's fields
+    /// (only a version 2 build writes them) and 1 when it does not.</item>
+    /// <item>Below 2: a gate that was on becomes the gate setting with no
+    /// side-chain filter and no look-ahead, today's sound exactly; one that
+    /// was off keeps the new defaults. The record is then version 2.</item>
+    /// <item>2 or newer: untouched, a newer build's record included.</item>
+    /// </list>
+    /// Idempotent; a record built in code never needs it.
     /// </summary>
-    /// <remarks>
-    /// <b>This setter is where a version 1 record is upgraded (S7)</b>, because
-    /// it is the one place every loaded record passes through: the per-radio
-    /// store, a preset's transmit section and the live state in
-    /// <c>audioConfig.xml</c> are all read by <see cref="XmlSerializer"/>, which
-    /// reads the record's elements in order (<see cref="Version"/> is written
-    /// first) and assigns the gate whole once it has read it. A version 1 gate
-    /// that was on becomes the gate setting with no side-chain filter and no
-    /// look-ahead, so it sounds exactly as before; the record is then version
-    /// 2. Code that builds a record in memory gets version 2 from the start
-    /// and is never touched. A test reads a real version 1 file through all
-    /// three homes.
-    /// </remarks>
-    public TxNoiseGateSetup Gate
+    public void AfterLoad()
     {
-        get => _gate;
-        set
+        if (_loaded) return;
+        _loaded = true;
+        Gate ??= new TxNoiseGateSetup();
+        int read = _versionRead ? _version : (Gate.ExpanderFieldsRead ? CurrentVersion : 1);
+        if (read < 2)
         {
-            _gate = value;
-            if (Version < 2 && value != null)
-            {
-                value.UpgradeFromVersion1();
-                Version = CurrentVersion;
-            }
+            Gate.UpgradeFromVersion1();
+            _version = CurrentVersion;
         }
+        else if (!_versionRead) _version = CurrentVersion;
     }
+
+    private bool _loaded;
 
     /// <summary>The parametric equaliser, after the expander (Sprint 49 Track I, #1240). Off in a version 1 record.</summary>
     public ParametricEqSetup Eq { get; set; } = new();
@@ -560,6 +591,7 @@ public sealed class TxNoiseSetupStore
                     s.Eq.Bands ??= new();
                     s.DeEsser ??= new();
                     s.StageOrder ??= JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
+                    s.AfterLoad(); // the version 1 upgrade, once the whole record is read (N1)
                 }
                 return file;
             }

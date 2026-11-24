@@ -2920,6 +2920,10 @@ namespace Radios.Tests
                 "audio.fixer.gate.default",
                 "audio.fixer.gate.derived",
                 "audio.noise_surface.tx.deesser_transmit_only",
+                // Sprint 49 Track I, repair 1: the preset summary's new parts.
+                "audio.noise_surface.phrase_eq",
+                "audio.noise_surface.tx.phrase_eq",
+                "audio.noise_surface.tx.phrase_deesser",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

@@ -223,9 +223,39 @@ namespace JJFlexWpf
                 return TxAudioConditioning.SetEqShape(setup.Bands, setup.OutputGainDb, setup.PresetId);
             }
             if (_pipeline() is not { } p) return null;
-            p.SetEqualizer(setup);
+            // Sprint 49 Track I, repair 1 (B4, #873): an on-or-off or a preset is a
+            // receive SWITCH and takes the operator's switch choices (cross-fade or
+            // cut, and the Mute gap); a band edit is continuous and always fades.
+            p.SetEqualizer(setup, isSwitch);
             _persist();
             return TxChangeResult.Now;
+        }
+
+        /// <summary>
+        /// Put a whole equaliser setting back, its on or off included (Sprint 49
+        /// Track I, repair 1, B2: the editor's Cancel). Transmit goes through ONE
+        /// switch held for the unkey behind anything already held, so an on or
+        /// off the editor queued while keyed is undone too, not left to land.
+        /// </summary>
+        internal TxChangeResult? RestoreEqualizer(DenoiseDirection side, ParametricEqSetup setup)
+        {
+            if (side == DenoiseDirection.Transmit) return TxAudioConditioning.SetEqWhole(setup);
+            return WriteEqualizer(side, setup, isSwitch: true);
+        }
+
+        /// <summary>The layer's ownership for a write on a side: transmit's or receive's (repair 1, B1).</summary>
+        private IDisposable? Own(DenoiseDirection side, string source) =>
+            side == DenoiseDirection.Transmit ? OwnTx(source) : OwnRx(source);
+
+        /// <summary>
+        /// Say an equaliser switch. Transmit: on its own subject, as before.
+        /// Receive: through the engine-switch road (repair 1, B4, #873), so the
+        /// operator's switch beep and switch speech choices hold for it too.
+        /// </summary>
+        private void SayEqualizerSwitch(DenoiseDirection side, string sentence)
+        {
+            if (side == DenoiseDirection.Transmit) Say(sentence, EqSubject(side));
+            else SayEngineSwitch(sentence);
         }
 
         private static bool SameShape(ParametricEqSetup a, ParametricEqSetup b)
@@ -238,7 +268,7 @@ namespace JJFlexWpf
         /// <summary>The equaliser on or off on a side, and say it.</summary>
         public void SetEqualizerOn(DenoiseDirection side, bool on, string source)
         {
-            using var owned = side == DenoiseDirection.Transmit ? OwnTx(source) : null;
+            using var owned = Own(side, source);
             using var oneUtterance = OneUtterance();
             var setup = EqualizerSetup(side);
             bool was = setup.Enabled;
@@ -246,7 +276,7 @@ namespace JJFlexWpf
             var timing = LayerNoOp(source, was == on) ? TxChangeResult.Now : WriteEqualizer(side, setup, isSwitch: true);
             if (timing == null) { NoRadio(); return; }
             if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, side == DenoiseDirection.Transmit ? TxSource(source) : source, "equalizer", "", Words(was), Words(on));
-            Say(L(on ? "audio.eq.on" : "audio.eq.off", ("side", SideWords(side))), EqSubject(side));
+            SayEqualizerSwitch(side, L(on ? "audio.eq.on" : "audio.eq.off", ("side", SideWords(side))));
             if (side == DenoiseDirection.Transmit) SayAtUnkey(timing);
         }
 
@@ -255,7 +285,7 @@ namespace JJFlexWpf
         /// <summary>Load a preset's bands into a side's equaliser (its on or off is left as it was), and say what it now holds.</summary>
         public void LoadEqualizerPreset(DenoiseDirection side, string presetId, string source)
         {
-            using var owned = side == DenoiseDirection.Transmit ? OwnTx(source) : null;
+            using var owned = Own(side, source);
             using var oneUtterance = OneUtterance();
             var preset = ParametricEqPresets.Find(presetId);
             if (preset == null) return;
@@ -266,7 +296,7 @@ namespace JJFlexWpf
             var timing = WriteEqualizer(side, setup, isSwitch: true);
             if (timing == null) { NoRadio(); return; }
             NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, side == DenoiseDirection.Transmit ? TxSource(source) : source, "equalizer", "", "", preset.Id);
-            Say(L("audio.eq.preset_loaded", ("preset", Lexicon.Get(preset.NameKey)), ("summary", EqualizerSummary(side, setup))), EqSubject(side));
+            SayEqualizerSwitch(side, L("audio.eq.preset_loaded", ("preset", Lexicon.Get(preset.NameKey)), ("summary", EqualizerSummary(side, setup))));
             if (side == DenoiseDirection.Transmit) SayAtUnkey(timing);
         }
 
@@ -296,8 +326,12 @@ namespace JJFlexWpf
         public ParametricEqEditorModel EqualizerEditor(DenoiseDirection side, string source) =>
             new(side, () => EqualizerSetup(side), setup =>
             {
-                using var owned = side == DenoiseDirection.Transmit ? OwnTx(source) : null;
+                using var owned = Own(side, source);
                 return WriteEqualizer(side, setup, isSwitch: false);
+            }, setup =>
+            {
+                using var owned = Own(side, source);
+                return RestoreEqualizer(side, setup);
             });
     }
 }

@@ -134,56 +134,9 @@ public sealed class ParametricEqualizerSurfaceTests
         Assert.True(new TxNoiseSetup { Eq = back.ReceiveEq! }.SameContentAs(new TxNoiseSetup { Eq = Boost() }));
     }
 
-    [Fact]
-    public void A_version_one_live_transmit_state_in_audio_config_keeps_its_gate()
-    {
-        // "Desk mic" as the base commit (8953bc2c) serialized it, from the same probe
-        // that wrote Radios.Tests' version 1 fixture, under the live state's element name.
-        string xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><AudioOutputConfig>" + VersionOneTransmitNoise + "</AudioOutputConfig>";
-        var s = new System.Xml.Serialization.XmlSerializer(typeof(AudioOutputConfig));
-        var config = (AudioOutputConfig)s.Deserialize(new System.IO.StringReader(xml))!;
-        var tx = config.TransmitNoise!;
-        Assert.Equal(TxNoiseSetup.CurrentVersion, tx.Version);
-        Assert.True(tx.Gate.Enabled);
-        Assert.True(tx.Gate.GateSetting);
-        Assert.False(tx.Gate.SideChainFilter);
-        Assert.Equal(0f, tx.Gate.LookAheadMs);
-        Assert.False(tx.Eq.Enabled);
-    }
-
-    private const string VersionOneTransmitNoise = """
-    <TransmitNoise>
-      <Version>1</Version>
-      <Name>Desk mic</Name>
-      <Spectral>
-        <Enabled>false</Enabled>
-        <EngineId />
-        <Engines />
-      </Spectral>
-      <Neural>
-        <Enabled>true</Enabled>
-        <EngineId>rnnoise</EngineId>
-        <Engines>
-          <DenoiseEngineSettings>
-            <EngineId>rnnoise</EngineId>
-            <Direction>Transmit</Direction>
-            <Strength>0.8</Strength>
-            <Values />
-          </DenoiseEngineSettings>
-        </Engines>
-      </Neural>
-      <Gate>
-        <Enabled>true</Enabled>
-        <AutoThreshold>false</AutoThreshold>
-        <ThresholdMarginDb>9</ThresholdMarginDb>
-        <ThresholdDb>-42</ThresholdDb>
-        <AttackMs>4</AttackMs>
-        <HoldMs>220</HoldMs>
-        <ReleaseMs>260</ReleaseMs>
-        <RangeDb>30</RangeDb>
-      </Gate>
-    </TransmitNoise>
-""";
+    // The live state's version 1 upgrade is tested through AudioOutputConfig.Load,
+    // in every element order, in TxSoundStagesRepairOneTests (repair 1, N1): the
+    // upgrade now runs where each home loads, so a bare serializer no longer does it.
 
     // ── the editing model ──
 

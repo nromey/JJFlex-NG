@@ -142,7 +142,7 @@ public sealed class TxSoundStagesTests
         {
             Assert.Equal(TxAudioConditioning.LearnRoomOutcome.Started, TxAudioConditioning.LearnRoom());
             Through(x.Cond, Room(3.6, -45, 2));
-            TxAudioConditioning.FinishLearnIfDone(x.Cond);
+            TxAudioConditioning.FinishLearnIfDone(x.Cond, keyed: false);
             Assert.NotNull(said);
             float floor = x.Cond.RoomFloor.LearnedDb;
             Assert.InRange(floor, -42.6, -41.4); // -45 per channel, -42 as a channel-power sum

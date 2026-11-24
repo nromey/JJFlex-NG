@@ -221,6 +221,15 @@ namespace JJFlexWpf
                             phrases.Add(L(re.On ? "audio.noise_surface.phrase_on" : "audio.noise_surface.phrase_off", ("engine", Lexicon.Get(e.LabelKey))));
                         }
                     }
+                // Sprint 49 Track I, repair 1 (N2): the receive equaliser, when the
+                // preset carries one (an older preset does not, and changes nothing
+                // here). A switch: it takes the receive switch choices (#873).
+                if (noise.Eq is { } eq && !SameEq(p.EqualizerSetup, eq))
+                {
+                    p.SetEqualizer(eq, isSwitch: true);
+                    changes.Add(new("equalizer", "", "", "preset"));
+                    phrases.Add(L("audio.noise_surface.phrase_eq"));
+                }
                 RememberModeState();
             }
             if (preset.TransmitNoise is { } transmit)
@@ -280,6 +289,22 @@ namespace JJFlexWpf
                 changes.Add(new("tx:gate", "", "", "preset"));
                 phrases.Add(L("audio.noise_surface.tx.phrase_gate"));
             }
+            // Sprint 49 Track I, repair 1 (B3): the stages the section also applies
+            // (ApplyWholeTransmit puts a missing one back to off), so a preset that
+            // changes only these never says "nothing to change".
+            var (eqNow, deNow, orderNow) = TransmitGate.CaptureStages();
+            if (!SameEq(eqNow, section.Eq ?? new ParametricEqSetup()))
+            {
+                changes.Add(new("tx:equalizer", "", "", "preset"));
+                phrases.Add(L("audio.noise_surface.tx.phrase_eq"));
+            }
+            if (!new TxNoiseSetup { DeEsser = deNow }.SameContentAs(new TxNoiseSetup { DeEsser = section.DeEsser ?? new TxDeEsserSetup() }))
+            {
+                changes.Add(new("tx:deesser", "", "", "preset"));
+                phrases.Add(L("audio.noise_surface.tx.phrase_deesser"));
+            }
+            if (!orderNow.SequenceEqual(section.StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder))
+                changes.Add(new("tx:order", "", "", "preset")); // journal only: this build runs one order
             return ApplyWholeTransmit(section.Spectral ?? new TxNoiseSlotSetup(), section.Neural ?? new TxNoiseSlotSetup(), section.Gate, section);
         }
 
@@ -402,6 +427,7 @@ namespace JJFlexWpf
             {
                 section.Spectral = CaptureSlot(p.SpectralSlot);
                 section.Neural = CaptureSlot(p.NeuralSlot);
+                section.Eq = p.EqualizerSetup; // Sprint 49 Track I, repair 1 (N2)
             }
             if (_radio() is { } r)
                 foreach (var e in Engines().Where(e => e.Side == DenoiseSide.Radio))

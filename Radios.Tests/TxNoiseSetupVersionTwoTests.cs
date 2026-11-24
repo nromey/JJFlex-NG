@@ -159,6 +159,92 @@ public sealed class TxNoiseSetupVersionTwoTests : IDisposable
         AssertKeptItsSound(preset.TransmitNoise!);
     }
 
+    // ── Repair 1, N1: the upgrade does not depend on element order (S7, Noel's ruling) ──
+
+    /// <summary>"Desk mic"'s element in three shapes no base build wrote but a hand or another tool might: no Version, Gate before Version=1, and a newer version's record.</summary>
+    internal static string Variant(string shape, string elementName)
+    {
+        string e = VersionOneSetupElement(elementName);
+        return shape switch
+        {
+            "no_version" => e.Replace("<Version>1</Version>", ""),
+            "gate_first" => MoveGateFirst(e),
+            "newer" => e.Replace("<Version>1</Version>", "<Version>3</Version>"),
+            _ => e,
+        };
+    }
+
+    private static string MoveGateFirst(string e)
+    {
+        int a = e.IndexOf("<Gate>", StringComparison.Ordinal), b = e.IndexOf("</Gate>", StringComparison.Ordinal) + "</Gate>".Length;
+        string gate = e[a..b];
+        string rest = e.Remove(a, b - a);
+        int v = rest.IndexOf("<Version>", StringComparison.Ordinal);
+        return rest.Insert(v, gate);
+    }
+
+    /// <summary>What each shape must load as: the two old shapes keep the gate's sound exactly; a newer record is left exactly as it was read.</summary>
+    internal static void AssertShape(string shape, TxNoiseSetup s)
+    {
+        if (shape == "newer")
+        {
+            Assert.Equal(3, s.Version);
+            Assert.False(s.Gate.GateSetting); // untouched: a newer build's record is not this build's to change
+            Assert.Equal(2f, s.Gate.RatioToOne);
+            Assert.Equal(3f, s.Gate.LookAheadMs);
+            return;
+        }
+        AssertKeptItsSound(s);
+    }
+
+    [Theory]
+    [InlineData("no_version")]
+    [InlineData("gate_first")]
+    [InlineData("newer")]
+    public void Every_element_order_upgrades_the_same_through_the_store(string shape)
+    {
+        var store = new TxNoiseSetupStore(_root);
+        var path = store.PathFor(Radio)!;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "<?xml version=\"1.0\" encoding=\"utf-8\"?><TxNoiseSetups schemaVersion=\"1\"><Setups>"
+            + Variant(shape, "TxNoiseSetup") + "</Setups></TxNoiseSetups>");
+        AssertShape(shape, store.Find(Radio, "Desk mic")!);
+    }
+
+    [Theory]
+    [InlineData("no_version")]
+    [InlineData("gate_first")]
+    [InlineData("newer")]
+    public void Every_element_order_upgrades_the_same_through_a_preset_file_and_the_preset_store(string shape)
+    {
+        string file = Path.Combine(_root, "preset.xml");
+        File.WriteAllText(file, "<?xml version=\"1.0\" encoding=\"utf-8\"?><AudioChainPreset><Name>Old</Name>"
+            + Variant(shape, "TransmitNoise") + "</AudioChainPreset>");
+        Assert.True(AudioChainPreset.TryLoad(file, out var preset, out _));
+        AssertShape(shape, preset.TransmitNoise!);
+
+        string dir = Path.Combine(_root, "presets");
+        string storeFile = Path.Combine(dir, "op_audioPresets.xml"); // AudioChainPresets' own name for an operator's presets
+        Directory.CreateDirectory(Path.GetDirectoryName(storeFile)!);
+        File.WriteAllText(storeFile, "<?xml version=\"1.0\" encoding=\"utf-8\"?><AudioChainPresets><Presets /><NoisePresets><AudioChainPreset><Name>Old</Name>"
+            + Variant(shape, "TransmitNoise") + "</AudioChainPreset></NoisePresets></AudioChainPresets>");
+        var loaded = AudioChainPresets.Load(dir, "op", out _);
+        AssertShape(shape, loaded.NoisePresets.Single(p => p.Name == "Old").TransmitNoise!);
+    }
+
+    [Fact]
+    public void A_record_with_no_version_but_the_expanders_fields_is_a_version_two_record_and_is_left_alone()
+    {
+        string e = VersionOneSetupElement("TransmitNoise").Replace("<Version>1</Version>", "")
+            .Replace("</Gate>", "<RatioToOne>3</RatioToOne><GateSetting>false</GateSetting></Gate>");
+        string file = Path.Combine(_root, "v2.xml");
+        File.WriteAllText(file, "<?xml version=\"1.0\" encoding=\"utf-8\"?><AudioChainPreset><Name>V2</Name>" + e + "</AudioChainPreset>");
+        Assert.True(AudioChainPreset.TryLoad(file, out var preset, out _));
+        Assert.False(preset.TransmitNoise!.Gate.GateSetting);
+        Assert.Equal(3f, preset.TransmitNoise.Gate.RatioToOne);
+        Assert.Equal(TxNoiseSetup.CurrentVersion, preset.TransmitNoise.Version);
+    }
+
     [Fact]
     public void A_new_setup_starts_at_two_to_one_with_the_filter_on_and_three_milliseconds()
     {

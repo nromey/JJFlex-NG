@@ -83,12 +83,29 @@ namespace JJFlexWpf
         /// from the old one, so turning it on or off, loading a preset and moving
         /// a band are all click-free.
         /// </summary>
-        public void SetEqualizer(Radios.ParametricEqSetup setup)
+        public void SetEqualizer(Radios.ParametricEqSetup setup) => SetEqualizer(setup, isSwitch: false);
+
+        /// <summary>
+        /// As above; a SWITCH (on or off, a preset; repair 1, B4, #873) takes the
+        /// operator's receive switch choices exactly as an engine switch does: the
+        /// Mute gap when it is on (<see cref="PcDenoiseSlot.SwitchMuteEnabled"/>),
+        /// else a cross-fade, or a straight cut when cross-fade is off
+        /// (<see cref="PcDenoiseSlot.CrossFadeEnabled"/>). A band edit always fades.
+        /// </summary>
+        public void SetEqualizer(Radios.ParametricEqSetup setup, bool isSwitch)
         {
             var copy = (setup ?? new Radios.ParametricEqSetup()).Clone();
             lock (_equalizerLock) _equalizerSetup = copy;
-            Equalizer.Use(copy.ToDesign());
+            var style = !isSwitch ? JJPortaudio.ParametricEqSwitch.Fade
+                : (EqMuteOverrideForTest ?? PcDenoiseSlot.SwitchMuteEnabled) ? JJPortaudio.ParametricEqSwitch.Mute
+                : (EqCrossFadeOverrideForTest ?? PcDenoiseSlot.CrossFadeEnabled) ? JJPortaudio.ParametricEqSwitch.Fade
+                : JJPortaudio.ParametricEqSwitch.Cut;
+            Equalizer.Use(copy.ToDesign(), style, PcDenoiseSlot.MuteSamples, PcDenoiseSlot.MuteRampSamples);
         }
+
+        /// <summary>Tests only: this pipeline's equaliser switch choices instead of the app-wide ones.</summary>
+        internal bool? EqMuteOverrideForTest { get; set; }
+        internal bool? EqCrossFadeOverrideForTest { get; set; }
 
         /// <summary>Kept for the duck's ramp, which has to convert a time
         /// constant into a per-frame increment.</summary>

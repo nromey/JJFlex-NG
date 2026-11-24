@@ -664,6 +664,8 @@ namespace JJFlexWpf
                 // than immortalising the old one.
                 if (loaded != null)
                 {
+                    // Sprint 49 Track I: the live transmit choices' version 1 upgrade (S7, N1).
+                    loaded.TransmitNoise?.AfterLoad();
                     MeterConfigMigration.Migrate(loaded);
                     loaded.UpgradeCountdownDefaults();
                 }

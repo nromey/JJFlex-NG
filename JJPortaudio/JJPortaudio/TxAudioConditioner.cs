@@ -129,6 +129,33 @@ namespace JJPortaudio
         /// </summary>
         public Action<float[], int, uint> NoiseReducer { get; set; }
 
+        /// <summary>
+        /// Whether the plugged noise stage is switched on (Sprint 49 Track I,
+        /// repair 1, N3): a plugged stage may be bypassing itself, so the plug
+        /// alone does not say the chain is doing anything. Null: unknown, read
+        /// as on when a stage is plugged. Asked off the audio thread only.
+        /// </summary>
+        public Func<bool> NoiseReducerEngaged { get; set; }
+
+        /// <summary>
+        /// Whether this chain is changing the transmitted audio at all: some
+        /// stage is on (noise reduction, the expander, the equaliser, the
+        /// de-esser) and the chain is not standing aside for CW or digital. One
+        /// answer for every reader (repair 1, N3); off the audio thread.
+        /// </summary>
+        public bool AnyStageActive
+        {
+            get
+            {
+                if (_bypassAll) return false;
+                bool nr = NoiseReducer != null && (NoiseReducerEngaged?.Invoke() ?? true);
+                bool expander = Gate.Enabled || GateInForce.Enabled;
+                bool eq = Eq.IsActive || GateInForce.Eq is { IsIdentity: false };
+                bool deEss = DeEsser.Enabled || GateInForce.DeEsserEnabled;
+                return nr || expander || eq || deEss;
+            }
+        }
+
         /// <summary>Called after NoiseReducer: actual delay for THIS buffer,
         /// in samples per channel; zero when the reducer bypassed it.</summary>
         public Func<int> NoiseReducerAppliedLatencySamples { get; set; }
@@ -351,7 +378,7 @@ namespace JJPortaudio
             Gate.Enabled = live.Enabled;
             // The room's meter hears what the detector hears (#1252).
             RoomFloor.SetSideChain(live.SideChainEnabled, Gate.SideChainLowHz, Gate.SideChainHighHz);
-            Eq.Use(live.Eq);
+            Eq.UseFromAudioThread(live.Eq); // on the audio thread: the road that allocates nothing
             DeEsser.FrequencyHz = live.DeEsserFrequencyHz;
             DeEsser.AmountDb = live.DeEsserAmountDb;
             DeEsser.ThresholdDb = live.DeEsserThresholdDb;
@@ -405,8 +432,14 @@ namespace JJPortaudio
 
         // Scratch: the pre-processing copy of the input (for the residual)
         // and the buffer handed to the monitor sink.
-        private float[] _inputCopy = Array.Empty<float>();
-        private float[] _cleanupCopy = Array.Empty<float>();
+        // Preallocated here, off the audio thread (Sprint 49 Track I, repair 1,
+        // N4): 4,096 stereo frames, four times the largest buffer the transmit
+        // stream hands over (480 frames), so choosing "what was removed"
+        // allocates nothing on the callback. The cleanup copy grows only where
+        // the input copy already did, never at a new moment.
+        private const int ScratchFloats = 8192;
+        private float[] _inputCopy = new float[ScratchFloats];
+        private float[] _cleanupCopy = new float[ScratchFloats];
         private int _appliedDelay;
         private long _lastBufferMs;
 
@@ -445,7 +478,7 @@ namespace JJPortaudio
             return (clips, frames, deepest);
         }
 
-        private float[] _monitorBuf = Array.Empty<float>();
+        private float[] _monitorBuf = new float[ScratchFloats];
         private float[] _inputDelay = Array.Empty<float>();
         private int _inputDelayAt;
 
@@ -483,7 +516,11 @@ namespace JJPortaudio
 
             // Keep the untouched input while the stages modify the buffer —
             // the residual is a subtraction and needs both ends.
-            if (_inputCopy.Length < count) _inputCopy = new float[count];
+            if (_inputCopy.Length < count)
+            {
+                _inputCopy = new float[count];
+                if (_cleanupCopy.Length < count) _cleanupCopy = new float[count];
+            }
             Array.Copy(buffer, _inputCopy, count);
 
             // NR first, the expander second — see class remarks.
@@ -505,7 +542,6 @@ namespace JJPortaudio
             bool wantResidual = wantMonitor && (mode == MonitorModes.Residual || mode == MonitorModes.Split);
             if (wantResidual)
             {
-                if (_cleanupCopy.Length < count) _cleanupCopy = new float[count];
                 Array.Copy(buffer, _cleanupCopy, count);
             }
 

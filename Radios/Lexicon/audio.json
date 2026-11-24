@@ -2161,5 +2161,8 @@
   "audio.fixer.gate.by_hand": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: the transmit expander's threshold is {threshold} dB, set by hand", "delivery": null},
   "audio.fixer.gate.default": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: the transmit expander is holding its deliberately low starting threshold of {threshold} dB, because it has not yet heard your room while you were not transmitting", "delivery": null},
   "audio.fixer.gate.derived": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: the transmit expander's threshold is {threshold} dB: your room's noise floor, {floor} dB, measured after noise reduction while you were not transmitting, plus a {margin} dB margin; stated so you can see where it came from, not judged", "delivery": null},
-  "audio.noise_surface.tx.deesser_transmit_only": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: the de-esser works on transmit only; press T for transmit", "delivery": null}
+  "audio.noise_surface.tx.deesser_transmit_only": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: the de-esser works on transmit only; press T for transmit", "delivery": null},
+  "audio.noise_surface.phrase_eq": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: parametric equaliser changed (a preset summary's part, beside \"{engine} on\")", "delivery": null},
+  "audio.noise_surface.tx.phrase_eq": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: parametric equaliser changed (the transmit part of a preset summary, beside \"noise gate settings changed\")", "delivery": null},
+  "audio.noise_surface.tx.phrase_deesser": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: de-esser changed (the transmit part of a preset summary)", "delivery": null}
 }
