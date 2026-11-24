@@ -701,6 +701,54 @@ public sealed class DeskRunRulesTests
         Assert.Equal(new[] { TonightsBox }, DeskRunRules.NewCrashBoxes(new HashSet<long>(), seen));
     }
 
+    // ── round 6 (R5): a window read that failed is said as one ───────────
+
+    [Fact]
+    public void AWindowReadWithTheDesktopOpenIsDescribedAsRead()
+    {
+        // What Codex's probe read on tonight's box with the input desktop's handle held.
+        var read = new DeskRunRules.WindowReading(
+            TonightsBox, 1716, null, "csrss",
+            "#32770", null, "dotnet.exe - Application Error", null, true, null);
+
+        Assert.Equal("window 0x640950 class '#32770' title 'dotnet.exe - Application Error' visible, process csrss 1716",
+                     DeskRunRules.DescribeWindowReading(read));
+    }
+
+    [Fact]
+    public void AWindowReadAfterItsDesktopClosedIsSaidAsNotReadNeverAsAnEmptyHiddenWindowOfProcessZero()
+    {
+        // What the same reads return once the handle is closed: every one fails
+        // with 1400, and each out value is a zero, an empty string or false.
+        var read = new DeskRunRules.WindowReading(
+            TonightsBox, 0, 1400, null,
+            "", 1400, "", 1400, false, 1400);
+
+        string said = DeskRunRules.DescribeWindowReading(read);
+
+        Assert.Contains("class not read (Windows error 1400)", said, StringComparison.Ordinal);
+        Assert.Contains("title not read (Windows error 1400)", said, StringComparison.Ordinal);
+        Assert.Contains("visibility not read (Windows error 1400)", said, StringComparison.Ordinal);
+        Assert.Contains("owner not read (Windows error 1400)", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("''", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("hidden", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("process", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("Idle", said, StringComparison.Ordinal);
+        Assert.False(said.EndsWith(" 0", StringComparison.Ordinal), said);
+    }
+
+    [Fact]
+    public void AnEmptyTitleThatWasReadStaysAnEmptyTitle()
+    {
+        var read = new DeskRunRules.WindowReading(0x1234, 42, null, null, "Shell_TrayWnd", null, "", null, false, null);
+
+        string said = DeskRunRules.DescribeWindowReading(read);
+
+        Assert.Contains("title ''", said, StringComparison.Ordinal);
+        Assert.Contains(" hidden,", said, StringComparison.Ordinal);
+        Assert.EndsWith("process (name not read) 42", said, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(0xE0434352u)] // .NET unhandled exception (2026-11-23's first code)
     [InlineData(0xC000041Du)] // exception escaped a window procedure (2026-11-23's second code)

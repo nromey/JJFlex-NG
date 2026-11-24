@@ -569,8 +569,8 @@ internal static class DeskRunRules
     /// </summary>
     /// <remarks>
     /// Round 5 (task #906): how the job's OTHER processes ended is not an
-    /// input here, on purpose. Round 4 made a sampled exception code end an
-    /// otherwise passing run at 75, and Codex's re-check showed that promise
+    /// input here, on purpose. Round 4 made a sampled exception code fail an
+    /// otherwise passing run, and Codex's re-check showed that promise
     /// cannot be kept: a process born and gone between two samples is never
     /// seen (so a fast crash still ended at 0), and an ordinary
     /// <c>Environment.Exit</c> with an exception-shaped code read as a crash.
@@ -813,6 +813,52 @@ internal static class DeskRunRules
                .Select(w => w.Hwnd)
                .Distinct()
                .ToList();
+
+    /// <summary>
+    /// What one read of a top-level window returned (round 6). Each value is
+    /// paired with the Windows error its read failed with, or null when it
+    /// was read. <see cref="Pid"/>, <see cref="Class"/>, <see cref="Title"/>
+    /// and <see cref="Visible"/> mean nothing when their error is set.
+    /// </summary>
+    /// <param name="ProcessName">The owner's name, or null when it could not be read (the process gone, or access refused).</param>
+    public readonly record struct WindowReading(
+        long Hwnd,
+        int Pid, int? PidError,
+        string? ProcessName,
+        string? Class, int? ClassError,
+        string? Title, int? TitleError,
+        bool Visible, int? VisibleError);
+
+    /// <summary>
+    /// A window read, in words (round 6). Pure, so the failed-read wording is
+    /// tested rather than read off the code.
+    /// </summary>
+    /// <remarks>
+    /// Codex's re-check of round 5 (R5): the crash-box baseline was described
+    /// after the desktop handle had been closed, every read failed with
+    /// Windows error 1400, and the failures were printed as values, so the
+    /// existing csrss box (class #32770, visible, title "dotnet.exe -
+    /// Application Error") read as class '', title '', hidden, process Idle 0.
+    /// A read that failed is now said as one, with its error, and never as an
+    /// empty class, an empty title, "hidden", or process id 0.
+    /// </remarks>
+    public static string DescribeWindowReading(WindowReading r)
+    {
+        static string NotRead(string what, int error)
+            => what + " not read (Windows error " + error.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
+
+        var said = new StringBuilder("window 0x").Append(r.Hwnd.ToString("X", System.Globalization.CultureInfo.InvariantCulture));
+        said.Append(' ').Append(r.ClassError is { } ce ? NotRead("class", ce) : "class '" + r.Class + "'");
+        said.Append(' ').Append(r.TitleError is { } te ? NotRead("title", te) : "title '" + r.Title + "'");
+        said.Append(' ').Append(r.VisibleError is { } ve ? NotRead("visibility", ve) : r.Visible ? "visible" : "hidden");
+        said.Append(", ");
+        if (r.PidError is { } pe)
+            said.Append(NotRead("owner", pe));
+        else
+            said.Append("process ").Append(r.ProcessName ?? "(name not read)")
+                .Append(' ').Append(r.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return said.ToString();
+    }
 
     /// <summary>
     /// The exception codes Windows itself raises for a fault (round 4): what a

@@ -370,6 +370,11 @@ internal sealed class Watch : IDisposable
         // Round 4: every dialog-class window on the input desktop this pass,
         // judged against the boxes that were there before the child ran.
         var inputDialogs = new List<(long Hwnd, string? Class, string? Owner)>();
+        // Round 6 (R5): each crash box described WHILE its desktop's handle is
+        // open. After CloseDesktop every read of it fails with Windows error
+        // 1400 (Codex measured it on tonight's box), so a description made
+        // later is a failed measurement, not a description.
+        var inputDialogDescriptions = new Dictionary<long, string>();
 
         foreach (string desktopName in names)
         {
@@ -412,6 +417,8 @@ internal sealed class Watch : IDisposable
                         {
                             string owner = ProcessNameOf(pid);
                             inputDialogs.Add((hwnd.ToInt64(), cls, owner == "?" ? null : owner));
+                            if (DeskRunRules.IsCrashBox(cls, owner == "?" ? null : owner))
+                                inputDialogDescriptions[hwnd.ToInt64()] = DescribeWindow(hwnd);
                         }
                     }
                     if (owned == null)
@@ -427,7 +434,7 @@ internal sealed class Watch : IDisposable
                         Kill(ExitWindowEscaped,
                              (isInput ? "A WINDOW REACHED THE OPERATOR'S DESKTOP" : "A WINDOW REACHED A DESKTOP DESKRUN DID NOT CREATE")
                              + ": desktop '" + desktopName + "'" + (isInput ? " (the input desktop)" : "")
-                             + ", " + DescribeWindow(hwnd, pid) + ".");
+                             + ", " + DescribeWindow(hwnd) + ".");
                         return false;
                     }
 
@@ -436,7 +443,7 @@ internal sealed class Watch : IDisposable
                         if (place == DeskRunRules.WindowPlace.OnTheHiddenDesktop)
                         {
                             if (!_hiddenJobWindows.ContainsKey(hwnd))
-                                _hiddenJobWindows[hwnd] = DescribeWindow(hwnd, pid);
+                                _hiddenJobWindows[hwnd] = DescribeWindow(hwnd);
                         }
                         else if (!string.Equals(desktopName, _hiddenName, StringComparison.OrdinalIgnoreCase))
                         {
@@ -459,7 +466,7 @@ internal sealed class Watch : IDisposable
             }
         }
 
-        JudgeCrashBoxes(inputDialogs, inputName);
+        JudgeCrashBoxes(inputDialogs, inputDialogDescriptions, inputName);
         return Violation == null;
     }
 
@@ -473,7 +480,13 @@ internal sealed class Watch : IDisposable
     /// hold. The first pass, made before the child runs, is the baseline: a
     /// box already there is reported and never blamed on this run.
     /// </summary>
-    private void JudgeCrashBoxes(List<(long Hwnd, string? Class, string? Owner)> inputDialogs, string inputName)
+    /// <param name="descriptions">
+    /// Each crash box's description, made while the input desktop's handle
+    /// was still open (round 6). This runs after the handle is closed, when
+    /// the window can no longer be read.
+    /// </param>
+    private void JudgeCrashBoxes(List<(long Hwnd, string? Class, string? Owner)> inputDialogs,
+                                 Dictionary<long, string> descriptions, string inputName)
     {
         if (!_crashBaselineTaken)
         {
@@ -481,7 +494,7 @@ internal sealed class Watch : IDisposable
             {
                 foreach (var w in inputDialogs)
                     if (DeskRunRules.IsCrashBox(w.Class, w.Owner) && _crashBaseline.Add(w.Hwnd))
-                        _crashBaselineDescribed.Add(DescribeWindow(new IntPtr(w.Hwnd), OwnerPid(w.Hwnd)));
+                        _crashBaselineDescribed.Add(DescribedWhileOpen(descriptions, w.Hwnd));
             }
             _crashBaselineTaken = true;
             return;
@@ -490,7 +503,7 @@ internal sealed class Watch : IDisposable
         var fresh = DeskRunRules.NewCrashBoxes(_crashBaseline, inputDialogs);
         if (fresh.Count == 0) return;
 
-        var described = fresh.Select(h => DescribeWindow(new IntPtr(h), OwnerPid(h))).ToList();
+        var described = fresh.Select(h => DescribedWhileOpen(descriptions, h)).ToList();
         lock (_gate)
         {
             _newCrashBoxes.AddRange(described);
@@ -502,11 +515,10 @@ internal sealed class Watch : IDisposable
              + "this run's; the run is failed either way. Leave the box for the operator.");
     }
 
-    private static int OwnerPid(long hwnd)
-    {
-        GetWindowThreadProcessId(new IntPtr(hwnd), out uint pid);
-        return (int)pid;
-    }
+    private static string DescribedWhileOpen(Dictionary<long, string> descriptions, long hwnd)
+        => descriptions.TryGetValue(hwnd, out var d)
+            ? d
+            : "window 0x" + hwnd.ToString("X") + " (not described: it was not read while its desktop was open)";
 
     private static string ClassName(IntPtr hwnd)
     {
@@ -558,14 +570,54 @@ internal sealed class Watch : IDisposable
         });
     }
 
-    private string DescribeWindow(IntPtr hwnd, int pid)
+    /// <summary>
+    /// Describes a window NOW. Call it only while a handle to the window's
+    /// desktop is open: after <c>CloseDesktop</c> every read fails with
+    /// Windows error 1400 (round 6, R5).
+    /// </summary>
+    private string DescribeWindow(IntPtr hwnd) => DeskRunRules.DescribeWindowReading(ReadWindow(hwnd));
+
+    /// <summary>
+    /// Reads a window's owner, class, title and visibility, keeping each
+    /// read's Windows error (round 6, R5). Every API here is declared with
+    /// <c>SetLastError = true</c>, so the runtime clears the error before the
+    /// call and an error read after it is this call's own.
+    /// </summary>
+    private DeskRunRules.WindowReading ReadWindow(IntPtr hwnd)
     {
+        // The thread id is 0 only when the read failed.
+        uint thread = GetWindowThreadProcessId(hwnd, out uint pidU);
+        int? pidError = thread == 0 ? Marshal.GetLastWin32Error() : null;
+        int pid = (int)pidU;
+        string? processName = null;
+        if (pidError == null)
+        {
+            string n = ProcessNameOf(pid);
+            processName = n == "?" ? null : n;
+        }
+
+        // A class name is never empty, so a length of 0 is a failure.
         var cls = new StringBuilder(256);
-        GetClassName(hwnd, cls, cls.Capacity);
+        int clsLength = GetClassName(hwnd, cls, cls.Capacity);
+        int? classError = clsLength == 0 ? Marshal.GetLastWin32Error() : null;
+
+        // A title can be empty: a length of 0 is a failure only when an error was set.
         var title = new StringBuilder(256);
-        InternalGetWindowText(hwnd, title, title.Capacity);
-        return "window 0x" + hwnd.ToInt64().ToString("X") + " class '" + cls + "' title '" + title + "' "
-               + (IsWindowVisible(hwnd) ? "visible" : "hidden") + ", process " + ProcessNameOf(pid) + " " + pid;
+        int titleLength = InternalGetWindowText(hwnd, title, title.Capacity);
+        int titleRead = titleLength == 0 ? Marshal.GetLastWin32Error() : 0;
+        int? titleError = titleRead != 0 ? titleRead : null;
+
+        // IsWindowVisible's false is also its failure; Codex measured it setting
+        // 1400 on a window it could not read, so an error set beside false is one.
+        bool visible = IsWindowVisible(hwnd);
+        int visibleRead = visible ? 0 : Marshal.GetLastWin32Error();
+        int? visibleError = visibleRead != 0 ? visibleRead : null;
+
+        return new DeskRunRules.WindowReading(
+            hwnd.ToInt64(), pid, pidError, processName,
+            classError == null ? cls.ToString() : null, classError,
+            titleError == null ? title.ToString() : null, titleError,
+            visible, visibleError);
     }
 
     // ───────────────────────────── sound ─────────────────────────────
@@ -908,16 +960,16 @@ internal sealed class Watch : IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder name, int max);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int InternalGetWindowText(IntPtr hWnd, StringBuilder text, int max);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool IsWindowVisible(IntPtr hWnd);
 
     [DllImport("winmm.dll")]

@@ -218,6 +218,11 @@ and both finish one full pass before the child runs a single instruction.
   is left for the operator. Boxes already there when the run started are
   listed at the end and never blamed on the run: the 2026-11-23 box sat on the
   screen through every round 4 run, and was listed as already there each time.
+  Each box is described while the input desktop's handle is still open: once
+  it is closed, every read of the window fails with Windows error 1400, and
+  until round 6 those failures were printed as values, so the box read as an
+  empty, hidden window of process 0. A read that fails is now said as "not
+  read" with its error.
 - **Sound.** About every 6 ms, every audio session on every active render
   endpoint has its peak meter read; sessions are re-listed every 200 ms and
   endpoints every 2 s. A session owned by a process that was ever in the job,

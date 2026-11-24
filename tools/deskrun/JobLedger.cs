@@ -19,10 +19,10 @@ namespace JJFlex.DeskRun;
 /// </para>
 /// <para>
 /// <b>Why it no longer changes the exit code (round 5).</b> Round 4 made an
-/// exception-shaped exit seen here end an otherwise passing run at 75. Codex's
+/// exception-shaped exit seen here fail an otherwise passing run. Codex's
 /// re-check found that promise could not be kept: a process born and gone
-/// between two samples is never seen, so the same crash ended at 0 when it was
-/// fast and at 75 when it was slow; and an ordinary exit with an
+/// between two samples is never seen, so the same crash left the run passing when it
+/// was fast and failed it when it was slow; and an ordinary exit with an
 /// exception-shaped number read as a crash. The child's own exit code is what
 /// fails a run whose child crashed. A grandchild that a passing test started,
 /// waited on and checked is that test's business.
