@@ -162,8 +162,17 @@ namespace JJPortaudio
         /// <paramref name="countClips"/> says whether samples past full scale
         /// in this buffer are counted (the transmit chain counts only keyed buffers).
         /// </summary>
-        public void Process(float[] buffer, int count, uint sampleRate, bool countClips = true)
+        public void Process(float[] buffer, int count, uint sampleRate, bool countClips = true) =>
+            Process(buffer, count, sampleRate, countClips, Channels);
+
+        /// <summary>
+        /// Process one buffer of interleaved audio of one or two channels in
+        /// place (receive audio may be mono). Any other channel count is left
+        /// untouched.
+        /// </summary>
+        public void Process(float[] buffer, int count, uint sampleRate, bool countClips, int channels)
         {
+            if (channels < 1 || channels > Channels) return;
             if (sampleRate == 0) sampleRate = 48000;
             var wanted = Volatile.Read(ref _wanted);
             // A design published while a fade is running waits for the fade to
@@ -174,14 +183,14 @@ namespace JJPortaudio
             bool fading = _fading;
             if (!fading && (_current == null || _current.IsIdentity)) return;
 
-            int frames = count / Channels;
+            int frames = count / channels;
             int bands = _bands;
             float gain = _gain;
             long clips = 0;
             int i = 0;
             for (int f = 0; f < frames; f++)
             {
-                for (int ch = 0; ch < Channels; ch++)
+                for (int ch = 0; ch < channels; ch++)
                 {
                     double x = buffer[i + ch];
                     double y = x;
@@ -199,7 +208,7 @@ namespace JJPortaudio
                     if (o > 1f || o < -1f) clips++;
                     buffer[i + ch] = o;
                 }
-                i += Channels;
+                i += channels;
                 if (fading && ++_fadeAt >= _fadeLength)
                 {
                     _fading = false;

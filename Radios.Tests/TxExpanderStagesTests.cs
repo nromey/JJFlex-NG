@@ -297,11 +297,14 @@ namespace Radios.Tests
             Assert.InRange(c.RoomFloor.FloorDb, -49.6, -48.4);
         }
 
-        [Fact]
-        public void Keyed_buffers_never_teach_it_and_unkeyed_ones_do()
+        [Theory]
+        [InlineData(false)] // nothing on: the chain's early road
+        [InlineData(true)]  // the expander on: the full road
+        public void Keyed_buffers_never_teach_it_and_unkeyed_ones_do(bool expanderOn)
         {
             bool keyed = true;
             var c = new TxAudioConditioner { KeySource = () => keyed };
+            c.SetGateInForce(new TxAudioConditioner.StagedGate { Enabled = expanderOn });
             Run(c.Process, Stereo(Noise(-40, 4 * (int)Fs, 4)));
             Assert.False(c.RoomFloor.HasFloor);
             Assert.Equal(0, c.RoomFloor.Blocks);
@@ -461,6 +464,26 @@ namespace Radios.Tests
             }
             // A 1 kHz tone at -30 dBFS +12 dB moves by at most 2*pi*f/fs*A, about 0.033, per sample; a step would be far more.
             Assert.True(maxStep < 0.035f, $"largest sample-to-sample step {maxStep:F4}");
+
+            // And it is a FADE: 5 ms after the change (a quarter of the way) the
+            // tone is still well above where it ends, where a swap with no fade
+            // is already there within a couple of milliseconds.
+            var eq2 = new ParametricEq();
+            eq2.Use(new ParametricEqDesign(new[] { new ParametricEqBand(BiquadKind.Peaking, 1000, 12, 1) }));
+            var t = Stereo(Sine(1000, -30, (int)(0.6 * Fs)));
+            int changeAt = 30 * Buf;
+            for (int at = 0, k = 0; at < t.Length; at += Buf, k++)
+            {
+                if (k == 30) eq2.Use(new ParametricEqDesign(new[] { new ParametricEqBand(BiquadKind.Peaking, 1000, -12, 1) }));
+                Array.Copy(t, at, b, 0, Buf);
+                eq2.Process(b, Buf, Fs);
+                Array.Copy(b, 0, t, at, Buf);
+            }
+            double Peak(int fromFrame, int frames) { double m = 0; for (int i = fromFrame; i < fromFrame + frames; i++) m = Math.Max(m, Math.Abs(t[2 * i])); return m; }
+            double atFiveMs = 20 * Math.Log10(Peak(changeAt / 2 + (int)(0.004 * Fs), 48) / Math.Pow(10, -30 / 20.0));
+            double settled = 20 * Math.Log10(Peak(changeAt / 2 + (int)(0.1 * Fs), 48) / Math.Pow(10, -30 / 20.0));
+            Assert.InRange(settled, -12.2, -11.8);
+            Assert.True(atFiveMs > 0, $"a quarter of the way through the fade the tone is still above unity ({atFiveMs:F1} dB)");
         }
 
         [Fact]
