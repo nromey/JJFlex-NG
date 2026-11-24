@@ -180,6 +180,29 @@ public partial class FlexBase
         catch (OperationCanceledException) when (expiry.IsCancellationRequested) { throw new TimeoutException("command-queue-stalled"); }
     }
 
+    /// <summary>
+    /// Why a listenback take records no sent audio, or null when it records
+    /// it. The sent track is copied from the PC microphone's transmit
+    /// pipeline, so it exists only when the microphone is the PC's and that
+    /// pipeline opened. A session whose microphone could not open still has
+    /// the pipeline object, so it used to get a sent writer that recorded
+    /// nothing and said nothing: its test tone, if it has one, goes out on a
+    /// transmit path of its own that this take does not copy.
+    /// </summary>
+    // DRAFT wording, for Codex: the two "did not open" reasons. The first two
+    // reasons are unchanged.
+    internal static string SentAbsentReason(string micSource, bool pipelinePresent,
+        bool microphoneOpened, bool toneHasOwnPath)
+    {
+        if (micSource != "PC") return "radio microphone jack; DAX MIC is outside this build";
+        if (!pipelinePresent) return "PC pipeline unavailable";
+        if (!microphoneOpened)
+            return toneHasOwnPath
+                ? "PC microphone did not open this session; the test tone transmits on a path of its own, which this take does not record"
+                : "PC microphone did not open this session, and the test tone has no transmit path of its own";
+        return null;
+    }
+
     public async Task<ListenbackRun> StartListenbackAsync(ListenbackOptions options, CancellationToken cancellation)
     {
         // #835: no IQ take starts while an Audio Check teardown holds admission.
@@ -290,8 +313,9 @@ public partial class FlexBase
             // Unified takes, part 4g: an off-air or diagnostic take joins the
             // active test too, its number held in its own sidecar.
             joined = JoinActiveTest(directory);
-            if (MicSource == "PC" && pipeline != null) sent = new SentAudioWriter(pipeline, directory);
-            else writer.Header.Write("sent-absent-reason", MicSource == "PC" ? "PC pipeline unavailable" : "radio microphone jack; DAX MIC is outside this build");
+            string sentAbsent = SentAbsentReason(MicSource, pipeline != null, opusInputAvailable, _standaloneTx != null);
+            if (sentAbsent == null) sent = new SentAudioWriter(pipeline, directory);
+            else writer.Header.Write("sent-absent-reason", sentAbsent);
             edge = (_, keyed) =>
             {
                 if (keyed) { heardKeying = true; run?.NoteRadioKeying(); }
