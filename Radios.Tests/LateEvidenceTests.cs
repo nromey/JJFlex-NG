@@ -251,15 +251,47 @@ namespace Radios.Tests
             Assert.Contains("before the failed detach", File.ReadAllText(_livePath), StringComparison.Ordinal);
 
             // The retry: unblock, turn the log on, and the reclaim moves both.
-            Directory.Delete(target);
-            TraceTransitionResult on = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: false);
-            Assert.Equal(TraceTransition.Accepted, on.Status);
-            Assert.NotNull(on.Reclaimed);
-            Assert.Equal(old.SessionId, on.Reclaimed.SessionId);
-            Assert.False(File.Exists(kept), "the late-evidence file was left behind at the live path");
+            //
+            // Begin queues the reclaimed ticket on the archive worker BEFORE it
+            // returns, and that archive carries the file on to the zip's side
+            // when it commits. So the raw-side state read below is transient,
+            // and unheld it was a race this test lost whenever the worker beat
+            // the next few lines (a warm worker under the full suite does: a
+            // one-second pause after Begin failed it every time, at "did not
+            // move with the reclaimed file"). The worker is held at its test
+            // barrier, as the slow-archive test below holds it, until the
+            // raw-side state has been read; then it is released and the
+            // archive's own step is checked.
+            using var atWorker = new ManualResetEventSlim(false);
+            using var release = new ManualResetEventSlim(false);
+            TraceArchiveWorker.BeforeArchiveForTests = t =>
+            {
+                if (t.SessionId != old.SessionId) return;
+                atWorker.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            TraceTransitionResult on;
+            try
+            {
+                Directory.Delete(target);
+                on = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: false);
+                Assert.Equal(TraceTransition.Accepted, on.Status);
+                Assert.NotNull(on.Reclaimed);
+                Assert.Equal(old.SessionId, on.Reclaimed.SessionId);
+                Assert.True(atWorker.Wait(TimeSpan.FromSeconds(10)), "the archive worker never reached the reclaimed ticket");
+                Assert.False(on.Reclaimed.Completion.IsCompleted,
+                             "the reclaimed archive completed while held, so the raw-side state was not what was read");
+                Assert.False(File.Exists(kept), "the late-evidence file was left behind at the live path");
+                string movedRaw = SessionArchive.LateEvidencePathFor(on.Reclaimed.SourcePath);
+                Assert.True(File.Exists(movedRaw), "the late-evidence file did not move with the reclaimed file");
+                Assert.Contains("late for the retained one", File.ReadAllText(movedRaw), StringComparison.Ordinal);
+            }
+            finally
+            {
+                release.Set();
+                TraceArchiveWorker.BeforeArchiveForTests = null;
+            }
             string moved = SessionArchive.LateEvidencePathFor(on.Reclaimed.SourcePath);
-            Assert.True(File.Exists(moved), "the late-evidence file did not move with the reclaimed file");
-            Assert.Contains("late for the retained one", File.ReadAllText(moved), StringComparison.Ordinal);
 
             // Sol's review of H10, blocker 3, the failed-detach-then-reclaim
             // path, through archive completion: the reclaimed ticket's

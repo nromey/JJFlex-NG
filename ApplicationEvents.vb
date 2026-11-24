@@ -40,6 +40,19 @@ Namespace My
         ''' </summary>
         Private Shared _stepMemory As JJFlexWpf.StepSizeMemory
 
+        ''' <summary>
+        ''' What the update manifest testing lever did at start-up, held until
+        ''' the diagnostic log is open, or Nothing when there is nothing to say.
+        ''' </summary>
+        Private Shared _testManifestTraceLine As String
+
+        ''' <summary>
+        ''' Where the updater's own stores went at start-up on a run isolated by
+        ''' JJFLEX_CONFIG_DIR, held until the diagnostic log is open, or Nothing
+        ''' on an ordinary run.
+        ''' </summary>
+        Private Shared _updaterStoresTraceLine As String
+
         Private Sub MyApplication_Startup(sender As Object, e As ApplicationServices.StartupEventArgs) Handles Me.Startup
             ' The Startup thread IS the UI thread: this same thread goes on to
             ' create ShellForm and run the message loop. Record its identity
@@ -134,6 +147,36 @@ Namespace My
             Catch ex As Exception
                 JJTrace.Tracing.TraceLine("Startup: the fact store could not start: " & ex.Message,
                                   TraceLevel.Warning)
+            End Try
+
+            ' The update manifest testing lever, a testing mechanism like
+            ' JJFLEX_CONFIG_DIR: never a setting, never shown, never a feature.
+            ' Read ONLY on a run whose settings tree JJFLEX_CONFIG_DIR moved and
+            ' that move was accepted; an ordinary run never reads the variable.
+            ' Applied here, before any window can start an update check; its
+            ' line is traced once the diagnostic log is open, below.
+            '
+            ' Behind the same gate, and FIRST, the updater's own stores follow
+            ' the throwaway tree: its preferences (update-settings.json, saved
+            ' after every successful manifest fetch) and its install-hash cache.
+            ' The updater does not reference Radios, so it built both from the
+            ' system folders, and an isolated run whose fetch succeeded would
+            ' have written the operator's live settings folder. First, so a
+            ' failure here leaves the lever unapplied rather than pointing a run
+            ' at a manifest that succeeds while the stores still sit in the live
+            ' folders. Nothing reads or saves the updater's settings before
+            ' this: every caller is a window, a menu or the launch check, all
+            ' after start-up.
+            Try
+                If Radios.LocalDataRoot.RunRelocatedByConfigDir Then
+                    _updaterStoresTraceLine = JJFlexUpdater.UpdaterStoreRoots.ApplyRelocatedRoots(
+                        Radios.RadioConfig.AppDataRoot, Radios.LocalDataRoot.Folder, True)
+                    _testManifestTraceLine = JJFlexUpdater.UpdaterEndpoints.ApplyTestAppManifestUrl(
+                        Environment.GetEnvironmentVariable(JJFlexUpdater.UpdaterEndpoints.TestAppManifestUrlVariable),
+                        True)
+                End If
+            Catch ex As Exception
+                _testManifestTraceLine = "Updater: the testing manifest lever failed and was not applied: " & ex.Message
             End Try
 
             ' Initialize screen reader output (Prism) for accessibility announcements.
@@ -358,6 +401,12 @@ Namespace My
             ' Note: MigrateConfigFiles runs inside InitializeApplication before openTheRadio
             ' so auto-connect can find renamed config files.
             InitializeApplication()
+            If _updaterStoresTraceLine IsNot Nothing Then
+                JJTrace.Tracing.TraceLine(_updaterStoresTraceLine, TraceLevel.Warning)
+            End If
+            If _testManifestTraceLine IsNot Nothing Then
+                JJTrace.Tracing.TraceLine(_testManifestTraceLine, TraceLevel.Warning)
+            End If
 
             ' #517 repair two: an operator switch makes the accessibility
             ' choices the new operator's, read from and saved to the new
