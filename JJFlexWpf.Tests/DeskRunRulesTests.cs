@@ -612,6 +612,320 @@ public sealed class DeskRunRulesTests
         Assert.All(DeskRunRules.JobUiLimits, l => Assert.StartsWith("JOB_OBJECT_UILIMIT_", l.Name, StringComparison.Ordinal));
     }
 
+    // ── round 4: a crashing child raises no box ──────────────────────────
+
+    /// <summary>The 2026-11-23 box: "dotnet.exe - Application Error", owner csrss, still on the operator's screen.</summary>
+    private const long TonightsBox = 0x640950;
+
+    [Fact]
+    public void EveryJobEndsACrashingProcessWithoutABoxAndKillsOnClose()
+    {
+        Assert.Equal(0x400u, DeskRunRules.JobLimitDieOnUnhandledException);
+        Assert.Equal(0x2000u, DeskRunRules.JobLimitKillOnJobClose);
+        Assert.Equal(DeskRunRules.JobLimitDieOnUnhandledException,
+                     DeskRunRules.JobLimitFlags & DeskRunRules.JobLimitDieOnUnhandledException);
+        Assert.Equal(DeskRunRules.JobLimitKillOnJobClose,
+                     DeskRunRules.JobLimitFlags & DeskRunRules.JobLimitKillOnJobClose);
+    }
+
+    [Fact]
+    public void TheInheritedErrorModeKeepsEveryBoxAway()
+    {
+        Assert.Equal(0x8003u, DeskRunRules.ChildErrorMode);
+        Assert.True(DeskRunRules.ErrorModeKeepsBoxesAway(DeskRunRules.ChildErrorMode));
+    }
+
+    [Theory]
+    [InlineData(0x0000u, false)]
+    [InlineData(0x0001u, false)]   // critical errors off, fault box ON
+    [InlineData(0x0002u, false)]   // fault box off, critical-error box ON
+    [InlineData(0x8001u, false)]
+    [InlineData(0x0003u, true)]
+    [InlineData(0x8003u, true)]
+    [InlineData(0x8007u, true)]
+    public void AnErrorModeKeepsTheBoxesAwayOnlyWithBothFlags(uint mode, bool expected)
+        => Assert.Equal(expected, DeskRunRules.ErrorModeKeepsBoxesAway(mode));
+
+    [Theory]
+    [InlineData(0x0001u, 0x0000u)] // a process left at the default: Windows stores "critical errors ON" as a set bit
+    [InlineData(0x8002u, 0x8003u)] // deskrun's own mode, as NtQueryInformationProcess returns it
+    [InlineData(0x0000u, 0x0001u)]
+    [InlineData(0x0003u, 0x0002u)]
+    public void TheRawErrorModeHasItsCriticalErrorBitInverted(uint raw, uint mode)
+        => Assert.Equal(mode, DeskRunRules.ErrorModeFromRaw(raw));
+
+    [Theory]
+    [InlineData("#32770", "csrss", true)]
+    [InlineData("#32770", "CSRSS", true)]
+    [InlineData("#32770", "WerFault", true)]
+    [InlineData("#32770", "werfault", true)]
+    [InlineData("#32770", "WerFaultSecure", true)]
+    [InlineData("#32770", "explorer", false)]    // an ordinary program's own message box is not a crash box
+    [InlineData("#32770", "testhost", false)]    // a job process's box is the job window watch's business
+    [InlineData("#32770", null, false)]          // owner gone: the box went with it
+    [InlineData("#32771", "csrss", false)]
+    [InlineData("Static", "csrss", false)]
+    [InlineData(null, "csrss", false)]
+    public void ACrashBoxIsADialogDrawnByCsrssOrWerFault(string? cls, string? owner, bool expected)
+        => Assert.Equal(expected, DeskRunRules.IsCrashBox(cls, owner));
+
+    [Fact]
+    public void TheBoxAlreadyOnTheScreenWhenTheRunStartedIsNeverTheRuns()
+    {
+        var baseline = new HashSet<long> { TonightsBox };
+        var seen = new[] { (TonightsBox, (string?)"#32770", (string?)"csrss") };
+
+        Assert.Empty(DeskRunRules.NewCrashBoxes(baseline, seen));
+    }
+
+    [Fact]
+    public void ANewCrashBoxDuringTheRunIsCaughtBesideAnOldOne()
+    {
+        var baseline = new HashSet<long> { TonightsBox };
+        var seen = new (long, string?, string?)[]
+        {
+            (TonightsBox, "#32770", "csrss"),
+            (0x1234, "#32770", "csrss"),
+            (0x5678, "#32770", "WerFault"),
+            (0x9ABC, "#32770", "explorer"),
+            (0x1234, "#32770", "csrss"),            // seen twice in one pass: reported once
+        };
+
+        Assert.Equal(new long[] { 0x1234, 0x5678 }, DeskRunRules.NewCrashBoxes(baseline, seen));
+    }
+
+    [Fact]
+    public void WithNoBaselineEveryCrashBoxIsNew()
+    {
+        var seen = new[] { (TonightsBox, (string?)"#32770", (string?)"csrss") };
+        Assert.Equal(new[] { TonightsBox }, DeskRunRules.NewCrashBoxes(new HashSet<long>(), seen));
+    }
+
+    // ── round 6 (R5): a window read that failed is said as one ───────────
+
+    [Fact]
+    public void AWindowReadWithTheDesktopOpenIsDescribedAsRead()
+    {
+        // What Codex's probe read on tonight's box with the input desktop's handle held.
+        var read = new DeskRunRules.WindowReading(
+            TonightsBox, 1716, null, "csrss",
+            "#32770", null, "dotnet.exe - Application Error", null, true, null);
+
+        Assert.Equal("window 0x640950 class '#32770' title 'dotnet.exe - Application Error' visible, process csrss 1716",
+                     DeskRunRules.DescribeWindowReading(read));
+    }
+
+    [Fact]
+    public void AWindowReadAfterItsDesktopClosedIsSaidAsNotReadNeverAsAnEmptyHiddenWindowOfProcessZero()
+    {
+        // What the same reads return once the handle is closed: every one fails
+        // with 1400, and each out value is a zero, an empty string or false.
+        var read = new DeskRunRules.WindowReading(
+            TonightsBox, 0, 1400, null,
+            "", 1400, "", 1400, false, 1400);
+
+        string said = DeskRunRules.DescribeWindowReading(read);
+
+        Assert.Contains("class not read (Windows error 1400)", said, StringComparison.Ordinal);
+        Assert.Contains("title not read (Windows error 1400)", said, StringComparison.Ordinal);
+        Assert.Contains("visibility not read (Windows error 1400)", said, StringComparison.Ordinal);
+        Assert.Contains("owner not read (Windows error 1400)", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("''", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("hidden", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("process", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("Idle", said, StringComparison.Ordinal);
+        Assert.False(said.EndsWith(" 0", StringComparison.Ordinal), said);
+    }
+
+    [Fact]
+    public void AnEmptyTitleThatWasReadStaysAnEmptyTitle()
+    {
+        var read = new DeskRunRules.WindowReading(0x1234, 42, null, null, "Shell_TrayWnd", null, "", null, false, null);
+
+        string said = DeskRunRules.DescribeWindowReading(read);
+
+        Assert.Contains("title ''", said, StringComparison.Ordinal);
+        Assert.Contains(" hidden,", said, StringComparison.Ordinal);
+        Assert.EndsWith("process (name not read) 42", said, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0xE0434352u)] // .NET unhandled exception (2026-11-23's first code)
+    [InlineData(0xC000041Du)] // exception escaped a window procedure (2026-11-23's second code)
+    [InlineData(0xC0000005u)]
+    [InlineData(0xC00000FDu)]
+    [InlineData(0xC0000409u)]
+    [InlineData(0xC0000602u)] // native RaiseFailFastException, measured by Codex 2026-11-23
+    [InlineData(0xE06D7363u)]
+    [InlineData(0x80000003u)]
+    [InlineData(0x80131623u)] // COR_E_FAILFAST: Environment.FailFast, MEASURED on this runtime (round 5, R1)
+    [InlineData(0x800703E9u)] // COR_E_STACKOVERFLOW: CoreCLR's HandleFatalStackOverflow (source, not provoked)
+    [InlineData(0x80131506u)] // COR_E_EXECUTIONENGINE: CoreCLR's fatal-error path (source, not provoked)
+    public void AnExceptionShapedCodeIsReportedAsOne(uint code)
+        => Assert.True(DeskRunRules.IsExceptionExitCode(code), "0x" + code.ToString("X8"));
+
+    [Fact]
+    public void EnvironmentFailFastIsNamedInTheReport()
+    {
+        // Round 5, R1: round 4's list had no entry for the code Environment.FailFast
+        // really exits with on .NET 10, so a fail-fast went unreported.
+        Assert.True(DeskRunRules.IsExceptionExitCode(0x80131623u));
+        string said = DeskRunRules.DescribeLedgerExit(0x80131623u, exitReadError: null, waitError: null);
+        Assert.Contains("ended with exception code 0x80131623", said, StringComparison.Ordinal);
+        Assert.Contains("Environment.FailFast", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("Environment.FailFast", DeskRunRules.DescribeExitCode(0xC0000409u), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheRuntimeFatalCodesAreHresultsNotWindowsExceptionCodes()
+    {
+        Assert.Equal(new uint[] { 0x800703E9u, 0x80131506u, 0x80131623u },
+                     DeskRunRules.RuntimeFatalExitCodes.Keys.OrderBy(k => k).ToArray());
+        Assert.All(DeskRunRules.RuntimeFatalExitCodes.Keys,
+                   k => Assert.DoesNotContain(k, DeskRunRules.SystemExceptionCodes));
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(1u)]
+    [InlineData(64u)]
+    [InlineData(70u)]
+    [InlineData(71u)]
+    [InlineData(72u)]
+    [InlineData(73u)]
+    [InlineData(74u)]
+    [InlineData(75u)]
+    [InlineData(124u)]
+    [InlineData(259u)]         // STILL_ACTIVE
+    [InlineData(0xFFFFFFFFu)]  // exit(-1)
+    [InlineData(0xFFFFFFFEu)]  // exit(-2)
+    [InlineData(0xC00000BBu)]  // STATUS_NOT_SUPPORTED: 334 WebView2 helpers ended with it in one run, none of them a crash
+    [InlineData(0xC0000001u)]
+    [InlineData(0x80004005u)]  // E_FAIL: an ordinary HRESULT exit is not one of the runtime's fatal codes
+    public void AnOrdinaryExitOrOneDeskrunKilledWithIsNotExceptionShaped(uint code)
+        => Assert.False(DeskRunRules.IsExceptionExitCode(code), code.ToString());
+
+    [Theory]
+    [InlineData(0xC00000BBu, true)]
+    [InlineData(0xC0000001u, true)]
+    [InlineData(0xC0000005u, false)]   // a crash, not merely an error status
+    [InlineData(0xE0434352u, false)]
+    [InlineData(0xFFFFFFFFu, false)]
+    [InlineData(1u, false)]
+    public void AnErrorStatusExitIsReportedApartFromACrash(uint code, bool expected)
+        => Assert.Equal(expected, DeskRunRules.IsErrorStatusExit(code));
+
+    [Fact]
+    public void TheExitCodeIsNamedInWords()
+    {
+        Assert.Contains(".NET", DeskRunRules.DescribeExitCode(0xE0434352u), StringComparison.Ordinal);
+        Assert.Contains("window procedure", DeskRunRules.DescribeExitCode(0xC000041Du), StringComparison.Ordinal);
+        Assert.Equal("0xC0001234", DeskRunRules.DescribeExitCode(0xC0001234u));
+    }
+
+    // ── round 5: the ledger reports, it never decides ────────────────────
+
+    [Theory]
+    [InlineData(null, true, false, 0, 0)]      // the child said success: whatever the sampler saw, 0 stands
+    [InlineData(null, true, false, 1, 1)]      // dotnet test's own "aborted": its code stands
+    [InlineData(null, true, false, unchecked((int)0xE0434352), unchecked((int)0xE0434352))] // the child itself crashed
+    [InlineData(72, true, false, 1, 72)]       // a crash box on the screen outranks the child
+    [InlineData(null, false, false, 0, 71)]
+    [InlineData(null, true, true, 0, 124)]
+    public void TheResultIsTheChildsOwnCodeUnlessTheLauncherJudged(int? violation, bool cleanup, bool timedOut,
+                                                                    int childExit, int expected)
+        => Assert.Equal(expected, DeskRunRules.RunExitCode(violation, cleanup, timedOut, childExit));
+
+    [Fact]
+    public void ThereIsNoExit75AndTheResultTakesNoWordFromTheLedger()
+    {
+        // Round 5: exit 75 ("a job process crashed while the child reported
+        // success") is gone. A sampler cannot make that promise complete
+        // (Codex R2), and an exception-shaped number is not proof (R4).
+        var method = typeof(DeskRunRules).GetMethod(nameof(DeskRunRules.RunExitCode))!;
+        Assert.Equal(new[] { "violation", "cleanupComplete", "timedOut", "childExit" },
+                     method.GetParameters().Select(x => x.Name).ToArray());
+
+        var codes = typeof(DeskRunRules)
+            .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(f => f.IsLiteral && f.FieldType == typeof(int) && f.Name.StartsWith("Exit", StringComparison.Ordinal))
+            .Select(f => (int)f.GetRawConstantValue()!)
+            .ToList();
+        Assert.NotEmpty(codes);
+        Assert.DoesNotContain(75, codes);
+    }
+
+    [Fact]
+    public void NeitherTheReadmeNorTheUsageNamesExit75()
+    {
+        string root = JJFlexWpf.Tests.Infrastructure.RepoPaths.RequireRoot();
+        // The usage text whole, and the README's exit-code list (its history
+        // paragraph says what round 4 did, and may).
+        string usage = File.ReadAllText(Path.Combine(root, "tools", "deskrun", "Program.cs"));
+        Assert.DoesNotMatch(@"\b75\b", usage);
+        string readme = File.ReadAllText(Path.Combine(root, "tools", "deskrun", "README.md")).Replace("\r\n", "\n");
+        int start = readme.IndexOf("Exit codes:", StringComparison.Ordinal);
+        Assert.True(start >= 0, "the README has no exit-code list");
+        int end = readme.IndexOf("\n\n", start, StringComparison.Ordinal);
+        string list = readme.Substring(start, (end < 0 ? readme.Length : end) - start);
+        Assert.Contains("124", list, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"\b75\b", list);
+    }
+
+    [Fact]
+    public void AFailedExitReadIsSaidAsOneNeverAsStillRunning()
+    {
+        // Round 5, R3: round 4 dropped a failed GetExitCodeProcess and the
+        // process read as "still running when read".
+        string said = DeskRunRules.DescribeLedgerExit(exitCode: null, exitReadError: 6, waitError: null);
+        Assert.StartsWith("exit not read", said, StringComparison.Ordinal);
+        Assert.Contains("Windows error 6", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("still running", said, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AFailedWaitIsSaidAsOneNeverAsStillRunning()
+    {
+        string said = DeskRunRules.DescribeLedgerExit(exitCode: null, exitReadError: null, waitError: 5);
+        Assert.StartsWith("state not read", said, StringComparison.Ordinal);
+        Assert.Contains("Windows error 5", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("still running", said, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0xE0434352u, "ended with exception code 0xE0434352")]
+    [InlineData(0xE0000001u, "ended with exception code 0xE0000001")]  // R4: an ordinary exit with this code is not called a crash
+    [InlineData(0xC00000BBu, "ended with error status 0xC00000BB")]
+    [InlineData(0u, "exit code 0")]
+    [InlineData(4294967295u, "exit code 4294967295")]
+    public void AnEndingIsDescribedWithoutCallingItACrash(uint code, string expectedStart)
+    {
+        string said = DeskRunRules.DescribeLedgerExit(code, exitReadError: null, waitError: null);
+        Assert.StartsWith(expectedStart, said, StringComparison.Ordinal);
+        Assert.DoesNotContain("crash", said, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void StillRunningIsSaidOnlyWhenNothingFailed()
+        => Assert.Equal("still running when read", DeskRunRules.DescribeLedgerExit(null, null, null));
+
+    [Fact]
+    public void TheExitReportSaysItIsASampleAndDecidesNothing()
+    {
+        Assert.Contains("SAMPLE", DeskRunRules.LedgerExitHeading, StringComparison.Ordinal);
+        Assert.Contains("250 ms", DeskRunRules.LedgerExitHeading, StringComparison.Ordinal);
+        Assert.Contains("does not change the run's exit code", DeskRunRules.LedgerExitHeading, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheLedgerExitReadFaultIsALauncherOptionOnly()
+    {
+        Assert.Contains("ledger-exit-read", DeskRunRules.InjectableFaults);
+        var p = Parse("--inject-fault", "ledger-exit-read", Project);
+        Assert.NotNull(p);
+        Assert.DoesNotContain(DeskRunRules.DotnetArguments(p!), a => a.Contains("ledger", StringComparison.Ordinal));
+    }
+
     // ── round 3: the fault seam is a launcher option only ────────────────
 
     [Theory]
