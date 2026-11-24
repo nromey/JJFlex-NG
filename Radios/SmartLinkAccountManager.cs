@@ -15,22 +15,25 @@ using JJTrace;
 namespace Radios
 {
     /// <summary>
-    /// Sprint 27 Track F — SmartLink connection mode per account. Three
-    /// cumulative tiers: Tier 1 alone (sovereign, recommended default),
-    /// Tier 1 + 2 (UPnP convenience), Tier 1 + 2 + 3 (Flex-coordinated UDP
-    /// hole-punch for restrictive NATs). Each higher tier includes the
-    /// lower tiers' behaviors. Cast to <c>int</c> produces an ordinal usable
-    /// for 'mode ≥ ManualPlusUpnp' checks.
+    /// The SmartLink connection tier of one account: the CEILING on which
+    /// SmartLink methods a connect brokered by that account may use (the tiers
+    /// plan's decision 1, ruled by Noel 2026-11-19). Cumulative: each tier
+    /// allows the lower tiers' methods. The per-radio choice orders or narrows
+    /// inside it and never widens it; Local, a LAN reached over a VPN and
+    /// Connect are not governed by it. See
+    /// <see cref="Radios.SmartLink.SmartLinkMethodPolicy"/>. Cast to <c>int</c>
+    /// produces an ordinal usable for 'mode ≥ ManualPlusUpnp' checks; the value
+    /// names are saved in SmartLinkAccounts.json and never change.
     /// </summary>
     public enum SmartLinkConnectionMode
     {
-        /// <summary>Tier 1. Manual router port-forwarding only. No UPnP, no hole-punch. Default.</summary>
+        /// <summary>Tier 1. The radio's manually forwarded ports only: no UPnP ports, no hole punch. Default.</summary>
         ManualPortForwardOnly = 0,
 
-        /// <summary>Tier 1 + 2. UPnP attempts to open the configured port automatically. No hole-punch.</summary>
+        /// <summary>Tier 1 + 2. Also the ports the radio mapped on its own router by UPnP. JJ Flexible maps nothing itself. No hole punch.</summary>
         ManualPlusUpnp = 1,
 
-        /// <summary>Tier 1 + 2 + 3. Flex's SmartLink coordinates UDP hole-punch for restrictive NATs. Fallback to Tier 2 then Tier 1 on failure.</summary>
+        /// <summary>Tier 1 + 2 + 3. Also a SmartLink-coordinated hole punch. Ports first; a punch after ports only once the hardware gate passes (<see cref="Radios.SmartLink.SmartLinkMethodPolicy.HolePunchFallbackGatePassed"/>).</summary>
         AutomaticHolePunch = 2,
     }
 
@@ -830,6 +833,31 @@ namespace Radios
             return true;
         }
 
+        /// <summary>
+        /// An OPERATOR chose this tier for this account: on the SmartLink
+        /// accounts dialog, or by answering the one-time offer. Saves the tier
+        /// AND marks it chosen, so the account is never offered a change again.
+        /// The only writer of <see cref="SmartLinkAccount.TierChosen"/>: never
+        /// call it from an Apply or any automatic path (the tiers plan's
+        /// decision 6; Apply re-saves the tier on every port-forward Apply).
+        /// Returns false if the email is unknown. Saves to disk on success.
+        /// </summary>
+        public bool ChooseConnectionMode(string email, SmartLinkConnectionMode mode)
+        {
+            var account = GetAccountByEmail(email);
+            if (account == null) return false;
+            ApplyOperatorChoice(account, mode);
+            SaveAccounts();
+            return true;
+        }
+
+        /// <summary>The in-memory half of <see cref="ChooseConnectionMode"/>, kept separate so a test can pin it without touching disk.</summary>
+        internal static void ApplyOperatorChoice(SmartLinkAccount account, SmartLinkConnectionMode mode)
+        {
+            account.ConnectionMode = mode;
+            account.TierChosen = true;
+        }
+
         #region DPAPI Encryption Helpers
 
         private static string EncryptWithDpapi(string plainText)
@@ -905,6 +933,11 @@ namespace Radios
             [JsonPropertyName("autoStartRemote")]
             public bool AutoStartRemote { get; set; }
 
+            // The tiers work (decision 6). Absent field = false: every account
+            // saved before it loads as "never chosen", which is the truth.
+            [JsonPropertyName("tierChosen")]
+            public bool TierChosen { get; set; }
+
             public static StoredAccount FromSmartLinkAccount(SmartLinkAccount account)
             {
                 return new StoredAccount
@@ -917,7 +950,8 @@ namespace Radios
                     LastUsed = account.LastUsed,
                     ConfiguredListenPort = account.ConfiguredListenPort,
                     ConnectionMode = account.ConnectionMode,
-                    AutoStartRemote = account.AutoStartRemote
+                    AutoStartRemote = account.AutoStartRemote,
+                    TierChosen = account.TierChosen
                 };
             }
 
@@ -933,7 +967,8 @@ namespace Radios
                     LastUsed = LastUsed,
                     ConfiguredListenPort = ConfiguredListenPort,
                     ConnectionMode = ConnectionMode,
-                    AutoStartRemote = AutoStartRemote
+                    AutoStartRemote = AutoStartRemote,
+                    TierChosen = TierChosen
                 };
             }
         }
@@ -1006,23 +1041,32 @@ namespace Radios
         /// above, and the CLIENT-side hole-punch port (when ConnectionMode was
         /// AutomaticHolePunch). The punch meaning moved to the per-radio store
         /// (<c>RadioConfig.FixedHolePunchPort</c>, Settings > Radios) and no UI
-        /// writes it here anymore. On-disk values written by older builds (or
-        /// by hand, the documented interim unblocker) keep working: when a
-        /// radio requires hole punch, has no per-radio fixed port, and this
-        /// account's mode is AutomaticHolePunch, sendRemoteConnect still uses
-        /// this value as the punch port. Per-radio always wins when set.</para>
+        /// writes it here anymore. RETIRED by the tiers work (decision 11,
+        /// ruled by Noel 2026-11-19, "definitely"): the connect no longer uses
+        /// this value as a punch port, and no longer advertises it on a connect
+        /// that does not punch. A value written as a forwarded port would
+        /// otherwise have become a punch port the moment its account reached
+        /// Tier 3.</para>
         /// </summary>
         public int? ConfiguredListenPort { get; set; }
 
         /// <summary>
-        /// Sprint 27 Track F — the SmartLink connection mode for this account
-        /// (cumulative tier model). Default <see cref="SmartLinkConnectionMode.ManualPortForwardOnly"/>.
-        /// Tier 2 + Tier 3 behaviors are both gated on
-        /// <see cref="ConfiguredListenPort"/> being set (UPnP and hole-punch
-        /// both need a port). Replaces Sprint 27 Phase B.2's UPnPEnabled bool
-        /// with a three-state enum so Tier 3 can be represented.
+        /// The SmartLink connection tier for this account (cumulative tier
+        /// model), the ceiling on SmartLink methods for every radio this
+        /// account brokers. Default <see cref="SmartLinkConnectionMode.ManualPortForwardOnly"/>.
+        /// Needs no port: Tier 2 uses the radio's own UPnP ports and Tier 3 a
+        /// punch port chosen per connect.
         /// </summary>
         public SmartLinkConnectionMode ConnectionMode { get; set; }
+
+        /// <summary>
+        /// True once an operator chose this account's tier: on the SmartLink
+        /// accounts dialog, or by answering the one-time offer (decision 6).
+        /// An account never chosen may be offered a higher tier once, when a
+        /// connect fails only because its tier forbids what the radio needs.
+        /// Written only by <see cref="SmartLinkAccountManager.ChooseConnectionMode"/>.
+        /// </summary>
+        public bool TierChosen { get; set; }
 
         /// <summary>
         /// Remote-first startup (Noel, 2026-08-06, for remote-only operators):

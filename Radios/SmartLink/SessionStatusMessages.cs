@@ -73,15 +73,30 @@ namespace Radios.SmartLink
         /// Most recent NetworkTest report for this session, or null if none
         /// has run. Drives the overlay selection for disconnection states.
         /// </param>
-        /// <param name="mode">Account's <see cref="SmartLinkConnectionMode"/>. Affects overlay priority — Tier-2 UPnP-fail overlays only appear when UPnP was selected.</param>
+        /// <param name="mode">The tier of the account whose session this is. Affects overlay priority — the UPnP overlay only appears where the tier allows the radio's UPnP ports.</param>
         /// <param name="verbose">When true, appends raw error details.</param>
+        /// <param name="radioForwardingOn">The radio's own forwarding flag from the radio list, or null when unknown. With forwarding on, a connect uses the forwarded ports first, so neither the UPnP nor the hole-punch overlay applies (the tiers work, Track C).</param>
+        /// <remarks>
+        /// <para><b>The report must be the radio's own, from its own brokering
+        /// account's session</b> (the tiers work, Track C): the caller pairs it
+        /// (<c>FlexBase.SessionOverlayInputs</c>). Until then the overlay was
+        /// built from the active session's newest report for ANY radio and the
+        /// current account's tier.</para>
+        /// <para>Two overlays were untrue and are replaced (approved words, in
+        /// connect.json): "UPnP mapping didn't take — falling back to your
+        /// manual port forward." (JJ Flexible maps nothing and falls back to
+        /// nothing), and "Your NAT appears symmetric — hole-punch (Tier 3) may
+        /// fail..." (SmartLink's test measures the RADIO's site, not the
+        /// operator's NAT, and its flag is not a NAT-type classifier).</para>
+        /// </remarks>
         public static string ForStatusRich(
             SessionStatus status,
             int reconnectAttemptCount = 0,
             Exception? lastError = null,
             NetworkDiagnosticReport? networkReport = null,
             SmartLinkConnectionMode mode = SmartLinkConnectionMode.ManualPortForwardOnly,
-            bool verbose = false)
+            bool verbose = false,
+            bool? radioForwardingOn = null)
         {
             string baseLine = ForStatus(status, reconnectAttemptCount, lastError);
 
@@ -102,7 +117,7 @@ namespace Radios.SmartLink
                 return baseLine;
             }
 
-            string overlay = ResolveDisconnectOverlay(mode, networkReport, verbose, lastError);
+            string overlay = ResolveDisconnectOverlay(mode, networkReport, verbose, lastError, radioForwardingOn);
             return string.IsNullOrEmpty(overlay) ? baseLine : $"{baseLine}. {overlay}";
         }
 
@@ -128,11 +143,42 @@ namespace Radios.SmartLink
         public static string? HelpDocFor(
             SessionStatus status,
             NetworkDiagnosticReport? report,
-            SmartLinkConnectionMode mode)
+            SmartLinkConnectionMode mode) => HelpDocFor(status, report, mode, radioForwardingOn: null);
+
+        /// <summary>
+        /// As above, following the tiers (the tiers work, Track C):
+        /// <paramref name="mode"/> is the tier of the account that brokers the
+        /// radio, <paramref name="report"/> that radio's own last test from
+        /// that account's session, and <paramref name="radioForwardingOn"/> the
+        /// radio's own forwarding flag (null when unknown). Returns only the
+        /// three keys above, which the help already builds; it never names a
+        /// page that does not exist.
+        /// </summary>
+        /// <remarks>
+        /// With the radio's forwarding known ON, a connect dials the forwarded
+        /// ports first at every tier, so the page is the forwarding page when
+        /// a forwarded port failed and the diagnostics page otherwise; the
+        /// UPnP and hole-punch pages do not apply. Otherwise the long-standing
+        /// order holds, each step limited to a tier that allows it, and Tier 1
+        /// with forwarding known OFF points at forwarding, the only method
+        /// Tier 1 allows.
+        /// </remarks>
+        public static string? HelpDocFor(
+            SessionStatus status,
+            NetworkDiagnosticReport? report,
+            SmartLinkConnectionMode mode,
+            bool? radioForwardingOn)
         {
             if (status == SessionStatus.Connected || status == SessionStatus.Connecting) return null;
 
             if (report != null && !report.ProbeCompleted) return HelpKeyNetworkDiagnostics;
+
+            if (radioForwardingOn == true)
+            {
+                return report?.ManualForwardTcpReachable == false || report?.ManualForwardUdpReachable == false
+                    ? HelpKeyManualPortForwarding
+                    : HelpKeyNetworkDiagnostics;
+            }
 
             if (mode == SmartLinkConnectionMode.AutomaticHolePunch && report?.NatSupportsHolePunch == false)
                 return HelpKeyManualPortForwarding;
@@ -142,6 +188,9 @@ namespace Radios.SmartLink
 
             if (report?.ManualForwardTcpReachable == false) return HelpKeyManualPortForwarding;
 
+            if (mode == SmartLinkConnectionMode.ManualPortForwardOnly && radioForwardingOn == false)
+                return HelpKeyManualPortForwarding;
+
             return HelpKeyNetworkDiagnostics;
         }
 
@@ -149,7 +198,8 @@ namespace Radios.SmartLink
             SmartLinkConnectionMode mode,
             NetworkDiagnosticReport? report,
             bool verbose,
-            Exception? lastError)
+            Exception? lastError,
+            bool? radioForwardingOn)
         {
             if (report == null)
             {
@@ -164,15 +214,20 @@ namespace Radios.SmartLink
             }
 
             // Probe completed. Pick the most specific overlay, highest priority first.
-            if (mode == SmartLinkConnectionMode.AutomaticHolePunch && report.NatSupportsHolePunch == false)
+            // The two below were untrue and are replaced (the tiers work,
+            // Track C; approved words). Neither applies with the radio's
+            // forwarding known on: a connect then dials the forwarded ports
+            // first, whatever the tier.
+            if (mode == SmartLinkConnectionMode.AutomaticHolePunch && radioForwardingOn != true
+                && report.NatSupportsHolePunch == false)
             {
-                return "Your NAT appears symmetric — hole-punch (Tier 3) may fail. Manual port forwarding is the reliable path.";
+                return Lexicon.Get("connect.session_overlay.radio_site_no_punch");
             }
 
-            if (mode >= SmartLinkConnectionMode.ManualPlusUpnp
+            if (mode >= SmartLinkConnectionMode.ManualPlusUpnp && radioForwardingOn != true
                 && report.UpnpTcpReachable == false && report.UpnpUdpReachable == false)
             {
-                return "UPnP mapping didn't take — falling back to your manual port forward.";
+                return Lexicon.Get("connect.session_overlay.radio_site_upnp_unreachable");
             }
 
             if (report.ManualForwardTcpReachable == true || report.UpnpTcpReachable == true)

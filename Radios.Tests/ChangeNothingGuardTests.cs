@@ -245,13 +245,15 @@ namespace Radios.Tests
         /// </summary>
         [Theory]
         [InlineData("private bool saveNewGlobalProfile(", "GuardSkips(\"saveNewGlobalProfile", 1200)]
-        [InlineData("private void ApplyAccountUPnPPreferenceIfAny(", "GuardSkips(\"UPnP router mapping", 900)]
         [InlineData("private bool startOpusOutputChannel(", "GuardSkips(\"MicInput=PC", 900)]
         // The CW keyer restore is written INSIDE RunOwnerInitialization since
         // Track G3 (see TheKeyerRestoreIsBehindTheOwnerInitialisationsRecheck);
         // issue7620 only reads the file now. The scratch setup's row was
         // deleted with the method itself (#59): it had no caller, so there is
         // no writer left for the hold to guard.
+        // The account UPnP hook's row went the same way (the tiers work,
+        // 2026-11-19): the hook is deleted, so no router writer is left on
+        // the connect path for the hold to guard.
         public void TheAutomaticWriterSkipsUnderTheHold(string signature, string guard, int window)
         {
             AssertGuardInside(FlexBase, signature, guard, window);

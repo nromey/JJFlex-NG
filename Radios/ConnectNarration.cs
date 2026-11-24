@@ -280,11 +280,50 @@ namespace Radios
                 // The radio has reported its free-slice count. What follows is
                 // the antenna-list round trip — under 200 ms on a LAN, five to
                 // fifteen seconds over SmartLink, twenty before it gives up.
+                //
+                // NOT "Connected to X" (the tiers work, Track B repair 1). The
+                // radio has answered; the open is not done and, over SmartLink,
+                // the connection is not proven. This line used to say
+                // "Connected to X. Waiting for slice...", on the label and in
+                // the operator's ear, before either was true, and a SmartLink
+                // connect could then go on to say it could not connect.
                 case "start_slices_available":
                     return EnterPhase(
                         2,
-                        Lexicon.Get("connect.connecting.phase_slice_wait", ("radioName", _radioName)),
+                        Lexicon.Get("connect.connecting.phase_radio_answered", ("radioName", _radioName)),
                         Waiting());
+
+                // SmartLink only. The radio has opened, and what is still owed
+                // is its audio and data on this connection: the proof. Usually
+                // that is already in and this event never comes. When it does,
+                // the label says what is being waited for and the heartbeat
+                // covers the wait; nothing is spoken at once, because a wait of
+                // a few milliseconds is not news.
+                case "smartlink_proof_wait":
+                    return new ConnectNarrationStep
+                    {
+                        StatusText = Lexicon.Get("connect.connecting.phase_proof_wait", ("radioName", _radioName)),
+                        Arm = Waiting()
+                    };
+
+                // SmartLink only. One method failed and the next is being
+                // tried. The connect walk SAYS so itself, once, at Critical;
+                // saying it here too would say it twice. The label follows,
+                // and the ladder starts again for the next method.
+                case "smartlink_method_move":
+                    _phase = 1;
+                    _phaseStartMs = _nowMs();
+                    return new ConnectNarrationStep { StatusText = MoveText(data), Arm = Reaching() };
+
+                // The walk is about to speak (a move, or the verdict), or the
+                // connection has just been proven and whoever asked for it is
+                // about to announce it. Only the heartbeat stops: a line said
+                // here at Critical would cut across the walk's own sentence.
+                case "start_attempt_failed":
+                case "start_stopped_by_attempt":
+                case "start_connection_lost_moving_on":
+                case "smartlink_attempt_proven":
+                    return new ConnectNarrationStep { StopVoice = true };
 
                 // Setup data has landed. The station-name wait starts within
                 // microseconds of this, and arms its own heartbeat.
@@ -351,6 +390,21 @@ namespace Radios
                 default:
                     return ConnectNarrationStep.Nothing;
             }
+        }
+
+        /// <summary>
+        /// The connect walk's own sentence for a move between SmartLink
+        /// methods, for the label. Null when the event does not name two
+        /// methods, in which case the label is left alone.
+        /// </summary>
+        private static string MoveText(IReadOnlyDictionary<string, object> data)
+        {
+            if (data == null) return null;
+            if (!data.TryGetValue("from", out object from) || !data.TryGetValue("to", out object to)) return null;
+            if (!Enum.TryParse(from?.ToString(), out Radios.SmartLink.SmartLinkMethod fromMethod)
+                || !Enum.TryParse(to?.ToString(), out Radios.SmartLink.SmartLinkMethod toMethod)) return null;
+            return ConnectWalkAnnouncer.MoveSentence(
+                ConnectWalkAnnouncer.MethodLegName(fromMethod), ConnectWalkAnnouncer.MethodLegName(toMethod));
         }
 
         private ConnectNarrationStep EnterPhase(int phase, string text, ConnectWaitVoice arm)

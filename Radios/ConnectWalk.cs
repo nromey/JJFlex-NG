@@ -130,5 +130,37 @@ namespace Radios
         /// <summary>The itinerary as a trace-friendly string, e.g.
         /// <c>SmartLink,Local</c>.</summary>
         public string Describe() => string.Join(",", _legs);
+
+        /// <summary>
+        /// The SmartLink METHOD the walk's SmartLink leg last attempted (the
+        /// forwarded ports, the radio's UPnP ports, or a hole punch), or null
+        /// when no SmartLink leg has dialled a method yet.
+        ///
+        /// <para>A field on the walk, not more legs: which methods a SmartLink
+        /// leg may use is decided when that leg is dialled, from the brokering
+        /// account's tier, the radio's connection choice and what the radio
+        /// advertises then, so it cannot be laid out when the itinerary is
+        /// built. <see cref="ConnectPathKind"/> is untouched on purpose: its
+        /// values are saved in path chains and connection history.</para>
+        /// </summary>
+        public Radios.SmartLink.SmartLinkMethod? SmartLinkMethod { get; private set; }
+
+        /// <summary>Record the method the SmartLink leg attempted last. Ignored on a leg that is not SmartLink.</summary>
+        public void NoteSmartLinkMethod(Radios.SmartLink.SmartLinkMethod? method)
+        {
+            if (Current == ConnectPathKind.SmartLink && method != null) SmartLinkMethod = method;
+        }
+
+        /// <summary>
+        /// Whether the walk may move to its next leg after the current one
+        /// failed. Never after a cancel: the operator pressed Escape to get
+        /// OUT, and trying another path is the opposite of answering. Never
+        /// when nothing is left.
+        /// </summary>
+        public bool MayMoveOn(bool cancelRequested) => !cancelRequested && HasNextLeg;
+
+        /// <summary><see cref="Describe"/>, with the SmartLink method when one has been attempted.</summary>
+        public string DescribeWithMethod() =>
+            SmartLinkMethod is { } m ? Describe() + " (SmartLink method " + m + ")" : Describe();
     }
 }

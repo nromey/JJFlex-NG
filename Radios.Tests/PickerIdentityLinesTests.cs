@@ -58,7 +58,7 @@ namespace Radios.Tests
             var lines = NetworkIdentityInfo.BuildPickerLines(null, Serial, "", "FLEX-6300", PickerListing.Listed,
                 new SmartLinkAdvertised(0, 0, portForwardOn: false, requiresHolePunch: true));
             Assert.Equal("Radio: FLEX-6300", lines[0]);
-            Assert.Equal("Path: hole punch. No forwarded ports are configured at the radio's site.", lines[^1]);
+            Assert.Equal("Path: hole punch. No forwarded ports are configured at the radio's network location.", lines[^1]);
         }
 
         [Fact]

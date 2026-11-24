@@ -772,6 +772,11 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // JJFlex patch: both advertised port pairs and the radio's own punch report,
+        // set only by the SmartLink radio-list parse; null for a radio no list
+        // described (MIGRATION.md item 29).
+        public AdvertisedPorts AdvertisedPorts { get; set; }
+
         private int _negotiatedHolePunchPort;
         public int NegotiatedHolePunchPort
         {
@@ -2284,6 +2289,8 @@ namespace Flex.Smoothlake.FlexLib
             lock (_commandCommunication.ConnectionSync)
                 if (_disconnectingCommand) return false;
             _guiClientID = gui_client_id;
+            // JJFlex patch: qualified-UDP observation times from here (MIGRATION.md item 30).
+            Interlocked.Exchange(ref _openStartedTimestamp, Stopwatch.GetTimestamp());
 
             // save this so we can use it later, even if it changes due to connection
             // mainly looking for update to know if we will do persistence
@@ -15585,6 +15592,70 @@ namespace Flex.Smoothlake.FlexLib
 
         private bool _udpSuccessfulRegistration;
 
+        // JJFlex patch: qualified-UDP observation (MIGRATION.md item 30). Purely
+        // additive. Each VITA socket gets its own watch, created before the socket
+        // can receive, and the watch sees every datagram BEFORE the _connected gate
+        // below, so the watch starts at socket creation. It changes nothing FlexLib
+        // does: _udpSuccessfulRegistration still flips on any Flex-OUI packet from
+        // any sender. A Flex VITA packet whose source address is the radio's (the
+        // port may differ) raises QualifiedUdpObserved once per socket and command
+        // connection (item 33); the first one from any other address is traced
+        // only. Both are traced, so the bench can read them in the diagnostic log.
+        private QualifiedUdpWatch _udpWatch;
+        private int _udpWatchGeneration;
+        private long _openStartedTimestamp;
+
+        /// <summary>JJFlex patch (items 30 and 31): raised off the receive thread when Flex VITA
+        /// arrives from the radio's own address: once per VITA socket for each command
+        /// connection it arrives under.</summary>
+        public event Action<QualifiedUdpObservation> QualifiedUdpObserved;
+
+        /// <summary>JJFlex patch (item 30): the generation of the newest VITA socket's watch; 0 before any.</summary>
+        public int VitaSocketGeneration => _udpWatch?.Generation ?? 0;
+
+        /// <summary>JJFlex patch (item 30): true while <paramref name="generation"/> names the live VITA socket.</summary>
+        public bool IsCurrentVitaSocket(int generation) =>
+            generation != 0 && VitaSock != null && _udpWatch?.Generation == generation;
+
+        private VitaDataReceivedCallback WatchedUdpCallback()
+        {
+            var watch = new QualifiedUdpWatch(Interlocked.Increment(ref _udpWatchGeneration), IP, Stopwatch.GetTimestamp());
+            _udpWatch = watch;
+            return (ep, data, bytes) =>
+            {
+                ObserveUdp(watch, ep, data, bytes);
+                UdpDataReceivedCallback(ep, data, bytes);
+            };
+        }
+
+        private void ObserveUdp(QualifiedUdpWatch watch, IPEndPoint ep, byte[] data, int bytes)
+        {
+            QualifiedUdpObservation observation;
+            try
+            {
+                observation = watch.Observe(ep, data, bytes, Stopwatch.GetTimestamp(),
+                    Interlocked.Read(ref _openStartedTimestamp), _connected, CurrentCommandConnection);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"QualifiedUdp observe failed: {ex.Message}");
+                return;
+            }
+            if (observation == null) return;
+
+            VitaSocket.TraceSink?.Invoke(observation.TraceLine);
+            if (!observation.Matched) return;
+
+            var handler = QualifiedUdpObserved;
+            if (handler == null) return;
+            // Off the receive thread: a subscriber must never hold the network thread.
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try { handler(observation); }
+                catch (Exception ex) { VitaSocket.TraceSink?.Invoke($"QualifiedUdp subscriber failed: {ex.Message}"); }
+            });
+        }
+
         // JJFlex patch (2026-08-05 punch-race fix): true while the UDP
         // registration loop should keep sending. Replaces the old Connected
         // gate, which prevented any UDP from flying before the app-layer
@@ -15609,7 +15680,7 @@ namespace Flex.Smoothlake.FlexLib
                 if (VitaSock != null)
                     return;
 
-                VitaSock = new VitaSocket(NegotiatedHolePunchPort, UdpDataReceivedCallback, IP, NegotiatedHolePunchPort,
+                VitaSock = new VitaSocket(NegotiatedHolePunchPort, WatchedUdpCallback(), IP, NegotiatedHolePunchPort, // JJFlex patch: item 30 watch
                     latchToSource: true); // JJFlex patch: adopt the radio's NAT-rewritten UDP source (see VitaSocket)
                 _udpPunchActive = true;
                 Task.Run(UdpRegistrationLoop).SafeFireAndForget(ex =>
@@ -15677,7 +15748,7 @@ namespace Flex.Smoothlake.FlexLib
             if (VitaSock != null)
                 return;
 
-            VitaSock = new VitaSocket(RequiresHolePunch ? NegotiatedHolePunchPort : 4991, UdpDataReceivedCallback, IP,
+            VitaSock = new VitaSocket(RequiresHolePunch ? NegotiatedHolePunchPort : 4991, WatchedUdpCallback(), IP, // JJFlex patch: item 30 watch
                 RequiresHolePunch ? NegotiatedHolePunchPort : PublicUdpPort,
                 latchToSource: RequiresHolePunch); // JJFlex patch: punch mode only — forwarded ports are authoritative
             if (IsWan)

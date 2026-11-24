@@ -2516,9 +2516,10 @@ namespace Radios
         /// port (Tier 1), written by the Network tab's port-forward Apply.
         /// The client-side hole-punch port, which an
         /// older build also wrote into this same field, lives per-radio in
-        /// <see cref="RadioConfig.FixedHolePunchPort"/> now. Legacy punch
-        /// values already on disk are still honored by sendRemoteConnect's
-        /// account fallback until a per-radio profile takes over.</para>
+        /// <see cref="RadioConfig.FixedHolePunchPort"/> now. A legacy punch
+        /// value already on disk is NEVER used as a punch port any more (the
+        /// tiers plan, decision 11): the connect picks a fresh random port, or
+        /// the per-radio fixed one.</para>
         /// </summary>
         public bool SaveCurrentAccountListenPort(int? port)
         {
@@ -2538,14 +2539,12 @@ namespace Radios
             return true;
         }
 
-        /// <summary>
-        /// Sprint 27 Track D. Most-recent NetworkTest report for the active
-        /// session (any radio, latest timestamp). Null if nothing cached.
-        /// Used by Settings > Network diagnostic Copy / Save buttons without
-        /// forcing a fresh probe.
-        /// </summary>
-        public Radios.SmartLink.NetworkDiagnosticReport? MostRecentNetworkReport =>
-            Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.MostRecentNetworkReport;
+        // MostRecentNetworkReport WAS HERE (Sprint 27 Track D): the active
+        // session's newest report for ANY radio, read by Copy, Save and Radio
+        // Setup. Removed by the tiers work's Track C, because with three
+        // accounts or MultiFlex it explained one radio with another's test.
+        // Readers ask NetworkReportFor(serial) (FlexBase.NetworkDiagnostic.cs),
+        // which reads only that radio's own brokering account's session.
 
         /// <summary>
         /// Sprint 27 Track D. The help key (for <c>HelpLauncher.ShowHelp</c>) of
@@ -2554,56 +2553,19 @@ namespace Radios
         /// session is Connected and working fine). Despite its name this is a
         /// key, not a filename, since the 2026-10-27 help rework (#826); the
         /// name is kept so a parallel branch using it still compiles.
+        /// <para>The tiers work, Track C: for the radio the diagnostic
+        /// describes, from that radio's own brokering account (its session's
+        /// status, the radio's own last test, that account's tier, the radio's
+        /// forwarding flag). Until then it read the active session's newest
+        /// test of ANY radio and the current account's tier.</para>
         /// </summary>
-        public string? CurrentHelpDocFileName
-        {
-            get
-            {
-                var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-                var status = session?.Status ?? Radios.SmartLink.SessionStatus.Disconnected;
-                var report = session?.MostRecentNetworkReport;
-                var mode = CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
-                return Radios.SmartLink.SessionStatusMessages.HelpDocFor(status, report, mode);
-            }
-        }
+        public string? CurrentHelpDocFileName => NetworkHelpKeyFor(DiagnosticRadioSerial);
 
-        /// <summary>
-        /// Sprint 27 Track C / Phase C.3 — user-facing entry point for the
-        /// "Test network" button in Settings. Runs a NetworkTest probe
-        /// against the currently-connected radio via the active session's
-        /// runner. Returns null if no session is active or no radio is
-        /// connected (UI should display "no radio connected" in that case,
-        /// same pattern as Apply/TestPort buttons). <paramref name="forceRefresh"/>
-        /// true bypasses the runner's cache so the user always gets fresh data
-        /// when they click the button.
-        /// </summary>
-        public async System.Threading.Tasks.Task<Radios.SmartLink.NetworkDiagnosticReport?> RunNetworkDiagnosticAsync(bool forceRefresh = true)
-        {
-            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-            if (session == null)
-            {
-                Tracing.TraceLine("RunNetworkDiagnosticAsync: no SmartLink session; skipping", TraceLevel.Warning);
-                return null;
-            }
-
-            // The probe only needs a serial and a SmartLink session — it asks Flex's
-            // backend to look at the network from outside, which has nothing to do
-            // with whether we currently hold a connection to the radio.
-            //
-            // Requiring a connected radio made the diagnostic useless in the one
-            // case it exists for: you cannot connect, and you want to know why. So
-            // fall back to the serial of whichever radio was selected, which is what
-            // the discovery cache holds even when the connect attempt failed.
-            string serial = theRadio?.Serial ?? SelectedRadioSerial;
-            if (string.IsNullOrEmpty(serial))
-            {
-                Tracing.TraceLine("RunNetworkDiagnosticAsync: no radio serial available; skipping", TraceLevel.Warning);
-                return null;
-            }
-
-            Tracing.TraceLine($"RunNetworkDiagnosticAsync: probing serial={serial} (connected={theRadio != null})", TraceLevel.Info);
-            return await session.RunNetworkDiagnosticAsync(serial, forceRefresh).ConfigureAwait(false);
-        }
+        // RunNetworkDiagnosticAsync(bool) WAS HERE (Sprint 27 Track C): it
+        // probed through the ACTIVE session. Replaced by the tiers work's
+        // Track C with RunNetworkTestAsync (FlexBase.NetworkDiagnostic.cs),
+        // which tests through the radio's own brokering account's session or
+        // not at all, behind NetworkTestGate.
 
         /// <summary>
         /// Sprint 27 Track C / Phase C.3 — fire-and-forget post-connect
@@ -2613,12 +2575,24 @@ namespace Radios
         /// probing again. Any probe failure is swallowed here (logged only);
         /// UI consumers get the report via the runner's cache + event.
         /// </summary>
-        private static void KickPostConnectNetworkTest(string serial)
+        /// <remarks>
+        /// <para>Through the session of the account that brokered THIS radio
+        /// (the tiers work, Track C), never the active session by fallback, so
+        /// its cached report is that radio's own and lands where the
+        /// diagnostic reads it. The punched-session guard at the call site is
+        /// unchanged: it reads the method actually used.</para>
+        /// </remarks>
+        private void KickPostConnectNetworkTest(string serial)
         {
-            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-            if (session == null)
+            var pairing = NetworkDiagnosticPairingFor(serial);
+            var session = pairing.IsPaired
+                ? Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(pairing.Account)
+                : null;
+            if (session == null || !session.IsConnected)
             {
-                Tracing.TraceLine("KickPostConnectNetworkTest: no active session; skipping", TraceLevel.Info);
+                Tracing.TraceLine(
+                    $"KickPostConnectNetworkTest: skipping, serial={serial} pairing={pairing.Kind} account={pairing.Account}; no other account's session is used",
+                    TraceLevel.Info);
                 return;
             }
 
@@ -2638,105 +2612,19 @@ namespace Radios
             });
         }
 
-        // Sprint 27 Track B — shared UPnP mapper instance (lazy). Per FlexBase
-        // instance so each connection owns its own; the underlying COM object
-        // is cheap to recreate and not worth pooling.
-        private UPnPPortMapper? _upnpMapper;
-        // Remember which ports we actually mapped so Disconnect can release them.
-        private int? _upnpMappedTcpPort;
-        private int? _upnpMappedUdpPort;
-
-        /// <summary>
-        /// Sprint 27 Track B / Phase B.3 — if the active account has Tier 2
-        /// UPnP opt-in enabled and a configured port, ask the local router via
-        /// UPnP to forward that port (TCP + UDP) to the radio's LAN IP.
-        /// Silent no-op in all the following cases (trace only):
-        /// no account, UPnP opt-in is false, no configured port, radio's IP
-        /// is not a private / LAN address (we're roaming — UPnP would target
-        /// the wrong router). Individual TCP / UDP failures don't disable the
-        /// other; each is attempted independently and its result remembered
-        /// for Disconnect cleanup.
-        /// </summary>
-        private void ApplyAccountUPnPPreferenceIfAny()
-        {
-            // A guarded radio's SITE is in the hold too: this writes a
-            // forward rule into the router in front of the radio, from an
-            // account-scoped value — the port incident's shape one box over
-            // (audit 1.9). First, before the tier checks, so the answer does
-            // not depend on which account happens to be current.
-            if (GuardSkips("UPnP router mapping on connect")) return;
-            if (_currentAccount == null || _currentAccount.ConnectionMode < SmartLinkConnectionMode.ManualPlusUpnp)
-            {
-                Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP tier not selected for this account", TraceLevel.Info);
-                return;
-            }
-            if (_currentAccount.ConfiguredListenPort == null)
-            {
-                Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP enabled but no port preference configured; skipping", TraceLevel.Warning);
-                return;
-            }
-            if (theRadio == null) return;
-
-            string radioIp = theRadio.IP?.ToString() ?? string.Empty;
-            if (!IsPrivateIPv4(radioIp))
-            {
-                Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: radio IP '{radioIp}' is not a private LAN address; UPnP not applicable from this network (roaming). Relying on manual port forward only.", TraceLevel.Info);
-                return;
-            }
-
-            int port = _currentAccount.ConfiguredListenPort.Value;
-            _upnpMapper ??= new UPnPPortMapper();
-
-            Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: attempting UPnP mapping port={port} radioIp={radioIp}", TraceLevel.Info);
-
-            bool tcpOk = _upnpMapper.TryAddMapping(port, UPnPProtocol.Tcp, port, radioIp, "JJFlexRadio SmartLink TCP");
-            if (tcpOk) _upnpMappedTcpPort = port;
-
-            bool udpOk = _upnpMapper.TryAddMapping(port, UPnPProtocol.Udp, port, radioIp, "JJFlexRadio SmartLink UDP");
-            if (udpOk) _upnpMappedUdpPort = port;
-
-            Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: tcpMapped={tcpOk} udpMapped={udpOk}", TraceLevel.Info);
-        }
-
-        /// <summary>
-        /// Sprint 27 Track B / Phase B.3 — release UPnP mappings we added in
-        /// <see cref="ApplyAccountUPnPPreferenceIfAny"/>. Called from
-        /// <see cref="Disconnect"/>. Safe to call when no mappings exist —
-        /// the per-port trackers are nulled out on success and checked here.
-        /// </summary>
-        private void ReleaseUPnPMappingsIfAny()
-        {
-            if (_upnpMapper == null) return;
-            if (_upnpMappedTcpPort is int tcp)
-            {
-                _upnpMapper.TryRemoveMapping(tcp, UPnPProtocol.Tcp);
-                _upnpMappedTcpPort = null;
-            }
-            if (_upnpMappedUdpPort is int udp)
-            {
-                _upnpMapper.TryRemoveMapping(udp, UPnPProtocol.Udp);
-                _upnpMappedUdpPort = null;
-            }
-        }
-
-        /// <summary>
-        /// Sprint 27 Track B — true only for RFC1918 IPv4 addresses (10/8,
-        /// 172.16/12, 192.168/16). We gate UPnP attempts on this so roaming
-        /// users don't have us punching holes in the wrong router; the
-        /// user's manual port forward (configured from home) still works
-        /// in that scenario.
-        /// </summary>
-        private static bool IsPrivateIPv4(string ip)
-        {
-            if (string.IsNullOrWhiteSpace(ip)) return false;
-            if (!System.Net.IPAddress.TryParse(ip, out var addr)) return false;
-            if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
-            byte[] b = addr.GetAddressBytes();
-            if (b[0] == 10) return true;
-            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
-            if (b[0] == 192 && b[1] == 168) return true;
-            return false;
-        }
+        // THE ACCOUNT UPnP HOOK WAS HERE AND IS RETIRED (the tiers plan,
+        // decision 2, ruled by Noel 2026-11-19): ApplyAccountUPnPPreferenceIfAny,
+        // ReleaseUPnPMappingsIfAny and IsPrivateIPv4. It could not fire on an
+        // ordinary SmartLink connection (it returned unless the radio's address
+        // was private, and a SmartLink radio's address is its public_ip), it
+        // would have mapped the wrong port (external P to the radio at P, while
+        // the radio listens on 4994 and 4993) on the wrong router (this
+        // computer's, not the radio's), and a mapping made after a connect
+        // cannot rescue that connect. Tier 2 now means the ports the RADIO
+        // mapped on its own router, read from the radio list. JJ Flexible
+        // makes, renews and releases no mapping, and NEVER removes an existing
+        // router mapping: there is no record of who made one. UPnPPortMapper
+        // stays, unused, for a future operator-authorized tool.
 
         private Thread mainThread;
 
@@ -3020,6 +2908,12 @@ namespace Radios
                 });
             }
 
+            // True when the transport that is up belongs to a LATER SmartLink
+            // method than the one dialled above: that method's own connect
+            // (made the way a retry is) has already done what follows a
+            // connect coming up, and it is not done twice.
+            bool smartLinkMovedOn = false;
+
             if (rv)
             {
                 Tracing.TraceLine($"Connect: IsWan={theRadio.IsWan} RequiresHolePunch={theRadio.RequiresHolePunch} PublicTlsPort={theRadio.PublicTlsPort} NegotiatedHolePunchPort={theRadio.NegotiatedHolePunchPort} IP={theRadio.IP}", TraceLevel.Info);
@@ -3031,7 +2925,14 @@ namespace Radios
                 // for "radio, mint one" (#782). FlexLib sends `client gui <id>`
                 // or a bare `client gui` accordingly.
                 RevokePttWatch("Connect");   // a selected trace topic makes the bare ping fence throw (#835)
+                // The SmartLink attempt this transport belongs to, watched for
+                // its proof from before the socket exists (null for a local radio).
+                var smartLinkAttempt = WatchSmartLinkAttemptBeforeTransport(null);
                 rv = theRadio.Connect(prepareClientIdentityForConnect("Connect"));
+                // A SmartLink method that failed here (the TCP or TLS stage)
+                // is followed by the next method the account's tier allows.
+                rv = SmartLinkTransportResult(smartLinkAttempt, rv, continuation: false, out smartLinkMovedOn);
+                if (RemoteRig) remoteHandshakeFailed = !rv && SmartLinkLegEndedAtTheRequest();
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_end", new Dictionary<string, object>
                 {
                     { "success", rv }
@@ -3041,11 +2942,14 @@ namespace Radios
             if (rv)
             {
                 Tracing.TraceLine("Connect worked:" + theRadio.Serial, TraceLevel.Info);
-                AttachSliceRecorderStatus(theRadio);
-                ApplyChoicesWaitingForAConnect(theRadio.Serial);
-                // The post-connect fence: its reply marks the end of whatever
-                // the radio restored for a returning client (#782).
-                sendConnectFence("Connect");
+                if (!smartLinkMovedOn)
+                {
+                    AttachSliceRecorderStatus(theRadio);
+                    ApplyChoicesWaitingForAConnect(theRadio.Serial);
+                    // The post-connect fence: its reply marks the end of whatever
+                    // the radio restored for a returning client (#782).
+                    sendConnectFence("Connect");
+                }
 
                 // 4.1-line cache writer: seed radioConnectionCacheV1.xml so the
                 // 4.2-line discovery cascade (Rung 1a CachedLanIp) can short-circuit
@@ -3102,12 +3006,8 @@ namespace Radios
                     // described above. Do NOT re-add a port write here, or anywhere
                     // on the connect path, under any name.
 
-                    // Sprint 27 Track B / Phase B.3 — attempt UPnP mapping
-                    // for Tier 2 opt-in accounts. Silent no-op when UPnP is
-                    // not opted in, no port is configured, or the radio IP
-                    // isn't a private (LAN) address. Failures fall back to
-                    // Tier 1 behavior silently.
-                    ApplyAccountUPnPPreferenceIfAny();
+                    // No UPnP mapping is made on connect (the tiers plan,
+                    // decision 2): Tier 2 uses the radio's own UPnP ports.
 
                     // Sprint 27 Track C / Phase C.3 — kick a NetworkTest in
                     // the background so the diagnostic report is warm by the
@@ -3122,7 +3022,10 @@ namespace Radios
                     // and UPnP paths survive the probe; punch does not. Same
                     // family as registration/firmware needing a detached
                     // client. See research-queue "HOLE PUNCH" section.
-                    if (theRadio.RequiresHolePunch)
+                    // The METHOD this connect used, not the radio's punch flag
+                    // (the tiers work): a "Hole punch always" connect to a radio
+                    // that advertises ports is punched, and is guarded.
+                    if (ConnectedByHolePunch)
                     {
                         Tracing.TraceLine(
                             "KickPostConnectNetworkTest: skipped — hole-punched session, radio-side probe would kill it",
@@ -3173,7 +3076,15 @@ namespace Radios
                 // "connection failed".
                 try
                 {
-                    if (RemoteRig)
+                    if (RemoteRig && _cancelRequested)
+                    {
+                        // The operator stopped it. Nothing failed, so no
+                        // evidence is gathered: composing it runs a TCP check
+                        // of the radio's port that can take four seconds, and
+                        // Escape is not to be followed by more waiting.
+                        Tracing.TraceLine("Connect: ended by operator cancel; no failure evidence is gathered", TraceLevel.Info);
+                    }
+                    else if (RemoteRig)
                     {
                         RecordConnectFailure(BuildRemoteConnectFailureReport(theRadio, remoteHandshakeFailed));
                     }
@@ -3264,13 +3175,22 @@ namespace Radios
                     var path = chain[leg];
                     bool lastLeg = leg == chain.Count - 1;
 
+                    // A cancel is never walked on (the tiers work, Track B):
+                    // the operator pressed Escape to get OUT. This walk used to
+                    // go on to its next path and say so.
+                    if (_cancelRequested)
+                    {
+                        Tracing.TraceLine($"TryAutoConnect: cancelled by the operator; leg {leg} ({path}) is not tried", TraceLevel.Info);
+                        return false;
+                    }
+
                     if (path == ConnectPathKind.SmartLink)
                     {
                         Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink — calling TryAutoConnectRemote ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                         if (!TryAutoConnectRemote(config, timeoutMs, quietFailures: !lastLeg))
                         {
                             Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink session FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                            if (!lastLeg && !SuppressSpeech)
+                            if (!lastLeg && !SuppressSpeech && !_cancelRequested)
                                 ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.smartlink_unreachable", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
                             continue;
                         }
@@ -3317,7 +3237,7 @@ namespace Radios
                             // No silent path substitution: the walk says so.
                             var next = (chain[leg + 1] == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.next_smartlink") : Lexicon.Get("connect.auto.next_local"));
                             var here = (path == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.here_smartlink") : Lexicon.Get("connect.auto.here_local"));
-                            if (!SuppressSpeech)
+                            if (!SuppressSpeech && !_cancelRequested)
                                 ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.not_found_here",
                                     ("radioName", config.RadioName), ("here", here), ("next", next)), VerbosityLevel.Critical, true);
                             continue;
@@ -3371,7 +3291,14 @@ namespace Radios
                     {
                         sw.Stop();
                         Tracing.TraceLine($"TryAutoConnect: END connected successfully on leg {leg} ({path}) (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                        if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.connected", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
+                        // "Connected" is said when it is true. Over SmartLink
+                        // that is at proof (the radio opened and its audio and
+                        // data arrived), not here, where only the transport is
+                        // up and the method walk may yet move on; said here it
+                        // would also cut across the walk's own sentence.
+                        string connectedSentence = Lexicon.Get("connect.auto.connected", ("radioName", config.RadioName));
+                        if (SmartLinkLegOwingAnOpen() != null) _connectedSentenceOwedAtProof = connectedSentence;
+                        else if (!SuppressSpeech) ScreenReaderOutput.Speak(connectedSentence, VerbosityLevel.Critical, true);
                         // BT prosign moved to MainWindow.PowerOn so it fires AFTER the CW delegate is
                         // wired and CwNotificationsEnabled is loaded from config. Previous location
                         // (here) raced with MainWindow init -- PlayCwBT was null on first connect.
@@ -3379,6 +3306,11 @@ namespace Radios
                     }
 
                     Tracing.TraceLine($"TryAutoConnect: leg {leg} Connect() FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    if (_cancelRequested)
+                    {
+                        Tracing.TraceLine($"TryAutoConnect: leg {leg} ({path}) ended by operator cancel; not walking on", TraceLevel.Info);
+                        return false;
+                    }
                     if (!lastLeg)
                     {
                         var next = (chain[leg + 1] == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.next_smartlink") : Lexicon.Get("connect.auto.next_local"));
@@ -3551,7 +3483,17 @@ namespace Radios
         /// No re-auth, no handler re-wiring. Just sends remote connect + Radio.Connect().
         /// Used when Start() fails due to GUIClient lifecycle race.
         /// </summary>
-        public bool RetryConnect()
+        public bool RetryConnect() => retryConnectCore(null);
+
+        /// <summary>
+        /// The retry itself. <paramref name="continuing"/> is null for a
+        /// caller's retry, which plans the SmartLink connect afresh (the
+        /// method that last proved itself first). Otherwise it is the
+        /// SmartLink method attempt the method walk has already dialled as
+        /// its NEXT method on this radio object: its transport is made here,
+        /// exactly as a retry's is, and nothing is planned or dialled again.
+        /// </summary>
+        private bool retryConnectCore(Radios.SmartLink.SmartLinkAttempt continuing)
         {
             if (theRadio == null)
             {
@@ -3560,12 +3502,15 @@ namespace Radios
             }
 
             // A retry that opens another transport gets another producer identity.
-            rememberCommandRoute(null, null, null);
+            // (The method walk's next method has just been given its own, by
+            // its dial; that one is kept.)
+            if (continuing == null) rememberCommandRoute(null, null, null);
             _txAllowedReported = false;
             ForgetPowerReports();
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
+            Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}"
+                + (continuing == null ? "" : $" (the SmartLink method walk's next method, attempt {continuing.Sequence}, {continuing.Method})"), TraceLevel.Info);
 
             try
             {
@@ -3584,9 +3529,13 @@ namespace Radios
 
                 bool rv = true;
 
-                if (RemoteRig)
+                if (RemoteRig && continuing == null)
                 {
-                    rv = sendRemoteConnect(theRadio);
+                    // A reconnect: the plan tries the method that last proved
+                    // itself for this radio first (the tiers plan, section 4).
+                    _smartLinkDialIsReconnect = true;
+                    try { rv = sendRemoteConnect(theRadio); }
+                    finally { _smartLinkDialIsReconnect = false; }
                     Tracing.TraceLine($"RetryConnect: sendRemoteConnect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
 
@@ -3597,7 +3546,13 @@ namespace Radios
                     // The same stored id as the first attempt presented, unless
                     // the radio refused it as a duplicate in between (#782).
                     RevokePttWatch("RetryConnect");   // as in Connect (#835)
+                    var smartLinkAttempt = WatchSmartLinkAttemptBeforeTransport(continuing);
                     rv = theRadio.Connect(prepareClientIdentityForConnect("RetryConnect"));
+                    rv = SmartLinkTransportResult(smartLinkAttempt, rv, continuation: continuing != null, out bool laterMethodIsUp);
+                    // As in Connect: the transport that came up belongs to a
+                    // LATER SmartLink method, and that method's own connect
+                    // (this code, run for it) has done everything below.
+                    if (rv && laterMethodIsUp) return true;
                     Tracing.TraceLine($"RetryConnect: Radio.Connect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
                     if (rv)
@@ -3777,15 +3732,62 @@ namespace Radios
         public bool SuppressSpeech { get; set; }
 
         /// <summary>
-        /// Start radio activity
+        /// Start radio activity: open the radio and, for a SmartLink connect,
+        /// prove the connection before calling it open.
         /// </summary>
+        /// <remarks>
+        /// A SmartLink method attempt is in flight when the connect stage left
+        /// one with its transport up (FlexBase.SmartLinkAttempts.cs). Its open
+        /// and its proof then run under the method walk, which on a method
+        /// failure (no audio or data from the radio in the window, or the
+        /// command connection lost) tears that attempt down, says the move
+        /// once, and tries the next method the account's tier allows: its own
+        /// request, its own transport, its own open. Every caller of Start
+        /// gets that, because it lives here. Anything else, a local connect
+        /// included, opens exactly as it always has.
+        /// </remarks>
         public bool Start()
         {
+            // The operator's cancel belongs to one Start: cleared here, once,
+            // and NOT at the top of each open the method walk may run inside
+            // it, so a cancel during a later method is never wiped.
+            _cancelRequested = false;
+
+            var leg = SmartLinkLegOwingAnOpen();
+            if (leg == null)
+            {
+                // Nothing is owed a "Connected" on this route: a local leg says
+                // its own when its transport comes up.
+                _connectedSentenceOwedAtProof = null;
+                return startOpenPhase(null, out _) && startCommit();
+            }
+            return StartUnderSmartLinkLeg(leg);
+        }
+
+        /// <summary>
+        /// The open, up to but not including its commit
+        /// (<see cref="startCommit"/>): the slice check, the radio's setup
+        /// data and our station name. <paramref name="attempt"/> is the
+        /// SmartLink method attempt this open belongs to, or null; when it
+        /// fails its proof the waits here stop, as they do for a cancel, and
+        /// the open says so through <paramref name="ended"/>.
+        /// </summary>
+        private bool startOpenPhase(Radios.SmartLink.SmartLinkAttempt attempt, out Radios.SmartLink.SmartLinkOpenAnswerKind ended)
+        {
+            ended = Radios.SmartLink.SmartLinkOpenAnswerKind.Failed;
             // Reset flags early — stale removal events from Connect() phase
             // must not poison the station name wait loop.
             _clientRemovedDuringStart = false;
             _clientAddedDuringStart = false;
-            _cancelRequested = false;
+
+            // True when this open's own attempt has failed its proof (read
+            // against the clock here, so no timer thread is needed).
+            bool AttemptFailed()
+            {
+                if (attempt == null) return false;
+                attempt.Poll();
+                return attempt.HasFailed;
+            }
 
             LastStartFailureReason = null;
             ConnectionProfiler.Current?.RecordEvent("start_begin", new Dictionary<string, object>
@@ -3797,14 +3799,20 @@ namespace Radios
 
             await(() =>
             {
-                return initialFreeSlices != -1 || _cancelRequested;
+                return initialFreeSlices != -1 || _cancelRequested || AttemptFailed();
             }, 5000);
 
             if (_cancelRequested)
             {
                 Tracing.TraceLine("start: cancelled before slice check", TraceLevel.Info);
                 LastStartFailureReason = "Cancelled by user";
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.Cancelled;
                 return false;
+            }
+            if (AttemptFailed())
+            {
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.StoppedByAttempt;
+                return StopOpenForFailedAttempt(attempt, "before the slice check");
             }
 
             ConnectionProfiler.Current?.RecordEvent("start_slices_available", new Dictionary<string, object>
@@ -3888,6 +3896,7 @@ namespace Radios
             ConnectSetupWait.Outcome waited = ConnectSetupWait.Run(new ConnectSetupWait.World
             {
                 Cancelled = () => _cancelRequested,
+                Aborted = AttemptFailed,
                 Connected = () => IsConnected,
                 AntennasHere = () => (theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0),
                 ClientRemoved = () => _clientRemovedDuringStart,
@@ -3898,6 +3907,14 @@ namespace Radios
                 Trace = (line, level) => Tracing.TraceLine(line, level),
             }, _startBeginTickCount);
             bool stationNameSet = waited.StationNamed;
+            if (!_cancelRequested && waited.Ended == ConnectSetupWait.End.Aborted)
+            {
+                // This open's own SmartLink attempt failed its proof (no audio
+                // or data from the radio in the window, or its connection
+                // fell). Not the operator's cancel: the method walk moves on.
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.StoppedByAttempt;
+                return StopOpenForFailedAttempt(attempt, "during the setup wait");
+            }
             if (!_cancelRequested && !waited.AntennasArrived)
             {
                 // QB Track D (item 4): "no RX antenna" was a misleading verdict
@@ -3910,7 +3927,12 @@ namespace Radios
                 {
                     Tracing.TraceLine("start: connection dropped during antenna-list wait", TraceLevel.Error);
                     LastStartFailureReason = "Connection lost during setup";
-                    raiseNoSliceError("the connection to the radio dropped during setup");
+                    ended = Radios.SmartLink.SmartLinkOpenAnswerKind.ConnectionLost;
+                    // When the SmartLink method walk is about to try another
+                    // method, it says so; an error box here would sit over
+                    // that move and say the connect was over.
+                    if (!SmartLinkLegWillMoveOnAfterLoss(attempt))
+                        raiseNoSliceError("the connection to the radio dropped during setup");
                     return false;
                 }
                 if (theRadio.RXAntList == null)
@@ -3935,6 +3957,7 @@ namespace Radios
                 // connect attempt doesn't trip the AS-retry path on stale state.
                 Tracing.TraceLine("start: cancelled, disconnecting radio for clean cleanup", TraceLevel.Info);
                 LastStartFailureReason = "Cancelled by user";
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.Cancelled;
                 ConnectionProfiler.Current?.RecordAndSave("start_cancelled", new Dictionary<string, object>
                 {
                     { "phase", "station_name_wait" },
@@ -3962,7 +3985,14 @@ namespace Radios
                 // Don't raise error — caller (openTheRadio) can retry the connection.
                 Tracing.TraceLine("start:connection lost during station name wait, caller may retry", TraceLevel.Error);
                 LastStartFailureReason = "Connection lost during setup";
-                ConnectionProfiler.Current?.RecordAndSave("start_connection_lost");
+                ended = Radios.SmartLink.SmartLinkOpenAnswerKind.ConnectionLost;
+                // When the SmartLink method walk is about to try another
+                // method it says so itself. The connecting window answers
+                // "start_connection_lost" with its own Critical line, which
+                // could land on top of that sentence, so this loss goes out
+                // under a name the window only stops its heartbeat for.
+                ConnectionProfiler.Current?.RecordAndSave(
+                    SmartLinkLegWillMoveOnAfterLoss(attempt) ? "start_connection_lost_moving_on" : "start_connection_lost");
                 return false;
             }
             else
@@ -4004,6 +4034,18 @@ namespace Radios
                 teardownDisconnect("station-name timeout, retrying");
                 return false;
             }
+            ended = Radios.SmartLink.SmartLinkOpenAnswerKind.Completed;
+            return true;
+        }
+
+        /// <summary>
+        /// The open's commit: what must not start until the open is done and,
+        /// for a SmartLink connect, proven. Split from the open so a
+        /// connection that fails its proof never has the rig's main thread
+        /// running over it.
+        /// </summary>
+        private bool startCommit()
+        {
             mainThread = new Thread(mainThreadProc);
             mainThread.Name = "mainThread";
             mainThread.Start();
@@ -4024,6 +4066,9 @@ namespace Radios
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             // The session's last speech counts, before the radio goes (#506).
             Speech.SpeechTally.Shared.Write("disconnect");
+            // A SmartLink method attempt still undecided ends here, so its
+            // record never reads "still going" after the connect is gone.
+            AbandonSmartLinkLeg("the rig was disconnected", connectIsOver: true);
             if (theRadio == null) return;
             AttachSliceRecorderStatus(null);
 
@@ -4284,10 +4329,6 @@ namespace Radios
 
             if (theRadio.Connected)
             {
-                // Sprint 27 Track B / Phase B.3 — release any UPnP mappings
-                // we added in Connect before we lose the radio-IP context.
-                ReleaseUPnPMappingsIfAny();
-
                 theRadio.Disconnect();
                 if (!await(() =>
                 {
@@ -5937,6 +5978,9 @@ namespace Radios
             _cancelRequested = true;
             Tracing.TraceLine("RequestCancel: cancel flag set", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("cancel_requested");
+            // A SmartLink transport still waiting on its TCP connect or TLS
+            // handshake is ended now, not when its timeout runs out.
+            AbortTransportEstablishmentOnCancel();
         }
 
         /// <summary>

@@ -307,10 +307,15 @@ namespace Radios.Tests
             clock.Advance(11_000);
             var done = n.OnEvent("station_name_set");
 
-            Assert.Equal("Connected to FLEX-8600. Waiting for slice...", slices.StatusText);
+            // CHANGED 2026-11-20 (the tiers work, Track B repair 1). This used
+            // to assert "Connected to FLEX-8600. Waiting for slice...", which
+            // pinned the defect: the window said Connected when the radio had
+            // only reported its free slices, before the open was done and
+            // before a SmartLink connection was proven.
+            Assert.Equal("FLEX-8600 answered. Radio setup is continuing.", slices.StatusText);
             Assert.True(slices.Speak);
-            Assert.Equal("Still waiting.", slices.Arm.StillTerse);
-            Assert.Equal("Still waiting for FLEX-8600 to answer.", slices.Arm.StillChatty);
+            Assert.Equal("JJ Flexible is still waiting.", slices.Arm.StillTerse);
+            Assert.Equal("Still waiting for data from the radio.", slices.Arm.StillChatty);
 
             Assert.Equal("Slice acquired. Setting up...", antennas.StatusText);
             Assert.True(antennas.Speak);
@@ -487,7 +492,228 @@ namespace Radios.Tests
             Assert.Equal(0, repeat.Phase);
             Assert.False(repeat.Speak);
             Assert.False(repeat.PlayPhaseTone);
-            Assert.Equal("Connected to FLEX-8600. Waiting for slice...", repeat.StatusText);
+            // CHANGED 2026-11-20 with the test above: the truthful line, not
+            // "Connected to FLEX-8600. Waiting for slice...".
+            Assert.Equal("FLEX-8600 answered. Radio setup is continuing.", repeat.StatusText);
+        }
+
+        // ------------------------------------------------------------------
+        // Nothing says "connected" before the connection is proven
+        // (the tiers work, Track B repair 1)
+        // ------------------------------------------------------------------
+
+        private static Dictionary<string, object> Move(string from, string to) =>
+            new Dictionary<string, object> { { "from", from }, { "to", to } };
+
+        /// <summary>Everything one step puts on the window or in the operator's ear.</summary>
+        private static IEnumerable<string> Words(ConnectNarrationStep step)
+        {
+            if (step.StatusText != null) yield return step.StatusText;
+            if (step.SpeakExtra != null) yield return step.SpeakExtra;
+            if (step.Arm != null)
+            {
+                yield return step.Arm.StillTerse;
+                yield return step.Arm.StillChatty;
+            }
+        }
+
+        private static void AssertNeverSaysConnected(IEnumerable<ConnectNarrationStep> steps)
+        {
+            foreach (string words in steps.SelectMany(Words))
+            {
+                Assert.DoesNotContain("Connected", words, System.StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("{", words);
+                Assert.DoesNotContain("connect.connecting", words);
+            }
+        }
+
+        /// <summary>
+        /// A SmartLink connect whose first method opens and then carries no
+        /// audio or data, so the walk falls back to the next method, which is
+        /// proven. The events are the profiler's own, in the order the radio
+        /// layer records them. The window never says Connected, its label says
+        /// what is being waited for at each stage, and it leaves the move to
+        /// the walk, which says it once.
+        /// </summary>
+        [Fact]
+        public void A_SmartLink_open_with_no_audio_or_data_then_a_fallback_never_says_connected()
+        {
+            var clock = new Clock();
+            var n = new ConnectNarrator(Radio, clock.Read);
+            var steps = new List<ConnectNarrationStep>();
+            ConnectNarrationStep On(string name, Dictionary<string, object> data = null)
+            {
+                var step = n.OnEvent(name, data);
+                steps.Add(step);
+                return step;
+            }
+
+            // The first method: its request, its transport, its open.
+            On("send_remote_connect");
+            On("hole_punch_port_selected");
+            On("wan_connect_ready");
+            clock.Advance(2_000);
+            On("start_begin");
+            var answered = On("start_slices_available");
+            clock.Advance(4_000);
+            var setup = On("start_antenna_available");
+            On("start_station_name_wait_begin");
+            clock.Advance(3_000);
+            var named = On("station_name_set");
+            // The radio opened. Its audio and data have not arrived.
+            var proofWait = On("smartlink_proof_wait");
+            clock.Advance(15_000);
+            // The proof window ran out: the attempt is torn down and the walk moves on.
+            var move = On("smartlink_method_move", Move("ManualPorts", "UpnpPorts"));
+
+            Assert.Equal("FLEX-8600 answered. Radio setup is continuing.", answered.StatusText);
+            Assert.True(answered.Speak);
+            Assert.Equal("Slice acquired. Setting up...", setup.StatusText);
+            Assert.True(named.StopVoice);
+            Assert.Null(named.StatusText);
+
+            // What is being waited for now, on the label; not spoken at once,
+            // and covered by the heartbeat if the wait is long.
+            Assert.Equal("JJ Flexible is waiting for audio or data from FLEX-8600.", proofWait.StatusText);
+            Assert.False(proofWait.Speak);
+            Assert.Null(proofWait.SpeakExtra);
+            Assert.Equal("JJ Flexible is still waiting.", proofWait.Arm.StillTerse);
+
+            // The move: the walk's own sentence on the label, NOT spoken here
+            // (the walk says it, once, at Critical), and the ladder restarts.
+            Assert.Equal(
+                "Could not connect over SmartLink on the radio's forwarded ports. Trying SmartLink on the ports the radio opened by UPnP.",
+                move.StatusText);
+            Assert.False(move.Speak);
+            Assert.Null(move.SpeakExtra);
+            Assert.Equal(1, n.Phase);
+            Assert.Equal("Still connecting.", move.Arm.StillTerse);
+
+            // The second method, which is proven.
+            On("hole_punch_port_selected");
+            On("wan_connect_ready");
+            clock.Advance(1_500);
+            On("start_begin");                       // a second open: the ladder's clock restarts here
+            clock.Advance(900);                      // the radio takes its time to report its slices
+            var answeredAgain = On("start_slices_available");
+            clock.Advance(2_000);
+            On("start_antenna_available");
+            On("start_station_name_wait_begin");
+            clock.Advance(2_000);
+            On("station_name_set");
+            var proven = On("smartlink_attempt_proven");
+
+            // The ladder ran again from the bottom, so the line is said again.
+            Assert.Equal(2, answeredAgain.Phase);
+            Assert.True(answeredAgain.Speak);
+            Assert.Equal("FLEX-8600 answered. Radio setup is continuing.", answeredAgain.StatusText);
+            // Proven: nothing is said here, because whoever asked for the
+            // connect is about to announce it by name.
+            Assert.True(proven.StopVoice);
+            Assert.Null(proven.StatusText);
+            Assert.Null(proven.SpeakExtra);
+
+            AssertNeverSaysConnected(steps);
+            // And the window speaks no Critical line of its own anywhere in a
+            // sequence the walk narrates.
+            Assert.All(steps, s => Assert.Null(s.SpeakExtra));
+        }
+
+        /// <summary>
+        /// A SmartLink connect that is proven at its first method, with the
+        /// radio's data arriving before the open finishes (the usual order).
+        /// </summary>
+        [Fact]
+        public void A_proven_SmartLink_connect_never_says_connected_before_its_proof()
+        {
+            var clock = new Clock();
+            var n = new ConnectNarrator(Radio, clock.Read);
+            var steps = new List<ConnectNarrationStep>();
+            foreach (string name in new[]
+            {
+                "send_remote_connect", "hole_punch_port_selected", "wan_connect_ready",
+            })
+                steps.Add(n.OnEvent(name));
+            clock.Advance(2_000);
+            steps.Add(n.OnEvent("start_begin"));
+            steps.Add(n.OnEvent("start_slices_available"));
+            clock.Advance(6_000);
+            steps.Add(n.OnEvent("start_antenna_available"));
+            steps.Add(n.OnEvent("start_station_name_wait_begin"));
+            clock.Advance(4_000);
+            steps.Add(n.OnEvent("station_name_set"));
+            var proven = n.OnEvent("smartlink_attempt_proven");
+            steps.Add(proven);
+
+            Assert.Equal(
+                new[] { "FLEX-8600 answered. Radio setup is continuing.", "Slice acquired. Setting up..." },
+                steps.Where(s => s.StatusText != null).Select(s => s.StatusText).ToArray());
+            Assert.True(proven.StopVoice);
+            AssertNeverSaysConnected(steps);
+        }
+
+        /// <summary>
+        /// The events that mean "the walk is about to speak" only stop the
+        /// heartbeat. The window's own Critical line for a lost connection
+        /// would land on top of the walk's move sentence.
+        /// </summary>
+        [Fact]
+        public void The_window_says_nothing_of_its_own_when_the_walk_is_about_to_speak()
+        {
+            foreach (string name in new[]
+            {
+                "start_attempt_failed", "start_stopped_by_attempt", "start_connection_lost_moving_on", "smartlink_attempt_proven",
+            })
+            {
+                var step = new ConnectNarrator(Radio, new Clock().Read).OnEvent(name);
+                Assert.True(step.StopVoice, name);
+                Assert.Null(step.StatusText);
+                Assert.Null(step.SpeakExtra);
+                Assert.Null(step.Arm);
+            }
+
+            // Control: a loss with nowhere to move on to still says its reason.
+            var lost = new ConnectNarrator(Radio, new Clock().Read).OnEvent("start_connection_lost");
+            Assert.Equal("The connection dropped during setup.", lost.SpeakExtra);
+
+            // A move the event does not describe leaves the label alone.
+            var unnamed = new ConnectNarrator(Radio, new Clock().Read).OnEvent("smartlink_method_move");
+            Assert.Null(unnamed.StatusText);
+            Assert.NotNull(unnamed.Arm);
+        }
+
+        /// <summary>
+        /// The whole lexicon of the connecting window, as it is used: no
+        /// sentence the narrator can produce says Connected.
+        /// </summary>
+        [Fact]
+        public void No_event_the_window_narrates_produces_the_word_connected()
+        {
+            string[] events =
+            {
+                "start_begin", "start_slices_available", "start_antenna_available", "start_station_name_wait_begin",
+                "station_name_set", "start_early_abort", "start_grace_abort", "start_cancelled",
+                "start_cancelled_in_station_wait", "station_name_timeout", "start_connection_lost",
+                "smartlink_proof_wait", "smartlink_method_move", "start_attempt_failed", "start_stopped_by_attempt",
+                "start_connection_lost_moving_on", "smartlink_attempt_proven",
+            };
+            var steps = new List<ConnectNarrationStep>();
+            foreach (string name in events)
+            {
+                var n = new ConnectNarrator(Radio, new Clock().Read);
+                n.OnEvent("start_begin");
+                steps.Add(n.OnEvent(name, Move("ManualPorts", "HolePunch")));
+            }
+            AssertNeverSaysConnected(steps);
+
+            // The source reads the truthful key, and the old one nowhere.
+            string source = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "Radios", "ConnectNarration.cs"));
+            Assert.Contains("Lexicon.Get(\"connect.connecting.phase_radio_answered\"", source);
+            // The old key is gone from the store (removed with the approved words,
+            // 2026-11-20), so the guard names it without the call around it: the
+            // key coverage sweep reads any quoted key after the Get call as a key to
+            // verify. Stricter than before: the narrator may not name it at all.
+            Assert.DoesNotContain("phase_slice_wait", source);
         }
 
         /// <summary>

@@ -161,6 +161,7 @@ namespace JJFlexWpf.Dialogs
             // constructor — or by SelectTabByHeader before the dialog is
             // shown — arrives with the list already tracking it.
             _categories = CategoryNavigator.Attach(this, SettingsTabs, CategoryListBox);
+            WatchDiagnosticCategories();   // the tiers work, Track C repair 1
 
             // Select all text when tabbing into any TextBox
             AddHandler(TextBox.GotKeyboardFocusEvent,
@@ -656,6 +657,10 @@ namespace JJFlexWpf.Dialogs
                 VerboseDiagnosticsCheck.IsChecked = Radios.SmartLink.DiagnosticVerbosityPreference.Verbose;
             }
 
+            // The tiers work, Track C: the diagnostic describes the radio
+            // connected or selected, with or without a connection.
+            RefreshNetworkDiagnosticSections();
+
             if (_rig == null || !_rig.IsConnected)
             {
                 // QB Track C: the connect-first requirement is real for THIS tab —
@@ -671,13 +676,11 @@ namespace JJFlexWpf.Dialogs
                 PortForwardSeparatePortsCheck.IsChecked = false;
                 PortForwardUdpBox.IsEnabled = false;
                 PortForwardTcpLabel.Text = Lexicon.Get("settings.network.port_label_shared");
-                // Sprint 27 Track F — without a connected radio, force Tier 1
-                // selection and disable Tier 2 / Tier 3. The radio group stays
-                // visible + focusable so screen-reader users can explore the
-                // choices; they just can't commit to 2/3 yet.
-                SetCurrentConnectionMode(SmartLinkConnectionMode.ManualPortForwardOnly);
-                if (Tier2Radio != null) Tier2Radio.IsEnabled = false;
-                if (Tier3Radio != null) Tier3Radio.IsEnabled = false;
+                // The tier is no longer edited here, connected or not (the
+                // tiers work, decision 8): this tab shows the in-use account's
+                // tier, read-only, and each account's tier is edited offline in
+                // Manage SmartLink Accounts.
+                ShowTierInUse();
                 return;
             }
 
@@ -703,12 +706,32 @@ namespace JJFlexWpf.Dialogs
                   + DescribeRouterMapping(tcp, udp)
                 : Lexicon.Get("settings.network.uses_upnp_or_hole_punch");
 
-            // Sprint 27 Track F — load the account's saved ConnectionMode into
-            // the 3-option radio group. Null → Tier 1 (safe default for accounts
-            // not yet bound to this session).
-            var mode = _rig.CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
-            SetCurrentConnectionMode(mode);
-            RecomputeConnectionModeAvailability();
+            ShowTierInUse();
+        }
+
+        /// <summary>
+        /// The in-use account's tier, shown read-only (the tiers work,
+        /// decisions 8 and 9). The three choices are display only: none of
+        /// them is enabled, so the tier cannot be changed here and no Apply
+        /// or OK on this tab writes it. With no account in use they show
+        /// Tier 1, the default, and the line says no account is in use.
+        /// </summary>
+        private void ShowTierInUse()
+        {
+            if (Tier1Radio == null || Tier2Radio == null || Tier3Radio == null) return;
+            var mode = _rig?.CurrentAccountConnectionMode;
+            SetCurrentConnectionMode(mode ?? SmartLinkConnectionMode.ManualPortForwardOnly);
+            Tier1Radio.IsEnabled = false;
+            Tier2Radio.IsEnabled = false;
+            Tier3Radio.IsEnabled = false;
+            if (TierInUseText != null)
+            {
+                TierInUseText.Text = mode is SmartLinkConnectionMode m
+                    ? Lexicon.Get("settings.network.tier_in_use",
+                        ("email", _rig!.CurrentSmartLinkAccountEmail),
+                        ("tierName", Radios.SmartLink.SmartLinkTierOffers.TierName(m)))
+                    : Lexicon.Get("settings.network.tier_no_account");
+            }
         }
 
         private bool _suppressConnectionModeAnnouncements;
@@ -717,7 +740,7 @@ namespace JJFlexWpf.Dialogs
         /// Sprint 27 Track F — programmatic setter for the radio group that
         /// suppresses the ConnectionModeRadio_Checked announcement. Used by
         /// RefreshNetworkTabFromRig (load-from-account) and by the fallback
-        /// path in RecomputeConnectionModeAvailability.
+        /// read-only display in ShowTierInUse.
         /// </summary>
         private void SetCurrentConnectionMode(SmartLinkConnectionMode mode)
         {
@@ -757,39 +780,14 @@ namespace JJFlexWpf.Dialogs
             return SmartLinkConnectionMode.ManualPortForwardOnly;
         }
 
-        /// <summary>
-        /// Sprint 27 Track F — Tier 2 / Tier 3 are gated on a valid Tier 1
-        /// port being entered. When gating kicks in, force the selection
-        /// back to Tier 1 so the UI is never showing a selected-but-inert
-        /// option.
-        /// </summary>
-        private void RecomputeConnectionModeAvailability()
-        {
-            if (Tier1Radio == null || Tier2Radio == null || Tier3Radio == null) return;
-
-            bool tier1On = PortForwardEnabledCheck?.IsChecked == true;
-            bool portValid = int.TryParse(PortForwardTcpBox?.Text, out int tcp)
-                             && SmartLinkAccountManager.IsValidPort(tcp);
-            bool higherTiersValid = tier1On && portValid;
-
-            // Tier 1 is always available (the mode's whole point is "always works").
-            Tier1Radio.IsEnabled = true;
-            Tier2Radio.IsEnabled = higherTiersValid;
-            Tier3Radio.IsEnabled = higherTiersValid;
-
-            if (!higherTiersValid && GetCurrentConnectionMode() != SmartLinkConnectionMode.ManualPortForwardOnly)
-            {
-                SetCurrentConnectionMode(SmartLinkConnectionMode.ManualPortForwardOnly);
-            }
-        }
-
-        /// <summary>
-        /// Sprint 27 Track F — re-evaluate radio-button enablement when the
-        /// user toggles Tier 1 port-forward on/off.
-        /// </summary>
+        // RecomputeConnectionModeAvailability WAS HERE (the tiers work,
+        // decision 8): it unlocked tiers 2 and 3 only with manual forwarding
+        // on and a valid port, and forced the selection back to Tier 1
+        // otherwise. Neither is true of the tiers now (Tier 2 uses the radio's
+        // own UPnP ports, Tier 3 a per-connect punch port), and the tier is no
+        // longer edited on this tab at all.
         private void PortForwardEnabledCheck_Click(object sender, RoutedEventArgs e)
         {
-            RecomputeConnectionModeAvailability();
         }
 
         /// <summary>
@@ -838,8 +836,6 @@ namespace JJFlexWpf.Dialogs
             if (PortForwardUdpBox == null || PortForwardSeparatePortsCheck == null) return;
             if (PortForwardSeparatePortsCheck.IsChecked != true)
                 PortForwardUdpBox.Text = PortForwardTcpBox.Text;
-            // Sprint 27 Track F — port validity feeds into the Tier 2 / Tier 3 gate.
-            RecomputeConnectionModeAvailability();
         }
 
         /// <summary>
@@ -957,20 +953,10 @@ namespace JJFlexWpf.Dialogs
                 }
             }
 
-            // The connection-mode ladder is an account preference, not radio
-            // state — it needs no authority gate, and before this it was only
-            // saved as a side effect of the port-forward button, so a
-            // tier-only change was discarded by OK. Same defect, same fix.
-            if (_rig.HasCurrentSmartLinkAccount)
-            {
-                var uiMode = GetCurrentConnectionMode();
-                if (_rig.CurrentAccountConnectionMode != uiMode
-                    && _rig.SaveCurrentAccountConnectionMode(uiMode))
-                {
-                    applied.Add(Lexicon.Get("settings.network.connection_mode_saved",
-                        ("email", _rig.CurrentSmartLinkAccountEmail)));
-                }
-            }
+            // The connection tier is NOT saved here any more (the tiers work,
+            // decisions 8 and 9): it is shown read-only on this tab and edited
+            // per account in Manage SmartLink Accounts, where saving it also
+            // records that the operator chose it.
             return true;
         }
 
@@ -1027,15 +1013,9 @@ namespace JJFlexWpf.Dialogs
                     int? preference = enabled ? (int?)tcp : null;
                     savedPreference = _rig.SaveCurrentAccountListenPort(preference);
 
-                    // Sprint 27 Track F / Phase F.1 — persist ConnectionMode as
-                    // selected in the 3-option radio group. If Tier 1 is being
-                    // disabled in this Apply (port forwarding off), force mode
-                    // to ManualPortForwardOnly regardless of radio selection
-                    // because higher tiers are meaningless without a port.
-                    var desiredMode = enabled
-                        ? GetCurrentConnectionMode()
-                        : SmartLinkConnectionMode.ManualPortForwardOnly;
-                    _rig.SaveCurrentAccountConnectionMode(desiredMode);
+                    // The forced downgrade to Tier 1 whenever forwarding is off
+                    // is gone (the tiers work, decision 8): an Apply writes the
+                    // radio's port and nothing else; the tier is the account's.
                 }
 
                 // Track C wording fix: the radio does NOT listen on the applied
@@ -1157,7 +1137,8 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private bool ConfirmNetworkTestOnPunchedSession()
         {
-            if (_rig == null || !_rig.IsConnected || !_rig.IsWanConnection || !_rig.RadioRequiresHolePunch)
+            // The method this connect used, not the radio's punch flag (the tiers work).
+            if (_rig == null || !_rig.IsConnected || !_rig.IsWanConnection || !_rig.ConnectedByHolePunch)
                 return true; // not a punched session — nothing to warn about
 
             var confirm = new ConfirmActionDialog(
@@ -1182,61 +1163,187 @@ namespace JJFlexWpf.Dialogs
 
         private async void TestNetworkButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_rig == null || !_rig.IsConnected)
+            await RunNetworkTestFlow(text => NetworkDiagnosticResultText.Text = text, NetworkTabTestWords);
+        }
+
+        /// <summary>
+        /// What a test button says at each step. The Network tab and Radio
+        /// Setup step 6 keep their own words; the flow is one.
+        /// </summary>
+        private sealed record NetworkTestWords(
+            string Probing, string ProbingSpoken, string PunchDeclined,
+            string FailedKey, string FailedSpoken, string IncompleteKey, string IncompleteSpoken);
+
+        private static readonly NetworkTestWords NetworkTabTestWords = new(
+            "settings.network.probing", "settings.network.probing_spoken", "settings.network.test_punched_declined",
+            "settings.network.probe_failed", "settings.network.probe_failed_spoken",
+            "settings.network.probe_incomplete", "settings.network.probe_incomplete_spoken");
+
+        /// <summary>
+        /// The tiers work, Track C: the one network test flow both buttons use.
+        /// The gate first (testing with no radio of ours connected is built but
+        /// switched off, <see cref="Radios.SmartLink.NetworkTestGate"/>), then
+        /// the punched-session warning, unchanged, then the test through the
+        /// radio's OWN brokering account's session or not at all
+        /// (<see cref="FlexBase.RunNetworkTestAsync"/>): never the active
+        /// session by fallback, never a sign-in. Returns the completed report,
+        /// or null when none completed; the status line says why.
+        /// </summary>
+        private async System.Threading.Tasks.Task<Radios.SmartLink.NetworkDiagnosticReport?> RunNetworkTestFlow(
+            Action<string> show, NetworkTestWords words)
+        {
+            string serial = _rig?.DiagnosticRadioSerial ?? "";
+            var gate = Radios.SmartLink.NetworkTestGate.Decide(_rig != null && _rig.IsConnected, serial);
+            if (_rig == null || gate == Radios.SmartLink.NetworkTestGateAnswer.NoRadio)
             {
-                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.test_needs_a_radio");
+                show(Lexicon.Get("settings.network.diag.test_no_radio"));
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
                     VerbosityLevel.Terse, interrupt: true);
-                return;
+                return null;
+            }
+            if (gate == Radios.SmartLink.NetworkTestGateAnswer.NeedsAConnectedRadio)
+            {
+                show(Lexicon.Get("settings.network.test_needs_a_radio"));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
+                    VerbosityLevel.Terse, interrupt: true);
+                return null;
             }
 
             if (!ConfirmNetworkTestOnPunchedSession())
             {
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.test_punched_declined");
-                return;
+                show(Lexicon.Get(words.PunchDeclined));
+                return null;
             }
 
-            NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.probing");
-            ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probing_spoken"),
+            show(Lexicon.Get(words.Probing));
+            ScreenReaderOutput.Speak(Lexicon.Get(words.ProbingSpoken),
                 VerbosityLevel.Terse, interrupt: true);
 
-            Radios.SmartLink.NetworkDiagnosticReport? report;
+            FlexBase.NetworkTestRun run;
             try
             {
-                report = await _rig.RunNetworkDiagnosticAsync(forceRefresh: true);
+                run = await _rig.RunNetworkTestAsync(forceRefresh: true);
             }
             catch (Exception ex)
             {
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.probe_failed", ("message", ex.Message));
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probe_failed_spoken"),
+                show(Lexicon.Get(words.FailedKey, ("message", ex.Message)));
+                ScreenReaderOutput.Speak(Lexicon.Get(words.FailedSpoken),
                     VerbosityLevel.Terse, interrupt: true);
-                return;
+                return null;
+            }
+            finally
+            {
+                RefreshNetworkDiagnosticSections();
             }
 
+            var report = run.Report;
             if (report == null)
             {
-                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_smartlink_session");
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.no_smartlink_session_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
-                return;
+                // Not sent: the radio's brokering account is unknown or not
+                // signed in. Said as such; no other account is tried.
+                string radioName = _rig.NetworkDiagnosticInputsFor(run.Serial).RadioName;
+                string why = run.Pairing.Kind == Radios.SmartLink.DiagnosticPairingKind.AccountNotSignedIn
+                    ? Lexicon.Get("settings.network.diag.pairing_not_signed_in",
+                        ("email", run.Pairing.Account), ("radioName", radioName))
+                    : Lexicon.Get("settings.network.diag.pairing_no_account", ("radioName", radioName));
+                show(why);
+                ScreenReaderOutput.Speak(why, VerbosityLevel.Terse, interrupt: true);
+                return null;
             }
 
             if (!report.ProbeCompleted)
             {
-                NetworkDiagnosticResultText.Text =
-                    Lexicon.Get("settings.network.probe_incomplete", ("detail", report.ErrorDetail));
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probe_incomplete_spoken"),
+                show(Lexicon.Get(words.IncompleteKey, ("detail", report.ErrorDetail)));
+                ScreenReaderOutput.Speak(Lexicon.Get(words.IncompleteSpoken),
                     VerbosityLevel.Terse, interrupt: true);
-                return;
+                return null;
             }
 
-            // One-line summary for the dialog; Track D surfaces the full
-            // markdown report with copy-to-clipboard + save-to-file.
-            string summary = BuildNetworkDiagnosticSummary(report);
-            NetworkDiagnosticResultText.Text = summary;
+            // The summary by the one rule, then the five results, as before.
+            var sections = _rig.NetworkDiagnosticFor(run.Serial);
+            string summary = string.IsNullOrEmpty(sections.SummaryLine)
+                ? BuildNetworkDiagnosticSummary(report)
+                : sections.SummaryLine + " " + BuildNetworkDiagnosticSummary(report);
+            show(summary);
             ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
+            return report;
+        }
+
+        /// <summary>
+        /// The tiers work, Track C: the diagnostic's three parts for the radio
+        /// connected or selected, into BOTH the Network tab's box and Radio
+        /// Setup step 6's, from this one method, so the two never disagree.
+        /// </summary>
+        private void RefreshNetworkDiagnosticSections()
+        {
+            if (NetworkDiagnosticSectionsText == null && SetupDiagnosticSectionsText == null) return;
+            EnsureDiagnosticFollower();
+            string text;
+            try
+            {
+                string serial = _rig?.DiagnosticRadioSerial ?? "";
+                text = _rig == null || string.IsNullOrWhiteSpace(serial)
+                    ? Lexicon.Get("settings.network.diag.test_no_radio")
+                    : _rig.NetworkDiagnosticFor(serial).ToText();
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine($"RefreshNetworkDiagnosticSections: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return;
+            }
+            if (NetworkDiagnosticSectionsText != null) NetworkDiagnosticSectionsText.Text = text;
+            if (SetupDiagnosticSectionsText != null) SetupDiagnosticSectionsText.Text = text;
+        }
+
+        /// <summary>
+        /// The tiers work, Track C repair 1 (Codex's check, B2): entering the
+        /// Network or Radio Setup category recomputes both diagnostic boxes, so
+        /// a choice or tier saved elsewhere since they were last drawn is shown
+        /// as it stands now. Only the TabControl's own change counts; a combo
+        /// box on a page raises the same routed event.
+        /// </summary>
+        private void WatchDiagnosticCategories()
+        {
+            SettingsTabs.SelectionChanged += (s, e) =>
+            {
+                if (!ReferenceEquals(e.OriginalSource, SettingsTabs)) return;
+                if (SettingsTabs.SelectedItem is System.Windows.Controls.TabItem tab
+                    && (tab.Header as string) is "Network" or "Radio Setup")
+                    RefreshNetworkDiagnosticSections();
+            };
+        }
+
+        private Radios.SmartLink.ConnectRecordFollower? _diagnosticFollower;
+
+        /// <summary>
+        /// Refresh the diagnostic when a connect to THIS radio files its
+        /// record. The store's callbacks come on the connect's thread and can
+        /// arrive out of order, so the follower only asks "is this my radio?",
+        /// and the refresh, on this window's thread, re-reads the record.
+        /// </summary>
+        private void EnsureDiagnosticFollower()
+        {
+            if (_diagnosticFollower != null) return;
+            _diagnosticFollower = new Radios.SmartLink.ConnectRecordFollower(
+                () => _rig?.DiagnosticRadioSerial,
+                run => Dispatcher.BeginInvoke(run),
+                _ => RefreshNetworkDiagnosticSections());
+            Closed += (_, _) => _diagnosticFollower?.Dispose();
+        }
+
+        /// <summary>
+        /// The tiers work, Track C: Copy report and Save report export the
+        /// diagnostic's three parts for the radio connected or selected, as
+        /// prose and bullets. Null when no radio is known. Until this they
+        /// exported the newest test of ANY radio, alone.
+        /// </summary>
+        private string? DiagnosticExport(out DateTime writtenUtc)
+        {
+            writtenUtc = DateTime.UtcNow;
+            string serial = _rig?.DiagnosticRadioSerial ?? "";
+            if (_rig == null || string.IsNullOrWhiteSpace(serial)) return null;
+            return _rig.NetworkDiagnosticFor(serial).ToMarkdown(serial, writtenUtc);
         }
 
         private static string BuildNetworkDiagnosticSummary(Radios.SmartLink.NetworkDiagnosticReport r)
@@ -1263,17 +1370,17 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void CopyNetworkReportButton_Click(object sender, RoutedEventArgs e)
         {
-            var report = _rig?.MostRecentNetworkReport;
-            if (report == null)
+            string? markdown = DiagnosticExport(out _);
+            if (markdown == null)
             {
-                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_report_yet");
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.diag.test_no_radio");
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.no_report_to_copy_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
                 return;
             }
             try
             {
-                System.Windows.Clipboard.SetText(report.ToMarkdown());
+                System.Windows.Clipboard.SetText(markdown);
                 NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.report_copied");
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.report_copied_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
@@ -1294,10 +1401,10 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void SaveNetworkReportButton_Click(object sender, RoutedEventArgs e)
         {
-            var report = _rig?.MostRecentNetworkReport;
-            if (report == null)
+            string? markdown = DiagnosticExport(out DateTime writtenUtc);
+            if (markdown == null)
             {
-                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_report_yet");
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.diag.test_no_radio");
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.no_report_to_save_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
                 return;
@@ -1305,7 +1412,7 @@ namespace JJFlexWpf.Dialogs
 
             var dlg = new Microsoft.Win32.SaveFileDialog
             {
-                FileName = $"JJFlex-NetworkDiagnostic-{report.TimestampUtc:yyyy-MM-dd-HHmm}.md",
+                FileName = $"JJFlex-NetworkDiagnostic-{writtenUtc:yyyy-MM-dd-HHmm}.md",
                 DefaultExt = ".md",
                 Filter = Lexicon.Get("settings.network.save_report_filter"),
                 Title = Lexicon.Get("settings.network.save_report_title"),
@@ -1315,7 +1422,7 @@ namespace JJFlexWpf.Dialogs
 
             try
             {
-                System.IO.File.WriteAllText(dlg.FileName, report.ToMarkdown());
+                System.IO.File.WriteAllText(dlg.FileName, markdown);
                 NetworkDiagnosticResultText.Text =
                     Lexicon.Get("settings.network.report_saved", ("fileName", dlg.FileName));
                 ScreenReaderOutput.Speak(Lexicon.Get("settings.network.report_saved_spoken"),
@@ -1767,6 +1874,14 @@ namespace JJFlexWpf.Dialogs
             if (licenseNote != null) failed.Add(licenseNote);
 
             SettingsApplied?.Invoke();
+
+            // The tiers work, Track C repair 1 (Codex's check, B2): a saved
+            // change to this radio's connection choice changes "Policy as it
+            // stands now", and Apply keeps the dialog open, so both diagnostic
+            // boxes are recomputed from the saved settings here, as Copy report
+            // already does. The recorded policy is the last connect's record and
+            // does not move.
+            RefreshNetworkDiagnosticSections();
 
             var said = CommitAnnouncement(closing, pttDropped, refused, queued, applied, failed);
             if (said.Advisory != null)

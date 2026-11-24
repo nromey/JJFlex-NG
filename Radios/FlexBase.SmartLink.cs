@@ -814,17 +814,25 @@ namespace Radios
         #region SmartLink reachability — what the radio and SmartLink actually report
 
         /// <summary>
-        /// True when SmartLink has told us this radio needs a UDP hole-punch,
-        /// meaning neither a forwarded port nor UPnP gave it a way in.
-        ///
-        /// This is the flag that decides whether a hole-punch port gets chosen at
-        /// connect time — not the user's tier preference. See
-        /// <c>sendRemoteConnect</c> and the note there about
-        /// <c>NegotiatedHolePunchPort</c> being a value the client supplies.
+        /// True when SmartLink's list said this radio needs a UDP hole-punch,
+        /// meaning neither a forwarded port nor UPnP gave it a way in: the
+        /// RADIO'S REPORT, as the list parse computed it (MIGRATION.md item 29),
+        /// not how this connection was made. A guard that protects a punched
+        /// session asks <see cref="ConnectedByHolePunch"/> instead; the method
+        /// is decided by the account tier and the radio's connection choice
+        /// (<see cref="Radios.SmartLink.SmartLinkMethodPolicy"/>).
         /// </summary>
         public bool RadioRequiresHolePunch
         {
-            get { try { return theRadio != null && theRadio.RequiresHolePunch; } catch { return false; } }
+            get
+            {
+                try
+                {
+                    if (theRadio == null) return false;
+                    return theRadio.AdvertisedPorts?.RequiresHolePunch ?? theRadio.RequiresHolePunch;
+                }
+                catch { return false; }
+            }
         }
 
         /// <summary>True when the radio reports a forwarded port is in play.</summary>
@@ -917,22 +925,6 @@ namespace Radios
         }
 
         /// <summary>
-        /// Cached SmartLink test_connection report for a radio, if one has
-        /// been collected this app run. Cache read only — never triggers a
-        /// probe, so it is safe to consult from any state including a live
-        /// hole-punched session.
-        /// </summary>
-        public Radios.SmartLink.NetworkDiagnosticReport? LastNetworkReportFor(string serial)
-        {
-            if (string.IsNullOrEmpty(serial)) return null;
-            try
-            {
-                return Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.GetLastNetworkReport(serial);
-            }
-            catch { return null; }
-        }
-
-        /// <summary>
         /// The radio's last-known LAN address from the connection cache, or
         /// null if this machine has never seen it on the LAN. This is what
         /// lets the router-rule text name a real address for a radio we can
@@ -969,11 +961,16 @@ namespace Radios
         /// evidence already in hand plus (when safe) evidence one probe away:
         ///
         /// 1. The SmartLink test_connection report — reachability ground
-        ///    truth measured from OUTSIDE the user's network. Cached copy is
-        ///    used when present; a fresh probe is fetched only on the
-        ///    forwarded path. NEVER auto-run on a hole-punch radio — the
-        ///    radio-side probe is at minimum useless there and was implicated
-        ///    in killing punched sessions (the f842e93f gate's reasoning).
+        ///    truth measured from OUTSIDE the user's network. The radio's OWN
+        ///    report, from the account that brokers it (the diagnostic's
+        ///    pairing), never whichever session is active. The cached copy is
+        ///    used when present. A fresh probe is behind the same switch as
+        ///    the network test with no radio connected, which is OFF: a failed
+        ///    connect has no radio of ours connected, the test reaches everyone
+        ///    on that radio, and its effect on another operator is not yet
+        ///    established. NEVER for an attempt that punched — the radio-side
+        ///    probe is at minimum useless there and was implicated in killing
+        ///    punched sessions (the f842e93f gate's reasoning).
         /// 2. A client-side TCP classification of the radio's public port —
         ///    refused (router answered, nothing behind the rule) versus
         ///    timed out (packets never arrived) are different diseases with
@@ -988,36 +985,64 @@ namespace Radios
             if (remoteHandshakeFailed && _dialRefusedReport != null) return _dialRefusedReport;
 
             var detail = new List<string>();
+            // The METHOD the last attempt used, not the radio's own punch
+            // report: "Hole punch always" to a radio that advertises ports
+            // punched, and a ports method to a radio that says it needs a
+            // punch did not. The radio's flag only when no attempt was made.
             bool punch = false;
-            try { punch = r.RequiresHolePunch; } catch { }
+            try
+            {
+                punch = LastSmartLinkAttemptMethod is Radios.SmartLink.SmartLinkMethod attempted
+                    ? attempted == Radios.SmartLink.SmartLinkMethod.HolePunch
+                    : r.RequiresHolePunch;
+            }
+            catch { }
             int tlsPort = 0, udpPort = 0;
             try { tlsPort = r.PublicTlsPort; udpPort = r.PublicUdpPort; } catch { }
-            detail.Add($"radio-reported path: {(punch ? "hole punch" : "forwarded ports")}, TCP {tlsPort}, UDP {udpPort}, forwarding flag {(RadioPortForwardActive ? "on" : "off")}");
+            detail.Add($"path attempted: {(punch ? "hole punch" : "the radio's ports")}, TCP {tlsPort}, UDP {udpPort}, forwarding flag {(RadioPortForwardActive ? "on" : "off")}");
 
             string? ruleText = BuildRouterRuleText();
 
-            // Evidence source 1 — SmartLink's own outside-in probe.
-            Radios.SmartLink.NetworkDiagnosticReport? probe = LastNetworkReportFor(r.Serial);
+            // Evidence source 1 — SmartLink's own outside-in probe, PAIRED
+            // (the tiers work, Tracks C and B): this radio's own report from
+            // the account that brokers it, never the active session's cache.
+            Radios.SmartLink.NetworkDiagnosticReport? probe = NetworkReportFor(r.Serial);
             if (probe == null && !punch)
             {
-                // Forwarded path with no cached report: fetch one now. The
-                // connect already failed, so there is no live session to
-                // endanger, and eight seconds of waiting buys the difference
-                // between evidence and a shrug. Punch path: never — see the
-                // method doc.
-                try
+                // Ports attempt with no cached report. A fresh probe here is a
+                // network test with NO radio of ours connected (the connect
+                // just failed), so it waits behind the same switch as that
+                // test, which is off; with the switch off nothing is sent, and
+                // the report is composed from what is already in hand. When
+                // the switch is ruled on, the probe goes through the radio's
+                // own brokering account's session and no other, once for the
+                // SmartLink leg (this runs once per leg, after its last
+                // method), never for an attempt that punched.
+                var gate = Radios.SmartLink.NetworkTestGate.Decide(radioConnected: false, r.Serial);
+                if (gate != Radios.SmartLink.NetworkTestGateAnswer.Run)
                 {
-                    var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-                    if (session != null && session.IsConnected)
-                    {
-                        Tracing.TraceLine("BuildRemoteConnectFailureReport: fetching fresh test_connection (forwarded path, no cached report)", TraceLevel.Info);
-                        var task = session.RunNetworkDiagnosticAsync(r.Serial, forceRefresh: false, timeout: TimeSpan.FromSeconds(8));
-                        if (task.Wait(9000)) probe = task.Result;
-                    }
+                    Tracing.TraceLine($"BuildRemoteConnectFailureReport: no fresh test_connection for {r.Serial} (gate={gate}); composing from the evidence in hand", TraceLevel.Info);
                 }
-                catch (Exception ex)
+                else
                 {
-                    Tracing.TraceLine($"BuildRemoteConnectFailureReport: probe fetch failed: {ex.Message}", TraceLevel.Warning);
+                    try
+                    {
+                        var session = PairedSession(NetworkDiagnosticPairingFor(r.Serial));
+                        if (session != null)
+                        {
+                            Tracing.TraceLine("BuildRemoteConnectFailureReport: fetching fresh test_connection through the radio's own brokering account (ports attempt, no cached report)", TraceLevel.Info);
+                            var task = session.RunNetworkDiagnosticAsync(r.Serial, forceRefresh: false, timeout: TimeSpan.FromSeconds(8));
+                            if (task.Wait(9000)) probe = task.Result;
+                        }
+                        else
+                        {
+                            Tracing.TraceLine($"BuildRemoteConnectFailureReport: no fresh test_connection for {r.Serial}: its brokering account is unknown or not signed in, and no other account's session is used", TraceLevel.Info);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine($"BuildRemoteConnectFailureReport: probe fetch failed: {ex.Message}", TraceLevel.Warning);
+                    }
                 }
             }
             if (probe != null && probe.ProbeCompleted)
@@ -1046,15 +1071,11 @@ namespace Radios
             if (punch)
             {
                 cls = ConnectFailureClass.TransportFailed;
-                spoken = "Could not open a hole-punched connection to the radio. "
-                    + "The radio has no forwarded ports, so the connection depends on both routers allowing the punch, and some networks never will.";
+                spoken = "JJ Flexible Radio Access could not establish a SmartLink hole-punched connection to the radio.";
                 if (probe?.ProbeCompleted == true && probe.NatSupportsHolePunch == false)
                 {
-                    spoken += " SmartLink's own network test reports this network does not support hole punch — a forwarded port on the radio's router is the reliable path.";
-                }
-                else
-                {
-                    spoken += " Trying again sometimes wins the timing; a forwarded port on the radio's router is the reliable fix.";
+                    // The same sentence as the session overlay's, read from its one home.
+                    spoken += " " + Lexicon.Get("connect.session_overlay.radio_site_no_punch");
                 }
                 // A rule is still worth stating on the punch path when the
                 // radio advertises nothing: the fix IS creating the rule.
@@ -1065,36 +1086,35 @@ namespace Radios
             else if (tcp != null && tcp.Outcome == TcpProbeOutcome.Refused)
             {
                 cls = ConnectFailureClass.TransportRefused;
-                spoken = $"The radio's router answered on port {tlsPort} and refused the connection after {tcp.ElapsedMs} milliseconds — "
-                    + "the port forward reaches the router, but nothing is listening behind the rule. "
-                    + "The rule may point at the wrong LAN address, or the radio may be off.";
+                spoken = $"This computer's TCP connection to the radio's public port {tlsPort} was refused after {tcp.ElapsedMs} milliseconds. "
+                    + "Check the radio's address and the forwarding rule at the radio's network location.";
             }
             else if (tcp != null && (tcp.Outcome == TcpProbeOutcome.TimedOut || tcp.Outcome == TcpProbeOutcome.Unreachable))
             {
                 cls = ConnectFailureClass.TransportTimedOut;
-                spoken = $"Connection attempts to the radio's public port {tlsPort} got no answer at all — the packets never arrived. "
-                    + "That usually means the router rule is missing, a firewall is dropping them, or the radio's public address has changed.";
+                spoken = $"This computer received no reply to its TCP check of the radio's public port {tlsPort}. "
+                    + "Check the radio's address, the forwarding rule at the radio's network location and the networks at both ends.";
                 if (probe?.ProbeCompleted == true && probe.ManualForwardTcpReachable == false)
                 {
-                    spoken = $"SmartLink tested the radio's forwarded TCP port from the internet and could not reach it, and this computer's own check got no answer either. "
-                        + "The router rule is the likely problem.";
+                    spoken = "SmartLink's last test could not reach the radio's manually forwarded TCP port. "
+                        + "This computer's TCP check also received no reply.";
                 }
             }
             else if (probe?.ProbeCompleted == true && probe.ManualForwardTcpReachable == false && RadioPortForwardActive)
             {
                 cls = ConnectFailureClass.TransportFailed;
-                spoken = "The radio reports its forwarded TCP port is not reachable from the internet — SmartLink tested it from outside. Check the router rule.";
+                spoken = "SmartLink's last test could not reach the radio's manually forwarded TCP port. Check the forwarding rule at the radio's network location.";
             }
             else if (remoteHandshakeFailed)
             {
                 cls = ConnectFailureClass.RemoteHandshakeFailed;
-                spoken = "SmartLink accepted the request, but the radio never reported ready to connect. The radio may be busy, restarting, or just dropped off the network. Trying again usually works.";
+                spoken = "The SmartLink connection request did not return usable connection details. Try again or review the radio's network diagnostic.";
                 ruleText = null; // no evidence pointing at the router — don't send anyone there
             }
             else if (tcp != null && tcp.Outcome == TcpProbeOutcome.Connected)
             {
                 cls = ConnectFailureClass.TransportFailed;
-                spoken = $"The radio's public port {tlsPort} answers from here, so the router rule looks right — the failure happened after the port, most likely in the secure handshake with the radio. Trying again usually works.";
+                spoken = $"The radio's public TCP port {tlsPort} answered this computer's check, but the SmartLink connection did not complete.";
                 ruleText = null; // the rule is demonstrably fine
             }
             else
@@ -1104,7 +1124,7 @@ namespace Radios
                 if (probe?.ProbeCompleted == true
                     && (probe.ManualForwardTcpReachable == true || probe.UpnpTcpReachable == true))
                 {
-                    spoken += " SmartLink's network test says the radio's port is reachable from the internet, so this looks like a passing problem — trying again usually works.";
+                    spoken += " SmartLink's last test reached a TCP port at the radio's network location.";
                     ruleText = null;
                 }
             }

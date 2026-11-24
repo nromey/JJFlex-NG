@@ -869,6 +869,11 @@ namespace JJFlexWpf.Dialogs
                     changed = true;
                     notesQueued.Add(Lexicon.Get("settings.profile.saved_connection_settings",
                         ("disp", disp)));
+                    // The tiers work (the plan's section 2): a choice the radio's
+                    // known owning SmartLink account would refuse is said now,
+                    // not first at the next connect. Only when the owner is known.
+                    string? refusal = FlexBase.TierRefusalWarningFor(radioId, edit.Preference, disp);
+                    if (refusal != null) notesQueued.Add(refusal);
                 }
 
                 if (cfg.AllowRemotePortChanges != edit.AllowRemotePort)
