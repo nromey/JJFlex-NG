@@ -2148,6 +2148,16 @@ namespace JJPortaudio
             /// <summary>Tests only: the ring's own array, to prove it is not a large object.</summary>
             internal object StorageForTest { get { return _ring.Storage; } }
 
+            /// <summary>Tests only: sees every line this work writes, beside the trace, on the thread that writes it.</summary>
+            internal Action<string> LineObserverForTest { get; set; }
+
+            /// <summary>Write one of this stream's lines: the trace, and a test's observer.</summary>
+            internal void Write(string line, TraceLevel level)
+            {
+                Tracing.TraceLine(line, level);
+                LineObserverForTest?.Invoke(line);
+            }
+
             // ── The callback's side: copies and flags only ──
 
             /// <summary>Callback: a status flag's first appearance on this stream.</summary>
@@ -2223,15 +2233,15 @@ namespace JJPortaudio
                 long lost = _ring.TakeLost();
                 if (lost > 0)
                 {
-                    Tracing.TraceLine("audio " + name + " stream: " + lost + " callback line(s) were lost because "
+                    Write("audio " + name + " stream: " + lost + " callback line(s) were lost because "
                         + "nothing wrote them before the record ring filled", TraceLevel.Error);
                 }
                 for (int n = _ring.Count; n > 0 && _ring.TryTake(out Line l); n--)
                 {
                     if (l.Kind == Kind.FirstFlag)
-                        Tracing.TraceLine(describeFirstFlag(name, l.Flag, l.Callback), TraceLevel.Error);
+                        Write(describeFirstFlag(name, l.Flag, l.Callback), TraceLevel.Error);
                     else
-                        Tracing.TraceLine("audio " + name + " stream: " + TestStreamAbort.Variable
+                        Write("audio " + name + " stream: " + TestStreamAbort.Variable
                             + " aborts it now", TraceLevel.Error);
                 }
                 bool ending = Interlocked.Exchange(ref _endRequested, 0) != 0;
@@ -2257,7 +2267,7 @@ namespace JJPortaudio
                 long dropped = _cb.Q?.Dropped ?? 0;
                 if (dropped > _droppedSaid)
                 {
-                    Tracing.TraceLine("audio " + name + " stream: " + (dropped - _droppedSaid) + " buffer(s) were dropped "
+                    Write("audio " + name + " stream: " + (dropped - _droppedSaid) + " buffer(s) were dropped "
                         + "because the playback queue was full (" + _cb.Q.Capacity + " buffers waiting)", TraceLevel.Error);
                     _droppedSaid = dropped;
                 }
@@ -2280,7 +2290,7 @@ namespace JJPortaudio
         {
             if (data.FlaggedCallbackCount == 0)
             {
-                Tracing.TraceLine("audio " + streamName + " stream summary: "
+                data.Lines.Write("audio " + streamName + " stream summary: "
                     + data.StatusCallbackCount + " callbacks, no PortAudio status flags (no glitches reported)",
                     TraceLevel.Info);
                 return;
@@ -2294,7 +2304,7 @@ namespace JJPortaudio
                 if (data.StatusFlagCounts[i] == 0) continue;
                 sb.Append(' ').Append(statusFlagBits[i]).Append('=').Append(data.StatusFlagCounts[i]);
             }
-            Tracing.TraceLine(sb.ToString(), TraceLevel.Error);
+            data.Lines.Write(sb.ToString(), TraceLevel.Error);
         }
 
         /// <summary>
@@ -2347,7 +2357,7 @@ namespace JJPortaudio
             double ourBufferMs = AudioBuffering.BufferMilliseconds(data.BufferSize, data.SampleRate);
             if (data.DeviceLatencySamples == 0)
             {
-                Tracing.TraceLine("audio " + streamName + " latency summary: this host API"
+                data.Lines.Write("audio " + streamName + " latency summary: this host API"
                     + " supplied no callback timing, so only our own buffer is known — "
                     + ourBufferMs.ToString("F1") + " ms, plus a device path PortAudio claimed"
                     + " would be " + (data.ReportedDeviceLatency * 1000).ToString("F1") + " ms",
@@ -2356,7 +2366,7 @@ namespace JJPortaudio
             }
             double minMs = data.DeviceLatencyMin * 1000;
             double maxMs = data.DeviceLatencyMax * 1000;
-            Tracing.TraceLine("audio " + streamName + " latency summary: device path measured "
+            data.Lines.Write("audio " + streamName + " latency summary: device path measured "
                 + minMs.ToString("F1") + " to " + maxMs.ToString("F1") + " ms over "
                 + data.DeviceLatencySamples + " callbacks (PortAudio claimed "
                 + (data.ReportedDeviceLatency * 1000).ToString("F1") + " ms at open); our buffer "

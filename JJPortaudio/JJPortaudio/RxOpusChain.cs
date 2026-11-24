@@ -111,6 +111,15 @@ namespace JJPortaudio
         /// <summary>Tests only: this chain's off-audio work.</summary>
         internal OffAudioWork LinesForTest => _lines;
 
+        /// <summary>Tests only: sees each of this chain's lines as it is written, on the thread that writes it.</summary>
+        internal Action<string> LineObserverForTest { get; set; }
+
+        private void Write(string line, TraceLevel level)
+        {
+            Tracing.TraceLine(line, level);
+            LineObserverForTest?.Invoke(line);
+        }
+
         /// <summary>The chain is done (its stream closing): what is left is written, and it is no longer drained.</summary>
         public void Detach()
         {
@@ -130,19 +139,19 @@ namespace JJPortaudio
         {
             _ring.TakePending();
             long lost = _ring.TakeLost();
-            if (lost > 0) Tracing.TraceLine("RxOpusChain: " + lost + " level line(s) were lost because nothing wrote them before the record ring filled", TraceLevel.Error);
+            if (lost > 0) Write("RxOpusChain: " + lost + " level line(s) were lost because nothing wrote them before the record ring filled", TraceLevel.Error);
             for (int n = _ring.Count; n > 0 && _ring.TryTake(out LineRecord r); n--)
             {
                 switch (r.Kind)
                 {
                     case LineKind.CouldNotReadLength:
-                        Tracing.TraceLine("RxOpusChain: could not read the next packet's frame length: " + r.Failure?.Message, TraceLevel.Error);
+                        Write("RxOpusChain: could not read the next packet's frame length: " + r.Failure?.Message, TraceLevel.Error);
                         break;
                     case LineKind.ConcealmentFailed:
-                        Tracing.TraceLine("RxOpusChain: concealment failed, splicing the rest of the gap: " + r.Failure?.Message, TraceLevel.Error);
+                        Write("RxOpusChain: concealment failed, splicing the rest of the gap: " + r.Failure?.Message, TraceLevel.Error);
                         break;
                     default:
-                        Tracing.TraceLine($"OpusAudio: raw peak={r.RawPeak:F4} "
+                        Write($"OpusAudio: raw peak={r.RawPeak:F4} "
                             + $"({20 * Math.Log10(r.RawPeak + 1e-10):F1} dBFS), raw RMS={r.RawRmsDb:F1} dBFS, "
                             + $"gain={r.Gain:F1}x, "
                             + $"measured output peak={r.PostPeak:F4} "

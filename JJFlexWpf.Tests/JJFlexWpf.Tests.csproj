@@ -65,6 +65,10 @@
     <!-- The stub's model of the helper's writer queue, compiled here too so the
          tests can hold it to the helper's numbers directly. -->
     <Compile Include="..\JJFlexWpf.HelperStub.Tests\WriterQueueModel.cs" Link="HelperStub\WriterQueueModel.cs" />
+    <!-- Sprint 49 Track RT: the watch that counts pool work queued from one
+         thread, compiled into both test projects so both audio sides are held
+         to the same instrument. -->
+    <Compile Include="..\Radios.Tests\PoolQueueWatch.cs" Link="Infrastructure\PoolQueueWatch.cs" />
   </ItemGroup>
 
   <ItemGroup>
