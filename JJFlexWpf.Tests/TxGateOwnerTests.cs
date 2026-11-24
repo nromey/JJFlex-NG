@@ -33,7 +33,7 @@ public sealed class TxGateOwnerTests
         public bool Keyed;
         public Context()
         {
-            _saved = new[] { "_rig", "_chain", "_autoThreshold", "_thresholdMarginDb", "_gateIntent" }
+            _saved = new[] { "_rig", "_chain", "_autoThreshold", "_thresholdMarginDb", "_gateIntent", "_eqIntent", "_deEsserIntent", "_orderIntent", "_learnBaseline" }
                 .Select(n => typeof(TxAudioConditioning).GetField(n, Flags)!).Select(f => (f, f.GetValue(null))).ToArray();
             var rig = (FlexBase)RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
             GC.SuppressFinalize(rig); // only the injected numerical fields exist; never enter radio teardown
@@ -53,6 +53,13 @@ public sealed class TxGateOwnerTests
             for (int i = 0; i < a.Length; i += 2) a[i] = a[i + 1] = (float)(0.01 * Math.Sin(2 * Math.PI * 1000 * (i / 2) / 48000));
             Meter.Process(a, a.Length, 48000);
             Assert.True(Meter.Profile.IsValid);
+            // Sprint 49 Track I (#1252): the rule's floor is the room meter at the
+            // expander's input, learned unkeyed, so the same audio goes there too.
+            bool was = Volatile.Read(ref Keyed);
+            Keyed = false;
+            for (int at = 0; at < a.Length; at += 960) Cond.Process(a.AsSpan(at, Math.Min(960, a.Length - at)).ToArray(), Math.Min(960, a.Length - at), 48000);
+            Keyed = was;
+            Assert.True(Cond.RoomFloor.HasFloor);
         }
         public void Dispose() { foreach (var s in _saved) s.field.SetValue(null, s.value); }
     }
@@ -96,12 +103,12 @@ public sealed class TxGateOwnerTests
         x.Buffer();
         TxAudioConditioning.ApplySetup(GateSetup(true, 12));
         x.Keyed = true; x.Buffer(); x.Tick();
-        Assert.Equal(x.Meter.Profile.NoiseFloorLufs + 8, x.Cond.Gate.ThresholdDb, 4);
+        Assert.Equal(x.Cond.RoomFloor.FloorDb + 8, x.Cond.Gate.ThresholdDb, 4);
         x.Keyed = false; x.Buffer(); x.Tick();
-        Assert.Equal(x.Meter.Profile.NoiseFloorLufs + 12, x.Cond.Gate.ThresholdDb, 4);
+        Assert.Equal(x.Cond.RoomFloor.FloorDb + 12, x.Cond.Gate.ThresholdDb, 4);
         TxAudioConditioning.ApplySetup(GateSetup(false, 10));
         x.Keyed = true; x.Buffer(); x.Tick();
-        Assert.Equal(x.Meter.Profile.NoiseFloorLufs + 12, x.Cond.Gate.ThresholdDb, 4);
+        Assert.Equal(x.Cond.RoomFloor.FloorDb + 12, x.Cond.Gate.ThresholdDb, 4);
         x.Keyed = false; x.Buffer(); x.Tick();
         Assert.Equal(-40f, x.Cond.Gate.ThresholdDb);
     }

@@ -1022,6 +1022,17 @@ namespace JJFlexWpf
         //  The gate
         // ────────────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// The expander's strength stops, gentlest first; the last is the gate
+        /// (one item, Noel 2026-11-23 11:32). 2:1 is a new expander's start (S7).
+        /// </summary>
+        // Declared BEFORE AllGateLevers on purpose: static fields initialise in
+        // textual order, and the lever table reads this one's length.
+        public static readonly (float Ratio, bool Gate)[] StrengthStops =
+        {
+            (1.5f, false), (2f, false), (3f, false), (4f, false), (6f, false), (10f, false), (0f, true),
+        };
+
         /// <summary>Every gate lever, in the order Home lists them: Margin is normal; the rest are Advanced (part seven).</summary>
         private static readonly TxGateLever[] AllGateLevers =
         {
@@ -1038,15 +1049,6 @@ namespace JJFlexWpf
             new(TxGateLever.SideChainHigh, "audio.noise_surface.tx.gate.sidechain_high", 2000, 8000, 250, "audio.unit.hertz", true),
             new(TxGateLever.LookAhead, "audio.noise_surface.tx.gate.lookahead", 0, 10, 1, "audio.unit.milliseconds", true),
             new(TxGateLever.MonitorVolume, "audio.noise_surface.tx.gate.monitor_volume", 0, 100, 5, "audio.noise_surface.unit.percent", true),
-        };
-
-        /// <summary>
-        /// The expander's strength stops, gentlest first; the last is the gate
-        /// (one item, Noel 2026-11-23 11:32). 2:1 is a new expander's start (S7).
-        /// </summary>
-        public static readonly (float Ratio, bool Gate)[] StrengthStops =
-        {
-            (1.5f, false), (2f, false), (3f, false), (4f, false), (6f, false), (10f, false), (0f, true),
         };
 
         /// <summary>The stop nearest what the expander holds now.</summary>

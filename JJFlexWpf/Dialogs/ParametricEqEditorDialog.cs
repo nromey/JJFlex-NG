@@ -46,7 +46,7 @@ namespace JJFlexWpf
         public DenoiseDirection Side { get; }
 
         /// <summary>The band the cursor is on; -1 when there are none.</summary>
-        public int Band { get; private set; }
+        public int Band { get; private set; } = -1;
 
         public Field Current { get; private set; } = Field.Kind;
 
@@ -219,7 +219,7 @@ namespace JJFlexWpf
             var s = _read();
             if (s.Bands.Count >= JJPortaudio.ParametricEq.MaxBands) return Lexicon.Get("audio.eq.band_limit", ("count", JJPortaudio.ParametricEq.MaxBands));
             var band = new ParametricEqBandSetup { Kind = ParametricEqKinds.Peaking, FrequencyHz = 1000, GainDb = 0, Q = 1 };
-            int at = Band < 0 ? s.Bands.Count : Band + 1;
+            int at = Band < 0 || Band >= s.Bands.Count ? s.Bands.Count : Band + 1;
             s.Bands.Insert(at, band);
             s.PresetId = "";
             string said = Write(s, Lexicon.Get("audio.eq.band_added", ("band", BandRow(band, at))));

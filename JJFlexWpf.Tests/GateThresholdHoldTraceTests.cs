@@ -58,7 +58,7 @@ public sealed class GateThresholdHoldTraceTests : IDisposable
         x.FillMeter();
         TxAudioConditioning.ApplySetup(Gate(auto: true, margin: 8));
         x.Buffer(); x.Tick();                               // adopted unkeyed; the threshold derived
-        float floor = x.Meter.Profile.NoiseFloorLufs;
+        float floor = x.Cond.RoomFloor.FloorDb; // Sprint 49 Track I (#1252): the rule reads the room meter at the expander's input
         Assert.True(x.Cond.Gate.Enabled && x.Cond.AutoThresholdInForce);
         Assert.Equal(floor + 8, x.Cond.Gate.ThresholdDb, 4);
         Assert.Empty(Mine(capture));                        // nothing held yet, nothing written
