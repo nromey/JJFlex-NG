@@ -992,9 +992,9 @@ Public Class PersonalData
 
     ''' <summary>
     ''' The record of operator files a rename saved past but could not remove
-    ''' (#1241). One line per file: the old file's name, the renamed file's
-    ''' name and the time the delete failed (UTC ticks), separated by tabs.
-    ''' It sits beside the operator files and is settled at the next start by
+    ''' (#1241). One line per file, its fields separated by tabs, read and
+    ''' written only through <see cref="RetiredFileEntry"/>. It sits beside the
+    ''' operator files and is settled at the next start by
     ''' <see cref="SettleRetiredFiles"/>.
     '''
     ''' <para><b>Never an .xml file.</b> The loader reads every *.xml in the
@@ -1005,19 +1005,146 @@ Public Class PersonalData
     Friend Const RetiredFilesRecordName As String = "retired-operator-files.txt"
 
     ''' <summary>
+    ''' One entry of the retired-file record (#1241, #1254). The ONE reader and
+    ''' writer of a record line: <see cref="SettleRetiredFiles"/>,
+    ''' <see cref="RetargetRetiredFiles"/> and
+    ''' <see cref="MarkRetiredFilesDeleted"/> all go through it, so a change of
+    ''' format cannot leave one of them reading the old shape.
+    '''
+    ''' <para>A line is five fields: the old file's name, the renamed file's
+    ''' name, the old file's OWN last write time (UTC ticks) and length in
+    ''' bytes as they were when its delete failed, and <c>renamed</c> or
+    ''' <c>deleted</c>. The old file is removed only while it still matches
+    ''' that write time and length exactly, so no clock is ever compared: a
+    ''' different operator saved later under the old name does not match,
+    ''' whatever the clock said when it was written (#1254). <c>deleted</c>
+    ''' means the renamed operator was later deleted in the Operators list, so
+    ''' the old file is a copy of an operator that no longer exists and must
+    ''' not come back.</para>
+    '''
+    ''' <para>The earlier format, three fields (old name, renamed name, the
+    ''' time the delete failed), carries no fingerprint of the old file, so
+    ''' nothing can show the file still there is the stale copy. Such a line
+    ''' is read (<see cref="IsEarlierFormat"/>) only so that settling it keeps
+    ''' and loads the old file: the safe failure is a second copy of an
+    ''' operator, never a lost one.</para>
+    ''' </summary>
+    Friend NotInheritable Class RetiredFileEntry
+        Friend Const RenamedState As String = "renamed"
+        Friend Const DeletedState As String = "deleted"
+
+        ''' <summary>The old file's name, in the operators folder.</summary>
+        Public ReadOnly OldName As String
+        ''' <summary>The renamed file's name, in the operators folder.</summary>
+        Public NewName As String
+        ''' <summary>The old file's own last write time (UTC ticks); for an earlier-format line, the time the delete failed.</summary>
+        Public ReadOnly Ticks As Long
+        ''' <summary>The old file's length in bytes; -1 for an earlier-format line.</summary>
+        Public ReadOnly Length As Long
+        ''' <summary>True once the renamed operator has been deleted.</summary>
+        Public OperatorDeleted As Boolean
+
+        Friend Sub New(oldName As String, newName As String, ticks As Long, length As Long, operatorDeleted As Boolean)
+            Me.OldName = oldName
+            Me.NewName = newName
+            Me.Ticks = ticks
+            Me.Length = length
+            Me.OperatorDeleted = operatorDeleted
+        End Sub
+
+        ''' <summary>True for a three-field line from the earlier format, which carries no fingerprint of the old file.</summary>
+        Public ReadOnly Property IsEarlierFormat As Boolean
+            Get
+                Return Length < 0
+            End Get
+        End Property
+
+        ''' <summary>
+        ''' True when <paramref name="oldFile"/> is still exactly the file that
+        ''' was recorded: the same last write time and the same length. Never
+        ''' true for an earlier-format line.
+        ''' </summary>
+        Friend Function StillMatches(oldFile As String) As Boolean
+            If IsEarlierFormat Then Return False
+            Dim info As New FileInfo(oldFile)
+            Return info.LastWriteTimeUtc.Ticks = Ticks AndAlso info.Length = Length
+        End Function
+
+        ''' <summary>
+        ''' Read one record line; Nothing for a line that is not a well-formed
+        ''' entry naming two different bare operator files.
+        ''' </summary>
+        Friend Shared Function Parse(line As String) As RetiredFileEntry
+            If String.IsNullOrWhiteSpace(line) Then Return Nothing
+            Dim parts As String() = line.Split(vbTab)
+            If parts.Length <> 3 AndAlso parts.Length <> 5 Then Return Nothing
+            If Not IsOperatorFileName(parts(0)) OrElse Not IsOperatorFileName(parts(1)) OrElse
+               String.Equals(parts(0), parts(1), StringComparison.OrdinalIgnoreCase) Then Return Nothing
+            Dim inv As System.Globalization.CultureInfo = System.Globalization.CultureInfo.InvariantCulture
+            Dim ticks As Long
+            If Not Long.TryParse(parts(2), System.Globalization.NumberStyles.None, inv, ticks) Then Return Nothing
+            If parts.Length = 3 Then Return New RetiredFileEntry(parts(0), parts(1), ticks, -1, False)
+            Dim length As Long
+            If Not Long.TryParse(parts(3), System.Globalization.NumberStyles.None, inv, length) Then Return Nothing
+            Dim deleted As Boolean
+            If String.Equals(parts(4), DeletedState, StringComparison.Ordinal) Then
+                deleted = True
+            ElseIf Not String.Equals(parts(4), RenamedState, StringComparison.Ordinal) Then
+                Return Nothing
+            End If
+            Return New RetiredFileEntry(parts(0), parts(1), ticks, length, deleted)
+        End Function
+
+        ''' <summary>The line for this entry; an earlier-format entry keeps its own three-field shape.</summary>
+        Friend Function ToLine() As String
+            Dim inv As System.Globalization.CultureInfo = System.Globalization.CultureInfo.InvariantCulture
+            If IsEarlierFormat Then Return OldName & vbTab & NewName & vbTab & Ticks.ToString(inv)
+            Return OldName & vbTab & NewName & vbTab & Ticks.ToString(inv) & vbTab & Length.ToString(inv) & vbTab &
+                If(OperatorDeleted, DeletedState, RenamedState)
+        End Function
+    End Class
+
+    ''' <summary>
     ''' Note an old operator file that could not be removed after its renamed
     ''' copy was saved, so the next start neither loads it as a second operator
-    ''' nor forgets to remove it. A failure to write the note is traced only:
-    ''' the save it follows has succeeded.
+    ''' nor forgets to remove it. The file's own last write time and length are
+    ''' recorded, never the clock (#1254). A failure to write the note is
+    ''' traced only: the save it follows has succeeded.
     ''' </summary>
     Friend Shared Sub RecordRetiredFile(oldPath As String, newPath As String)
         Try
-            Dim line As String = Path.GetFileName(oldPath) & vbTab & Path.GetFileName(newPath) & vbTab &
-                DateTime.UtcNow.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture)
-            File.AppendAllText(Path.Combine(Path.GetDirectoryName(oldPath), RetiredFilesRecordName), line & vbCrLf)
+            Dim info As New FileInfo(oldPath)
+            Dim entry As New RetiredFileEntry(Path.GetFileName(oldPath), Path.GetFileName(newPath),
+                                              info.LastWriteTimeUtc.Ticks, info.Length, False)
+            File.AppendAllText(Path.Combine(Path.GetDirectoryName(oldPath), RetiredFilesRecordName), entry.ToLine() & vbCrLf)
             Tracing.TraceLine("PersonalData: the old operator file is recorded, to be removed at the next start: " & oldPath, TraceLevel.Info)
         Catch ex As Exception
             Tracing.TraceLine("PersonalData: the old operator file could not be recorded: " & ex.Message, TraceLevel.Error)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Rewrite the record in <paramref name="dir"/>, passing each entry that
+    ''' reads to <paramref name="change"/>; true from it means the entry
+    ''' changed. A line that does not read is kept as it is, for
+    ''' <see cref="SettleRetiredFiles"/> to drop and trace.
+    ''' </summary>
+    Private Shared Sub RewriteRetiredFiles(dir As String, change As Func(Of RetiredFileEntry, Boolean), what As String)
+        Try
+            Dim recordPath As String = Path.Combine(dir, RetiredFilesRecordName)
+            If Not File.Exists(recordPath) Then Return
+            Dim lines As String() = File.ReadAllLines(recordPath)
+            Dim changed As Boolean = False
+            For i As Integer = 0 To lines.Length - 1
+                Dim entry As RetiredFileEntry = RetiredFileEntry.Parse(lines(i))
+                If entry IsNot Nothing AndAlso change(entry) Then
+                    lines(i) = entry.ToLine()
+                    changed = True
+                End If
+            Next
+            If changed Then AtomicFile.WriteAllText(recordPath, String.Join(vbCrLf, lines) & vbCrLf)
+        Catch ex As Exception
+            Tracing.TraceLine("PersonalData: the retired operator record could not be updated (" & what & "): " & ex.Message, TraceLevel.Error)
         End Try
     End Sub
 
@@ -1027,38 +1154,55 @@ Public Class PersonalData
     ''' known to be a stale copy of a saved operator.
     ''' </summary>
     Private Shared Sub RetargetRetiredFiles(oldPath As String, newPath As String)
-        Try
-            Dim recordPath As String = Path.Combine(Path.GetDirectoryName(oldPath), RetiredFilesRecordName)
-            If Not File.Exists(recordPath) Then Return
-            Dim was As String = Path.GetFileName(oldPath)
-            Dim lines As String() = File.ReadAllLines(recordPath)
-            Dim changed As Boolean = False
-            For i As Integer = 0 To lines.Length - 1
-                Dim parts As String() = lines(i).Split(vbTab)
-                If parts.Length = 3 AndAlso String.Equals(parts(1), was, StringComparison.OrdinalIgnoreCase) Then
-                    parts(1) = Path.GetFileName(newPath)
-                    lines(i) = String.Join(vbTab, parts)
-                    changed = True
-                End If
-            Next
-            If changed Then AtomicFile.WriteAllText(recordPath, String.Join(vbCrLf, lines) & vbCrLf)
-        Catch ex As Exception
-            Tracing.TraceLine("PersonalData: the retired operator record could not be updated: " & ex.Message, TraceLevel.Error)
-        End Try
+        Dim was As String = Path.GetFileName(oldPath)
+        Dim now As String = Path.GetFileName(newPath)
+        RewriteRetiredFiles(Path.GetDirectoryName(oldPath),
+            Function(entry)
+                If entry.OperatorDeleted OrElse Not String.Equals(entry.NewName, was, StringComparison.OrdinalIgnoreCase) Then Return False
+                entry.NewName = now
+                Return True
+            End Function, "a later rename")
     End Sub
 
     ''' <summary>
-    ''' Settle the retired-file record at startup (#1241), before any operator
-    ''' is read, and return the names of the files NOT to load.
+    ''' The operator in <paramref name="deletedPath"/> was deleted (#1254): an
+    ''' old file still on record for it is now a copy of an operator that no
+    ''' longer exists, so the next start removes it rather than loading it as
+    ''' the operator's only copy. An earlier-format entry is left as it is: it
+    ''' cannot show which file it means, and keeping a file is the safe failure.
+    ''' </summary>
+    Friend Shared Sub MarkRetiredFilesDeleted(deletedPath As String)
+        Dim gone As String = Path.GetFileName(deletedPath)
+        RewriteRetiredFiles(Path.GetDirectoryName(deletedPath),
+            Function(entry)
+                If entry.IsEarlierFormat OrElse entry.OperatorDeleted OrElse
+                   Not String.Equals(entry.NewName, gone, StringComparison.OrdinalIgnoreCase) Then Return False
+                entry.OperatorDeleted = True
+                Tracing.TraceLine("PersonalData: the deleted operator's old file " & entry.OldName &
+                                  " is on record, and is now marked to be removed rather than loaded", TraceLevel.Info)
+                Return True
+            End Function, "an operator was deleted")
+    End Sub
+
+    ''' <summary>
+    ''' Settle the retired-file record at startup (#1241, #1254), before any
+    ''' operator is read, and return the names of the files NOT to load.
     '''
-    ''' For each entry: the old file is gone, so the entry is dropped; the old
-    ''' file was written after the record, so it is a new operator who reuses
-    ''' the name, and it is kept and loaded; the renamed file is missing, so the
-    ''' old file is the only copy, and it is kept and loaded; otherwise the
-    ''' delete is tried again, and a file that still cannot be removed is
-    ''' skipped, never loaded, and kept on record. Only a file the record names,
-    ''' in this folder, is ever touched. Each outcome is traced. Anything that
-    ''' goes wrong here is traced and startup carries on.
+    ''' For each entry: the old file is gone, so the entry is dropped. An
+    ''' earlier-format entry cannot show the old file is the stale copy, so the
+    ''' file is kept and loaded and the entry dropped. The old file no longer
+    ''' matches the write time and length recorded for it, so it is a
+    ''' different operator saved since under that name: kept and loaded, and
+    ''' the entry dropped. The operator was deleted since: the delete is tried.
+    ''' Otherwise the renamed file must still hold an operator that reads: when
+    ''' it is missing, the old file is the only copy, kept and loaded and the
+    ''' entry dropped; when it does not read, the old file is the last good
+    ''' copy, kept and loaded, and the entry kept for a start at which the
+    ''' renamed file reads again. Otherwise the delete is tried. A file that
+    ''' still cannot be removed is skipped, never loaded, and kept on record.
+    ''' Only a file the record names, in this folder, is ever touched, and no
+    ''' clock is ever compared. Each outcome is traced. Anything that goes
+    ''' wrong here is traced and startup carries on.
     ''' </summary>
     Friend Shared Function SettleRetiredFiles(dir As String) As HashSet(Of String)
         Dim skip As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
@@ -1068,41 +1212,55 @@ Public Class PersonalData
             Dim keep As New List(Of String)
             For Each line As String In File.ReadAllLines(recordPath)
                 If String.IsNullOrWhiteSpace(line) Then Continue For
-                Dim parts As String() = line.Split(vbTab)
-                Dim ticks As Long
-                If parts.Length <> 3 OrElse
-                   Not Long.TryParse(parts(2), System.Globalization.NumberStyles.None,
-                                     System.Globalization.CultureInfo.InvariantCulture, ticks) OrElse
-                   Not IsOperatorFileName(parts(0)) OrElse Not IsOperatorFileName(parts(1)) OrElse
-                   String.Equals(parts(0), parts(1), StringComparison.OrdinalIgnoreCase) Then
+                Dim entry As RetiredFileEntry = RetiredFileEntry.Parse(line)
+                If entry Is Nothing Then
                     Tracing.TraceLine("PersonalData: an unreadable retired-file entry was dropped: " & line, TraceLevel.Warning)
                     Continue For
                 End If
-                Dim oldFile As String = Path.Combine(dir, parts(0))
-                Dim newFile As String = Path.Combine(dir, parts(1))
+                Dim oldFile As String = Path.Combine(dir, entry.OldName)
+                Dim newFile As String = Path.Combine(dir, entry.NewName)
                 If Not File.Exists(oldFile) Then
                     Tracing.TraceLine("PersonalData: retired operator file already gone: " & oldFile, TraceLevel.Info)
                     Continue For
                 End If
-                If File.GetLastWriteTimeUtc(oldFile).Ticks > ticks Then
-                    ' Written after the record, so not the stale copy it names: an
-                    ' operator saved since under the same name. Kept and loaded.
-                    Tracing.TraceLine("PersonalData: a newer operator file reuses a retired name; kept: " & oldFile, TraceLevel.Info)
+                If entry.IsEarlierFormat Then
+                    ' Nothing in the line shows the file there now is the stale
+                    ' copy, so it is never deleted on its strength.
+                    Tracing.TraceLine("PersonalData: a retired-file entry in the earlier format cannot show the old file is a stale copy; kept and loaded: " &
+                                      oldFile, TraceLevel.Warning)
                     Continue For
                 End If
-                If Not File.Exists(newFile) Then
-                    ' The renamed copy is gone, so this is the operator's only
-                    ' record. Never lose it: load it as it is.
-                    Tracing.TraceLine("PersonalData: the renamed operator file is missing; the old one is kept and loaded: " & oldFile, TraceLevel.Warning)
+                If Not entry.StillMatches(oldFile) Then
+                    ' Not the file the record names: an operator saved since
+                    ' under the same name, whatever the clock said. Kept and loaded.
+                    Tracing.TraceLine("PersonalData: a different operator file now has a retired name; kept: " & oldFile, TraceLevel.Info)
                     Continue For
+                End If
+                If Not entry.OperatorDeleted Then
+                    If Not File.Exists(newFile) Then
+                        ' The renamed copy is gone, so this is the operator's only
+                        ' record. Never lose it: load it as it is.
+                        Tracing.TraceLine("PersonalData: the renamed operator file is missing; the old one is kept and loaded: " & oldFile, TraceLevel.Warning)
+                        Continue For
+                    End If
+                    If ReadOperatorFile(newFile).Op Is Nothing Then
+                        ' The renamed copy does not read, so the old file is the
+                        ' operator's last good copy: loaded, and still on record
+                        ' for a start at which the renamed copy reads again.
+                        Tracing.TraceLine("PersonalData: the renamed operator file " & newFile &
+                                          " cannot be read; the old one is kept and loaded: " & oldFile, TraceLevel.Warning)
+                        keep.Add(line)
+                        Continue For
+                    End If
                 End If
                 Try
                     File.Delete(oldFile)
-                    Tracing.TraceLine("PersonalData: removed the retired operator file: " & oldFile, TraceLevel.Info)
+                    Tracing.TraceLine("PersonalData: removed the retired operator file: " & oldFile &
+                                      If(entry.OperatorDeleted, " (its operator was deleted)", ""), TraceLevel.Info)
                 Catch ex As Exception
                     Tracing.TraceLine("PersonalData: the retired operator file still cannot be removed, and is not loaded: " &
                                       oldFile & " (" & ex.Message & ")", TraceLevel.Warning)
-                    skip.Add(parts(0))
+                    skip.Add(entry.OldName)
                     keep.Add(line)
                 End Try
             Next
@@ -1153,6 +1311,10 @@ Public Class PersonalData
         Else
             Try
                 File.Delete(fileName)
+                ' An old file a rename could not remove, still on record for
+                ' this operator, must not come back as the deleted operator at
+                ' the next start (#1254).
+                MarkRetiredFilesDeleted(fileName)
             Catch ex As Exception
                 Tracing.TraceLine("PersonalData: the operator was removed from the list, but its file could not be deleted: " &
                                   fileName & " (" & ex.Message & ")", TraceLevel.Error)
