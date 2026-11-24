@@ -59,8 +59,7 @@ public partial class ScreenFieldsPanel
     // Sprint 49 Track CL (#1278): the compressor and the limiter, as flat rows.
     private CheckBox _txCompressorOn = null!, _txLimiterOn = null!, _txHandoff = null!;
     private CycleFieldControl _txCompressorPreset = null!;
-    private Button _txDynamicsEdit = null!;
-    private TextBlock _txCompressorNow = null!, _txLimiterNow = null!;
+    private Button _txDynamicsEdit = null!, _txCompressorNow = null!, _txLimiterNow = null!;
     private readonly List<(CycleFieldControl Field, DynamicsLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> _txDynamicsFields = new();
     private readonly List<(CycleFieldControl Field, DeEsserLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> _txDeEsserFields = new();
     private CheckBox _txGateAdvanced = null!;
@@ -445,8 +444,8 @@ public partial class ScreenFieldsPanel
     /// <summary>
     /// The compressor's and the limiter's flat rows (Sprint 49 Track CL,
     /// #1278): each switch, the compressor's preset, the levers Home carries
-    /// (threshold, ratio and makeup; the limiter's ceiling), each stage's
-    /// "now" reading, the setting about the radio's speech processor, and the
+    /// (threshold, ratio and makeup; the limiter's ceiling), a button that
+    /// says each stage's reading, the setting about the radio's speech processor, and the
     /// door to the editor that holds every parameter. Flat rows only (#489).
     /// </summary>
     private void BuildTransmitDynamicsRows()
@@ -489,8 +488,12 @@ public partial class ScreenFieldsPanel
         }
         AddLeverRows(NoiseController.CompressorLevers.Where(l => l.OnHome));
 
-        _txCompressorNow = new TextBlock { TextWrapping = TextWrapping.Wrap, Focusable = true };
-        JJFlexHelp.SetText(_txCompressorNow, Lexicon.Get("audio.dynamics_help.compressor_now"));
+        // The reading is SAID when asked for, never a row of text that changes
+        // under the operator: a name that moved on every poll while
+        // transmitting would be read out again and again by a screen reader
+        // sitting on it.
+        _txCompressorNow = MakeTxButton("audio.dynamics_menu.say_compressor", "audio.dynamics_help.compressor_now");
+        _txCompressorNow.Click += (s, e) => NoiseCtl?.SayCompressorNow();
         TxContent.Children.Add(_txCompressorNow);
 
         _txHandoff = MakeToggle(Lexicon.Get("audio.dynamics_home.handoff"));
@@ -506,8 +509,8 @@ public partial class ScreenFieldsPanel
         TxContent.Children.Add(_txLimiterOn);
         AddLeverRows(NoiseController.LimiterLevers.Where(l => l.OnHome));
 
-        _txLimiterNow = new TextBlock { TextWrapping = TextWrapping.Wrap, Focusable = true };
-        JJFlexHelp.SetText(_txLimiterNow, Lexicon.Get("audio.dynamics_help.limiter_now"));
+        _txLimiterNow = MakeTxButton("audio.dynamics_menu.say_limiter", "audio.dynamics_help.limiter_now");
+        _txLimiterNow.Click += (s, e) => NoiseCtl?.SayLimiterNow();
         TxContent.Children.Add(_txLimiterNow);
 
         _txDynamicsEdit = MakeTxButton("audio.dynamics_home.edit", "audio.dynamics_help.edit");
@@ -530,7 +533,7 @@ public partial class ScreenFieldsPanel
         RefreshTransmitDynamicsValues();
     }
 
-    /// <summary>The compressor's and the limiter's rows' values, from the controller: the switches, the preset in place, the levers and the two "now" readings.</summary>
+    /// <summary>The compressor's and the limiter's rows' values, from the controller: the switches, the preset in place and the levers. Called by the poll, so it builds no sentence and reads no file.</summary>
     private void RefreshTransmitDynamicsValues()
     {
         if (NoiseCtl is not { } noise || _txCompressorOn == null) return;
@@ -554,18 +557,6 @@ public partial class ScreenFieldsPanel
                 field.SuppressEvents = true;
                 try { field.SelectedIndex = NearestStep(steps, noise.DynamicsNumber(lever)); }
                 finally { field.SuppressEvents = false; }
-            }
-            string compressorNow = noise.CompressorNowSentence();
-            if (_txCompressorNow.Text != compressorNow)
-            {
-                _txCompressorNow.Text = compressorNow;
-                AutomationProperties.SetName(_txCompressorNow, compressorNow);
-            }
-            string limiterNow = noise.LimiterNowSentence();
-            if (_txLimiterNow.Text != limiterNow)
-            {
-                _txLimiterNow.Text = limiterNow;
-                AutomationProperties.SetName(_txLimiterNow, limiterNow);
             }
         }
         finally { _polling = wasPolling; }

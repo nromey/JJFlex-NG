@@ -158,9 +158,12 @@ namespace JJFlexWpf
         {
             get
             {
+                // Home's poll asks this, so it compares the settings as records
+                // (every field, each band included) and serializes nothing.
                 var now = TxAudioConditioning.CompressorSetup;
                 var preset = TxCompressorPresets.Find(now.PresetId);
-                return preset != null && SameCompressor(now, TxCompressorPresets.Load(preset, now.Enabled)) ? preset : null;
+                return preset != null && now.ToSettings() with { Enabled = false } == preset.Settings.ToSettings() with { Enabled = false }
+                    ? preset : null;
             }
         }
 
