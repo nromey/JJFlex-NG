@@ -22,13 +22,14 @@ namespace JJFlexWpf.Tests;
 /// except the desktop limit, changed nothing. The desktop limit was not
 /// lifted: it is what stops a job process making the hidden desktop the
 /// visible one. So inside the job a WebView2 surface is a browser that never
-/// rendered, which is why the sweep skips the dialogs that host one
-/// (<see cref="DialogCatalog.DeclaredSkips"/>).</para>
+/// rendered, which is why the sweep runs with no WebView2 runtime at all
+/// (<see cref="NoWebView2Runtime"/>): a dialog hosting WebView2 is inspected on
+/// its own no-runtime path instead (task #1286 repair 1).</para>
 ///
-/// <para>This test keeps that skip honest. Through deskrun it asserts the
-/// page does NOT render; the day it does, the test fails and says the skip's
-/// reason is no longer true. On any other route it asserts the page
-/// renders.</para>
+/// <para>This test keeps that choice honest. Through deskrun it asserts the
+/// page does NOT render; the day it does, the test fails and says the reason
+/// for hiding the runtime from the sweep is no longer true. On any other
+/// route it asserts the page renders.</para>
 ///
 /// <para>The browser's user-data folder is under this run's throwaway
 /// settings tree, never the operator's own WebView2 folder.</para>
@@ -47,7 +48,7 @@ public sealed class WebView2InJobTests
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
 
     [Fact]
-    public void WebView2_renders_nothing_inside_deskruns_job_which_is_why_the_sweep_skips_its_dialogs()
+    public void WebView2_renders_nothing_inside_deskruns_job_which_is_why_the_sweep_runs_without_its_runtime()
     {
         UiThread.EnsureStarted();
         _output.WriteLine(UiThread.VerdictLine);
@@ -62,8 +63,8 @@ public sealed class WebView2InJobTests
         if (UiThread.Isolation == DesktopIsolation.StartedOnPrivateDesktop)
         {
             Assert.False(outcome.NavigationSucceeded,
-                "A page rendered inside deskrun's job. The sweep skips AboutDialog, FixerDialog and HtmlInfoDialog " +
-                "because it did not (task #1286); that reason is no longer true, so take them off DialogCatalog's skip list.");
+                "A page rendered inside deskrun's job. The sweep hides the WebView2 runtime (NoWebView2Runtime) " +
+                "because it did not (task #1286); that reason is no longer true, so the sweep could inspect the rendered page.");
             Assert.NotNull(outcome.NavigationResult);   // it failed, and said so; it did not merely run out of time
         }
         else

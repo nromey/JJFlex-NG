@@ -273,12 +273,20 @@ the hidden desktop the visible one. Which limit, or which other property of
 the job or the hidden desktop, stops the renderers is NOT established; no
 run lifted two limits together or turned off WebView2's own sandbox.
 
-So the dialog sweep skips the dialogs that host WebView2 (`AboutDialog`,
-`FixerDialog`, `HtmlInfoDialog`, beside `AuthDialog`), with that reason, in
-`DialogCatalog.DeclaredSkips`. `WebView2InJobTests` keeps the skip honest:
-through deskrun it asserts the page does NOT render, so the day it does, it
-fails and says to take them off the list. Neither the limits nor the job
-were changed.
+So the dialog sweep runs with no WebView2 runtime at all (repair 1):
+`NoWebView2Runtime` points `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`, in the test
+process only and only for the sweep, at an empty folder inside the run's
+throwaway settings tree. A dialog hosting WebView2 then takes its own
+no-runtime path, a state an operator without the runtime meets, and no
+browser starts. Of the dialogs hosting WebView2, only `AboutDialog` is
+constructible by the sweep; it is inspected in its plain-text fallback.
+`FixerDialog` and `HtmlInfoDialog` have no accessible constructor and are
+reported as such, as before. `AuthDialog` stays on the declared skip list.
+This also keeps the sweep out of the operator's own WebView2 profile
+(`%LocalAppData%\JJFlexRadio\WebView2`), which the throwaway settings tree
+does not redirect. `WebView2InJobTests` keeps the choice honest: through
+deskrun it asserts the page does NOT render, so the day it does, it fails.
+Neither the limits nor the job were changed.
 
 ## What it refuses
 

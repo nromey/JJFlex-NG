@@ -52,6 +52,12 @@ public static class Sweep
         UiThread.EnsureStarted();
         using var watchdog = new ModalWatchdog(UiThread.NativeThreadId, TimeSpan.FromSeconds(20));
 
+        // Task #1286 repair 1: no WebView2 runtime for the sweep, so a dialog
+        // hosting WebView2 is inspected on its own no-runtime path rather than
+        // around a browser that cannot render inside deskrun's job. See
+        // NoWebView2Runtime.
+        using var noWebView2 = new NoWebView2Runtime();
+
         // Task #907: one dialog's exception must not take the sweep down. See
         // UiThread.Contain for how it used to end the whole test host.
         using (var containment = UiThread.Contain())

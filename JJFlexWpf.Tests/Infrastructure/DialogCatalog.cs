@@ -33,22 +33,7 @@ public static class DialogCatalog
         ["AuthDialog"] =
             "Hosts a WebView2 control. Constructing it initialises the Edge runtime and starts a browser process; " +
             "the automation tree below the browser belongs to WebView2, not to us. Covered by Tier 2 or by hand.",
-
-        // Task #1286, measured 2026-11-24 (WebView2InJobTests): inside deskrun's
-        // job WebView2's browser starts but every renderer fails to launch, so
-        // these would be inspected around a browser that never rendered, while
-        // hundreds of its helper processes start and fail. They also open the
-        // operator's own WebView2 folder (%LocalAppData%\JJFlexRadio\WebView2),
-        // which the throwaway settings tree does not redirect.
-        ["AboutDialog"] = WebView2InTheJob,
-        ["FixerDialog"] = WebView2InTheJob,
-        ["HtmlInfoDialog"] = WebView2InTheJob,
     };
-
-    private const string WebView2InTheJob =
-        "Hosts a WebView2 control, and inside deskrun's job WebView2's renderers cannot launch (task #1286, " +
-        "WebView2InJobTests), so the page never renders and the dialog cannot be inspected as an operator meets it. " +
-        "Lifting the job's desktop limit is not an option: it is what keeps the hidden desktop hidden.";
 
     public static IReadOnlyList<DialogEntry> Discover()
     {
