@@ -75,13 +75,31 @@ internal static class Program
             return ExitSetupFailed;
         }
 
+        // ROUND 4: a crashing child must not put a box on the operator's
+        // screen. The "Application Error" box and Windows Error Reporting's
+        // dialog are drawn on the INPUT desktop by csrss and WerFault, outside
+        // the job, so the hidden desktop does not hide them. Two preventions,
+        // each read back before anything starts: this process's error mode,
+        // which every child inherits (deskrun never passes
+        // CREATE_DEFAULT_ERROR_MODE, nor does .NET's Process.Start, which is
+        // how dotnet starts vstest and vstest starts testhost); and the job's
+        // die-on-unhandled-exception limit, below, which Windows applies to
+        // every process in the job whatever its parent did.
+        string? modeProblem = SetChildErrorMode();
+        if (modeProblem != null)
+        {
+            Say("refused: " + modeProblem + " Nothing was started.");
+            return ExitSetupFailed;
+        }
+
         IntPtr job = CreateKillOnCloseJob(out int jobError, out string jobStep);
         if (job == IntPtr.Zero)
         {
             Say("refused: could not " + jobStep + " (Windows error " + jobError + "). Nothing was started.");
             return ExitSetupFailed;
         }
-        Say("job limits: kill on close; UI limits "
+        Say("job limits (read back): kill on close; die on unhandled exception (no Application Error box, no "
+            + "error-reporting dialog: a crashing process just ends with its exception code); UI limits "
             + string.Join(", ", DeskRunRules.JobUiLimits.Select(l => l.Name + " (no " + l.Prevents + ")")) + ".");
 
         string name = DeskRunRules.NewDesktopName(Environment.ProcessId, Guid.NewGuid());
@@ -145,6 +163,7 @@ internal static class Program
     {
         finished = false;
         var seen = new Dictionary<int, (string Name, DateTime Start)>();
+        using var ledger = new JobLedger(job);
         bool timedOut = false;
         Watch? watch = null;
         int childExit = -1;
@@ -272,7 +291,7 @@ internal static class Program
             var clock = Stopwatch.StartNew();
             while (true)
             {
-                Record(job, seen, watch);
+                Record(job, seen, ledger, watch);
                 if (Native.WaitForSingleObject(pi.hProcess, 250) == Native.WAIT_OBJECT_0) break;
 
                 if (_cancelled)
@@ -306,7 +325,7 @@ internal static class Program
             var grace = Stopwatch.StartNew();
             while (Native.ActiveProcesses(job) > 0 && grace.Elapsed < TimeSpan.FromSeconds(15))
             {
-                Record(job, seen, watch);
+                Record(job, seen, ledger, watch);
                 Thread.Sleep(200);
             }
 
@@ -335,7 +354,7 @@ internal static class Program
         }
 
         finished = true;
-        int result = Finish(job, desktop, name, qualified, seen, timedOut, childExit, watch);
+        int result = Finish(job, desktop, name, qualified, seen, ledger, timedOut, childExit, watch);
         watch?.Dispose();
         return result;
     }
@@ -344,7 +363,7 @@ internal static class Program
     /// Prove the tree and the desktop are gone, say so, and pick the exit code.
     /// </summary>
     private static int Finish(IntPtr job, IntPtr desktop, string name, string qualified,
-                              Dictionary<int, (string Name, DateTime Start)> seen,
+                              Dictionary<int, (string Name, DateTime Start)> seen, JobLedger ledger,
                               bool timedOut, int childExit, Watch? watch)
     {
         // -1 means the job's count could not be read: that is unmeasured, not
@@ -429,15 +448,20 @@ internal static class Program
 
         if (watch != null)
             foreach (string line in watch.Report()) Say(line);
+        foreach (string line in ledger.Report()) Say(line);
+        var crashed = ledger.Crashed();
 
         bool cleanupComplete = active == 0 && survivors.Count == 0 && desktopGone;
         int? violation = watch?.Violation?.Code;
         if (watch?.Violation is { } v) Say("FAILED: " + v.Reason);
         if (!cleanupComplete) Say((violation != null ? "ALSO failed" : "FAILED") + " to clean up completely; see above.");
 
-        int result = DeskRunRules.RunExitCode(violation, cleanupComplete, timedOut, childExit);
+        int result = DeskRunRules.RunExitCode(violation, cleanupComplete, timedOut, childExit, crashed.Count > 0);
         if (violation == null && cleanupComplete && !timedOut)
-            Say("child exit code " + childExit + ".");
+            Say("child exit code " + childExit + "."
+                + (crashed.Count > 0
+                    ? " FAILED: a process in the job crashed (see above); the run exits " + result + "."
+                    : ""));
         return result;
     }
 
@@ -468,7 +492,8 @@ internal static class Program
         Say("BARRIER " + barrier + " expired with nobody killing the launcher; carrying on.");
     }
 
-    private static void Record(IntPtr job, Dictionary<int, (string Name, DateTime Start)> seen, Watch watch)
+    private static void Record(IntPtr job, Dictionary<int, (string Name, DateTime Start)> seen, JobLedger ledger,
+                               Watch watch)
     {
         // Round 3 (B4): the record is the second witness that nothing was left
         // behind. A list that cannot be read makes it incomplete, so the run
@@ -491,7 +516,9 @@ internal static class Program
             catch (ArgumentException) { }
             catch (InvalidOperationException) { }
             catch (System.ComponentModel.Win32Exception) { seen[pid] = ("(unreadable)", DateTime.MinValue); }
+            if (seen.TryGetValue(pid, out var known)) ledger.Observe(pid, known.Name);
         }
+        ledger.Sample();
     }
 
     private static string Names(IEnumerable<int> pids, Dictionary<int, (string Name, DateTime Start)> seen)
@@ -519,12 +546,16 @@ internal static class Program
         }
 
         var info = new Native.JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
-        info.BasicLimitInformation.LimitFlags = Native.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        info.BasicLimitInformation.LimitFlags = DeskRunRules.JobLimitFlags;
         if (!Native.SetInformationJobObject(job, Native.JobObjectExtendedLimitInformation, ref info,
-                                            Marshal.SizeOf<Native.JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()))
+                                            Marshal.SizeOf<Native.JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+            || !Native.QueryExtendedLimits(job, Native.JobObjectExtendedLimitInformation, out var limitsBack,
+                                           Marshal.SizeOf<Native.JOBOBJECT_EXTENDED_LIMIT_INFORMATION>(), IntPtr.Zero)
+            || (limitsBack.BasicLimitInformation.LimitFlags & DeskRunRules.JobLimitFlags) != DeskRunRules.JobLimitFlags)
         {
             error = Marshal.GetLastWin32Error();
-            step = "make the job kill everything when it closes";
+            step = "make the job kill everything when it closes and end a crashing process without a box "
+                   + "(kill on close, die on unhandled exception), and read both back";
             Native.CloseHandle(job);
             return IntPtr.Zero;
         }
@@ -548,6 +579,28 @@ internal static class Program
             return IntPtr.Zero;
         }
         return job;
+    }
+
+    /// <summary>
+    /// Round 4: give this process the error mode every child will inherit,
+    /// and prove the read-back used for the job's processes decodes it the
+    /// way GetErrorMode does. Null when both hold; otherwise why not.
+    /// </summary>
+    private static string? SetChildErrorMode()
+    {
+        Native.SetErrorMode(DeskRunRules.ChildErrorMode);
+        uint mine = Native.GetErrorMode();
+        if ((mine & DeskRunRules.ChildErrorMode) != DeskRunRules.ChildErrorMode)
+            return "the error mode the child would inherit did not take (GetErrorMode 0x" + mine.ToString("X4")
+                   + ", wanted 0x" + DeskRunRules.ChildErrorMode.ToString("X4") + ").";
+        uint? readBack = Native.ErrorModeOf(Native.GetCurrentProcess());
+        if (readBack != mine)
+            return "the error-mode read-back does not agree with GetErrorMode on this process (read 0x"
+                   + (readBack?.ToString("X4") ?? "nothing") + ", GetErrorMode 0x" + mine.ToString("X4")
+                   + "), so it cannot be trusted for the job's processes.";
+        Say("error mode for the child to inherit: 0x" + mine.ToString("X4")
+            + " (no critical-error box, no fault box, no open-file box); the read-back agrees with GetErrorMode.");
+        return null;
     }
 
     private static string? FindDotnet()
@@ -591,11 +644,15 @@ internal static class Program
         (anywhere but the hidden desktop kills the run, exit 72) and every audio
         session for sound from the job (a peak above zero kills the run, exit
         73). These are sampling tripwires, not proofs; see the README. A watch
-        that cannot measure fails the run (exit 74).
+        that cannot measure fails the run (exit 74). A crashing process ends
+        without a box (the job's die-on-unhandled-exception limit and an
+        inherited error mode), and a new crash box on the operator's screen
+        kills the run (exit 72).
 
         Exit codes: the child's own, or 64 refused before anything was created,
         70 nothing started, 71 something was left behind, 72 a window reached
-        another desktop, 73 the job made sound, 74 a watch could not measure,
-        124 timed out.
+        another desktop or a crash box reached the operator's, 73 the job made
+        sound, 74 a watch could not measure, 75 a job process crashed while the
+        child reported success, 124 timed out.
         """;
 }

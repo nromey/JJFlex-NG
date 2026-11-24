@@ -612,6 +612,153 @@ public sealed class DeskRunRulesTests
         Assert.All(DeskRunRules.JobUiLimits, l => Assert.StartsWith("JOB_OBJECT_UILIMIT_", l.Name, StringComparison.Ordinal));
     }
 
+    // ── round 4: a crashing child raises no box ──────────────────────────
+
+    /// <summary>The 2026-11-23 box: "dotnet.exe - Application Error", owner csrss, still on the operator's screen.</summary>
+    private const long TonightsBox = 0x640950;
+
+    [Fact]
+    public void EveryJobEndsACrashingProcessWithoutABoxAndKillsOnClose()
+    {
+        Assert.Equal(0x400u, DeskRunRules.JobLimitDieOnUnhandledException);
+        Assert.Equal(0x2000u, DeskRunRules.JobLimitKillOnJobClose);
+        Assert.Equal(DeskRunRules.JobLimitDieOnUnhandledException,
+                     DeskRunRules.JobLimitFlags & DeskRunRules.JobLimitDieOnUnhandledException);
+        Assert.Equal(DeskRunRules.JobLimitKillOnJobClose,
+                     DeskRunRules.JobLimitFlags & DeskRunRules.JobLimitKillOnJobClose);
+    }
+
+    [Fact]
+    public void TheInheritedErrorModeKeepsEveryBoxAway()
+    {
+        Assert.Equal(0x8003u, DeskRunRules.ChildErrorMode);
+        Assert.True(DeskRunRules.ErrorModeKeepsBoxesAway(DeskRunRules.ChildErrorMode));
+    }
+
+    [Theory]
+    [InlineData(0x0000u, false)]
+    [InlineData(0x0001u, false)]   // critical errors off, fault box ON
+    [InlineData(0x0002u, false)]   // fault box off, critical-error box ON
+    [InlineData(0x8001u, false)]
+    [InlineData(0x0003u, true)]
+    [InlineData(0x8003u, true)]
+    [InlineData(0x8007u, true)]
+    public void AnErrorModeKeepsTheBoxesAwayOnlyWithBothFlags(uint mode, bool expected)
+        => Assert.Equal(expected, DeskRunRules.ErrorModeKeepsBoxesAway(mode));
+
+    [Theory]
+    [InlineData(0x0001u, 0x0000u)] // a process left at the default: Windows stores "critical errors ON" as a set bit
+    [InlineData(0x8002u, 0x8003u)] // deskrun's own mode, as NtQueryInformationProcess returns it
+    [InlineData(0x0000u, 0x0001u)]
+    [InlineData(0x0003u, 0x0002u)]
+    public void TheRawErrorModeHasItsCriticalErrorBitInverted(uint raw, uint mode)
+        => Assert.Equal(mode, DeskRunRules.ErrorModeFromRaw(raw));
+
+    [Theory]
+    [InlineData("#32770", "csrss", true)]
+    [InlineData("#32770", "CSRSS", true)]
+    [InlineData("#32770", "WerFault", true)]
+    [InlineData("#32770", "werfault", true)]
+    [InlineData("#32770", "WerFaultSecure", true)]
+    [InlineData("#32770", "explorer", false)]    // an ordinary program's own message box is not a crash box
+    [InlineData("#32770", "testhost", false)]    // a job process's box is the job window watch's business
+    [InlineData("#32770", null, false)]          // owner gone: the box went with it
+    [InlineData("#32771", "csrss", false)]
+    [InlineData("Static", "csrss", false)]
+    [InlineData(null, "csrss", false)]
+    public void ACrashBoxIsADialogDrawnByCsrssOrWerFault(string? cls, string? owner, bool expected)
+        => Assert.Equal(expected, DeskRunRules.IsCrashBox(cls, owner));
+
+    [Fact]
+    public void TheBoxAlreadyOnTheScreenWhenTheRunStartedIsNeverTheRuns()
+    {
+        var baseline = new HashSet<long> { TonightsBox };
+        var seen = new[] { (TonightsBox, (string?)"#32770", (string?)"csrss") };
+
+        Assert.Empty(DeskRunRules.NewCrashBoxes(baseline, seen));
+    }
+
+    [Fact]
+    public void ANewCrashBoxDuringTheRunIsCaughtBesideAnOldOne()
+    {
+        var baseline = new HashSet<long> { TonightsBox };
+        var seen = new (long, string?, string?)[]
+        {
+            (TonightsBox, "#32770", "csrss"),
+            (0x1234, "#32770", "csrss"),
+            (0x5678, "#32770", "WerFault"),
+            (0x9ABC, "#32770", "explorer"),
+            (0x1234, "#32770", "csrss"),            // seen twice in one pass: reported once
+        };
+
+        Assert.Equal(new long[] { 0x1234, 0x5678 }, DeskRunRules.NewCrashBoxes(baseline, seen));
+    }
+
+    [Fact]
+    public void WithNoBaselineEveryCrashBoxIsNew()
+    {
+        var seen = new[] { (TonightsBox, (string?)"#32770", (string?)"csrss") };
+        Assert.Equal(new[] { TonightsBox }, DeskRunRules.NewCrashBoxes(new HashSet<long>(), seen));
+    }
+
+    [Theory]
+    [InlineData(0xE0434352u)] // .NET unhandled exception (2026-11-23's first code)
+    [InlineData(0xC000041Du)] // exception escaped a window procedure (2026-11-23's second code)
+    [InlineData(0xC0000005u)]
+    [InlineData(0xC00000FDu)]
+    [InlineData(0xC0000409u)]
+    [InlineData(0xE06D7363u)]
+    [InlineData(0x80000003u)]
+    public void AnExceptionCodeIsACrash(uint code)
+        => Assert.True(DeskRunRules.IsCrashExitCode(code), "0x" + code.ToString("X8"));
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(1u)]
+    [InlineData(64u)]
+    [InlineData(70u)]
+    [InlineData(71u)]
+    [InlineData(72u)]
+    [InlineData(73u)]
+    [InlineData(74u)]
+    [InlineData(75u)]
+    [InlineData(124u)]
+    [InlineData(259u)]         // STILL_ACTIVE
+    [InlineData(0xFFFFFFFFu)]  // exit(-1)
+    [InlineData(0xFFFFFFFEu)]  // exit(-2)
+    [InlineData(0xC00000BBu)]  // STATUS_NOT_SUPPORTED: 334 WebView2 helpers ended with it in one run, none of them a crash
+    [InlineData(0xC0000001u)]
+    public void AnOrdinaryExitOrOneDeskrunKilledWithIsNotACrash(uint code)
+        => Assert.False(DeskRunRules.IsCrashExitCode(code), code.ToString());
+
+    [Theory]
+    [InlineData(0xC00000BBu, true)]
+    [InlineData(0xC0000001u, true)]
+    [InlineData(0xC0000005u, false)]   // a crash, not merely an error status
+    [InlineData(0xE0434352u, false)]
+    [InlineData(0xFFFFFFFFu, false)]
+    [InlineData(1u, false)]
+    public void AnErrorStatusExitIsReportedApartFromACrash(uint code, bool expected)
+        => Assert.Equal(expected, DeskRunRules.IsErrorStatusExit(code));
+
+    [Fact]
+    public void TheCrashCodeIsNamedInWords()
+    {
+        Assert.Contains(".NET", DeskRunRules.DescribeExitCode(0xE0434352u), StringComparison.Ordinal);
+        Assert.Contains("window procedure", DeskRunRules.DescribeExitCode(0xC000041Du), StringComparison.Ordinal);
+        Assert.Equal("0xC0001234", DeskRunRules.DescribeExitCode(0xC0001234u));
+    }
+
+    [Theory]
+    [InlineData(null, true, false, 0, true, 75)]   // the child said success, a job process crashed: never 0
+    [InlineData(null, true, false, 1, true, 1)]    // dotnet test's own "aborted": its code stands
+    [InlineData(null, true, false, 0, false, 0)]
+    [InlineData(72, true, false, 1, true, 72)]     // a crash box on the screen outranks the crash
+    [InlineData(null, false, false, 0, true, 71)]
+    [InlineData(null, true, true, 0, true, 124)]
+    public void ACrashNeverEndsARunAtZero(int? violation, bool cleanup, bool timedOut, int childExit, bool crashed, int expected)
+        => Assert.Equal(expected, DeskRunRules.RunExitCode(violation, cleanup, timedOut, childExit, crashed));
+
     // ── round 3: the fault seam is a launcher option only ────────────────
 
     [Theory]

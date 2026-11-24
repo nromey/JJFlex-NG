@@ -208,7 +208,46 @@ internal static class Native
     [DllImport("kernel32.dll", EntryPoint = "QueryInformationJobObject", SetLastError = true)]
     internal static extern bool QueryUiRestrictions(
         IntPtr hJob, int infoClass, out JOBOBJECT_BASIC_UI_RESTRICTIONS info, int cbInfo, IntPtr returnLength);
-    internal const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+    internal const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = DeskRunRules.JobLimitKillOnJobClose;
+    internal const uint JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION = DeskRunRules.JobLimitDieOnUnhandledException;
+
+    [DllImport("kernel32.dll", EntryPoint = "QueryInformationJobObject", SetLastError = true)]
+    internal static extern bool QueryExtendedLimits(
+        IntPtr hJob, int infoClass, out JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, int cbInfo, IntPtr returnLength);
+
+    // ─────────────────────────── error mode (round 4) ───────────────────────────
+
+    [DllImport("kernel32.dll")]
+    internal static extern uint SetErrorMode(uint uMode);
+
+    [DllImport("kernel32.dll")]
+    internal static extern uint GetErrorMode();
+
+    internal const uint PROCESS_QUERY_INFORMATION = 0x0400;
+    internal const uint SYNCHRONIZE = 0x00100000;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+
+    [DllImport("kernel32.dll")]
+    internal static extern IntPtr GetCurrentProcess();
+
+    private const int ProcessDefaultHardErrorMode = 12;
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(
+        IntPtr process, int infoClass, out uint info, int length, IntPtr returnLength);
+
+    /// <summary>
+    /// Another process's error mode (as <c>GetErrorMode</c> would report it in
+    /// that process), or null when it cannot be read. Decoded by
+    /// <see cref="DeskRunRules.ErrorModeFromRaw"/>, which the launcher checks
+    /// against its own <c>GetErrorMode</c> first.
+    /// </summary>
+    internal static uint? ErrorModeOf(IntPtr process)
+        => NtQueryInformationProcess(process, ProcessDefaultHardErrorMode, out uint raw, sizeof(uint), IntPtr.Zero) == 0
+            ? DeskRunRules.ErrorModeFromRaw(raw)
+            : null;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct JOBOBJECT_BASIC_LIMIT_INFORMATION

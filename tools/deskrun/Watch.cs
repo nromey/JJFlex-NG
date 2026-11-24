@@ -67,6 +67,18 @@ namespace JJFlex.DeskRun;
 /// enumeration and the owner check can see a test window at all.
 /// </para>
 /// <para>
+/// <b>Crash boxes (round 4).</b> A crashing process's "Application Error" box
+/// is drawn by csrss, and Windows Error Reporting's dialog by WerFault, on the
+/// INPUT desktop, by processes outside the job: the hidden desktop does not
+/// hide them and the job check cannot see them (2026-11-23, a test host's
+/// crash put one in front of the operator). The job's die-on-unhandled-exception
+/// limit and the inherited error mode prevent them; as the catch for when that
+/// fails, every dialog-class window on the input desktop owned by csrss or
+/// WerFault is compared with the ones there at the first pass (before the
+/// child runs), and a new one fails the run at 72. Boxes already there are
+/// reported and never blamed on the run.
+/// </para>
+/// <para>
 /// <b>Sound.</b> About every 6 ms every audio session on every active render
 /// endpoint has its peak meter read; sessions are re-listed every 200 ms and
 /// endpoints every 2 s. A session owned by a process that was ever in the job,
@@ -101,6 +113,12 @@ internal sealed class Watch : IDisposable
     private int _desktopsGoneBeforeOpen;
     private string? _inputDesktopName;
     private string? _escapedOn;
+
+    // ── round 4: crash boxes on the operator's screen ──
+    private bool _crashBaselineTaken;
+    private readonly HashSet<long> _crashBaseline = new();
+    private readonly List<string> _crashBaselineDescribed = new();
+    private readonly List<string> _newCrashBoxes = new();
 
     // ── audio results ──
     private int _audioSamples;
@@ -349,6 +367,10 @@ internal sealed class Watch : IDisposable
             _inputDesktopName = inputName;
         }
 
+        // Round 4: every dialog-class window on the input desktop this pass,
+        // judged against the boxes that were there before the child ran.
+        var inputDialogs = new List<(long Hwnd, string? Class, string? Owner)>();
+
         foreach (string desktopName in names)
         {
             IntPtr desk = Native.OpenDesktop(desktopName, 0, false, DesktopRead);
@@ -382,6 +404,16 @@ internal sealed class Watch : IDisposable
                         ? false
                         : DeskRunRules.OwnedByJob(pid, jobNow, () => FreshJob(jobNow));
                     if (owned == false) notTheJobs.Add(pid);
+
+                    if (owned == false && string.Equals(desktopName, inputName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string cls = ClassName(hwnd);
+                        if (string.Equals(cls, DeskRunRules.DialogClass, StringComparison.Ordinal))
+                        {
+                            string owner = ProcessNameOf(pid);
+                            inputDialogs.Add((hwnd.ToInt64(), cls, owner == "?" ? null : owner));
+                        }
+                    }
                     if (owned == null)
                         throw new CouldNotMeasure("the job's own process list could not be read to judge window 0x"
                                                   + hwnd.ToInt64().ToString("X"));
@@ -427,7 +459,60 @@ internal sealed class Watch : IDisposable
             }
         }
 
+        JudgeCrashBoxes(inputDialogs, inputName);
         return Violation == null;
+    }
+
+    /// <summary>
+    /// Round 4: a crash box (<see cref="DeskRunRules.IsCrashBox"/>) that
+    /// appears on the input desktop during the run fails it at 72. The
+    /// hard-error box and Windows Error Reporting's dialog are drawn by csrss
+    /// and WerFault, which are not in the job, so the job window check above
+    /// cannot see them; this is the catch for when the prevention (the job's
+    /// die-on-unhandled-exception limit and the inherited error mode) did not
+    /// hold. The first pass, made before the child runs, is the baseline: a
+    /// box already there is reported and never blamed on this run.
+    /// </summary>
+    private void JudgeCrashBoxes(List<(long Hwnd, string? Class, string? Owner)> inputDialogs, string inputName)
+    {
+        if (!_crashBaselineTaken)
+        {
+            lock (_gate)
+            {
+                foreach (var w in inputDialogs)
+                    if (DeskRunRules.IsCrashBox(w.Class, w.Owner) && _crashBaseline.Add(w.Hwnd))
+                        _crashBaselineDescribed.Add(DescribeWindow(new IntPtr(w.Hwnd), OwnerPid(w.Hwnd)));
+            }
+            _crashBaselineTaken = true;
+            return;
+        }
+
+        var fresh = DeskRunRules.NewCrashBoxes(_crashBaseline, inputDialogs);
+        if (fresh.Count == 0) return;
+
+        var described = fresh.Select(h => DescribeWindow(new IntPtr(h), OwnerPid(h))).ToList();
+        lock (_gate)
+        {
+            _newCrashBoxes.AddRange(described);
+        }
+        Kill(ExitWindowEscaped,
+             "A CRASH BOX APPEARED ON THE OPERATOR'S DESKTOP during the run: desktop '" + inputName
+             + "' (the input desktop), " + string.Join("; ", described)
+             + ". It was not there when the run started. Its owner is not in the job, so it cannot be proved to be "
+             + "this run's; the run is failed either way. Leave the box for the operator.");
+    }
+
+    private static int OwnerPid(long hwnd)
+    {
+        GetWindowThreadProcessId(new IntPtr(hwnd), out uint pid);
+        return (int)pid;
+    }
+
+    private static string ClassName(IntPtr hwnd)
+    {
+        var cls = new StringBuilder(256);
+        GetClassName(hwnd, cls, cls.Capacity);
+        return cls.ToString();
     }
 
     /// <summary>
@@ -723,6 +808,12 @@ internal sealed class Watch : IDisposable
                           + (string.Equals(desk, _escapedOn, StringComparison.OrdinalIgnoreCase) ? "AT LEAST ONE" : "0")
                           + " owned by the job.");
             }
+            lines.Add("crash-box watch (round 4): " + _crashBaseline.Count + " crash box(es) already on the input desktop "
+                      + "before the child ran, so not this run's"
+                      + (_crashBaselineDescribed.Count == 0 ? "" : " (" + string.Join("; ", _crashBaselineDescribed) + ")")
+                      + "; new during the run: "
+                      + (_newCrashBoxes.Count == 0 ? "none" : _newCrashBoxes.Count + " (" + string.Join("; ", _newCrashBoxes) + ")")
+                      + ".");
             lines.Add("window watch: ownership re-read from the job's own process list " + _ownershipRechecks
                       + " time(s) for a window or session whose process was not in that pass's snapshot; "
                       + _ownershipRecheckHits + " process(es) found in the job that way.");
