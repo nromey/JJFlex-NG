@@ -46,6 +46,13 @@ Namespace My
         ''' </summary>
         Private Shared _testManifestTraceLine As String
 
+        ''' <summary>
+        ''' Where the updater's own stores went at start-up on a run isolated by
+        ''' JJFLEX_CONFIG_DIR, held until the diagnostic log is open, or Nothing
+        ''' on an ordinary run.
+        ''' </summary>
+        Private Shared _updaterStoresTraceLine As String
+
         Private Sub MyApplication_Startup(sender As Object, e As ApplicationServices.StartupEventArgs) Handles Me.Startup
             ' The Startup thread IS the UI thread: this same thread goes on to
             ' create ShellForm and run the message loop. Record its identity
@@ -148,8 +155,22 @@ Namespace My
             ' that move was accepted; an ordinary run never reads the variable.
             ' Applied here, before any window can start an update check; its
             ' line is traced once the diagnostic log is open, below.
+            '
+            ' Behind the same gate, and FIRST, the updater's own stores follow
+            ' the throwaway tree: its preferences (update-settings.json, saved
+            ' after every successful manifest fetch) and its install-hash cache.
+            ' The updater does not reference Radios, so it built both from the
+            ' system folders, and an isolated run whose fetch succeeded would
+            ' have written the operator's live settings folder. First, so a
+            ' failure here leaves the lever unapplied rather than pointing a run
+            ' at a manifest that succeeds while the stores still sit in the live
+            ' folders. Nothing reads or saves the updater's settings before
+            ' this: every caller is a window, a menu or the launch check, all
+            ' after start-up.
             Try
                 If Radios.LocalDataRoot.RunRelocatedByConfigDir Then
+                    _updaterStoresTraceLine = JJFlexUpdater.UpdaterStoreRoots.ApplyRelocatedRoots(
+                        Radios.RadioConfig.AppDataRoot, Radios.LocalDataRoot.Folder, True)
                     _testManifestTraceLine = JJFlexUpdater.UpdaterEndpoints.ApplyTestAppManifestUrl(
                         Environment.GetEnvironmentVariable(JJFlexUpdater.UpdaterEndpoints.TestAppManifestUrlVariable),
                         True)
@@ -380,6 +401,9 @@ Namespace My
             ' Note: MigrateConfigFiles runs inside InitializeApplication before openTheRadio
             ' so auto-connect can find renamed config files.
             InitializeApplication()
+            If _updaterStoresTraceLine IsNot Nothing Then
+                JJTrace.Tracing.TraceLine(_updaterStoresTraceLine, TraceLevel.Warning)
+            End If
             If _testManifestTraceLine IsNot Nothing Then
                 JJTrace.Tracing.TraceLine(_testManifestTraceLine, TraceLevel.Warning)
             End If

@@ -8,8 +8,10 @@ namespace JJFlexUpdater;
 /// User-facing updater preferences. Persisted to
 /// <c>%APPDATA%\JJFlexRadio\update-settings.json</c> so they survive between
 /// runs and an in-place delta swap (the file lives in user-writable space,
-/// not the install dir). The Updates settings tab reads + writes through
-/// this type; the orchestrator consults it on every check.
+/// not the install dir). A run isolated by <c>JJFLEX_CONFIG_DIR</c> keeps the
+/// file in its throwaway tree instead (<see cref="DefaultPath"/>). The
+/// Updates settings tab reads + writes through this type; the orchestrator
+/// consults it on every check.
 /// </summary>
 public sealed class UpdaterSettings
 {
@@ -82,10 +84,21 @@ public sealed class UpdaterSettings
         set => ChannelWire = value.ToWireString();
     }
 
-    public static string DefaultPath() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "JJFlexRadio",
-        DefaultFileName);
+    /// <summary>
+    /// Where the preferences live: <c>%APPDATA%\JJFlexRadio</c> on an ordinary
+    /// run, and the throwaway settings tree on a run that an accepted
+    /// <c>JJFLEX_CONFIG_DIR</c> moved (<see cref="UpdaterStoreRoots"/>), so an
+    /// isolated test run never reads or writes the operator's own file.
+    /// </summary>
+    public static string DefaultPath()
+    {
+        string? relocated = UpdaterStoreRoots.SettingsFolder;
+        if (relocated != null) return Path.Combine(relocated, DefaultFileName);
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "JJFlexRadio",
+            DefaultFileName);
+    }
 
     public static UpdaterSettings Load(string? path = null)
     {

@@ -29,11 +29,20 @@ public sealed class HashInventoryCache
         Load();
     }
 
+    /// <summary>
+    /// <c>%LOCALAPPDATA%\JJFlexRadio</c> on an ordinary run; the throwaway
+    /// tree's local data folder on a run an accepted <c>JJFLEX_CONFIG_DIR</c>
+    /// moved (<see cref="UpdaterStoreRoots"/>).
+    /// </summary>
     public static string DefaultCachePath()
-        => Path.Combine(
+    {
+        string? relocated = UpdaterStoreRoots.LocalFolder;
+        if (relocated != null) return Path.Combine(relocated, DefaultFileName);
+        return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "JJFlexRadio",
             DefaultFileName);
+    }
 
     public bool TryGet(string relPath, long sizeBytes, long mtimeTicks, out string sha256)
     {
