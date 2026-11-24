@@ -1160,6 +1160,9 @@ namespace Radios
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"setupRemote: BEGIN allowInteractive={allowInteractive} radiosAccount={radiosAccount?.Email ?? "none"}", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("setup_remote_begin");
+            // This pass's own answer (#1244): a cancel an earlier pass saw
+            // (the picker's refresh) must not keep this one's failures quiet.
+            SignInCancelledByOperator = false;
             bool rv = false;
             string jwt = null;
             // Declared up here, not where it is first assigned, because the
@@ -1217,7 +1220,12 @@ namespace Radios
 
             if (string.IsNullOrEmpty(jwt))
             {
-                Tracing.TraceLine($"setupRemote: no jwt obtained, aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                // #1244: a sign-in the operator cancelled abandons the connect;
+                // it files no failure, and the trace says which it was.
+                if (SignInCancelledByOperator)
+                    Tracing.TraceLine($"setupRemote: the operator cancelled the sign-in; abandoning, nothing filed ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                else
+                    Tracing.TraceLine($"setupRemote: no jwt obtained, aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 goto setupRemoteDone;
             }
 
@@ -1334,27 +1342,13 @@ namespace Radios
 
             // File the classified failure story so callers can speak the
             // reason itself. AuthFailed and ConnectFailed get different
-            // words because they need different action from the user.
-            if (connectResult == SmartLinkConnectResult.AuthFailed)
-            {
-                RecordConnectFailure(new ConnectFailureReport
-                {
-                    Class = ConnectFailureClass.AuthenticationFailed,
-                    SpokenSummary = "SmartLink did not accept the sign-in for "
-                        + (_currentAccount?.Email ?? "this account")
-                        + ". Signing in again from the SmartLink account manager is the fix.",
-                });
-            }
-            else if (connectResult == SmartLinkConnectResult.ConnectFailed)
-            {
-                RecordConnectFailure(new ConnectFailureReport
-                {
-                    Class = ConnectFailureClass.SessionSetupFailed,
-                    SpokenSummary = "Could not reach the SmartLink server, or it stopped answering. "
-                        + "Your sign-in is fine — this is a network or server problem. "
-                        + "Check your internet connection and try again in a moment.",
-                });
-            }
+            // words because they need different action from the user. A
+            // re-login the operator cancelled files nothing (#1244): "did
+            // not accept the sign-in" would follow "Login cancelled".
+            if (connectResult == SmartLinkConnectResult.AuthFailed && SignInCancelledByOperator)
+                Tracing.TraceLine($"setupRemote: the operator cancelled the re-login after AuthFailed; abandoning, nothing filed ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            var setupFailure = SetupRemoteFailureReport(connectResult, SignInCancelledByOperator, _currentAccount?.Email);
+            if (setupFailure != null) RecordConnectFailure(setupFailure);
 
             setupRemoteDone:
             // #798: the account signed in and its list came back empty. Every
@@ -1468,6 +1462,136 @@ namespace Radios
         }
 
         /// <summary>
+        /// True when the last SmartLink sign-in on this rig ended because the
+        /// OPERATOR closed a sign-in window (#1244): JJ Flexible's own form by
+        /// Cancel, Escape or closing it, or the browser page by Escape or a
+        /// close. "Login cancelled" has been said, and nothing after it may
+        /// claim a failure: the connect is abandoned, not failed.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Never set by an error.</b> A failure on the form's thread,
+        /// an error box, a failed token exchange, a sign-in SmartLink refused
+        /// and a null token all leave it false, so their failure words stand.
+        /// The one decision is <see cref="SmartLinkSignInCancel.ShouldSay"/>.</para>
+        /// <para>Cleared where each sign-in starts, where each SmartLink pass
+        /// (<see cref="setupRemote"/>) starts, and where each connect attempt
+        /// starts (<see cref="Connect"/>, <see cref="ReconnectRemote"/>,
+        /// <see cref="TryAutoConnect"/>), with the attempt's failure report, so
+        /// a cancel in the picker's refresh never stands for a later connect.
+        /// A silent token fetch never touches it. Set whether or not speech is
+        /// suppressed.</para>
+        /// </remarks>
+        public bool SignInCancelledByOperator { get; private set; }
+
+        /// <summary>
+        /// For a windowless test: stands in for the two sign-in windows, which
+        /// are never built while it is set, and says how they closed without a
+        /// token. Null in the product. A sign-in that SIGNS IN is not offered.
+        /// </summary>
+        internal Func<SmartLinkAccount, (DialogResult native, DialogResult? browser, bool browserClosedByOperator)> SignInWindowsForTest;
+
+        /// <summary>
+        /// Every way <see cref="PerformNewLogin"/> ends without a token comes
+        /// here (#1244): decides whether the operator cancelled, records it in
+        /// <see cref="SignInCancelledByOperator"/>, traces it, and on a cancel
+        /// says "Login cancelled" once. Returns null, the token it did not get.
+        /// </summary>
+        internal string SignInEndedWithoutAToken(DialogResult nativeResult, DialogResult? browserResult, bool browserClosedByOperator)
+        {
+            bool cancelled = SmartLinkSignInCancel.ShouldSay(nativeResult, browserResult, browserClosedByOperator);
+            SignInCancelledByOperator = cancelled;
+            Tracing.TraceLine(cancelled
+                    ? $"PerformNewLogin: sign-in cancelled by the operator (native {nativeResult}, browser {browserResult?.ToString() ?? "not shown"}); the connect is abandoned, not failed"
+                    : $"PerformNewLogin: sign-in ended without a token, not by the operator (native {nativeResult}, browser {browserResult?.ToString() ?? "not shown"})",
+                TraceLevel.Info);
+            if (cancelled && !SuppressSpeech) SmartLinkSignInCancel.Say();
+            return null;
+        }
+
+        /// <summary>
+        /// The classified failure <see cref="setupRemote"/> files for the
+        /// SmartLink server's answer, or null when it files none (#1244: a
+        /// sign-in the operator cancelled files nothing, even after SmartLink
+        /// refused the silent one; the cancel is the story, and "Login
+        /// cancelled" has told it). Pure, so it is tested without a session.
+        /// </summary>
+        internal static ConnectFailureReport SetupRemoteFailureReport(SmartLinkConnectResult? result, bool signInCancelled, string accountEmail)
+        {
+            if (signInCancelled) return null;
+            if (result == SmartLinkConnectResult.AuthFailed)
+            {
+                return new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.AuthenticationFailed,
+                    SpokenSummary = "SmartLink did not accept the sign-in for "
+                        + (accountEmail ?? "this account")
+                        + ". Signing in again from the SmartLink account manager is the fix.",
+                };
+            }
+            if (result == SmartLinkConnectResult.ConnectFailed)
+            {
+                return new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.SessionSetupFailed,
+                    SpokenSummary = "Could not reach the SmartLink server, or it stopped answering. "
+                        + "Your sign-in is fine — this is a network or server problem. "
+                        + "Check your internet connection and try again in a moment.",
+                };
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The report <see cref="ReconnectRemote"/> files when the SmartLink
+        /// preparation failed and nothing under it filed one, or null: a caller
+        /// must always find SOMETHING after a failure, but a sign-in the
+        /// operator cancelled is not a failure and gets nothing (#1244). Pure.
+        /// </summary>
+        internal static ConnectFailureReport PreparationFallbackReport(ConnectFailureReport alreadyFiled, bool signInCancelled)
+        {
+            if (signInCancelled || alreadyFiled != null) return null;
+            return new ConnectFailureReport
+            {
+                Class = ConnectFailureClass.SessionSetupFailed,
+                SpokenSummary = "Could not sign in to SmartLink or reach its server, so the radio was never contacted.",
+            };
+        }
+
+        /// <summary>
+        /// What <see cref="TryAutoConnect"/> does once its SmartLink leg has
+        /// failed (#1244). A sign-in the operator cancelled STOPS the walk,
+        /// saying nothing more: no "could not reach" and no next leg, so no
+        /// final verdict either. Otherwise the walk goes on as it always has,
+        /// saying "could not reach" only when another leg follows and the
+        /// operator has not cancelled the connect. Pure.
+        /// </summary>
+        internal static (bool stop, bool sayUnreachable) AutoConnectAfterSmartLinkLegFailed(
+            bool signInCancelled, bool cancelRequested, bool lastLeg)
+            => signInCancelled ? (true, false) : (false, !lastLeg && !cancelRequested);
+
+        /// <summary>
+        /// A registration command that got no token (#1244): Skipped when the
+        /// operator cancelled the sign-in, so Radio Setup adds nothing after
+        /// "Login cancelled" (nothing broke, and "see the trace file" would send
+        /// them hunting); Failed for every other way there was no token. Pure.
+        /// </summary>
+        internal static GuardedOutcome RegistrationWithoutAToken(bool signInCancelled)
+            => signInCancelled ? GuardedOutcome.Skipped : GuardedOutcome.Failed;
+
+        /// <summary>
+        /// <see cref="ReconnectRemote"/>'s answer to a failed SmartLink
+        /// preparation: the fallback report when one is owed, and on an
+        /// operator's cancel nothing but the trace (#1244).
+        /// </summary>
+        internal void FileReportForFailedPreparation()
+        {
+            if (SignInCancelledByOperator)
+                Tracing.TraceLine("ReconnectRemote: the operator cancelled the SmartLink sign-in; the radio was never contacted, and no failure is filed", TraceLevel.Info);
+            var fallback = PreparationFallbackReport(LastConnectFailureReport, SignInCancelledByOperator);
+            if (fallback != null) RecordConnectFailure(fallback);
+        }
+
+        /// <summary>
         /// Performs a new login via WebView2 and optionally saves the account.
         /// </summary>
         /// <param name="forceNewLogin">When true, forces Auth0 to show the login page
@@ -1499,6 +1623,14 @@ namespace Radios
             // renew id_tokens later. The browser form below survives as the
             // fallback: "Use Browser Instead", or automatically for accounts
             // that require two-factor sign-in.
+            // Each sign-in decides its own cancel (#1244): one the operator
+            // cancelled before must not stand for this one.
+            SignInCancelledByOperator = false;
+            if (SignInWindowsForTest != null)
+            {
+                var ended = SignInWindowsForTest(expectedAccount);
+                return SignInEndedWithoutAToken(ended.native, ended.browser, ended.browserClosedByOperator);
+            }
             var native = ShowNativeLoginDialog(expectedAccount, forceNewLogin);
             if (native.result == DialogResult.OK)
             {
@@ -1510,11 +1642,9 @@ namespace Radios
             {
                 Tracing.TraceLine($"PerformNewLogin: native sign-in ended without signing in ({native.result})", TraceLevel.Info);
                 RestoreParentFocus();
-                // #1244: the operator's own Cancel or Escape says so; a
-                // failure on the dialog's thread (Abort) does not.
-                if (!SuppressSpeech && SmartLinkSignInCancel.ShouldSay(native.result, null, false))
-                    SmartLinkSignInCancel.Say();
-                return null;
+                // #1244: the operator's own Cancel or Escape is a cancel; a
+                // failure on the dialog's thread (Abort) is not.
+                return SignInEndedWithoutAToken(native.result, null, false);
             }
             Tracing.TraceLine("PerformNewLogin: falling back to browser sign-in", TraceLevel.Info);
 
@@ -1572,11 +1702,9 @@ namespace Radios
                     bool operatorClosed = form.ClosedByOperator;
                     Tracing.TraceLine($"setupRemote: auth form cancelled or failed (closed by the operator: {operatorClosed})", TraceLevel.Info);
                     RestoreParentFocus();
-                    // #1244: only a close the operator made says so, never an
-                    // error box's or a failed exchange's.
-                    if (!SuppressSpeech && SmartLinkSignInCancel.ShouldSay(DialogResult.Retry, dialogResult, operatorClosed))
-                        SmartLinkSignInCancel.Say();
-                    return null;
+                    // #1244: only a close the operator made is a cancel, never
+                    // an error box's or a failed exchange's.
+                    return SignInEndedWithoutAToken(DialogResult.Retry, dialogResult, operatorClosed);
                 }
 
                 // Restore focus to the main app window after auth form closes.
@@ -1861,9 +1989,13 @@ namespace Radios
                 bool differentAccount =
                     _currentAccount != null
                     && !string.Equals(_currentAccount.Email, account.Email, StringComparison.OrdinalIgnoreCase);
-                return allowInteractiveLogin
-                    ? PerformNewLogin(account, forceNewLogin: differentAccount)
-                    : null;
+                if (!allowInteractiveLogin) return null;
+                string signedIn = PerformNewLogin(account, forceNewLogin: differentAccount);
+                // #1244: the caller reads the cancel from the rig; say here
+                // which account's recovery the operator turned down.
+                if (string.IsNullOrEmpty(signedIn) && SignInCancelledByOperator)
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: the operator cancelled the sign-in for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                return signedIn;
             }
 
             // LastUsed means "the operator deliberately used this account" —

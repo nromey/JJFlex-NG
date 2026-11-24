@@ -996,7 +996,11 @@ namespace Radios.Tests
             int announce = legs.IndexOf("Lexicon.Get(\"connect.auto.leg_failed\"", failed, StringComparison.Ordinal);
             Assert.True(afterFailed > failed && afterFailed < announce, "a cancelled leg must not be followed by 'Trying'");
             // Every sentence that names a next path is withheld after a cancel.
-            Assert.Contains("if (!lastLeg && !SuppressSpeech && !_cancelRequested)", legs);
+            // After a failed SmartLink leg the rule is FlexBase's
+            // AutoConnectAfterSmartLinkLegFailed (#1244), which is handed the
+            // cancel and is tested on its own in SmartLinkSignInCancelTests.
+            Assert.Contains("AutoConnectAfterSmartLinkLegFailed(SignInCancelledByOperator, _cancelRequested, lastLeg)", legs);
+            Assert.Contains("if (afterLeg.sayUnreachable && !SuppressSpeech)", legs);
             Assert.Contains("if (!SuppressSpeech && !_cancelRequested)", legs);
 
             string connect = Body(flexBase, "public bool Connect(string serial, bool lowBW", "public bool TryAutoConnect(");

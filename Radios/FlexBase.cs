@@ -2666,8 +2666,10 @@ namespace Radios
             _connectedLowBW = lowBW;
 
             // Fresh attempt, fresh story — a stale failure report from a
-            // previous attempt must never narrate this one.
+            // previous attempt must never narrate this one. Nor a sign-in
+            // cancel an earlier pass saw (#1244).
             LastConnectFailureReport = null;
+            SignInCancelledByOperator = false;
 
             // Fresh connection, fresh client identity: the previous session's
             // local-PTT observation must not vouch for this one.
@@ -3131,6 +3133,8 @@ namespace Radios
             }
 
             Tracing.TraceLine($"TryAutoConnect: BEGIN {config.RadioName} ({config.RadioSerial}), remote={config.IsRemote}, timeout={timeoutMs}ms", TraceLevel.Info);
+            // This attempt's own answer (#1244).
+            SignInCancelledByOperator = false;
             if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.connecting", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
             // AS prosign (wait / standing by) at connect-start — CW-flavored signal that we're
             // mid-handshake. Pair with BT which fires at connect-ready (MainWindow.PowerOn).
@@ -3190,7 +3194,16 @@ namespace Radios
                         if (!TryAutoConnectRemote(config, timeoutMs, quietFailures: !lastLeg))
                         {
                             Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink session FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                            if (!lastLeg && !SuppressSpeech && !_cancelRequested)
+                            // #1244: a sign-in the operator cancelled ends the
+                            // walk here, with no "could not reach" and no
+                            // final verdict; "Login cancelled" has been said.
+                            var afterLeg = AutoConnectAfterSmartLinkLegFailed(SignInCancelledByOperator, _cancelRequested, lastLeg);
+                            if (afterLeg.stop)
+                            {
+                                Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink sign-in cancelled by the operator; not walking on, no failure said ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                                return false;
+                            }
+                            if (afterLeg.sayUnreachable && !SuppressSpeech)
                                 ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.smartlink_unreachable", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
                             continue;
                         }
@@ -3374,6 +3387,8 @@ namespace Radios
                 // This attempt's report, not an earlier pass's: the picker's
                 // own remote pass runs setupRemote on this same instance, and
                 // a report it left must not stand in for this connect (#798).
+                // Nor a sign-in cancel it saw (#1244).
+                SignInCancelledByOperator = false;
                 LastConnectFailureReport = null;
                 // The #798 plan decides EVERY SmartLink connect (Codex F2 on the
                 // 2026-11-06 integration pass). The fast path used to skip it
@@ -3401,15 +3416,11 @@ namespace Radios
                     // vs a radio no account lists). Only file a generic one
                     // if neither did — a caller must always find SOMETHING
                     // here. Since #798 this means a sign-in that produced no
-                    // token, or a cancelled account choice.
-                    if (LastConnectFailureReport == null)
-                    {
-                        RecordConnectFailure(new ConnectFailureReport
-                        {
-                            Class = ConnectFailureClass.SessionSetupFailed,
-                            SpokenSummary = "Could not sign in to SmartLink or reach its server, so the radio was never contacted.",
-                        });
-                    }
+                    // token, or a cancelled account choice. Never after a
+                    // sign-in the operator cancelled (#1244): that connect
+                    // was abandoned, not failed, and SignInCancelledByOperator
+                    // says so to the caller.
+                    FileReportForFailedPreparation();
                     return false;
                 }
 
@@ -3654,7 +3665,10 @@ namespace Radios
                 Tracing.TraceLine($"TryAutoConnectRemote: PerformNewLogin returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 if (string.IsNullOrEmpty(jwt))
                 {
-                    Tracing.TraceLine($"TryAutoConnectRemote: re-login failed, aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    if (SignInCancelledByOperator)
+                        Tracing.TraceLine($"TryAutoConnectRemote: the operator cancelled the re-login; abandoning ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    else
+                        Tracing.TraceLine($"TryAutoConnectRemote: re-login failed, aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     return false;
                 }
             }
