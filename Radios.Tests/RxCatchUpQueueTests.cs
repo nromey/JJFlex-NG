@@ -25,7 +25,7 @@ namespace Radios.Tests
         /// <summary>One receive stream: a real queue, the real playback queue, the real render.</summary>
         private sealed class Stream
         {
-            public readonly Queue Q = new Queue();
+            public readonly RxBufferQueue Q = new RxBufferQueue();
             public readonly RxPlaybackQueue Playback;
             public readonly List<float> Out = new();
             public readonly List<string> Lines = new();
@@ -417,7 +417,7 @@ namespace Radios.Tests
                 try
                 {
                     var p = new RxPlaybackQueue("probe", 10, 10, 48000, 60, RxCatchUpMode.On);
-                    var q = new Queue(); float[] b = Array.Empty<float>(); uint off = 0; var output = new float[9600]; long n = 0;
+                    var q = new RxBufferQueue(); float[] b = Array.Empty<float>(); uint off = 0; var output = new float[9600]; long n = 0;
                     void Arrive(int packets)
                     {
                         for (int j = 0; j < packets; j++)
@@ -464,7 +464,7 @@ namespace Radios.Tests
             {
                 var p = new RxPlaybackQueue("probe", 10, 10, 48000, 60, RxCatchUpMode.On);
                 if (!fades) p.ShifterForTest.OverflowFades = false;   // the control; the faded run is the shipped default
-                var q = new Queue(); float[] b = Array.Empty<float>(); uint off = 0; var output = new float[9600]; long n = 0;
+                var q = new RxBufferQueue(); float[] b = Array.Empty<float>(); uint off = 0; var output = new float[9600]; long n = 0;
                 const RxContentClass digital = RxContentClass.Classified | RxContentClass.NoSplice;
                 void Arrive(int packets)
                 {
@@ -513,7 +513,7 @@ namespace Radios.Tests
             {
                 var p = new RxPlaybackQueue("probe", 10, 10, 48000, 60, RxCatchUpMode.On);
                 if (!fades) p.ShifterForTest.OverflowFades = false;
-                var q = new Queue(); float[] b = Array.Empty<float>(); uint off = 0; var y = new float[9600]; long frame = 0, change = long.MaxValue;
+                var q = new RxBufferQueue(); float[] b = Array.Empty<float>(); uint off = 0; var y = new float[9600]; long frame = 0, change = long.MaxValue;
                 const RxContentClass cls = RxContentClass.Classified | RxContentClass.NoSplice;
                 void Arrive(int packets)
                 {

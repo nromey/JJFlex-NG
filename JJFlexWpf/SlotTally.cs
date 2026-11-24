@@ -159,9 +159,19 @@ namespace JJFlexWpf
 
         private readonly DenoiseFamily _family;
         private readonly long _periodTicks, _debounceTicks, _ticksPerSecond;
-        private readonly SlotTallyReport[] _ring = new SlotTallyReport[Capacity];
-        private long _head, _tail, _dropped;
+        // The shared helper's ring (Track RT, #1232), the same shape as before:
+        // one writer, readers serialised by _readLock. A report that finds it
+        // full is dropped and counted here, and the count rides on the next
+        // report that fits, as it always did.
+        private readonly JJTrace.RecordRing<SlotTallyReport> _ring = new(Capacity);
+        private long _dropped;
         private readonly object _readLock = new();
+
+        /// <summary>Tests only: the ring's own array, to prove it is not a large object.</summary>
+        internal object StorageForTest => _ring.Storage;
+
+        /// <summary>True when a report is waiting to be taken. Any thread.</summary>
+        public bool Pending => _ring.Pending;
 
         private Acc _period, _session;
         private bool _open;
@@ -253,11 +263,8 @@ namespace JJFlexWpf
         {
             lock (_readLock)
             {
-                long tail = _tail;
-                if (tail == Volatile.Read(ref _head)) { report = default; return false; }
-                report = _ring[tail % Capacity];
-                Volatile.Write(ref _tail, tail + 1);
-                return true;
+                _ring.TakePending();
+                return _ring.TryTake(out report);
             }
         }
 
@@ -285,8 +292,7 @@ namespace JJFlexWpf
 
         private bool Publish(in SlotTallyReport report)
         {
-            long head = _head;
-            if (head - Volatile.Read(ref _tail) >= Capacity) { _dropped++; return false; }
+            if (_ring.Count >= Capacity) { _dropped++; return false; }
             var r = report;
             if (_dropped > 0)
             {
@@ -294,9 +300,9 @@ namespace JJFlexWpf
                     r.AverageMsPer10, r.WorstSecondMsPer10, r.Seconds, r.PeriodSeconds, r.Periods, _dropped, r.PartSecondMsPer10);
                 _dropped = 0;
             }
-            _ring[head % Capacity] = r;
-            Volatile.Write(ref _head, head + 1);
-            return true;
+            // The count above is the writer's own reading of a ring only it
+            // fills, so this always fits.
+            return _ring.TryRecord(in r);
         }
 
         /// <summary>

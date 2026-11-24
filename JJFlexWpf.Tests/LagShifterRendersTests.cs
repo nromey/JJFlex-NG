@@ -124,7 +124,7 @@ public sealed class LagShifterRendersTests
 
     private static float[] Queue(float[] signal, string evt, RxCatchUpMode mode, bool playAtOnce = true)
     {
-        var q = new Queue();
+        var q = new RxBufferQueue();
         var pb = new RxPlaybackQueue("receive", Bpc, 10.0, Rate, 60, mode) { PlayAtOnce = playAtOnce };
         var output = new List<float>();
         var outBuf = new float[F * Bpc * 2];

@@ -406,10 +406,12 @@ namespace Radios.Tests
                 Assert.Equal(0, Volatile.Read(ref listener.Calls));
                 Assert.True(sw.ElapsedMilliseconds < 50, $"the callback took {sw.Elapsed.TotalMilliseconds:F1} ms");
 
-                // Positive control: the feeding side hands the line to the pool,
-                // and it really goes through the slow listener, on another thread.
+                // Positive control: the off-audio writer (Track RT: a writer of
+                // this test's own, on its own thread, not the pool) writes the
+                // line, and it really goes through the slow listener, on another thread.
                 Assert.True(q.LinesPending);
-                q.RequestLineDrain();
+                using var writer = new OffAudioDrainer(10, "rxtiming writer");
+                writer.Register(new QueueLines(q));
                 var wait = Stopwatch.StartNew();
                 while (Volatile.Read(ref listener.Calls) == 0 && wait.ElapsedMilliseconds < 3000) System.Threading.Thread.Sleep(10);
                 Assert.Equal(1, Volatile.Read(ref listener.Calls));
@@ -421,6 +423,15 @@ namespace Radios.Tests
                 Trace.Listeners.Remove(listener);
                 Tracing.On = saved.On; Tracing.TheSwitch = saved.Switch;
             }
+        }
+
+        /// <summary>The playback queue's lines as an off-audio work, as the stream's own work drains them (Audio.StreamLines).</summary>
+        private sealed class QueueLines : OffAudioWork
+        {
+            private readonly RxPlaybackQueue _q;
+            public QueueLines(RxPlaybackQueue q) { _q = q; }
+            public override bool Pending => base.Pending || _q.LinesPending;
+            protected override void DrainCore() => _q.DrainLines();
         }
 
         [Fact]

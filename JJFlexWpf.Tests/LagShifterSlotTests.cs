@@ -570,9 +570,12 @@ public sealed class LagShifterSlotTests
 
     /// <summary>
     /// The slot's trace lines follow Track T's record-and-drain (Codex's re-check of
-    /// 5a0a8c93): the buffer in which a turn-off happens only records it; the next
-    /// buffer asks for the ring to be written, and a pool thread writes the lines in
-    /// order (the turn-off, then the dry line's drain when it ends). Nothing is lost.
+    /// 5a0a8c93): the buffer in which a turn-off happens only records it, and the
+    /// off-audio writer writes the lines in order (the turn-off, then the dry line's
+    /// drain when it ends). Nothing is lost. Track RT (#1232): the writer is the
+    /// slot's scheduler, here a manual one, so "not before" is exact: nothing is
+    /// written until it ticks, and a tick writes what was recorded, with no
+    /// further buffer.
     /// </summary>
     [Fact]
     public void Trace_lines_are_recorded_by_the_buffer_and_written_after_it_in_order()
@@ -580,7 +583,8 @@ public sealed class LagShifterSlotTests
         NoiseReductionPerChannelTests.AssertWindowless();
         DenoiseEngineEntry Row() => new("rnnoise", DenoiseSide.Pc, DenoiseFamily.Neural, "label", new[] { DenoiseDirection.Receive },
             (_, _) => new AlignedSwitchTests.DelayGainEngine("rnnoise", 480, 1), () => Unavailability.None);
-        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "rnnoise", 48000, 2, new DenoiseEngineCatalog(new[] { Row() }));
+        var writer = new JJTrace.ManualOffAudioScheduler();
+        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "rnnoise", 48000, 2, new DenoiseEngineCatalog(new[] { Row() }), scheduler: writer);
         var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
         try
         {
@@ -592,21 +596,22 @@ public sealed class LagShifterSlotTests
             var rng = new Random(8);
             void Next() { for (int i = 0; i < F; i++) x[2 * i] = x[2 * i + 1] = (float)(rng.NextDouble() - 0.5) * 0.2f; slot.Process(x, true, true, false, null, RxContentClass.Classified | RxContentClass.NotVoiceRun); }
             for (int b = 0; b < 40; b++) Next();
+            writer.Tick();
+            Assert.Empty(lines);
             slot.Enabled = false;
             Next();                                   // the turn-off: recorded only
             Assert.True(slot.TracePendingForTest, "the turn-off was not recorded");
-            System.Threading.Thread.Sleep(100);
-            Assert.Empty(lines);                      // nothing was handed to a writer from its own buffer
+            Assert.Empty(lines);                      // nothing was written from its own buffer
             for (int b = 0; b < 200 && slot.TurningForTest; b++) Next();
-            Next();                                   // asks for the drain's line too
-            var wait = System.Diagnostics.Stopwatch.StartNew();
-            while (lines.Count < 2 && wait.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(5);
+            Assert.Empty(lines);                      // nor by any later buffer: buffers never write
+            writer.Tick();                            // the writer's period: both, with no further buffer
             var got = lines.ToArray();
             _out.WriteLine(string.Join(" | ", got));
             Assert.Equal(2, got.Length);
             Assert.Contains("turned off", got[0]);
             Assert.Contains("TurnOff", got[1]);
             Assert.DoesNotContain(got, l => l.Contains("lost"));
+            Assert.False(slot.TracePendingForTest);
         }
         finally { slot.CloseAdmission(); slot.DisposeOwned(); }
     }
@@ -614,16 +619,20 @@ public sealed class LagShifterSlotTests
     /// <summary>
     /// Codex's re-check 2 of 0d8ecb3c (trace-pending): with the writer held, every new
     /// line queued another drain, 64 redundant work items, and with the pool held to one
-    /// worker a Process call allocated 1,280 bytes for the queue. Now one drain is queued
-    /// and held from then until it finishes: 128 lines with a Process call after each
-    /// queue nothing more, and no call allocates. When the writer is released the
-    /// lines are written in order without any further buffer, and the loss is counted.
+    /// worker a Process call allocated 1,280 bytes for the queue. Track RT (#1232): the
+    /// audio path queues nothing at all; the off-audio writer (a writer of this test's
+    /// own, on its own thread, so the shared one is never held) runs one drain, held
+    /// while the writer is blocked. 128 lines with a Process call after each start no
+    /// other drain and allocate nothing. When the writer is released the lines are
+    /// written in order without any further buffer, by that same drain looking again,
+    /// and the loss is counted.
     /// </summary>
     [Fact]
     public void A_blocked_trace_writer_gets_one_drain_and_nothing_queues_behind_it()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
-        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "", 48000, 2, new DenoiseEngineCatalog(Array.Empty<DenoiseEngineEntry>()));
+        using var writer = new JJTrace.OffAudioDrainer(5, "lag-shifter slot test writer");
+        var slot = new PcDenoiseSlot(DenoiseFamily.Neural, "", 48000, 2, new DenoiseEngineCatalog(Array.Empty<DenoiseEngineEntry>()), scheduler: writer);
         using var entered = new System.Threading.ManualResetEventSlim(false);
         using var release = new System.Threading.ManualResetEventSlim(false);
         var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
@@ -632,11 +641,13 @@ public sealed class LagShifterSlotTests
             slot.TraceObserverForTest = l => { lines.Enqueue(l); entered.Set(); release.Wait(TimeSpan.FromSeconds(20)); };
             var audio = new float[2 * F];
             for (int i = 0; i < 32; i++) slot.Process(audio, true, true, false, null);
-            Assert.Equal(0, slot.TraceDrainsQueuedForTest);          // nothing recorded, nothing queued
+            System.Threading.Thread.Sleep(30);
+            Assert.Equal(0, slot.TraceWorkForTest.Drains);          // nothing recorded, nothing drained
             slot.TraceForTest(0);
             slot.Process(audio, true, true, false, null);
             Assert.True(entered.Wait(5000), "the writer never started");
-            Assert.Equal(1, slot.TraceDrainsQueuedForTest);
+            Assert.Equal(1, slot.TraceWorkForTest.Drains);
+            Assert.NotEqual(Environment.CurrentManagedThreadId, slot.TraceWorkForTest.LastDrainThread);
             var bytes = new long[128];
             for (int i = 0; i < 128; i++)
             {
@@ -645,14 +656,15 @@ public sealed class LagShifterSlotTests
                 slot.Process(audio, true, true, false, null);
                 bytes[i] = GC.GetAllocatedBytesForCurrentThread() - before;
             }
-            Assert.Equal(1, slot.TraceDrainsQueuedForTest);          // still the one, held
+            Assert.Equal(1, slot.TraceWorkForTest.Drains);          // still the one, held
             Assert.All(bytes, b => Assert.Equal(0, b));
             release.Set();
             var wait = System.Diagnostics.Stopwatch.StartNew();
             while (lines.Count < 66 && wait.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(5);
+            System.Threading.Thread.Sleep(30);
             var got = lines.ToArray();
-            _out.WriteLine($"{got.Length} lines; drains queued {slot.TraceDrainsQueuedForTest}; {got.Count(l => l.Contains("lost"))} loss line(s)");
-            Assert.Equal(1, slot.TraceDrainsQueuedForTest);          // the held drain wrote the rest itself
+            _out.WriteLine($"{got.Length} lines; drains {slot.TraceWorkForTest.Drains}; {got.Count(l => l.Contains("lost"))} loss line(s)");
+            Assert.Equal(1, slot.TraceWorkForTest.Drains);          // the held drain wrote the rest itself
             Assert.Equal(66, got.Length);                            // the first, the loss line, and the 64 the ring kept
             Assert.Contains("64 trace line(s) lost", got[1]);
             var delays = got.Skip(2).Select(l => int.Parse(System.Text.RegularExpressions.Regex.Match(l, @"at (\d+) samples").Groups[1].Value)).ToArray();

@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
+using JJTrace;
 
 namespace JJFlexWpf
 {
@@ -80,6 +82,15 @@ namespace JJFlexWpf
         /// <param name="engineFactory">Called once per channel. Every instance must report the same frame length.</param>
         /// <param name="channels">Interleaved channel count, at least 1.</param>
         public PerChannelDenoiserBank(Func<IDenoiseEngine> engineFactory, int channels)
+            : this(engineFactory, channels, null) { }
+
+        /// <param name="engineFactory">Called once per channel. Every instance must report the same frame length.</param>
+        /// <param name="channels">Interleaved channel count, at least 1.</param>
+        /// <param name="scheduler">
+        /// Where this bank's two trace lines are written from (Track RT,
+        /// #1232): the shared off-audio writer when null. A slot passes its own.
+        /// </param>
+        public PerChannelDenoiserBank(Func<IDenoiseEngine> engineFactory, int channels, IOffAudioScheduler? scheduler)
         {
             if (engineFactory == null) throw new ArgumentNullException(nameof(engineFactory));
             if (channels < 1) throw new ArgumentOutOfRangeException(nameof(channels));
@@ -121,7 +132,78 @@ namespace JJFlexWpf
                 _wet[c] = new float[FrameLength * 2];
                 _dry[c] = new float[FrameLength * 2];
             }
+            _lines = new BankLines(this);
+            _scheduler = scheduler ?? OffAudioDrainer.Shared;
+            _scheduler.Register(_lines);
         }
+
+        // ── This bank's trace lines, recorded on the audio thread and written off it (Track RT, #1232) ──
+        //
+        // Process runs on the receive loop (inside RxAudioPipeline.Process) or on
+        // the transmit capture's callback, so it traces nothing itself: a
+        // channel's first failure and a delay change are copied into a ring and
+        // written by the off-audio writer, in the same words as before.
+
+        private enum LineKind : byte { Failed, DelayChanged }
+
+        private struct LineRecord
+        {
+            public LineKind Kind;
+            public int Channel, Before, After;
+            public string EngineId;
+            public Exception? Failure;   // null with Failed: "not available"
+        }
+
+        private readonly RecordRing<LineRecord> _ring = new(16);
+        private readonly BankLines _lines;
+        private readonly IOffAudioScheduler _scheduler;
+
+        /// <summary>Tests only: this bank's off-audio work.</summary>
+        internal OffAudioWork LinesForTest => _lines;
+
+        private sealed class BankLines : OffAudioWork
+        {
+            private readonly PerChannelDenoiserBank _bank;
+            public BankLines(PerChannelDenoiserBank bank) => _bank = bank;
+            public override bool Pending => base.Pending || _bank._ring.Pending;
+            protected override void DrainCore() => _bank.WriteLines();
+        }
+
+        private void WriteLines()
+        {
+            _ring.TakePending();
+            long lost = _ring.TakeLost();
+            if (lost > 0) Trace.WriteLine($"PerChannelDenoiserBank: {lost} trace line(s) lost: the ring filled before they were written.");
+            for (int n = _ring.Count; n > 0 && _ring.TryTake(out var r); n--)
+            {
+                if (r.Kind == LineKind.DelayChanged)
+                    Trace.WriteLine($"PerChannelDenoiserBank: channel {r.Channel} delay changed from {r.Before} to {r.After} samples.");
+                else
+                {
+                    string failure = r.Failure == null ? "not available" : r.Failure.GetType().Name + ": " + r.Failure.Message;
+                    Trace.WriteLine($"PerChannelDenoiserBank: {r.EngineId} on channel {r.Channel} failed ({failure}); " +
+                                    "passing that channel through unprocessed until it recovers.");
+                }
+            }
+        }
+
+        private void RecordLine(in LineRecord r)
+        {
+            _ring.TryRecord(in r);
+            _lines.Signal();
+        }
+
+        // ── Retirement, for the slot (Track RT, #1232) ──
+        //
+        // A slot hands a bank it no longer runs to the off-audio writer to
+        // dispose, never disposing it on the audio thread. The hand-over is an
+        // intrusive stack through this field, so it allocates nothing and can
+        // never be full: no bank is lost or kept waiting for room.
+        internal PerChannelDenoiserBank? RetiredNext;
+        private int _retireClaimed;
+
+        /// <summary>True the first time only: a bank is handed over for disposal once, however many paths retire it.</summary>
+        internal bool ClaimRetirement() => Interlocked.Exchange(ref _retireClaimed, 1) == 0;
 
         /// <summary>
         /// When true, <see cref="Process"/> writes what the engine REMOVED —
@@ -424,6 +506,9 @@ namespace JJFlexWpf
         public void Dispose()
         {
             foreach (var e in _engines) e.Dispose();
+            // Its last lines written, and it is no longer drained (Track RT).
+            _lines.Drain();
+            _scheduler.Unregister(_lines);
         }
 
         /// <summary>
@@ -454,7 +539,7 @@ namespace JJFlexWpf
         /// </summary>
         private bool RunEngine(int ch, IDenoiseEngine engine, float[] input, Span<float> output)
         {
-            string? failure = null;
+            Exception? failure = null;
             if (engine.IsAvailable)
             {
                 try
@@ -467,20 +552,16 @@ namespace JJFlexWpf
                 }
                 catch (Exception ex)
                 {
-                    failure = ex.GetType().Name + ": " + ex.Message;
+                    failure = ex;
                 }
-            }
-            else
-            {
-                failure = "not available";
             }
 
             FallbackFrames++;
             if (!_failing[ch])
             {
                 _failing[ch] = true;
-                Trace.WriteLine($"PerChannelDenoiserBank: {engine.Id} on channel {ch} failed ({failure}); " +
-                                "passing that channel through unprocessed until it recovers.");
+                // Recorded; written off the audio thread in the same words (Track RT).
+                RecordLine(new LineRecord { Kind = LineKind.Failed, Channel = ch, EngineId = engine.Id, Failure = failure });
             }
             return false;
         }
@@ -492,9 +573,12 @@ namespace JJFlexWpf
             int before = _delay[channel].Length;
             // A deliberate latency change starts zeroed, like a new engine.
             // ClearCarry zeroes it too, since #1169.
+            // Track RT: this allocation is still on the audio thread when a
+            // running engine changes its delay (reported, not fixed here); the
+            // line is recorded and written off it.
             _delay[channel] = new float[samples];
             _delayAt[channel] = 0;
-            Trace.WriteLine($"PerChannelDenoiserBank: channel {channel} delay changed from {before} to {samples} samples.");
+            RecordLine(new LineRecord { Kind = LineKind.DelayChanged, Channel = channel, Before = before, After = samples });
         }
 
         private void DelayFrame(int channel, float[] input, Span<float> output)

@@ -19,6 +19,8 @@
   <ItemGroup>
     <Compile Include="DebugMonitorProbe.cs" />
     <Compile Include="ErrMessageTrace.cs" />
+    <Compile Include="OffAudioDrainer.cs" />
+    <Compile Include="OffAudioRecords.cs" />
     <Compile Include="RotatingTraceListener.cs" />
     <Compile Include="SessionArchive.cs" />
     <Compile Include="SessionLifecycle.cs" />

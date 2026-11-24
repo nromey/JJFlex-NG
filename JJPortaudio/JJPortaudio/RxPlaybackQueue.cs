@@ -323,7 +323,7 @@ namespace JJPortaudio
         /// path for what is heard and the shifter beside it, unheard, tracing
         /// what it would have done. Allocation-free.
         /// </summary>
-        public void RenderCallback(Queue queue, ref float[] buffer, ref uint offset, Span<float> output, bool monoOut,
+        public void RenderCallback(RxBufferQueue queue, ref float[] buffer, ref uint offset, Span<float> output, bool monoOut,
             int streamChannels, Func<bool> active)
         {
             if (_mode != RxCatchUpMode.On)
@@ -333,9 +333,8 @@ namespace JJPortaudio
                 return;
             }
             BeginCallback();
-            while (queue.Count > 0)
+            while (queue.TryDequeue(out var b))
             {
-                var b = (float[])queue.Dequeue();
                 var (cls, seam) = TakeMeta(b);
                 WriteWithSeam(b, cls, seam);
             }
@@ -389,7 +388,7 @@ namespace JJPortaudio
         }
 
         /// <summary>Today's callback body, exactly as it stood in <c>Audio.outputCallback</c> before Track P2 moved it here.</summary>
-        internal static void RenderToday(RxPlaybackQueue q, Queue queue, ref float[] buffer, ref uint offset, Span<float> output,
+        internal static void RenderToday(RxPlaybackQueue q, RxBufferQueue queue, ref float[] buffer, ref uint offset, Span<float> output,
             bool monoOut, int streamChannels, Func<bool> active)
         {
             int floatsPerFrame = monoOut ? 1 : streamChannels;
@@ -399,7 +398,7 @@ namespace JJPortaudio
             if (q != null)
             {
                 RxCallbackPlan plan = q.Begin(queue.Count, offset != 0);
-                for (int i = 0; i < plan.Discard && queue.Count > 0; i++) queue.Dequeue();
+                for (int i = 0; i < plan.Discard && queue.TryDequeue(out _); i++) { }
                 if (plan.HoldForPrime)
                 {
                     long primingFrames = (outEnd - outAt) / floatsPerFrame;
@@ -413,15 +412,21 @@ namespace JJPortaudio
                 bool silence = false;
                 if (offset == 0)
                 {
-                    if (queue.Count == 0)
+                    // Track RT (#1232): the "silence" line that stood here is
+                    // gone. Every callback that found the queue empty traced it
+                    // synchronously at Verbose, so a detailed capture put a slow
+                    // listener on the audio thread once per starved or idle
+                    // callback (Codex measured 181 ms there). The silence is
+                    // still counted (NotePlayed, below), and every starvation is
+                    // still placed in time by this queue's own lines.
+                    if (!queue.TryDequeue(out var next))
                     {
-                        Tracing.TraceLine("silence", TraceLevel.Verbose);
                         silence = true;
                         silentFrames += (outEnd - outAt) / floatsPerFrame;
                     }
                     else
                     {
-                        buffer = (float[])queue.Dequeue();
+                        buffer = next;
                         buffersConsumed++;
                     }
                 }
@@ -677,12 +682,17 @@ namespace JJPortaudio
             public float Worst;
         }
 
-        private const int LineCapacity = 64;
-        private readonly LineRecord[] _lineRing = new LineRecord[LineCapacity];
-        private long _lineHead, _lineTail, _linesDropped;
-        private int _linesPending;
+        // Track RT (#1232): the ring is the shared helper's (JJTrace.RecordRing),
+        // and nothing on the feeding side schedules its writing any more: the
+        // stream's own off-audio work drains it on the writer's period
+        // (Audio.StreamLines), so a muted stream's lines are still written and
+        // the last callback's lines need no further packet.
+        internal const int LineCapacity = 64;
+        private readonly RecordRing<LineRecord> _lines = new RecordRing<LineRecord>(LineCapacity);
         private readonly object _drainLock = new object();
-        private readonly LineDrainer _drainer;
+
+        /// <summary>Tests only: the record ring's own array, to prove it is not a large object.</summary>
+        internal object LineStorageForTest => _lines.Storage;
 
         public RxPlaybackQueue(string streamName, int buffersPerCallback,
             double bufferMilliseconds, uint sampleRate, double reserveMilliseconds, RxCatchUpMode? catchUp = null)
@@ -716,7 +726,6 @@ namespace JJPortaudio
             // 10 ms buffers per callback, so ten callbacks.
             double callbackMs = _buffersPerCallback * _bufferMilliseconds;
             _windowCallbacks = callbackMs > 0 ? Math.Max(1, (int)Math.Ceiling(1000.0 / callbackMs)) : 10;
-            _drainer = new LineDrainer(this);
 
             // Catch-up (Track P2): only with a reserve, so the CW monitor and
             // JJFLEX_RX_PRIME_MS=0 always take today's path.
@@ -791,60 +800,33 @@ namespace JJPortaudio
         /// <summary>Callback side: copy one record into the ring. No allocation, no lock, no wait.</summary>
         private void Record(ref LineRecord r)
         {
-            long head = _lineHead;
-            if (head - System.Threading.Volatile.Read(ref _lineTail) >= LineCapacity)
-            {
-                System.Threading.Interlocked.Increment(ref _linesDropped);
-                return;
-            }
-            _lineRing[head % LineCapacity] = r;
-            System.Threading.Volatile.Write(ref _lineHead, head + 1);
-            System.Threading.Volatile.Write(ref _linesPending, 1);
+            _lines.TryRecord(in r);
         }
 
         /// <summary>True when the callback has recorded lines nobody has written yet.</summary>
-        public bool LinesPending { get { return System.Threading.Volatile.Read(ref _linesPending) != 0; } }
-
-        /// <summary>
-        /// Called by the thread that feeds the queue (the receive loop, once per
-        /// packet): when the callback has recorded lines, hand their writing to
-        /// the thread pool. An interlocked read when there is nothing to do; it
-        /// never formats or writes anything itself.
-        /// </summary>
-        public void RequestLineDrain()
-        {
-            if (System.Threading.Volatile.Read(ref _linesPending) == 0) return;
-            if (System.Threading.Interlocked.Exchange(ref _linesPending, 0) == 0) return;
-            System.Threading.ThreadPool.UnsafeQueueUserWorkItem(_drainer, preferLocal: false);
-        }
-
-        private sealed class LineDrainer : System.Threading.IThreadPoolWorkItem
-        {
-            private readonly RxPlaybackQueue _owner;
-            public LineDrainer(RxPlaybackQueue owner) { _owner = owner; }
-            public void Execute() { _owner.DrainLines(); }
-        }
+        public bool LinesPending { get { return _lines.Pending; } }
 
         /// <summary>
         /// Format and write every line the callback has recorded, in order. Never
-        /// from the callback while the stream plays; the summary at the stream's
-        /// close calls it first, so the lines precede the totals.
+        /// from the callback while the stream plays: the stream's off-audio work
+        /// calls it on the writer's period (Track RT, #1232), and the summary at
+        /// the stream's close calls it first, so the lines precede the totals.
         /// </summary>
         public void DrainLines()
         {
             lock (_drainLock)
             {
-                long dropped = System.Threading.Interlocked.Exchange(ref _linesDropped, 0);
+                _lines.TakePending();
+                long dropped = _lines.TakeLost();
                 if (dropped > 0)
                 {
                     Write("audio " + _streamName + " stream: " + dropped + " timing line(s) were lost because "
                         + "nothing wrote them before the record ring filled", TraceLevel.Error);
                 }
-                long head = System.Threading.Volatile.Read(ref _lineHead);
-                for (long tail = _lineTail; tail < head; tail++)
+                // What was recorded when this pass began; anything later is the
+                // next pass's, after its own loss line (OffAudioWork looks again).
+                for (int n = _lines.Count; n > 0 && _lines.TryTake(out LineRecord r); n--)
                 {
-                    LineRecord r = _lineRing[tail % LineCapacity];
-                    System.Threading.Volatile.Write(ref _lineTail, tail + 1);
                     Write(Format(ref r), TraceLevel.Error);
                 }
             }
@@ -1198,10 +1180,15 @@ namespace JJPortaudio
         /// they are read aloud.
         /// </summary>
         /// <remarks>
-        /// Written from the stream's last callback, as before #1229: by then it
-        /// has returned complete and plays nothing more, so no deadline is at
-        /// stake. Any second still open is recorded as the final partial one,
-        /// and every recorded line is written first, in order.
+        /// Written once the stream's callback has finished for good (Track RT,
+        /// #1232): by the off-audio writer after the last callback recorded that
+        /// it completed, or by the audio server's stop path after the stream
+        /// stopped, whichever comes first (Audio.StreamLines). Never on the
+        /// callback any more: that is where a slow listener used to hold it. By
+        /// then the callback plays nothing more, so the meters it owned are
+        /// still. Any second still open is recorded as the final partial one,
+        /// and every recorded line is written first, in order; nothing is
+        /// written after the totals.
         /// </remarks>
         public void TraceSummary()
         {

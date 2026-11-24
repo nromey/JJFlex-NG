@@ -456,7 +456,7 @@ namespace Radios.Tests
         {
             (long trimmed, long caughtUp, int callbacks) Run(RxCatchUpMode mode)
             {
-                var q = new System.Collections.Queue();
+                var q = new RxBufferQueue();
                 var playback = new RxPlaybackQueue("receive", BuffersPerCallback, BufferMs, Rate, 60, mode);
                 var output = new float[BuffersPerCallback * FramesPerBuffer * 2];
                 float[] buffer = Array.Empty<float>(); uint offset = 0;

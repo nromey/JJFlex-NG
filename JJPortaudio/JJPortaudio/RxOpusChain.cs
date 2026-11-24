@@ -70,11 +70,89 @@ namespace JJPortaudio
         /// into the buffer, or -1) just BEFORE it is enqueued (Track P2: the
         /// playback queue's catch-up keeps them beside the buffer). Optional.
         /// </param>
-        public RxOpusChain(Action<float[]> enqueue, Func<uint> sampleRate, Action<float[], RxContentClass, int> noteMeta = null)
+        /// <param name="scheduler">
+        /// Where this chain's two trace lines are written from (Track RT,
+        /// #1232): the shared off-audio writer when null. A test gives its own.
+        /// </param>
+        public RxOpusChain(Action<float[]> enqueue, Func<uint> sampleRate, Action<float[], RxContentClass, int> noteMeta = null,
+            IOffAudioScheduler scheduler = null)
         {
             _enqueue = enqueue ?? throw new ArgumentNullException(nameof(enqueue));
             _sampleRate = sampleRate ?? (() => 0);
             _noteMeta = noteMeta;
+            _lines = new ChainLines(this);
+            _scheduler = scheduler ?? OffAudioDrainer.Shared;
+            _scheduler.Register(_lines);
+        }
+
+        // ── The chain's trace lines, recorded on the receive loop and written off it (Track RT, #1232) ──
+        //
+        // The receive loop's per-packet work traces nothing synchronously: the
+        // level line every 500 packets and the once-per-chain concealment
+        // failure are copied into a ring here and written by the off-audio
+        // writer, so a slow trace listener never holds the loop that feeds the
+        // playback queue. Their words are unchanged.
+
+        private enum LineKind : byte { Level, CouldNotReadLength, ConcealmentFailed }
+
+        private struct LineRecord
+        {
+            public LineKind Kind;
+            public float RawPeak, PostPeak, Gain, Lufs;
+            public double RawRmsDb, PostRmsDb;
+            public bool Processing, Clipped;
+            public Exception Failure;
+        }
+
+        private readonly RecordRing<LineRecord> _ring = new RecordRing<LineRecord>(8);
+        private readonly ChainLines _lines;
+        private readonly IOffAudioScheduler _scheduler;
+
+        /// <summary>Tests only: this chain's off-audio work.</summary>
+        internal OffAudioWork LinesForTest => _lines;
+
+        /// <summary>The chain is done (its stream closing): what is left is written, and it is no longer drained.</summary>
+        public void Detach()
+        {
+            _lines.Drain();
+            _scheduler.Unregister(_lines);
+        }
+
+        private sealed class ChainLines : OffAudioWork
+        {
+            private readonly RxOpusChain _chain;
+            public ChainLines(RxOpusChain chain) { _chain = chain; }
+            public override bool Pending => base.Pending || _chain._ring.Pending;
+            protected override void DrainCore() => _chain.WriteLines();
+        }
+
+        private void WriteLines()
+        {
+            _ring.TakePending();
+            long lost = _ring.TakeLost();
+            if (lost > 0) Tracing.TraceLine("RxOpusChain: " + lost + " level line(s) were lost because nothing wrote them before the record ring filled", TraceLevel.Error);
+            for (int n = _ring.Count; n > 0 && _ring.TryTake(out LineRecord r); n--)
+            {
+                switch (r.Kind)
+                {
+                    case LineKind.CouldNotReadLength:
+                        Tracing.TraceLine("RxOpusChain: could not read the next packet's frame length: " + r.Failure?.Message, TraceLevel.Error);
+                        break;
+                    case LineKind.ConcealmentFailed:
+                        Tracing.TraceLine("RxOpusChain: concealment failed, splicing the rest of the gap: " + r.Failure?.Message, TraceLevel.Error);
+                        break;
+                    default:
+                        Tracing.TraceLine($"OpusAudio: raw peak={r.RawPeak:F4} "
+                            + $"({20 * Math.Log10(r.RawPeak + 1e-10):F1} dBFS), raw RMS={r.RawRmsDb:F1} dBFS, "
+                            + $"gain={r.Gain:F1}x, "
+                            + $"measured output peak={r.PostPeak:F4} "
+                            + $"({20 * Math.Log10(r.PostPeak + 1e-10):F1} dBFS), "
+                            + $"output RMS={r.PostRmsDb:F1} dBFS, output loudness={r.Lufs:F1} LUFS"
+                            + $"{(r.Processing ? ", post-decode processing ON" : "")}"
+                            + $"{(r.Clipped ? " CLIPPED" : "")}", TraceLevel.Info);
+                        break;
+                }
+            }
         }
 
         /// <summary>
@@ -134,7 +212,7 @@ namespace JJPortaudio
             if (decoder == null || next == null || next.Length == 0 || missingFrames <= 0) return (0, 0);
             int samplesPerChannel;
             try { samplesPerChannel = decoder.SamplesPerChannel(next); }
-            catch (Exception ex) { TraceOnce("could not read the next packet's frame length: " + ex.Message); return (0, 0); }
+            catch (Exception ex) { TraceOnce(LineKind.CouldNotReadLength, ex); return (0, 0); }
             if (samplesPerChannel <= 0) return (0, 0);
 
             int concealed = 0, recovered = 0;
@@ -157,17 +235,20 @@ namespace JJPortaudio
             {
                 // A decoder that refuses to conceal must not end receive audio:
                 // the rest of the gap is spliced, as every gap was before.
-                TraceOnce("concealment failed, splicing the rest of the gap: " + ex.Message);
+                TraceOnce(LineKind.ConcealmentFailed, ex);
             }
             return (concealed, recovered);
         }
 
         private bool _traced;
-        private void TraceOnce(string what)
+        /// <summary>Once per chain: recorded here, written off the receive loop (Track RT).</summary>
+        private void TraceOnce(LineKind kind, Exception failure)
         {
             if (_traced) return;
             _traced = true;
-            Tracing.TraceLine("RxOpusChain: " + what, TraceLevel.Error);
+            var r = new LineRecord { Kind = kind, Failure = failure };
+            _ring.TryRecord(in r);
+            _lines.Signal();
         }
 
         // ── The tail. Meters below moved here unchanged from JJAudioStream.WriteOpus. ──
@@ -290,14 +371,15 @@ namespace JJPortaudio
                 double rawRmsDb = 10 * Math.Log10(_rawSquaresSinceLastLog / n + 1e-20);
                 double postRmsDb = 10 * Math.Log10(_postSquaresSinceLastLog / n + 1e-20);
                 float lufs = _outputLufs.ShortTermLufs;
-                Tracing.TraceLine($"OpusAudio: raw peak={_peakSinceLastLog:F4} "
-                    + $"({20 * Math.Log10(_peakSinceLastLog + 1e-10):F1} dBFS), raw RMS={rawRmsDb:F1} dBFS, "
-                    + $"gain={OutputGain:F1}x, "
-                    + $"measured output peak={_postPeakSinceLastLog:F4} "
-                    + $"({20 * Math.Log10(_postPeakSinceLastLog + 1e-10):F1} dBFS), "
-                    + $"output RMS={postRmsDb:F1} dBFS, output loudness={lufs:F1} LUFS"
-                    + $"{(PostDecodeProcessor != null ? ", post-decode processing ON" : "")}"
-                    + $"{(clipped ? " CLIPPED" : "")}", TraceLevel.Info);
+                // Recorded; written off the receive loop with the same words (Track RT).
+                var level = new LineRecord
+                {
+                    Kind = LineKind.Level, RawPeak = _peakSinceLastLog, RawRmsDb = rawRmsDb, Gain = OutputGain,
+                    PostPeak = _postPeakSinceLastLog, PostRmsDb = postRmsDb, Lufs = lufs,
+                    Processing = PostDecodeProcessor != null, Clipped = clipped,
+                };
+                _ring.TryRecord(in level);
+                _lines.Signal();
                 _peakLogCounter = 0;
                 _peakSinceLastLog = 0f;
                 _postPeakSinceLastLog = 0f;
