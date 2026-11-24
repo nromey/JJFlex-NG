@@ -432,9 +432,10 @@ namespace JJPortaudio
         public void WriteOpus(byte[] data)
         {
             _rx.WritePacket(aud.Decoder, data);
-            // #1229 repair 1: the playback callback only records its timing
-            // lines; they are handed to the thread pool from here.
-            aud.RequestPlaybackLineDrain();
+            // Track RT (#1232): nothing is handed on from here any more. The
+            // playback callback's recorded lines are written by the stream's
+            // own off-audio work on the writer's period, so they are written
+            // while no packet arrives too (a muted receive).
         }
 
         /// <summary>
@@ -486,6 +487,8 @@ namespace JJPortaudio
         public virtual void Close()
         {
             if (aud != null) aud.Finished();
+            // Track RT: the receive chain's last lines written, and it is no longer drained.
+            _rx.Detach();
         }
 
 #if zero

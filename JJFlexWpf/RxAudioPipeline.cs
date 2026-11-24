@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using JJPortaudio;
+using JJTrace;
 using Radios;
 
 namespace JJFlexWpf
@@ -123,7 +124,18 @@ namespace JJFlexWpf
         /// one minute when 0. Tests shorten it so a period passes in a few buffers.
         /// </summary>
         internal RxAudioPipeline(int sampleRate, int channels, DenoiseEngineCatalog? catalog, long tallyPeriodTicks)
+            : this(sampleRate, channels, catalog, tallyPeriodTicks, null) { }
+
+        /// <summary>
+        /// As above, with the scheduler this pipeline's off-audio work (its
+        /// keep-up raiser, and both slots' lines, results and retirements) is
+        /// drained on (Track RT, #1232): the shared off-audio writer when null.
+        /// A test passes its own, to drain exactly when it says.
+        /// </summary>
+        internal RxAudioPipeline(int sampleRate, int channels, DenoiseEngineCatalog? catalog, long tallyPeriodTicks,
+            IOffAudioScheduler? scheduler)
         {
+            _scheduler = scheduler ?? OffAudioDrainer.Shared;
             _channels = channels;
             _sampleRate = sampleRate;
             _catalog = catalog ?? new DenoiseEngineCatalog();
@@ -131,8 +143,8 @@ namespace JJFlexWpf
             // on one thread, so two drains at once must not double the rate.
             _switchBudget = new RxLagBudget(sampleRate);
             _classifier = new RxContentClassifier();
-            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget);
-            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget);
+            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget, _scheduler);
+            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget, _scheduler);
             SpectralSlot.SelectionResult += ForwardSelection;
             NeuralSlot.SelectionResult += ForwardSelection;
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
@@ -141,6 +153,7 @@ namespace JJFlexWpf
             _spectralKeepUp = new SlotKeepUp(this, DenoiseFamily.Spectral, tallyPeriodTicks);
             _neuralKeepUp = new SlotKeepUp(this, DenoiseFamily.Neural, tallyPeriodTicks);
             _keepUpRaiser = new KeepUpRaiser(this);
+            _scheduler.Register(_keepUpRaiser);
 
             Trace.WriteLine($"RxAudioPipeline: created ({sampleRate}Hz, {channels}ch)");
         }
@@ -263,7 +276,7 @@ namespace JJFlexWpf
         public void StartNoiseSampling(int durationSeconds = 3)
         {
             var old = Volatile.Read(ref _spectralSub);
-            var fresh = new SpectralSubtractionProvider(_sampleRate, _channels) { ProfileName = old.ProfileName };
+            var fresh = new SpectralSubtractionProvider(_sampleRate, _channels) { ProfileName = old.ProfileName, LineScheduler = _scheduler };
             for (int ch = 0; ch < _channels; ch++) fresh.SetChannelProfile(ch, old.GetChannelProfile(ch));
             fresh.StartSampling(durationSeconds);
             Interlocked.Exchange(ref _spectralSub, fresh);
@@ -375,8 +388,17 @@ namespace JJFlexWpf
         //
         // Whether each slot's engine keeps up with the audio. The rule runs on
         // this thread, per buffer, with no allocation; a change is published to
-        // a small mailbox and the event is raised from the thread pool, never
+        // a small mailbox and the event is raised by the off-audio writer, never
         // from here. Receive only (ruled 2026-11-19, X3).
+        //
+        // Track RT (#1232): this thread only sets the raiser's pending flag.
+        // Until then it queued the raiser to the thread pool from inside a
+        // buffer's processing, behind a latch cleared at the START of the raise,
+        // so a raiser blocked in a slow listener let a second one be queued and
+        // run beside it. Now the writer runs one raise at a time and looks again
+        // before it stands down: a change published by the very last Process,
+        // and the totals queued at FeedEnded, are raised with no further buffer,
+        // up to one writer period later than before.
 
         /// <summary>
         /// A pause this long with no audio, from the end of one buffer's
@@ -393,13 +415,16 @@ namespace JJFlexWpf
 
         private long _lastProcessEnd;
         private readonly SlotKeepUp _spectralKeepUp, _neuralKeepUp;
-        private int _keepUpQueued;
         private readonly KeepUpRaiser _keepUpRaiser;
+        private readonly IOffAudioScheduler _scheduler;
+
+        /// <summary>Tests only: the keep-up raiser's off-audio work.</summary>
+        internal OffAudioWork KeepUpWorkForTest => _keepUpRaiser;
 
         /// <summary>
         /// An engine fell behind, recovered, or proved it keeps up after
-        /// starting. Raised on a thread-pool thread, never the audio thread; a
-        /// listener marshals to the UI itself.
+        /// starting. Raised on the off-audio writer's thread, never the audio
+        /// thread; a listener marshals to the UI itself.
         /// </summary>
         public event EventHandler<EngineKeepUpResult>? KeepUpResult;
 
@@ -438,11 +463,8 @@ namespace JJFlexWpf
         internal EngineKeepUpRule DeliveryRuleFor(DenoiseFamily family) =>
             (family == DenoiseFamily.Spectral ? _spectralKeepUp : _neuralKeepUp).Missed;
 
-        private void QueueKeepUpRaise()
-        {
-            if (Interlocked.Exchange(ref _keepUpQueued, 1) == 0)
-                ThreadPool.UnsafeQueueUserWorkItem(_keepUpRaiser, preferLocal: false);
-        }
+        /// <summary>Audio side: something is waiting to be raised. One volatile write; nothing is queued (Track RT).</summary>
+        private void QueueKeepUpRaise() => _keepUpRaiser.Signal();
 
         /// <summary>
         /// PC audio went off: the receive loop that calls <see cref="Process"/>
@@ -486,7 +508,6 @@ namespace JJFlexWpf
 
         private void RaiseKeepUp()
         {
-            Volatile.Write(ref _keepUpQueued, 0);
             // Tally lines first and even after disposal: the session total is
             // queued as PC audio goes off, which a disconnect can follow at once.
             WriteTallies(_spectralKeepUp);
@@ -510,11 +531,12 @@ namespace JJFlexWpf
             catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a keep-up listener threw: " + ex.Message); }
         }
 
-        private sealed class KeepUpRaiser : IThreadPoolWorkItem
+        /// <summary>The keep-up raiser, drained by the off-audio writer (Track RT): one raise at a time, looking again before it stands down.</summary>
+        private sealed class KeepUpRaiser : OffAudioWork
         {
             private readonly RxAudioPipeline _owner;
             public KeepUpRaiser(RxAudioPipeline owner) => _owner = owner;
-            public void Execute() => _owner.RaiseKeepUp();
+            protected override void DrainCore() => _owner.RaiseKeepUp();
         }
 
         /// <summary>
@@ -885,11 +907,15 @@ namespace JJFlexWpf
                 if (wait.ElapsedMilliseconds >= 250)
                 {
                     Trace.WriteLine("RxAudioPipeline: disconnect timed out; retaining engines rather than freeing during Process");
+                    _scheduler.RetireAfterDrain(_keepUpRaiser);
                     return;
                 }
                 spin.SpinOnce();
             }
             SpectralSlot.DisposeOwned(); NeuralSlot.DisposeOwned();
+            // The tallies queued as PC audio went off are still written, off this
+            // thread, as the pool used to; then the raiser is no longer drained (Track RT).
+            _scheduler.RetireAfterDrain(_keepUpRaiser);
             _classifier.Dispose();
             Trace.WriteLine("RxAudioPipeline: disposed");
         }

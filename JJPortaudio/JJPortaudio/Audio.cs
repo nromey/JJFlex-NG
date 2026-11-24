@@ -665,6 +665,8 @@ namespace JJPortaudio
                                     traceStreamLatency(item.StreamBlock);
                                     // #1145: only a stream that opened is watched.
                                     watchStreamEnd(item.StreamBlock);
+                                    // Track RT: its callbacks' lines are written off the audio thread from now on.
+                                    item.StreamBlock.Lines.Attach();
                                 }
                             }
                         }
@@ -681,6 +683,8 @@ namespace JJPortaudio
                                 item.StreamBlock.TestAbortDueTick = TestStreamAbort.DueTickFor(
                                     item.StreamBlock.Device.Type == Devices.DeviceTypes.input,
                                     item.StreamBlock.UseOpus, Environment.TickCount64);
+                                // Track RT: a new run, whose summary is still to come.
+                                item.StreamBlock.Lines.BeginRun();
                                 erv = PortAudio.Pa_StartStream(item.StreamBlock.Stream);
                                 item.StreamBlock.Active = (erv >= 0);
                                 if (item.StreamBlock.Active)
@@ -738,6 +742,13 @@ namespace JJPortaudio
                                 {
                                     Tracing.TraceLine("stop error:" + PortAudio.Pa_GetErrorText(erv), TraceLevel.Error);
                                 }
+                                // Track RT (#1232): the stream has stopped, so no
+                                // callback runs. Its summary is written now unless
+                                // the off-audio writer already wrote it after the
+                                // completing callback; exactly once either way, and
+                                // also when no callback completed (the abort above,
+                                // a device that died), which wrote none before.
+                                item.StreamBlock.Lines.EndRun();
                                 item.StreamBlock.Started = false;
                             }
                             if (item.Type == workItems.close)
@@ -762,6 +773,8 @@ namespace JJPortaudio
                                 }
                                 if (item.StreamBlock.Decoder != null) item.StreamBlock.Decoder.Dispose();
                                 WasapiAutoConvert.Release(ref item.StreamBlock.WasapiAutoConvertInfo);
+                                // Track RT: what is left written, and the stream's lines no longer drained.
+                                item.StreamBlock.Lines.Detach();
                                 Audio.queues.Remove(item.StreamBlock.CBUser);
                             }
                         }
@@ -922,8 +935,20 @@ namespace JJPortaudio
             public StreamCB()
             {
                 IsActive = () => Active;
+                Lines = new StreamLines(this);
             }
-            public Queue Q = Queue.Synchronized(new Queue());
+            /// <summary>
+            /// The buffers waiting for the output callback. A single-producer
+            /// ring the callback reads with no lock and no allocation (Track RT,
+            /// #1232, item 6); it was <c>Queue.Synchronized</c>, whose lock the
+            /// receive loop's enqueue shares with the callback.
+            /// </summary>
+            public RxBufferQueue Q = new RxBufferQueue();
+            /// <summary>
+            /// What the callbacks record for the trace, and the stream's closing
+            /// summaries, written off the audio thread (Track RT, #1232).
+            /// </summary>
+            public readonly StreamLines Lines;
             /// <summary>
             /// What this stream is FOR, in the words a trace reader needs:
             /// "receive", "transmit", "CW monitor". Every line the callbacks
@@ -1124,16 +1149,6 @@ namespace JJPortaudio
             CBData?.Playback?.NoteFeedEnded();
         }
 
-        /// <summary>
-        /// The receive loop's turn to have the playback queue's recorded timing
-        /// lines written, on the thread pool (#1229 repair 1): the callback only
-        /// records them. An interlocked read when there is nothing to write.
-        /// </summary>
-        internal void RequestPlaybackLineDrain()
-        {
-            CBData?.Playback?.RequestLineDrain();
-        }
-
         /// <summary>This stream's playback queue, for the receive chain's class and seam marks (Track P2). Null on an input stream or once closed.</summary>
         internal RxPlaybackQueue Playback => CBData?.Playback;
         /// <summary>
@@ -1311,7 +1326,7 @@ namespace JJPortaudio
         public int Channels { get { return CBData?.Channels ?? Devices.StreamChannels; } }
         internal OpusDecoder Decoder { get { return CBData?.Decoder; } }
         /// <summary>The playback queue, or null once the stream is closed.</summary>
-        internal Queue TheQ { get { return CBData?.Q; } }
+        internal RxBufferQueue TheQ { get { return CBData?.Q; } }
 
         /// <summary>
         /// True while this stream is still in the table and PortAudio opened
@@ -2018,10 +2033,13 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// Record this buffer's PortAudio status flags. Logs a flag the FIRST
-        /// time it appears on this stream (with what it means), counts every
-        /// occurrence silently after that. Runs on the PortAudio callback
-        /// thread, so the non-first-appearance path is counters only.
+        /// Record this buffer's PortAudio status flags. A flag's FIRST
+        /// appearance on this stream is recorded (which flag, at which
+        /// callback) and its line, with what it means, is written off the
+        /// audio thread (<see cref="StreamLines"/>, Track RT); every occurrence
+        /// is counted silently. Runs on the PortAudio callback thread, both
+        /// input and output: counters and a record copy, no formatting, no
+        /// trace, no allocation.
         /// </summary>
         private static void noteStatusFlags(StreamCB data,
             PortAudio.PaStreamCallbackFlags statusFlags, string streamName)
@@ -2037,13 +2055,238 @@ namespace JJPortaudio
                 if ((data.SeenStatusFlags & bit) == 0)
                 {
                     data.SeenStatusFlags |= bit;
-                    Tracing.TraceLine("audio " + streamName + " stream: PortAudio reports "
-                        + bit + " at callback " + data.StatusCallbackCount + " — "
-                        + describeStatusFlag(bit)
-                        + ". Further occurrences are counted silently; totals logged when the stream closes.",
-                        TraceLevel.Error);
+                    data.Lines.RecordFirstFlag(i, data.StatusCallbackCount);
                 }
             }
+        }
+
+        /// <summary>The first-appearance line for <see cref="statusFlagBits"/>[<paramref name="index"/>], exactly as the callback used to write it.</summary>
+        private static string describeFirstFlag(string streamName, int index, long callback)
+        {
+            var bit = statusFlagBits[index];
+            return "audio " + streamName + " stream: PortAudio reports "
+                + bit + " at callback " + callback + " — "
+                + describeStatusFlag(bit)
+                + ". Further occurrences are counted silently; totals logged when the stream closes.";
+        }
+
+        /// <summary>
+        /// What a stream's callbacks have recorded for the trace, and the
+        /// stream's closing summaries, written OFF the audio thread (Sprint 49
+        /// Track RT, #1232).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why.</b> The callbacks used to write these lines themselves:
+        /// a flag's first appearance, the test-only abort, and on the
+        /// completing callback the status-flag summary, the latency summary and
+        /// the playback queue's whole summary. Each <c>Tracing.TraceLine</c>
+        /// reads clocks, takes the listeners' lock and flushes, so a slow
+        /// listener held the audio thread: Codex drove <c>outputCallback</c>
+        /// with one and saw it wait. Now the callback copies numbers into a
+        /// ring and sets flags; this work writes them on the off-audio writer's
+        /// period, and also drains the playback queue's own lines, so a muted
+        /// stream's lines are written without waiting for a packet.
+        /// </para>
+        /// <para>
+        /// <b>The summary is written exactly once per start.</b> The callback
+        /// that completes the stream records that it did, as its last write.
+        /// Whichever comes first writes the summary: this work's next drain,
+        /// or the audio server's stop path (<see cref="EndRun"/>), which runs
+        /// after the stream has stopped, under the same lock. The stop path
+        /// also covers the endings with no completing callback, which wrote no
+        /// summary at all before: the server's abort of a stream still active
+        /// after 2.2 s, and a device that died under the stream. A restart
+        /// cannot overtake it, because the server handles the stop before the
+        /// next start.
+        /// </para>
+        /// <para>
+        /// <b>Order, unchanged:</b> the recorded lines (first flags, the abort)
+        /// first, then the status-flag summary, the latency summary and the
+        /// queue's summary, whose own recorded lines precede its totals. A
+        /// draining pass with no summary due writes the queue's lines alone.
+        /// </para>
+        /// </remarks>
+        internal sealed class StreamLines : OffAudioWork
+        {
+            private enum Kind : byte { FirstFlag, TestAbort }
+
+            private struct Line
+            {
+                public Kind Kind;
+                public byte Flag;
+                public long Callback;
+            }
+
+            /// <summary>Five flags' first appearances and an abort per start: sixteen is ample, and a loss is counted and said.</summary>
+            internal const int Capacity = 16;
+
+            private readonly StreamCB _cb;
+            private readonly RecordRing<Line> _ring = new RecordRing<Line>(Capacity);
+            private IOffAudioScheduler _scheduler = OffAudioDrainer.Shared;
+            private int _attached;
+            private int _run;            // 0 running or not started, 1 the callback completed, 2 this run's summary is written
+            private int _endRequested;   // the server's stop path: write the summary now, completed or not
+            private long _summaries;
+
+            public StreamLines(StreamCB cb) { _cb = cb; }
+
+            /// <summary>Where this stream's lines are drained: the shared writer, unless a test gives its own before <see cref="Attach"/>.</summary>
+            public IOffAudioScheduler Scheduler
+            {
+                get { return _scheduler; }
+                set
+                {
+                    if (Volatile.Read(ref _attached) != 0) throw new InvalidOperationException("the stream's lines are already attached");
+                    _scheduler = value ?? OffAudioDrainer.Shared;
+                }
+            }
+
+            /// <summary>Summaries written so far (tests: exactly one per start).</summary>
+            public long Summaries { get { return Interlocked.Read(ref _summaries); } }
+
+            /// <summary>Tests only: the ring's own array, to prove it is not a large object.</summary>
+            internal object StorageForTest { get { return _ring.Storage; } }
+
+            /// <summary>Tests only: sees every line this work writes, beside the trace, on the thread that writes it.</summary>
+            internal Action<string> LineObserverForTest { get; set; }
+
+            /// <summary>Write one of this stream's lines: the trace, and a test's observer.</summary>
+            internal void Write(string line, TraceLevel level)
+            {
+                OffAudioLines.Write(line, level, LineObserverForTest);
+            }
+
+            // ── The callback's side: copies and flags only ──
+
+            /// <summary>Callback: a status flag's first appearance on this stream.</summary>
+            public void RecordFirstFlag(int index, long callback)
+            {
+                var l = new Line { Kind = Kind.FirstFlag, Flag = (byte)index, Callback = callback };
+                _ring.TryRecord(in l);
+                Signal();
+            }
+
+            /// <summary>Callback: the test-only abort switch fired.</summary>
+            public void RecordTestAbort()
+            {
+                var l = new Line { Kind = Kind.TestAbort };
+                _ring.TryRecord(in l);
+                Signal();
+            }
+
+            /// <summary>Callback: this callback is the stream's last. Its LAST write before it returns.</summary>
+            public void RecordCompleted()
+            {
+                Interlocked.CompareExchange(ref _run, 1, 0);
+                Signal();
+            }
+
+            // ── The audio server's side ──
+
+            /// <summary>The stream opened: its lines are drained from now on.</summary>
+            public void Attach()
+            {
+                if (Interlocked.Exchange(ref _attached, 1) == 0) _scheduler.Register(this);
+            }
+
+            /// <summary>The stream is about to start: a new run, with a summary of its own to come.</summary>
+            public void BeginRun()
+            {
+                Volatile.Write(ref _run, 0);
+            }
+
+            /// <summary>
+            /// The stream has stopped (or been aborted): write what is left and
+            /// this run's summary now, unless it is already written. On the
+            /// server's thread, never the callback's.
+            /// </summary>
+            public void EndRun()
+            {
+                Volatile.Write(ref _endRequested, 1);
+                Drain();
+            }
+
+            /// <summary>The stream is closing: write what is left, and stop being drained.</summary>
+            public void Detach()
+            {
+                Drain();
+                if (Interlocked.Exchange(ref _attached, 0) != 0) _scheduler.Unregister(this);
+            }
+
+            public override bool Pending
+            {
+                get
+                {
+                    if (base.Pending || _ring.Pending) return true;
+                    if (Volatile.Read(ref _run) == 1 || Volatile.Read(ref _endRequested) != 0) return true;
+                    var playback = _cb.Playback;
+                    return playback != null && playback.LinesPending;
+                }
+            }
+
+            protected override void DrainCore()
+            {
+                string name = _cb.StreamName;
+                // Whether this pass ends the run is read FIRST (repair 1, N1). The
+                // callback publishes its records before it marks completion, so once
+                // completion is seen every record it made is in the ring, and this
+                // pass writes ALL of them before the totals. Read after the ring, a
+                // record and the completion could both land between the two reads,
+                // and that record's line came after the totals.
+                bool ending = Interlocked.Exchange(ref _endRequested, 0) != 0;
+                int run = Volatile.Read(ref _run);
+                bool summaryDue = run != 2 && (run == 1 || ending);
+                _ring.TakePending();
+                long lost = _ring.TakeLost();
+                if (lost > 0)
+                {
+                    Write(OffAudioLines.Lost("audio " + name + " stream: ", lost, "callback"), TraceLevel.Error);
+                }
+                // Ending: everything there is. Otherwise what was there when this pass
+                // began; anything later is the next pass's.
+                for (int n = summaryDue ? int.MaxValue : _ring.Count; n > 0 && _ring.TryTake(out Line l); n--)
+                {
+                    if (l.Kind == Kind.FirstFlag)
+                        Write(describeFirstFlag(name, l.Flag, l.Callback), TraceLevel.Error);
+                    else
+                        Write("audio " + name + " stream: " + TestStreamAbort.Variable
+                            + " aborts it now", TraceLevel.Error);
+                }
+                if (run != 2 && (run == 1 || ending))
+                {
+                    WriteSummary(name);
+                    Volatile.Write(ref _run, 2);
+                    Interlocked.Increment(ref _summaries);
+                }
+                else
+                {
+                    _cb.Playback?.DrainLines();
+                }
+            }
+
+            /// <summary>The closing summaries, in the order the completing callback used to write them.</summary>
+            private void WriteSummary(string name)
+            {
+                // Threads Track: the glitch totals for the stream's whole life.
+                traceStatusFlagSummary(_cb, name);
+                traceLatencySummary(_cb, name);
+                long dropped = _cb.Q?.Dropped ?? 0;
+                if (dropped > _droppedSaid)
+                {
+                    Write("audio " + name + " stream: " + (dropped - _droppedSaid) + " buffer(s) were dropped "
+                        + "because the playback queue was full (" + _cb.Q.Capacity + " buffers waiting)", TraceLevel.Error);
+                    _droppedSaid = dropped;
+                }
+                // Track B (#29): the queue-side companion summaries. Zero
+                // starvation is evidence too — with statusFlags also clean it
+                // acquits the whole playback side and points the click hunt
+                // upstream (see the receive-continuity meter in FlexBase).
+                // Its recorded lines first, then its totals, and nothing after.
+                _cb.Playback?.TraceSummary();
+            }
+
+            private long _droppedSaid;
         }
 
         /// <summary>
@@ -2054,7 +2297,7 @@ namespace JJPortaudio
         {
             if (data.FlaggedCallbackCount == 0)
             {
-                Tracing.TraceLine("audio " + streamName + " stream summary: "
+                data.Lines.Write("audio " + streamName + " stream summary: "
                     + data.StatusCallbackCount + " callbacks, no PortAudio status flags (no glitches reported)",
                     TraceLevel.Info);
                 return;
@@ -2068,7 +2311,7 @@ namespace JJPortaudio
                 if (data.StatusFlagCounts[i] == 0) continue;
                 sb.Append(' ').Append(statusFlagBits[i]).Append('=').Append(data.StatusFlagCounts[i]);
             }
-            Tracing.TraceLine(sb.ToString(), TraceLevel.Error);
+            data.Lines.Write(sb.ToString(), TraceLevel.Error);
         }
 
         /// <summary>
@@ -2121,7 +2364,7 @@ namespace JJPortaudio
             double ourBufferMs = AudioBuffering.BufferMilliseconds(data.BufferSize, data.SampleRate);
             if (data.DeviceLatencySamples == 0)
             {
-                Tracing.TraceLine("audio " + streamName + " latency summary: this host API"
+                data.Lines.Write("audio " + streamName + " latency summary: this host API"
                     + " supplied no callback timing, so only our own buffer is known — "
                     + ourBufferMs.ToString("F1") + " ms, plus a device path PortAudio claimed"
                     + " would be " + (data.ReportedDeviceLatency * 1000).ToString("F1") + " ms",
@@ -2130,7 +2373,7 @@ namespace JJPortaudio
             }
             double minMs = data.DeviceLatencyMin * 1000;
             double maxMs = data.DeviceLatencyMax * 1000;
-            Tracing.TraceLine("audio " + streamName + " latency summary: device path measured "
+            data.Lines.Write("audio " + streamName + " latency summary: device path measured "
                 + minMs.ToString("F1") + " to " + maxMs.ToString("F1") + " ms over "
                 + data.DeviceLatencySamples + " callbacks (PortAudio claimed "
                 + (data.ReportedDeviceLatency * 1000).ToString("F1") + " ms at open); our buffer "
@@ -2238,7 +2481,7 @@ namespace JJPortaudio
             gate?.Leave();
         }
 
-        private static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
+        internal static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
                 IntPtr outbuf,
                 uint frameCount,
                 ref PortAudio.PaStreamCallbackTimeInfo timeInfo,
@@ -2284,8 +2527,8 @@ namespace JJPortaudio
             // this hook rather than adding a second.
             if (TestStreamAbort.Armed && TestStreamAbort.Due(ref data.TestAbortDueTick))
             {
-                Tracing.TraceLine("audio " + data.StreamName + " stream: " + TestStreamAbort.Variable
-                    + " aborts it now", TraceLevel.Error);
+                // Recorded, and written off the audio thread (Track RT).
+                data.Lines.RecordTestAbort();
                 rv = PortAudio.PaStreamCallbackResult.paAbort;
                 goto inCallbackDone;
             }
@@ -2427,15 +2670,15 @@ namespace JJPortaudio
                 if (data.UseOpus) data.OpusInputHandler(new byte[0]);
                 else data.WavInputHandler(new float[0]);
                 Tracing.TraceLine("InputCallback:" + data.diagBufCount + ' ' + data.diagByteCount, TraceLevel.Verbose);
-                // Threads Track: the stream is completing — report the
-                // glitch totals for its whole life.
-                traceStatusFlagSummary(data, data.StreamName);
-                traceLatencySummary(data, data.StreamName);
+                // Threads Track: the stream is completing. Its glitch and
+                // latency totals are written off the audio thread now (Track
+                // RT): recorded here as this callback's last write.
+                data.Lines.RecordCompleted();
             }
             return rv;
         }
 
-        private static PortAudio.PaStreamCallbackResult outputCallback(IntPtr inbuf,
+        internal static PortAudio.PaStreamCallbackResult outputCallback(IntPtr inbuf,
             IntPtr outbuf,
             uint frameCount,
             ref PortAudio.PaStreamCallbackTimeInfo timeInfo,
@@ -2456,8 +2699,8 @@ namespace JJPortaudio
             // JJFLEX_TEST_STREAM_ABORT (#1145, test only). Off, one static read.
             if (TestStreamAbort.Armed && TestStreamAbort.Due(ref data.TestAbortDueTick))
             {
-                Tracing.TraceLine("audio " + data.StreamName + " stream: " + TestStreamAbort.Variable
-                    + " aborts it now", TraceLevel.Error);
+                // Recorded, and written off the audio thread (Track RT).
+                data.Lines.RecordTestAbort();
                 float* silent = (float*)outbuf;
                 float* silentEnd = silent + ((data.Channels == 1) ? data.BufferSize / 2 : data.BufferSize);
                 while (silent != silentEnd) *(silent++) = 0f;
@@ -2500,18 +2743,9 @@ namespace JJPortaudio
 
             outCallbackDone:
             if (rv == PortAudio.PaStreamCallbackResult.paContinue) rv = (data.Active) ? PortAudio.PaStreamCallbackResult.paContinue : PortAudio.PaStreamCallbackResult.paComplete;
-            // Threads Track: stream completing — report the glitch totals
-            // for its whole life.
-            if (rv != PortAudio.PaStreamCallbackResult.paContinue)
-            {
-                traceStatusFlagSummary(data, data.StreamName);
-                traceLatencySummary(data, data.StreamName);
-                // Track B (#29): the queue-side companion summaries. Zero
-                // starvation is evidence too — with statusFlags also clean it
-                // acquits the whole playback side and points the click hunt
-                // upstream (see the receive-continuity meter in FlexBase).
-                data.Playback?.TraceSummary();
-            }
+            // AudioSent: dead wiring today. Nothing in the app sets it (the CW
+            // monitor is built with no callback, and its only writer is compiled
+            // out), so this costs two reads; left as it was (Track RT).
             if ((rv == PortAudio.PaStreamCallbackResult.paContinue) &
                 (data.Q.Count == 0) & (data.Playback == null || data.Playback.RingEmpty))
             {
@@ -2523,10 +2757,13 @@ namespace JJPortaudio
                 }
             }
             else data.SilentPeriod = false;
-            //if (rv != PortAudio.PaStreamCallbackResult.paContinue)
-            //{
-            //Tracing.TraceLine("outCallback:" + rv.ToString(), TraceLevel.Error);
-            //}
+            // Threads Track and Track B (#29): a completing stream's glitch,
+            // latency and queue summaries for its whole life. Since Track RT
+            // (#1232) they are written off the audio thread
+            // (StreamLines): this callback only records that it completed, as
+            // its LAST write, so everything it changed is in place for the
+            // writer that reads it.
+            if (rv != PortAudio.PaStreamCallbackResult.paContinue) data.Lines.RecordCompleted();
             return rv;
         }
     }

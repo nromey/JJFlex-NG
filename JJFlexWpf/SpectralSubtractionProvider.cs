@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Xml.Serialization;
+using JJTrace;
 using NAudio.Wave;
 
 namespace JJFlexWpf
@@ -47,6 +49,13 @@ namespace JJFlexWpf
         // That is a DSP decision, not a dependency upgrade.
         private readonly double[] _window;
         private readonly double[] _fftBuffer;
+        // The spectrum the subtraction works on, made once (Sprint 49 Track RT, repair 1,
+        // B1). FFT.Forward(double[]) returned a NEW complex array on every frame, so the
+        // captured-noise engine allocated 16 KB per FFT frame on the receive thread for
+        // as long as it ran. The in-place FFT.Forward(Complex[]) on this array computes
+        // the same transform of the same values (FftSharp's real overload builds exactly
+        // this array and calls it), so the output is bit for bit what it was.
+        private readonly System.Numerics.Complex[] _spectrum = new System.Numerics.Complex[FftSize];
 
         private const int OutputBufferSize = FftSize * 4; // ring buffer
 
@@ -69,7 +78,7 @@ namespace JJFlexWpf
 
         private ChannelState[] _channels;
 
-        private bool _sampling;
+        private volatile bool _sampling;
         private int _sampleFrameTarget;
         private int _sampleFramesCaptured;
 
@@ -140,7 +149,9 @@ namespace JJFlexWpf
         {
             if (channels < 1 || _channels.Length == channels) return;
             var profile = ProfileForSaving();
-            if (_sampling) CancelSampling();
+            // On the receive thread: the capture is dropped without the gate (the
+            // work standing down is the control side's, at the next start or cancel).
+            if (_sampling) CancelSamplingCore();
             _channels = NewChannels(channels);
             foreach (var c in _channels) c.NoiseProfile = profile;
         }
@@ -163,7 +174,15 @@ namespace JJFlexWpf
                 c.SamplingFrames.Clear();
                 c.SampleFramesCaptured = 0;
             }
-            _sampling = true;
+            lock (_lineGate)
+            {
+                _sampling = true;
+                // The capture's end line is written off the receive thread (repair 1, B2),
+                // so the work that writes it is registered for as long as a capture runs.
+                _captureLine ??= new CaptureLine(this);
+                _lineScheduler = LineScheduler ?? OffAudioDrainer.Shared;
+                _lineScheduler.Register(_captureLine);
+            }
         }
 
         /// <summary>
@@ -171,8 +190,63 @@ namespace JJFlexWpf
         /// </summary>
         public void CancelSampling()
         {
+            CancelSamplingCore();
+            lock (_lineGate) StandDownLineIfIdle();
+        }
+
+        private void CancelSamplingCore()
+        {
             _sampling = false;
             foreach (var c in _channels) c.SamplingFrames.Clear();
+        }
+
+        // ── The capture's end line, written off the receive thread (Sprint 49 Track RT, repair 1, B2) ──
+        //
+        // A capture ends inside RxAudioPipeline.Process, on the receive thread, and
+        // its "noise profile captured" line was written there synchronously, so a slow
+        // trace listener could hold receive audio. Now the end only records the two
+        // numbers and a flag; the off-audio writer writes the line, in the same words,
+        // and stands its work down once no capture is running.
+
+        /// <summary>Where the capture's end line is written from: the shared off-audio writer when null. Set before <see cref="StartSampling"/>.</summary>
+        internal IOffAudioScheduler? LineScheduler { get; set; }
+
+        /// <summary>Tests only: sees the capture's end line as it is written, on the thread that writes it.</summary>
+        internal Action<string>? LineObserverForTest { get; set; }
+
+        /// <summary>Tests only: the work that writes the capture's end line, once a capture has started.</summary>
+        internal OffAudioWork? CaptureLineForTest => _captureLine;
+
+        private readonly object _lineGate = new();
+        private CaptureLine? _captureLine;
+        private IOffAudioScheduler? _lineScheduler;
+        private int _captureDone, _capturedFrames, _capturedChannels;
+
+        private sealed class CaptureLine : OffAudioWork
+        {
+            private readonly SpectralSubtractionProvider _provider;
+            public CaptureLine(SpectralSubtractionProvider provider) => _provider = provider;
+            public override bool Pending => base.Pending || Volatile.Read(ref _provider._captureDone) != 0;
+            protected override void DrainCore() => _provider.WriteCaptureLine();
+        }
+
+        private void WriteCaptureLine()
+        {
+            if (Interlocked.Exchange(ref _captureDone, 0) != 0)
+            {
+                string line = $"SpectralSubtraction: noise profile captured ({Volatile.Read(ref _capturedFrames)} frames, {Volatile.Read(ref _capturedChannels)} channel(s))";
+                Trace.WriteLine(line);
+                LineObserverForTest?.Invoke(line);
+            }
+            lock (_lineGate) StandDownLineIfIdle();
+        }
+
+        /// <summary>Under the gate: no capture running and no line waiting, so the work is no longer drained.</summary>
+        private void StandDownLineIfIdle()
+        {
+            if (_captureLine == null || _lineScheduler == null) return;
+            if (_sampling || Volatile.Read(ref _captureDone) != 0) return;
+            _lineScheduler.Unregister(_captureLine);
         }
 
         // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
@@ -265,6 +339,11 @@ namespace JJFlexWpf
 
         private void FinalizeSampling()
         {
+            // The end line's numbers, recorded BEFORE sampling is marked over, so the
+            // writer never stands its work down between the two (repair 1, B2).
+            Volatile.Write(ref _capturedFrames, _sampleFramesCaptured);
+            Volatile.Write(ref _capturedChannels, _channels.Length);
+            Volatile.Write(ref _captureDone, 1);
             _sampling = false;
 
             foreach (var st in _channels)
@@ -286,8 +365,6 @@ namespace JJFlexWpf
                 st.NoiseProfile = profile;
                 st.SamplingFrames.Clear();
             }
-
-            Trace.WriteLine($"SpectralSubtraction: noise profile captured ({_sampleFramesCaptured} frames, {_channels.Length} channel(s))");
         }
 
         private int ProcessSubtraction(Span<float> buffer, int offset, int totalRead, int channels)
@@ -336,8 +413,11 @@ namespace JJFlexWpf
             for (int i = 0; i < FftSize; i++)
                 _fftBuffer[i] = st.InputAccum[i] * _window[i];
 
-            // Forward FFT (in-place, returns complex pairs)
-            System.Numerics.Complex[] spectrum = FftSharp.FFT.Forward(_fftBuffer);
+            // Forward FFT, in place on the preallocated spectrum (repair 1, B1)
+            System.Numerics.Complex[] spectrum = _spectrum;
+            for (int i = 0; i < FftSize; i++)
+                spectrum[i] = new System.Numerics.Complex(_fftBuffer[i], 0);
+            FftSharp.FFT.Forward(spectrum);
 
             // Subtract noise profile from magnitudes, preserving phase
             for (int i = 0; i < spectrum.Length && i < noiseProfile.Length; i++)

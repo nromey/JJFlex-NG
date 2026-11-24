@@ -51,7 +51,7 @@ namespace Radios.Tests
         private static List<float> Play(List<byte[]> packets, int at, int lost, string how, out long starvations, out long silent)
         {
             using var dec = new OpusDecoder(SamplingRate.Sampling48000, Channels.Stereo);
-            var q = new Queue();
+            var q = new RxBufferQueue();
             var mode = how == "today" ? RxCatchUpMode.Off : RxCatchUpMode.On;
             var playback = new RxPlaybackQueue("receive", Bpc, 10.0, Rate, 60, mode);
             var chain = new RxOpusChain(b => q.Enqueue(b), () => Rate, (b, cls, seam) => playback.NoteEnqueued(b, cls, seam));
@@ -241,7 +241,7 @@ namespace Radios.Tests
         [Fact]
         public void A_digital_mode_through_a_forced_loss_gets_no_join_and_no_splice()
         {
-            var q = new Queue();
+            var q = new RxBufferQueue();
             var playback = new RxPlaybackQueue("receive", Bpc, 10.0, Rate, 60, RxCatchUpMode.On);
             var output = new float[Fpb * Bpc * 2];
             float[] buffer = Array.Empty<float>(); uint offset = 0;

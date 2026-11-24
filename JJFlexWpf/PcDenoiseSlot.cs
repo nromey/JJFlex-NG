@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using JJPortaudio;
+using JJTrace;
 using Radios;
 
 namespace JJFlexWpf
@@ -255,16 +256,25 @@ namespace JJFlexWpf
                 ReferenceEquals(Volatile.Read(ref _warming)?.Choice, choice));
         }
 
+        /// <param name="scheduler">
+        /// Where this slot's off-audio work is drained (Track RT, #1232): its
+        /// trace lines, its results, its retired banks, its scratch and the
+        /// builds it asks for. The shared off-audio writer when null; a test
+        /// passes its own.
+        /// </param>
         internal PcDenoiseSlot(DenoiseFamily family, string initialId, int sampleRate, int channels,
-            DenoiseEngineCatalog catalog, DenoiseDirection direction = DenoiseDirection.Receive, RxLagBudget? budget = null)
+            DenoiseEngineCatalog catalog, DenoiseDirection direction = DenoiseDirection.Receive, RxLagBudget? budget = null,
+            IOffAudioScheduler? scheduler = null)
         {
             // The direction first: the default parameters below read it.
             _direction = direction;
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
             _nextAudio = new float[Math.Max(1, sampleRate / 100) * Math.Max(1, channels)];
             _retimeAudio = new float[_nextAudio.Length];
+            _scheduler = scheduler ?? OffAudioDrainer.Shared;
             _scratchMaker = new ScratchMaker(this);
-            _traceDrainer = new TraceDrainer(this);
+            _traceWork = new SlotTraces(this);
+            _events = new SlotEvents(this);
             if (direction == DenoiseDirection.Receive) _seamTrail = new SeamTrail(sampleRate);
             if (direction == DenoiseDirection.Receive)
             {
@@ -306,6 +316,9 @@ namespace JJFlexWpf
                     Volatile.Write(ref _choice.Failure, ex.Message);
                 }
             }
+            // Last, once everything the writer could read is in place (Track RT).
+            _scheduler.Register(_traceWork);
+            _scheduler.Register(_events);
         }
 
         /// <summary>
@@ -526,6 +539,25 @@ namespace JJFlexWpf
         private void QueueBuild(Choice choice, DenoiseEngineEntry entry) =>
             _ = Task.Run(() => BuildChoice(choice, entry));
 
+        /// <summary>
+        /// <see cref="RequestBuild"/> from the audio thread (Track RT, #1232):
+        /// the same checks and the same claim, but the build is started by the
+        /// off-audio writer, because starting a task allocates and queues work.
+        /// A newer request replaces one not yet started: that choice is no
+        /// longer the current one, so nothing is lost by not building it.
+        /// </summary>
+        private void RequestBuildFromAudio(Choice choice)
+        {
+            var entry = choice.Entry;
+            if (entry?.Factory == null || entry.Side != DenoiseSide.Pc || entry.Family != Family ||
+                !entry.Serves(Direction) || Volatile.Read(ref _closed) != 0 ||
+                Interlocked.CompareExchange(ref choice.BuildClaim, 1, 0) != 0) return;
+            Volatile.Write(ref _buildFromAudio, choice);
+            _events.Signal();
+        }
+
+        private Choice? _buildFromAudio;
+
         private void BuildChoice(Choice choice, DenoiseEngineEntry entry)
         {
             PerChannelDenoiserBank? bank = null;
@@ -560,7 +592,7 @@ namespace JJFlexWpf
             var initial = new System.Collections.ObjectModel.ReadOnlyDictionary<string, EngineSettingValue>(values);
             builtFrom = initial;
             var direction = _direction;
-            var bank = new PerChannelDenoiserBank(() => entry.Factory!(initial, direction), _channels);
+            var bank = new PerChannelDenoiserBank(() => entry.Factory!(initial, direction), _channels, _scheduler);
             try
             {
                 Parameters? applied = null;
@@ -587,7 +619,9 @@ namespace JJFlexWpf
             Action<PerChannelDenoiserBank>? prepareSpectral, RxContentClass cls = RxContentClass.Unclassified, bool gap = false)
         {
             if (_direction == DenoiseDirection.Transmit) { ProcessTransmit(audio, permitted); return; }
-            RequestTraceDrain();
+            // Track RT (#1232): no drain is asked for here any more. Lines this
+            // buffer records are written by the off-audio writer on its period,
+            // including the ones the very last buffer records.
             BeginSeams(audio.Length / Math.Max(1, _channels));
             try { ProcessReceive(audio, permitted, profilePresent, capturing, prepareSpectral, cls, gap); }
             finally { EndSeams(); }
@@ -679,7 +713,7 @@ namespace JJFlexWpf
             }
             // Every buffer rechecks: Select may have observed A immediately
             // before this thread installed B. The shared claim prevents two starters.
-            if (choice.Id != RunningEngineId) RequestBuild(choice);
+            if (choice.Id != RunningEngineId) RequestBuildFromAudio(choice);
             if (_warming != null && !ReferenceEquals(_warming.Choice, choice))
             { Retire(_warming.Bank); _warming = null; _warmSamples = 0; }
             InstallHook?.Invoke("before-ready-take");
@@ -924,7 +958,7 @@ namespace JJFlexWpf
                 // was running keeps running.
                 if (swap) { StopFailedChoice(choice); return; }
             }
-            else if (choice.Id != RunningEngineId) RequestBuild(choice);
+            else if (choice.Id != RunningEngineId) RequestBuildFromAudio(choice);
             // Repair round 3: a whole setup's live values are adopted here, on
             // an unkeyed buffer, with its engine swap, and never mid-over.
             if (swap) AdoptPendingView();
@@ -1291,26 +1325,34 @@ namespace JJFlexWpf
         internal bool ScratchReadyForTest(int n) => _nextAudio.Length == n || Volatile.Read(ref _preparedScratch)?.Length == n;
 
         /// <summary>
-        /// Makes the scratch for a new buffer length on a pool thread, from one work
-        /// item made with the slot, so the audio thread allocates nothing for it (B4).
+        /// Makes the scratch for a new buffer length off the audio thread, so the
+        /// audio thread allocates nothing for it (B4). Since Track RT (#1232) the
+        /// request only sets a latch and the slot's pending flag; the off-audio
+        /// writer makes the array (it used to be queued to the thread pool from
+        /// the audio thread).
         /// </summary>
-        private sealed class ScratchMaker : IThreadPoolWorkItem
+        private sealed class ScratchMaker
         {
             private readonly PcDenoiseSlot _slot;
             private int _busy, _length;
             public ScratchMaker(PcDenoiseSlot slot) => _slot = slot;
 
+            /// <summary>Audio side: a scratch of this length is wanted. No allocation, nothing queued.</summary>
             public void Request(int length)
             {
                 if (Volatile.Read(ref _slot._preparedScratch)?.Length == length) return;
                 if (Interlocked.Exchange(ref _busy, 1) != 0) return;
                 Volatile.Write(ref _length, length);
-                ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
+                _slot._events.Signal();
             }
 
-            public void Execute()
+            public bool Requested => Volatile.Read(ref _busy) != 0;
+
+            /// <summary>Off the audio thread: make what was asked for, if anything was.</summary>
+            public void MakeIfRequested()
             {
-                // Tests only: hold the maker, as a busy pool would (Codex's re-check, R4a).
+                if (Volatile.Read(ref _busy) == 0) return;
+                // Tests only: hold the maker, as a busy writer would (Codex's re-check, R4a).
                 _slot.ScratchMakerGateForTest?.Wait(TimeSpan.FromSeconds(10));
                 int length = Volatile.Read(ref _length);
                 Volatile.Write(ref _slot._preparedScratch, new float[length]);
@@ -1714,13 +1756,13 @@ namespace JJFlexWpf
             if (_onPhase) _onPhase = false;
         }
 
-        // -- Trace lines: Track T's record-and-drain (Codex's re-check of 5a0a8c93) --
+        // -- Trace lines: record and drain (Codex's re-check of 5a0a8c93; Track RT, #1232) --
         //
-        // The audio path only copies a fixed record into a preallocated ring. The
-        // next Process call, before it processes anything, asks for the ring to be
-        // written (as Track T's feeding thread does for the playback queue, once a
-        // packet); a preallocated work item formats and writes, in order. Nothing
-        // is queued from inside a buffer's processing, and nothing is formatted there.
+        // The audio path only copies a fixed record into a preallocated ring
+        // (the shared helper's, JJTrace.RecordRing). The off-audio writer formats
+        // and writes the lines, in order, on its period: nothing is asked for or
+        // queued from inside a buffer's processing, nothing is formatted there,
+        // and a line the last buffer records is written with no further buffer.
 
         private enum TraceKind : byte { Drain, Retime }
 
@@ -1734,26 +1776,28 @@ namespace JJFlexWpf
             public RetimeNote Note;
         }
 
-        private const int TraceCapacity = 64;
-        private readonly TraceRecord[] _traceRing = new TraceRecord[TraceCapacity];
-        private long _traceHead, _traceTail, _traceDropped;
-        private int _tracePending;
-        // One drain at a time (Codex's re-check 2 of 0d8ecb3c): 1 from the moment a drain
-        // is queued until it has finished, so a slow writer never collects a queue of
-        // redundant work items, each of which can make the pool allocate on this thread.
-        private int _traceDrainState;
-        private long _traceDrainsQueued;
-        private readonly object _traceLock = new();
-        private TraceDrainer? _traceDrainer;
+        internal const int TraceCapacity = 64;
+        private readonly RecordRing<TraceRecord> _traceRing = new(TraceCapacity);
+        private readonly IOffAudioScheduler _scheduler;
+        // One drain at a time, looking again before it stands down (Codex's re-check 2
+        // of 0d8ecb3c): OffAudioWork.Drain's own discipline now, shared by the writer's
+        // period and DisposeOwned's flush.
+        private readonly SlotTraces _traceWork;
+        private readonly SlotEvents _events;
 
         /// <summary>Tests only: each trace line, as it is written.</summary>
         internal Action<string>? TraceObserverForTest { get; set; }
 
-        /// <summary>Tests only: lines recorded and not yet handed to a writer.</summary>
-        internal bool TracePendingForTest => Volatile.Read(ref _tracePending) != 0;
+        /// <summary>Tests only: lines recorded and not yet written.</summary>
+        internal bool TracePendingForTest => _traceRing.Pending;
 
-        /// <summary>Tests only: drains handed to the thread pool, ever.</summary>
-        internal long TraceDrainsQueuedForTest => Interlocked.Read(ref _traceDrainsQueued);
+        /// <summary>Tests only: the slot's trace work and its event work (results, retirements, scratch, builds).</summary>
+        internal OffAudioWork TraceWorkForTest => _traceWork;
+        internal OffAudioWork EventWorkForTest => _events;
+
+        /// <summary>Tests only: the record rings' own arrays, to prove neither is a large object.</summary>
+        internal object TraceStorageForTest => _traceRing.Storage;
+        internal object PublishStorageForTest => _publishes.Storage;
 
         /// <summary>Tests only: record a turn-off line carrying <paramref name="delay"/>, as the audio path does.</summary>
         internal void TraceForTest(int delay) => TraceDrain(LagCause.TurnOff, default, fellBack: false, onOff: -1, delay: delay);
@@ -1773,42 +1817,28 @@ namespace JJFlexWpf
         /// <summary>The audio path's side: copy one record into the ring. No allocation, no lock, no wait.</summary>
         private void RecordTrace(ref TraceRecord r)
         {
-            long head = _traceHead;
-            if (head - Volatile.Read(ref _traceTail) >= TraceCapacity) { Interlocked.Increment(ref _traceDropped); return; }
-            _traceRing[head % TraceCapacity] = r;
-            Volatile.Write(ref _traceHead, head + 1);
-            Volatile.Write(ref _tracePending, 1);
+            _traceRing.TryRecord(in r);
         }
 
-        /// <summary>
-        /// Once a buffer, before processing it: when lines are waiting, hand their
-        /// writing to the thread pool. An interlocked read when there is nothing to do.
-        /// </summary>
-        private void RequestTraceDrain()
+        /// <summary>Format and write every recorded line, in order, on this thread (the slot's disposal; tests). Never the audio thread.</summary>
+        internal void DrainTraces() => _traceWork.Drain();
+
+        private void WriteRecordedTraces()
         {
-            if (Volatile.Read(ref _tracePending) == 0) return;
-            // A drain queued or running will write these too: it looks again before it stops.
-            if (Interlocked.CompareExchange(ref _traceDrainState, 1, 0) != 0) return;
-            Interlocked.Exchange(ref _tracePending, 0);
-            Interlocked.Increment(ref _traceDrainsQueued);
-            ThreadPool.UnsafeQueueUserWorkItem(_traceDrainer!, preferLocal: false);
+            _traceRing.TakePending();
+            long dropped = _traceRing.TakeLost();
+            if (dropped > 0) WriteTrace($"PcDenoiseSlot: {Family} lag shifter: {dropped} trace line(s) lost: the ring filled before they were written");
+            // What was recorded when this pass began, in order; anything later is the
+            // next pass's, after its own loss line (OffAudioWork looks again).
+            for (int n = _traceRing.Count; n > 0 && _traceRing.TryTake(out var r); n--) WriteTrace(FormatTrace(in r));
         }
 
-        /// <summary>Format and write every recorded line, in order (a pool thread, or the slot's disposal).</summary>
-        internal void DrainTraces()
+        private sealed class SlotTraces : OffAudioWork
         {
-            lock (_traceLock)
-            {
-                long dropped = Interlocked.Exchange(ref _traceDropped, 0);
-                if (dropped > 0) WriteTrace($"PcDenoiseSlot: {Family} lag shifter: {dropped} trace line(s) lost: the ring filled before they were written");
-                long head = Volatile.Read(ref _traceHead);
-                for (long tail = _traceTail; tail < head; tail++)
-                {
-                    var r = _traceRing[tail % TraceCapacity];
-                    Volatile.Write(ref _traceTail, tail + 1);
-                    WriteTrace(FormatTrace(in r));
-                }
-            }
+            private readonly PcDenoiseSlot _slot;
+            public SlotTraces(PcDenoiseSlot slot) => _slot = slot;
+            public override bool Pending => base.Pending || _slot._traceRing.Pending;
+            protected override void DrainCore() => _slot.WriteRecordedTraces();
         }
 
         private string FormatTrace(in TraceRecord r)
@@ -1833,29 +1863,6 @@ namespace JJFlexWpf
         {
             Trace.WriteLine(line);
             TraceObserverForTest?.Invoke(line);
-        }
-
-        private sealed class TraceDrainer : IThreadPoolWorkItem
-        {
-            private readonly PcDenoiseSlot _slot;
-            public TraceDrainer(PcDenoiseSlot slot) => _slot = slot;
-
-            /// <summary>
-            /// Write, then stand down; and if lines arrived while writing, take the drain
-            /// back and write again, so the last line is never left waiting for a buffer
-            /// that may not come.
-            /// </summary>
-            public void Execute()
-            {
-                while (true)
-                {
-                    _slot.DrainTraces();
-                    Volatile.Write(ref _slot._traceDrainState, 0);
-                    if (Volatile.Read(ref _slot._tracePending) == 0) return;
-                    if (Interlocked.CompareExchange(ref _slot._traceDrainState, 1, 0) != 0) return;
-                    Interlocked.Exchange(ref _slot._tracePending, 0);
-                }
-            }
         }
 
         private void TraceEvents(PadLine line, LagCause cause)
@@ -1940,26 +1947,122 @@ namespace JJFlexWpf
                 { int i = f * channels + ch; oldAudio[i] = oldAudio[i] * (1 - gain) + newAudio[i] * gain; }
             }
         }
-        private void Publish(Choice choice, bool processing, string? failure = null, bool slotStopped = false, SwitchNote? note = null) =>
-            ThreadPool.QueueUserWorkItem(_ =>
+        // -- Results and retirements, off the audio thread (Track RT, #1232) --
+        //
+        // Both used to be a ThreadPool.QueueUserWorkItem with a capturing lambda,
+        // from inside a buffer's processing on either direction's audio thread:
+        // a closure and a delegate allocated, and pool work queued, at every
+        // engine switch, warm-up and retirement. Now a result is a record copied
+        // into a ring and a retired bank is pushed on an intrusive stack; the
+        // off-audio writer disposes the banks and then raises the results, in
+        // the order they were published (the pool could reorder them).
+
+        private struct PublishRecord
+        {
+            public Choice Choice;
+            public bool Processing, SlotStopped, HasNote;
+            public string? Failure;
+            public SwitchNote Note;
+        }
+
+        /// <summary>Results not yet raised. One per switch, start or failure; 64 is far beyond what can happen between two writer periods.</summary>
+        internal const int PublishCapacity = 64;
+        private readonly RecordRing<PublishRecord> _publishes = new(PublishCapacity);
+        private PerChannelDenoiserBank? _retired;
+
+        /// <summary>Audio side: a result to raise. A copy into a ring: no allocation, no lock, nothing queued.</summary>
+        private void Publish(Choice choice, bool processing, string? failure = null, bool slotStopped = false, SwitchNote? note = null)
+        {
+            var r = new PublishRecord
             {
+                Choice = choice, Processing = processing, Failure = failure, SlotStopped = slotStopped,
+                HasNote = note.HasValue, Note = note.GetValueOrDefault(),
+            };
+            _publishes.TryRecord(in r);
+        }
+
+        /// <summary>
+        /// Audio side: a bank this slot no longer runs, for the off-audio writer
+        /// to dispose. Pushed on an intrusive stack (no allocation, never full,
+        /// never lost); a bank retired twice is pushed once.
+        /// </summary>
+        private void Retire(PerChannelDenoiserBank bank)
+        {
+            if (!bank.ClaimRetirement()) return;
+            var head = Volatile.Read(ref _retired);
+            while (true)
+            {
+                bank.RetiredNext = head;
+                var was = Interlocked.CompareExchange(ref _retired, bank, head);
+                if (ReferenceEquals(was, head)) break;
+                head = was;
+            }
+        }
+
+        /// <summary>Off the audio thread: dispose every bank retired so far, oldest first.</summary>
+        private void DisposeRetired()
+        {
+            var list = Interlocked.Exchange(ref _retired, null);
+            PerChannelDenoiserBank? oldestFirst = null;
+            while (list != null) { var next = list.RetiredNext; list.RetiredNext = oldestFirst; oldestFirst = list; list = next; }
+            while (oldestFirst != null)
+            {
+                var next = oldestFirst.RetiredNext;
+                oldestFirst.RetiredNext = null;
+                oldestFirst.Dispose();
+                oldestFirst = next;
+            }
+        }
+
+        /// <summary>Off the audio thread: raise every recorded result, in order, with the checks the pool's lambda made.</summary>
+        private void RaisePublished()
+        {
+            _publishes.TakePending();
+            long lost = _publishes.TakeLost();
+            if (lost > 0) Trace.WriteLine($"PcDenoiseSlot: {Family}: {lost} engine result(s) lost: the ring filled before they were raised");
+            for (int left = _publishes.Count; left > 0 && _publishes.TryTake(out var r); left--)
+            {
+                var choice = r.Choice;
                 // The switch's record, written here off the audio thread (#873).
-                if (note is { } n)
+                if (r.HasNote)
+                {
+                    var n = r.Note;
                     Trace.WriteLine($"PcDenoiseSlot: {Family} switched to {choice.Id}: " +
                         (n.Mute ? "muted switch" : n.Aligned ? "aligned fade" : "unaligned switch") +
                         $", correlation {n.R0:0.000} and {n.R1:0.000}, held at {n.Held} samples");
+                }
                 EventHandler<DenoiseSelectionResult>? handler;
                 lock (_control)
                 {
-                    if (_closed != 0 || !ReferenceEquals(choice, _choice)) return;
+                    if (_closed != 0 || !ReferenceEquals(choice, _choice)) continue;
                     handler = SelectionResult;
                 }
                 // A listener may marshal to the UI, which may be disconnecting.
                 // Never hold the admission lock while invoking external code.
-                handler?.Invoke(this, new(choice.Direction, Family, choice.Id, processing, failure) { SlotStopped = slotStopped });
-            });
-        private static void Retire(PerChannelDenoiserBank bank) =>
-            ThreadPool.QueueUserWorkItem(_ => bank.Dispose());
+                handler?.Invoke(this, new(choice.Direction, Family, choice.Id, r.Processing, r.Failure) { SlotStopped = r.SlotStopped });
+            }
+        }
+
+        /// <summary>
+        /// The slot's event work: the scratch it asked for, the build it asked
+        /// for, its retired banks (disposed first), then its results.
+        /// </summary>
+        private sealed class SlotEvents : OffAudioWork
+        {
+            private readonly PcDenoiseSlot _slot;
+            public SlotEvents(PcDenoiseSlot slot) => _slot = slot;
+            public override bool Pending => base.Pending || _slot._publishes.Pending
+                || Volatile.Read(ref _slot._retired) != null || _slot._scratchMaker.Requested
+                || Volatile.Read(ref _slot._buildFromAudio) != null;
+            protected override void DrainCore()
+            {
+                _slot._scratchMaker.MakeIfRequested();
+                var build = Interlocked.Exchange(ref _slot._buildFromAudio, null);
+                if (build?.Entry != null && Volatile.Read(ref _slot._closed) == 0) _slot.QueueBuild(build, build.Entry);
+                _slot.DisposeRetired();
+                _slot.RaisePublished();
+            }
+        }
 
         // Admission closes before the pipeline waits for its process mark.
         // The interlocked mailbox gives its taker exclusive ownership. Only
@@ -1976,6 +2079,12 @@ namespace JJFlexWpf
         internal void DisposeOwned()
         {
             DrainTraces();
+            // Banks already retired are disposed here, and the slot's work is no
+            // longer drained (Track RT). A result still waiting is not raised: the
+            // slot is closed, which the raise checks.
+            DisposeRetired();
+            _scheduler.Unregister(_traceWork);
+            _scheduler.Unregister(_events);
             // The id stays, as it always did; only the bank goes, so the delay reads 0.
             var run = Volatile.Read(ref _runningBuild);
             if (run?.Bank != null) { run.Bank.Dispose(); Volatile.Write(ref _runningBuild, run with { Bank = null }); }
