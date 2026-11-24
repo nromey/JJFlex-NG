@@ -233,7 +233,7 @@ namespace JJFlexWpf
         public void StartNoiseSampling(int durationSeconds = 3)
         {
             var old = Volatile.Read(ref _spectralSub);
-            var fresh = new SpectralSubtractionProvider(_sampleRate, _channels) { ProfileName = old.ProfileName };
+            var fresh = new SpectralSubtractionProvider(_sampleRate, _channels) { ProfileName = old.ProfileName, LineScheduler = _scheduler };
             for (int ch = 0; ch < _channels; ch++) fresh.SetChannelProfile(ch, old.GetChannelProfile(ch));
             fresh.StartSampling(durationSeconds);
             Interlocked.Exchange(ref _spectralSub, fresh);

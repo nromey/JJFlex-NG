@@ -393,6 +393,236 @@ public sealed class ReceiveOffAudioWriterTests
         finally { Trace.Listeners.Remove(listener); }
     }
 
+    // ── Repair 1, B1: the captured-noise engine allocates nothing per FFT frame ──
+
+    /// <summary>
+    /// The subtraction as it stood at af0fc643, transcribed for one mono channel: the
+    /// reference the repaired provider must equal sample for sample. Its one difference
+    /// from the repair is exactly the thing repaired: FFT.Forward(double[]), which
+    /// returns a new complex array every frame.
+    /// </summary>
+    private sealed class OldSubtraction
+    {
+        private const int N = 1024, Hop = 512, Ring = N * 4;
+        private readonly double[] _window = new FftSharp.Windows.Hanning().Create(N);
+        private readonly double[] _fft = new double[N];
+        private readonly float[] _accum = new float[N];
+        private readonly float[] _out = new float[Ring];
+        private int _count, _read, _write;
+        public double[]? Profile;
+        public float Strength = 0.7f, Floor = 0.02f;
+
+        public void Process(float[] buffer)
+        {
+            for (int i = 0; i < buffer.Length; i++)
+            {
+                _accum[_count++] = buffer[i];
+                if (_count >= N)
+                {
+                    Frame();
+                    Array.Copy(_accum, Hop, _accum, 0, N - Hop);
+                    _count = N - Hop;
+                }
+            }
+            for (int i = 0; i < buffer.Length; i++)
+                if (_read != _write) { buffer[i] = _out[_read]; _read = (_read + 1) % Ring; }
+        }
+
+        private void Frame()
+        {
+            var profile = Profile!;
+            for (int i = 0; i < N; i++) _fft[i] = _accum[i] * _window[i];
+            System.Numerics.Complex[] spectrum = FftSharp.FFT.Forward(_fft);
+            for (int i = 0; i < spectrum.Length && i < profile.Length; i++)
+            {
+                double mag = spectrum[i].Magnitude, phase = spectrum[i].Phase;
+                double clean = mag - profile[i] * Strength;
+                double floor = mag * Floor;
+                if (clean < floor) clean = floor;
+                spectrum[i] = System.Numerics.Complex.FromPolarCoordinates(clean, phase);
+            }
+            FftSharp.FFT.Inverse(spectrum);
+            for (int i = 0; i < N && i < spectrum.Length; i++) _fft[i] = spectrum[i].Real;
+            for (int i = 0; i < N; i++) { int pos = (_write + i) % Ring; _out[pos] += (float)(_fft[i] * _window[i]); }
+            for (int i = 0; i < Hop; i++) _out[(_write + N + i) % Ring] = 0;
+            _write = (_write + Hop) % Ring;
+        }
+    }
+
+    private static double[] CapturedProfile(int seed)
+    {
+        var capture = new SpectralSubtractionProvider(48000, 1) { LineScheduler = new ManualOffAudioScheduler() };
+        capture.StartSampling(1);
+        var rng = new Random(seed);
+        var noise = new float[F];
+        while (capture.IsSampling)
+        {
+            for (int i = 0; i < F; i++) noise[i] = (float)((rng.NextDouble() - 0.5) * 0.1);
+            capture.ProcessInPlace(noise, 0, F, 1);
+        }
+        return capture.GetChannelProfile(0)!;
+    }
+
+    /// <summary>The repaired subtraction is the old one, bit for bit, on a fixed input with a real captured profile.</summary>
+    [Fact]
+    public void The_repaired_subtraction_is_bit_for_bit_the_old_one()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var profile = CapturedProfile(21);
+        var provider = new SpectralSubtractionProvider(48000, 1) { Enabled = true };
+        provider.SetChannelProfile(0, profile);
+        var reference = new OldSubtraction { Profile = profile };
+        var rng = new Random(22);
+        long compared = 0, differing = 0;
+        var a = new float[F]; var b = new float[F];
+        for (int block = 0; block < 400; block++)
+        {
+            for (int i = 0; i < F; i++)
+            {
+                double t = (block * F + i) / 48000.0;
+                a[i] = (float)(0.3 * Math.Sin(2 * Math.PI * 700 * t) + (rng.NextDouble() - 0.5) * 0.1);
+            }
+            Array.Copy(a, b, F);
+            provider.ProcessInPlace(a, 0, F, 1);
+            reference.Process(b);
+            for (int i = 0; i < F; i++) { compared++; if (BitConverter.SingleToInt32Bits(a[i]) != BitConverter.SingleToInt32Bits(b[i])) differing++; }
+        }
+        _out.WriteLine($"{compared} samples compared, {differing} differ");
+        Assert.True(compared > 100000);
+        Assert.Equal(0, differing);
+    }
+
+    /// <summary>
+    /// The engine the catalog really selects for captured noise ("spectral_capture"),
+    /// running in the real pipeline with a real captured profile, allocates nothing per
+    /// Process call. Counted inside a no-collection region, so a background collection
+    /// started elsewhere cannot add bytes this thread never allocated. Before repair 1
+    /// every FFT frame allocated a 16 KB complex array here.
+    /// </summary>
+    [Fact]
+    public void The_captured_noise_engine_with_a_real_profile_allocates_nothing_per_buffer_in_the_real_pipeline()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var writer = new ManualOffAudioScheduler();
+        using var p = new RxAudioPipeline(48000, 2, null, 0, writer);
+        var audio = new float[2 * F];
+        var rng = new Random(31);
+        void Fill() { for (int i = 0; i < F; i++) { float n = (float)((rng.NextDouble() - 0.5) * 0.1); audio[2 * i] = n; audio[2 * i + 1] = n * 0.8f; } }
+        // A real capture through the pipeline, as the operator takes one.
+        p.StartNoiseSampling(1);
+        for (int b = 0; b < 400 && p.IsNoiseSampling; b++) { Fill(); p.Process(audio); }
+        Assert.False(p.IsNoiseSampling, "the capture never finished");
+        Assert.True(p.HasNoiseProfile);
+        Assert.Equal("spectral_capture", p.SpectralSlot.ChosenEngineId);
+        p.SpectralEnabled = true;
+        var t = Stopwatch.StartNew();
+        while (p.SpectralSlot.ProcessingEngineId != "spectral_capture" && t.ElapsedMilliseconds < 5000) { Fill(); p.Process(audio); Thread.Sleep(1); }
+        Assert.Equal("spectral_capture", p.SpectralSlot.ProcessingEngineId);
+        for (int b = 0; b < 200; b++) { Fill(); p.Process(audio); }      // past the turn-on, the delay adoption and the JIT
+        writer.Tick();
+
+        long[]? bytes = null;
+        for (int attempt = 0; attempt < 3 && bytes == null; attempt++)
+        {
+            bool region = false;
+            for (long size = 16L * 1024 * 1024; size >= 1024 * 1024 && !region; size /= 2)
+            {
+                try { region = GC.TryStartNoGCRegion(size); break; }
+                catch (ArgumentOutOfRangeException) { }
+            }
+            var counted = new long[300];
+            for (int b = 0; b < counted.Length; b++)
+            {
+                Fill();
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                p.Process(audio);
+                counted[b] = GC.GetAllocatedBytesForCurrentThread() - before;
+            }
+            bool held = System.Runtime.GCSettings.LatencyMode == System.Runtime.GCLatencyMode.NoGCRegion;
+            if (held) GC.EndNoGCRegion();
+            if (region && held) bytes = counted;
+        }
+        Assert.True(bytes != null, "no window was held free of collections in three tries");
+        Assert.Equal("spectral_capture", p.SpectralSlot.ProcessingEngineId);
+        var hits = bytes!.Select((v, i) => (v, i)).Where(x => x.v != 0).Select(x => $"buffer {x.i}: {x.v} bytes").ToArray();
+        _out.WriteLine(hits.Length == 0 ? "300 buffers with the captured-noise engine running: nothing allocated" : string.Join("; ", hits));
+        Assert.Empty(hits);
+    }
+
+    // ── Repair 1, B2: the capture's end line is written off the receive thread ──
+
+    /// <summary>Blocks every line carrying its marker until released (three seconds at most), recording the thread.</summary>
+    private sealed class GatedLines : TraceListener
+    {
+        private readonly string _match;
+        public readonly ManualResetEventSlim Release = new(false);
+        public readonly ConcurrentQueue<(string Line, int Thread)> Got = new();
+        public GatedLines(string match) { _match = match; }
+        public override void Write(string? message) { }
+        public override void WriteLine(string? message)
+        {
+            if (message == null || !message.Contains(_match)) return;
+            Got.Enqueue((message, Environment.CurrentManagedThreadId));
+            Release.Wait(TimeSpan.FromSeconds(3));
+        }
+    }
+
+    /// <summary>
+    /// A noise capture ends inside Process, on the receive thread, and wrote its
+    /// "noise profile captured" line there. With a listener that blocks, the buffer
+    /// that ends the capture returns at once; the writer then writes the same line on
+    /// another thread, and stands its work down.
+    /// </summary>
+    [Fact]
+    public void A_capture_s_end_line_is_written_by_the_writer_not_by_the_buffer_that_ends_it()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var writer = new ManualOffAudioScheduler();
+        // Three channels and two seconds: a line no other test writes (186 frames, 3 channel(s)).
+        var provider = new SpectralSubtractionProvider(48000, 3) { LineScheduler = writer };
+        const string expected = "SpectralSubtraction: noise profile captured (186 frames, 3 channel(s))";
+        var observed = new ConcurrentQueue<(string Line, int Thread)>();
+        provider.LineObserverForTest = l => observed.Enqueue((l, Environment.CurrentManagedThreadId));
+        var gate = new GatedLines("(186 frames, 3 channel(s))");
+        Trace.Listeners.Add(gate);
+        try
+        {
+            provider.StartSampling(2);
+            Assert.True(writer.IsRegistered(provider.CaptureLineForTest!));
+            var buffer = new float[3 * F];
+            var rng = new Random(41);
+            int me = Environment.CurrentManagedThreadId;
+            long slowest = 0;
+            while (provider.IsSampling)
+            {
+                for (int i = 0; i < buffer.Length; i++) buffer[i] = (float)((rng.NextDouble() - 0.5) * 0.1);
+                long t0 = Stopwatch.GetTimestamp();
+                provider.ProcessInPlace(buffer, 0, buffer.Length, 3);
+                slowest = Math.Max(slowest, Stopwatch.GetTimestamp() - t0);
+            }
+            double slowestMs = slowest * 1000.0 / Stopwatch.Frequency;
+            _out.WriteLine($"slowest buffer {slowestMs:F2} ms");
+            Assert.True(slowestMs < 500, "the buffer that ended the capture waited for the listener");
+            Assert.Empty(gate.Got);
+            Assert.Empty(observed);
+            Assert.True(provider.CaptureLineForTest!.Pending, "the capture's end was not recorded");
+
+            int writerThread = 0;
+            var tick = Task.Run(() => { writerThread = Environment.CurrentManagedThreadId; writer.Tick(); });
+            var wait = Stopwatch.StartNew();
+            while (gate.Got.IsEmpty && wait.ElapsedMilliseconds < 5000) Thread.Sleep(2);
+            Assert.True(gate.Got.TryPeek(out var got), "the writer never wrote the line");
+            Assert.EndsWith(expected, got.Line);
+            Assert.NotEqual(me, got.Thread);
+            gate.Release.Set();
+            Assert.True(tick.Wait(10000));
+            Assert.Equal(new[] { expected }, observed.Select(o => o.Line));
+            Assert.Equal(writerThread, observed.Single().Thread);
+            Assert.False(writer.IsRegistered(provider.CaptureLineForTest!), "the work was not stood down after the capture");
+        }
+        finally { gate.Release.Set(); Trace.Listeners.Remove(gate); }
+    }
+
     private sealed class LineListener : TraceListener
     {
         private readonly string _match;
