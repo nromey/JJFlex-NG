@@ -137,9 +137,17 @@ namespace JJPortaudio
     /// channels): the larger channel's magnitude, and one gain for both.</para>
     /// <para><b>The measured times.</b> On a step up, the detector reaches 63
     /// percent of the step in the attack time. On a step down it falls to 37
-    /// percent in the release time plus about the attack time, because the
-    /// attack smoothing follows the release (the paper's own caveat for the
-    /// decoupled form).</para>
+    /// percent LATER than the release time, because the attack smoothing
+    /// follows the release (the paper's own caveat for the decoupled form).
+    /// "Release plus attack" is an approximation, not an identity across the
+    /// levers' ranges. It is right when either time is much longer than the
+    /// other, and falls short by most when the two are equal: at 48 kHz it
+    /// measures 155.1 ms for attack 5 and release 150 (their sum is 155),
+    /// 2000.1 ms for attack 0.1 and release 2000, and 305.0 ms for attack 300
+    /// and release 5; but 643.9 ms for attack 300 and release 300, which is
+    /// 7.3 percent over their sum (two equal one-pole stages in a row). The
+    /// release lever sets the peak follower's fall; what the operator hears
+    /// carries the attack. (Measured by Codex's check, 2026-11-24.)</para>
     /// <para><b>The order inside the stage:</b> the phase rotator, the drive,
     /// the detector and the curve, the makeup. With ratio 1, drive 0, makeup 0
     /// and the rotator off the output is the input, bit for bit; and audio

@@ -219,8 +219,12 @@ namespace JJPortaudio
                 double released = _released + (1.0 - _released) * release;
                 if (released > least) released = least;
                 // Home at last: a step of a hundred-thousandth is 100 dB down, and
-                // from here on the audio passes bit for bit again.
-                if (1.0 - released < 1e-5) released = 1.0;
+                // from here on the audio passes bit for bit again. ONLY when
+                // nothing in the window still needs reduction (repair 1, B1):
+                // a stream a millionth over the ceiling needs a gain within
+                // that hundred-thousandth of one, and going home then let every
+                // sample of it out over the ceiling.
+                if (least >= 1.0 && 1.0 - released < 1e-5) released = 1.0;
                 _released = released;
 
                 gain = released;
@@ -246,18 +250,23 @@ namespace JJPortaudio
                     if (_delayAt >= delayFloats) _delayAt = 0;
                 }
 
+                bool changed = lookAhead > 0;
                 if (gain < 1.0)
                 {
                     yl = (float)(yl * gain); yr = (float)(yr * gain);
-                    // The arithmetic already keeps each sample at or under the
-                    // ceiling; this makes the guarantee independent of rounding.
-                    if (yl > ceiling) yl = ceiling; else if (yl < -ceiling) yl = -ceiling;
-                    if (yr > ceiling) yr = ceiling; else if (yr < -ceiling) yr = -ceiling;
                     limited++;
                     if (gain < smallest) smallest = gain;
-                    buffer[at] = yl; buffer[at + 1] = yr;
+                    changed = true;
                 }
-                else if (lookAhead > 0)
+                // The ceiling itself, on EVERY road (repair 1, B1), whatever
+                // gain was or was not applied: the arithmetic above already
+                // keeps each sample at or under it, and this makes the
+                // guarantee independent of the arithmetic and of rounding. A
+                // sample at or under the ceiling is never touched by it, so
+                // audio that never exceeds the ceiling still passes bit for bit.
+                if (yl > ceiling) { yl = ceiling; changed = true; } else if (yl < -ceiling) { yl = -ceiling; changed = true; }
+                if (yr > ceiling) { yr = ceiling; changed = true; } else if (yr < -ceiling) { yr = -ceiling; changed = true; }
+                if (changed)
                 {
                     buffer[at] = yl; buffer[at + 1] = yr;
                 }

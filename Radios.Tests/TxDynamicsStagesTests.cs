@@ -157,9 +157,42 @@ namespace Radios.Tests
             }
             double releaseMeasuredMs = releaseFrames * 1000.0 / rate;
             // The decoupled detector: the attack smoothing follows the release,
-            // so the fall takes the release plus about the attack.
+            // so the fall takes the release plus about the attack. "Plus the
+            // attack" within 3 percent holds HERE, where the attack is a
+            // thirtieth of the release; the next test pins how far it holds.
             double expected = releaseMs + attackMs;
             Assert.InRange(releaseMeasuredMs, expected * 0.97, expected * 1.03);
+        }
+
+        /// <summary>
+        /// The scope of "the fall takes the release plus the attack" (Codex's
+        /// check measured these at 48 kHz): an approximation, not an identity
+        /// across the levers' ranges. It is right when either time is much
+        /// longer than the other, and short by most when the two are equal:
+        /// 7.3 percent, two equal one-pole stages in a row.
+        /// </summary>
+        [Theory]
+        [InlineData(5f, 150f, 155.083, 0.0)]
+        [InlineData(0.1f, 2000f, 2000.104, 0.0)]
+        [InlineData(300f, 5f, 305.042, 0.0)]
+        [InlineData(300f, 300f, 643.854, 7.3)]
+        public void The_fall_to_a_third_is_the_release_plus_the_attack_except_when_the_two_are_alike(float attackMs, float releaseMs, double measuredAtCheckMs, double percentOverTheSum)
+        {
+            const int rate = 48000;
+            var c = Compressor(Plain with { AttackMs = attackMs, ReleaseMs = releaseMs });
+            var one = new float[2];
+            for (int f = 0; f < rate * 12; f++) { one[0] = one[1] = 0.5f; c.Process(one, 2, rate); }
+            int frames = -1;
+            for (int f = 0; f < rate * 12 && frames < 0; f++)
+            {
+                one[0] = one[1] = 0f;
+                c.Process(one, 2, rate);
+                if (c.DetectorDb <= 20 * Math.Log10(0.5) - 20 / Math.Log(10)) frames = f + 1;
+            }
+            double ms = frames * 1000.0 / rate;
+            Assert.InRange(ms, measuredAtCheckMs * 0.99, measuredAtCheckMs * 1.01);
+            double over = (ms / (attackMs + releaseMs) - 1) * 100;
+            Assert.InRange(over, percentOverTheSum - 0.3, percentOverTheSum + 0.3);
         }
 
         // ── identity ──
@@ -441,6 +474,77 @@ namespace Radios.Tests
             Assert.True(stats.LimitedFrames > 1000);
             Assert.True(stats.MaxReductionDb > 6f);
             Assert.Equal(0, stats.OutputOverFullScale);
+        }
+
+        public static IEnumerable<object[]> NearUnity() =>
+            from rate in new[] { 48000, 24000, 16000, 12000, 8000 }
+            from ceiling in new[] { 0f, -6f, -12f }
+            from ms in new[] { 0f, 2.5f, 5f }
+            select new object[] { rate, ceiling, ms };
+
+        /// <summary>
+        /// Repair 1, B1 (Codex's check of 69ee357f). The gain a stream a
+        /// millionth over the ceiling needs is within a hundred-thousandth of
+        /// one, and the limiter's "home again" shortcut took that for home:
+        /// every sample left over the ceiling, for as long as the stream ran.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(NearUnity))]
+        public void A_stream_a_millionth_over_the_ceiling_never_leaves_over_it(int rate, float ceilingDb, float lookAheadMs)
+        {
+            float ceiling = ceilingDb >= 0 ? 1f : (float)Math.Pow(10, ceilingDb / 20.0);
+            float over = ceiling * 1.000001f;
+            Assert.True(over > ceiling, "the test's stream is not over the ceiling in single precision");
+            foreach (bool steady in new[] { true, false })
+            {
+                // A steady level, and a square wave at it: every sample over, both signs.
+                var input = new float[rate * 2];
+                for (int f = 0; f < rate; f++)
+                {
+                    float v = steady || (f / 16) % 2 == 0 ? over : -over;
+                    input[2 * f] = v; input[2 * f + 1] = f % 5 == 0 ? -v : v;
+                }
+                var lim = Limiter(new TxLimiterSettings { Enabled = true, CeilingDb = ceilingDb, LookAheadMs = lookAheadMs });
+                var output = Run((b, n, r) => lim.Process(b, n, r), input, rate);
+                float worst = output.Max(Math.Abs);
+                Assert.True(worst <= ceiling, $"a sample left at {worst:R}, above the ceiling {ceiling:R}");
+                var stats = lim.TakeOverStats();
+                Assert.True(stats.Caught > rate, $"caught {stats.Caught}"); // the control: it saw them as over
+                // Held by the GAIN, on nearly every frame (not only by the last clamp).
+                Assert.True(stats.LimitedFrames > rate * 9 / 10, $"the gain was reduced on only {stats.LimitedFrames} of {rate} frames");
+                Assert.Equal(0, stats.OutputOverFullScale);
+                Assert.Equal(TxLimiter.LookAheadFramesFor(lookAheadMs, (uint)rate), lim.AppliedLookAheadFrames);
+            }
+            // And the property the shortcut exists for is kept: the same stream AT the ceiling passes bit for bit.
+            var at = new float[rate * 2];
+            for (int i = 0; i < at.Length; i++) at[i] = (i / 2) % 3 == 0 ? -ceiling : ceiling;
+            var idle = Limiter(new TxLimiterSettings { Enabled = true, CeilingDb = ceilingDb, LookAheadMs = lookAheadMs });
+            var same = Run((b, n, r) => idle.Process(b, n, r), at, rate);
+            int delay = TxLimiter.LookAheadFramesFor(lookAheadMs, (uint)rate) * 2;
+            for (int i = delay; i < same.Length; i++) if (same[i] != at[i - delay]) Assert.Fail($"sample {i} changed");
+            Assert.Equal(0, idle.TakeOverStats().LimitedFrames);
+        }
+
+        [Fact]
+        public void After_an_over_a_stream_just_over_the_ceiling_is_still_held_while_the_gain_comes_home()
+        {
+            // The shortcut's other road: the gain is coming back from a real over
+            // when the stream settles a millionth over the ceiling. It must stop
+            // at what that stream needs, not carry on home.
+            const int rate = 48000;
+            var input = new float[rate * 4 * 2];
+            for (int f = 0; f < input.Length / 2; f++)
+            {
+                float v = f < 480 ? 3f : 1.000001f;
+                input[2 * f] = v; input[2 * f + 1] = v;
+            }
+            foreach (float ms in new[] { 0f, 5f })
+            {
+                var lim = Limiter(new TxLimiterSettings { Enabled = true, ReleaseMs = 100, LookAheadMs = ms });
+                var output = Run((b, n, r) => lim.Process(b, n, r), input, rate);
+                Assert.True(output.Max(Math.Abs) <= 1f, $"look-ahead {ms}: a sample left at {output.Max(Math.Abs):R}");
+                Assert.Equal(0, lim.TakeOverStats().OutputOverFullScale);
+            }
         }
 
         [Theory]
