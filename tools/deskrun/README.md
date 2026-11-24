@@ -71,10 +71,10 @@ inherits, not on the console's window station, or the child could not be
 created inside the job); 71 when something was left behind (a process or the
 desktop); 72 when a window from the job reached any desktop but the hidden
 one, or a new crash box appeared on the operator's screen; 73 when the job
-made sound; 74 when a watch could not measure; 75 when a process in the job
-crashed and the child itself reported success; 124 on timeout. A watch result
+made sound; 74 when a watch could not measure; 124 on timeout. A watch result
 (72, 73, 74) outranks everything else, then 71, then 124, then the child's
-own code (75 only in place of a 0).
+own code. How the job's other processes ended is reported and never changes
+the result (see "The crash still reports" below).
 
 ## What keeps the windows hidden, and what only watches
 
@@ -129,12 +129,13 @@ the child exists and both read back:
   SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX` (0x8003)**, set before
   `CreateProcess` and inherited, because deskrun never passes
   `CREATE_DEFAULT_ERROR_MODE` and neither does .NET's `Process.Start` (read in
-  `SafeProcessHandle.Windows.cs`), which is how dotnet starts vstest and vstest
-  starts testhost. It also covers what the job limit does not: the
-  critical-error box a failed DLL or disk access can raise, and a fail-fast
-  (`Environment.FailFast`, a stack overflow), which CoreCLR hands to Windows
-  Error Reporting directly through `RaiseFailFastException`, past the
-  unhandled-exception filter. The runtime's own `WindowsEventLog` test
+  `Process.Windows.cs` at dotnet/runtime v10.0.0, and in VSTest 17.11.1's
+  `ProcessHelper`, which calls it with `UseShellExecute` false; round 4 cited
+  `SafeProcessHandle.Windows.cs`, which Codex found is not where .NET 10 makes
+  that call), which is how dotnet starts vstest and vstest starts testhost. It also covers what the job limit does not: the
+  critical-error box a failed DLL or disk access can raise, and the runtime's
+  own fatal errors (`Environment.FailFast`, a stack overflow), which do not go
+  through the unhandled-exception filter. The runtime's own `WindowsEventLog` test
   suppresses both its unhandled-exception and its fail-fast dialogs exactly
   this way. Before trusting the read-back for other processes, the launcher
   checks it against its own `GetErrorMode` and refuses (70) if they disagree.
@@ -149,18 +150,48 @@ is why the job limit is the load-bearing one, and why each job process's
 error mode is reported at the end of every run, readings without the flags
 counted, rather than assumed.
 
-**The crash still reports.** deskrun holds a handle on every process it sees
-in the job and reads its exit code when it ends. A process that ended with an
-exception code (any 0xE... customer code, where .NET's 0xE0434352 lives, or
-one of Windows' own fault codes such as 0xC0000005 or 0xC000041D) is named as
-CRASHED, with the code in words, and a crash never ends the run at 0: when
-the child itself reported success, the run exits 75. A run whose test host
-crashed already fails through `dotnet test`'s own "test host process crashed"
-(exit 1), which stands. An exit with an ordinary error status (0xC00000BB,
-for example, which 334 WebView2 helpers ended with in one run) is reported
-apart and is not a crash. A process born and gone between two samples (about
-250 ms) is not seen, so its exit code is not reported; it was in the job, so
-the job's limit applied to it all the same.
+**The crash still reports, and the report decides nothing (round 5).**
+deskrun holds a handle on every process it SEES in the job and reads its exit
+code when it ends. That is a sample: a process is seen only if it was alive at
+one of the job-list samples, about every 250 ms, so one born and gone between
+two is not in the report at all (it was in the job, so the job's limits
+applied to it all the same). The report says so once, in its heading.
+
+- An exit code shaped like an exception is reported as "ended with exception
+  code X", with the code in words: any 0xE... customer code (where .NET's
+  unhandled-exception 0xE0434352 lives), one of Windows' own fault codes such
+  as 0xC0000005 or 0xC000041D, or one of the .NET runtime's own fatal codes.
+  Those last are HRESULTs the runtime passes to `TerminateProcess`, not
+  Windows exception codes: `Environment.FailFast` ends with 0x80131623
+  (`COR_E_FAILFAST`, measured on this machine's .NET 10 runtime; round 4 had
+  assumed 0xC0000409 and missed it), a .NET stack overflow with 0x800703E9
+  (`COR_E_STACKOVERFLOW`) and a fatal error inside the runtime with 0x80131506
+  (`COR_E_EXECUTIONENGINE`). The last two are read from dotnet/runtime v10.0.0
+  (`eepolicy.cpp`'s `HandleFatalError` and `HandleFatalStackOverflow`,
+  `excep.cpp`'s `CrashDumpAndTerminateProcess`, `corerror.xml` for the values)
+  and were not provoked live.
+- It is called an exception code, not a crash, because it is only a number:
+  an ordinary `Environment.Exit` with the same number, no exception anywhere,
+  reads the same.
+- An exit with an ordinary error status (0xC00000BB, for example, which 334
+  WebView2 helpers ended with in one run) is reported as an error status.
+- A read that fails is reported as the failure it is: "exit not read" with
+  the Windows error when the process had ended but its exit code could not be
+  read, "state not read" when waiting on it failed, and "not followed" when it
+  could not be opened or its membership of the job could not be checked.
+  Round 4 reported a failed exit read as "still running".
+
+**None of it changes the run's exit code.** Round 4 made an exception-shaped
+exit seen here end an otherwise passing run at 75, and Codex's re-check showed
+that promise could not be kept: the same crash ended at 0 when it was fast
+and at 75 when it was slow, and an ordinary exit with an exception-shaped
+number failed a passing run. Job notifications through a completion port
+would not close the gap either: the documentation of
+`JOBOBJECT_ASSOCIATE_COMPLETION_PORT` calls their delivery not guaranteed. So
+the exit code is the child's own: a run whose test host crashed already fails
+through `dotnet test`'s own "test host process crashed" (exit 1), and a
+grandchild that a passing test started, waited on and checked is that test's
+business.
 
 **Then the watches, which are SAMPLING TRIPWIRES, not proofs.** They look
 often for the case where the facts above did not hold, and end the run when
