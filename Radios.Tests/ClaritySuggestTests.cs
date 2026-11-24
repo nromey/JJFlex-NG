@@ -339,6 +339,139 @@ public sealed class ClaritySuggestTests
         else Assert.True(g.OverFullScaleAfter <= g.OverFullScaleBefore);
     }
 
+    // ── repair 2: an off or zero-mix band's stored drive and harmonics are the operator's ──
+
+    /// <summary>The four inactive starting points: high or low band, switched off or on at zero mix, each holding a stored drive and harmonics unlike the rule's defaults.</summary>
+    public static TheoryData<bool, bool> InactiveBands() => new() { { true, false }, { true, true }, { false, false }, { false, true } };
+
+    private const float StoredDrive = 24f;
+
+    private static ClaritySettings Inactive(bool high, bool enabledAtZero)
+    {
+        var d = ClaritySettings.Default;
+        return high
+            ? new ClaritySettings(new ClarityBand(enabledAtZero, 2000, StoredDrive, enabledAtZero ? 0 : 25, ClarityHarmonics.Odd), d.Low.WithEnabled(false))
+            : new ClaritySettings(d.High.WithEnabled(false), new ClarityBand(enabledAtZero, 120, StoredDrive, enabledAtZero ? 0 : 25, ClarityHarmonics.Even));
+    }
+
+    private static ClarityProposal ProposeFor(bool high, ClaritySettings current) =>
+        ClarityProposalRule.Propose(Deviations(hz => (high ? hz >= 1600 : hz <= 315) ? -10 : 0), current);
+
+    /// <summary>
+    /// A controlled renderer (the guard's seam): any band adding more than
+    /// <paramref name="mostMix"/> percent makes five samples over full scale.
+    /// It records the lowest drive it was ever asked to render, per band.
+    /// </summary>
+    private sealed class Renderer
+    {
+        private readonly float _mostMix;
+        public float LowestHighDrive = float.MaxValue, LowestLowDrive = float.MaxValue;
+        public Renderer(float mostMix) { _mostMix = mostMix; }
+        public float[] Render(ClaritySettings s)
+        {
+            if (!s.High.AddsNothing) LowestHighDrive = Math.Min(LowestHighDrive, s.High.DriveDb);
+            if (!s.Low.AddsNothing) LowestLowDrive = Math.Min(LowestLowDrive, s.Low.DriveDb);
+            float mix = Math.Max(s.High.AddsNothing ? 0 : s.High.MixPercent, s.Low.AddsNothing ? 0 : s.Low.MixPercent);
+            var x = new float[1000];
+            if (mix > _mostMix) for (int i = 0; i < 5; i++) x[i] = 1.5f;
+            return x;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(InactiveBands))]
+    public void An_inactive_band_is_proposed_on_with_its_stored_drive_and_harmonics(bool high, bool enabledAtZero)
+    {
+        var current = Inactive(high, enabledAtZero);
+        var p = ProposeFor(high, current);
+        var was = high ? current.High : current.Low;
+        var band = high ? p.Proposed.High : p.Proposed.Low;
+        Assert.True(high ? p.ProposesBrightness : p.ProposesFullness);
+        Assert.True(band.Enabled);
+        Assert.Equal(StoredDrive, band.DriveDb);
+        Assert.Equal(was.Harmonics, band.Harmonics);
+        Assert.Equal(high ? 40f : 30f, band.MixPercent, 3);   // a rise from an effective zero
+    }
+
+    [Theory]
+    [MemberData(nameof(InactiveBands))]
+    public void An_inactive_band_accepted_at_once_keeps_its_stored_drive(bool high, bool enabledAtZero)
+    {
+        var current = Inactive(high, enabledAtZero);
+        var r = new Renderer(mostMix: 100);
+        var g = ClarityPeakGuard.Apply(ProposeFor(high, current), new float[1000], 48000, 100, 2900, render: r.Render);
+        Assert.Equal(0, g.Steps);
+        Assert.False(g.Reduced);
+        Assert.Equal(StoredDrive, (high ? g.Proposal.Proposed.High : g.Proposal.Proposed.Low).DriveDb);
+        Assert.Equal(StoredDrive, high ? r.LowestHighDrive : r.LowestLowDrive);
+    }
+
+    [Theory]
+    [MemberData(nameof(InactiveBands))]
+    public void An_inactive_band_reduced_to_pass_keeps_its_stored_drive_and_shrinks_only_its_mix(bool high, bool enabledAtZero)
+    {
+        var current = Inactive(high, enabledAtZero);
+        var r = new Renderer(mostMix: 20);    // 40 or 30 percent goes over, and so does the first step (28, 21): two steps, the second a drive step
+        var g = ClarityPeakGuard.Apply(ProposeFor(high, current), new float[1000], 48000, 100, 2900, render: r.Render);
+        var band = high ? g.Proposal.Proposed.High : g.Proposal.Proposed.Low;
+        Assert.True(g.Reduced);
+        Assert.False(g.Withdrawn);
+        Assert.True(band.Enabled);
+        Assert.Equal(StoredDrive, band.DriveDb);
+        Assert.True(g.Steps >= 2, "the reduction never reached a drive step");
+        Assert.True(band.MixPercent <= 20 && band.MixPercent > 0);
+        Assert.Equal(StoredDrive, high ? r.LowestHighDrive : r.LowestLowDrive);
+    }
+
+    [Theory]
+    [MemberData(nameof(InactiveBands))]
+    public void A_proposal_below_the_stored_drive_is_lifted_to_it_before_the_first_render(bool high, bool enabledAtZero)
+    {
+        // The step-zero check: a proposal made the way the rule used to make it (the default drive, 12 or 6 dB).
+        var current = Inactive(high, enabledAtZero);
+        var p = ProposeFor(high, current);
+        p = p with { Proposed = high ? p.Proposed.WithHigh(p.Proposed.High.WithDrive(12)) : p.Proposed.WithLow(p.Proposed.Low.WithDrive(6)) };
+        var r = new Renderer(mostMix: 100);
+        var g = ClarityPeakGuard.Apply(p, new float[1000], 48000, 100, 2900, render: r.Render);
+        Assert.Equal(0, g.Steps);
+        Assert.Equal(StoredDrive, (high ? g.Proposal.Proposed.High : g.Proposal.Proposed.Low).DriveDb);
+        Assert.Equal(StoredDrive, high ? r.LowestHighDrive : r.LowestLowDrive);
+    }
+
+    [Theory]
+    [MemberData(nameof(InactiveBands))]
+    public void An_inactive_band_no_reduction_can_pass_is_withdrawn_and_its_settings_restored_exactly(bool high, bool enabledAtZero)
+    {
+        var current = Inactive(high, enabledAtZero);
+        var r = new Renderer(mostMix: 0);     // anything added goes over
+        var g = ClarityPeakGuard.Apply(ProposeFor(high, current), new float[1000], 48000, 100, 2900, render: r.Render);
+        Assert.True(g.Withdrawn);
+        Assert.Equal(current, g.Proposal.Proposed);
+        Assert.Equal(StoredDrive, high ? r.LowestHighDrive : r.LowestLowDrive);
+    }
+
+    [Theory]
+    [InlineData(12f)]
+    [InlineData(24f)]
+    public void Codex_case_through_the_public_road_a_disabled_high_band_keeps_its_stored_drive(float stored)
+    {
+        // Codex's recheck (2026-11-24): a disabled high band holding tune 2 kHz, mix 25 percent, drive 12 or 24 dB;
+        // a reference-shaped voice with presence 10 dB down; retained 1.2 kHz at 0.6 and 700 Hz at 0.35.
+        const int rate = 48000;
+        var current = ClaritySettings.Default.WithHigh(new ClarityBand(false, 2000, stored, 25, ClarityHarmonics.Even));
+        var retained = Tones(rate, 1, (1200, 0.6), (700, 0.35));
+        var r = ClaritySuggest.FromAudio(ReferenceShapedVoice(rate, hz => hz >= 1600 ? -10 : 0), null, rate, 100, 2900,
+            ClaritySuggestSource.RadioRecorderStandIn, null, new ClaritySuggestInput(current, retained, rate));
+        Assert.True(r.GuardRan);
+        Assert.Equal(stored, r.Proposal.Proposed.High.DriveDb);
+        var g = r.Guard!;
+        _out.WriteLine($"stored {stored} dB: {g.Steps} steps, withdrawn {g.Withdrawn}, offered {g.Proposal.Proposed.High}");
+        Assert.True(g.Proposal.Proposed.High.DriveDb >= stored, "the guard went below the stored drive");
+        if (g.Withdrawn) Assert.Equal(current, g.Proposal.Proposed);
+        else Assert.True(g.OverFullScaleAfter <= g.OverFullScaleBefore);
+        if (r.TryGetGuardedOffer(out var offer)) Assert.True(offer!.Proposed.High.DriveDb >= stored);
+    }
+
     [Fact]
     public void A_proposal_no_reduction_can_save_is_withdrawn_and_says_why()
     {

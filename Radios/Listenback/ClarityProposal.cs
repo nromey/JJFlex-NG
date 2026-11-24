@@ -71,8 +71,11 @@ public sealed record ClarityProposal(
 /// its mix is the current mix (zero when the band is off) plus
 /// <see cref="BrightnessMixPerDb"/> per dB of shortfall, between
 /// <see cref="MixFloorPercent"/> and <see cref="BrightnessMixMostPercent"/>.
-/// The drive and harmonic choice are kept when the band is already on, else
-/// the defaults (12 dB, even). Adding to the current mix is what makes the
+/// The drive and harmonic choice are ALWAYS the operator's stored ones,
+/// whether the band is on, off or at zero mix (repair 2, the orchestrator's
+/// ruling: an off band's drive and harmonics are still his choices); only
+/// turning the band on, its tune and a mix rise from its effective mix (zero
+/// when off) are proposed. Adding to the current mix is what makes the
 /// rule a convergence step (#152): a take made WITH Clarity already measures
 /// it, and a remaining shortfall asks for more, never less.</para>
 /// <para><b>Fullness</b> (the low band), the same with
@@ -143,9 +146,9 @@ public static class ClarityProposalRule
                     MixFloorPercent, BrightnessMixMostPercent);
                 var band = new ClarityBand(true,
                     wasOn ? high.TuneHz : firstShort.NominalHz,
-                    wasOn ? high.DriveDb : ClaritySettings.HighDriveDefaultDb,
+                    high.DriveDb,      // the operator's stored drive, on or off (repair 2)
                     mix,
-                    wasOn ? high.Harmonics : ClarityHarmonics.Even);
+                    high.Harmonics);   // and stored harmonics: only on, tune and a mix rise are proposed
                 band = ClaritySettings.Normalize(band, isHigh: true);
                 if (wasOn && band.Equals(high)) brightness = ClarityJudgement.AtTheRulesMost;
                 else { brightness = ClarityJudgement.Proposed; proposed = proposed.WithHigh(band); }
@@ -172,9 +175,9 @@ public static class ClarityProposalRule
                     MixFloorPercent, FullnessMixMostPercent);
                 var band = new ClarityBand(true,
                     wasOn ? low.TuneHz : ClaritySettings.LowTuneDefaultHz,
-                    wasOn ? low.DriveDb : ClaritySettings.LowDriveDefaultDb,
+                    low.DriveDb,       // the operator's stored drive, on or off (repair 2)
                     mix,
-                    wasOn ? low.Harmonics : ClarityHarmonics.Both);
+                    low.Harmonics);
                 band = ClaritySettings.Normalize(band, isHigh: false);
                 if (wasOn && band.Equals(low)) fullness = ClarityJudgement.AtTheRulesMost;
                 else { fullness = ClarityJudgement.Proposed; proposed = proposed.WithLow(band); }

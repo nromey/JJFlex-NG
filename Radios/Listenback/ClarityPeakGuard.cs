@@ -33,8 +33,9 @@ public sealed record ClarityGuardResult(
 /// #152): every band the proposal changes has its mix's INCREASE over the
 /// operator's current setting multiplied by <see cref="MixFactor"/>, and on
 /// every second step its drive lowered by <see cref="DriveStepDb"/>, never
-/// below the current band's. It never goes below the operator's current
-/// setting. A band whose increase falls below <see cref="MixLeastPercent"/>
+/// below the band's STORED drive, even when the band is off or at zero mix
+/// (repair 2; the floor is checked before the first render too). It never
+/// goes below the operator's current setting. A band whose increase falls below <see cref="MixLeastPercent"/>
 /// goes back to the current setting; when no band is left changed the
 /// proposal is WITHDRAWN (it is then "nothing", which the reader says, with
 /// the reason), and the current settings stand.</para>
@@ -73,7 +74,10 @@ public static class ClarityPeakGuard
         if (proposal.IsNothing)
             return new ClarityGuardResult(proposal, false, false, 0, overBefore, overBefore, peakBefore, peakBefore, limiterCeilingDbfs);
 
-        var candidate = proposal;
+        // The drive floor is checked at step zero too (repair 2): a proposal
+        // that would lower a band's stored drive is lifted back to it before
+        // anything is rendered, so no candidate ever goes below the floor.
+        var candidate = AtLeastStoredDrive(proposal);
         int steps = 0;
         bool withdrawn = false;
         while (true)
@@ -115,8 +119,8 @@ public static class ClarityPeakGuard
     /// current band (repair 1; the orchestrator's ruling, #152: the loop adds,
     /// never takes away). The mix's increase is multiplied by
     /// <see cref="MixFactor"/>; on every second step the drive comes down
-    /// <see cref="DriveStepDb"/>, never below the current band's drive (zero
-    /// when the band was off). False when the increase left is under
+    /// <see cref="DriveStepDb"/>, never below the current band's STORED drive,
+    /// on, off or at zero mix (repair 2). False when the increase left is under
     /// <see cref="MixLeastPercent"/>: the band is then withdrawn and the
     /// current setting stands.
     /// </summary>
@@ -125,10 +129,19 @@ public static class ClarityPeakGuard
         bool currentOn = !current.AddsNothing;
         float baseMix = currentOn ? current.MixPercent : 0f;
         float increase = (float)((proposed.MixPercent - baseMix) * MixFactor);
-        float driveFloor = currentOn ? current.DriveDb : 0f;
+        float driveFloor = current.DriveDb;   // the stored drive, whether the band is on or off (repair 2)
         float drive = step % 2 == 0 ? Math.Max(driveFloor, proposed.DriveDb - DriveStepDb) : proposed.DriveDb;
         smaller = proposed.WithMix(baseMix + increase).WithDrive(Math.Max(driveFloor, drive));
         return increase >= MixLeastPercent;
+    }
+
+    /// <summary>A proposal whose changed bands each keep at least the operator's stored drive.</summary>
+    private static ClarityProposal AtLeastStoredDrive(ClarityProposal p)
+    {
+        var s = p.Proposed;
+        if (p.ProposesBrightness && s.High.DriveDb < p.Current.High.DriveDb) s = s.WithHigh(s.High.WithDrive(p.Current.High.DriveDb));
+        if (p.ProposesFullness && s.Low.DriveDb < p.Current.Low.DriveDb) s = s.WithLow(s.Low.WithDrive(p.Current.Low.DriveDb));
+        return ReferenceEquals(s, p.Proposed) ? p : p with { Proposed = s };
     }
 
     /// <summary>
