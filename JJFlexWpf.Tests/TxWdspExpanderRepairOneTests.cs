@@ -335,6 +335,26 @@ public sealed class TxWdspExpanderRepairOneTests
         HelperTestRig.Until(() => Volatile.Read(ref told) == 1, "the notice, from the off-audio road");
     }
 
+    /// <summary>
+    /// What goes where (Track RT's repair 3, at the merge): a holder built as the
+    /// app builds it puts its work (a retired bank, which holds a helper channel,
+    /// and the fallback notice, which is spoken) on the normal-priority events
+    /// writer, never the below-normal diagnostics writer that can starve under load.
+    /// </summary>
+    [Fact]
+    public void A_default_holders_retirements_and_notice_go_to_the_normal_priority_events_writer()
+    {
+        using var x = new TxWdspExpander(_ => new FakeExpanderEngine());
+        Assert.Equal(ThreadPriority.Normal, JJTrace.OffAudioDrainer.Events.Priority);
+        Assert.True(JJTrace.OffAudioDrainer.Events.IsRegistered(x.EventWorkForTest));
+        Assert.False(JJTrace.OffAudioDrainer.Shared.IsRegistered(x.EventWorkForTest));
+        // And a test's one scheduler takes everything, as RT's do.
+        var manual = new JJTrace.ManualOffAudioScheduler();
+        using var y = new TxWdspExpander(_ => new FakeExpanderEngine(), manual);
+        Assert.True(manual.IsRegistered(y.EventWorkForTest));
+        Assert.False(JJTrace.OffAudioDrainer.Events.IsRegistered(y.EventWorkForTest));
+    }
+
     [Fact]
     public void An_always_late_engine_that_stays_available_is_told_once_until_it_really_works_again()
     {

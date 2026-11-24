@@ -1445,10 +1445,15 @@ namespace JJFlexWpf
         //
         // The callback hands two things on, and allocates for neither: a bank it
         // no longer runs (an intrusive stack through the bank's own RetiredNext,
-        // the slots' pattern), and a notice owed (one flag). The off-audio writer
-        // disposes the one and raises the other; the notice's own work (speech,
-        // the tone) then goes to a pool thread from there, never from the callback.
-        // For the merge: when Track RT's events writer lands, the notice belongs on it.
+        // the slots' pattern), and a notice owed (one flag). Both are the
+        // operator's events, not trace lines: the notice is spoken, and a
+        // retired bank holds a helper channel until it is disposed. So they go
+        // to Track RT's normal-priority events writer (OffAudioDrainer.Events),
+        // which disposes the one and raises the other directly, never through a
+        // pool hop, and never waits behind the below-normal diagnostics writer
+        // (Codex's RT re-check 2 reproduced that one starving for about 2.6 s
+        // under load). The holder writes no trace line of its own from the audio
+        // side; its bank's lines stay on that bank's (diagnostics) writer.
         private PerChannelDenoiserBank? _retiredHead;
         private int _tellOwed;
         private readonly HolderWork _work;
@@ -1474,7 +1479,10 @@ namespace JJFlexWpf
                 list = next;
             }
             if (Interlocked.Exchange(ref _tellOwed, 0) != 0)
-                System.Threading.ThreadPool.QueueUserWorkItem(_ => FellBack?.Invoke());
+            {
+                try { FellBack?.Invoke(); }
+                catch (Exception ex) { Trace.WriteLine("TxWdspExpander: the fallback notice failed: " + ex.GetType().Name); }
+            }
         }
 
         /// <summary>The audio side: hand a bank to the off-audio writer to dispose. No allocation, no lock.</summary>
@@ -1488,15 +1496,18 @@ namespace JJFlexWpf
         }
 
         /// <param name="factory">Makes the engine for a bank, from the helper settings; called off the audio thread.</param>
-        /// <param name="scheduler">Where its off-audio work runs: the shared writer when null.</param>
+        /// <param name="scheduler">Where its off-audio work runs: the normal-priority events writer when null (it is all the operator's events); a test passes one scheduler for everything, as Track RT's do.</param>
         internal TxWdspExpander(Func<IReadOnlyDictionary<string, EngineSettingValue>, IDenoiseEngine> factory,
             JJTrace.IOffAudioScheduler? scheduler = null)
         {
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
             _work = new HolderWork(this);
-            _scheduler = scheduler ?? JJTrace.OffAudioDrainer.Shared;
+            _scheduler = scheduler ?? JJTrace.OffAudioDrainer.Events;
             _scheduler.Register(_work);
         }
+
+        /// <summary>Tests only: its off-audio work (the retirements and the notice: events).</summary>
+        internal JJTrace.OffAudioWork EventWorkForTest => _work;
 
         /// <summary>Stop its off-audio work, after one last drain. The banks it built are their owners' to dispose.</summary>
         public void Dispose()
@@ -1507,8 +1518,8 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Raised once for a failure (the first latch of an over, not again until
-        /// the engine has really processed again, repair 1, N2), on a pool thread
-        /// reached through the off-audio writer: the operator
+        /// the engine has really processed again, repair 1, N2), on the
+        /// normal-priority events writer's thread: the operator
         /// is told the microphone is going out without WDSP's expander.
         /// </summary>
         internal event Action? FellBack;
