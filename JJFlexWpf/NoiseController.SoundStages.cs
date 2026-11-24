@@ -43,6 +43,19 @@ namespace JJFlexWpf
 
         public void ToggleSideChain(string source) => SetSideChainOn(!TransmitGate.SideChainFilter, source);
 
+        /// <summary>
+        /// The expander's mode, JJ Flexible's or WDSP's (phase 2, ruled S6): a
+        /// switch, so it speaks its timing (held for the unkey while keyed). Choosing
+        /// WDSP's when it cannot run here is kept as the choice, and the sentence
+        /// says why and what to do (listed, never hidden).
+        /// </summary>
+        public void SetExpanderModeWdsp(bool wdsp, string source)
+        {
+            if (GateLever(TxGateLever.Mode) is { } lever) SetGate(lever, wdsp ? 1 : 0, source);
+        }
+
+        public void ToggleExpanderMode(string source) => SetExpanderModeWdsp(!ExpanderModes.IsWdsp(TransmitGate.ExpanderMode), source);
+
         // ────────────────────────────────────────────────────────────────
         //  Learn the room (#1252; Noel's ruling 2026-11-23 11:12)
         // ────────────────────────────────────────────────────────────────

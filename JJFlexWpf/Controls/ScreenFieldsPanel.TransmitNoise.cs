@@ -505,7 +505,38 @@ public partial class ScreenFieldsPanel
             var entry = _txGateFields.FirstOrDefault(f => ReferenceEquals(f.Field, field));
             if (entry.Field == null || i >= entry.Steps.Count) return;
             NoiseCtl?.SetGate(entry.Lever, entry.Steps[i].Value, TxNoiseSource);
+            // A change of meaning (the expander's mode) re-words the other fields at once.
+            if (NoiseCtl is { } noise) RefreshGateChoices(noise, _txGateFields);
         };
+    }
+
+    /// <summary>
+    /// Phase 2 repair 1 (B2): re-word any gate field whose choices now mean
+    /// something else, keeping the field, its focus and its place, and writing
+    /// nothing. The strength field's stops are ratios in the JJ mode and depths
+    /// in WDSP's, and the mode field's WDSP choice carries why it cannot run, so
+    /// a field's words are compared with the controller's every time the
+    /// values are refreshed, whichever road changed them (Home, the menu, the
+    /// layer, a setup, or the helper coming and going). True when any changed.
+    /// </summary>
+    internal static bool RefreshGateChoices(NoiseController noise,
+        List<(CycleFieldControl Field, TxGateLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> fields)
+    {
+        bool any = false;
+        for (int k = 0; k < fields.Count; k++)
+        {
+            var (field, lever, steps) = fields[k];
+            var fresh = noise.GateSteps(lever);
+            if (fresh.Select(s => s.Text).SequenceEqual(steps.Select(s => s.Text))
+                && fresh.Select(s => s.Value).SequenceEqual(steps.Select(s => s.Value))) continue;
+            bool was = field.SuppressEvents;
+            field.SuppressEvents = true;
+            try { field.Setup(noise.GateLeverName(lever), fresh.Select(s => s.Text).ToArray(), NearestGateStep(noise, lever, fresh)); }
+            finally { field.SuppressEvents = was; }
+            fields[k] = (field, lever, fresh);
+            any = true;
+        }
+        return any;
     }
 
     /// <summary>A gate lever's Ctrl+F1 line, as a whole key so the coverage scan sees each one.</summary>
@@ -521,10 +552,11 @@ public partial class ScreenFieldsPanel
         TxGateLever.SideChainLow => "audio.noise_help.tx_home.gate.sidechain_low",
         TxGateLever.SideChainHigh => "audio.noise_help.tx_home.gate.sidechain_high",
         TxGateLever.LookAhead => "audio.noise_help.tx_home.gate.lookahead",
+        TxGateLever.Mode => "audio.noise_help.tx_home.gate.mode",
         _ => "audio.noise_help.tx_home.gate.monitor_volume",
     };
 
-    private static int NearestGateStep(NoiseController noise, TxGateLever lever, IReadOnlyList<(double Value, string Text)> steps)
+    internal static int NearestGateStep(NoiseController noise, TxGateLever lever, IReadOnlyList<(double Value, string Text)> steps)
     {
         double now = noise.GateNumber(lever);
         int best = 0;
@@ -586,6 +618,7 @@ public partial class ScreenFieldsPanel
             }
             _txGateOn.IsChecked = noise.TransmitGate.Enabled;
             _txGateAuto.IsChecked = noise.TransmitGate.AutoThreshold;
+            RefreshGateChoices(noise, _txGateFields);
             foreach (var (field, lever, steps) in _txGateFields)
             {
                 field.SuppressEvents = true;

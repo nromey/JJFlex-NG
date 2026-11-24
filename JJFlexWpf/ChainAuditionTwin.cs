@@ -79,7 +79,15 @@ namespace JJFlexWpf
         /// host the twin OWNS for that render (disposed when it ends), or null
         /// when the host belongs to someone else (a test's stub rig).
         /// </summary>
-        internal sealed record RenderEngines(DenoiseEngineCatalog Catalog, WdspHost? OwnedHost);
+        internal sealed record RenderEngines(DenoiseEngineCatalog Catalog, WdspHost? OwnedHost, WdspHost? ExpanderHost = null);
+
+        /// <summary>
+        /// Tests only: run WDSP's expander keyed, as the in-process pass runs, to
+        /// show the completeness check sees the latch (phase 2's positive
+        /// control). A keyed bank latches dry on the helper's normal first late
+        /// frames, which is why the real render runs it unkeyed.
+        /// </summary>
+        internal bool ForceKeyedExpanderPassForTest { get; set; }
 
         /// <param name="setup">The configured chain, asked as each render starts.</param>
         /// <param name="live">The live transmit side as the window read it from its own radio; null with no radio. For the verdict, and for the threshold only when the take is too short for its own floor.</param>
@@ -120,7 +128,7 @@ namespace JJFlexWpf
             new(() => TxAudioConditioning.CaptureSetup(""), live, () =>
             {
                 var host = NewRenderHost();
-                return new RenderEngines(DenoiseEngineCatalog.ForOfflineRender(host), host);
+                return new RenderEngines(DenoiseEngineCatalog.ForOfflineRender(host), host, host);
             }, DefaultBuildWait);
 
         /// <summary>
@@ -205,7 +213,7 @@ namespace JJFlexWpf
             var catalog = engines.Catalog;
             try
             {
-                return Render(rawMono, setup, live, gate, catalog, cancel, progress);
+                return Render(rawMono, setup, live, gate, catalog, engines.ExpanderHost, cancel, progress);
             }
             finally
             {
@@ -220,7 +228,7 @@ namespace JJFlexWpf
         }
 
         private ChainProcessing Render(float[] rawMono, TxNoiseSetup setup, AuditionLiveState? live, TxNoiseGateSetup gate,
-            DenoiseEngineCatalog catalog, CancellationToken cancel, Action<double>? progress)
+            DenoiseEngineCatalog catalog, WdspHost? expanderHost, CancellationToken cancel, Action<double>? progress)
         {
             var plans = new List<SlotPlan>(2);
             foreach (var (family, slotSetup) in new[] { (DenoiseFamily.Spectral, setup.Spectral), (DenoiseFamily.Neural, setup.Neural) })
@@ -321,6 +329,20 @@ namespace JJFlexWpf
                     Math.Max(0, rawMono.Length - delay), TxNoiseChain.SampleRate);
                 var (threshold, source, floor) = Threshold(gate, floorProfile, live);
 
+                // Phase 2: the expander in WDSP's mode runs in the helper, so it is
+                // NOT in the keyed in-process pass (a keyed bank latches dry on its
+                // normal first late frames): its own pass, unkeyed, with the offline
+                // wait, counted for completeness like a noise slot. Its input floor
+                // is the noise pass's output, as for the JJ expander.
+                bool wdspMode = gate.Enabled && ExpanderModes.IsWdsp(gate.ExpanderMode);
+                int expanderDelay = 0;
+                float[] expanderInput = noise;
+                if (wdspMode)
+                {
+                    var refused = WdspExpanderPass(expanderHost, gate, threshold, noise, buffers, cancel, out expanderInput, out expanderDelay);
+                    if (refused != null) return refused;
+                }
+
                 // 8. The in-process pass, keyed for the whole take: the expander,
                 // the equaliser and the de-esser, put in force directly through the
                 // ONE wiring function the live chain uses (Track I, item 7). The
@@ -331,7 +353,11 @@ namespace JJFlexWpf
                 if (inProcess)
                 {
                     float edge = TxAudioConditioning.Conditioner?.DeEsser.PassbandHighEdgeHz ?? 0f;
-                    reported = InProcessPass(TxAudioConditioning.ToConditioner(setup), gate, threshold, edge, noise, output, buffers, stereo, cancel,
+                    // In WDSP's mode the expander has run already; this pass is the
+                    // stages after it, the in-process expander switched off.
+                    var record = TxAudioConditioning.ToConditioner(setup);
+                    if (wdspMode) record.Enabled = false;
+                    reported = InProcessPass(record, gate, threshold, edge, expanderInput, output, buffers, stereo, cancel,
                         b => Report(buffers + b + 1));
                     // "What was removed" is the cleanup stages only (S8): the same
                     // pass with the equaliser and the de-esser off. The expander
@@ -341,17 +367,19 @@ namespace JJFlexWpf
                         var cleanupRecord = TxAudioConditioning.ToConditioner(setup);
                         cleanupRecord.Eq = null;
                         cleanupRecord.DeEsserEnabled = false;
+                        if (wdspMode) cleanupRecord.Enabled = false;
                         cleanupOnly = new float[rawMono.Length];
-                        InProcessPass(cleanupRecord, gate, threshold, edge, noise, cleanupOnly, buffers, new float[BufferFrames * 2], cancel, null);
+                        InProcessPass(cleanupRecord, gate, threshold, edge, expanderInput, cleanupOnly, buffers, new float[BufferFrames * 2], cancel, null);
                     }
-                    // The look-ahead is the expander's applied delay (item 9).
-                    if (gate.Enabled) delay += TxNoiseGate.LookAheadFramesFor(gate.LookAheadMs, (uint)TxNoiseChain.SampleRate);
+                    // The look-ahead is the expander's applied delay (item 9); in
+                    // WDSP's mode, its bank's delay in its place.
+                    if (gate.Enabled) delay += wdspMode ? expanderDelay : TxNoiseGate.LookAheadFramesFor(gate.LookAheadMs, (uint)TxNoiseChain.SampleRate);
                 }
                 else Array.Copy(noise, output, output.Length);
 
                 var stages = new List<string>(4);
                 if (plans.Count > 0) stages.Add(TxAudioConditioner.StageIds.NoiseReduction);
-                if (gate.Enabled) stages.Add(gate.GateSetting ? ChainAudition.GateStageId : TxAudioConditioner.StageIds.Expander);
+                if (gate.Enabled) stages.Add(gate.GateSetting && !wdspMode ? ChainAudition.GateStageId : TxAudioConditioner.StageIds.Expander);
                 if (eqOn) stages.Add(TxAudioConditioner.StageIds.Equaliser);
                 if (deEssOn) stages.Add(TxAudioConditioner.StageIds.DeEsser);
                 Trace.WriteLine("ChainAuditionTwin: rendered " + rawMono.Length + " samples, stages " + string.Join(",", stages) + ", gate "
@@ -412,6 +440,88 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// The expander in WDSP's mode over the noise pass's output (phase 2):
+        /// through <see cref="TxWdspExpander"/>, the live code, on the render's own
+        /// helper host, unkeyed (or keyed, for the positive control), with the
+        /// offline wait. Null when it ran completely; otherwise the verdict, which
+        /// names WDSP's expander, never a partly dry render presented as the chain's.
+        /// </summary>
+        private ChainProcessing? WdspExpanderPass(WdspHost? host, TxNoiseGateSetup gate, float? threshold, float[] noise, int buffers,
+            CancellationToken cancel, out float[] output, out int delay)
+        {
+            output = noise;
+            delay = 0;
+            string name = Lexicon.Get("audio.noise_surface.tx.gate.mode_wdsp");
+            if (host == null)
+            {
+                Trace.WriteLine("ChainAuditionTwin: the expander is in WDSP's mode and this render has no helper host; nothing rendered");
+                return ChainProcessing.Unavailable(EngineUnavailableKey, ("engine", name),
+                    ("reason", Lexicon.Get(DenoiseEngineCatalog.UnavailabilityKey(Unavailability.HelperMissing))));
+            }
+            var holder = new TxWdspExpander(v => new WdspHelperEngine(host, TxWdspExpander.EngineId, DenoiseDirection.Transmit, v, offlineWait: true))
+            {
+                ClearOnGap = false,
+            };
+            holder.WantWdsp(true);
+            var bank = holder.BuildNow(TxWdspExpander.ValuesFor(gate, threshold ?? TxNoiseGate.DefaultThresholdDb));
+            try
+            {
+                if (bank == null || !bank.IsAvailable)
+                {
+                    var reason = bank?.EngineFor(0).Unavailability ?? Unavailability.InitFailed;
+                    Trace.WriteLine("ChainAuditionTwin: WDSP's expander is unavailable (" + reason + "); nothing rendered");
+                    return ChainProcessing.Unavailable(EngineUnavailableKey, ("engine", name),
+                        ("reason", Lexicon.Get(DenoiseEngineCatalog.UnavailabilityKey(reason == Unavailability.None ? Unavailability.InitFailed : reason))));
+                }
+                // The bank comes into force at an unkeyed buffer, as on the air; an
+                // empty one, so no audio is spent on it.
+                var stereo = new float[BufferFrames * 2];
+                holder.Process(stereo, 0, (uint)TxNoiseChain.SampleRate, keyed: false);
+                bool keyed = ForceKeyedExpanderPassForTest;
+                var result = new float[noise.Length];
+                int? latency = null;
+                bool moved = false;
+                for (int b = 0; b < buffers; b++)
+                {
+                    cancel.ThrowIfCancellationRequested();
+                    int at = b * BufferFrames;
+                    for (int f = 0; f < BufferFrames; f++) { float s = at + f < noise.Length ? noise[at + f] : 0f; stereo[2 * f] = s; stereo[2 * f + 1] = s; }
+                    holder.Process(stereo, stereo.Length, (uint)TxNoiseChain.SampleRate, keyed);
+                    for (int f = 0; f < BufferFrames && at + f < result.Length; f++) result[at + f] = stereo[2 * f];
+                    int applied = holder.AppliedLatencySamples();
+                    if (latency == null) latency = applied;
+                    else if (applied != latency) moved = true;
+                }
+                long expectedLate = ExpectedLate(bank);
+                bool complete = holder.RunningBank == bank && bank.EngineFrames == buffers && bank.LateFrames == expectedLate
+                                && bank.FallbackFrames == 0 && bank.LatchedFrames == 0 && !bank.Latched && !moved;
+                Trace.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                    "ChainAuditionTwin: WDSP's expander pass{0}: engine frames {1} of {2}, late {3} (expected {4}), fallback {5}, latched {6}, delay {7}{8}",
+                    keyed ? " (forced keyed, for the test)" : "", bank.EngineFrames, buffers, bank.LateFrames, expectedLate,
+                    bank.FallbackFrames, bank.LatchedFrames, latency ?? 0, moved ? " (MOVED)" : ""));
+                if (!complete) return ChainProcessing.Unavailable(IncompleteKey, ("engine", name));
+                output = result;
+                delay = latency ?? 0;
+                return null;
+            }
+            finally
+            {
+                try { bank?.Dispose(); holder.Dispose(); }
+                catch (Exception ex) { Trace.WriteLine("ChainAuditionTwin: teardown of WDSP's expander: " + ex.GetType().Name); }
+            }
+        }
+
+        /// <summary>
+        /// The frames a bank may be late by design: for a helper engine, its
+        /// pipeline depth and the first answers covering its own algorithmic
+        /// delay, which it discards (WdspChannel.DiscardBelow); none in process.
+        /// </summary>
+        private static long ExpectedLate(PerChannelDenoiserBank bank) =>
+            bank.EngineFor(0) is WdspHelperEngine helper
+                ? helper.PipelineDepth + (helper.Channel is { } channel ? Volatile.Read(ref channel.DiscardBelow) : 0)
+                : 0;
+
+        /// <summary>
         /// Wait, bounded, until each enabled slot's chosen engine is built (running,
         /// or delivered and installed by the first buffer). A failed build is said
         /// at once; a timeout names the engine. Null when every one is ready.
@@ -469,9 +579,7 @@ namespace JJFlexWpf
                 // engine discards (WdspChannel.DiscardBelow, set from the open
                 // acknowledgement). Both go out dry at the live delay, exactly as
                 // when the engine starts on the air. Nothing else may be late.
-                long expectedLate = bank.EngineFor(0) is WdspHelperEngine helper
-                    ? helper.PipelineDepth + (helper.Channel is { } channel ? Volatile.Read(ref channel.DiscardBelow) : 0)
-                    : 0;
+                long expectedLate = ExpectedLate(bank);
                 parts.Add(string.Format(CultureInfo.InvariantCulture,
                     "{0} {1}: engine frames {2} of {3}, late {4} (expected {5}), fallback {6}, latched {7}, delay {8}",
                     plan.Family, plan.EngineId, bank.EngineFrames, buffers, bank.LateFrames, expectedLate,

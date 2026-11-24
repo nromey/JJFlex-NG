@@ -109,6 +109,22 @@ public sealed class TxNoiseGateSetup
     /// <summary>Look-ahead, ms (ruled 2026-11-23 20:56: adjustable, 3 ms to start).</summary>
     public float LookAheadMs { get => _lookAhead; set { _lookAhead = value; ExpanderFieldsRead = true; } }
 
+    // ── The expander's mode (Sprint 49 Track I phase 2, ruled S6) ──
+    //
+    // JJ Flexible's own expander, or WDSP's (DEXP, in the helper). A word,
+    // not an enum, so a mode a later build adds loads here as one this build
+    // does not run, and is kept on save. Each mode keeps its own strength:
+    // the ratio and gate setting above are the JJ mode's, the depth below is
+    // the WDSP mode's, so switching back restores the other's setting. A
+    // record without these (version 2 from phase 1) is in the JJ mode,
+    // today's sound, so they need no version bump and no migration.
+
+    /// <summary>"jj" (the default) or "wdsp". See <see cref="ExpanderModes"/>.</summary>
+    public string ExpanderMode { get; set; } = ExpanderModes.Jj;
+
+    /// <summary>The WDSP mode's strength: how far it turns the audio down while closed, dB. DEXP has no ratio.</summary>
+    public float WdspDepthDb { get; set; } = ExpanderModes.DefaultWdspDepthDb;
+
     /// <summary>
     /// What a version 1 record's gate becomes (S7): one that was on keeps its
     /// sound exactly (the gate setting, no side-chain filter, no look-ahead);
@@ -124,6 +140,25 @@ public sealed class TxNoiseGateSetup
     }
 
     public TxNoiseGateSetup Clone() => (TxNoiseGateSetup)MemberwiseClone();
+}
+
+/// <summary>The expander's modes, as a setup stores them (Sprint 49 Track I phase 2).</summary>
+public static class ExpanderModes
+{
+    /// <summary>JJ Flexible's own downward expander, in this process.</summary>
+    public const string Jj = "jj";
+
+    /// <summary>WDSP's downward expander (DEXP), in the WDSP helper: a fixed depth, not a ratio.</summary>
+    public const string Wdsp = "wdsp";
+
+    /// <summary>A newly chosen WDSP mode's depth, dB: the helper's own default.</summary>
+    public const float DefaultWdspDepthDb = 20f;
+
+    /// <summary>The WDSP mode's depth range, dB (the helper accepts 0 to 40; 0 would do nothing).</summary>
+    public const float MinWdspDepthDb = 6f, MaxWdspDepthDb = 40f;
+
+    /// <summary>Whether a stored mode word is the WDSP mode. Anything else, unknown words included, runs as the JJ mode.</summary>
+    public static bool IsWdsp(string? mode) => string.Equals(mode, Wdsp, StringComparison.Ordinal);
 }
 
 /// <summary>
