@@ -173,7 +173,10 @@ namespace Radios.Tests
 
             // The questions alone: the same two, in the same order.
             string ask = VbBody(globals, "Friend Function AskExitQuestions() As Boolean");
-            int contact = ask.IndexOf("LogEntry.optionalWrite()", StringComparison.Ordinal);
+            // #1242: the exit's contact question offers Cancel, so the call
+            // carries offerCancel. Changed from the bare optionalWrite() call;
+            // the meaning is the same: the contact question first.
+            int contact = ask.IndexOf("LogEntry.optionalWrite(offerCancel:=True)", StringComparison.Ordinal);
             int running = ask.IndexOf("ConfirmStillRunningAtExit()", StringComparison.Ordinal);
             Assert.True(contact > 0 && running > contact, "the unsaved contact first, then the still-running question");
 
@@ -186,7 +189,8 @@ namespace Radios.Tests
             Assert.True(take > 0 && gate > take && asks > gate,
                 "the mark is taken first, and the questions are asked only when it was not set");
             Assert.Equal(1, Count(exit, "AskExitQuestions()"));
-            Assert.DoesNotContain("LogEntry.optionalWrite()", exit, StringComparison.Ordinal);
+            // No contact question of its own, in any form (#1242 changed the call's text).
+            Assert.DoesNotContain("LogEntry.optionalWrite(", exit, StringComparison.Ordinal);
             Assert.DoesNotContain("ConfirmStillRunningAtExit()", exit, StringComparison.Ordinal);
             // Positive control: everything after the questions still runs.
             Assert.Contains("FinalizeTraceForShutdown(", exit, StringComparison.Ordinal);
