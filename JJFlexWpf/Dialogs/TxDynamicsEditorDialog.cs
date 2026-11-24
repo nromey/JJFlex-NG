@@ -166,7 +166,7 @@ namespace JJFlexWpf
                 _compressorOn.IsChecked = c.Enabled;
                 _limiterOn.IsChecked = l.Enabled;
                 _handoff.IsChecked = _noise?.ProcessorHandoffSetting ?? AudioOutputConfig.RadioProcessorOffWithCompressorInForce;
-                _mode.SelectedIndex = TxCompressorModes.IsSplit(c.Mode) ? 1 : 0;
+                _mode.SelectedIndex = TxCompressorModes.IsSplit(c.CompressorMode) ? 1 : 0;
                 int preset = -1;
                 for (int i = 0; i < NoiseController.CompressorPresets.Count; i++)
                     if (string.Equals(NoiseController.CompressorPresets[i].Id, c.PresetId, StringComparison.OrdinalIgnoreCase)) preset = i;

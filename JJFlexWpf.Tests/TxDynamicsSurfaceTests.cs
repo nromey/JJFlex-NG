@@ -367,16 +367,16 @@ public sealed class TxDynamicsSurfaceTests
     };
 
     [Theory]
-    [InlineData(true, false, "compressor")]
-    [InlineData(false, true, "limiter")]
-    public void Either_stage_alone_renders_and_is_named(bool compressor, bool limiter, string stage)
+    [InlineData(true, false, "compressor", "audio.audition.stage.compressor")]
+    [InlineData(false, true, "limiter", "audio.audition.stage.limiter")]
+    public void Either_stage_alone_renders_and_is_named(bool compressor, bool limiter, string stage, string nameKey)
     {
         var take = ChainAuditionTwinTests.Take(6);
         var r = Twin(Only(compressor, limiter)).Process((float[])take.Clone(), Rate, CancellationToken.None, null);
         Assert.True(r.Available, r.UnavailableKey);
         Assert.False(r.NothingOn);
         Assert.Equal(new[] { stage }, r.Stages);
-        Assert.StartsWith("WORDING PLACEHOLDER: DRAFT PROSE:", Lexicon.Get("audio.audition.stage." + stage));
+        Assert.StartsWith("WORDING PLACEHOLDER: DRAFT PROSE:", Lexicon.Get(nameKey));
         // The control: with both off, nothing is rendered at all.
         Assert.True(Twin(Only(false, false)).Process((float[])take.Clone(), Rate, CancellationToken.None, null).NothingOn);
     }

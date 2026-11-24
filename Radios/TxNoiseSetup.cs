@@ -280,7 +280,7 @@ public sealed class TxCompressorSetup
     public string PresetId { get; set; } = "";
 
     /// <summary>One of <see cref="TxCompressorModes"/>, as a word.</summary>
-    public string Mode { get; set; } = TxCompressorModes.Single;
+    public string CompressorMode { get; set; } = TxCompressorModes.Single;
 
     /// <summary>Where compression starts, dBFS of one channel's sample peak, read after the drive.</summary>
     public float ThresholdDb { get; set; } = JJPortaudio.TxCompressorSettings.DefaultThresholdDb;
@@ -321,7 +321,7 @@ public sealed class TxCompressorSetup
         Enabled = Enabled,
         ThresholdDb = ThresholdDb, RatioToOne = RatioToOne, AttackMs = AttackMs, ReleaseMs = ReleaseMs,
         KneeDb = KneeDb, MakeupDb = MakeupDb, DriveDb = DriveDb, RotatorStages = RotatorStages,
-        SplitBand = TxCompressorModes.IsSplit(Mode),
+        SplitBand = TxCompressorModes.IsSplit(CompressorMode),
         CrossoverLowHz = CrossoverLowHz, CrossoverHighHz = CrossoverHighHz,
         Low = (LowBand ?? new()).ToBand(), Mid = (MidBand ?? new()).ToBand(), High = (HighBand ?? new()).ToBand(),
     };
@@ -1084,7 +1084,7 @@ public static class TxCompressorPresets
         // in the low band, which is the point.
         new TxCompressorPreset("bass_control", "audio.compressor.preset.bass_control", new TxCompressorSetup
         {
-            Mode = TxCompressorModes.Split, KneeDb = 6f, MakeupDb = 0f,
+            CompressorMode = TxCompressorModes.Split, KneeDb = 6f, MakeupDb = 0f,
             CrossoverLowHz = 300f, CrossoverHighHz = 1800f,
             LowBand = new TxCompressorBandSetup { ThresholdDb = -24f, RatioToOne = 4f, AttackMs = 10f, ReleaseMs = 200f, MakeupDb = 9f },
             MidBand = new TxCompressorBandSetup { ThresholdDb = -18f, RatioToOne = 2.5f, AttackMs = 5f, ReleaseMs = 150f, MakeupDb = 7f },

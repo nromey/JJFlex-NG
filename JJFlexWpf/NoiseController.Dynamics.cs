@@ -100,7 +100,7 @@ namespace JJFlexWpf
 
         public bool CompressorOn => TxAudioConditioning.CompressorSetup.Enabled;
         public bool LimiterOn => TxAudioConditioning.LimiterSetup.Enabled;
-        public bool CompressorSplitBand => TxCompressorModes.IsSplit(TxAudioConditioning.CompressorSetup.Mode);
+        public bool CompressorSplitBand => TxCompressorModes.IsSplit(TxAudioConditioning.CompressorSetup.CompressorMode);
 
         /// <summary>The compressor on or off, speaking its timing. What happens to the radio's speech processor is the handoff's, said by it when it acts.</summary>
         public void SetCompressorOn(bool on, string source)

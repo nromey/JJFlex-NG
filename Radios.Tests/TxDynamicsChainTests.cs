@@ -341,7 +341,7 @@ namespace Radios.Tests
             // A plain compressor when first switched on: no drive, no rotator, one band.
             Assert.Equal(0f, s.Compressor.DriveDb);
             Assert.Equal(0, s.Compressor.RotatorStages);
-            Assert.Equal(TxCompressorModes.Single, s.Compressor.Mode);
+            Assert.Equal(TxCompressorModes.Single, s.Compressor.CompressorMode);
             // A NEW setup's limiter is on at full scale (question 7's default); a record's own default is off.
             var fresh = TxLimiterSetup.ForNewSetup();
             Assert.Equal(TxLimiterSetup.NewSetupsStartOn, fresh.Enabled);
@@ -355,7 +355,7 @@ namespace Radios.Tests
             Name = "Contest",
             Compressor = new TxCompressorSetup
             {
-                Enabled = true, PresetId = "dx", Mode = TxCompressorModes.Split, ThresholdDb = -22, RatioToOne = 6, AttackMs = 2, ReleaseMs = 90,
+                Enabled = true, PresetId = "dx", CompressorMode = TxCompressorModes.Split, ThresholdDb = -22, RatioToOne = 6, AttackMs = 2, ReleaseMs = 90,
                 KneeDb = 4, MakeupDb = 11, DriveDb = 6, RotatorStages = 4, CrossoverLowHz = 250, CrossoverHighHz = 2100,
                 LowBand = new TxCompressorBandSetup { ThresholdDb = -25, RatioToOne = 5, AttackMs = 12, ReleaseMs = 210, MakeupDb = 3 },
                 MidBand = new TxCompressorBandSetup { ThresholdDb = -19, RatioToOne = 3, AttackMs = 6, ReleaseMs = 160, MakeupDb = 4 },
@@ -442,7 +442,7 @@ namespace Radios.Tests
 
         public static IEnumerable<object[]> Fields() => new[]
         {
-            "c.Enabled", "c.Mode", "c.ThresholdDb", "c.RatioToOne", "c.AttackMs", "c.ReleaseMs", "c.KneeDb", "c.MakeupDb", "c.DriveDb",
+            "c.Enabled", "c.CompressorMode", "c.ThresholdDb", "c.RatioToOne", "c.AttackMs", "c.ReleaseMs", "c.KneeDb", "c.MakeupDb", "c.DriveDb",
             "c.RotatorStages", "c.CrossoverLowHz", "c.CrossoverHighHz", "c.Low.ThresholdDb", "c.Mid.RatioToOne", "c.High.AttackMs",
             "c.Low.ReleaseMs", "c.Mid.MakeupDb", "l.Enabled", "l.CeilingDb", "l.ReleaseMs", "l.LookAheadMs",
         }.Select(f => new object[] { f });
@@ -458,7 +458,7 @@ namespace Radios.Tests
             switch (field)
             {
                 case "c.Enabled": c.Enabled = false; break;
-                case "c.Mode": c.Mode = TxCompressorModes.Single; break;
+                case "c.CompressorMode": c.CompressorMode = TxCompressorModes.Single; break;
                 case "c.ThresholdDb": c.ThresholdDb += 1; break;
                 case "c.RatioToOne": c.RatioToOne += 1; break;
                 case "c.AttackMs": c.AttackMs += 1; break;
@@ -505,10 +505,10 @@ namespace Radios.Tests
         {
             var store = new TxNoiseSetupStore(_root);
             var later = Full();
-            later.Compressor.Mode = "wdsp";
+            later.Compressor.CompressorMode = "wdsp";
             Assert.True(store.Save(Radio, later).Succeeded);
             var back = store.Find(Radio, "Contest")!;
-            Assert.Equal("wdsp", back.Compressor.Mode);
+            Assert.Equal("wdsp", back.Compressor.CompressorMode);
             Assert.False(back.Compressor.ToSettings().SplitBand);
         }
 

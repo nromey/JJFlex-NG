@@ -2272,7 +2272,7 @@
   "audio.dynamics.editor.mode": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: Mode", "delivery": null},
   "audio.dynamics.editor.say_compressor": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: Read compressor gain reduction", "delivery": null},
   "audio.dynamics.editor.say_limiter": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: Read limiter gain reduction", "delivery": null},
-  "audio.dynamics.editor.status": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: Reading (the name of the line a requested reading appears on)", "delivery": null},
+  "audio.dynamics.editor.status": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: Reading", "delivery": null},
   "audio.dynamics_help.compressor_on": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: Ctrl+F1 for the compressor switch: the computer's compressor on your transmit audio, after the equaliser and de-esser; it waits for you to unkey; what it does to the radio's speech processor", "delivery": null},
   "audio.dynamics_help.preset": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: Ctrl+F1 for the compressor preset: a starting point that fills every setting; every setting stays yours", "delivery": null},
   "audio.dynamics_help.mode": {"text": "WORDING PLACEHOLDER: DRAFT PROSE: Ctrl+F1 for the compressor mode: one band, or split band with three bands each compressed by its own settings", "delivery": null},

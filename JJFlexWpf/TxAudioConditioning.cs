@@ -1080,7 +1080,7 @@ namespace JJFlexWpf
         /// <summary>The compressor's mode, one band or split band: a switch (S2), because the split restarts the stage.</summary>
         public static TxChangeResult SetCompressorSplitBand(bool split) => Chain.RunOrDefer(() =>
         {
-            lock (_gate) _compIntent.Mode = split ? TxCompressorModes.Split : TxCompressorModes.Single;
+            lock (_gate) _compIntent.CompressorMode = split ? TxCompressorModes.Split : TxCompressorModes.Single;
             Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { SplitBand = split });
         });
 

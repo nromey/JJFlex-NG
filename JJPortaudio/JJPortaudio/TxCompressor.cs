@@ -406,7 +406,7 @@ namespace JJPortaudio
                 if (frameReduction > deepest) deepest = frameReduction;
             }
 
-            _rotator.FlushTiny();
+            _rotator.SettleSections();
             if (split) for (int i = 0; i < _split.Length; i++) _split[i].FlushTiny();
             for (int b = 0; b < 3; b++)
             {

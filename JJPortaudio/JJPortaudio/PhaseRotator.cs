@@ -97,9 +97,9 @@ namespace JJPortaudio
         }
 
         /// <summary>Once per buffer: keep a state that decayed into the subnormal range from stalling the processor.</summary>
-        public void FlushTiny()
+        public void SettleSections()
         {
-            for (int i = 0; i < _st.Length; i++) _st[i].FlushTiny();
+            foreach (ref BiquadState state in _st.AsSpan()) state.FlushTiny();
         }
 
         /// <summary>The cascade's level at a frequency, dB: zero, to rounding, for any stage count. For tests and the record, never the audio thread.</summary>

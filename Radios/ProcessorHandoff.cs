@@ -228,7 +228,9 @@ namespace Radios
     /// testable: after each write the radio's answer is not judged for
     /// <see cref="SettleTicks"/> ticks, because a write is queued and the
     /// radio's own report of it arrives a little later.</para>
-    /// <para>Not thread-safe: one caller, the policy tick.</para>
+    /// <para>One caller at a time: the policy tick, the connect path and the
+    /// leave each take the same lock, because the tick runs on a timer's
+    /// thread while a connect or a leave arrives on another.</para>
     /// </remarks>
     public sealed class ProcessorHandoff
     {
@@ -244,6 +246,7 @@ namespace Radios
         private bool _session, _declined, _settled, _faulted, _faultPutBack, _saidNotYours;
         private long _faultsSeen = -1;
         private int _settle;
+        private readonly object _sync = new();
 
         // The record, read from the store once per connection and kept here,
         // so a tick twice a second does not read a file twice a second. This
@@ -280,10 +283,15 @@ namespace Radios
         }
 
         /// <summary>Whether the app has turned this radio's processor off and not yet put it back.</summary>
-        public bool HoldsRecord => Record(_radio.Serial) != null;
+        public bool HoldsRecord { get { lock (_sync) return Record(_radio.Serial) != null; } }
 
         /// <summary>The radio has just connected: the next tick applies the connect rule to any record an earlier session left.</summary>
         public void Connected()
+        {
+            lock (_sync) ConnectedLocked();
+        }
+
+        private void ConnectedLocked()
         {
             _atConnect = true;
             _session = _declined = _settled = _faulted = _faultPutBack = _saidNotYours = _connectPutBack = false;
@@ -296,6 +304,11 @@ namespace Radios
 
         /// <summary>One policy tick: apply the rules to what is true now.</summary>
         public void Tick(ProcessorHandoffInputs inputs)
+        {
+            lock (_sync) TickLocked(inputs);
+        }
+
+        private void TickLocked(ProcessorHandoffInputs inputs)
         {
             if (inputs == null || !_radio.Connected) return;
             string serial = _radio.Serial;
@@ -434,6 +447,11 @@ namespace Radios
         /// focus between windows, which flushes the screen reader.
         /// </summary>
         public void Leaving()
+        {
+            lock (_sync) LeavingLocked();
+        }
+
+        private void LeavingLocked()
         {
             try
             {
