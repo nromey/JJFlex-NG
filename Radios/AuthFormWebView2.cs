@@ -47,6 +47,15 @@ namespace Radios
         // those awaits; this is how the continuation sees it and stops.
         private bool _closed;
 
+        /// <summary>
+        /// True when the OPERATOR closed the page: Escape by either route, or
+        /// a close of their own (Alt+F4, the title bar). Separate from
+        /// <see cref="_closed"/>, which any close sets: the error boxes and a
+        /// failed token exchange also end in Cancel, and only the operator's
+        /// own close says "Login cancelled" (#1244).
+        /// </summary>
+        public bool ClosedByOperator { get; private set; }
+
         // PKCE values (generated per auth attempt)
         private string _codeVerifier;
         private string _codeChallenge;
@@ -308,6 +317,7 @@ namespace Radios
         {
             if (IsDisposed || _escapeClosing) return;
             _escapeClosing = true;
+            ClosedByOperator = true;
             CancelExchange($"Escape ({route})");
             Tracing.TraceLine($"AuthFormWebView2: Escape ({route}), closing as cancelled", TraceLevel.Info);
             DialogResult = DialogResult.Cancel;
@@ -320,6 +330,10 @@ namespace Radios
         private void AuthFormWebView2_FormClosing(object sender, FormClosingEventArgs e)
         {
             _closed = true;
+            // A close the operator made (Alt+F4, the title bar). A close the
+            // code makes by setting DialogResult reports None, so an error
+            // box's Cancel is never counted (#1244).
+            if (e.CloseReason == CloseReason.UserClosing) ClosedByOperator = true;
             CancelExchange($"close ({e.CloseReason})");
         }
 
