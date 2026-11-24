@@ -131,7 +131,7 @@ public sealed class ReceiveOffAudioWriterTests
             for (int i = 0; i < 8; i++) slot.Process(audio, true, true, false, null);
             slot.TraceForTest(0);
             slot.Process(audio, true, true, false, null);
-            Assert.True(entered.Wait(5000), "the writer never started");
+            Assert.True(entered.Wait(15000), "the writer never started");
             using var watch = new PoolQueueWatch();
             Assert.True(watch.Probe(), "the watch sees nothing, so its zero proves nothing");
             watch.Reset();

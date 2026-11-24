@@ -39,6 +39,8 @@ public sealed class ReceiveTallyPipelineTests
         public volatile bool SlowNow;
         public long ServiceNanos = 3_400_000;
         private readonly float[] _audio = new float[960];
+        /// <summary>The pipeline's off-audio writer, settled after each buffer (repair 2).</summary>
+        public readonly SettledOffAudioWriter Writer = new();
 
         public Rig(long periodTicks)
         {
@@ -52,7 +54,7 @@ public sealed class ReceiveTallyPipelineTests
                 Row("rnnoise", DenoiseFamily.Neural, () => new EngineKeepUpPipelineTests.Engine("rnnoise")),
                 Row("switchable", DenoiseFamily.Neural, () => new EngineKeepUpPipelineTests.Engine("switchable", () => SlowNow ? 6 : 0)),
             };
-            Pipeline = new RxAudioPipeline(48000, 2, new DenoiseEngineCatalog(rows), periodTicks)
+            Pipeline = new RxAudioPipeline(48000, 2, new DenoiseEngineCatalog(rows), periodTicks, Writer)
             {
                 IsHelperEngine = id => id is "fakehelper",
             };
@@ -62,7 +64,7 @@ public sealed class ReceiveTallyPipelineTests
 
         public void Pump(int buffers = 1)
         {
-            for (int i = 0; i < buffers; i++) { Array.Fill(_audio, 0.1f); Pipeline.Process(_audio); }
+            for (int i = 0; i < buffers; i++) { Array.Fill(_audio, 0.1f); Pipeline.Process(_audio); Writer.Settle(); }
         }
 
         public void Choose(string id)
@@ -78,12 +80,13 @@ public sealed class ReceiveTallyPipelineTests
         /// <summary>Wait a little for tally lines still on the pool thread.</summary>
         public SlotTallyReport[] Await(Func<SlotTallyReport, bool> match, int atLeast = 1)
         {
-            var t = Stopwatch.StartNew();
-            while (t.ElapsedMilliseconds < 2000 && Tallies.Count(match) < atLeast) Thread.Sleep(5);
+            // Every buffer settles the writer, and FeedEnded's totals are settled here, so
+            // what has been published has been written: no wait (repair 2).
+            Writer.Settle();
             return Tallies.Where(match).ToArray();
         }
 
-        public void Dispose() => Pipeline.Dispose();
+        public void Dispose() { Pipeline.Dispose(); Writer.Settle(); Writer.Dispose(); }
     }
 
     [Fact]

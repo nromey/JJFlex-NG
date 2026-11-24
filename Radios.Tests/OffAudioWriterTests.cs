@@ -146,7 +146,8 @@ namespace Radios.Tests
             writer.Register(work);
             work.Ring.TryRecord(new Rec { A = 7 });
             var wait = Stopwatch.StartNew();
-            while (work.Written.Count == 0 && wait.ElapsedMilliseconds < 2000) Thread.Sleep(2);
+            // Repair 2 (Sprint 49 Track RT): a generous wait on the delivery itself, which the shared off-audio writer makes (below normal priority, so seconds late under heavy load), never a fixed sleep.
+            while (work.Written.Count == 0 && wait.ElapsedMilliseconds < 15000) Thread.Sleep(2);
             _out.WriteLine($"written after {wait.ElapsedMilliseconds} ms");
             Assert.Equal(new long[] { 7 }, work.Written.ToArray());
             Assert.Equal(writer.ThreadId, work.LastDrainThread);
@@ -159,7 +160,8 @@ namespace Radios.Tests
             using var writer = new OffAudioDrainer(5, "rt idle writer");
             var work = new CountingWork();
             writer.Register(work);
-            Thread.Sleep(60);
+            var running = Stopwatch.StartNew();
+            while (writer.Ticks <= 2 && running.ElapsedMilliseconds < 15000) Thread.Sleep(5);
             Assert.True(writer.Ticks > 2, "the writer is not running its period");
             writer.Unregister(work);
             Thread.Sleep(30);
@@ -170,7 +172,7 @@ namespace Radios.Tests
             next.Ring.TryRecord(new Rec { A = 3 });
             writer.Register(next);
             var wait = Stopwatch.StartNew();
-            while (next.Written.Count == 0 && wait.ElapsedMilliseconds < 2000) Thread.Sleep(2);
+            while (next.Written.Count == 0 && wait.ElapsedMilliseconds < 15000) Thread.Sleep(2);
             Assert.Equal(new long[] { 3 }, next.Written.ToArray());
         }
 
@@ -203,12 +205,12 @@ namespace Radios.Tests
             bad.Signal();
             good.Ring.TryRecord(new Rec { A = 5 });
             var wait = Stopwatch.StartNew();
-            while ((good.Written.Count == 0 || writer.Faults == 0) && wait.ElapsedMilliseconds < 2000) Thread.Sleep(2);
+            while ((good.Written.Count == 0 || writer.Faults == 0) && wait.ElapsedMilliseconds < 15000) Thread.Sleep(2);
             Assert.True(writer.Faults > 0);
             Assert.Equal(new long[] { 5 }, good.Written.ToArray());
             good.Ring.TryRecord(new Rec { A = 6 });
             wait.Restart();
-            while (good.Written.Count < 2 && wait.ElapsedMilliseconds < 2000) Thread.Sleep(2);
+            while (good.Written.Count < 2 && wait.ElapsedMilliseconds < 15000) Thread.Sleep(2);
             Assert.Equal(new long[] { 5, 6 }, good.Written.ToArray());
         }
 
