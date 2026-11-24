@@ -28,12 +28,16 @@ public sealed record ClarityGuardResult(
 /// ceiling is given, does not raise the peak past it.
 /// </summary>
 /// <remarks>
-/// <para><b>How it reduces, one step at a time:</b> every band the proposal
-/// changes has its mix multiplied by <see cref="MixFactor"/>, and on every
-/// second step its drive lowered by <see cref="DriveStepDb"/>. A band whose
-/// mix falls below <see cref="MixLeastPercent"/> goes back to the current
-/// setting; when no band is left changed the proposal is WITHDRAWN (it is
-/// then "nothing", which the reader says, with the reason).</para>
+/// <para><b>How it reduces, one step at a time, and only the increase</b>
+/// (repair 1, the orchestrator's ruling: the loop adds, never takes away,
+/// #152): every band the proposal changes has its mix's INCREASE over the
+/// operator's current setting multiplied by <see cref="MixFactor"/>, and on
+/// every second step its drive lowered by <see cref="DriveStepDb"/>, never
+/// below the current band's. It never goes below the operator's current
+/// setting. A band whose increase falls below <see cref="MixLeastPercent"/>
+/// goes back to the current setting; when no band is left changed the
+/// proposal is WITHDRAWN (it is then "nothing", which the reader says, with
+/// the reason), and the current settings stand.</para>
 /// <para><b>The ceiling</b> (Track CL's limiter, when it is on; this track
 /// knows only a number): the after may not peak above it unless the before
 /// already did, and then not above the before.</para>
@@ -93,14 +97,12 @@ public static class ClarityPeakGuard
         var fullness = p.Fullness;
         if (p.ProposesBrightness)
         {
-            var b = Smaller(settings.High, step);
-            if (b.MixPercent < MixLeastPercent) { settings = settings.WithHigh(p.Current.High); brightness = ClarityJudgement.WithdrawnByPeakGuard; }
+            if (!TrySmaller(settings.High, p.Current.High, step, out var b)) { settings = settings.WithHigh(p.Current.High); brightness = ClarityJudgement.WithdrawnByPeakGuard; }
             else settings = settings.WithHigh(b);
         }
         if (p.ProposesFullness)
         {
-            var b = Smaller(settings.Low, step);
-            if (b.MixPercent < MixLeastPercent) { settings = settings.WithLow(p.Current.Low); fullness = ClarityJudgement.WithdrawnByPeakGuard; }
+            if (!TrySmaller(settings.Low, p.Current.Low, step, out var b)) { settings = settings.WithLow(p.Current.Low); fullness = ClarityJudgement.WithdrawnByPeakGuard; }
             else settings = settings.WithLow(b);
         }
         var next = p with { Proposed = settings, Brightness = brightness, Fullness = fullness };
@@ -108,8 +110,26 @@ public static class ClarityPeakGuard
         return next;
     }
 
-    private static ClarityBand Smaller(ClarityBand b, int step) =>
-        b.WithMix((float)(b.MixPercent * MixFactor)).WithDrive(step % 2 == 0 ? Math.Max(0f, b.DriveDb - DriveStepDb) : b.DriveDb);
+    /// <summary>
+    /// Shrink only the INCREASE a proposed band makes over the operator's
+    /// current band (repair 1; the orchestrator's ruling, #152: the loop adds,
+    /// never takes away). The mix's increase is multiplied by
+    /// <see cref="MixFactor"/>; on every second step the drive comes down
+    /// <see cref="DriveStepDb"/>, never below the current band's drive (zero
+    /// when the band was off). False when the increase left is under
+    /// <see cref="MixLeastPercent"/>: the band is then withdrawn and the
+    /// current setting stands.
+    /// </summary>
+    private static bool TrySmaller(ClarityBand proposed, ClarityBand current, int step, out ClarityBand smaller)
+    {
+        bool currentOn = !current.AddsNothing;
+        float baseMix = currentOn ? current.MixPercent : 0f;
+        float increase = (float)((proposed.MixPercent - baseMix) * MixFactor);
+        float driveFloor = currentOn ? current.DriveDb : 0f;
+        float drive = step % 2 == 0 ? Math.Max(driveFloor, proposed.DriveDb - DriveStepDb) : proposed.DriveDb;
+        smaller = proposed.WithMix(baseMix + increase).WithDrive(Math.Max(driveFloor, drive));
+        return increase >= MixLeastPercent;
+    }
 
     /// <summary>
     /// Render mono audio through JJ Clarity alone, at its own rate, in the

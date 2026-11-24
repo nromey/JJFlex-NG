@@ -198,6 +198,23 @@ public sealed class ClaritySuggestTests
         Assert.Equal(ClarityJudgement.AtTheRulesMost, ClarityProposalRule.Propose(Deviations(hz => hz >= 1600 ? -5 : 0), most).Brightness);
     }
 
+    [Theory]
+    [InlineData(60f, 50f)]   // exactly at each cap
+    [InlineData(60.5f, 50.5f)]
+    [InlineData(90f, 80f)]   // well above each cap
+    [InlineData(100f, 100f)]
+    public void A_band_at_or_above_the_rules_most_is_left_exactly_as_the_operator_set_it(float highMix, float lowMix)
+    {
+        // Repair 1, B1: the cap limits what the rule offers; it never lowers a stronger choice.
+        var current = new ClaritySettings(new ClarityBand(true, 2000, 9, highMix, ClarityHarmonics.Odd),
+            new ClarityBand(true, 120, 6, lowMix, ClarityHarmonics.Even));
+        var p = ClarityProposalRule.Propose(Deviations(hz => hz >= 1600 || hz <= 315 ? -6 : 0), current);
+        Assert.Equal(ClarityJudgement.AtTheRulesMost, p.Brightness);
+        Assert.Equal(ClarityJudgement.AtTheRulesMost, p.Fullness);
+        Assert.True(p.IsNothing);
+        Assert.Equal(current, p.Proposed);
+    }
+
     [Fact]
     public void A_voice_short_of_low_body_gets_a_fullness_proposal()
     {
@@ -301,6 +318,28 @@ public sealed class ClaritySuggestTests
     }
 
     [Fact]
+    public void The_guard_shrinks_only_the_increase_and_never_goes_below_the_operators_current_setting()
+    {
+        // Codex's case (2026-11-24): current high band 10 %, drive 24 dB; a 4 dB shortfall proposes 26 %.
+        const int rate = 48000;
+        var current = ClaritySettings.Default.WithHigh(new ClarityBand(true, 2000, 24, 10, ClarityHarmonics.Even));
+        var proposal = ClarityProposalRule.Propose(Deviations(hz => hz >= 1600 ? -4 : 0), current);
+        Assert.Equal(26f, proposal.Proposed.High.MixPercent, 3);
+        var before = Tones(rate, 1, (1200, 0.63), (700, 0.3675));
+        var g = ClarityPeakGuard.Apply(proposal, before, rate, 100, 2900);
+        _out.WriteLine($"after {g.Steps} steps: withdrawn {g.Withdrawn}, {g.Proposal.Proposed.High}; overs {g.OverFullScaleBefore} before, {g.OverFullScaleAfter} after");
+        Assert.True(g.Reduced);
+        Assert.True(g.Proposal.Proposed.High.MixPercent >= current.High.MixPercent, "the guard went below the operator's mix");
+        Assert.True(g.Proposal.Proposed.High.DriveDb >= current.High.DriveDb, "the guard went below the operator's drive");
+        if (g.Withdrawn)
+        {
+            Assert.Equal(current, g.Proposal.Proposed);
+            Assert.Equal(ClarityJudgement.WithdrawnByPeakGuard, g.Proposal.Brightness);
+        }
+        else Assert.True(g.OverFullScaleAfter <= g.OverFullScaleBefore);
+    }
+
+    [Fact]
     public void A_proposal_no_reduction_can_save_is_withdrawn_and_says_why()
     {
         const int rate = 48000;
@@ -386,7 +425,10 @@ public sealed class ClaritySuggestTests
             Assert.Equal(2900, r.Spectrum.PassbandHighHz);
             Assert.Equal(ClarityJudgement.Proposed, r.Proposal.Brightness);
             Assert.False(r.GuardRan);           // no retained audio: the guard did not run, and the result says so
-            Assert.Same(r.Proposal, r.Offered);
+            // Nothing keepable without the guard (repair 1, B2): the raw proposal is for analysis only.
+            Assert.False(r.CanKeep);
+            Assert.False(r.TryGetGuardedOffer(out var offer));
+            Assert.Null(offer);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
@@ -397,12 +439,15 @@ public sealed class ClaritySuggestTests
         string root = Root();
         try
         {
-            var before = Tones(48000, 1, (1200, 0.6), (700, 0.35));
+            var before = Tones(48000, 1, (1200, 0.3), (700, 0.2));
             var off = ClaritySettings.Default.WithHigh(ClaritySettings.Default.High.WithEnabled(false));
             var r = ClaritySuggest.FromTake(Take(root, presenceDb: -20), new ClaritySuggestInput(off, before, 48000));
             Assert.True(r.GuardRan);
-            Assert.Same(r.Guard!.Proposal, r.Offered);
-            Assert.Equal(0, ClarityPeakGuard.CountOver(ClarityPeakGuard.RenderClarityOnly(before, 48000, r.Offered.Proposed, 100, 2900)));
+            // With the guard run, there is a keepable offer, and it is the guarded proposal.
+            Assert.True(r.CanKeep);
+            Assert.True(r.TryGetGuardedOffer(out var offer));
+            Assert.Same(r.Guard!.Proposal, offer);
+            Assert.Equal(0, ClarityPeakGuard.CountOver(ClarityPeakGuard.RenderClarityOnly(before, 48000, offer!.Proposed, 100, 2900)));
             // The render is a seam: a supplied renderer is the one used.
             int calls = 0;
             var seam = ClaritySuggest.FromTake(Path.Combine(root, "take"), new ClaritySuggestInput(off, before, 48000,

@@ -302,6 +302,47 @@ namespace Radios.Tests
                 Assert.True(BitConverter.SingleToInt32Bits(input[i]) == BitConverter.SingleToInt32Bits(output[i]), $"sample {i} after the fade out");
         }
 
+        // ── readouts (repair 1, B3) ──
+
+        [Fact]
+        public void The_clamp_readouts_use_the_rate_in_force_not_the_rate_the_design_was_made_for()
+        {
+            // Codex's case: tune 8 kHz, even, edges 100 to 10,000 Hz, published at 48 kHz, run at 8 kHz.
+            var c = new ClarityExciter { Enabled = true };
+            c.Use(ClarityDesign.Create(High(8000, 12, 30, ClarityHarmonics.Even), 100, 10000, 48000));
+            Assert.Equal(8000f, c.AppliedHighTuneHz);   // at 48 kHz, nothing clamps
+            Assert.False(c.HighTuneClamped);
+            var buf = Tone(1000, 0.1, 80, 8000);
+            c.Process(buf, buf.Length, 8000);
+            Assert.Equal(8000u, c.InForceRate);
+            Assert.Equal(2400f, c.AppliedHighTuneHz, 2); // 0.8 of 0.375 x 8000
+            Assert.True(c.HighTuneClamped);
+            Assert.Equal(8000f, c.Settings.High.TuneHz);
+            Assert.False(c.LowTuneClamped);
+        }
+
+        [Fact]
+        public void The_adding_now_reading_falls_to_nothing_once_the_stage_has_faded_off_and_idle_buffers_stay_exact()
+        {
+            const uint rate = 48000;
+            var c = Make(High(2000, 12, 60, ClarityHarmonics.Even), rate);
+            Run(c, Tone(1200, 0.3, (int)rate / 2, rate), rate);
+            Assert.True(c.AddingNowDbfs > -60);
+            c.Enabled = false;
+            Run(c, Tone(1200, 0.3, (int)rate / 20, rate), rate);   // 50 ms: the 20 ms fade and beyond
+            for (int k = 0; k < 6; k++)
+            {
+                var idle = Tone(1200, 0.3, 480, rate, phase: k);
+                for (int i = 0; i < 32; i += 2) idle[i] = idle[i + 1] = -0.0f;
+                var copy = (float[])idle.Clone();
+                c.Process(idle, idle.Length, rate);
+                for (int i = 0; i < idle.Length; i++)
+                    Assert.True(BitConverter.SingleToInt32Bits(copy[i]) == BitConverter.SingleToInt32Bits(idle[i]), $"idle buffer {k} sample {i}");
+                Assert.Equal(-200f, c.AddingNowDbfs);
+            }
+            Assert.False(c.IsActive);
+        }
+
         // ── delay ──
 
         [Theory]

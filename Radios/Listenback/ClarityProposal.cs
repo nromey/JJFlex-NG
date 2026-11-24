@@ -21,7 +21,7 @@ public enum ClarityJudgement
     AlreadyEnough,
     /// <summary>The take's transmit filter holds too little of the region (or of the middle it is judged against) to judge.</summary>
     RegionOutsidePassband,
-    /// <summary>A setting would be proposed, but the band is already at the rule's most.</summary>
+    /// <summary>A setting would be proposed, but the band is already at or above the rule's most: it is left exactly as the operator set it.</summary>
     AtTheRulesMost,
     /// <summary>A setting was proposed, and the peak guard took it back: even reduced, it put more samples over full scale (or past the limiter's ceiling) than the operator's audio has now.</summary>
     WithdrawnByPeakGuard,
@@ -134,6 +134,11 @@ public static class ClarityProposalRule
                 var high = current.High;
                 bool wasOn = !high.AddsNothing;
                 var firstShort = presence.FirstOrDefault(d => middleMean - d.DeviationDb >= PresenceThresholdDb) ?? presence[0];
+                // The cap limits what the rule OFFERS; it never rewrites a stronger
+                // choice the operator already made (repair 1, B1): the loop only adds.
+                if (wasOn && high.MixPercent >= BrightnessMixMostPercent) brightness = ClarityJudgement.AtTheRulesMost;
+                else
+                {
                 float mix = (float)Math.Clamp((wasOn ? high.MixPercent : 0f) + presenceShortfall * BrightnessMixPerDb,
                     MixFloorPercent, BrightnessMixMostPercent);
                 var band = new ClarityBand(true,
@@ -144,6 +149,7 @@ public static class ClarityProposalRule
                 band = ClaritySettings.Normalize(band, isHigh: true);
                 if (wasOn && band.Equals(high)) brightness = ClarityJudgement.AtTheRulesMost;
                 else { brightness = ClarityJudgement.Proposed; proposed = proposed.WithHigh(band); }
+                }
             }
         }
 
@@ -159,6 +165,9 @@ public static class ClarityProposalRule
             {
                 var low = current.Low;
                 bool wasOn = !low.AddsNothing;
+                if (wasOn && low.MixPercent >= FullnessMixMostPercent) fullness = ClarityJudgement.AtTheRulesMost;
+                else
+                {
                 float mix = (float)Math.Clamp((wasOn ? low.MixPercent : 0f) + fullnessShortfall * FullnessMixPerDb,
                     MixFloorPercent, FullnessMixMostPercent);
                 var band = new ClarityBand(true,
@@ -169,6 +178,7 @@ public static class ClarityProposalRule
                 band = ClaritySettings.Normalize(band, isHigh: false);
                 if (wasOn && band.Equals(low)) fullness = ClarityJudgement.AtTheRulesMost;
                 else { fullness = ClarityJudgement.Proposed; proposed = proposed.WithLow(band); }
+                }
             }
         }
 

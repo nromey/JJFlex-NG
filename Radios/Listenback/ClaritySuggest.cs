@@ -61,11 +61,18 @@ public sealed record ClaritySuggestInput(
 
 /// <summary>
 /// The suggest step's result: the measurement, the proposal, the peak
-/// guard's work and the facts it rests on. When <see cref="Guard"/> is null
-/// the guard did not run (no retained audio was given), and the proposal
-/// must not be offered for keeping until it has: phase 2 says a retained take
-/// is needed.
+/// guard's work and the facts it rests on.
 /// </summary>
+/// <remarks>
+/// <para><b>Nothing is keepable until the guard has run</b> (repair 1, B2).
+/// <see cref="Proposal"/> is the rule's raw proposal, for analysis and for
+/// saying what was found; it is never the thing an operator keeps. The only
+/// road to a keepable offer is <see cref="TryGetGuardedOffer"/>, which
+/// answers false when no retained audio was given (<see cref="Guard"/> is
+/// null: phase 2 says a recording of the operator's voice is needed) and when
+/// the guarded proposal changes nothing (withdrawn, or nothing was
+/// proposed).</para>
+/// </remarks>
 public sealed record ClaritySuggestResult(
     bool Available,
     ClaritySuggestRefusal Refusal,
@@ -77,8 +84,19 @@ public sealed record ClaritySuggestResult(
 {
     public bool GuardRan => Guard != null;
 
-    /// <summary>The proposal as it may be offered: the guarded one when the guard ran.</summary>
-    public ClarityProposal Offered => Guard?.Proposal ?? Proposal;
+    /// <summary>True only when the guard has run and its proposal changes something: the one state in which Keep may be offered.</summary>
+    public bool CanKeep => Guard != null && Guard.Proposal != null && !Guard.Proposal.IsNothing;
+
+    /// <summary>
+    /// The guarded proposal, when there is one to keep. False, with
+    /// <paramref name="offer"/> null, when the guard has not run or its
+    /// proposal changes nothing. Never returns the raw <see cref="Proposal"/>.
+    /// </summary>
+    public bool TryGetGuardedOffer(out ClarityProposal offer)
+    {
+        offer = CanKeep ? Guard.Proposal : null;
+        return offer != null;
+    }
 }
 
 /// <summary>

@@ -130,16 +130,21 @@ namespace JJPortaudio
     /// conditioner's immutable-publish pattern; Sprint 49 Track J, #736).
     /// </summary>
     /// <remarks>
-    /// <para><b>No fold-back, by construction.</b> A polynomial of order N
-    /// turns a signal whose highest frequency is F into one whose highest
-    /// frequency is N times F, and nothing more. So each band band-limits the
-    /// shaper's INPUT (an eighth-order Butterworth low-pass) to the ceiling
-    /// divided by the highest order it makes, where the ceiling
-    /// (<see cref="Ceiling"/>) is the lower of the passband's high edge and
-    /// <see cref="FoldGuard"/> of Nyquist. Anything the shaper makes therefore
-    /// lies under Nyquist with a quarter of it to spare for the filter's
-    /// transition, and, where the edge is known, inside what the radio will
-    /// transmit: harmonics above the high edge would be wasted energy.</para>
+    /// <para><b>Fold-back, bounded for a steady tone and measured, not
+    /// proved in general.</b> A polynomial of order N turns a signal whose
+    /// highest frequency is F into one whose highest frequency is N times F.
+    /// So each band band-limits the shaper's INPUT (an eighth-order Butterworth
+    /// low-pass) to the ceiling divided by the highest order it makes, where
+    /// the ceiling (<see cref="Ceiling"/>) is the lower of the passband's high
+    /// edge and <see cref="FoldGuard"/> of Nyquist, leaving a quarter of
+    /// Nyquist for the filter's transition. That bounds the steady-tone case,
+    /// measured to between -115 dBc (8 kHz) and -178 dBc (48 kHz). It is not a
+    /// strict band limit: the filter has a finite stopband, and the level
+    /// control's peak-dependent gain adds modulation products beyond the
+    /// polynomial's order (a two-tone probe at 8 kHz measured them about
+    /// -56 dBc, Codex's check, 2026-11-24). Onsets and many tones are for the
+    /// harness walk. Where the edge is known the shaper's work also stays
+    /// inside what the radio transmits.</para>
     /// <para><b>Intent kept, applied clamped</b> (the de-esser's pattern): the
     /// high band's tune is applied at most <see cref="PassbandFraction"/> of
     /// the ceiling (scaled by the ratio of its lowest to highest harmonic order,
@@ -336,15 +341,17 @@ namespace JJPortaudio
     /// <see cref="ClarityDesign"/>), a level control, the shaper, the added
     /// path's filter, and the mix. The output is the input plus the bands'
     /// added paths. The dry path is never filtered, so off is exact.</para>
-    /// <para><b>The level control</b> keeps the shaper's argument within one
-    /// without breaking the bound on its order: the band's peak, linked across
+    /// <para><b>The level control</b> keeps the shaper's argument at about one
+    /// at most (on release it can pass one by the release step, at most about
+    /// 1.0016 at 8 kHz): the band's peak, linked across
     /// both channels, is HELD for <see cref="HoldMs"/> and then released over
     /// <see cref="ReleaseMs"/>; the drive gain is lowered to one over that
     /// peak when drive times peak would pass one. A steady signal's peak is
     /// refreshed before the hold ends, so its gain is exactly constant and the
-    /// shaper's output is a pure polynomial of the band: no fold-back. Only a
-    /// rising level steps the gain, at the sample that sets a new peak; a
-    /// falling one releases smoothly.</para>
+    /// shaper's output is a pure polynomial of the band. A rising level steps
+    /// the gain at the sample that sets a new peak, and a falling one releases
+    /// it; both modulate the band, which makes products beyond the
+    /// polynomial's order (see <see cref="ClarityDesign"/>).</para>
     /// <para><b>The shapers are harmonic-only.</b> With u the driven band and
     /// m the running mean of u squared: even is u^2 - m (the second harmonic,
     /// and the DC that u^2 makes removed by m); odd is u^3 - 1.5 m u (the third
@@ -359,9 +366,11 @@ namespace JJPortaudio
     /// path from the old design to the new over <see cref="CrossFadeMs"/>, the
     /// new starting from the old one's state, so a lever moved mid-stream does
     /// not click. A design published mid-fade waits for the fade. Switching
-    /// the stage on or off fades the added path in or out the same way. When
-    /// the stream's rate is not the design's, the audio thread recomputes the
-    /// coefficients in place (no allocation, no lock).</para>
+    /// the stage on or off fades the added path in or out the same way.
+    /// Whenever a design is adopted at a rate other than the one it was made
+    /// for (the stream's rate changed, or a design was published for a
+    /// different rate), the audio thread computes its coefficients in place
+    /// (no allocation, no lock).</para>
     /// <para><b>Off is exact:</b> off, both bands off, or mix at zero, and no
     /// fade running, <see cref="Process"/> returns without touching a
     /// sample. Delay: zero (recursive sections run in place; nothing looks
@@ -461,11 +470,30 @@ namespace JJPortaudio
             set { float v = float.IsFinite(value) && value > 0 ? value : 0f; if (v == _lowEdge) return; _lowEdge = v; Use(Settings); }
         }
 
-        /// <summary>Where the high band's brightness starts, as applied (of the published design).</summary>
-        public float AppliedHighTuneHz => Wanted?.AppliedHighTuneHz ?? ClarityDesign.ApplyHighTune(Settings.High.TuneHz, Settings.High.Harmonics, ClarityDesign.Ceiling(_highEdge, LastRate));
+        /// <summary>
+        /// The rate the clamp readouts use: the rate the stream last ran at, which
+        /// is the rate the coefficients in force were computed for, whatever rate
+        /// the published design was made for (repair 1, B3); the design's own rate
+        /// before the stream has run.
+        /// </summary>
+        public uint InForceRate
+        {
+            get { int r = Volatile.Read(ref _lastRate); return r > 0 ? (uint)r : (Wanted?.Rate ?? ClarityDesign.DesignRate); }
+        }
+
+        private float InForceCeiling => ClarityDesign.Ceiling(Wanted?.PassbandHighEdgeHz ?? _highEdge, InForceRate);
+
+        /// <summary>Where the high band's brightness starts, as applied at the rate in force.</summary>
+        public float AppliedHighTuneHz => ClarityDesign.ApplyHighTune(Settings.High.TuneHz, Settings.High.Harmonics, InForceCeiling);
 
         /// <summary>Whether the high band's chosen tune is being clamped to the passband or the rate.</summary>
         public bool HighTuneClamped => AppliedHighTuneHz < Settings.High.TuneHz;
+
+        /// <summary>The top of the low band's fundamentals, as applied at the rate in force.</summary>
+        public float AppliedLowTuneHz => ClarityDesign.ApplyLowTune(Settings.Low.TuneHz, Settings.Low.Harmonics, InForceCeiling);
+
+        /// <summary>Whether the low band's chosen tune is being clamped.</summary>
+        public bool LowTuneClamped => AppliedLowTuneHz < Settings.Low.TuneHz;
 
         /// <summary>Added delay, frames: always zero.</summary>
         public int LatencyFrames => 0;
@@ -509,7 +537,11 @@ namespace JJPortaudio
             if (sampleRate != _rate) AdoptAtNewRate(wanted, enabled, sampleRate);
             else if (changed && !_fading) Adopt(wanted, enabled);
 
-            if (!_fading && !_cur.Active) return;   // exact: not a sample touched
+            if (!_fading && !_cur.Active)
+            {
+                _addingNowDbfs = -200f;             // nothing added now (repair 1, B3)
+                return;                             // exact: not a sample touched
+            }
 
             int frames = count / Channels;
             double sq = 0, peak = 0;
