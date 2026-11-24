@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace Radios
 {
@@ -37,11 +38,23 @@ namespace Radios
         bool RadioIsOperators { get; }
 
         /// <summary>
-        /// Turn the processor on or off, as the APPLICATION's change (never
-        /// read as the operator's). False when it could not be sent. The level
-        /// is never written: the handoff does not change it.
+        /// ASK for the processor to be turned on or off, as the APPLICATION's
+        /// change (never read as the operator's). The write may be queued: a
+        /// true answer means it was asked for, NOT that it was written. At
+        /// the moment it is really written the implementation checks again
+        /// that the radio is connected and not transmitting and that
+        /// <paramref name="stillWanted"/> still answers true, and writes
+        /// nothing otherwise. The policy learns the outcome only from
+        /// <see cref="ProcessorOn"/>. The level is never written.
         /// </summary>
-        bool WriteProcessorOn(bool on);
+        bool WriteProcessorOn(bool on, Func<bool> stillWanted);
+
+        /// <summary>
+        /// Write it NOW, on the caller's thread, for the leave before a
+        /// teardown, when a queue may never run again. False when the radio is
+        /// not connected or is transmitting; nothing is written then.
+        /// </summary>
+        bool WriteProcessorOnNow(bool on);
     }
 
     /// <summary>What the handoff needs to know from the computer's side, read fresh on every tick.</summary>
@@ -193,20 +206,33 @@ namespace Radios
     /// compressor's switch, a setup, a preset, a microphone change, the
     /// setting itself being switched on).</item>
     /// <item><b>At the start of a session</b>, if the radio's processor is on,
-    /// the app turns it off, records what it changed (per radio serial), and
-    /// says so once. If the processor is already off there is nothing to do,
-    /// and nothing to put back later.</item>
-    /// <item><b>The operator's own turn-on wins.</b> If the processor is found
-    /// on again during the session (by any door, a preset, another client),
-    /// that is somebody's intent: the record is dropped, nothing is fought,
-    /// and it is not turned off again in that session.</item>
+    /// the app asks for it to be turned off and records what it is changing
+    /// (per radio serial). It says so when the radio's own reading shows it
+    /// off, never before. If the processor is already off there is nothing to
+    /// do, and nothing to put back later.</item>
+    /// <item><b>The operator's own turn-on wins.</b> Once the app's off has
+    /// been SEEN, a processor found on again during the session (by any door,
+    /// a preset, another client) is somebody's intent: the record is dropped,
+    /// nothing is fought, and it is not turned off again in that session.
+    /// Before the app's off has been seen, a processor that reads on has
+    /// simply not been turned off yet, and the app asks again.</item>
     /// <item><b>At the end of a session</b> the processor is put back on only
-    /// if it still holds the value the app set, and the app says so. The
-    /// level is never written: the app never changed it.</item>
-    /// <item><b>Nothing is written while the radio is transmitting</b> (the
-    /// rule the audio check's put-back keeps; whether the radio accepts a
-    /// processor change while keyed without a click is a bench question,
-    /// #737). A change that has to wait is made on a later tick.</item>
+    /// if it still holds the value the app set. The level is never written:
+    /// the app never changed it.</item>
+    /// <item><b>Asked is not written</b> (repair 1, B3). A write goes into the
+    /// radio's command queue; it is PENDING until the radio's own reading
+    /// shows it. The record of what the app changed is kept until the
+    /// put-back is seen, so a link that ends with the put-back still in the
+    /// queue leaves the record for the next connect. Every queued write
+    /// carries a ticket: if the policy no longer wants that write when the
+    /// queue reaches it (the session ended, the operator took over, the app is
+    /// leaving), it is not made. A write that has not shown within
+    /// <see cref="SettleTicks"/> ticks is asked for again if it is still
+    /// wanted.</item>
+    /// <item><b>Nothing is written while the radio is transmitting</b>: not
+    /// asked for while it transmits, and checked again by the radio's side at
+    /// the moment of the write (whether the radio accepts a processor change
+    /// while keyed without a click is a bench question, #737).</item>
     /// <item><b>A fault in the transmit chain mid-over</b> ends the session:
     /// the processor is put back at the unkey, said once, and not turned off
     /// again until the compressor is next switched on.</item>
@@ -216,25 +242,25 @@ namespace Radios
     /// operator's own, where the compressor still runs and the app says once
     /// that the processor was left alone. Putting back what the app itself
     /// changed is done in any mode.</item>
-    /// <item><b>Across a disconnect</b> the record stays on disk. An orderly
-    /// disconnect tries the put-back before leaving
-    /// (<see cref="Leaving"/>). At the next connect to that radio: if the
-    /// processor no longer holds the app's value, the record is dropped; if
-    /// it does and our compressor is not on, it is put back and said; if it
-    /// does and our compressor is on, it stays off, the record is kept, and
-    /// that is said.</item>
+    /// <item><b>Across a disconnect</b> the record stays on disk. The leave
+    /// before a teardown writes the put-back at once, on the caller's thread
+    /// (<see cref="Leaving"/>), and keeps the record. At the next connect to
+    /// that radio: if the processor no longer holds the app's value, the
+    /// record is dropped (and, our compressor being on, that connection's
+    /// session then starts like any other); if it does and our compressor is
+    /// not on, it is put back and said; if it does and our compressor is on,
+    /// it stays off, the record is kept, and that is said.</item>
     /// </list>
     /// <para><b>Time is counted in ticks</b>, never a clock, so every rule is
-    /// testable: after each write the radio's answer is not judged for
-    /// <see cref="SettleTicks"/> ticks, because a write is queued and the
-    /// radio's own report of it arrives a little later.</para>
+    /// testable.</para>
     /// <para>One caller at a time: the policy tick, the connect path and the
     /// leave each take the same lock, because the tick runs on a timer's
-    /// thread while a connect or a leave arrives on another.</para>
+    /// thread while a connect or a leave arrives on another. The ticket is
+    /// read by the radio's side on its own thread, with no lock.</para>
     /// </remarks>
     public sealed class ProcessorHandoff
     {
-        /// <summary>Ticks after a write during which the radio's reading is not judged (two seconds at the app's half-second tick).</summary>
+        /// <summary>Ticks a pending write is given to show in the radio's reading before it is asked for again (two seconds at the app's half-second tick).</summary>
         public const int SettleTicks = 4;
 
         private readonly IRadioSpeechProcessor _radio;
@@ -242,11 +268,22 @@ namespace Radios
         private readonly Action<ProcessorHandoffNotice> _say;
         private readonly Action<string> _trace;
 
+        private enum Pending { None, Off, PutBack }
+
         private bool _atConnect, _connectPutBack;
         private bool _session, _declined, _settled, _faulted, _faultPutBack, _saidNotYours;
         private long _faultsSeen = -1;
-        private int _settle;
         private readonly object _sync = new();
+
+        // A write asked for and not yet seen in the radio's reading.
+        private Pending _pending;
+        private int _pendingTicks;
+        // The ticket of the newest write asked for. A queued write is made
+        // only while its own ticket is still the newest.
+        private int _ticket;
+        // Whether the app's "off" has been seen in the radio's reading. Until
+        // it has, a processor that reads on was never turned off.
+        private bool _offSeen;
 
         // The record, read from the store once per connection and kept here,
         // so a tick twice a second does not read a file twice a second. This
@@ -256,7 +293,14 @@ namespace Radios
 
         private ProcessorHandoffRecord? Record(string serial)
         {
-            if (!_recordRead) { _record = _store.Find(serial); _recordRead = true; }
+            if (!_recordRead)
+            {
+                _record = _store.Find(serial);
+                _recordRead = true;
+                // A record from an earlier session was written by an off that was seen or not;
+                // the connect rule settles it from the radio's reading either way.
+                _offSeen = _record != null;
+            }
             return _record;
         }
 
@@ -271,6 +315,21 @@ namespace Radios
         {
             _store.Remove(serial);
             _record = null; _recordRead = true;
+            _offSeen = false;
+            Withdraw();
+        }
+
+        /// <summary>No write asked for so far may still be made.</summary>
+        private void Withdraw() => Interlocked.Increment(ref _ticket);
+
+        /// <summary>Ask for a write, with a ticket of its own. True when it was asked for.</summary>
+        private bool Ask(bool on, Pending kind)
+        {
+            int mine = Interlocked.Increment(ref _ticket);
+            if (!_radio.WriteProcessorOn(on, () => Volatile.Read(ref _ticket) == mine)) return false;
+            _pending = kind;
+            _pendingTicks = SettleTicks;
+            return true;
         }
 
         public ProcessorHandoff(IRadioSpeechProcessor radio, ProcessorHandoffStore store,
@@ -282,25 +341,23 @@ namespace Radios
             _trace = trace ?? (line => Trace.WriteLine(line));
         }
 
-        /// <summary>Whether the app has turned this radio's processor off and not yet put it back.</summary>
+        /// <summary>Whether the app has turned this radio's processor off (or asked to) and its put-back has not yet been seen.</summary>
         public bool HoldsRecord { get { lock (_sync) return Record(_radio.Serial) != null; } }
 
         /// <summary>The radio has just connected: the next tick applies the connect rule to any record an earlier session left.</summary>
         public void Connected()
         {
-            lock (_sync) ConnectedLocked();
+            lock (_sync)
+            {
+                _atConnect = true;
+                _session = _declined = _settled = _faulted = _faultPutBack = _saidNotYours = _connectPutBack = false;
+                _faultsSeen = -1;
+                _pending = Pending.None;
+                _pendingTicks = 0;
+                Withdraw();
+                _recordRead = false; // read again from the store: another session may have written it
+            }
         }
-
-        private void ConnectedLocked()
-        {
-            _atConnect = true;
-            _session = _declined = _settled = _faulted = _faultPutBack = _saidNotYours = _connectPutBack = false;
-            _faultsSeen = -1;
-            _settle = 0;
-            _recordRead = false; // read again from the store: another session may have written it
-        }
-
-        private void Wrote() => _settle = SettleTicks;
 
         /// <summary>One policy tick: apply the rules to what is true now.</summary>
         public void Tick(ProcessorHandoffInputs inputs)
@@ -315,7 +372,6 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(serial)) return;
             if (_faultsSeen < 0) _faultsSeen = inputs.ChainFaults; // the first reading is the baseline, never a fault
             if (inputs.ChainFaults < _faultsSeen) _faultsSeen = inputs.ChainFaults; // a new stream counts from zero again
-            if (_settle > 0) { _settle--; return; }
 
             bool want = inputs.SettingOn && inputs.CompressorOn && inputs.PcMicrophone;
             var record = Record(serial);
@@ -329,18 +385,19 @@ namespace Radios
                 {
                     if (atConnect != record.AppSetOn)
                     {
-                        _trace("ProcessorHandoff: at connect the processor of " + serial + " no longer holds the value the app set; the record is dropped and the processor left as it is");
+                        _trace("ProcessorHandoff: at connect the processor of " + serial + " no longer holds the value the app set, so the app's record is dropped"
+                            + (want ? "; the compressor is on, so this connection's session starts like any other and may turn it off again" : "; nothing is written"));
                         Drop(serial);
                         record = null;
                     }
                     else if (want)
                     {
                         // Still off as we left it, and our compressor is on: the session carries on.
-                        _session = true; _settled = true; _declined = false; _faulted = false;
+                        _session = true; _settled = true; _declined = false; _faulted = false; _offSeen = true;
                         _trace("ProcessorHandoff: at connect the processor of " + serial + " is still off as the app left it and the compressor is on; the record is kept");
                         _say(ProcessorHandoffNotice.StillOffAtConnect);
                     }
-                    else _connectPutBack = true;
+                    else { _connectPutBack = true; _offSeen = true; }
                 }
             }
 
@@ -359,6 +416,45 @@ namespace Radios
             if (!want) _faulted = false; // the compressor next coming on is a new session
             bool active = want && !_faulted;
 
+            // A write on its way: seen, still on its way, or never arrived.
+            if (_pending != Pending.None)
+            {
+                if (_radio.ProcessorOn is not bool reading) return;
+                bool target = _pending == Pending.Off ? false : (record?.PreviousOn ?? true);
+                // If the policy no longer wants that write, it must not go out late.
+                bool stillWanted = _pending == Pending.Off ? active && !_declined : !active;
+                if (!stillWanted) Withdraw();
+                if (record != null && reading == target)
+                {
+                    var seen = _pending;
+                    _pending = Pending.None;
+                    if (seen == Pending.Off)
+                    {
+                        _offSeen = true;
+                        _trace("ProcessorHandoff: the compressor is on, and the processor of " + serial + " now reads off (it was on at level "
+                            + record.PreviousLevel.ToString(CultureInfo.InvariantCulture) + ")");
+                        _say(_radio.AnotherClientMayBeConnected ? ProcessorHandoffNotice.TurnedOffShared : ProcessorHandoffNotice.TurnedOff);
+                    }
+                    else
+                    {
+                        // Seen back: only now is the debt paid and the record forgotten.
+                        _trace("ProcessorHandoff: the processor of " + serial + " reads " + (record.PreviousOn ? "on" : "off") + " again"
+                            + (_faultPutBack ? " after the transmit chain faulted" : _connectPutBack ? " at connect" : ""));
+                        var notice = _faultPutBack ? ProcessorHandoffNotice.PutBackAfterFault
+                            : _connectPutBack ? ProcessorHandoffNotice.PutBackAtConnect
+                            : _radio.AnotherClientMayBeConnected ? ProcessorHandoffNotice.PutBackShared
+                            : ProcessorHandoffNotice.PutBack;
+                        _connectPutBack = false; _faultPutBack = false;
+                        Drop(serial);
+                        _say(notice);
+                    }
+                    return; // the rules read the new state on the next tick
+                }
+                if (_pendingTicks > 0) { _pendingTicks--; return; }
+                _trace("ProcessorHandoff: a write asked of " + serial + " has not shown in its reading; it is asked for again if it is still wanted");
+                _pending = Pending.None;
+            }
+
             if (active)
             {
                 if (!_session)
@@ -368,13 +464,19 @@ namespace Radios
                 if (_radio.ProcessorOn is not bool on) return;
                 if (record != null)
                 {
-                    if (on != record.AppSetOn)
+                    if (on == record.AppSetOn) { _offSeen = true; return; }
+                    if (_offSeen)
                     {
                         // Somebody turned it back on: their intent. Never fought, and not turned off again this session.
                         _trace("ProcessorHandoff: the processor of " + serial + " was turned on while the compressor is on; the app's record is dropped and it is left on for this session");
                         Drop(serial);
                         _declined = true;
+                        return;
                     }
+                    // The app's off was never seen: it was not written (the radio was transmitting when
+                    // the queue reached it, say). Ask again, under the same conditions as the first time.
+                    if (!inputs.VoiceMode || !_radio.RadioIsOperators || _radio.Transmitting) return;
+                    Ask(false, Pending.Off);
                     return;
                 }
                 if (_settled || _declined) return;
@@ -399,16 +501,14 @@ namespace Radios
                     _settled = true;
                     return;
                 }
-                if (!_radio.WriteProcessorOn(false))
+                _offSeen = false;
+                if (!Ask(false, Pending.Off))
                 {
                     Drop(serial);
                     return;                                   // tried again on the next tick
                 }
-                Wrote();
                 _settled = true;
-                _trace("ProcessorHandoff: the compressor is on, so the processor of " + serial + " was turned off (it was on at level "
-                    + _radio.ProcessorLevel.ToString(CultureInfo.InvariantCulture) + ")");
-                _say(_radio.AnotherClientMayBeConnected ? ProcessorHandoffNotice.TurnedOffShared : ProcessorHandoffNotice.TurnedOff);
+                _trace("ProcessorHandoff: the compressor is on, so the processor of " + serial + " is being turned off");
                 return;
             }
 
@@ -418,29 +518,25 @@ namespace Radios
             if (_radio.ProcessorOn is not bool now) return;
             if (now != record.AppSetOn)
             {
-                _trace("ProcessorHandoff: the processor of " + serial + " no longer holds the value the app set; nothing is put back");
+                _trace(_offSeen
+                    ? "ProcessorHandoff: the processor of " + serial + " no longer holds the value the app set; nothing is put back"
+                    : "ProcessorHandoff: the app's off was never written to " + serial + ", so there is nothing to put back");
                 Drop(serial);
                 _connectPutBack = false; _faultPutBack = false;
                 return;
             }
+            _offSeen = true;
             if (_radio.Transmitting) return;                  // at the unkey
-            if (!_radio.WriteProcessorOn(record.PreviousOn)) return;
-            Wrote();
-            Drop(serial);
-            _trace("ProcessorHandoff: the processor of " + serial + " was put back " + (record.PreviousOn ? "on" : "off")
-                + (_faultPutBack ? " after the transmit chain faulted" : _connectPutBack ? " at connect" : ""));
-            var notice = _faultPutBack ? ProcessorHandoffNotice.PutBackAfterFault
-                : _connectPutBack ? ProcessorHandoffNotice.PutBackAtConnect
-                : _radio.AnotherClientMayBeConnected ? ProcessorHandoffNotice.PutBackShared
-                : ProcessorHandoffNotice.PutBack;
-            _connectPutBack = false; _faultPutBack = false;
-            _say(notice);
+            // Asked, not written: the record stays until the radio's reading shows it back.
+            Ask(record.PreviousOn, Pending.PutBack);
         }
 
         /// <summary>
-        /// An orderly disconnect is about to happen: put the processor back if
+        /// The live link is about to be torn down: put the processor back if
         /// the app turned it off, so the radio is left as the operator had it
-        /// for any other program (the brief's question 8; default yes). The
+        /// for any other program (the brief's question 8; default yes). Written
+        /// at once on the caller's thread, because the command queue may never
+        /// run again; and nothing asked for earlier may go out after it. The
         /// record is KEPT, because the write cannot be confirmed from here; the
         /// next connect finds the processor on and drops it, or finds it still
         /// off and applies the connect rule. Says nothing: a disconnect moves
@@ -455,6 +551,8 @@ namespace Radios
         {
             try
             {
+                Withdraw();
+                _pending = Pending.None;
                 if (!_radio.Connected) return;
                 var record = Record(_radio.Serial);
                 if (record == null) return;
@@ -464,8 +562,8 @@ namespace Radios
                     _trace("ProcessorHandoff: leaving " + _radio.Serial + " while it transmits; the processor is put back at the next connect");
                     return;
                 }
-                bool sent = _radio.WriteProcessorOn(record.PreviousOn);
-                _trace("ProcessorHandoff: leaving " + _radio.Serial + "; the processor's put-back was " + (sent ? "sent" : "not sent")
+                bool sent = _radio.WriteProcessorOnNow(record.PreviousOn);
+                _trace("ProcessorHandoff: leaving " + _radio.Serial + "; the processor's put-back was " + (sent ? "written" : "not written")
                     + ", and the record is kept until the next connect confirms it");
             }
             catch (Exception ex)

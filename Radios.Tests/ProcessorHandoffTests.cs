@@ -42,10 +42,29 @@ public sealed class ProcessorHandoffTests : IDisposable
         public bool AnotherClientMayBeConnected { get; set; }
         public bool RadioIsOperators { get; set; } = true;
         public bool RefuseWrites { get; set; }
+        /// <summary>When set, a write waits in a queue until <see cref="Drain"/>, as it waits in a radio's command queue.</summary>
+        public bool Queued { get; set; }
         public List<bool> Writes { get; } = new();
-        public bool WriteProcessorOn(bool on)
+        private readonly List<(bool On, Func<bool>? StillWanted)> _queue = new();
+        public int Waiting => _queue.Count;
+        public bool WriteProcessorOn(bool on, Func<bool> stillWanted)
         {
             if (RefuseWrites) return false;
+            if (Queued) { _queue.Add((on, stillWanted)); return true; }
+            Make(on, stillWanted);
+            return true;
+        }
+        public bool WriteProcessorOnNow(bool on) => Make(on, null);
+        /// <summary>The queue runs: each write is made only if it is still right at that moment (the contract every implementation keeps).</summary>
+        public void Drain()
+        {
+            var waiting = _queue.ToArray();
+            _queue.Clear();
+            foreach (var (on, stillWanted) in waiting) Make(on, stillWanted);
+        }
+        private bool Make(bool on, Func<bool>? stillWanted)
+        {
+            if (!Connected || Transmitting || (stillWanted != null && !stillWanted())) return false;
             Writes.Add(on);
             On = on;
             return true;
@@ -56,6 +75,7 @@ public sealed class ProcessorHandoffTests : IDisposable
     {
         public readonly FakeProcessor Radio = new();
         public readonly List<ProcessorHandoffNotice> Said = new();
+        public readonly List<string> Traced = new();
         public readonly ProcessorHandoffStore Store;
         public ProcessorHandoff Handoff;
         public bool Setting = true, Compressor, PcMic = true, Voice = true;
@@ -67,7 +87,7 @@ public sealed class ProcessorHandoffTests : IDisposable
             Handoff = Make();
         }
 
-        public ProcessorHandoff Make() => new(Radio, Store, Said.Add, _ => { });
+        public ProcessorHandoff Make() => new(Radio, Store, Said.Add, Traced.Add);
 
         /// <summary>A new radio object on the same radio and the same settings folder, as after a disconnect and a connect (or the app restarted).</summary>
         public void Reconnect()
@@ -81,7 +101,7 @@ public sealed class ProcessorHandoffTests : IDisposable
             for (int i = 0; i < times; i++) Handoff.Tick(new ProcessorHandoffInputs(Setting, Compressor, PcMic, Voice, Faults));
         }
 
-        /// <summary>Tick past the settle after a write, so the next tick judges the radio again.</summary>
+        /// <summary>Tick until a write just asked for has been seen in the radio's reading and said, with ticks to spare.</summary>
         public void Settle() => Tick(ProcessorHandoff.SettleTicks + 1);
     }
 
@@ -104,6 +124,8 @@ public sealed class ProcessorHandoffTests : IDisposable
         b.Compressor = true;
         b.Tick();
         Assert.Equal(new[] { false }, b.Radio.Writes);
+        Assert.Empty(b.Said); // asked and, on this radio, written at once; said when the radio's reading shows it
+        b.Tick();
         Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOff }, b.Said);
         var record = b.Store.Find(Serial)!;
         Assert.Equal((true, 1, false), (record.PreviousOn, record.PreviousLevel, record.AppSetOn));
@@ -119,12 +141,12 @@ public sealed class ProcessorHandoffTests : IDisposable
         var b = NewBench();
         b.Radio.AnotherClientMayBeConnected = true;
         b.Compressor = true;
-        b.Tick();
+        b.Tick(2);
         Assert.Equal(new[] { false }, b.Radio.Writes);
         Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOffShared }, b.Said);
         b.Settle();
         b.Compressor = false;
-        b.Tick();
+        b.Tick(2);
         Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOffShared, ProcessorHandoffNotice.PutBackShared }, b.Said);
     }
 
@@ -161,6 +183,8 @@ public sealed class ProcessorHandoffTests : IDisposable
         b.Compressor = false;
         b.Tick();
         Assert.Equal(new[] { false, true }, b.Radio.Writes);
+        Assert.NotNull(b.Store.Find(Serial)); // the record stays until the put-back is SEEN
+        b.Tick();
         Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOff, ProcessorHandoffNotice.PutBack }, b.Said);
         Assert.Null(b.Store.Find(Serial));
         Assert.False(b.Handoff.HoldsRecord);
@@ -217,7 +241,7 @@ public sealed class ProcessorHandoffTests : IDisposable
         b.Tick();
         b.Settle();
         b.PcMic = false; // the microphone becomes the radio's own
-        b.Tick();
+        b.Tick(2);
         Assert.Equal(new[] { false, true }, b.Radio.Writes);
         Assert.Equal(ProcessorHandoffNotice.PutBack, b.Said[^1]);
         // Back to the computer's microphone with the compressor still on: the edge acts again.
@@ -373,7 +397,7 @@ public sealed class ProcessorHandoffTests : IDisposable
         b.Tick(4);
         Assert.Equal(new[] { false }, b.Radio.Writes); // not while keyed
         b.Radio.Transmitting = false;
-        b.Tick();
+        b.Tick(2);
         Assert.Equal(new[] { false, true }, b.Radio.Writes);
         Assert.Equal(ProcessorHandoffNotice.PutBackAfterFault, b.Said[^1]);
         b.Tick(20);
@@ -416,12 +440,17 @@ public sealed class ProcessorHandoffTests : IDisposable
         Assert.Equal(new[] { false, true }, b.Radio.Writes);
         Assert.NotNull(b.Store.Find(Serial)); // kept: the write cannot be confirmed from here
 
+        b.Traced.Clear();
         b.Reconnect();
-        b.Tick();
+        b.Tick(2);
         // The processor is on (the put-back landed): the record is dropped, and
         // since our compressor is on this is a session's start like any other.
         Assert.Equal(new[] { false, true, false }, b.Radio.Writes);
         Assert.Equal(ProcessorHandoffNotice.TurnedOff, b.Said[^1]);
+        // And the trace does not say the processor is "left as it is" in the same
+        // breath as turning it off (repair 1): it says what happens next.
+        Assert.DoesNotContain(b.Traced, line => line.Contains("left as it is"));
+        Assert.Contains(b.Traced, line => line.Contains("at connect") && line.Contains("may turn it off again"));
     }
 
     [Fact]
@@ -442,7 +471,7 @@ public sealed class ProcessorHandoffTests : IDisposable
         b.Radio.Connected = true;
         b.Compressor = false;
         b.Reconnect();
-        b.Tick();
+        b.Tick(2);
         Assert.Equal(new[] { false, true }, b.Radio.Writes);
         Assert.Equal(ProcessorHandoffNotice.PutBackAtConnect, b.Said[^1]);
         Assert.Null(b.Store.Find(Serial));
@@ -464,7 +493,7 @@ public sealed class ProcessorHandoffTests : IDisposable
         Assert.NotNull(b.Store.Find(Serial));
         // And it is still ours to put back when the compressor goes off.
         b.Compressor = false;
-        b.Tick();
+        b.Tick(2);
         Assert.Equal(new[] { false, true }, b.Radio.Writes);
         Assert.Equal(ProcessorHandoffNotice.PutBack, b.Said[^1]);
     }
@@ -530,6 +559,316 @@ public sealed class ProcessorHandoffTests : IDisposable
         Assert.Empty(other.Said);
     }
 
+    // ── asked is not written (repair 1, B3): the policy against a queue ──
+
+    [Fact]
+    public void Asked_is_not_written_the_sentence_and_the_record_wait_for_the_radios_reading()
+    {
+        var b = NewBench();
+        b.Radio.Queued = true;
+        b.Compressor = true;
+        b.Tick();
+        Assert.Equal(1, b.Radio.Waiting);
+        Assert.Empty(b.Radio.Writes);
+        Assert.Empty(b.Said);                       // nothing written, so nothing said
+        Assert.NotNull(b.Store.Find(Serial));       // the record is on disk before the write
+        b.Tick(2);
+        Assert.Empty(b.Said);
+        b.Radio.Drain();
+        b.Tick();
+        Assert.Equal(new[] { false }, b.Radio.Writes);
+        Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOff }, b.Said);
+
+        // The put-back: queued is not put back. The debt stays on record and nothing is said.
+        b.Compressor = false;
+        b.Tick();
+        Assert.Equal(1, b.Radio.Waiting);
+        Assert.False(b.Radio.On);
+        Assert.NotNull(b.Store.Find(Serial));
+        Assert.Single(b.Said);
+        b.Radio.Drain();
+        b.Tick();
+        Assert.Null(b.Store.Find(Serial));
+        Assert.Equal(ProcessorHandoffNotice.PutBack, b.Said[^1]);
+    }
+
+    [Fact]
+    public void A_radio_that_keys_between_the_asking_and_the_write_is_not_written_and_is_asked_again_at_the_unkey()
+    {
+        var b = NewBench();
+        b.Radio.Queued = true;
+        b.Compressor = true;
+        b.Tick();
+        Assert.Equal(1, b.Radio.Waiting);
+        b.Radio.Transmitting = true;                // keyed before the queue reached the write
+        b.Radio.Drain();
+        Assert.Empty(b.Radio.Writes);
+        b.Tick(ProcessorHandoff.SettleTicks + 4);
+        Assert.Empty(b.Radio.Writes);
+        Assert.Empty(b.Said);
+        Assert.Equal(0, b.Radio.Waiting);           // and not asked for while it transmits
+        // It was never off, so its reading "on" is not the operator turning it back on: asked again at the unkey.
+        b.Radio.Transmitting = false;
+        b.Tick();
+        Assert.Equal(1, b.Radio.Waiting);
+        b.Radio.Drain();
+        b.Tick();
+        Assert.Equal(new[] { false }, b.Radio.Writes);
+        Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOff }, b.Said);
+    }
+
+    [Fact]
+    public void A_write_the_handoff_no_longer_wants_is_not_made_when_the_queue_reaches_it()
+    {
+        var b = NewBench();
+        b.Radio.Queued = true;
+        b.Compressor = true;
+        b.Tick();
+        Assert.Equal(1, b.Radio.Waiting);
+        b.Compressor = false;                       // the session ends before the queue has run
+        b.Tick();
+        b.Radio.Drain();
+        Assert.Empty(b.Radio.Writes);               // withdrawn: the processor is never turned off late
+        b.Tick(ProcessorHandoff.SettleTicks + 2);
+        Assert.True(b.Radio.On);
+        Assert.Null(b.Store.Find(Serial));          // nothing was changed, so nothing is owed
+        Assert.Empty(b.Said);
+        Assert.Empty(b.Radio.Writes);
+    }
+
+    [Fact]
+    public void A_put_back_still_in_the_queue_when_the_link_ends_leaves_the_record_for_the_next_connect()
+    {
+        var b = NewBench();
+        b.Compressor = true;
+        b.Tick();
+        b.Settle();
+        b.Radio.Queued = true;
+        b.Compressor = false;
+        b.Tick();
+        Assert.Equal(1, b.Radio.Waiting);
+        b.Radio.Connected = false;                  // the link ends with the put-back still queued
+        b.Radio.Drain();
+        b.Tick(3);
+        Assert.Equal(new[] { false }, b.Radio.Writes);
+        Assert.NotNull(b.Store.Find(Serial));
+        Assert.DoesNotContain(ProcessorHandoffNotice.PutBack, b.Said);
+
+        b.Radio.Connected = true;
+        b.Radio.Queued = false;
+        b.Reconnect();
+        b.Tick(2);
+        Assert.Equal(new[] { false, true }, b.Radio.Writes);
+        Assert.Equal(ProcessorHandoffNotice.PutBackAtConnect, b.Said[^1]);
+        Assert.Null(b.Store.Find(Serial));
+    }
+
+    [Fact]
+    public void A_put_back_that_never_shows_is_asked_for_again()
+    {
+        var b = NewBench();
+        b.Compressor = true;
+        b.Tick();
+        b.Settle();
+        b.Radio.Queued = true;
+        b.Compressor = false;
+        b.Tick();
+        b.Radio.Transmitting = true;                // keyed when the queue reaches it: not written
+        b.Radio.Drain();
+        b.Radio.Transmitting = false;
+        b.Tick(ProcessorHandoff.SettleTicks + 2);   // given its time, then asked again
+        Assert.Equal(1, b.Radio.Waiting);
+        Assert.NotNull(b.Store.Find(Serial));
+        b.Radio.Drain();
+        b.Tick();
+        Assert.Equal(new[] { false, true }, b.Radio.Writes);
+        Assert.Null(b.Store.Find(Serial));
+    }
+
+    [Fact]
+    public void The_leave_writes_at_once_and_nothing_asked_earlier_goes_out_after_it()
+    {
+        // A put-back already in the queue: the leave writes its own at once, and the queued one is not made twice.
+        var b = NewBench();
+        b.Compressor = true;
+        b.Tick();
+        b.Settle();
+        b.Radio.Queued = true;
+        b.Compressor = false;
+        b.Tick();
+        Assert.Equal(1, b.Radio.Waiting);
+        b.Handoff.Leaving();
+        Assert.Equal(new[] { false, true }, b.Radio.Writes); // written now, not when a queue next runs
+        b.Radio.Drain();
+        Assert.Equal(new[] { false, true }, b.Radio.Writes);
+        Assert.NotNull(b.Store.Find(Serial));
+
+        // An OFF still in the queue when the app leaves: it must never go out afterwards.
+        var c = new Bench(Path.Combine(_root, "leaving"));
+        c.Handoff.Connected();
+        c.Tick();
+        c.Radio.Queued = true;
+        c.Compressor = true;
+        c.Tick();
+        Assert.Equal(1, c.Radio.Waiting);
+        c.Handoff.Leaving();
+        c.Radio.Drain();
+        Assert.Empty(c.Radio.Writes);
+        Assert.True(c.Radio.On);
+    }
+
+    // ── the real queue (the vendor-radio fixture; a recording transport, no radio) ──
+
+    private RigOnVendorRadio HandoffRig(out List<ProcessorHandoffNotice> said, out List<string> operatorChanges, string serial = "4321-8765-2109-6543")
+    {
+        var f = ConnectedRig(serial);
+        f.Rig.ProcessorHandoffStoreOverride = new ProcessorHandoffStore(_root);
+        RadioConfig.RecordOwnership(f.Vendor.Radio.Serial, RadioOwnership.Mine);
+        var heard = new List<ProcessorHandoffNotice>();
+        f.Rig.ProcessorHandoffNoticed += heard.Add;
+        var changes = new List<string>();
+        f.Rig.OperatorChangedRadioSetting += changes.Add;
+        said = heard; operatorChanges = changes;
+        f.Rig.ProcessorHandoff.Connected();
+        return f;
+    }
+
+    private static readonly ProcessorHandoffInputs CompressorOn = new(true, true, true, true, 0);
+    private static readonly ProcessorHandoffInputs CompressorOff = new(true, false, true, true, 0);
+
+    [Fact]
+    public void On_the_real_queue_a_radio_that_keys_before_the_queue_runs_is_never_written()
+    {
+        using var f = HandoffRig(out var said, out _);
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Assert.True(f.Rig.q.Count > 0);                         // the off is in the queue...
+        Assert.Empty(f.Vendor.Transport.Commands);              // ...and has not gone out
+        f.Vendor.Status("interlock state=TRANSMITTING source=RCA");
+        Assert.True(f.Rig.SpeechProcessorForHandoff.Transmitting, "the fixture's radio does not read as transmitting: the test proves nothing");
+        Drain(f.Rig);
+        Assert.DoesNotContain(f.Vendor.Transport.Commands, c => c.Contains("speech_processor_enable"));
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);
+        Assert.Empty(said);
+    }
+
+    [Fact]
+    public void On_the_real_queue_a_write_the_handoff_withdrew_is_not_made()
+    {
+        using var f = HandoffRig(out var said, out _);
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);              // the off is asked for...
+        Assert.True(f.Rig.q.Count > 0);
+        f.Rig.ProcessorHandoff.Tick(CompressorOff);             // ...and the compressor goes off before the queue has run
+        Drain(f.Rig);
+        Assert.DoesNotContain(f.Vendor.Transport.Commands, c => c.Contains("speech_processor_enable"));
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);
+        Assert.Empty(said);
+    }
+
+    [Fact]
+    public void On_the_real_queue_a_put_back_not_yet_run_keeps_its_record_and_a_link_that_ends_first_writes_nothing()
+    {
+        using var f = HandoffRig(out var said, out _);
+        string serial = f.Vendor.Radio.Serial;
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(f.Rig);
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Assert.Equal(new[] { "transmit set speech_processor_enable=0" }, f.Vendor.Transport.Commands);
+        Assert.Single(said);
+
+        f.Rig.ProcessorHandoff.Tick(CompressorOff);             // the put-back is asked for
+        Assert.True(f.Rig.q.Count > 0);
+        Assert.False(f.Vendor.Radio.SpeechProcessorEnable);     // the radio still reads off
+        Assert.NotNull(f.Rig.ProcessorHandoffStoreOverride!.Find(serial)); // so the debt is still on record
+        Assert.Single(said);                                    // and "back on" has not been said
+
+        Set(f.Rig, "_IsConnected", false);                      // the link ends before the queue runs
+        Drain(f.Rig);
+        Assert.Equal(new[] { "transmit set speech_processor_enable=0" }, f.Vendor.Transport.Commands);
+        Assert.NotNull(f.Rig.ProcessorHandoffStoreOverride.Find(serial));
+    }
+
+    [Fact]
+    public void On_the_real_queue_the_put_back_is_forgotten_only_when_the_radio_reads_on_again()
+    {
+        using var f = HandoffRig(out var said, out var operatorChanges);
+        string serial = f.Vendor.Radio.Serial;
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(f.Rig);
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        f.Rig.ProcessorHandoff.Tick(CompressorOff);
+        Drain(f.Rig);
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);
+        Assert.NotNull(f.Rig.ProcessorHandoffStoreOverride!.Find(serial)); // written, not yet read back
+        f.Rig.ProcessorHandoff.Tick(CompressorOff);
+        Assert.Null(f.Rig.ProcessorHandoffStoreOverride.Find(serial));
+        Assert.Equal(2, said.Count);
+        Assert.Equal(new[] { "transmit set speech_processor_enable=0", "transmit set speech_processor_enable=1" }, f.Vendor.Transport.Commands);
+        Assert.Empty(operatorChanges); // neither write was read as the operator's
+    }
+
+    [Fact]
+    public void The_leave_before_teardown_writes_the_put_back_at_once_without_the_queue()
+    {
+        using var f = HandoffRig(out _, out var operatorChanges);
+        string serial = f.Vendor.Radio.Serial;
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(f.Rig);
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        f.Vendor.Transport.Written.Clear();
+
+        f.Rig.ProcessorHandoff.Leaving();
+        // No Drain: the command is already out, on the caller's thread, while the transport is up.
+        Assert.Equal(new[] { "transmit set speech_processor_enable=1" }, f.Vendor.Transport.Commands);
+        Assert.Equal(0, f.Rig.q.Count);
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);
+        Assert.NotNull(f.Rig.ProcessorHandoffStoreOverride!.Find(serial)); // kept until the next connect confirms it
+        Assert.Empty(operatorChanges);
+
+        // A radio that is transmitting when the app leaves is not written; the record waits.
+        using var g = HandoffRig(out _, out _, "5432-8765-2109-6543");
+        g.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(g.Rig);
+        g.Rig.ProcessorHandoff.Tick(CompressorOn);
+        g.Vendor.Transport.Written.Clear();
+        g.Vendor.Status("interlock state=TRANSMITTING source=RCA");
+        g.Rig.ProcessorHandoff.Leaving();
+        Assert.Empty(g.Vendor.Transport.Commands);
+        Assert.False(g.Vendor.Radio.SpeechProcessorEnable);
+    }
+
+    // ── the teardown road (repair 1, B2): where the leave is called from ──
+
+    private static string Between(string source, string from, string to)
+    {
+        int a = source.IndexOf(from, StringComparison.Ordinal);
+        Assert.True(a >= 0, "not found: " + from);
+        int b = source.IndexOf(to, a, StringComparison.Ordinal);
+        Assert.True(b > a, "not found after it: " + to);
+        return source.Substring(a, b - a);
+    }
+
+    [Fact]
+    public void The_leave_is_on_the_road_Disconnect_and_Exit_take_while_the_rig_is_still_up()
+    {
+        string root = RepoRoot();
+        // CloseTheRadio (Disconnect, and Exit through it) unwires the window's radio events and THEN disposes the rig.
+        string close = Between(File.ReadAllText(Path.Combine(root, "globals.vb")), "Friend Sub CloseTheRadio()", "End Sub");
+        int unwire = close.IndexOf("WpfMainWindow?.UnwireRadioEvents()", StringComparison.Ordinal);
+        int dispose = close.IndexOf("RigControl.Dispose()", StringComparison.Ordinal);
+        Assert.True(unwire >= 0 && dispose > unwire, "CloseTheRadio no longer unwires before it disposes the rig");
+
+        // The unwire calls the leave among its first acts, before it stops anything.
+        string main = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "MainWindow.xaml.cs"));
+        string first = Between(main, "public void UnwireRadioEvents()", "PollTimerEnabled = false;");
+        Assert.Contains("TxAudioConditioning.LeaveRadioBeforeTeardown(RigControl);", first);
+
+        // And the leave is the handoff's, written at once; the transmit chain's own Detach, which that road never
+        // reaches while the link is up (and which Attach calls for a rig that may be live), does not leave.
+        string owner = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "TxAudioConditioning.cs"));
+        Assert.Contains("rig.ProcessorHandoff.Leaving();", Between(owner, "public static void LeaveRadioBeforeTeardown(FlexBase? rig)", "/// <summary>The words"));
+        Assert.DoesNotContain("Leaving()", Between(owner, "public static void Detach()", "// ------------------------------------------------------------------"));
+    }
+
     // ── the store ──
 
     [Fact]
@@ -590,7 +929,8 @@ public sealed class ProcessorHandoffTests : IDisposable
         var operatorChanges = new List<string>();
         f.Rig.OperatorChangedRadioSetting += operatorChanges.Add;
 
-        Assert.True(processor.WriteProcessorOn(false));
+        Assert.True(processor.WriteProcessorOn(false, () => true));
+        Assert.Empty(f.Vendor.Transport.Commands); // asked: nothing has gone out until the queue runs
         Drain(f.Rig);
         Assert.False(f.Vendor.Radio.SpeechProcessorEnable);
         Assert.Equal(new[] { "transmit set speech_processor_enable=0" }, f.Vendor.Transport.Commands);
@@ -627,6 +967,8 @@ public sealed class ProcessorHandoffTests : IDisposable
         Drain(f.Rig);
         Assert.False(f.Vendor.Radio.SpeechProcessorEnable);
         Assert.Contains("transmit set speech_processor_enable=0", f.Vendor.Transport.Commands);
+        Assert.Empty(said); // not until the radio's reading has been read back
+        f.Rig.ProcessorHandoff.Tick(new ProcessorHandoffInputs(true, true, true, true, 0));
         Assert.Single(said);
         Assert.Contains(said[0], new[] { ProcessorHandoffNotice.TurnedOff, ProcessorHandoffNotice.TurnedOffShared });
         Assert.Empty(operatorChanges);

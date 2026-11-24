@@ -4117,6 +4117,12 @@ public partial class MainWindow : UserControl
         // has to reach the radio before CloseTheRadio disposes it.
         Dialogs.CheckYourAudioDialog.EndCheckBeforeTeardown(RigControl);
 
+        // Then the radio's speech processor, if our compressor turned it off
+        // (#1278, Track CL repair 1, B2): put back now, written at once, for
+        // the same reason. This is the road Disconnect and Exit both take;
+        // the transmit chain's own Detach is never reached while the link is up.
+        TxAudioConditioning.LeaveRadioBeforeTeardown(RigControl);
+
         PollTimerEnabled = false;
         _radioPowerOn = false;
         EndTuneAnswer("the radio's events were unwired");

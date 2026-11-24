@@ -35,14 +35,42 @@ namespace Radios
 
             public bool RadioIsOperators => _rig.RadioIsMine;
 
-            public bool WriteProcessorOn(bool on)
+            public bool WriteProcessorOn(bool on, Func<bool> stillWanted)
             {
                 if (!Connected) return false;
-                // The APPLICATION's change: inside this scope the setter does
-                // not arm the disconnect save offer or the spoken receipt, so
-                // it is never read as the operator's (FlexBase.MultiUser.cs).
+                var queue = _rig.q;
+                if (queue == null) return false;
+                // Asked, not written (repair 1, B3). The radio's command queue
+                // runs this later, on its own thread, and by then the radio may
+                // be transmitting, the link may be going down, or the handoff
+                // may have changed its mind: so the write asks all three again
+                // at the moment it is made, and is not made otherwise.
+                queue.Enqueue((FunctionDel)(() => WriteIfStillRight(on, stillWanted)), "ProcessorHandoff");
+                return true;
+            }
+
+            public bool WriteProcessorOnNow(bool on) => WriteIfStillRight(on, null);
+
+            /// <summary>The write itself, on whichever thread has reached it: checked again here, then made as the APPLICATION's change.</summary>
+            private bool WriteIfStillRight(bool on, Func<bool>? stillWanted)
+            {
+                string why = !Connected ? "the radio is no longer connected"
+                    : Transmitting ? "the radio is transmitting"
+                    : stillWanted != null && !stillWanted() ? "the handoff no longer wants it"
+                    : "";
+                if (why.Length > 0)
+                {
+                    Tracing.TraceLine("ProcessorHandoff: the radio's speech processor was NOT written " + (on ? "on" : "off") + ": " + why, TraceLevel.Info);
+                    return false;
+                }
+                // The APPLICATION's change. It goes to the radio's own property,
+                // never through the operator-facing setter, whose first act is
+                // to note an operator's change; and inside the application's
+                // scope, so nothing that asks "whose write is this" during it
+                // reads it as the operator's (FlexBase.MultiUser.cs).
                 using (_rig.AppInitiatedSettingChanges())
-                    _rig.ProcessorOn = on ? OffOnValues.on : OffOnValues.off;
+                    _rig.theRadio.SpeechProcessorEnable = on;
+                Tracing.TraceLine("ProcessorHandoff: the radio's speech processor was written " + (on ? "on" : "off"), TraceLevel.Info);
                 return true;
             }
         }
