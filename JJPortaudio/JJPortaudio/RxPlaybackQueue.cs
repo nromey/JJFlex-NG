@@ -793,8 +793,7 @@ namespace JJPortaudio
 
         private void Write(string line, TraceLevel level)
         {
-            Tracing.TraceLine(line, level);
-            LineObserver?.Invoke(line);
+            OffAudioLines.Write(line, level, LineObserver);
         }
 
         /// <summary>Callback side: copy one record into the ring. No allocation, no lock, no wait.</summary>
@@ -820,8 +819,7 @@ namespace JJPortaudio
                 long dropped = _lines.TakeLost();
                 if (dropped > 0)
                 {
-                    Write("audio " + _streamName + " stream: " + dropped + " timing line(s) were lost because "
-                        + "nothing wrote them before the record ring filled", TraceLevel.Error);
+                    Write(OffAudioLines.Lost("audio " + _streamName + " stream: ", dropped, "timing"), TraceLevel.Error);
                 }
                 // What was recorded when this pass began; anything later is the
                 // next pass's, after its own loss line (OffAudioWork looks again).

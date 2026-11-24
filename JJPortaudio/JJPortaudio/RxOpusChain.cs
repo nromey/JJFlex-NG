@@ -116,8 +116,7 @@ namespace JJPortaudio
 
         private void Write(string line, TraceLevel level)
         {
-            Tracing.TraceLine(line, level);
-            LineObserverForTest?.Invoke(line);
+            OffAudioLines.Write(line, level, LineObserverForTest);
         }
 
         /// <summary>The chain is done (its stream closing): what is left is written, and it is no longer drained.</summary>
@@ -139,7 +138,7 @@ namespace JJPortaudio
         {
             _ring.TakePending();
             long lost = _ring.TakeLost();
-            if (lost > 0) Write("RxOpusChain: " + lost + " level line(s) were lost because nothing wrote them before the record ring filled", TraceLevel.Error);
+            if (lost > 0) Write(OffAudioLines.Lost("RxOpusChain: ", lost, "level"), TraceLevel.Error);
             for (int n = _ring.Count; n > 0 && _ring.TryTake(out LineRecord r); n--)
             {
                 switch (r.Kind)

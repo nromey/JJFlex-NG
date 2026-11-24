@@ -92,6 +92,26 @@ namespace JJTrace
     }
 
     /// <summary>
+    /// The off-audio writers' shared words and their one way of writing a line
+    /// (Track RT): one home each, so a correction reaches every owner.
+    /// </summary>
+    public static class OffAudioLines
+    {
+        /// <summary>The sentence for records a full ring dropped, after <paramref name="prefix"/> (which names the owner) and before nothing.</summary>
+        public static string Lost(string prefix, long count, string kind)
+        {
+            return prefix + count + " " + kind + " line(s) were lost because nothing wrote them before the record ring filled";
+        }
+
+        /// <summary>Write one line to the trace, and to a test's observer when one is set, on the calling (writer's) thread.</summary>
+        public static void Write(string line, TraceLevel level, Action<string> observer)
+        {
+            Tracing.TraceLine(line, level);
+            if (observer != null) observer(line);
+        }
+    }
+
+    /// <summary>
     /// Where a <see cref="OffAudioWork"/> is drained. Given to each owner when
     /// it is built, so a test can hand one owner a
     /// <see cref="ManualOffAudioScheduler"/> and drain it exactly when it says,

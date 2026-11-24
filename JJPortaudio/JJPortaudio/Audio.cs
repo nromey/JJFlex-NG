@@ -2154,8 +2154,7 @@ namespace JJPortaudio
             /// <summary>Write one of this stream's lines: the trace, and a test's observer.</summary>
             internal void Write(string line, TraceLevel level)
             {
-                Tracing.TraceLine(line, level);
-                LineObserverForTest?.Invoke(line);
+                OffAudioLines.Write(line, level, LineObserverForTest);
             }
 
             // ── The callback's side: copies and flags only ──
@@ -2233,8 +2232,7 @@ namespace JJPortaudio
                 long lost = _ring.TakeLost();
                 if (lost > 0)
                 {
-                    Write("audio " + name + " stream: " + lost + " callback line(s) were lost because "
-                        + "nothing wrote them before the record ring filled", TraceLevel.Error);
+                    Write(OffAudioLines.Lost("audio " + name + " stream: ", lost, "callback"), TraceLevel.Error);
                 }
                 for (int n = _ring.Count; n > 0 && _ring.TryTake(out Line l); n--)
                 {
