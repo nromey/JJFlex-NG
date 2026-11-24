@@ -175,6 +175,8 @@ public static class ReportWriter
                       (UiThread.Isolation is DesktopIsolation.CreateFailed or DesktopIsolation.SwitchFailed
                           ? $" (Windows error {PrivateDesktop.LastError})"
                           : string.Empty));
+        sb.AppendLine($"- Launch origin: {UiThread.Origin}");
+        sb.AppendLine($"- Desktop route: {PrivateDesktop.DescribeRoute(UiThread.Isolation, PrivateDesktop.LastReading, PrivateDesktop.LastJudgement, PrivateDesktop.IsolatedDesktopName, PrivateDesktop.LastError)}");
         sb.AppendLine($"- Sound: {QuietRun.Describe()}");
         sb.AppendLine($"- Settings: {TestSettingsRoot.Describe()}");
         sb.AppendLine();
@@ -197,6 +199,7 @@ public static class ReportWriter
         Invariant.UniqueAutomationIds => "no duplicate automation ids within one window",
         Invariant.KeyboardReachable => "every actionable control is reachable from the keyboard",
         Invariant.NoDeadDelegateSurface => "no surface is wired to a delegate that nothing ever assigns",
+        Invariant.NoExceptionEscapes => "no exception escapes a dialog's own code while it is built, shown, walked and closed",
         _ => invariant.ToString(),
     };
 }

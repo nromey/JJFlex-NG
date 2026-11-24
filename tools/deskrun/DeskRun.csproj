@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    deskrun - run one test project's "dotnet test" on a hidden desktop (task #906).
+
+    JJFlexWpf.Tests builds real windows only on a private desktop, and under a
+    plain "dotnet test" its UI thread can never get there (SetThreadDesktop
+    fails with ERROR_BUSY, 170, because OLE already gave the thread a window).
+    A desktop can be set for a whole process at birth, through
+    STARTUPINFO.lpDesktop; this launcher does that, relays the output, and
+    tears the desktop and the whole process tree down afterwards.
+
+    No project reference to the app or to the tests: it starts dotnet, nothing
+    else. DeskRunRules.cs is compiled into JJFlexWpf.Tests as a link so its
+    rules are tested from the very source the launcher runs.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>JJFlex.DeskRun</RootNamespace>
+    <AssemblyName>deskrun</AssemblyName>
+    <IsPackable>false</IsPackable>
+
+    <!-- A test-harness tool, not shipped code; same choice as tools/uia-probe. -->
+    <RunAnalyzers>false</RunAnalyzers>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+</Project>

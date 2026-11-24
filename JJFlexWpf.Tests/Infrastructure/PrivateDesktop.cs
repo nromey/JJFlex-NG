@@ -5,10 +5,125 @@ namespace JJFlexWpf.Tests.Infrastructure;
 public enum DesktopIsolation
 {
     NotAttempted,
+
+    /// <summary>The UI thread was MOVED onto a private desktop this process created.</summary>
     Isolated,
+
     CreateFailed,
     SwitchFailed,
+
+    /// <summary>
+    /// The whole process STARTED on a hidden desktop (task #906, the
+    /// <c>tools/deskrun</c> launcher), and the thread's desktop, the input
+    /// desktop and the window station were each read from Windows and judged
+    /// acceptable by <see cref="PrivateDesktop.JudgeStartingDesktop"/>.
+    /// <see cref="DeskGuard.Decide"/> treats it exactly like
+    /// <see cref="Isolated"/>; it is a separate value only so the report can
+    /// say which route isolated the run.
+    /// </summary>
+    StartedOnPrivateDesktop,
 }
+
+/// <summary>
+/// What <see cref="PrivateDesktop.JudgeStartingDesktop"/> concluded about the
+/// desktop a thread was already on.
+/// </summary>
+public enum StartingDesktopJudgement
+{
+    /// <summary>A named desktop that is not shared and not receiving input, on WinSta0.</summary>
+    Accepted,
+
+    /// <summary>The process is not on WinSta0, the interactive console session.</summary>
+    NotTheConsoleWindowStation,
+
+    /// <summary>The thread's desktop name could not be read.</summary>
+    ThreadDesktopUnreadable,
+
+    /// <summary>Default, Winlogon or Screen-saver: desktops that a person sees.</summary>
+    SharedDesktop,
+
+    /// <summary>The input desktop could not be opened or named, so nothing is assumed.</summary>
+    InputDesktopUnreadable,
+
+    /// <summary>The thread's desktop IS the one receiving input: someone switched to it.</summary>
+    IsTheInputDesktop,
+}
+
+/// <summary>
+/// Where the process STARTED, as a fact of its own (task #906 round 3).
+/// Kept apart from <see cref="DesktopIsolation"/>, which records what an
+/// isolation attempt did, so that a failed or fallen-back attempt can never
+/// erase where the process began.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The human declaration is consulted only on
+/// <see cref="InteractiveDesktop"/>,</b> and that value is reached only by a
+/// POSITIVE reading: the window station read as <c>WinSta0</c>, the thread's
+/// desktop read as <c>Default</c>, and the input desktop opened, named and
+/// found to be that same <c>Default</c>. Every other reading, including any
+/// read that failed, is <see cref="Unknown"/>, and the declaration is not
+/// consulted there.
+/// </para>
+/// <para>
+/// <see cref="Unknown"/> is the zero value on purpose: a value nobody set
+/// fails closed.
+/// </para>
+/// </remarks>
+public enum LaunchOrigin
+{
+    /// <summary>
+    /// Not positively known: something could not be read, or what was read is
+    /// neither the person's own desktop nor an accepted hidden one (another
+    /// window station, Winlogon, the screen saver, a locked workstation, a
+    /// hidden desktop somebody switched to).
+    /// </summary>
+    Unknown = 0,
+
+    /// <summary>
+    /// <c>WinSta0\Default</c>, and it is the desktop receiving input, all three
+    /// names read successfully: the operator's own screen.
+    /// </summary>
+    InteractiveDesktop,
+
+    /// <summary>
+    /// A hidden desktop accepted by
+    /// <see cref="PrivateDesktop.JudgeStartingDesktop"/>: started by
+    /// <c>tools/deskrun</c> or something like it.
+    /// </summary>
+    HiddenDesktop,
+}
+
+/// <summary>
+/// TEST-ONLY faults for <see cref="PrivateDesktop.Isolate(bool, ReadFault)"/>
+/// (task #906 round 3). Reached only by passing one as an argument from test
+/// code; nothing reads one from the environment, a file or a command line, so
+/// a run cannot be switched into a fault from outside.
+/// </summary>
+[Flags]
+internal enum ReadFault
+{
+    None = 0,
+
+    /// <summary>
+    /// <c>OpenInputDesktop</c> is treated as having failed with
+    /// ERROR_ACCESS_DENIED (5), which is what a locked workstation or a UAC
+    /// prompt gives. Codex simulated exactly this on round 2.
+    /// </summary>
+    InputUnreadable = 1,
+
+    /// <summary>The thread's desktop name is treated as unreadable.</summary>
+    ThreadUnreadable = 2,
+}
+
+/// <summary>What an isolation attempt did, and, separately, where the process started.</summary>
+public readonly record struct IsolationResult(DesktopIsolation Isolation, LaunchOrigin Origin);
+
+/// <summary>
+/// The three names <see cref="PrivateDesktop.JudgeStartingDesktop"/> needs,
+/// each read from Windows. A null name means it could not be read.
+/// </summary>
+public sealed record DesktopReading(string? WindowStation, string? ThreadDesktop, string? InputDesktop, int InputError);
 
 /// <summary>
 /// Strategy 3 of the focus-avoidance ladder: move the UI thread onto a desktop
@@ -38,6 +153,54 @@ internal static class PrivateDesktop
     private static extern bool CloseDesktop(IntPtr hDesktop);
 
     private static IntPtr _desktop;
+    private static string? _createdName;
+
+    private const uint DesktopReadObjects = 0x0001;
+    private const int UoiName = 2;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetThreadDesktop(uint dwThreadId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetProcessWindowStation();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr OpenInputDesktop(uint dwFlags, [MarshalAs(UnmanagedType.Bool)] bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetUserObjectInformation(
+        IntPtr hObj, int nIndex, [Out] char[]? pvInfo, uint nLength, out uint lpnLengthNeeded);
+
+    /// <summary>The name of a window station or desktop, or null when it cannot be read.</summary>
+    private static string? ObjectName(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero) return null;
+        GetUserObjectInformation(handle, UoiName, null, 0, out uint needed);
+        if (needed == 0) return null;
+        var buffer = new char[needed / 2 + 1];
+        if (!GetUserObjectInformation(handle, UoiName, buffer, (uint)(buffer.Length * 2), out _))
+            return null;
+        int len = Array.IndexOf(buffer, '\0');
+        return new string(buffer, 0, len < 0 ? buffer.Length : len);
+    }
+
+    /// <summary>
+    /// The desktop a window's thread is on, read from Windows. For the
+    /// created-state test, which must show the window it built was NOT on the
+    /// operator's desktop.
+    /// </summary>
+    public static string? DesktopOfWindow(IntPtr hwnd)
+    {
+        uint thread = GetWindowThreadProcessId(hwnd, out _);
+        return thread == 0 ? null : ObjectName(GetThreadDesktop(thread));
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
     /// <summary>
     /// Give the desktop object back when the process ends.
@@ -86,10 +249,253 @@ internal static class PrivateDesktop
     /// <summary>Win32 error from the last failed attempt, for the report.</summary>
     public static int LastError { get; private set; }
 
-    public static DesktopIsolation MoveCurrentThread()
+    /// <summary>What Windows said about the desktop the thread started on, at the last attempt.</summary>
+    public static DesktopReading? LastReading { get; private set; }
+
+    /// <summary>The judgement of <see cref="LastReading"/>.</summary>
+    public static StartingDesktopJudgement? LastJudgement { get; private set; }
+
+    /// <summary>Where the process started, at the last unfaulted attempt (task #906 round 3).</summary>
+    public static LaunchOrigin LastOrigin { get; private set; } = LaunchOrigin.Unknown;
+
+    /// <summary>The desktop the thread ended up isolated on, by either route, or null.</summary>
+    public static string? IsolatedDesktopName { get; private set; }
+
+    /// <summary>
+    /// Desktops a person sees: the ordinary desktop, the secure one the lock
+    /// screen and UAC use, and the screen saver's. Never acceptable as "hidden"
+    /// however they were reached.
+    /// </summary>
+    private static readonly string[] SharedDesktops = { "Default", "Winlogon", "Screen-saver" };
+
+    /// <summary>
+    /// Is the desktop this thread is ALREADY on one that nobody can see?
+    /// Pure, so every row can be tested without a desktop (task #906).
+    /// </summary>
+    /// <param name="windowStation">The process's window station name, read from Windows.</param>
+    /// <param name="threadDesktop">The thread's desktop name, read from Windows.</param>
+    /// <param name="inputDesktop">
+    /// The name of the desktop receiving input, read from Windows, or null when
+    /// it could not be opened (as when the workstation is locked).
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>Fail closed, in every row.</b> Anything unread is a refusal, never an
+    /// assumption: an unreadable input desktop in particular refuses rather than
+    /// guessing that it is "probably Default", because the one case where it
+    /// cannot be read is the case where the screen is in a state nobody planned
+    /// for.
+    /// </para>
+    /// <para>
+    /// <b>Why the input-desktop comparison and not just the name.</b> A desktop
+    /// with an unfamiliar name is hidden only while nothing has switched to it.
+    /// <c>SwitchDesktop</c> can make any desktop the visible one, and then its
+    /// windows are in front of the operator whatever it is called.
+    /// </para>
+    /// <para>
+    /// <b>The names come from Windows, never from an environment variable or an
+    /// argument.</b> The launcher announces its desktop's name in
+    /// <c>JJFLEX_DESKRUN_DESKTOP</c> for the log reader's benefit; nothing here
+    /// reads it, and a test forges it to prove that.
+    /// </para>
+    /// </remarks>
+    public static StartingDesktopJudgement JudgeStartingDesktop(
+        string? windowStation, string? threadDesktop, string? inputDesktop)
     {
+        if (!string.Equals(windowStation, "WinSta0", StringComparison.OrdinalIgnoreCase))
+            return StartingDesktopJudgement.NotTheConsoleWindowStation;
+
+        if (string.IsNullOrWhiteSpace(threadDesktop))
+            return StartingDesktopJudgement.ThreadDesktopUnreadable;
+
+        foreach (var shared in SharedDesktops)
+            if (string.Equals(threadDesktop, shared, StringComparison.OrdinalIgnoreCase))
+                return StartingDesktopJudgement.SharedDesktop;
+
+        if (string.IsNullOrWhiteSpace(inputDesktop))
+            return StartingDesktopJudgement.InputDesktopUnreadable;
+
+        if (string.Equals(threadDesktop, inputDesktop, StringComparison.OrdinalIgnoreCase))
+            return StartingDesktopJudgement.IsTheInputDesktop;
+
+        return StartingDesktopJudgement.Accepted;
+    }
+
+    /// <summary>
+    /// Where did this process start? Pure (task #906 round 3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The human desk is recognised only POSITIVELY:</b> station
+    /// <c>WinSta0</c>, thread desktop <c>Default</c>, and the input desktop
+    /// read successfully and equal to it. That is the one reading under which
+    /// the desk-free declaration, a person's word about THEIR screen, is about
+    /// the screen this process is on.
+    /// </para>
+    /// <para>
+    /// Round 2 keyed the policy the other way round: the declaration was
+    /// ignored only when a hidden desktop was positively accepted, so any
+    /// failure to read (Codex simulated the input desktop failing to open, on
+    /// deskrun's hidden desktop) fell back to the human route and the
+    /// declaration came back. Now a failed read lands on
+    /// <see cref="LaunchOrigin.Unknown"/>, where nothing is waived.
+    /// </para>
+    /// <para>
+    /// <b>The cost, accepted:</b> a person who declared the desk free and then
+    /// locked the workstation is refused, because the input desktop is then
+    /// Winlogon or cannot be opened at all. That is failing closed.
+    /// </para>
+    /// </remarks>
+    public static LaunchOrigin JudgeLaunchOrigin(string? windowStation, string? threadDesktop, string? inputDesktop)
+    {
+        if (JudgeStartingDesktop(windowStation, threadDesktop, inputDesktop) == StartingDesktopJudgement.Accepted)
+            return LaunchOrigin.HiddenDesktop;
+
+        if (string.Equals(windowStation, "WinSta0", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(threadDesktop, "Default", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(inputDesktop, "Default", StringComparison.OrdinalIgnoreCase))
+            return LaunchOrigin.InteractiveDesktop;
+
+        return LaunchOrigin.Unknown;
+    }
+
+    /// <summary>
+    /// Read, from Windows, the three names <see cref="JudgeStartingDesktop"/>
+    /// needs for the CALLING thread. Creates no window and changes nothing.
+    /// </summary>
+    public static DesktopReading ReadCurrentThread() => ReadCurrentThread(ReadFault.None);
+
+    /// <inheritdoc cref="ReadCurrentThread()"/>
+    /// <param name="fault">Test-only; see <see cref="ReadFault"/>. Inert at <see cref="ReadFault.None"/>.</param>
+    internal static DesktopReading ReadCurrentThread(ReadFault fault)
+    {
+        string? station = null, thread = null, input = null;
+        int inputError = 0;
         try
         {
+            station = ObjectName(GetProcessWindowStation());
+            thread = (fault & ReadFault.ThreadUnreadable) != 0
+                ? null
+                : ObjectName(GetThreadDesktop(GetCurrentThreadId()));
+
+            const int ErrorAccessDenied = 5;
+            IntPtr inputDesktop = (fault & ReadFault.InputUnreadable) != 0
+                ? IntPtr.Zero
+                : OpenInputDesktop(0, false, DesktopReadObjects);
+            if (inputDesktop == IntPtr.Zero)
+            {
+                inputError = (fault & ReadFault.InputUnreadable) != 0
+                    ? ErrorAccessDenied
+                    : Marshal.GetLastWin32Error();
+            }
+            else
+            {
+                try { input = ObjectName(inputDesktop); }
+                finally { CloseDesktop(inputDesktop); }
+            }
+        }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+
+        return new DesktopReading(station, thread, input, inputError);
+    }
+
+    /// <summary>
+    /// One line for the verdict: WHICH route isolated the run, and on what
+    /// desktop, or why neither did. "Moved the thread" and "started on a hidden
+    /// desktop" must not look the same afterwards. Pure.
+    /// </summary>
+    public static string DescribeRoute(DesktopIsolation isolation, DesktopReading? reading,
+                                       StartingDesktopJudgement? judgement, string? isolatedOn, int lastError)
+    {
+        string started = reading == null
+            ? "the starting desktop was not read"
+            : "started on '" + (reading.WindowStation ?? "?") + "\\" + (reading.ThreadDesktop ?? "?")
+              + "', input desktop '" + (reading.InputDesktop ?? "unreadable, error " + reading.InputError) + "'";
+
+        return isolation switch
+        {
+            DesktopIsolation.StartedOnPrivateDesktop =>
+                "route: the process started on hidden desktop '" + isolatedOn + "' (" + started + ")",
+            DesktopIsolation.Isolated =>
+                "route: moved the UI thread onto private desktop '" + isolatedOn + "' (" + started
+                + ", not accepted: " + judgement + ")",
+            DesktopIsolation.SwitchFailed =>
+                "route: none; " + started + ", not accepted: " + judgement
+                + "; moving the thread failed, Windows error " + lastError,
+            DesktopIsolation.CreateFailed =>
+                "route: none; " + started + ", not accepted: " + judgement
+                + "; creating a private desktop failed, Windows error " + lastError,
+            _ => "route: none; isolation not attempted",
+        };
+    }
+
+    /// <summary>
+    /// Isolate the CALLING thread, and say separately where the process
+    /// started (task #906 round 3).
+    /// </summary>
+    /// <param name="requested">
+    /// Was a private desktop asked for? When it was not
+    /// (<c>JJFLEX_TIER1_PRIVATE_DESKTOP=0</c>, or test code switching
+    /// <see cref="UiThread.RequestPrivateDesktop"/> off), the starting desktop
+    /// is still READ, because the launch origin is a fact about the start, not
+    /// about the request, and <see cref="DeskGuard.Decide"/> keys the human
+    /// declaration on it. Nothing is created or moved in that case.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>Round 3: the origin is its own fact.</b> Round 2 carried "started on
+    /// a hidden desktop" only inside <see cref="DesktopIsolation"/>, so when the
+    /// starting desktop could not be accepted (for example because the input
+    /// desktop could not be opened) the fallback below overwrote it with
+    /// <see cref="DesktopIsolation.SwitchFailed"/> or
+    /// <see cref="DesktopIsolation.Isolated"/>, both of which still let the
+    /// declaration through. The origin is now read once, before anything is
+    /// attempted, and returned beside the isolation result, so nothing the
+    /// fallback does can change it.
+    /// </para>
+    /// </remarks>
+    public static IsolationResult Isolate(bool requested) => Isolate(requested, ReadFault.None);
+
+    /// <inheritdoc cref="Isolate(bool)"/>
+    /// <param name="requested">Was a private desktop asked for?</param>
+    /// <param name="fault">
+    /// Test-only; see <see cref="ReadFault"/>. A faulted call RECORDS nothing
+    /// in <see cref="LastReading"/>, <see cref="LastJudgement"/>,
+    /// <see cref="LastOrigin"/>, <see cref="IsolatedDesktopName"/> or
+    /// <see cref="LastError"/>, so a fault test cannot change what a later
+    /// verdict line reports.
+    /// </param>
+    internal static IsolationResult Isolate(bool requested, ReadFault fault)
+    {
+        bool record = fault == ReadFault.None;
+        LaunchOrigin origin = LaunchOrigin.Unknown;
+        try
+        {
+            // TASK #906: FIRST, ask where the thread already is. Under the
+            // tools/deskrun launcher the whole process was born on a hidden
+            // desktop, which is the only way a test host's STA thread can be
+            // there at all (see the ERROR_BUSY note below). Every fact is read
+            // from Windows; anything else falls through to the old path, which
+            // under "dotnet test" still fails and still refuses.
+            var reading = ReadCurrentThread(fault);
+            var judgement = JudgeStartingDesktop(reading.WindowStation, reading.ThreadDesktop, reading.InputDesktop);
+            origin = JudgeLaunchOrigin(reading.WindowStation, reading.ThreadDesktop, reading.InputDesktop);
+            if (record)
+            {
+                LastReading = reading;
+                LastJudgement = judgement;
+                LastOrigin = origin;
+            }
+
+            if (judgement == StartingDesktopJudgement.Accepted)
+            {
+                if (record) IsolatedDesktopName = reading.WindowStation + "\\" + reading.ThreadDesktop;
+                return new IsolationResult(DesktopIsolation.StartedOnPrivateDesktop, origin);
+            }
+
+            if (!requested) return new IsolationResult(DesktopIsolation.NotAttempted, origin);
+
             if (_desktop == IntPtr.Zero)
             {
                 // UNIQUE PER ATTEMPT, not per process. A desktop object lives
@@ -121,12 +527,29 @@ internal static class PrivateDesktop
                 // creation works fine even though every prior run leaked its
                 // handle. The leak was real and is closed in Release(); it was
                 // just not the cause.
-                _desktop = CreateDesktop(name, IntPtr.Zero, IntPtr.Zero, 0, GenericAll, IntPtr.Zero);
-                if (_desktop == IntPtr.Zero) LastError = Marshal.GetLastWin32Error();
+                //
+                // Under tools/deskrun the job forbids CreateDesktop
+                // (JOB_OBJECT_UILIMIT_DESKTOP, round 3), so this fails there;
+                // that path is reached only when the starting desktop was not
+                // accepted, and it then refuses as CreateFailed.
+                var created = CreateDesktop(name, IntPtr.Zero, IntPtr.Zero, 0, GenericAll, IntPtr.Zero);
+                if (created == IntPtr.Zero)
+                {
+                    if (record) LastError = Marshal.GetLastWin32Error();
+                }
+                else
+                {
+                    _desktop = created;
+                    _createdName = name;
+                }
             }
 
-            if (_desktop == IntPtr.Zero) return DesktopIsolation.CreateFailed;
-            if (SetThreadDesktop(_desktop)) return DesktopIsolation.Isolated;
+            if (_desktop == IntPtr.Zero) return new IsolationResult(DesktopIsolation.CreateFailed, origin);
+            if (SetThreadDesktop(_desktop))
+            {
+                if (record) IsolatedDesktopName = _createdName;
+                return new IsolationResult(DesktopIsolation.Isolated, origin);
+            }
 
             // Measured 2026-08-20: this fails with ERROR_BUSY (170) on a WPF UI
             // thread. SetThreadDesktop refuses once the thread owns any window,
@@ -136,16 +559,16 @@ internal static class PrivateDesktop
             // to be set for the whole process at launch, through
             // STARTUPINFO.lpDesktop, which is not ours to choose under
             // "dotnet test".
-            LastError = Marshal.GetLastWin32Error();
-            return DesktopIsolation.SwitchFailed;
+            if (record) LastError = Marshal.GetLastWin32Error();
+            return new IsolationResult(DesktopIsolation.SwitchFailed, origin);
         }
         catch (DllNotFoundException)
         {
-            return DesktopIsolation.CreateFailed;
+            return new IsolationResult(requested ? DesktopIsolation.CreateFailed : DesktopIsolation.NotAttempted, origin);
         }
         catch (EntryPointNotFoundException)
         {
-            return DesktopIsolation.CreateFailed;
+            return new IsolationResult(requested ? DesktopIsolation.CreateFailed : DesktopIsolation.NotAttempted, origin);
         }
     }
 }

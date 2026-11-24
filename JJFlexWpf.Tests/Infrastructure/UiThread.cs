@@ -29,6 +29,14 @@ public static class UiThread
     public static DesktopIsolation Isolation { get; private set; } = DesktopIsolation.NotAttempted;
 
     /// <summary>
+    /// Where the process started, read before isolation was attempted and kept
+    /// apart from <see cref="Isolation"/> (task #906 round 3). The guard reads
+    /// the desk-free declaration only when this is
+    /// <see cref="LaunchOrigin.InteractiveDesktop"/>.
+    /// </summary>
+    public static LaunchOrigin Origin { get; private set; } = LaunchOrigin.Unknown;
+
+    /// <summary>
     /// Move the UI thread to a private, non-interactive desktop before WPF
     /// creates anything. ON by default, and it earns its keep: a dialog under
     /// test can put up a modal message box during construction, and on the
@@ -49,6 +57,18 @@ public static class UiThread
     /// </summary>
     internal static DeskGuard.Verdict Guard { get; private set; }
         = DeskGuard.Verdict.RefusedIsolationFailed;
+
+    /// <summary>
+    /// The guard's verdict in one line, naming the ROUTE that isolated the run
+    /// and the desktop it is on (task #906): "moved the thread" and "started on
+    /// a hidden desktop" must be told apart by whoever reads the log.
+    /// </summary>
+    public static string VerdictLine
+        => "DeskGuard verdict: " + Guard + " (" + DeskGuard.Describe(Guard) + "), desktop isolation: "
+           + Isolation + ", launch origin: " + Origin + ", " + PrivateDesktop.DescribeRoute(Isolation, PrivateDesktop.LastReading,
+                                                             PrivateDesktop.LastJudgement,
+                                                             PrivateDesktop.IsolatedDesktopName,
+                                                             PrivateDesktop.LastError);
 
     public static Dispatcher Dispatcher
     {
@@ -71,8 +91,14 @@ public static class UiThread
             {
                 NativeThreadId = ModalWatchdog.GetCurrentThreadId();
 
-                if (RequestPrivateDesktop)
-                    Isolation = PrivateDesktop.MoveCurrentThread();
+                // Task #906: where the process STARTED is read first, even when
+                // isolation is not requested, and kept as its own fact (round 3),
+                // because the guard reads the desk-free declaration only on a
+                // positive reading of the person's own screen, and no fallback
+                // in the isolation attempt may change that reading.
+                var attempt = PrivateDesktop.Isolate(RequestPrivateDesktop);
+                Isolation = attempt.Isolation;
+                Origin = attempt.Origin;
 
                 // THE RESULT IS NOW CHECKED. It used to be assigned here and
                 // read nowhere, so a failed isolation carried straight on and
@@ -89,7 +115,7 @@ public static class UiThread
                 // still writing the operator's real settings folder. Both are
                 // conditions of being allowed now, not lines in the report
                 // afterwards.
-                Guard = DeskGuard.Decide(RequestPrivateDesktop, Isolation,
+                Guard = DeskGuard.Decide(RequestPrivateDesktop, Isolation, Origin,
                                          DeskGuard.DeskDeclaredFree,
                                          QuietRun.Silenced,
                                          TestSettingsRoot.Isolated);
@@ -107,6 +133,7 @@ public static class UiThread
 
                 // Touching CurrentDispatcher creates it for this thread.
                 _dispatcher = Dispatcher.CurrentDispatcher;
+                _dispatcher.UnhandledException += OnDispatcherUnhandledException;
                 ready.Set();
                 Dispatcher.Run();
             })
@@ -125,10 +152,63 @@ public static class UiThread
             // away.
             if (_dispatcher == null)
                 throw new DeskNotFreeException(
-                    DeskGuard.Explain(Guard, PrivateDesktop.LastError));
+                    DeskGuard.Explain(Guard, PrivateDesktop.LastError, Isolation, Origin)
+                    + Environment.NewLine + Environment.NewLine + VerdictLine);
 
             _thread = thread;
         }
+    }
+
+    /// <summary>
+    /// Where the UI thread's escaped exceptions go while a containment is open,
+    /// or null when none is (task #907). Read on the UI thread, written from
+    /// the sweep's thread, so every access is interlocked or volatile.
+    /// </summary>
+    private static ExceptionContainment? _containment;
+
+    /// <summary>
+    /// Opens a containment: until it is disposed, an exception that escapes to
+    /// the UI thread's dispatcher is recorded in it and marked handled, so the
+    /// thread and the test host survive it (task #907).
+    ///
+    /// <para><b>Why the sweep needs this.</b> A dialog's own Loaded handler
+    /// that throws is raised inside a window procedure, while
+    /// <see cref="System.Windows.Window.Show"/> or a drain is pumping. Nothing
+    /// in the harness is on that stack to catch it: unhandled, it crosses the
+    /// native window-procedure boundary and Windows ends the whole test host
+    /// with 0xC000041D. On 2026-11-06 and 2026-11-23 that is exactly how
+    /// <c>StationLookupWindow</c>'s missing <c>cty_wt.dat</c> ended every
+    /// sweep: no result for any dialog, only a crash.</para>
+    ///
+    /// <para><b>Why it is opened only around the sweep and not for every
+    /// test.</b> Measured through deskrun 2026-11-24: an exception thrown
+    /// straight out of a <see cref="Run(Action)"/> body called from another
+    /// thread still reaches that caller inside a containment, and the
+    /// containment sees nothing of it. But anything the dispatcher raises
+    /// through its own filter (a posted operation, a window procedure, a call
+    /// made from the UI thread itself) would be marked handled and silenced,
+    /// and a test that expects such an exception, or an <c>Assert</c> failing
+    /// there, must keep failing. The sweep reads every contained exception back
+    /// and reports it, so nothing is lost there; elsewhere the old behaviour
+    /// stands.</para>
+    /// </summary>
+    public static ExceptionContainment Contain()
+    {
+        var containment = new ExceptionContainment();
+        if (Interlocked.CompareExchange(ref _containment, containment, null) != null)
+            throw new InvalidOperationException("A containment is already open on the UI thread.");
+        return containment;
+    }
+
+    internal static void EndContainment(ExceptionContainment containment)
+        => Interlocked.CompareExchange(ref _containment, null, containment);
+
+    private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        var containment = Volatile.Read(ref _containment);
+        if (containment == null) return;   // no containment: unchanged, the exception goes on its way
+        containment.Record(e.Exception);
+        e.Handled = true;
     }
 
     public static void Run(Action body)
@@ -174,17 +254,22 @@ public static class UiThread
                 // to discard the isolation result entirely — not merely unread,
                 // as in EnsureStarted, but never even assigned — and then run
                 // the body regardless. A gate on one door is not a gate.
-                var isolation = privateDesktop
-                    ? PrivateDesktop.MoveCurrentThread()
-                    : DesktopIsolation.NotAttempted;
+                var attempt = PrivateDesktop.Isolate(privateDesktop);
+                var isolation = attempt.Isolation;
 
-                var verdict = DeskGuard.Decide(privateDesktop, isolation,
+                var verdict = DeskGuard.Decide(privateDesktop, isolation, attempt.Origin,
                                                DeskGuard.DeskDeclaredFree,
                                                QuietRun.Silenced,
                                                TestSettingsRoot.Isolated);
                 if (!DeskGuard.IsAllowed(verdict))
                     throw new DeskNotFreeException(
-                        DeskGuard.Explain(verdict, PrivateDesktop.LastError));
+                        DeskGuard.Explain(verdict, PrivateDesktop.LastError, isolation, attempt.Origin)
+                        + Environment.NewLine + Environment.NewLine
+                        + "launch origin: " + attempt.Origin + ", "
+                        + PrivateDesktop.DescribeRoute(isolation, PrivateDesktop.LastReading,
+                                                       PrivateDesktop.LastJudgement,
+                                                       PrivateDesktop.IsolatedDesktopName,
+                                                       PrivateDesktop.LastError));
 
                 result = body();
             }

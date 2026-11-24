@@ -110,10 +110,25 @@ public partial class StationLookupWindow : Window
                 break;
         }
 
-        countriesdb = new CountriesDB();
+        // #907: a missing or unreadable country file (cty_wt.dat) used to throw
+        // out of this Loaded handler, which the app's crash reporter caught as
+        // a crash (a report and the send-it prompt) while the window stayed up
+        // half-initialised, focus never placed. Without the file the window
+        // still does callbook lookups; only the country fields stay empty,
+        // and every later use already allows for no database.
+        try
+        {
+            countriesdb = new CountriesDB();
+        }
+        catch (Exception ex)
+        {
+            countriesdb = null;
+            Tracing.TraceLine("StationLookupWindow: country database not loaded, country fields will be empty: "
+                              + ex.GetType().Name + ": " + ex.Message, System.Diagnostics.TraceLevel.Error);
+        }
 
         // Look up operator's own country for comparison in SR announcements.
-        if (!string.IsNullOrEmpty(_operatorCallSign))
+        if (countriesdb != null && !string.IsNullOrEmpty(_operatorCallSign))
         {
             var opRec = countriesdb.LookupByCall(_operatorCallSign);
             if (opRec != null)

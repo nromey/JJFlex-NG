@@ -29,12 +29,20 @@ public sealed class HarnessTests
     /// input; focus is moved by calling MoveFocus on elements inside this
     /// process, and Win32 focus is per message queue, so a non-foreground
     /// process moving its own focus is invisible to everything else.</para>
+    ///
+    /// <para><b>The foreground is the INPUT desktop's (task #908).</b> It used
+    /// to be read on the test's own thread, which through deskrun is on a
+    /// hidden desktop that never has a foreground window: "pid 0" before and
+    /// after, so the check compared nothing with nothing and passed. It is now
+    /// read on the desktop the operator sees, and a reading that fails fails
+    /// the test, saying why, instead of passing.</para>
     /// </summary>
     [Fact]
     public void A_dialog_becomes_real_without_taking_the_keyboard()
     {
         var entry = DialogCatalog.Discover().First(e => e.Name == "AboutProgramDialog");
-        var foregroundBefore = Foreground.Current();
+        var ownDesktopBefore = Foreground.Current();
+        var foregroundBefore = Foreground.OnInputDesktop();
 
         var result = UiThread.RunWithTimeout(() =>
         {
@@ -50,19 +58,29 @@ public sealed class HarnessTests
                     tab.MovesRequested, tab.FocusEventsObserved, tab.Diagnostic);
         }, TimeSpan.FromSeconds(60));
 
-        var foregroundAfter = Foreground.Current();
+        var foregroundAfter = Foreground.OnInputDesktop();
 
         _output.WriteLine($"Strategy: {Sweep.Strategy}, desktop isolation: {UiThread.Isolation}.");
+        _output.WriteLine(UiThread.VerdictLine);
         _output.WriteLine(
             $"Loaded fired: {result.LoadedFired}; automation peers: {result.Peers}; focus movable: {result.Executed}; " +
             $"tab stops: {result.Stops}; {result.MovesRequested} moves produced {result.FocusEventsObserved} focus events. {result.Diagnostic}");
+        _output.WriteLine($"Foreground on the test thread's own desktop, before (not the check): {ownDesktopBefore}");
         _output.WriteLine($"Foreground before: {foregroundBefore}");
         _output.WriteLine($"Foreground after:  {foregroundAfter}");
 
         Assert.True(result.LoadedFired, "Loaded never fired, so the tree is not the one a screen reader would see.");
         Assert.True(result.Peers > 1, "The automation tree contained nothing below the window.");
         Assert.True(result.Executed, "WPF focus could not be placed in the window: " + result.Diagnostic);
-        Assert.Equal(foregroundBefore.ProcessId, foregroundAfter.ProcessId);
+
+        // Not measured is a failure, never a pass (task #908).
+        Assert.True(foregroundBefore.Read, "The operator's foreground could not be read before the dialog, so whether " +
+                                           "anything took the keyboard was not measured: " + foregroundBefore.Failure);
+        Assert.True(foregroundAfter.Read, "The operator's foreground could not be read after the dialog, so whether " +
+                                          "anything took the keyboard was not measured: " + foregroundAfter.Failure);
+
+        Assert.NotEqual(Environment.ProcessId, foregroundAfter.ProcessId);
+        Assert.Equal(foregroundBefore.Handle, foregroundAfter.Handle);
     }
 
     /// <summary>

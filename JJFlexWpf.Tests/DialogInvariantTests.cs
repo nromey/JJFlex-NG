@@ -47,11 +47,24 @@ public sealed class DialogInvariantTests
     public void Invariant_6_every_actionable_control_is_reachable_from_the_keyboard(string dialog)
         => Assert(dialog, Invariant.KeyboardReachable);
 
+    /// <summary>
+    /// Task #907. Before the sweep contained these, one dialog's escaped
+    /// exception ended the test host and no dialog reported anything.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Dialogs))]
+    public void Invariant_8_no_exception_escapes_the_dialogs_own_code(string dialog)
+        => Assert(dialog, Invariant.NoExceptionEscapes);
+
     private void Assert(string dialog, Invariant invariant)
     {
         var report = Sweep.ReportFor(dialog);
 
-        if (report.Skipped)
+        // Task #907: an exception that escaped a dialog's own code is a defect
+        // whether or not the rest of the dialog could be inspected, so a skip
+        // does not excuse invariant 8.
+        if (report.Skipped && !(invariant == Invariant.NoExceptionEscapes
+                                && report.Findings.Any(f => f.Invariant == invariant)))
         {
             // A skip is recorded, never silent: it is written to the test output
             // here and listed with its reason in the generated inventory. It is

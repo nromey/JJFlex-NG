@@ -199,7 +199,9 @@ because it reads like protection.
   the machine went to 96 GB; do not add it.
   `CLAUDE.md`, "Agents, Codex and benches build WITHOUT build servers".
 - Run the window-constructing project only filtered, exactly as `CLAUDE.md`
-  shows under its integration pass, and say which classes you ran.
+  shows under its integration pass, and say which classes you ran. A class
+  that builds a window runs only through `tools/deskrun`, one class per run,
+  as `CLAUDE.md` describes; never by setting the desk-free declaration.
 - A build or test is not verified until you have checked it produced fresh
   output. `CLAUDE.md` explains why and how.
 - If a restore needs the network and your sandbox has none, report it. Do not
