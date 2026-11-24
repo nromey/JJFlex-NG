@@ -42,6 +42,10 @@
     <!-- The measured JAWS Shift+Space streams (#800), one source file compiled
          into both test projects so the two replays cannot drift apart. -->
     <Compile Include="..\Radios.Tests\Fixtures\JawsShiftSpaceCapture20261022.cs" Link="Fixtures\JawsShiftSpaceCapture20261022.cs" />
+    <!-- The hidden-desktop launcher's rules (#906): which arguments it accepts
+         and what environment its child gets. Linked, not referenced, so the
+         tests read the very source tools/deskrun runs. -->
+    <Compile Include="..\tools\deskrun\DeskRunRules.cs" Link="Infrastructure\DeskRunRules.cs" />
   </ItemGroup>
 
 </Project>
