@@ -154,10 +154,29 @@ namespace Radios.Tests
                 Assert.Equal(i, stop!.Index);
                 ulong dial = final == "CW" ? Centres[i] : PhoneDials[i];
                 Assert.Equal(dial, stop.FrequencyHz);
-                Assert.Equal(sets ? final : null, stop.ChannelMode);
-                Assert.Null(stop.Correction);
-                // The arrival names the dial the slice is on, and the mode it ends in.
-                Assert.Equal($"Channel {i + 1}, {Mhz(dial)} megahertz, {ModeWords.Spoken(final)}", stop.Arrival);
+                // #1249 (ruled 2026-11-23): a channel stop no longer sets the
+                // mode itself and names it as done. A mode that changes comes
+                // back as a correction, said the way the segment's is
+                // ("switching to"), and ChannelMode is never set. Changed from
+                // ChannelMode == final with no correction, which pinned the
+                // mode being named before the request had even gone out.
+                Assert.Null(stop.ChannelMode);
+                if (sets)
+                {
+                    Assert.Equal(final, stop.Correction?.RequiredMode);
+                    Assert.Equal($"Channel {i + 1}", stop.Correction!.SegmentLabel);
+                    // The arrival names the channel and the dial, and not the mode...
+                    Assert.Equal($"Channel {i + 1}, {Mhz(dial)} megahertz", stop.Arrival);
+                    // ...which the request's own clause then says.
+                    Assert.Equal($"Channel {i + 1}, {Mhz(dial)} megahertz, switching to {ModeWords.Spoken(final)}",
+                        SixtyMeterModeDelivery.Compose(stop.Arrival, stop.Correction, ModeRequestOutcome.Sent));
+                }
+                else
+                {
+                    Assert.Null(stop.Correction);
+                    // A kept mode: the arrival names the dial and the mode, as before.
+                    Assert.Equal($"Channel {i + 1}, {Mhz(dial)} megahertz, {ModeWords.Spoken(final)}", stop.Arrival);
+                }
             }
         }
 
@@ -168,8 +187,14 @@ namespace Radios.Tests
                 SixtyMeterChannels.Rotate("US", SegmentStop, +1, "USB")!.Arrival);
             Assert.Equal($"Channel 1, {5.3320:F4} megahertz, CW",
                 SixtyMeterChannels.Rotate("US", SegmentStop, +1, "CW")!.Arrival);
-            Assert.Equal($"Channel 1, {5.3305:F4} megahertz, Digital USB",
-                SixtyMeterChannels.Rotate("US", SegmentStop, +1, "DIGL")!.Arrival);
+            // DIGL changes mode (#1249): the arrival names the dial, the
+            // request's clause the mode.
+            var digl = SixtyMeterChannels.Rotate("US", SegmentStop, +1, "DIGL")!;
+            Assert.Equal($"Channel 1, {5.3305:F4} megahertz", digl.Arrival);
+            Assert.Equal($"Channel 1, {5.3305:F4} megahertz, switching to Digital USB",
+                SixtyMeterModeDelivery.Compose(digl.Arrival, digl.Correction!, ModeRequestOutcome.Sent));
+            Assert.Equal($"Channel 1, {5.3305:F4} megahertz, the mode could not be changed to Digital USB while transmitting",
+                SixtyMeterModeDelivery.Compose(digl.Arrival, digl.Correction!, ModeRequestOutcome.RefusedTransmitting));
         }
 
         [Fact]

@@ -307,11 +307,16 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// <para><b>The dial follows the FINAL mode</b>, the mode the slice ends
-        /// in. A channel stop keeps USB, DIGU or CW and sets
-        /// <see cref="ChannelFinalMode"/> otherwise (<c>ChannelMode</c>, null when
-        /// kept); CW tunes the carrier to the centre, USB and DIGU tune the dial
-        /// 1.5 kHz below it. The arrival names the dial the slice is on and the
-        /// mode it ends in. Until the 2026 rule was applied every channel stop
+        /// in. A channel stop keeps USB, DIGU or CW and asks for
+        /// <see cref="ChannelFinalMode"/> otherwise; CW tunes the carrier to the
+        /// centre, USB and DIGU tune the dial 1.5 kHz below it. A kept mode's
+        /// arrival names the dial and the mode. A mode that changes comes back
+        /// as a <see cref="ModeCorrection"/>, never as <c>ChannelMode</c>, with an
+        /// arrival that names only the channel and the dial, so the caller says
+        /// it through <see cref="SixtyMeterModeDelivery"/> as the segment does:
+        /// "switching to" the mode, never the mode as done (#1249).
+        /// <c>ChannelMode</c> is therefore always null now; the caller's use of
+        /// it stays until its own lines can change. Until the 2026 rule was applied every channel stop
         /// tuned the centre in USB, which put the signal 1.5 kHz high, half of it
         /// outside the channel.</para>
         /// <para><b>The segment stop</b> is <see cref="Segment.StopMHz"/> for every
@@ -338,10 +343,18 @@ namespace Radios
                 var ch = alloc.Value.Channels[index];
                 string finalMode = ChannelFinalMode(currentMode);
                 ulong dial = ChannelDialHz(ch, finalMode);
-                string? setMode = finalMode == Norm(currentMode) ? null : finalMode;
-                return new RotationStop(index, dial, setMode, null,
-                    Lexicon.Get("connect.home.sixty_meter_channel",
-                        ("label", ch.Label), ("freq", $"{dial / 1_000_000.0:F4}"), ("mode", ModeWords.Spoken(finalMode))));
+                string freq = $"{dial / 1_000_000.0:F4}";
+                if (finalMode == Norm(currentMode))
+                    return new RotationStop(index, dial, null, null,
+                        Lexicon.Get("connect.home.sixty_meter_channel",
+                            ("label", ch.Label), ("freq", freq), ("mode", ModeWords.Spoken(finalMode))));
+                // The mode changes: asked for and said the way the segment's
+                // is, through SixtyMeterModeDelivery ("switching to"), so the
+                // arrival never names a mode the slice is not yet in (#1249).
+                // The dial is still the one for the mode it ends in.
+                return new RotationStop(index, dial, null, new ModeCorrection(finalMode, ch.Label),
+                    Lexicon.Get("connect.home.sixty_meter_channel_arriving",
+                        ("label", ch.Label), ("freq", freq)));
             }
 
             var seg = alloc.Value.Segment!;
