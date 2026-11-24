@@ -1,1 +1,1 @@
-- In a restore capture, every level now carries its scale or its unit, such as "50 of 100" for mic gain, so no setting in the file is a bare number.
+- In a restore capture, every level and frequency now carries its scale or its unit, such as "50 of 100" for mic gain, "14.250000 megahertz" for a slice, or "100.0 hertz" for a repeater memory's tone, so none of them is a bare number.

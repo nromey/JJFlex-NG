@@ -173,7 +173,7 @@ namespace Radios.Tests
                 new List<ProfileReporter.SettingLine>
                 {
                     new ProfileReporter.SettingLine("rf power", "100 watts", null),
-                    new ProfileReporter.SettingLine("slice A frequency", "14.250.000", null),
+                    new ProfileReporter.SettingLine("slice A frequency", "14.250000 megahertz", null),
                     new ProfileReporter.SettingLine("mic gain", null, "the read threw mid-walk"),
                 });
             string text = sb.ToString();
@@ -181,7 +181,7 @@ namespace Radios.Tests
             Assert.StartsWith("[global profile: HomeStation]", text);
             Assert.Contains("captured = yes", text);
             Assert.Contains("rf power = 100 watts", text);
-            Assert.Contains("slice A frequency = 14.250.000", text);
+            Assert.Contains("slice A frequency = 14.250000 megahertz", text);
             Assert.Contains("mic gain = unreadable: the read threw mid-walk", text);
         }
 
@@ -396,6 +396,9 @@ namespace Radios.Tests
             slice.NROn = true; slice.NRSOn = true; slice.NRLOn = true; slice.NRFOn = true;
             slice.NBOn = true; slice.WNBOn = true; slice.ANFOn = true; slice.APFOn = true;
             slice.RITOn = true; slice.XITOn = true;
+            // A real frequency, so the line is checked for its exact form,
+            // not only its shape.
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_freq", Private)!.SetValue(slice, 14.25);
             vendor.Radio.SliceList.Add(slice);
             var rig = MakeRig();
             rig.theRadio = vendor.Radio;
@@ -416,7 +419,7 @@ namespace Radios.Tests
                 string sl = "slice " + slice.Letter + " ";
                 string[] sliceQuantities =
                 {
-                    "filter low", "filter high", "tune step", "agc threshold",
+                    "frequency", "filter low", "filter high", "tune step", "agc threshold",
                     "audio gain", "audio pan", "rf gain", "squelch level",
                 };
                 string[] sliceToggledLevels =
@@ -442,6 +445,9 @@ namespace Radios.Tests
                 // The AM carrier level is never claimed as watts here: what
                 // 100 delivers in AM is an open question on the bench.
                 Assert.EndsWith(" of 100", values["am carrier level"].Value, StringComparison.Ordinal);
+                // The slice frequency names its unit, and is not the dotted
+                // display form, which names none.
+                Assert.Equal("14.250000 megahertz", values[sl + "frequency"].Value);
             }
             finally
             {
@@ -457,17 +463,52 @@ namespace Radios.Tests
             var memory = new Flex.Smoothlake.FlexLib.Memory(vendor.Radio, 0);
             memory.SquelchOn = true;
             memory.SquelchLevel = 20;
+            // A repeater memory: a real frequency and a CTCSS tone, so both
+            // physical quantities are read in the form that needs a unit.
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var type = typeof(Flex.Smoothlake.FlexLib.Memory);
+            type.GetField("_freq", Private)!.SetValue(memory, 145.25);
+            type.GetField("_toneMode", Private)!.SetValue(memory, Flex.Smoothlake.FlexLib.FMToneMode.CTCSS_TX);
+            type.GetField("_toneValue", Private)!.SetValue(memory, "100.0");
             var lines = new List<ProfileReporter.SettingLine>();
             ProfileReporter.AddMemoryLines(lines, 1, memory);
             var values = lines.ToDictionary(l => l.Key, l => l);
 
-            foreach (string k in new[] { "tune step", "repeater offset", "rf power", "rx filter low", "rx filter high" })
+            foreach (string k in new[] { "frequency", "tune step", "repeater offset", "tone value", "rf power", "rx filter low", "rx filter high" })
             {
                 var line = values["memory 1 " + k];
                 Assert.True(line.Readable, k + " was not readable: " + line.Problem);
                 Assert.Matches(Quantity, line.Value);
             }
             Assert.Equal("on, level 20 of 100", values["memory 1 squelch"].Value);
+            Assert.Equal("145.250000 megahertz", values["memory 1 frequency"].Value);
+            Assert.Equal("CTCSS_TX", values["memory 1 tone mode"].Value);
+            Assert.Equal("100.0 hertz", values["memory 1 tone value"].Value);
+        }
+
+        [Fact]
+        public void A_memory_with_its_tone_off_writes_no_tone_unit()
+        {
+            // The other half of the tone rule: with the tone off the value
+            // names no tone, so it must not be dressed as a frequency.
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4428");
+            var memory = new Flex.Smoothlake.FlexLib.Memory(vendor.Radio, 0);
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var type = typeof(Flex.Smoothlake.FlexLib.Memory);
+            type.GetField("_toneMode", Private)!.SetValue(memory, Flex.Smoothlake.FlexLib.FMToneMode.Off);
+            type.GetField("_toneValue", Private)!.SetValue(memory, "100.0");
+            var lines = new List<ProfileReporter.SettingLine>();
+            ProfileReporter.AddMemoryLines(lines, 1, memory);
+            var values = lines.ToDictionary(l => l.Key, l => l);
+
+            Assert.Equal("Off", values["memory 1 tone mode"].Value);
+            Assert.Equal("100.0", values["memory 1 tone value"].Value);
+            // And the helper itself: a CTCSS tone with no value stays empty
+            // rather than becoming a unit with no number.
+            Assert.Equal("", ProfileReporter.ToneValue(Flex.Smoothlake.FlexLib.FMToneMode.CTCSS_TX, ""));
+            Assert.Equal("7.000100 megahertz", ProfileReporter.Megahertz(7.0001));
         }
 
         // ------------------------------------------------------------------

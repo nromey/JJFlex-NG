@@ -1891,6 +1891,33 @@ namespace Radios
         // DRAFT wording, for Codex: " of 100".
         internal static string OfHundred(int value) => value + " of 100";
 
+        /// <summary>
+        /// A frequency the radio holds in megahertz, written as plain decimal
+        /// megahertz to the hertz, e.g. "14.250000 megahertz". Not the dotted
+        /// display form ("14.250.000"): with a unit after it, that form reads
+        /// as a thousands-grouped number in some locales and names no unit on
+        /// its own. Rounded, not truncated, to the nearest hertz.
+        /// </summary>
+        // DRAFT wording, for Codex: " megahertz" (the word the repeater offset line already uses).
+        internal static string Megahertz(double megahertz)
+        {
+            ulong hz = (ulong)Math.Round(megahertz * 1_000_000d, MidpointRounding.AwayFromZero);
+            return (hz / 1_000_000).ToString(System.Globalization.CultureInfo.InvariantCulture) + "."
+                + (hz % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture)
+                + " megahertz";
+        }
+
+        /// <summary>
+        /// A memory's tone value: a CTCSS tone is a frequency, written with
+        /// "hertz"; with the tone off the value is written as the radio gave
+        /// it, since it names no tone at all.
+        /// </summary>
+        // DRAFT wording, for Codex: " hertz" on a CTCSS tone, e.g. "100.0 hertz".
+        internal static string ToneValue(FMToneMode mode, string value)
+            => mode == FMToneMode.CTCSS_TX && !string.IsNullOrWhiteSpace(value)
+                ? value.Trim() + " hertz"
+                : value;
+
         /// <summary>The folder inside a relocated settings tree that stands in
         /// for Documents\JJFlexRadio (#1066).</summary>
         public const string RelocatedExportFolderName = "Exports";
@@ -2044,13 +2071,13 @@ namespace Radios
             }
             Mem(p + "name", () => m.Name);
             Mem(p + "group", () => m.Group);
-            Mem(p + "frequency", () => RadioStatusBuilder.FormatFreqDisplay((ulong)(m.Freq * 1_000_000d)));
+            Mem(p + "frequency", () => Megahertz(m.Freq));
             Mem(p + "mode", () => m.Mode);
             Mem(p + "tune step", () => m.Step + " hertz");
             Mem(p + "repeater offset direction", () => m.OffsetDirection.ToString());
             Mem(p + "repeater offset", () => m.RepeaterOffset + " megahertz");
             Mem(p + "tone mode", () => m.ToneMode.ToString());
-            Mem(p + "tone value", () => m.ToneValue);
+            Mem(p + "tone value", () => ToneValue(m.ToneMode, m.ToneValue));
             Mem(p + "squelch", () => m.SquelchOn ? "on, level " + OfHundred(m.SquelchLevel) : "off");
             Mem(p + "rf power", () => m.RFPower + " watts");
             Mem(p + "rx filter low", () => m.RXFilterLow + " hertz");
@@ -2157,7 +2184,7 @@ namespace Radios
             foreach (var s in slices)
             {
                 string p = "slice " + s.Letter + " ";
-                Key(p + "frequency", () => RadioStatusBuilder.FormatFreqDisplay((ulong)(s.Freq * 1_000_000d)));
+                Key(p + "frequency", () => Megahertz(s.Freq));
                 Key(p + "mode", () => s.DemodMode);
                 Key(p + "filter low", () => s.FilterLow + " hertz");
                 Key(p + "filter high", () => s.FilterHigh + " hertz");
