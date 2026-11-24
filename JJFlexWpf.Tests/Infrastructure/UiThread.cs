@@ -133,6 +133,7 @@ public static class UiThread
 
                 // Touching CurrentDispatcher creates it for this thread.
                 _dispatcher = Dispatcher.CurrentDispatcher;
+                _dispatcher.UnhandledException += OnDispatcherUnhandledException;
                 ready.Set();
                 Dispatcher.Run();
             })
@@ -156,6 +157,58 @@ public static class UiThread
 
             _thread = thread;
         }
+    }
+
+    /// <summary>
+    /// Where the UI thread's escaped exceptions go while a containment is open,
+    /// or null when none is (task #907). Read on the UI thread, written from
+    /// the sweep's thread, so every access is interlocked or volatile.
+    /// </summary>
+    private static ExceptionContainment? _containment;
+
+    /// <summary>
+    /// Opens a containment: until it is disposed, an exception that escapes to
+    /// the UI thread's dispatcher is recorded in it and marked handled, so the
+    /// thread and the test host survive it (task #907).
+    ///
+    /// <para><b>Why the sweep needs this.</b> A dialog's own Loaded handler
+    /// that throws is raised inside a window procedure, while
+    /// <see cref="System.Windows.Window.Show"/> or a drain is pumping. Nothing
+    /// in the harness is on that stack to catch it: unhandled, it crosses the
+    /// native window-procedure boundary and Windows ends the whole test host
+    /// with 0xC000041D. On 2026-11-06 and 2026-11-23 that is exactly how
+    /// <c>StationLookupWindow</c>'s missing <c>cty_wt.dat</c> ended every
+    /// sweep: no result for any dialog, only a crash.</para>
+    ///
+    /// <para><b>Why it is opened only around the sweep and not for every
+    /// test.</b> Measured through deskrun 2026-11-24: an exception thrown
+    /// straight out of a <see cref="Run(Action)"/> body called from another
+    /// thread still reaches that caller inside a containment, and the
+    /// containment sees nothing of it. But anything the dispatcher raises
+    /// through its own filter (a posted operation, a window procedure, a call
+    /// made from the UI thread itself) would be marked handled and silenced,
+    /// and a test that expects such an exception, or an <c>Assert</c> failing
+    /// there, must keep failing. The sweep reads every contained exception back
+    /// and reports it, so nothing is lost there; elsewhere the old behaviour
+    /// stands.</para>
+    /// </summary>
+    public static ExceptionContainment Contain()
+    {
+        var containment = new ExceptionContainment();
+        if (Interlocked.CompareExchange(ref _containment, containment, null) != null)
+            throw new InvalidOperationException("A containment is already open on the UI thread.");
+        return containment;
+    }
+
+    internal static void EndContainment(ExceptionContainment containment)
+        => Interlocked.CompareExchange(ref _containment, null, containment);
+
+    private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        var containment = Volatile.Read(ref _containment);
+        if (containment == null) return;   // no containment: unchanged, the exception goes on its way
+        containment.Record(e.Exception);
+        e.Handled = true;
     }
 
     public static void Run(Action body)

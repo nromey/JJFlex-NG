@@ -199,6 +199,7 @@ public static class ReportWriter
         Invariant.UniqueAutomationIds => "no duplicate automation ids within one window",
         Invariant.KeyboardReachable => "every actionable control is reachable from the keyboard",
         Invariant.NoDeadDelegateSurface => "no surface is wired to a delegate that nothing ever assigns",
+        Invariant.NoExceptionEscapes => "no exception escapes a dialog's own code while it is built, shown, walked and closed",
         _ => invariant.ToString(),
     };
 }

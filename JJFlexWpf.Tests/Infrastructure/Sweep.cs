@@ -52,38 +52,96 @@ public static class Sweep
         UiThread.EnsureStarted();
         using var watchdog = new ModalWatchdog(UiThread.NativeThreadId, TimeSpan.FromSeconds(20));
 
-        foreach (var entry in DialogCatalog.Discover())
+        // Task #907: one dialog's exception must not take the sweep down. See
+        // UiThread.Contain for how it used to end the whole test host.
+        using (var containment = UiThread.Contain())
         {
-            watchdog.Beat();
-            DialogReport report;
-            try
+            DialogReport? previous = null;
+            foreach (var entry in DialogCatalog.Discover())
             {
-                report = UiThread.RunWithTimeout(() => Inspect(entry), PerDialogTimeout);
+                watchdog.Beat();
+                var report = InspectContained(entry.Name, () => Inspect(entry), containment, previous, PerDialogTimeout);
+                reports.Add(report);
+                previous = report;
             }
-            catch (TimeoutException)
-            {
-                report = new DialogReport
-                {
-                    Dialog = entry.Name,
-                    SkipReason = $"Did not finish being constructed and walked within {PerDialogTimeout.TotalSeconds:0} seconds. " +
-                                 "Most likely it blocks on something at construction time.",
-                };
-            }
-            catch (Exception ex)
-            {
-                report = new DialogReport
-                {
-                    Dialog = entry.Name,
-                    SkipReason = "The harness itself failed on this dialog: " + TreeWalk.Describe(ex),
-                };
-            }
-            reports.Add(report);
+
+            // Anything the last dialog left behind on the dispatcher runs now,
+            // inside the containment, and is that dialog's.
+            UiThread.Run(() => UiThread.Drain(passes: 1));
+            if (previous != null) AddEscaped(previous, containment.Take(), afterInspection: true);
         }
 
         watchdog.Beat();
         lock (watchdog.Interventions) WatchdogInterventions = watchdog.Interventions.ToList();
 
         return reports.OrderBy(r => r.Dialog, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// One dialog's inspection with a containment open (task #907). An
+    /// exception that escaped to the dispatcher while it ran becomes a finding
+    /// on that dialog (invariant 8) and the sweep goes on. One that escaped
+    /// between the previous dialog's end and this one's start is the previous
+    /// dialog's, so it goes to <paramref name="previous"/>. A body that threw
+    /// or returned no report is the harness failing, reported as before.
+    /// </summary>
+    internal static DialogReport InspectContained(string dialog, Func<DialogReport?> inspect,
+                                                  ExceptionContainment containment, DialogReport? previous,
+                                                  TimeSpan timeout)
+    {
+        var leftOver = containment.Take();
+        if (previous != null) AddEscaped(previous, leftOver, afterInspection: true);
+
+        DialogReport? report;
+        try
+        {
+            report = UiThread.RunWithTimeout(inspect, timeout);
+            if (report == null)
+                report = new DialogReport
+                {
+                    Dialog = dialog,
+                    SkipReason = "The harness itself failed on this dialog: the inspection returned no report.",
+                };
+        }
+        catch (TimeoutException)
+        {
+            report = new DialogReport
+            {
+                Dialog = dialog,
+                SkipReason = $"Did not finish being constructed and walked within {timeout.TotalSeconds:0} seconds. " +
+                             "Most likely it blocks on something at construction time.",
+            };
+        }
+        catch (Exception ex)
+        {
+            // Measured 2026-11-24: an exception thrown straight out of the body
+            // arrives here, containment or not; the containment only takes the
+            // ones the dispatcher raises through its own filter.
+            report = new DialogReport
+            {
+                Dialog = dialog,
+                SkipReason = "The harness itself failed on this dialog: " + TreeWalk.Describe(ex),
+            };
+        }
+
+        // Kept on a skipped report too: invariant 8's test fails on it even
+        // when the dialog was skipped (DialogInvariantTests.Assert).
+        AddEscaped(report, containment.Take(), afterInspection: false);
+        return report;
+    }
+
+    private static void AddEscaped(DialogReport report, IReadOnlyList<Exception> escaped, bool afterInspection)
+    {
+        foreach (var ex in escaped)
+        {
+            report.Findings.Add(new Finding(
+                Invariant.NoExceptionEscapes,
+                report.Dialog,
+                "the dialog's own code",
+                (afterInspection ? "After its inspection ended, an" : "An") +
+                " exception escaped to the dispatcher with nothing in the dialog to catch it: " +
+                TreeWalk.Describe(ex).TrimEnd('.') + ". The sweep contained it and went on."));
+        }
     }
 
     /// <summary>One dialog, start to finish. Runs on the UI thread.</summary>

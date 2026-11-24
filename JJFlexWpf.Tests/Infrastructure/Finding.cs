@@ -27,6 +27,13 @@ public enum Invariant
 
     /// <summary>7. No surface is wired to a delegate that nothing ever assigns.</summary>
     NoDeadDelegateSurface = 7,
+
+    /// <summary>
+    /// 8. No exception escapes a dialog's own code to the dispatcher while it is
+    /// built, shown, walked and closed (task #907). The sweep contains one and
+    /// goes on; before that, one such exception ended the whole test host.
+    /// </summary>
+    NoExceptionEscapes = 8,
 }
 
 /// <summary>One defect, with enough identity to find the control again.</summary>
