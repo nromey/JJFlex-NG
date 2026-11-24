@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using Radios;
 
 namespace JJFlexWpf
@@ -78,6 +79,28 @@ namespace JJFlexWpf
         private static ParametricEqSetup _eqIntent = new();
         private static TxDeEsserSetup _deEsserIntent = new();
         private static string[] _orderIntent = JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
+        private static TxWdspExpander _wdsp;
+
+        /// <summary>
+        /// WDSP's expander, the expander's other mode (Sprint 49 Track I phase
+        /// 2): one for the session, made on first use and kept, like the chain.
+        /// </summary>
+        internal static TxWdspExpander Wdsp
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    if (_wdsp != null) return _wdsp;
+                    var made = new TxWdspExpander(TxWdspExpander.LiveEngine);
+                    made.FellBack += TellExpanderFellBack;
+                    return _wdsp = made;
+                }
+            }
+        }
+
+        /// <summary>Tests only: put a WDSP expander in place (null to drop it).</summary>
+        internal static void UseWdspForTest(TxWdspExpander wdsp) { lock (_gate) _wdsp = wdsp; }
 
         /// <summary>The chain on the current rig, or null when detached.</summary>
         public static JJPortaudio.TxAudioConditioner Conditioner => _rig?.TxConditioner;
@@ -160,6 +183,26 @@ namespace JJFlexWpf
         /// </summary>
         private static void TellFellBack(TxNoiseChain chain, IReadOnlyList<(DenoiseFamily Family, string EngineId)> engines)
         {
+            string Name(string id) => chain.Catalog.Find(id) is { } row ? Lexicon.Get(row.LabelKey) : id;
+            GiveFallbackNotice(() => engines.Count >= 2
+                ? Lexicon.Get("audio.denoise.tx.fell_back_both", ("first", Name(engines[0].EngineId)), ("second", Name(engines[1].EngineId)))
+                : Lexicon.Get("audio.denoise.tx.fell_back", ("engine", Name(engines[0].EngineId))));
+        }
+
+        /// <summary>
+        /// WDSP's expander missed a frame mid-over (phase 2): the same notice,
+        /// tone and words by the same route, as a noise slot's (#737's ruled
+        /// fallback: the unprocessed microphone at the same delay until the unkey).
+        /// </summary>
+        private static void TellExpanderFellBack()
+        {
+            Trace.WriteLine("TxAudioConditioning: WDSP's expander missed a frame mid-over; latched to the unprocessed microphone at the same delay until the unkey; telling the operator.");
+            GiveFallbackNotice(() => Lexicon.Get(TxWdspExpander.FellBackKey));
+        }
+
+        /// <summary>The fallback notice's one body: the route chosen and traced, the tone where it is safe, the words.</summary>
+        private static void GiveFallbackNotice(Func<string> words)
+        {
             try
             {
                 var route = ChooseNoticeRoute(EarconPlayer.AlertChannelLive, _rig?.TransmitCaptureDeviceName ?? "", null);
@@ -169,11 +212,7 @@ namespace JJFlexWpf
                        : route == TxNoticeRoute.WordsOnlyNoAlertChannel ? "words only: the alert channel has no output, and the system beep is never used for this"
                        : route == TxNoticeRoute.WordsOnlyCaptureHearsOutput ? "words only: the transmit microphone is a loopback or virtual cable that could carry the tone"
                        : "words only: the tone did not play (warning sounds off, or the alert channel went away)"));
-                string Name(string id) => chain.Catalog.Find(id) is { } row ? Lexicon.Get(row.LabelKey) : id;
-                string sentence = engines.Count >= 2
-                    ? Lexicon.Get("audio.denoise.tx.fell_back_both", ("first", Name(engines[0].EngineId)), ("second", Name(engines[1].EngineId)))
-                    : Lexicon.Get("audio.denoise.tx.fell_back", ("engine", Name(engines[0].EngineId)));
-                ScreenReaderOutput.Speak(sentence,
+                ScreenReaderOutput.Speak(words(),
                     Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
                     subject: Radios.Speech.SpeechSubject.TransmitNoiseFallback);
             }
@@ -212,8 +251,10 @@ namespace JJFlexWpf
             // asks it on the control side to say whether a change waits.
             chain.KeySource = rig.TransmitKeySource;
             PlugNoiseStage(cond, rig.TransmitKeySource, NrStage, AppliedNrLatency, EngagedOf(chain));
+            PlugExpanderMode(cond, Wdsp);
             cond.MonitorSink = MonitorStage;
             PushGate(cond);
+            SyncWdsp();
 
             // The TRANSMIT slice's mode (Sprint 49 Track H2, slice-mode round):
             // ModeChanged follows only the active slice, so a second slice in CW
@@ -263,6 +304,8 @@ namespace JJFlexWpf
                 cond.NoiseReducer = null;
                 cond.NoiseReducerAppliedLatencySamples = null;
                 cond.NoiseReducerEngaged = null;
+                cond.ExpanderReplacement = null;
+                cond.ExpanderReplacementAppliedLatencySamples = null;
                 cond.MonitorSink = null;
                 cond.MonitorMode = JJPortaudio.TxAudioConditioner.MonitorModes.Off;
             }
@@ -323,6 +366,17 @@ namespace JJFlexWpf
             () => chain.WantsEnabled(DenoiseFamily.Spectral) || chain.WantsEnabled(DenoiseFamily.Neural);
 
         private static int AppliedNrLatency() => _nrAppliedLatency;
+
+        /// <summary>
+        /// Plug WDSP's expander into a conditioner as the expander's other mode
+        /// (phase 2). ONE wiring for <see cref="Attach"/> and the tests, as
+        /// <see cref="PlugNoiseStage"/> is for the noise stage.
+        /// </summary>
+        internal static void PlugExpanderMode(JJPortaudio.TxAudioConditioner cond, TxWdspExpander wdsp)
+        {
+            cond.ExpanderReplacement = wdsp.Process;
+            cond.ExpanderReplacementAppliedLatencySamples = wdsp.AppliedLatencySamples;
+        }
 
         private static void MonitorStage(float[] buffer, int count, uint sampleRate)
         {
@@ -740,6 +794,65 @@ namespace JJFlexWpf
                 g => { g.RatioToOne = r; g.GateSetting = gate; });
         }
 
+        // ── The expander's mode (Sprint 49 Track I phase 2, ruled S6) ──
+
+        /// <summary>The expander's mode as intended: <see cref="ExpanderModes.Jj"/> or <see cref="ExpanderModes.Wdsp"/>.</summary>
+        public static string ExpanderMode { get { lock (_gate) return _gateIntent.ExpanderMode; } }
+
+        /// <summary>
+        /// The expander's mode, JJ Flexible's or WDSP's: a switch, so it waits
+        /// for the unkey (S2), and WDSP's comes into force once its helper
+        /// engine is built. Kept as the intent while the helper is missing.
+        /// </summary>
+        public static TxChangeResult SetExpanderMode(string mode)
+        {
+            string m = ExpanderModes.IsWdsp(mode) ? ExpanderModes.Wdsp : ExpanderModes.Jj;
+            return Chain.RunOrDefer(() =>
+            {
+                lock (_gate) _gateIntent.ExpanderMode = m;
+                SyncWdsp();
+            });
+        }
+
+        /// <summary>The WDSP mode's depth, dB, as intended (its strength: DEXP has no ratio).</summary>
+        public static float WdspDepthDb { get { lock (_gate) return _gateIntent.WdspDepthDb; } }
+
+        /// <summary>
+        /// The WDSP mode's depth. It reaches the helper at the unkey (every WDSP
+        /// setter restarts the stage's detector), so the timing says so.
+        /// </summary>
+        public static TxChangeResult SetWdspDepth(float db)
+        {
+            float v = Math.Clamp(float.IsFinite(db) ? db : ExpanderModes.DefaultWdspDepthDb, ExpanderModes.MinWdspDepthDb, ExpanderModes.MaxWdspDepthDb);
+            return Chain.RunOrDefer(() =>
+            {
+                lock (_gate) _gateIntent.WdspDepthDb = v;
+                SyncWdsp();
+            });
+        }
+
+        /// <summary>Whether WDSP's expander can run here, and if not why (the catalog's probe: never starts the helper).</summary>
+        public static Unavailability WdspExpanderAvailability => WdspHelperEngine.Probe(TxWdspExpander.EngineId);
+
+        /// <summary>WDSP's expander told the intent and the threshold in force: the mode, and its settings at the unkey.</summary>
+        private static void SyncWdsp() => SyncWdsp(Conditioner, _rig?.TransmitKeyedOrInterlock ?? false);
+
+        private static void SyncWdsp(JJPortaudio.TxAudioConditioner cond, bool keyed)
+        {
+            try
+            {
+                TxNoiseGateSetup g;
+                lock (_gate) g = _gateIntent.Clone();
+                var wdsp = Wdsp;
+                wdsp.WantWdsp(ExpanderModes.IsWdsp(g.ExpanderMode));
+                wdsp.Update(g, cond?.Gate.ThresholdDb ?? g.ThresholdDb, keyed);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("TxAudioConditioning: WDSP's expander could not be updated: " + ex.Message);
+            }
+        }
+
         /// <summary>Whether the expander's detector hears the voice band only, as intended.</summary>
         public static bool SideChainFilter { get { lock (_gate) return _gateIntent.SideChainFilter; } }
 
@@ -964,6 +1077,9 @@ namespace JJFlexWpf
                 cond.DeEsser.PassbandHighEdgeHz = rig!.TXFilterHigh;
                 bool keyed = rig.TransmitKeyedOrInterlock;
                 FinishLearnIfDone(cond, keyed);
+                // WDSP's expander follows the gate's settings and the threshold in
+                // force; it takes them only while unkeyed (TxWdspExpander, remarks).
+                SyncWdsp(cond, keyed);
                 int now = keyed ? 1 : 0;
                 if (System.Threading.Interlocked.Exchange(ref _wasKeyedForStats, now) == 1 && now == 0)
                     TraceOverStats(cond);
@@ -1097,6 +1213,7 @@ namespace JJFlexWpf
             // an over, even if this call is running when a key-down arrives. The
             // equaliser and the de-esser in force ride in the same record (Track I).
             Conditioner?.StageGate(ToConditioner(g, eq, de, g.AutoThreshold, g.ThresholdMarginDb));
+            SyncWdsp();
         }
 
         private static readonly HashSet<string> _missingSaid = new(StringComparer.OrdinalIgnoreCase);
@@ -1149,6 +1266,337 @@ namespace JJFlexWpf
             lock (_gate) _gateIntent.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
             RefreshDerivedThreshold();
         });
+    }
+
+
+    /// <summary>
+    /// WDSP's downward expander (DEXP, in the helper) as the transmit
+    /// expander's other mode (Sprint 49 Track I phase 2, ruled S6). Plugged
+    /// into the conditioner as its <see cref="JJPortaudio.TxAudioConditioner.ExpanderReplacement"/>:
+    /// while the expander is on and this mode is in force, it runs in the
+    /// expander's place on the microphone, mono, through the same holder every
+    /// transmit helper engine uses (<see cref="PerChannelDenoiserBank"/> around
+    /// a <see cref="WdspHelperEngine"/>), on the same host.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why the bank and not a transmit slot.</b> <see cref="PcDenoiseSlot"/>
+    /// is a noise reducer's holder: strength blends, the shared delay plan,
+    /// seams, profiles and its menus. None of that is an expander's. The bank is
+    /// the part that is generic, and it already carries the ruled failure
+    /// behaviour (#737): keyed, the first late or failed frame LATCHES it to
+    /// the unprocessed microphone at the same delay until the unkey. So nothing
+    /// here is a second host or client: one host, one client type, one bank.</para>
+    /// <para><b>Switches land at an unkeyed buffer</b> (S2): the mode, and a new
+    /// bank (the first build, or a rebuild for a setting that changes the
+    /// delay). The mode comes into force only once its bank is built, so the
+    /// expander never goes missing while the helper starts.</para>
+    /// <para><b>Its levers reach it at the unkey.</b> Every one of WDSP's
+    /// setters for this stage rebuilds its curves and restarts its detector,
+    /// which closes it until it re-attacks: a change mid-word would duck the
+    /// word. So settings are pushed by the policy tick while unkeyed only.</para>
+    /// <para><b>Unavailable is not hidden.</b> When the helper cannot run it,
+    /// its bank passes the microphone through unprocessed at the same delay,
+    /// and the choice is kept; the operator is told once per failure.</para>
+    /// </remarks>
+    internal sealed class TxWdspExpander
+    {
+        /// <summary>The helper's engine id.</summary>
+        internal const string EngineId = "dexp";
+
+        // DRAFT PROSE keys (phase 2), for Codex.
+        /// <summary>Said once when WDSP's expander misses a frame mid-over and the microphone goes out without it.</summary>
+        internal const string FellBackKey = "audio.expander.tx.wdsp_fell_back";
+
+        /// <summary>The mono scratch, frames: preallocated, so the audio thread never allocates (a longer buffer is taken in pieces).</summary>
+        internal const int ScratchFrames = 8192;
+
+        /// <summary>
+        /// The detector's time constant sent to DEXP, ms: WDSP's own suggested
+        /// starting point. Ours is a power envelope with separate rise and fall
+        /// (0.5 and 50 ms); DEXP has one averaging constant, so it is not mapped.
+        /// </summary>
+        internal const double DetectorMs = 10.0;
+
+        /// <summary>
+        /// How far DEXP's detector reads below ours on the same signal with its
+        /// side-channel filter OFF, dB: 20 log10 (2 / pi), about -3.92. Ours sums
+        /// the POWER of the duplicated stereo pair, so a sine of peak A reads
+        /// 20 log10 A (the BS.1770 accounting, see <see cref="JJPortaudio.TxNoiseGate"/>);
+        /// DEXP averages the MAGNITUDE of one mono channel, and a sine's average
+        /// magnitude is 2A / pi. With the filter ON there is no offset: DEXP's
+        /// band-pass is complex (it keeps the positive frequencies, doubled), so
+        /// its detector sees the analytic signal's magnitude, A itself. Both
+        /// measured in the helper's own tests (dexp_detector_scale: -23.89 and
+        /// -20.02 dB for a tone of peak 0.1), and calibrated here by a test that
+        /// puts one tone at the same threshold in both modes, through the real helper.
+        /// </summary>
+        internal static readonly double DetectorOffsetDb = 20.0 * Math.Log10(2.0 / Math.PI);
+
+        /// <summary>
+        /// How far above a steady tone's peak level our detector reads, dB,
+        /// MEASURED: 2.8 (a -40 dB threshold opens for a tone of peak -42.8 dB,
+        /// from 300 Hz to 2 kHz, side-chain filter on or off; pinned in
+        /// <c>TxWdspExpanderTwinTests</c>). Its envelope rises in 0.5 ms and
+        /// falls in 50 ms, so on a sine it rides the power's peaks (2A squared,
+        /// +3 dB) rather than their mean; DEXP's ten-millisecond average does
+        /// not. So the mapping moves DEXP's threshold down by this as well.
+        /// </summary>
+        internal const double OurToneBiasDb = 2.8;
+
+        /// <summary>
+        /// Our threshold, on our detector's scale, as DEXP's threshold setting,
+        /// with its side-channel filter on or off: so one steady tone opens both
+        /// at the same level. Speech is not a steady tone, and the two detectors'
+        /// dynamics differ (ours rides peaks, DEXP's averages), so on a voice the
+        /// two modes open within a decibel or two of each other, not exactly.
+        /// </summary>
+        internal static double MapThresholdDb(float ourThresholdDb, bool sideFilter) =>
+            ourThresholdDb - OurToneBiasDb + (sideFilter ? 0.0 : DetectorOffsetDb);
+
+        // The settings that move the audio in time: a change of one needs a new channel.
+        private static readonly string[] LatencySettings = { "side_filter", "audio_delay" };
+
+        /// <summary>
+        /// The helper's settings for a gate setup and the threshold in force (on
+        /// our scale). The JJ mode's attack, hold and release, side-chain filter
+        /// and corners carry across; the depth is the WDSP mode's own; the
+        /// hysteresis is ours (3 dB); WDSP's audio delay stays off, because it
+        /// acts after the gain is decided and so is not look-ahead.
+        /// </summary>
+        internal static Dictionary<string, EngineSettingValue> ValuesFor(TxNoiseGateSetup g, float thresholdDb) => new(StringComparer.Ordinal)
+        {
+            ["threshold_db"] = new(Math.Round(Math.Clamp(MapThresholdDb(thresholdDb, g.SideChainFilter), -120.0, 0.0), 2)),
+            ["depth_db"] = new(Math.Round(Math.Clamp(g.WdspDepthDb, ExpanderModes.MinWdspDepthDb, ExpanderModes.MaxWdspDepthDb), 1)),
+            ["hysteresis_db"] = new(JJPortaudio.TxNoiseGate.CloseBelowThresholdDb),
+            ["detector_ms"] = new(DetectorMs),
+            ["attack_ms"] = new(Math.Round(Math.Clamp(g.AttackMs, 1f, 100f), 1)),
+            ["hold_ms"] = new(Math.Round(Math.Clamp(g.HoldMs, 0f, 2000f))),
+            ["decay_ms"] = new(Math.Round(Math.Clamp(g.ReleaseMs, 1f, 2000f))),
+            ["side_filter"] = new(0, g.SideChainFilter ? "on" : "off"),
+            ["low_cut_hz"] = new(Math.Round(Math.Clamp(g.SideChainLowCutHz, 20f, 1000f))),
+            ["high_cut_hz"] = new(Math.Round(Math.Clamp(g.SideChainHighCutHz, 1500f, 12000f))),
+            ["audio_delay"] = new(0, "off"),
+        };
+
+        private static string LatencyKey(IReadOnlyDictionary<string, EngineSettingValue> v) =>
+            string.Join("|", LatencySettings.Select(n => v.TryGetValue(n, out var x) ? x.Choice ?? x.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) : ""));
+
+        /// <summary>The live factory: an engine on the app's one helper host, for transmit.</summary>
+        internal static IDenoiseEngine LiveEngine(IReadOnlyDictionary<string, EngineSettingValue> values) =>
+            new WdspHelperEngine(WdspHost.Default, EngineId, DenoiseDirection.Transmit, values);
+
+        private readonly Func<IReadOnlyDictionary<string, EngineSettingValue>, IDenoiseEngine> _factory;
+        private readonly object _lock = new();
+
+        // Control side, under _lock.
+        private bool _wantWdsp;
+        private PerChannelDenoiserBank? _newest;                 // the newest bank built (adopted or waiting)
+        private string _newestKey = "";
+        private Dictionary<string, EngineSettingValue> _pushed = new(StringComparer.Ordinal);
+        private bool _building;
+        private Dictionary<string, EngineSettingValue>? _buildAgain;
+        private long _builtAtMs;
+
+        /// <summary>How long an unavailable bank is kept before a rebuild is tried (a helper installed or repaired meanwhile).</summary>
+        internal const int RetryUnavailableMs = 30000;
+
+        // Handed from the control side to the audio side.
+        private PerChannelDenoiserBank? _ready;
+        private int _modeWanted;
+
+        // Audio side.
+        private PerChannelDenoiserBank? _bank;
+        private bool _inForce;
+        private bool _latchSeen;
+        private long _lastCallMs;
+
+        /// <summary>
+        /// Whether a pause in the calls (over 100 ms) clears the bank's carry
+        /// (#1169). The live stream's buffers come every 10 ms; an offline
+        /// render's may not, and must never be cleared mid-take, so the twin
+        /// turns this off.
+        /// </summary>
+        internal bool ClearOnGap { get; init; } = true;
+        private readonly float[] _mono = new float[ScratchFrames];
+        private int _appliedLatency;
+        private int _told;
+        private readonly System.Threading.WaitCallback _tell;
+        private readonly System.Threading.WaitCallback _retire = state => ((PerChannelDenoiserBank)state!).Dispose();
+
+        /// <param name="factory">Makes the engine for a bank, from the helper settings; called off the audio thread.</param>
+        internal TxWdspExpander(Func<IReadOnlyDictionary<string, EngineSettingValue>, IDenoiseEngine> factory)
+        {
+            _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+            _tell = _ => FellBack?.Invoke();
+        }
+
+        /// <summary>
+        /// Raised once for a failure (the first latch of an over, not again until
+        /// the engine has been available again), on a pool thread: the operator
+        /// is told the microphone is going out without WDSP's expander.
+        /// </summary>
+        internal event Action? FellBack;
+
+        /// <summary>Whether WDSP's mode is in force on the audio side now (tests and the trace).</summary>
+        internal bool InForce => Volatile.Read(ref _inForce);
+
+        /// <summary>The bank the audio side runs, or null (tests and the twin's completeness).</summary>
+        internal PerChannelDenoiserBank? RunningBank => Volatile.Read(ref _bank);
+
+        /// <summary>Whether a bank has been built for the newest settings (waiting or running).</summary>
+        internal bool BankBuilt { get { lock (_lock) return _newest != null && !_building; } }
+
+        /// <summary>This buffer's delay, samples per channel: the bank's, when it ran.</summary>
+        internal int AppliedLatencySamples() => _appliedLatency;
+
+        /// <summary>
+        /// The mode as intended: WDSP's or not. Adopted at the next unkeyed
+        /// buffer once its bank is built; a first choice starts the build.
+        /// </summary>
+        internal void WantWdsp(bool wdsp)
+        {
+            lock (_lock) _wantWdsp = wdsp;
+            Volatile.Write(ref _modeWanted, wdsp ? 1 : 0);
+        }
+
+        /// <summary>
+        /// The control side's tick: the settings a gate setup and the threshold
+        /// in force (our scale) call for. A setting that moves the audio in time,
+        /// or no bank yet, builds a new bank (adopted at an unkeyed buffer); the
+        /// rest are sent to the running engine, unkeyed only (see remarks). Does
+        /// nothing while the JJ mode is wanted.
+        /// </summary>
+        internal void Update(TxNoiseGateSetup gate, float thresholdDb, bool keyed)
+        {
+            var values = ValuesFor(gate, thresholdDb);
+            lock (_lock)
+            {
+                if (!_wantWdsp) return;
+                string key = LatencyKey(values);
+                // An engine that never opened stays unavailable for good; try a new
+                // one now and then, unkeyed, in case the helper has come back.
+                bool retry = _newest != null && !keyed && !_newest.AnyAvailable
+                    && Environment.TickCount64 - _builtAtMs > RetryUnavailableMs;
+                if (_newest == null || key != _newestKey || retry)
+                {
+                    if (_building) { _buildAgain = values; return; }
+                    _building = true;
+                    var v = values;
+                    System.Threading.ThreadPool.QueueUserWorkItem(_ => Build(v));
+                    return;
+                }
+                if (_building || keyed) return;
+                var engine = _newest.EngineFor(0);
+                foreach (var (name, value) in values)
+                {
+                    if (Array.IndexOf(LatencySettings, name) >= 0) continue;
+                    if (_pushed.TryGetValue(name, out var was) && was == value) continue;
+                    if (engine.TrySetSetting(name, value)) _pushed[name] = value;
+                }
+            }
+        }
+
+        /// <summary>Build a bank now, on this thread, for these settings, and hand it to the audio side. The twin calls this; the live side through <see cref="Update"/>.</summary>
+        internal PerChannelDenoiserBank? BuildNow(IReadOnlyDictionary<string, EngineSettingValue> values)
+        {
+            lock (_lock) _building = true;
+            Build(values);
+            lock (_lock) return _newest;
+        }
+
+        private void Build(IReadOnlyDictionary<string, EngineSettingValue> values)
+        {
+            PerChannelDenoiserBank? bank = null;
+            try
+            {
+                var v = new Dictionary<string, EngineSettingValue>(values, StringComparer.Ordinal);
+                bank = new PerChannelDenoiserBank(() => _factory(v), 1);
+                Trace.WriteLine("TxWdspExpander: WDSP's expander built" + (bank.IsAvailable ? "" : ", unavailable ("
+                    + bank.EngineFor(0).Unavailability + ": " + bank.EngineFor(0).UnavailabilityDetail + "); the microphone passes through it unprocessed")
+                    + "; delay " + bank.LatencySamples + " samples.");
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("TxWdspExpander: WDSP's expander could not be built: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            Dictionary<string, EngineSettingValue>? again;
+            lock (_lock)
+            {
+                if (bank != null)
+                {
+                    _newest = bank;
+                    _builtAtMs = Environment.TickCount64;
+                    _newestKey = LatencyKey(values);
+                    _pushed = new Dictionary<string, EngineSettingValue>(values, StringComparer.Ordinal);
+                }
+                _building = false;
+                again = _buildAgain;
+                _buildAgain = null;
+            }
+            if (bank != null)
+            {
+                // A bank built but never adopted is retired by the next one.
+                var unadopted = Interlocked.Exchange(ref _ready, bank);
+                unadopted?.Dispose();
+            }
+            if (again != null) lock (_lock) { if (_wantWdsp && !_building) { _building = true; System.Threading.ThreadPool.QueueUserWorkItem(_ => Build(again)); } }
+        }
+
+        /// <summary>
+        /// The conditioner's <see cref="JJPortaudio.TxAudioConditioner.ExpanderModeStage"/>,
+        /// on the audio thread. True when WDSP's mode ran in the expander's place.
+        /// </summary>
+        internal bool Process(float[] buffer, int count, uint sampleRate, bool keyed)
+        {
+            long now = Environment.TickCount64;
+            bool gap = _lastCallMs == 0 || now - _lastCallMs > 100;
+            _lastCallMs = now;
+            if (!keyed)
+            {
+                var ready = Interlocked.Exchange(ref _ready, null);
+                if (ready != null)
+                {
+                    var old = _bank;
+                    _bank = ready;
+                    if (old != null) System.Threading.ThreadPool.QueueUserWorkItem(_retire, old);
+                }
+                bool was = _inForce;
+                Volatile.Write(ref _inForce, Volatile.Read(ref _modeWanted) != 0 && _bank != null);
+                // A new over's notice may be given again once the engine has worked.
+                if (_bank != null)
+                {
+                    if (_bank.Latched) _bank.ReleaseLatch();
+                    if (_bank.IsAvailable) Volatile.Write(ref _told, 0);
+                    // Audio queued before a pause or a mode switch is not played after it (#1169).
+                    if (_inForce && (!was || (gap && ClearOnGap))) _bank.ClearCarry();
+                }
+                _latchSeen = false;
+            }
+            var bank = _bank;
+            if (!_inForce || bank == null) { _appliedLatency = 0; return false; }
+            if (sampleRate != WdspProtocol.SampleRate || count < 2)
+            {
+                // Every engine is 48 kHz-native; at another rate the stage stands aside, honestly unprocessed.
+                _appliedLatency = 0;
+                return true;
+            }
+            bank.LatchFallback = keyed;
+            int frames = count / 2;
+            for (int at = 0; at < frames; at += _mono.Length)
+            {
+                int n = Math.Min(_mono.Length, frames - at);
+                for (int i = 0, j = 2 * at; i < n; i++, j += 2) _mono[i] = (buffer[j] + buffer[j + 1]) * 0.5f;
+                bank.Process(_mono.AsSpan(0, n), 1f);
+                for (int i = 0, j = 2 * at; i < n; i++, j += 2) { buffer[j] = _mono[i]; buffer[j + 1] = _mono[i]; }
+            }
+            _appliedLatency = bank.LatencySamples;
+            if (keyed && bank.Latched && !_latchSeen)
+            {
+                _latchSeen = true;
+                if (Interlocked.Exchange(ref _told, 1) == 0) System.Threading.ThreadPool.QueueUserWorkItem(_tell);
+            }
+            return true;
+        }
     }
 
     // TxConditioningSettings moved to Radios\MicrophoneProfile.cs

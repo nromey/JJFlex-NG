@@ -356,11 +356,36 @@ internal static class Program
         new("trained_t2", "audio.denoise.nr2.trained_t2", EngineSettingKind.Number, new EngineSettingValue(0.2), 0.02, 0.3, 0.01),
     };
 
+    // WDSP's downward expander (Sprint 49 Track I phase 2): the helper's own
+    // names and ranges, transmit only. The stub echoes it with its delay like
+    // every engine, so every app-side test of the expander's WDSP mode runs
+    // with no GPL anywhere.
+    private static EngineSettingDescriptor[] DexpSettings() => new EngineSettingDescriptor[] {
+        new("threshold_db", "audio.expander.dexp.threshold_db", EngineSettingKind.Number, new EngineSettingValue(-50), -120, 0, 0.01, "audio.unit.decibels"),
+        new("depth_db", "audio.expander.dexp.depth_db", EngineSettingKind.Number, new EngineSettingValue(20), 0, 40, 0.1, "audio.unit.decibels"),
+        new("hysteresis_db", "audio.expander.dexp.hysteresis_db", EngineSettingKind.Number, new EngineSettingValue(3), 0, 12, 0.1, "audio.unit.decibels"),
+        new("detector_ms", "audio.expander.dexp.detector_ms", EngineSettingKind.Number, new EngineSettingValue(10), 1, 100, 0.1, "audio.unit.milliseconds"),
+        new("attack_ms", "audio.expander.dexp.attack_ms", EngineSettingKind.Number, new EngineSettingValue(2), 1, 100, 0.1, "audio.unit.milliseconds"),
+        new("hold_ms", "audio.expander.dexp.hold_ms", EngineSettingKind.Number, new EngineSettingValue(150), 0, 2000, 1, "audio.unit.milliseconds"),
+        new("decay_ms", "audio.expander.dexp.decay_ms", EngineSettingKind.Number, new EngineSettingValue(200), 1, 2000, 1, "audio.unit.milliseconds"),
+        new("side_filter", "audio.expander.dexp.side_filter", EngineSettingKind.Choice, new EngineSettingValue(0, "on"),
+            Options: new[] { "off", "on" }.Select(o => new EngineSettingOption(o, "audio.expander.dexp.side_filter." + o)).ToArray(), ChangesLatency: true),
+        new("low_cut_hz", "audio.expander.dexp.low_cut_hz", EngineSettingKind.Number, new EngineSettingValue(150), 20, 1000, 1, "audio.unit.hertz"),
+        new("high_cut_hz", "audio.expander.dexp.high_cut_hz", EngineSettingKind.Number, new EngineSettingValue(4000), 1500, 12000, 1, "audio.unit.hertz"),
+        new("audio_delay", "audio.expander.dexp.audio_delay", EngineSettingKind.Choice, new EngineSettingValue(0, "off"),
+            Options: new[] { "off", "on" }.Select(o => new EngineSettingOption(o, "audio.expander.dexp.audio_delay." + o)).ToArray(), ChangesLatency: true),
+        new("audio_delay_ms", "audio.expander.dexp.audio_delay_ms", EngineSettingKind.Number, new EngineSettingValue(0), 0, 500, 1, "audio.unit.milliseconds", ChangesLatency: true),
+    };
+
     private static readonly Dictionary<string, EngineSettingDescriptor[]> Engines = new(StringComparer.Ordinal)
     {
         ["nnr"] = NnrSettings(),
         ["nr2"] = Nr2Settings(),
+        ["dexp"] = DexpSettings(),
     };
+
+    /// <summary>The directions an engine serves, as the offer's bits: dexp transmit only, as the helper offers it.</summary>
+    private static byte DirectionsOf(string engine) => engine == "dexp" ? (byte)2 : (byte)3;
 
     /// <summary>The channel's delay: the stub's base delay, one frame more for NNR's two premium models.</summary>
     private static int LatencyFor(string engine, IReadOnlyDictionary<string, WdspValue> values) =>
@@ -369,7 +394,7 @@ internal static class Program
     private static WdspHelloAck Offer()
     {
         var offers = Engines.Where(e => !Omit.Contains(e.Key))
-            .Select(e => new WdspEngineOffer(e.Key, 3, 48000, 480, (uint)_delay, 100, 50_000, 90_000, e.Value)).ToArray();
+            .Select(e => new WdspEngineOffer(e.Key, DirectionsOf(e.Key), 48000, 480, (uint)_delay, 100, 50_000, 90_000, e.Value)).ToArray();
         // NNR's four slots, as the real helper lists them, only when this run sends model costs.
         var fingerprints = _modelCosts == null ? Array.Empty<WdspFingerprint>()
             : new[] { "standard", "premium", "standard_cw", "premium_cw" }
@@ -515,6 +540,7 @@ internal static class Program
             if (open.Channel == 0 || !UsedIds.Add(open.Channel)) ack = Refuse(WdspResult.ChannelIdInUse, "id in use");
             else if (!Engines.TryGetValue(open.EngineId, out var descriptors) || Omit.Contains(open.EngineId)) ack = Refuse(WdspResult.EngineNotOffered, $"engine {open.EngineId} is not offered");
             else if (open.Direction > 1) ack = Refuse(WdspResult.DirectionNotServed, "unknown direction");
+            else if ((DirectionsOf(open.EngineId) & (1 << open.Direction)) == 0) ack = Refuse(WdspResult.DirectionNotServed, $"engine {open.EngineId} does not serve direction {open.Direction}");
             else if (RefuseOpen.Contains(open.EngineId)) ack = Refuse(WdspResult.ChannelBuildFailed, "refused by the test's command line");
             else
             {

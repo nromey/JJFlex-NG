@@ -521,6 +521,7 @@ public partial class ScreenFieldsPanel
         TxGateLever.SideChainLow => "audio.noise_help.tx_home.gate.sidechain_low",
         TxGateLever.SideChainHigh => "audio.noise_help.tx_home.gate.sidechain_high",
         TxGateLever.LookAhead => "audio.noise_help.tx_home.gate.lookahead",
+        TxGateLever.Mode => "audio.noise_help.tx_home.gate.mode",
         _ => "audio.noise_help.tx_home.gate.monitor_volume",
     };
 
