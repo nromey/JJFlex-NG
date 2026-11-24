@@ -506,7 +506,7 @@ namespace JJFlexWpf
             }
             finally
             {
-                try { bank?.Dispose(); }
+                try { bank?.Dispose(); holder.Dispose(); }
                 catch (Exception ex) { Trace.WriteLine("ChainAuditionTwin: teardown of WDSP's expander: " + ex.GetType().Name); }
             }
         }

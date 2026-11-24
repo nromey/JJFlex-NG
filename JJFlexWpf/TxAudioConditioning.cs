@@ -583,8 +583,8 @@ namespace JJFlexWpf
 
         /// <summary>A continuous gate lever: live or held for the unkey by the one policy, <see cref="TxNoiseChain.ContinuousLeversLiveWhileKeyed"/>, with its timing.</summary>
         private static TxChangeResult GateLever(Action<TxNoiseGateSetup> intent, Action<JJPortaudio.TxNoiseGate> live,
-            Action<JJPortaudio.TxAudioConditioner.StagedGate> staged) =>
-            Chain.Continuous(() =>
+            Action<JJPortaudio.TxAudioConditioner.StagedGate> staged, bool sharedWithWdsp = true) =>
+            WdspHolds(sharedWithWdsp, Chain.Continuous(() =>
             {
                 lock (_gate) intent(_gateIntent);
                 var c = Conditioner;
@@ -595,7 +595,26 @@ namespace JJFlexWpf
                 // once, which the audio side's next copy agrees with.
                 c.ChangeGate(staged);
                 live(c.Gate);
-            });
+            }));
+
+        /// <summary>
+        /// Phase 2 repair 1 (B3): the timing of a lever WDSP's expander shares
+        /// (the threshold and how it is worked out, attack, hold, release, the
+        /// side-chain corners). The JJ expander takes them live while keyed (S15),
+        /// but WDSP's takes its settings only at the unkey, because every one of
+        /// its setters restarts its detector and would duck a word; so while
+        /// WDSP's mode is chosen or still in force and the key is down, a change
+        /// that would have been "now" is truthfully "at the unkey". Nothing is
+        /// sent to the helper early to make "now" true.
+        /// </summary>
+        internal static TxChangeResult WdspHolds(bool shared, TxChangeResult result)
+        {
+            if (!shared || result.Timing != TxChangeTiming.Now) return result;
+            bool wdsp;
+            lock (_gate) wdsp = ExpanderModes.IsWdsp(_gateIntent.ExpanderMode);
+            wdsp |= _wdsp?.InForce == true;
+            return wdsp && Chain.IsKeyed ? TxChangeResult.AtUnkey : result;
+        }
 
         /// <summary>
         /// Margin above the measured noise floor for the derived threshold,
@@ -611,11 +630,11 @@ namespace JJFlexWpf
         public static TxChangeResult SetThresholdMargin(float db)
         {
             float v = Math.Clamp(db, 3f, 15f);
-            return Chain.Continuous(() =>
+            return WdspHolds(true, Chain.Continuous(() =>
             {
                 _thresholdMarginDb = v;
                 Conditioner?.ChangeGate(g => g.ThresholdMarginDb = v);
-            });
+            }));
         }
 
         /// <summary>Derive the threshold from the measured floor (default) or
@@ -634,11 +653,11 @@ namespace JJFlexWpf
         /// S15's question; with nothing held it is live, as before. On the one gate
         /// owner (repair round 4).
         /// </summary>
-        public static TxChangeResult SetAutoThreshold(bool on) => Chain.Continuous(() =>
+        public static TxChangeResult SetAutoThreshold(bool on) => WdspHolds(true, Chain.Continuous(() =>
         {
             _autoThreshold = on;
             Conditioner?.ChangeGate(g => { g.AutoThreshold = on; g.HasThreshold = !on; });
-        });
+        }));
 
         /// <summary>One gate level by key (Track H2's controller levers), with its timing: threshold, attack, hold, release, depth or margin.</summary>
         public static TxChangeResult SetGateLevel(string key, float value) => key switch
@@ -647,7 +666,8 @@ namespace JJFlexWpf
             "attack" => GateLever(g => g.AttackMs = value, g => g.AttackMs = value, g => g.AttackMs = value),
             "hold" => GateLever(g => g.HoldMs = value, g => g.HoldMs = value, g => g.HoldMs = value),
             "release" => GateLever(g => g.ReleaseMs = value, g => g.ReleaseMs = value, g => g.ReleaseMs = value),
-            "depth" => GateLever(g => g.RangeDb = value, g => g.RangeDb = value, g => g.RangeDb = value),
+            // The JJ gate setting's depth: WDSP's expander does not use it.
+            "depth" => GateLever(g => g.RangeDb = value, g => g.RangeDb = value, g => g.RangeDb = value, sharedWithWdsp: false),
             // Sprint 49 Track I: the side-chain's corners are continuous (live);
             // the look-ahead's length is a switch (it moves the stream in time).
             "sidechain_low" => GateLever(g => g.SideChainLowCutHz = value, g => g.SideChainLowHz = value, g => g.SideChainLowHz = value),
@@ -689,7 +709,7 @@ namespace JJFlexWpf
         public static float GateRangeDb
         {
             get { lock (_gate) return _gateIntent.RangeDb; }
-            set { GateLever(g => g.RangeDb = value, g => g.RangeDb = value, g => g.RangeDb = value); }
+            set { GateLever(g => g.RangeDb = value, g => g.RangeDb = value, g => g.RangeDb = value, sharedWithWdsp: false); }
         }
 
         /// <summary>Copy the held gate settings onto a rig's gate (attach, and after applying a setup).</summary>
@@ -791,7 +811,7 @@ namespace JJFlexWpf
                 JJPortaudio.TxNoiseGate.MinRatioToOne, JJPortaudio.TxNoiseGate.MaxRatioToOne);
             return GateLever(g => { g.RatioToOne = r; g.GateSetting = gate; },
                 g => { g.RatioToOne = r; g.GateSetting = gate; },
-                g => { g.RatioToOne = r; g.GateSetting = gate; });
+                g => { g.RatioToOne = r; g.GateSetting = gate; }, sharedWithWdsp: false); // the JJ mode's own strength
         }
 
         // ── The expander's mode (Sprint 49 Track I phase 2, ruled S6) ──
@@ -1298,7 +1318,7 @@ namespace JJFlexWpf
     /// its bank passes the microphone through unprocessed at the same delay,
     /// and the choice is kept; the operator is told once per failure.</para>
     /// </remarks>
-    internal sealed class TxWdspExpander
+    internal sealed class TxWdspExpander : IDisposable
     {
         /// <summary>The helper's engine id.</summary>
         internal const string EngineId = "dexp";
@@ -1420,19 +1440,75 @@ namespace JJFlexWpf
         private readonly float[] _mono = new float[ScratchFrames];
         private int _appliedLatency;
         private int _told;
-        private readonly System.Threading.WaitCallback _tell;
-        private readonly System.Threading.WaitCallback _retire = state => ((PerChannelDenoiserBank)state!).Dispose();
+
+        // ── Off the audio thread (phase 2 repair 1, N1) ──
+        //
+        // The callback hands two things on, and allocates for neither: a bank it
+        // no longer runs (an intrusive stack through the bank's own RetiredNext,
+        // the slots' pattern), and a notice owed (one flag). The off-audio writer
+        // disposes the one and raises the other; the notice's own work (speech,
+        // the tone) then goes to a pool thread from there, never from the callback.
+        // For the merge: when Track RT's events writer lands, the notice belongs on it.
+        private PerChannelDenoiserBank? _retiredHead;
+        private int _tellOwed;
+        private readonly HolderWork _work;
+        private readonly JJTrace.IOffAudioScheduler _scheduler;
+
+        private sealed class HolderWork : JJTrace.OffAudioWork
+        {
+            private readonly TxWdspExpander _owner;
+            public HolderWork(TxWdspExpander owner) => _owner = owner;
+            public override bool Pending => base.Pending || Volatile.Read(ref _owner._retiredHead) != null || Volatile.Read(ref _owner._tellOwed) != 0;
+            protected override void DrainCore() => _owner.DrainOffAudio();
+        }
+
+        private void DrainOffAudio()
+        {
+            var list = Interlocked.Exchange(ref _retiredHead, null);
+            while (list != null)
+            {
+                var next = list.RetiredNext;
+                list.RetiredNext = null;
+                try { list.Dispose(); }
+                catch (Exception ex) { Trace.WriteLine("TxWdspExpander: a retired bank did not close: " + ex.GetType().Name); }
+                list = next;
+            }
+            if (Interlocked.Exchange(ref _tellOwed, 0) != 0)
+                System.Threading.ThreadPool.QueueUserWorkItem(_ => FellBack?.Invoke());
+        }
+
+        /// <summary>The audio side: hand a bank to the off-audio writer to dispose. No allocation, no lock.</summary>
+        private void Retire(PerChannelDenoiserBank bank)
+        {
+            if (!bank.ClaimRetirement()) return;
+            PerChannelDenoiserBank? head;
+            do { head = Volatile.Read(ref _retiredHead); bank.RetiredNext = head; }
+            while (!ReferenceEquals(Interlocked.CompareExchange(ref _retiredHead, bank, head), head));
+            _work.Signal();
+        }
 
         /// <param name="factory">Makes the engine for a bank, from the helper settings; called off the audio thread.</param>
-        internal TxWdspExpander(Func<IReadOnlyDictionary<string, EngineSettingValue>, IDenoiseEngine> factory)
+        /// <param name="scheduler">Where its off-audio work runs: the shared writer when null.</param>
+        internal TxWdspExpander(Func<IReadOnlyDictionary<string, EngineSettingValue>, IDenoiseEngine> factory,
+            JJTrace.IOffAudioScheduler? scheduler = null)
         {
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
-            _tell = _ => FellBack?.Invoke();
+            _work = new HolderWork(this);
+            _scheduler = scheduler ?? JJTrace.OffAudioDrainer.Shared;
+            _scheduler.Register(_work);
+        }
+
+        /// <summary>Stop its off-audio work, after one last drain. The banks it built are their owners' to dispose.</summary>
+        public void Dispose()
+        {
+            _work.Drain();
+            _scheduler.Unregister(_work);
         }
 
         /// <summary>
         /// Raised once for a failure (the first latch of an over, not again until
-        /// the engine has been available again), on a pool thread: the operator
+        /// the engine has really processed again, repair 1, N2), on a pool thread
+        /// reached through the off-audio writer: the operator
         /// is told the microphone is going out without WDSP's expander.
         /// </summary>
         internal event Action? FellBack;
@@ -1558,15 +1634,13 @@ namespace JJFlexWpf
                 {
                     var old = _bank;
                     _bank = ready;
-                    if (old != null) System.Threading.ThreadPool.QueueUserWorkItem(_retire, old);
+                    if (old != null) Retire(old);
                 }
                 bool was = _inForce;
                 Volatile.Write(ref _inForce, Volatile.Read(ref _modeWanted) != 0 && _bank != null);
-                // A new over's notice may be given again once the engine has worked.
                 if (_bank != null)
                 {
                     if (_bank.Latched) _bank.ReleaseLatch();
-                    if (_bank.IsAvailable) Volatile.Write(ref _told, 0);
                     // Audio queued before a pause or a mode switch is not played after it (#1169).
                     if (_inForce && (!was || (gap && ClearOnGap))) _bank.ClearCarry();
                 }
@@ -1581,6 +1655,7 @@ namespace JJFlexWpf
                 return true;
             }
             bank.LatchFallback = keyed;
+            long took = bank.EngineFrames, late = bank.LateFrames, failed = bank.FallbackFrames, latched = bank.LatchedFrames;
             int frames = count / 2;
             for (int at = 0; at < frames; at += _mono.Length)
             {
@@ -1590,10 +1665,16 @@ namespace JJFlexWpf
                 for (int i = 0, j = 2 * at; i < n; i++, j += 2) { buffer[j] = _mono[i]; buffer[j + 1] = _mono[i]; }
             }
             _appliedLatency = bank.LatencySamples;
+            // N2: the notice is owed again only after the engine has really
+            // worked (a buffer it took with nothing late, failed or latched);
+            // being "available" is not enough, since a connected helper can stay late.
+            if (bank.EngineFrames != took && bank.LateFrames == late && bank.FallbackFrames == failed
+                && bank.LatchedFrames == latched && !bank.Latched)
+                Volatile.Write(ref _told, 0);
             if (keyed && bank.Latched && !_latchSeen)
             {
                 _latchSeen = true;
-                if (Interlocked.Exchange(ref _told, 1) == 0) System.Threading.ThreadPool.QueueUserWorkItem(_tell);
+                if (Interlocked.Exchange(ref _told, 1) == 0) { Volatile.Write(ref _tellOwed, 1); _work.Signal(); }
             }
             return true;
         }

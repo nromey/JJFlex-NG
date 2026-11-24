@@ -321,17 +321,33 @@ namespace JJFlexWpf
                     + string.Join(",", s.Values.OrderBy(v => v.Name, StringComparer.Ordinal)
                         .Select(v => v.Name + "=" + (v.Choice ?? v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture))))));
 
-        /// <summary>Whether two gate settings act the same: the hand threshold counts only while the automatic threshold is off.</summary>
-        private static bool SameGate(TxNoiseGateSetup a, TxNoiseGateSetup b) =>
-            a.Enabled == b.Enabled && a.AutoThreshold == b.AutoThreshold
-            && Math.Abs(a.ThresholdMarginDb - b.ThresholdMarginDb) < 0.01f
-            && (a.AutoThreshold || Math.Abs(a.ThresholdDb - b.ThresholdDb) < 0.01f)
-            && Math.Abs(a.AttackMs - b.AttackMs) < 0.01f && Math.Abs(a.HoldMs - b.HoldMs) < 0.01f
-            && Math.Abs(a.ReleaseMs - b.ReleaseMs) < 0.01f && Math.Abs(a.RangeDb - b.RangeDb) < 0.01f
-            // Sprint 49 Track I: the expander's own settings.
-            && a.GateSetting == b.GateSetting && Math.Abs(a.RatioToOne - b.RatioToOne) < 0.01f
-            && a.SideChainFilter == b.SideChainFilter && Math.Abs(a.SideChainLowCutHz - b.SideChainLowCutHz) < 0.5f
-            && Math.Abs(a.SideChainHighCutHz - b.SideChainHighCutHz) < 0.5f && Math.Abs(a.LookAheadMs - b.LookAheadMs) < 0.01f;
+        /// <summary>
+        /// Whether two gate settings act the same: the hand threshold counts only
+        /// while the automatic threshold is off, and every number to the
+        /// hundredth. Compared through the record's own serialized form, so a
+        /// field added later is compared without anyone remembering to add it
+        /// here (phase 2 repair 1, B1: this list was written by hand and missed
+        /// the expander's mode and WDSP's depth, so a preset or a named setup
+        /// differing only in those did nothing, and the layer's Escape could not
+        /// put them back). Presets, the whole-transmit no-op check, the preset
+        /// summary and the layer's ownership all ask this one question.
+        /// </summary>
+        internal static bool SameGate(TxNoiseGateSetup a, TxNoiseGateSetup b) => GateKey(a) == GateKey(b);
+
+        private static readonly System.Xml.Serialization.XmlSerializer GateSerializer = new(typeof(TxNoiseGateSetup));
+
+        private static readonly System.Reflection.PropertyInfo[] GateFloats = typeof(TxNoiseGateSetup).GetProperties()
+            .Where(p => p.PropertyType == typeof(float) && p.CanRead && p.CanWrite).ToArray();
+
+        private static string GateKey(TxNoiseGateSetup g)
+        {
+            var c = g.Clone();
+            foreach (var p in GateFloats) p.SetValue(c, MathF.Round((float)p.GetValue(c)!, 2));
+            if (c.AutoThreshold) c.ThresholdDb = 0f;
+            using var w = new System.IO.StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+            GateSerializer.Serialize(w, c);
+            return w.ToString();
+        }
 
         /// <summary>Every preset that holds transmit noise reduction (the Transmit menu's Presets, the layer's preset brackets after T).</summary>
         public IReadOnlyList<AudioChainPreset> TransmitNoisePresets() => AllPresets(LoadPresets()).Where(p => p.TransmitNoise != null).ToList();
