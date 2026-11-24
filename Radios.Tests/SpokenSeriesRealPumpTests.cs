@@ -150,6 +150,12 @@ namespace Radios.Tests
             Assert.True(r.NothingMoreSaid(1));
 
             r.OurInterrupt("a key of ours");
+            // Track SL: the series waits out the interrupt's settle window
+            // itself, as the arbiter's hold does, so the key's own follow-ups
+            // go first; its timer does this in the app.
+            r.Series.Pump();
+            Assert.True(r.NothingMoreSaid(2));
+            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);
             r.Series.Pump();
 
             var next = r.Channel.WaitForCall();
@@ -185,8 +191,13 @@ namespace Radios.Tests
 
             r.OurInterrupt("a key of ours");
             r.Series.Pump();
-            Assert.True(r.NothingMoreSaid(3));                      // the rescued lines are held for their put-back
-            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);   // the put-back
+            Assert.True(r.NothingMoreSaid(3));                      // the lines taken back wait out the settle
+            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);
+            // Track SL: the lines given back are the series' own now, taken
+            // back at the cut, and the series hands them over again itself
+            // after the settle (its timer does this in the app); before, the
+            // arbiter's hold put them back.
+            r.Series.Pump();
             foreach (var expected in new[] { "two", "three", "four" })
             {
                 var call = r.Channel.WaitForCall();
@@ -217,9 +228,17 @@ namespace Radios.Tests
         /// Codex's second C2 case: a final three-line batch whose first line is
         /// cut part-way from outside, its two queued companions given back
         /// unspoken by the real pump, with no pump deadline left to retire them.
+        /// <para>REWRITTEN by Track SL (ruled S4, 2026-11-23). This was
+        /// <c>Codex_C2_a_final_batch_cut_from_outside_ends_after_the_stall_bound</c>
+        /// and asserted that the series ended at the one-minute bound. After
+        /// NVDA's Ctrl there is no time limit now: the series is still waiting
+        /// at 70 s and at ten minutes, says nothing into the silence, and our
+        /// next key brings every remaining line once, in order. A reader that
+        /// stops answering with no cut still ends at the bound:
+        /// <see cref="Codex_C2_a_final_line_that_never_answers_ends_after_the_stall_bound"/>.</para>
         /// </summary>
         [Fact]
-        public void Codex_C2_a_final_batch_cut_from_outside_ends_after_the_stall_bound()
+        public void Codex_C2_a_final_batch_cut_from_outside_waits_past_the_stall_bound_for_our_next_key()
         {
             using var r = new Rig();
             r.Series.Add("seed completes before final batch", VerbosityLevel.Terse);
@@ -234,9 +253,27 @@ namespace Radios.Tests
             r.CancelFirstPartway(first);
             r.Series.Pump();
             Assert.True(r.Series.Owes);
-            r.Clock.Advance(SpokenSeries.StallMs + 1);
+            r.Clock.Advance(70_000);
             r.Series.Pump();
+            Assert.True(r.Series.Owes);
+            r.Clock.Advance(600_000 - 70_000);
+            r.Series.Pump();
+            Assert.True(r.Series.Owes);
+            Assert.True(r.NothingMoreSaid(2));
+
+            r.OurInterrupt("a key of ours");
+            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);
+            r.Series.Pump();
+            foreach (var expected in new[] { "final batch second result", "finished final batch last" })
+            {
+                var call = r.Channel.WaitForCall();
+                Assert.Equal(expected, call.Text);
+                r.Complete(call);
+                r.Series.Pump();
+            }
             Assert.False(r.Series.Owes);
+            Assert.Equal(new[] { "seed completes before final batch", "final batch first result", "a key of ours",
+                "final batch second result", "finished final batch last" }, r.Channel.Seen.ConvertAll(c => c.Text));
         }
 
         /// <summary>Codex's C2 control: a stalled batch with more lines waiting ends after the bound.</summary>
@@ -267,6 +304,127 @@ namespace Radios.Tests
             Assert.True(r.Series.Owes);
             r.Clock.Advance(SpokenSeries.StallMs + 1);
             Assert.True(SpinWait.SpinUntil(() => !r.Series.Owes, 3000), "nothing watched the final line after it was handed over");
+        }
+
+        /// <summary>
+        /// Bench 4a on the real pump (Track SL, #1228): NVDA's Ctrl cuts the
+        /// sounding line part-way and the pump gives the three queued behind it
+        /// back unspoken; the operator waits; then our key, and its own
+        /// follow-up (the help text). Every remaining line is said exactly once,
+        /// in order, after the help text, the cut line not repeated. 5 s is
+        /// bench 4a2, the control that held before Track SL and catches a
+        /// double (a line taken back AND put back by the arbiter); 16.5 s is past
+        /// the arbiter's 15-second salvage lifetime, where the three were lost.
+        /// </summary>
+        [Theory]
+        [InlineData(5000)]
+        [InlineData(SpeechArbiter.SalvageCeilingMs + 1500)]
+        public void Bench_4a_on_the_real_pump_every_remaining_line_is_said_once_in_order(int waitMs)
+        {
+            using var r = new Rig();
+            r.Series.Add("seed", VerbosityLevel.Terse);
+            var seed = r.Channel.WaitForCall();
+            foreach (var l in new[] { "one", "two", "three", "four", "later" }) r.Series.Add(l, VerbosityLevel.Terse);
+            r.Complete(seed);
+            r.Series.Pump();
+            var one = r.Channel.WaitForCall();
+            Assert.Equal(3, r.Pump.QueuedCount);
+            r.CancelFirstPartway(one);
+            r.Series.Pump();
+            Assert.True(r.NothingMoreSaid(2));
+
+            r.Clock.Advance(waitMs);
+            r.Series.Add("finished", VerbosityLevel.Terse);
+            r.Series.Pump();
+            Assert.True(r.NothingMoreSaid(2));
+
+            r.OurInterrupt("a key of ours");
+            r.Series.Pump();
+            r.Arbiter.Emit("help text", false, SpeechIntent.Queue, VerbosityLevel.Terse, "real pump test", "help");
+            var help = r.Channel.WaitForCall();
+            Assert.Equal("help text", help.Text);
+            r.Complete(help);
+            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);   // the arbiter's hold, if any, and the series' settle
+            r.Series.Pump();
+            foreach (var expected in new[] { "two", "three", "four", "later", "finished" })
+            {
+                var call = r.Channel.WaitForCall();
+                Assert.Equal(expected, call.Text);
+                r.Complete(call);
+                r.Series.Pump();
+            }
+            Assert.False(r.Series.Owes);
+            Assert.True(r.NothingMoreSaid(10));
+            Assert.Equal(new[] { "seed", "one", "a key of ours", "help text", "two", "three", "four", "later", "finished" },
+                r.Channel.Seen.ConvertAll(c => c.Text));
+        }
+
+        /// <summary>
+        /// The second shape on the real pump (Track SL): NVDA's Ctrl lands while
+        /// another part of the app is sounding, so the series' queued line is
+        /// only given back at word 0, never cut part-way. Past the salvage
+        /// lifetime it was lost before Track SL; now it is said after our key.
+        /// </summary>
+        [Fact]
+        public void Ctrl_while_another_utterance_is_sounding_on_the_real_pump_keeps_the_lists_place()
+        {
+            using var r = new Rig();
+            r.Arbiter.Emit("other speech in flight", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "real pump test", "other");
+            var other = r.Channel.WaitForCall();
+            r.Series.Add("first result", VerbosityLevel.Terse);
+            r.Series.Add("second result", VerbosityLevel.Terse);
+            r.Series.Add("finished", VerbosityLevel.Terse);
+            Assert.Equal(1, r.Pump.QueuedCount);
+            r.CancelFirstPartway(other);
+            r.Series.Pump();
+            r.Clock.Advance(SpeechArbiter.SalvageCeilingMs + 1500);
+            r.Series.Pump();
+            Assert.True(r.NothingMoreSaid(1));
+
+            r.OurInterrupt("a key of ours");
+            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);
+            r.Series.Pump();
+            foreach (var expected in new[] { "first result", "second result", "finished" })
+            {
+                var call = r.Channel.WaitForCall();
+                Assert.Equal(expected, call.Text);
+                r.Complete(call);
+                r.Series.Pump();
+            }
+            Assert.False(r.Series.Owes);
+            Assert.Equal(new[] { "other speech in flight", "a key of ours", "first result", "second result", "finished" },
+                r.Channel.Seen.ConvertAll(c => c.Text));
+        }
+
+        /// <summary>
+        /// The series' own timer, paused (Track SL): nobody pumps by hand. After
+        /// NVDA's Ctrl the timer keeps looking and hands nothing, however far
+        /// the clock moves, and after our key it resumes the list by itself.
+        /// </summary>
+        [Fact]
+        public void The_series_own_timer_keeps_a_paused_series_waiting_and_resumes_it_after_our_key()
+        {
+            using var r = new Rig(pollMs: 10);
+            r.Series.Add("seed", VerbosityLevel.Terse);
+            var seed = r.Channel.WaitForCall();
+            foreach (var l in new[] { "one", "two", "three" }) r.Series.Add(l, VerbosityLevel.Terse);
+            r.Complete(seed);
+            var one = r.Channel.WaitForCall();
+            r.CancelFirstPartway(one);
+            Thread.Sleep(100);
+            r.Clock.Advance(600_000);
+            Assert.True(r.NothingMoreSaid(2));
+            Assert.True(r.Series.Owes);
+
+            r.OurInterrupt("a key of ours");
+            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);
+            foreach (var expected in new[] { "two", "three" })
+            {
+                var call = r.Channel.WaitForCall();
+                Assert.Equal(expected, call.Text);
+                r.Complete(call);
+            }
+            Assert.True(SpinWait.SpinUntil(() => !r.Series.Owes, 3000));
         }
 
         /// <summary>Codex's isolation probe: withdrawing one owner leaves another series on the same subject, and a safety warning in flight, alone.</summary>
