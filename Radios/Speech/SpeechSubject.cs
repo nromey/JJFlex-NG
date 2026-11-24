@@ -331,6 +331,13 @@ namespace Radios.Speech
         public const string ConnectLead = "connect-lead";
 
         /// <summary>
+        /// "Login cancelled", said when the operator closes a SmartLink sign-in
+        /// window (JJ Flexible's own form, or the browser page) without
+        /// signing in (#1244). Only the newest close is worth hearing.
+        /// </summary>
+        public const string SignInCancelled = "sign-in-cancelled";
+
+        /// <summary>
         /// Where the operator is — the Home arrival ("JJ Flexible Home,
         /// Modern tuning mode") and the Home landing prefix ("JJ Flexible
         /// Home, slice, 14.100.000"). Only the newest is true: an arrival
