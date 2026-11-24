@@ -35,6 +35,9 @@
          guard) is replayed over reconstructed event streams. JJFlexControl depends only on
          Radios and JJTrace, so no cycle and nothing new on the desk. -->
     <ProjectReference Include="..\JJFlexControl\JJFlexControl.csproj" />
+    <!-- The update manifest testing lever's decision (JJFLEX_TEST_APP_MANIFEST_URL) is
+         tested here, windowless. JJFlexUpdater depends only on JJTrace, so no cycle. -->
+    <ProjectReference Include="..\JJFlexUpdater\JJFlexUpdater.csproj" />
   </ItemGroup>
 
   <ItemGroup>

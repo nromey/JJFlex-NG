@@ -116,6 +116,40 @@ namespace Radios
             return !string.Equals(root, standard, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Whether <c>JJFLEX_CONFIG_DIR</c> was set AND accepted for this run:
+        /// narrower than <see cref="RunIsRelocated"/>, which is also true when
+        /// the roaming folder cannot be resolved at all. For anything that
+        /// must engage only on a deliberately isolated test run.
+        /// </summary>
+        public static bool RunRelocatedByConfigDir => RelocatedByConfigDir(
+            Environment.GetEnvironmentVariable(RadioConfig.ConfigDirOverrideVariable),
+            RadioConfig.AppDataRoot);
+
+        /// <summary>
+        /// The rule behind <see cref="RunRelocatedByConfigDir"/>, without the
+        /// environment: an override was offered, and the settings root this
+        /// run resolved IS that override (RadioConfig resolves to the offered
+        /// path only when it accepts it, and refuses one equal to the
+        /// ordinary folder).
+        /// </summary>
+        public static bool RelocatedByConfigDir(string? offered, string? appDataRoot)
+        {
+            if (string.IsNullOrWhiteSpace(offered) || string.IsNullOrWhiteSpace(appDataRoot)) return false;
+            string candidate = offered.Trim();
+            if (!Path.IsPathRooted(candidate)) return false;
+            string full;
+            try { full = Path.GetFullPath(candidate); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return false;
+            }
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(full),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(appDataRoot)),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         private static string SafeFolder(Environment.SpecialFolder folder)
         {
             try { return Environment.GetFolderPath(folder); }
