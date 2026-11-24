@@ -504,6 +504,57 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     logs these through `Trace` itself or parses the power family as a
     fraction.
 
+29. **Both advertised port pairs (2026-11-19, the SmartLink connection tiers
+    work)**: keep the new file `FlexLib_API/FlexLib/AdvertisedPorts.cs`, the
+    comment-marked `AdvertisedPorts` property on `Radio` (in
+    `FlexLib_API/FlexLib/Radio.cs`, beside `NegotiatedHolePunchPort`), and the
+    comment-marked `AdvertisedPorts = new AdvertisedPorts(...)` member at the
+    end of the radio initializer in `WanServer.ParseRadioListMessage`. Stock
+    reads the manual pair (`public_tls_port`, `public_udp_port`) and the UPnP
+    pair (`public_upnp_tls_port`, `public_upnp_udp_port`) and keeps only one
+    in `PublicTlsPort`/`PublicUdpPort`, so a dead manual pair hid a working
+    UPnP pair from everything downstream. The patch keeps both, each by
+    source, with `upnp_supported` and the hole-punch flag exactly as the
+    parse computed it, in an immutable record nothing on the connect path
+    writes. An absent field, or one that is not a whole number, is -1 there
+    (stock's `int.TryParse` turns a malformed one into 0, which stock then
+    treats as a port); deciding that a pair is usable, both ports from 1 to
+    65535, is JJ Flexible's policy, not FlexLib's. The UPnP ports are read
+    whether or not `upnp_supported` is 1, and the flag is kept beside them.
+    **Stock's own selection is unchanged**: `PublicTlsPort`, `PublicUdpPort`,
+    `IsPortForwardOn` and `RequiresHolePunch` are computed exactly as before.
+    `Radios/FlexBase.Wan.cs` `UpdateRadioDiscoveryFields` carries the record
+    onto the radio object a list refresh updates. Pinned by
+    `Radios.Tests/RadioListBothPairsTests`. Remove it only if FlexLib itself
+    exposes both pairs by source.
+
+30. **Qualified-UDP observation (2026-11-19, the SmartLink connection tiers
+    work; number 29 is that work's radio-list parse patch)**: keep the new
+    file `FlexLib_API/FlexLib/QualifiedUdpObservation.cs` (`QualifiedUdpWatch`
+    and `QualifiedUdpObservation`) and the comment-marked JJFlex patches in
+    `FlexLib_API/FlexLib/Radio.cs`: the `_openStartedTimestamp` stamp at the
+    top of `Connect`, `WatchedUdpCallback` passed instead of
+    `UdpDataReceivedCallback` at BOTH `VitaSocket` constructions
+    (`StartEarlyHolePunch` and `StartUdp`), and the block beside
+    `_udpSuccessfulRegistration` (`ObserveUdp`, `QualifiedUdpObserved`,
+    `VitaSocketGeneration`, `IsCurrentVitaSocket`). Each VITA socket gets a
+    watch before it can receive, and the watch sees every datagram before
+    the `_connected` gate in `UdpDataReceivedCallback`, so it starts at socket
+    creation. The first Flex VITA packet whose SOURCE ADDRESS is the radio's
+    (`IP` when the socket was made; the port may differ, as the source latch
+    allows) is traced through `VitaSocket.TraceSink` as a `QualifiedUdp:`
+    line (socket generation, matched, source, expected address, ms since the
+    socket was created, ms since `Connect` began, whether the open had
+    completed, the command connection) and raises `QualifiedUdpObserved` off
+    the receive thread. The first Flex VITA packet from any other address is
+    traced with `matched=false` and raises nothing. **Purely additive:**
+    `_udpSuccessfulRegistration` still flips on any Flex-OUI packet from any
+    sender, and no packet is dropped, delayed or reordered. Stock FlexLib
+    checks nothing about who sent a VITA packet, which is why a connect
+    cannot be proven from its flag or from a byte counter that includes TCP.
+    Pinned by `Radios.Tests/QualifiedUdpObservationTests`. Remove it only if
+    FlexLib gains its own per-socket, source-checked arrival report.
+
 31. **The Power Genius XL's interlock reason is kept (2026-11-20)**: keep the
     two comment-marked JJFlex patches in `FlexLib_API/FlexLib/Radio.cs`: the
     `PGXL` value appended to the `InterlockReason` enum (after `TGXL`, so no
@@ -549,6 +600,33 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     marker and this entry). Numbered 32 because 29 and 30 are the SmartLink
     tiers branch's. Remove it if a FlexLib release clears or names an
     unknown amplifier's reason itself.
+
+33. **Qualified-UDP observation, once per socket AND command connection
+    (2026-11-20, the SmartLink connection tiers work, the attempt walk)**:
+    in `FlexLib_API/FlexLib/QualifiedUdpObservation.cs`, keep
+    `QualifiedUdpWatch`'s `_matchedUnder` field and the three lines of
+    `Observe` that use it, and the two reworded comments beside
+    `QualifiedUdpObserved` in `FlexLib_API/FlexLib/Radio.cs`. Item 30 raised
+    a matched observation once per VITA socket. On a hole punch the socket is
+    made (`StartEarlyHolePunch`) BEFORE the command connection that will own
+    it, so the first packet from the radio's address can arrive under the
+    PREVIOUS command connection, or none: for example the tail of an earlier
+    session's stream reaching the same fixed punch port. The connect proof
+    rightly refuses a sighting that did not arrive under its own attempt's
+    command connection; with one sighting per socket, refusing that one meant
+    the socket could never prove itself, and a working connection would have
+    been torn down as unproven. The watch now reports the first matched packet
+    under EACH command connection (compared by reference; no connection yet
+    counts as one more case), so a later packet under the right connection is
+    still seen. A packet under the same connection as the last sighting costs
+    the receive thread one reference comparison and is not reported again.
+    Nothing else changes: unmatched addresses are still traced once per
+    socket, `_udpSuccessfulRegistration` is untouched, and no packet is
+    dropped, delayed or reordered. Pinned by
+    `QualifiedUdpObservationTests.A_later_packet_under_another_command_connection_is_a_new_sighting`
+    and its neighbours. **Numbering:** it was 31 on the tiers branches and
+    became 33 at the merge (2026-11-24), because main's PG-XL item already held
+    31; `sprint49/integration`'s own 21 takes the next free number, 34.
 
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 

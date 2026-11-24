@@ -89,7 +89,9 @@ namespace Radios
             string publicIp = rig.CurrentRadioIP?.ToString() ?? "unknown";
             lines.Add($"Radio's public address: {publicIp}.");
 
-            if (rig.RadioRequiresHolePunch)
+            // How THIS connection was made (the tiers work), not the radio's
+            // punch flag: "Hole punch always" punches a radio that advertises ports.
+            if (rig.ConnectedByHolePunch)
             {
                 lines.Add(PathLine(holePunch: true, rig.RadioPublicTlsPort, rig.RadioPublicUdpPort,
                     rig.RadioPortForwardActive, rig.LastHolePunchPort));
@@ -113,8 +115,10 @@ namespace Radios
             // Never trigger a probe from a read surface: on a hole-punched
             // session the radio-side probe endangers the live connection
             // (the f842e93f gate), and an identity card must be safe to open
-            // in every state.
-            var probe = rig.LastNetworkReportFor(serial);
+            // in every state. The radio's own test from its own brokering
+            // account's session (the tiers work, Track C), never the active
+            // session's.
+            var probe = rig.NetworkReportFor(serial);
             if (probe == null)
             {
                 lines.Add("Reachability from the internet: not tested this session.");
@@ -322,8 +326,8 @@ namespace Radios
         {
             if (holePunch)
                 return punchPort > 0
-                    ? $"Path: hole punch, negotiated on port {punchPort} this session. No forwarded ports are configured at the radio's site."
-                    : "Path: hole punch. No forwarded ports are configured at the radio's site.";
+                    ? $"Path: hole punch, negotiated on port {punchPort} this session. No forwarded ports are configured at the radio's network location."
+                    : "Path: hole punch. No forwarded ports are configured at the radio's network location.";
             string fwdState = forwardOn ? "on" : "off";
             return $"Path: forwarded ports — external TCP {tcp}, external UDP {udp}. Radio reports port forwarding {fwdState}.";
         }

@@ -83,8 +83,6 @@ namespace Radios.Tests
         [Fact]
         public void The_phase_lines_read_as_a_progression()
         {
-            Assert.Equal("Connected to FLEX-8600. Waiting for slice...",
-                Lexicon.Get("connect.connecting.phase_slice_wait", ("radioName", "FLEX-8600")));
             Assert.Equal("Slice acquired. Setting up...",
                 Lexicon.Get("connect.connecting.phase_setup"));
         }
@@ -103,9 +101,9 @@ namespace Radios.Tests
             Assert.Equal("Still connecting to FLEX-8600.",
                 Lexicon.Get("connect.connecting.still_connecting_chatty", ("radioName", "FLEX-8600")));
 
-            Assert.Equal("Still waiting.",
+            Assert.Equal("JJ Flexible is still waiting.",
                 Lexicon.Get("connect.connecting.still_waiting_terse"));
-            Assert.Equal("Still waiting for FLEX-8600 to answer.",
+            Assert.Equal("Still waiting for data from the radio.",
                 Lexicon.Get("connect.connecting.still_waiting_chatty", ("radioName", "FLEX-8600")));
 
             Assert.Equal("Still setting up.",

@@ -21,6 +21,12 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Remote-first startup flag for this account.</summary>
         public bool AutoStartRemote { get; set; }
 
+        /// <summary>This account's SmartLink connection tier (the tiers work).</summary>
+        public Radios.SmartLinkConnectionMode ConnectionTier { get; set; }
+
+        /// <summary>Whether an operator chose that tier.</summary>
+        public bool TierChosen { get; set; }
+
         public override string ToString()
         {
             string lastUsed = LastUsed > DateTime.MinValue
@@ -77,6 +83,16 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>Screen reader speak delegate (message, interrupt).</summary>
         public Action<string, bool>? ScreenReaderSpeak { get; init; }
+
+        /// <summary>
+        /// Save an account's SmartLink connection tier as the operator's
+        /// choice (account email, tier); true when saved. REQUIRED, not
+        /// optional like the callbacks above, because this dialog is built in
+        /// two places (globals.vb and MainWindow) and an optional callback
+        /// hides its control silently where it is not wired: the tier must be
+        /// editable from both (the tiers work, decision 8).
+        /// </summary>
+        public required Func<string, Radios.SmartLinkConnectionMode, bool> SetConnectionTier { get; init; }
     }
 
     public partial class SmartLinkAccountDialog : JJFlexDialog
@@ -114,10 +130,16 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private bool _suppressAutoStartEvent;
 
+        /// <summary>The same guard for the tier box: a selection synced from the account is not a choice.</summary>
+        private bool _suppressTierEvent;
+
         public SmartLinkAccountDialog(SmartLinkAccountCallbacks callbacks)
         {
             _callbacks = callbacks ?? throw new ArgumentNullException(nameof(callbacks));
             InitializeComponent();
+            foreach (var tier in new[] { Radios.SmartLinkConnectionMode.ManualPortForwardOnly,
+                         Radios.SmartLinkConnectionMode.ManualPlusUpnp, Radios.SmartLinkConnectionMode.AutomaticHolePunch })
+                TierCombo.Items.Add(new ComboBoxItem { Content = Radios.SmartLink.SmartLinkTierOffers.TierName(tier), Tag = tier });
             LoadAccounts();
         }
 
@@ -163,6 +185,30 @@ namespace JJFlexWpf.Dialogs
             _suppressAutoStartEvent = true;
             AutoStartRemoteCheck.IsChecked = GetSelectedAccount()?.AutoStartRemote == true;
             _suppressAutoStartEvent = false;
+
+            // The selected account's tier, synced without counting as a choice.
+            TierCombo.IsEnabled = hasSelection;
+            _suppressTierEvent = true;
+            TierCombo.SelectedIndex = hasSelection ? (int)GetSelectedAccount()!.ConnectionTier : -1;
+            _suppressTierEvent = false;
+        }
+
+        /// <summary>
+        /// The operator chose a tier for the selected account: saved at once,
+        /// as the operator's choice, for every radio on that account. The box
+        /// announces its own new value, so nothing extra is spoken.
+        /// </summary>
+        private void TierCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressTierEvent) return;
+            var item = GetSelectedAccount();
+            if (item == null || TierCombo.SelectedItem is not ComboBoxItem { Tag: Radios.SmartLinkConnectionMode tier }) return;
+            if (item.TierChosen && item.ConnectionTier == tier) return;
+            if (_callbacks.SetConnectionTier(item.Email, tier))
+            {
+                item.ConnectionTier = tier;
+                item.TierChosen = true;
+            }
         }
 
         private void AutoStartRemoteCheck_Changed(object sender, RoutedEventArgs e)

@@ -370,7 +370,16 @@ namespace Flex.Smoothlake.FlexLib
                     LicensedClients = licensedClients,
                     RadioLicenseId = radioLicenseId,
                     LowBandwidthConnect = false, // This is defaulted unless the connect is specified later 
-                    GuiClients = guiClients
+                    GuiClients = guiClients,
+                    // JJFlex patch: both port pairs, each by source, and the radio's own
+                    // punch report, kept beside stock's single choice (MIGRATION.md item 29).
+                    AdvertisedPorts = new AdvertisedPorts(
+                        AdvertisedPorts.ParsePort(publicTlsPortString),
+                        AdvertisedPorts.ParsePort(publicUdpPortString),
+                        upnpSupported,
+                        AdvertisedPorts.ParsePort(keyValuePairs.TryGetValue("public_upnp_tls_port", out var advUpnpTls) ? advUpnpTls : null),
+                        AdvertisedPorts.ParsePort(keyValuePairs.TryGetValue("public_upnp_udp_port", out var advUpnpUdp) ? advUpnpUdp : null),
+                        requiresHolePunch)
                 };
                  
 

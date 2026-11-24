@@ -160,7 +160,7 @@ namespace Radios.SmartLink
             // already-completed TCS is a no-op but ReportReady fires so any
             // downstream listener gets the late-but-real data).
             Tracing.TraceLine($"NetworkTestRunner: timeout serial={radioSerial} afterSec={effectiveTimeout.TotalSeconds:0}", TraceLevel.Warning);
-            var timeoutReport = BuildErrorReport(radioSerial, $"Timed out after {effectiveTimeout.TotalSeconds:0} seconds");
+            var timeoutReport = BuildErrorReport(radioSerial, $"Timed out after {effectiveTimeout.TotalSeconds:0} seconds", timedOut: true);
             FinishProbe(radioSerial, tcs, timeoutReport, pass: false);
             return timeoutReport;
         }
@@ -248,11 +248,12 @@ namespace Radios.SmartLink
             ReportReady?.Invoke(this, report);
         }
 
-        private NetworkDiagnosticReport BuildErrorReport(string serial, string detail) => new()
+        private NetworkDiagnosticReport BuildErrorReport(string serial, string detail, bool timedOut = false) => new()
         {
             RadioSerial = serial,
             TimestampUtc = _clock(),
             ErrorDetail = detail,
+            TimedOut = timedOut,
         };
 
         private void FinishProbe(string serial, TaskCompletionSource<NetworkDiagnosticReport> tcs, NetworkDiagnosticReport report, bool pass)

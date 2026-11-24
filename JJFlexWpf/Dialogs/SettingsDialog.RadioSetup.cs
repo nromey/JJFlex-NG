@@ -259,8 +259,12 @@ namespace JJFlexWpf.Dialogs
 
             // Step 6 — whether any of it works from outside. Reports the last probe
             // if one has run rather than pretending nothing is known; a stale answer
-            // with a caveat beats no answer.
-            var report = _rig.MostRecentNetworkReport;
+            // with a caveat beats no answer. THIS radio's last probe, through its
+            // own brokering account (the tiers work, Track C): until then this
+            // read the newest probe of any radio. The three parts below it come
+            // from the Network tab's own code.
+            RefreshNetworkDiagnosticSections();
+            var report = _rig.NetworkReportFor(_rig.DiagnosticRadioSerial);
             if (report == null)
             {
                 SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.not_run");
@@ -1043,56 +1047,24 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            // QB Track D (item 7): on a hole-punched session this probe can
-            // drop the live connection — warn and confirm, never a silent
-            // gate. Shared guard with the Network tab's Test network button.
-            if (!ConfirmNetworkTestOnPunchedSession())
-            {
-                SetupCheckStatus.Text =
-                    Lexicon.Get("settings.radio.check.punched_declined");
-                return;
-            }
-
-            SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.running");
-            ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.running_spoken"),
-                VerbosityLevel.Terse, interrupt: true);
-
-            Radios.SmartLink.NetworkDiagnosticReport? report;
-            try
-            {
-                report = await _rig.RunNetworkDiagnosticAsync(forceRefresh: true);
-            }
-            catch (Exception ex)
-            {
-                SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.failed", ("message", ex.Message));
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.failed_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
-                return;
-            }
-
-            if (report == null)
-            {
-                SetupCheckStatus.Text =
-                    Lexicon.Get("settings.radio.check.no_smartlink_session");
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.no_smartlink_session_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
-                return;
-            }
-
-            if (!report.ProbeCompleted)
-            {
-                SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.did_not_finish",
-                    ("detail", report.ErrorDetail));
-                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.did_not_finish_spoken"),
-                    VerbosityLevel.Terse, interrupt: true);
-                return;
-            }
-
-            string summary = BuildNetworkDiagnosticSummary(report);
-            SetupCheckStatus.Text = summary;
-            ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
-            RefreshReachabilityStatus();
+            // The Network tab's flow, with this step's words (the tiers work,
+            // Track C): the gate, then the punched-session warning (QB Track D
+            // item 7: on a hole-punched session this probe can drop the live
+            // connection, so warn and confirm, never a silent gate), then the
+            // test through this radio's own brokering account or not at all.
+            // NARROWED by Track C: this step used to probe the SELECTED radio
+            // through the active session with no radio connected. With no
+            // radio of ours connected nothing warns before a radio-wide probe
+            // of a radio someone else may be on, so it now waits on the same
+            // switched-off gate as the Network tab.
+            var report = await RunNetworkTestFlow(text => SetupCheckStatus.Text = text, SetupTestWords);
+            if (report != null) RefreshReachabilityStatus();
         }
+
+        private static readonly NetworkTestWords SetupTestWords = new(
+            "settings.radio.check.running", "settings.radio.check.running_spoken", "settings.radio.check.punched_declined",
+            "settings.radio.check.failed", "settings.radio.check.failed_spoken",
+            "settings.radio.check.did_not_finish", "settings.radio.check.did_not_finish_spoken");
 
         /// <summary>
         /// Step 7 shares the reboot flow with the hotkey binding in globals.vb via
@@ -1182,7 +1154,7 @@ namespace JJFlexWpf.Dialogs
                         : Lexicon.Get("settings.network.reachability.port_none"))));
             }
 
-            if (_rig.RadioRequiresHolePunch)
+            if (_rig.ConnectedByHolePunch) // the method used, not the radio's flag (the tiers work)
             {
                 parts.Add(Lexicon.Get("settings.network.reachability.needs_hole_punch"));
             }
