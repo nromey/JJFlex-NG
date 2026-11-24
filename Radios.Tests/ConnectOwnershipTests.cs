@@ -20,7 +20,7 @@ namespace Radios.Tests;
 /// and persistence, not focus, speech, or what firmware does after connection.
 /// </summary>
 [Collection(RadioConfigStaticsCollection.Name)]
-public sealed class ConnectOwnershipTests : IDisposable
+public sealed partial class ConnectOwnershipTests : IDisposable
 {
     private readonly RadioConfigStaticsScope _scope = new(nameof(ConnectOwnershipTests));
     private const string _serial = "0638-0000-8600-0001";
@@ -392,6 +392,15 @@ public sealed class ConnectOwnershipTests : IDisposable
 
     private string ConfigFile() => _scope.PathTo("radios", _serial, "config.xml");
 
+    // The picker's own words, for ConnectOwnershipTests.PendingConnectCancel.cs.
+    // Here, not there, because the Lexicon resolves the settings root and this
+    // file carries the collection attribute the isolation scan looks for.
+    private static string SigningInToLook =>
+        Lexicon.Get("connect.selector.signing_in_to_look", ("radioName", "Test radio " + _serial));
+
+    private static string Unreachable =>
+        Lexicon.Get("connect.selector.smartlink_unreachable", ("radioName", "Test radio " + _serial));
+
     private void AssertPersisted(RadioOwnership ownership, ProfileGuestIntent intent)
     {
         Assert.Equal(ownership, RadioConfig.OwnershipOf(_serial));
@@ -466,6 +475,11 @@ public sealed class ConnectOwnershipTests : IDisposable
             public List<ConnectPathKind> EffectiveChain = new() { ConnectPathKind.Local, ConnectPathKind.SmartLink };
         }
         public class Timer { public bool Stopped; public void Stop() => Stopped = true; }
+        // The selector's trace, recorded rather than written (#1244 repair 1).
+        public static class Tracing {
+            public static readonly List<string> Lines = new();
+            public static void TraceLine(string line, System.Diagnostics.TraceLevel level) { lock (Lines) Lines.Add(line); }
+        }
         public class Callbacks {
             public string AutoConnectSerial = "";
             public Action<string, bool> ScreenReaderSpeak;
@@ -510,9 +524,14 @@ public sealed class ConnectOwnershipTests : IDisposable
             public Action DuringQuestion;
             public RadioOwnership OwnershipAtConnect;
             public ProfileGuestIntent IntentAtConnect;
+            public readonly List<string> Spoken = new();
+            public int RemotePasses;
+            public string PendingSerial => _pendingConnectSerial;
+            public bool RemoteListLive => _remoteListLive;
             public Selector(string serial) {
                 _radiosList.Add(new RadioListItem { Serial = serial });
                 _callbacks.AutoConnectSerial = serial;
+                _callbacks.ScreenReaderSpeak = (text, interrupt) => Spoken.Add(text);
                 RadioOwnershipDialog.Asks = RadioOwnershipDialog.Constructions = 0;
                 RadioOwnershipDialog.OnShow = () => {
                     TimerStoppedAtAsk = _autoConnectTimer.Stopped;
@@ -533,14 +552,28 @@ public sealed class ConnectOwnershipTests : IDisposable
             public void FinishDiscovery() {
                 var r = _radiosList[0]; r.WanAvailable = true;
                 _remoteDiscoveryInFlight = false; _remoteListLive = true;
-                ResumePendingConnect(true);
+                ResumePendingConnect(RemotePassOutcome.Live);
+            }
+            // A remembered remote radio the current list does not carry.
+            public void MakeRememberedRemoteNotListed() {
+                var r = _radiosList[0]; r.LanAvailable = false; r.WanAvailable = false;
+            }
+            public void ListRadioOnSmartLink() => _radiosList[0].WanAvailable = true;
+            // What StartRemoteFlow's completion does with the outcome its
+            // discovery callback hands back, minus the window work: the pass is
+            // over, the list is live only on Live, and a pending connect gets
+            // the whole outcome.
+            public void LandRemotePass(RemotePassOutcome outcome) {
+                _remoteDiscoveryInFlight = false;
+                if (outcome == RemotePassOutcome.Live) _remoteListLive = true;
+                if (_pendingConnectSerial != null) ResumePendingConnect(outcome);
             }
             private string RowName(RadioListItem radio) => "Test radio " + radio.Serial;
             private void UpdateAccountAffordances() { }
             private object CurrentAccountState() => new object();
             private string CurrentAccountEmail() => "operator@example.invalid";
             private void SwitchToAccount(object state) { Switches++; AsksAtSwitch = Asks; }
-            private void StartRemoteFlow() => _remoteDiscoveryInFlight = true;
+            private void StartRemoteFlow() { RemotePasses++; _remoteDiscoveryInFlight = true; }
             private void CompleteConnect(RadioListItem radio, ConnectPathKind path,
                 bool forced, List<ConnectPathKind> fallbacks) {
                 OwnershipAtConnect = RadioConfig.OwnershipOf(radio.Serial);

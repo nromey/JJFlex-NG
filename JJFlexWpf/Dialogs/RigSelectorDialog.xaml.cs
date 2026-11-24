@@ -736,8 +736,13 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public Action? ReplayDiscoveredRadios { get; init; }
 
-        /// <summary>Start remote (SmartLink) radio discovery. Callback fires when complete (true=success).</summary>
-        public required Action<Action<bool>> StartRemoteDiscovery { get; init; }
+        /// <summary>
+        /// Start remote (SmartLink) radio discovery. The callback fires when
+        /// the pass completes, with how it ended: live, failed, or the
+        /// operator cancelled sign-in (#1244; a Boolean could not tell the
+        /// last two apart, so a cancel was answered as unreachable).
+        /// </summary>
+        public required Action<Action<RemotePassOutcome>> StartRemoteDiscovery { get; init; }
 
         /// <summary>Register for radio-found events. Action receives RadioListItem.</summary>
         public required Action<Action<RadioListItem>> RegisterRadioFound { get; init; }
@@ -815,7 +820,8 @@ namespace JJFlexWpf.Dialogs
         /// needs a fresh one). When wired, the Remote button morphs into
         /// "Refresh Remote List" after a successful remote pass.
         /// </summary>
-        public Action<Action<bool>>? StartRemoteRefresh { get; init; }
+        /// <remarks>Its callback answers as <see cref="StartRemoteDiscovery"/>'s does.</remarks>
+        public Action<Action<RemotePassOutcome>>? StartRemoteRefresh { get; init; }
 
         /// <summary>Register for radio-removed events (serial, name) — WAN radios that vanished from a fresh list.</summary>
         public Action<Action<string, string>>? RegisterRadioRemoved { get; init; }
@@ -3447,13 +3453,27 @@ namespace JJFlexWpf.Dialogs
         /// if it did not. Never re-queues a pass on failure — that would
         /// loop.
         /// </summary>
-        private void ResumePendingConnect(bool success)
+        /// <remarks>
+        /// <b>A sign-in the operator cancelled ends the intention quietly
+        /// (#1244).</b> "Login cancelled" has been said, and it is the only
+        /// sentence: the operator said stop, so nothing resumes and nothing
+        /// claims SmartLink could not be reached. Only the operator's own close
+        /// of a sign-in window is a cancel; every other failure still reports.
+        /// </remarks>
+        private void ResumePendingConnect(RemotePassOutcome outcome)
         {
             var serial = _pendingConnectSerial;
             var forced = _pendingConnectForced;
             _pendingConnectSerial = null;
             _pendingConnectForced = null;
             if (string.IsNullOrEmpty(serial)) return;
+            if (outcome == RemotePassOutcome.SignInCancelled)
+            {
+                Tracing.TraceLine(
+                    "RigSelector.ResumePendingConnect: the operator cancelled the SmartLink sign-in; the pending connect is dropped, nothing failed",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
 
             // The pass can land after the operator cancelled the dialog;
             // setting DialogResult on a closed window throws.
@@ -3467,7 +3487,7 @@ namespace JJFlexWpf.Dialogs
             }
             if (row == null) return;
 
-            if (!success)
+            if (outcome != RemotePassOutcome.Live)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
                     Lexicon.Get("connect.selector.smartlink_unreachable", ("radioName", RowName(row))), true);
@@ -4371,9 +4391,10 @@ namespace JJFlexWpf.Dialogs
             var liveBefore = LiveSerialSet();
 
             var start = refreshing ? _callbacks.StartRemoteRefresh! : _callbacks.StartRemoteDiscovery;
-            start((success) =>
+            start((outcome) =>
             {
                 // Called from SmartLink thread when discovery completes.
+                bool success = outcome == RemotePassOutcome.Live;
                 _remoteDiscoveryInFlight = false;
                 if (success)
                 {
@@ -4427,9 +4448,11 @@ namespace JJFlexWpf.Dialogs
                     // A connect intention that started this pass resumes
                     // here — the double-Enter fix: the walk continues into
                     // the connect the first Enter asked for. It may close
-                    // the dialog, so focus only when it did not.
+                    // the dialog, so focus only when it did not. It gets the
+                    // whole outcome, not success: a sign-in the operator
+                    // cancelled ends the intention quietly (#1244).
                     bool hadPending = _pendingConnectSerial != null;
-                    if (hadPending) ResumePendingConnect(success);
+                    if (hadPending) ResumePendingConnect(outcome);
                     if (DialogResult != true) FocusRadioList();
                 });
             });

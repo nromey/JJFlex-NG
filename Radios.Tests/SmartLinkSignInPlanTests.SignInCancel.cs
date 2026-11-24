@@ -81,6 +81,8 @@ namespace Radios.Tests
             Assert.Single(signIns);                       // one sign-in, so one "Login cancelled"
             Assert.True(rig.SignInCancelledByOperator);
             Assert.Null(rig.LastConnectFailureReport);    // setupRemote filed nothing
+            // What the picker's pending connect is handed (repair 1): the cancel, not "unreachable".
+            Assert.Equal(RemotePassOutcome.SignInCancelled, rig.RemotePassOutcome);
 
             // ReconnectRemote's answer to the failed preparation: still nothing.
             rig.FileReportForFailedPreparation();
@@ -101,6 +103,7 @@ namespace Radios.Tests
             Assert.False(ready);
             Assert.Single(signIns);                       // positive control: the sign-in was reached
             Assert.False(rig.SignInCancelledByOperator);
+            Assert.NotEqual(RemotePassOutcome.SignInCancelled, rig.RemotePassOutcome);
             rig.FileReportForFailedPreparation();
             var report = rig.LastConnectFailureReport;
             Assert.NotNull(report);
@@ -177,6 +180,35 @@ namespace Radios.Tests
             Assert.False(rig.SignInCancelledByOperator);
             rig.FileReportForFailedPreparation();
             Assert.NotNull(rig.LastConnectFailureReport);
+        }
+
+        /// <summary>
+        /// The radio picker's own pass (repair 1): what <c>RemoteRadios</c> runs
+        /// after initialising the API, which is <c>setupRemote</c> with no
+        /// radio's account, and the outcome the picker's discovery callback
+        /// then hands its pending connect. Called directly so the API and its
+        /// discovery never start here. A cancel is the cancel; any other empty
+        /// sign-in is a failed pass, as before.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(OperatorCancels))]
+        [MemberData(nameof(EndingsThatAreNotCancels))]
+        public void The_pickers_own_pass_hands_back_a_cancel_only_when_the_operator_cancelled(
+            DialogResult native, DialogResult? browser, bool closedByOperator)
+        {
+            bool cancel = SmartLinkSignInCancel.ShouldSay(native, browser, closedByOperator);
+            var signIns = new List<string>();
+            var rig = RigWhoseSignInEnds(native, browser, closedByOperator, signIns);
+            var setupRemote = typeof(FlexBase).GetMethod("setupRemote",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(setupRemote);
+
+            bool live = (bool)setupRemote!.Invoke(rig, new object?[] { true, null })!;
+
+            Assert.False(live);
+            Assert.Single(signIns);                       // positive control: the sign-in was reached
+            Assert.Equal(cancel, rig.SignInCancelledByOperator);
+            Assert.Equal(cancel ? RemotePassOutcome.SignInCancelled : RemotePassOutcome.NotLive, rig.RemotePassOutcome);
         }
 
         /// <summary>
