@@ -680,6 +680,184 @@ namespace Radios.Tests
 
         private static int StallBoundPlus(int round) => SpokenSeries.StallMs * (round + 1) + 1000;
 
+        // ── Repair 1: NVDA's Ctrl inside the settle after one of our keys ──
+
+        /// <summary>
+        /// Bench run 3b (2026-11-23), on the stepped reader: our key cuts the
+        /// sounding line (by us, after one word) and the batch behind it, the
+        /// arbiter holds them behind the key's own speech, and NVDA's Ctrl cuts
+        /// only that speech. Inside the 600 ms settle (100, 300, 550 ms) the
+        /// arbiter used to release the held lines into the silence 600 ms after
+        /// the key, and a line was heard two or three times. Now nothing is
+        /// said after the Ctrl however long the wait (past the arbiter's 15 s
+        /// lifetime here), and the next key brings every remaining line once,
+        /// in order: the line our key cut after one word is said again in full,
+        /// as the arbiter's own put-back would have said it.
+        /// <para>700 ms is the control, outside the settle: the held lines
+        /// were already released behind the key's speech when the Ctrl gave
+        /// them back. It failed on the first Track SL too, for finding 1: the
+        /// line our key had cut part-way was then never said in full.</para>
+        /// <para><paramref name="seriesLooks"/> false: the series' timer does not
+        /// look between the Ctrl and the end of the settle (a Ctrl at 550 ms
+        /// leaves it one 40 ms poll, which a busy machine can miss). Then only the
+        /// arbiter's own rule for held series lines keeps them out of the
+        /// silence; with the series looking first, the series takes them back
+        /// before the release.</para>
+        /// </summary>
+        [Theory]
+        [InlineData(100, true)]
+        [InlineData(300, true)]
+        [InlineData(550, true)]
+        [InlineData(700, true)]
+        [InlineData(100, false)]
+        [InlineData(550, false)]
+        public void Repair1_route_3b_NVDAs_Ctrl_on_our_keys_speech_never_releases_the_list_into_the_silence(int ctrlAfterMs, bool seriesLooks)
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();                                          // line0 said
+            series.Pump();                                           // line1 to line4 handed over
+            Assert.True(bench.StartOne());                           // line1 sounding
+            bench.OtherInterrupt("key");                             // our key: line1 cut by us at word 1, the rest held
+            series.Pump();
+            Assert.Equal(new[] { "key" }, bench.Queue.Select(q => q.Text));
+            Assert.True(bench.StartOne());                           // the key's own speech sounding
+            bench.Clock.Advance(ctrlAfterMs);
+            if (seriesLooks) series.Pump();
+            bench.CutFromOutside(2);                                 // NVDA's Ctrl, on the key's speech
+            if (seriesLooks) series.Pump();
+            else bench.Clock.Advance(1000);                          // the settle ends before the series looks
+            bench.Wait(series, SpeechArbiter.SalvageCeilingMs + 1500);
+
+            Assert.Equal(new[] { "line0" }, bench.Heard);            // silent after the Ctrl
+            Assert.True(series.Owes);
+
+            bench.OtherInterrupt("next key");
+            bench.SayAll(series, Ours);
+
+            Assert.Equal(new[] { "line0", "next key" }.Concat(Lines(6).Skip(1)).Append("finished"), bench.Heard);
+            Assert.Equal(new[] { "line1", "key" }, bench.CutPartway);
+            Assert.Equal(bench.Heard.Length, bench.Heard.Distinct().Count());
+        }
+
+        /// <summary>
+        /// Bench run 3d, on the stepped reader: NVDA's own key-press cut reaches
+        /// the reader before our key's interrupt, so our key's cut of the
+        /// sounding line is recorded as a cut from outside and the list pauses
+        /// on our own key; then NVDA's Ctrl cuts that key's speech inside its
+        /// settle. The key's interrupt reached the reader BEFORE that Ctrl, so
+        /// it is not the next key: nothing is said after the Ctrl, and the next
+        /// key brings every remaining line once, in order (the line cut part-way
+        /// from outside is not repeated). Whether or not the series looked
+        /// between the two cuts.
+        /// </summary>
+        [Theory]
+        [InlineData(100, false)]
+        [InlineData(300, false)]
+        [InlineData(550, false)]
+        [InlineData(300, true)]
+        public void Repair1_route_3d_the_key_whose_own_cut_paused_the_list_does_not_resume_it_past_NVDAs_Ctrl(int ctrlAfterMs, bool lookedBetween)
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();
+            series.Pump();
+            Assert.True(bench.StartOne());                           // line1 sounding
+            bench.CutFromOutside(8);                                 // NVDA's key-press cut arrives first
+            if (lookedBetween) series.Pump();
+            bench.OtherInterrupt("key");                             // then our key's own interrupt
+            series.Pump();
+            Assert.True(bench.StartOne());                           // its speech sounding
+            bench.Clock.Advance(ctrlAfterMs);
+            series.Pump();
+            bench.CutFromOutside(2);                                 // NVDA's Ctrl, on the key's speech
+            series.Pump();
+            bench.Wait(series, SpeechArbiter.SalvageCeilingMs + 1500);
+
+            Assert.Equal(new[] { "line0" }, bench.Heard);
+            Assert.True(series.Owes);
+
+            bench.OtherInterrupt("next key");
+            bench.SayAll(series, Ours);
+
+            Assert.Equal(new[] { "line0", "next key" }.Concat(Lines(6).Skip(2)).Append("finished"), bench.Heard);
+            Assert.Equal(new[] { "line1", "key" }, bench.CutPartway);
+        }
+
+        /// <summary>
+        /// Why "the same key" is told from "the next key" by the arbiter's own
+        /// order of events, not by guessing which keypress a cut came from
+        /// (repair 1): with no Ctrl after it, one press of our key gives the
+        /// operator the same thing whichever way the race between NVDA's
+        /// key-press cut and our interrupt went. The key's speech, then the rest
+        /// of the list, with no second key needed. (The line that was sounding
+        /// differs only by the arbiter's standing rule: cut by us it is said
+        /// again, cut from outside it is not.)
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Repair1_one_press_of_our_key_gives_the_same_list_whichever_way_the_race_went(bool nvdaCutFirst)
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();
+            series.Pump();
+            Assert.True(bench.StartOne());
+            if (nvdaCutFirst) bench.CutFromOutside(8);
+            bench.OtherInterrupt("key");
+            series.Pump();
+            bench.SayAll(series, Ours);
+
+            var rest = Lines(6).Skip(nvdaCutFirst ? 2 : 1).Append("finished");
+            Assert.Equal(new[] { "line0", "key" }.Concat(rest), bench.Heard);
+        }
+
+        /// <summary>
+        /// The arbiter's new rule is for held SERIES lines only (repair 1's
+        /// brief): ordinary held speech is released at the end of the settle
+        /// exactly as before, even when NVDA's Ctrl cut the interrupt's own
+        /// speech inside it.
+        /// </summary>
+        [Fact]
+        public void Repair1_ordinary_held_speech_is_still_released_after_a_Ctrl_inside_the_settle()
+        {
+            var bench = new Bench();
+            bench.OtherQueued("other A");
+            bench.OtherQueued("other B");
+            Assert.True(bench.StartOne());                           // other A sounding
+            bench.OtherInterrupt("key");                             // held: A (cut at word 1), B
+            Assert.True(bench.StartOne());
+            bench.Clock.Advance(300);
+            bench.CutFromOutside(2);                                 // NVDA's Ctrl on the key's speech
+            Assert.Empty(bench.Queue);
+            bench.Clock.Advance(400);                                // the settle ends
+
+            Assert.Equal(new[] { "other A", "other B" }, bench.Queue.Select(q => q.Text));
+        }
+
+        /// <summary>
+        /// A cut from outside made while the list had nothing handed over is not
+        /// a cut of anything it waits behind: the list's next lines are handed
+        /// over and said with no key (repair 1).
+        /// </summary>
+        [Fact]
+        public void Repair1_a_cut_from_outside_before_the_lists_lines_were_handed_over_does_not_pause_it()
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            bench.OtherQueued("other speech");
+            Assert.True(bench.StartOne());
+            bench.CutFromOutside(2);
+            foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+            bench.SayAll(series, Ours);
+
+            Assert.Equal(Lines(6).Append("finished"), bench.Heard);
+        }
+
         /// <summary>
         /// Codex's re-check, C2, on the stepped reader: the stall bound covers
         /// the final batch too. Before repair 2 the series stopped watching once

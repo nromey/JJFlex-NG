@@ -51,9 +51,11 @@ namespace Radios.Speech
     /// everything queued behind the line that was sounding unspoken. The
     /// series notices either shape of that cut: its own line cut part-way, or
     /// its lines given back at word 0 while some other utterance was sounding.
-    /// It then TAKES BACK every handed line that never said a word, withdrawing
-    /// it from the arbiter so no put-back of the arbiter's can say it too, and
-    /// puts it back at the head of its own waiting lines in its original order.
+    /// It then TAKES BACK every handed line that is owed and not with the
+    /// reader (never started in its last attempt, or cut by us; repair 1 widened
+    /// this from "never said a word"), withdrawing it from the arbiter so no
+    /// put-back of the arbiter's can say it too, and puts it back at its own
+    /// place among its waiting lines, to be said in full.
     /// The line cut part-way is not taken back and not said again; that is the
     /// arbiter's rule for a cut nobody can name, unchanged. The series then
     /// hands nothing until an ordinary interrupt of ours, anywhere in the app,
@@ -67,6 +69,17 @@ namespace Radios.Speech
     /// Before Track SL the lines given back waited in the arbiter's ledger,
     /// and a key more than 15 seconds later found them gone and the series
     /// carried on after them (bench 4a).
+    /// </para>
+    /// <para>
+    /// <b>A cut of the speech the list waits behind counts too (repair 1,
+    /// bench 2026-11-23 runs 3b and 3d).</b> After one of our keys the list's
+    /// lines are held behind the key's own speech for its settle window; if
+    /// NVDA's Ctrl cuts that speech meanwhile, the arbiter does not release
+    /// the held series lines into the silence (<see cref="SpeechArbiter.EmitSeriesLine"/>
+    /// marks them), and the series pauses exactly as for a cut of its own
+    /// line. While paused, every later cut from outside moves the pause on to
+    /// itself, so the key that resumes the list is one whose interrupt reached
+    /// the reader after the newest cut, as the arbiter serialises them.
     /// </para>
     /// <para>
     /// <b>Bounded, except while paused by a cut from outside.</b> If nothing
@@ -141,6 +154,9 @@ namespace Radios.Speech
         private bool _paused;
         private long _pausedAtInterrupt;
         private long _pausedAtDiscard;
+        // The arbiter's count of cuts from outside, as of this series' last
+        // look (repair 1).
+        private long _foreignCutsSeen;
 
         /// <param name="arbiter">The arbiter the lines go through.</param>
         /// <param name="subject">Every line's subject.</param>
@@ -161,6 +177,7 @@ namespace Radios.Speech
             _pollMs = pollMs;
             _nowMs = nowMs ?? (() => Environment.TickCount64);
             _quietGeneration = arbiter.SafetyQuietGeneration;
+            _foreignCutsSeen = arbiter.Interrupts().ForeignCuts;
         }
 
         /// <summary>
@@ -238,11 +255,16 @@ namespace Radios.Speech
             }
 
             long now = _nowMs();
-            if (_handed.Count > 0) SweepHandedLocked(now);
+            var interrupts = _arbiter.Interrupts();
+            // A cut from outside the series has not yet looked at (repair 1).
+            // Read every pump, the ones that hand over included, so a cut made
+            // before a batch was handed is never mistaken for one made after.
+            bool newForeignCut = interrupts.ForeignCuts > _foreignCutsSeen;
+            _foreignCutsSeen = interrupts.ForeignCuts;
+            if (_handed.Count > 0 || (_paused && newForeignCut)) SweepHandedLocked(now, newForeignCut, interrupts);
 
             if (_paused)
             {
-                var interrupts = _arbiter.Interrupts();
                 bool keyed = interrupts.Reached > _pausedAtInterrupt || interrupts.Discards > _pausedAtDiscard;
                 if (!keyed || !interrupts.Settled)
                 {
@@ -290,7 +312,7 @@ namespace Radios.Speech
                 var line = _waiting[0];
                 _waiting.RemoveAt(0);
                 SpeechArbiter.FollowedPiece? piece;
-                try { piece = _arbiter.EmitQueued(line.Text, line.Level, _origin, _subject, additive: true); }
+                try { piece = _arbiter.EmitSeriesLine(line.Text, line.Level, _origin, _subject); }
                 catch (Exception ex)
                 {
                     Tracing.TraceLine($"SpokenSeries [{_subject}]: a line could not be handed over ({ex.Message}): '{Clip(line.Text)}'",
@@ -316,15 +338,18 @@ namespace Radios.Speech
         /// A cut from outside is recognised by the arbiter's own report on any
         /// handed line, whichever shape it took: a line of ours cut part-way,
         /// or lines of ours given back at word 0 while another utterance was
-        /// sounding. From then until the pause ends, every handed line that
-        /// never said a word is withdrawn from the arbiter and goes back to its
-        /// own place in <see cref="_waiting"/>; a line cut part-way from outside
-        /// is let go, not repeated. A line the pump has not yet reported on
+        /// sounding; and (repair 1) a cut from outside of anything while a line
+        /// it handed over is still owed, which is how a cut of the speech the
+        /// list waits behind shows. From then until the pause ends, every
+        /// handed line that is owed and not with the reader is withdrawn from
+        /// the arbiter and goes back to its own place in
+        /// <see cref="_waiting"/>, to be said in full; a line cut part-way from
+        /// outside is let go, not repeated. A line the pump has not yet reported on
         /// (its reports arrive one at a time) is left alone until its own
         /// report comes, so nothing is withdrawn that the reader may already
         /// have; a later sweep takes it back.
         /// </remarks>
-        private void SweepHandedLocked(long now)
+        private void SweepHandedLocked(long now, bool newForeignCut, SpeechArbiter.InterruptView interrupts)
         {
             int cutsSeen = 0;
             long cutAt = -1, discardAt = -1;
@@ -335,6 +360,24 @@ namespace Radios.Speech
                 cutsSeen++;
                 if (cut.AtInterrupt > cutAt) cutAt = cut.AtInterrupt;
                 if (cut.AtDiscard > discardAt) discardAt = cut.AtDiscard;
+            }
+            // Repair 1: a cut from outside that landed on speech the list was
+            // WAITING BEHIND counts as one on the list's own line. The list
+            // waits behind something whenever a line it handed over is still
+            // owed: held by the arbiter behind our interrupt's own speech
+            // (bench run 3b: NVDA's Ctrl cut only the key's help, inside its
+            // settle window), or queued behind another utterance. And while
+            // the list is paused, every later cut from outside moves the pause
+            // on to that cut, so only an interrupt of ours that reached the
+            // reader AFTER the newest cut resumes it (run 3d: NVDA's Ctrl cut
+            // the help of the very key that had counted as the next key).
+            bool rebaselined = false;
+            if (newForeignCut && (_paused || AnyOwedLocked()))
+            {
+                cutsSeen++;
+                if (interrupts.LastForeignCutAtInterrupt > cutAt) cutAt = interrupts.LastForeignCutAtInterrupt;
+                if (interrupts.LastForeignCutAtDiscard > discardAt) discardAt = interrupts.LastForeignCutAtDiscard;
+                rebaselined = _paused;
             }
             bool newlyPaused = false;
             if (cutsSeen > 0)
@@ -365,12 +408,18 @@ namespace Radios.Speech
                 if (_paused)
                 {
                     var cut = _arbiter.LastCut(piece);
-                    if (cut.NeverBegun)
+                    if (cut.Resumable)
                     {
-                        // Never said a word: ours to say again, in its place.
-                        // Withdrawn first, so no put-back of the arbiter's can
-                        // say it as well: marked superseded, and a held copy is
-                        // dropped at its release.
+                        // Owed and not with the reader: never started in its
+                        // last attempt (given back at word 0), or cut by us at
+                        // any word. Ours to say again, in full and in its
+                        // place, as the arbiter's own put-back would have said
+                        // it; but the arbiter's 15-second lifetime no longer
+                        // decides it (repair 1, finding 1: a line our key cut
+                        // part-way and NVDA's Ctrl then cut again was lost at
+                        // 15 s). Withdrawn first, so no put-back of the
+                        // arbiter's can say it as well: marked superseded, and
+                        // a held copy is dropped at its release.
                         _arbiter.Withdraw(piece, "its own spoken series, which keeps its place after a cut from outside", _origin);
                         _handed.RemoveAt(i);
                         InsertWaitingLocked(line);
@@ -401,13 +450,21 @@ namespace Radios.Speech
                     + $"{cutPartway} cut part-way not to be repeated, waiting for the next key",
                     TraceLevel.Info);
             }
-            else if (takenBack > 0 || cutPartway > 0)
+            else if (takenBack > 0 || cutPartway > 0 || rebaselined)
             {
                 Tracing.TraceLine(
                     $"SpokenSeries [{_subject}]: still paused by a cut from outside: {takenBack} more line(s) taken back, "
-                    + $"{cutPartway} more cut part-way not to be repeated",
+                    + $"{cutPartway} more cut part-way not to be repeated"
+                    + (rebaselined ? ", and a further cut from outside means only a key after it resumes the list" : string.Empty),
                     TraceLevel.Info);
             }
+        }
+
+        /// <summary>Whether any line handed over is still owed (held, queued, or cut and unresolved). Allocates nothing.</summary>
+        private bool AnyOwedLocked()
+        {
+            for (int i = 0; i < _handed.Count; i++) if (!Done(_handed[i].Piece)) return true;
+            return false;
         }
 
         /// <summary>A line taken back goes back to its own place: behind any taken back before it, ahead of every line added after it.</summary>
