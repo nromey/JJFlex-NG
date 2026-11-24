@@ -605,6 +605,27 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Lowering_the_ceiling_while_the_look_ahead_still_holds_gains_for_the_old_one_puts_nothing_over_the_new_ceiling()
+        {
+            // Repair 2 (R1c; Codex's re-check): the averaged gain is made of gains worked out for the
+            // ceiling each sample met. Lower the ceiling live and, for one look-ahead, that average
+            // still holds the old ceiling's gains: only the last clamp keeps those samples under the
+            // new one. A steady level between the two ceilings is the plain case.
+            const int rate = 48000;
+            var limiter = Limiter(TxLimiterSettings.Default with { Enabled = true, CeilingDb = 0, LookAheadMs = 5 });
+            var steady = Enumerable.Repeat(0.8f, 960).ToArray();
+            limiter.Process(steady, steady.Length, rate);
+            Assert.All(steady.Skip(2 * limiter.AppliedLookAheadFrames), v => Assert.Equal(0.8f, v)); // positive control: under the old ceiling it passes untouched
+
+            limiter.Settings = limiter.Settings with { CeilingDb = -6 };
+            float ceiling = (float)Math.Pow(10, -6 / 20.0);
+            var after = Enumerable.Repeat(0.8f, 960).ToArray();
+            limiter.Process(after, after.Length, rate);
+            Assert.Equal(0, after.Count(v => Math.Abs(v) > ceiling));
+            Assert.Equal(ceiling, after.Max());                     // held at the new ceiling, exactly, from the first sample out
+        }
+
+        [Fact]
         public void The_limiter_counts_what_it_caught_per_over_and_off_it_counts_what_left_over_full_scale()
         {
             const int rate = 48000;

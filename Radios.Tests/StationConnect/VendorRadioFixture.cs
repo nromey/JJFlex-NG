@@ -41,6 +41,8 @@ namespace Radios.Tests.StationConnect
             return true;
         }
         public override void Disconnect() { }
+        /// <summary>The command link drops: FlexLib sends nothing from here, whatever the app's own connected flag still says.</summary>
+        public void Drop() => PublishDisconnected(CurrentConnection!);
         public Action<string>? CommandWritten;
         public override void Write(string msg)
         {

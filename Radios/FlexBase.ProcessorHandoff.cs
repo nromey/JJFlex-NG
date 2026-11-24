@@ -35,7 +35,7 @@ namespace Radios
 
             public bool RadioIsOperators => _rig.RadioIsMine;
 
-            public bool WriteProcessorOn(bool on, Func<bool> stillWanted)
+            public bool WriteProcessorOn(bool on, Func<bool> stillWanted, Action<ProcessorWriteStep> report)
             {
                 if (!Connected) return false;
                 var queue = _rig.q;
@@ -45,33 +45,122 @@ namespace Radios
                 // be transmitting, the link may be going down, or the handoff
                 // may have changed its mind: so the write asks all three again
                 // at the moment it is made, and is not made otherwise.
-                queue.Enqueue((FunctionDel)(() => WriteIfStillRight(on, stillWanted)), "ProcessorHandoff");
+                queue.Enqueue((FunctionDel)(() => WriteIfStillRight(on, stillWanted, report)), "ProcessorHandoff");
                 return true;
             }
 
-            public bool WriteProcessorOnNow(bool on) => WriteIfStillRight(on, null);
+            public bool WriteProcessorOnNow(bool on) => WriteIfStillRight(on, null, null);
 
-            /// <summary>The write itself, on whichever thread has reached it: checked again here, then made as the APPLICATION's change.</summary>
-            private bool WriteIfStillRight(bool on, Func<bool>? stillWanted)
+            /// <summary>The command FlexLib's own setter sends for the processor's switch, read from <c>Radio.SpeechProcessorEnable</c>.</summary>
+            internal static string Command(bool on) => "transmit set speech_processor_enable=" + (on ? "1" : "0");
+
+            /// <summary>
+            /// The write itself, on whichever thread has reached it: checked
+            /// again here, then made as the APPLICATION's change.
+            /// </summary>
+            /// <remarks>
+            /// <para><b>Why not FlexLib's setter alone</b> (repair 2, B3a; read
+            /// from FlexLib's source, <c>Radio.cs</c>). The setter
+            /// <c>Radio.SpeechProcessorEnable</c> assigns its cached field,
+            /// calls <c>SendCommand</c> with no reply handler, and raises
+            /// PropertyChanged, all on the calling thread; and it does nothing
+            /// at all when the cache already holds the value. So reading the
+            /// property back, at any later time, reads the app's own write;
+            /// <c>SendCommand</c> silently sends nothing when the command link
+            /// is down; and an asking again never reaches the wire.</para>
+            /// <para><b>What confirms.</b> <c>Radio.SendReplyCommand</c> is
+            /// public: it returns 0 and registers nothing when the command
+            /// link is down, and otherwise <c>Radio.ParseReply</c> hands the
+            /// radio's own <c>R&lt;sequence&gt;|&lt;hex code&gt;|</c> to the
+            /// handler, code 0 for success. That answer is the one thing here
+            /// the local setter cannot produce. Whether this radio also sends
+            /// a status for the property back to the client that wrote it has
+            /// not been measured, so nothing here depends on it either
+            /// way.</para>
+            /// <para><b>The order.</b> The command goes FIRST, with its reply
+            /// handler: if it could not be sent, nothing else is touched and
+            /// FlexLib's cache keeps saying what the radio last said. Then the
+            /// write is reported as sent. Then FlexLib's setter runs, inside
+            /// the application's scope, so its cache and its property event
+            /// follow what was sent (anything that later sets the processor
+            /// through FlexLib is compared against that cache, and a cache
+            /// left stale would swallow an operator's change). When the cache
+            /// differed, the setter sends the same command a second time; the
+            /// radio is told the same thing twice, and only the first is
+            /// listened to for an answer.</para>
+            /// </remarks>
+            private bool WriteIfStillRight(bool on, Func<bool>? stillWanted, Action<ProcessorWriteStep>? report)
             {
-                string why = !Connected ? "the radio is no longer connected"
+                var radio = _rig.theRadio;
+                string why = !Connected || radio == null ? "the radio is no longer connected"
                     : Transmitting ? "the radio is transmitting"
                     : stillWanted != null && !stillWanted() ? "the handoff no longer wants it"
                     : "";
+                if (why.Length == 0)
+                {
+                    int sequence = radio!.SendReplyCommand((seq, code, text) => Answered(radio, on, code, text, stillWanted, report), Command(on));
+                    if (sequence == 0) why = "the command link is down";
+                }
                 if (why.Length > 0)
                 {
                     Tracing.TraceLine("ProcessorHandoff: the radio's speech processor was NOT written " + (on ? "on" : "off") + ": " + why, TraceLevel.Info);
+                    report?.Invoke(ProcessorWriteStep.NotMade);
                     return false;
                 }
-                // The APPLICATION's change. It goes to the radio's own property,
-                // never through the operator-facing setter, whose first act is
-                // to note an operator's change; and inside the application's
-                // scope, so nothing that asks "whose write is this" during it
-                // reads it as the operator's (FlexBase.MultiUser.cs).
-                using (_rig.AppInitiatedSettingChanges())
-                    _rig.theRadio.SpeechProcessorEnable = on;
-                Tracing.TraceLine("ProcessorHandoff: the radio's speech processor was written " + (on ? "on" : "off"), TraceLevel.Info);
+                // Reported as sent BEFORE FlexLib's cache can show it: the policy
+                // reads the reading first and this news after, so a reading it
+                // takes with no such news cannot be this write.
+                report?.Invoke(ProcessorWriteStep.Sent);
+                SetReading(radio!, on);
+                Tracing.TraceLine("ProcessorHandoff: the radio's speech processor was sent " + (on ? "on" : "off") + "; the radio's answer is awaited", TraceLevel.Info);
                 return true;
+            }
+
+            /// <summary>
+            /// FlexLib's cache and property event, set to what was sent. The
+            /// APPLICATION's change: it goes to the radio's own property, never
+            /// through the operator-facing setter (whose first acts are to note
+            /// an operator's change and to tell this handoff it was taken
+            /// over), and inside the application's scope, so nothing that asks
+            /// "whose write is this" during it reads it as the operator's
+            /// (FlexBase.MultiUser.cs).
+            /// </summary>
+            private void SetReading(Flex.Smoothlake.FlexLib.Radio radio, bool on)
+            {
+                using (_rig.AppInitiatedSettingChanges())
+                    radio.SpeechProcessorEnable = on;
+            }
+
+            /// <summary>The radio's own answer to the command, on FlexLib's reader thread.</summary>
+            private void Answered(Flex.Smoothlake.FlexLib.Radio radio, bool on, uint code, string text,
+                Func<bool>? stillWanted, Action<ProcessorWriteStep>? report)
+            {
+                try
+                {
+                    if (code != 0)
+                    {
+                        Tracing.TraceLine("ProcessorHandoff: the radio REFUSED the speech processor " + (on ? "on" : "off") + ": code " + code.ToString("X8") + " " + text, TraceLevel.Warning);
+                        report?.Invoke(ProcessorWriteStep.Refused);
+                        return;
+                    }
+                    // The radio took it, as of this point in what it sends. FlexLib reads the radio's
+                    // lines in order on this one thread, so a report it parsed before this answer was
+                    // sent before the radio reached our command: if such a report has put the old
+                    // value back in the cache, the cache is behind the radio, and is set right. Only
+                    // while the handoff still wants this write (somebody taking the processor over
+                    // withdraws it), and never for the leave, which is not waited for.
+                    if (stillWanted != null && stillWanted() && ReferenceEquals(_rig.theRadio, radio) && radio.SpeechProcessorEnable != on)
+                    {
+                        Tracing.TraceLine("ProcessorHandoff: a report from before the radio took the command had put the old value back in the reading; it is set to " + (on ? "on" : "off") + " again", TraceLevel.Info);
+                        SetReading(radio, on);
+                    }
+                    Tracing.TraceLine("ProcessorHandoff: the radio answered that it took the speech processor " + (on ? "on" : "off"), TraceLevel.Info);
+                    report?.Invoke(ProcessorWriteStep.Accepted);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("ProcessorHandoff: the radio's answer could not be handled: " + ex.Message, TraceLevel.Warning);
+                }
             }
         }
 
@@ -105,6 +194,19 @@ namespace Radios
                 catch (Exception ex) { Tracing.TraceLine("ProcessorHandoff: a listener threw: " + ex.Message, TraceLevel.Warning); }
             },
             line => Tracing.TraceLine(line, TraceLevel.Info));
+
+        /// <summary>
+        /// The processor is being set through this rig's own setter
+        /// (<see cref="ProcessorOn"/>: the operator's key, a menu, a field, a
+        /// preset): tell the handoff, BEFORE the write is queued, that it is
+        /// somebody else's from here (repair 2, B3b). Nothing to tell when no
+        /// handoff has been made for this rig.
+        /// </summary>
+        private void ProcessorSetThroughTheRigsSetter()
+        {
+            try { _processorHandoff?.TakenOver(); }
+            catch (Exception ex) { Tracing.TraceLine("ProcessorSetThroughTheRigsSetter: " + ex.Message, TraceLevel.Warning); }
+        }
 
         /// <summary>
         /// At connect, once the command loop runs: tell the handoff a
