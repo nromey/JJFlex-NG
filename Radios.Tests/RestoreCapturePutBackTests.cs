@@ -73,15 +73,41 @@ namespace Radios.Tests
             /// <summary>One kind's walk, as the production walker runs it
             /// once it has its put-back target: RunWalk, with this station's
             /// load and transmit state.</summary>
-            public ProfileReporter.ProfileWalkOutcome WalkOne(ProfileTypes t, ProfileReporter.RecordedSelection before)
+            /// <summary>One kind's step, as the production walker runs it
+            /// once it has its put-back target: RunWalk, with this station's
+            /// load and transmit state. A put-back-only step walks nothing.
+            /// <paramref name="notWalkedOutcome"/> is the restore capture's
+            /// behaviour (an outcome with no loads); the comparison report's
+            /// is null.</summary>
+            public ProfileReporter.ProfileWalkOutcome WalkOne(ProfileTypes t, ProfileReporter.RecordedSelection before,
+                ProfileReporter.KindStep step, bool notWalkedOutcome)
             {
-                var o = new ProfileReporter.ProfileWalkOutcome { ProfileType = t, OriginalSelection = before.Value };
-                ProfileReporter.RunWalk(o, Stored[t], n => Load(t, n), () => Keyed, null, Spoken.Add, null);
+                if (step == ProfileReporter.KindStep.NotWalked)
+                    return notWalkedOutcome ? new ProfileReporter.ProfileWalkOutcome { ProfileType = t } : null;
+                var o = new ProfileReporter.ProfileWalkOutcome
+                {
+                    ProfileType = t,
+                    OriginalSelection = before.Value,
+                    PutBackOnly = step == ProfileReporter.KindStep.PutBackOnly,
+                };
+                var names = o.PutBackOnly ? new string[0] : Stored[t];
+                ProfileReporter.RunWalk(o, names, n => Load(t, n), () => Keyed, null, Spoken.Add, null);
                 return o;
             }
 
+            /// <summary>The full restore capture: every kind with stored
+            /// profiles is walked.</summary>
             public List<ProfileReporter.ProfileWalkOutcome> Capture()
-                => ProfileReporter.WalkKindsPuttingBackTheStart(Order, Read, WalkOne, null);
+                => ProfileReporter.WalkKindsPuttingBackTheStart(Order,
+                    k => Stored.TryGetValue(k, out var n) && n.Length > 0, Read,
+                    (k, before, step) => WalkOne(k, before, step, notWalkedOutcome: true), null);
+
+            /// <summary>The comparison report: only the plan's kinds are
+            /// walked (never mic).</summary>
+            public List<ProfileReporter.ProfileWalkOutcome> Compare(params ProfileTypes[] typesToLoad)
+                => ProfileReporter.WalkKindsPuttingBackTheStart(Order,
+                    k => typesToLoad.Contains(k), Read,
+                    (k, before, step) => WalkOne(k, before, step, notWalkedOutcome: false), null);
         }
 
         /// <summary>The 8600 as batch 22 and batch 24 found it: no global
@@ -225,6 +251,145 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_kind_the_capture_cannot_walk_is_still_put_back_after_a_global_load_moved_it()
+        {
+            // The radio reported no mic list, so the capture walks no mic
+            // profile; the global load still moved the mic selection, so its
+            // recording is requested back.
+            var s = TheBench();
+            s.Stored.Remove(ProfileTypes.mic);
+            var outcomes = s.Capture();
+
+            Assert.Equal("Default", s.Mic);
+            var mic = outcomes.Single(o => o.ProfileType == ProfileTypes.mic);
+            Assert.True(mic.PutBackOnly);
+            Assert.True(mic.RestoreAttempted);
+            Assert.Equal(0, mic.LoadAttempts);
+            Assert.Equal("mic:Default", s.Loads.Last());
+            Assert.StartsWith("A put-back of Default, the app's last recorded mic selection before the walk",
+                ProfileReporter.AfterTheWalkValue(mic));
+        }
+
+        // ------------------------------------------------------------------
+        // The comparison report walks global and TX (never mic) through the
+        // same sequence, and was wrong in the same way.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void The_comparison_ends_on_the_TX_profile_in_use_before_its_global_walk()
+        {
+            // Red on 75a8ffd6, whose comparison read the TX start after the
+            // global walk and put back SO2R_TX1.
+            var s = TheBench();
+            var outcomes = s.Compare(ProfileTypes.global, ProfileTypes.tx);
+
+            Assert.Equal("Default", s.Tx);
+            Assert.Equal("Default", outcomes.Single(o => o.ProfileType == ProfileTypes.tx).OriginalSelection);
+            Assert.Empty(s.ReadsAfterALoad);
+        }
+
+        [Fact]
+        public void The_comparison_puts_the_mic_profile_back_although_it_never_walks_mic()
+        {
+            var s = TheBench();
+            var outcomes = s.Compare(ProfileTypes.global, ProfileTypes.tx);
+
+            Assert.Equal("Default", s.Mic);
+            var mic = outcomes.Single(o => o.ProfileType == ProfileTypes.mic);
+            Assert.True(mic.PutBackOnly);
+            Assert.True(mic.RestoreAttempted);
+            // Global's put-back would come first; TX's and mic's follow it.
+            Assert.Equal(new[] { "tx:Default", "mic:Default" }, s.Loads.Skip(s.Loads.Count - 2));
+            Assert.DoesNotContain(s.Loads, l => l.StartsWith("mic:", StringComparison.Ordinal) && l != "mic:Default");
+        }
+
+        [Fact]
+        public void The_comparison_puts_global_back_first_when_one_was_selected()
+        {
+            var s = TheBench(globalBefore: "JJRadioDefault");
+            s.Compare(ProfileTypes.global, ProfileTypes.tx);
+
+            Assert.Equal("JJRadioDefault", s.Global);
+            Assert.Equal("Default", s.Tx);
+            Assert.Equal("Default", s.Mic);
+            int globalBack = s.Loads.LastIndexOf("global:JJRadioDefault");
+            Assert.True(globalBack < s.Loads.LastIndexOf("tx:Default")
+                && s.Loads.LastIndexOf("tx:Default") < s.Loads.LastIndexOf("mic:Default"),
+                "put-backs in order global, TX, mic: " + string.Join(", ", s.Loads));
+        }
+
+        [Fact]
+        public void The_comparison_file_says_a_global_that_was_none_before_was_not_put_back()
+        {
+            var s = TheBench(globalBefore: "");
+            var outcomes = s.Compare(ProfileTypes.global, ProfileTypes.tx);
+
+            Assert.Equal(new[] { ProfileTypes.global }, ProfileReporter.KindsNotPutBack(outcomes));
+            var sb = new System.Text.StringBuilder();
+            ProfileReporter.AppendComparisonNotPutBack(sb, outcomes);
+            Assert.Equal(Environment.NewLine
+                + "The global profile was not put back: nothing was selected before the walk, and no radio command "
+                + "clears a global selection; the last global profile the walk loaded was SO2RDefault."
+                + Environment.NewLine, sb.ToString());
+        }
+
+        [Fact]
+        public void A_comparison_that_walks_no_global_leaves_the_mic_alone()
+        {
+            // Nothing moved the mic, so nothing puts it back: a TX-only plan
+            // sends no mic load at all.
+            var s = TheBench();
+            var outcomes = s.Compare(ProfileTypes.tx);
+
+            Assert.DoesNotContain(s.Loads, l => l.StartsWith("mic:", StringComparison.Ordinal));
+            Assert.DoesNotContain(s.Loads, l => l.StartsWith("global:", StringComparison.Ordinal));
+            Assert.Equal(new[] { ProfileTypes.tx }, outcomes.Select(o => o.ProfileType));
+        }
+
+        [Fact]
+        public void A_comparison_keyed_during_its_TX_walk_puts_nothing_back_and_leaves_the_mic_alone()
+        {
+            var s = TheBench();
+            s.KeyAfterLoading = n => n == "SO2R_TX1" && s.Loads.Count > 3;
+            var outcomes = s.Compare(ProfileTypes.global, ProfileTypes.tx);
+
+            var tx = outcomes.Last();
+            Assert.Equal(ProfileTypes.tx, tx.ProfileType);
+            Assert.True(tx.StoppedForTransmit);
+            Assert.False(tx.RestoreAttempted);
+            Assert.DoesNotContain(s.Loads, l => l.StartsWith("mic:", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void A_comparison_keyed_before_the_mic_put_back_sends_it_not_and_says_so()
+        {
+            // Keyed by the TX put-back itself (the last TX load): the TX walk
+            // finished unkeyed, so the mic put-back is the next load, and it is
+            // refused like any put-back while keyed.
+            var s = TheBench();
+            int txLoads = 0;
+            s.KeyAfterLoading = n => s.Loads.Last().StartsWith("tx:", StringComparison.Ordinal) && ++txLoads == 4;
+            var outcomes = s.Compare(ProfileTypes.global, ProfileTypes.tx);
+
+            var mic = outcomes.Last();
+            Assert.Equal(ProfileTypes.mic, mic.ProfileType);
+            Assert.True(mic.PutBackOnly);
+            Assert.True(mic.StoppedForTransmit);
+            Assert.False(mic.RestoreAttempted);
+            Assert.DoesNotContain(s.Loads, l => l.StartsWith("mic:", StringComparison.Ordinal));
+            Assert.Equal(TransmitStop, s.Spoken.Last());
+            var sb = new System.Text.StringBuilder();
+            ProfileReporter.AppendComparisonStopped(sb, mic);
+            Assert.Contains("The radio was keyed before the mic profile was put back, so nothing was put back.", sb.ToString());
+            Assert.StartsWith("NO — the radio was keyed", ProfileReporter.AfterTheWalkValue(mic));
+            Assert.DoesNotContain(ProfileTypes.mic, ProfileReporter.KindsNotPutBack(outcomes));
+        }
+
+        private const string TransmitStop =
+            "Profile loading stopped because the radio is transmitting. Your profile may not be the one you "
+            + "started with; load it again from Profiles, in the Radio menu, if needed.";
+
+        [Fact]
         public void The_restore_capture_hands_its_early_recording_to_the_one_walker()
         {
             // SOURCE PIN for the wiring no test can execute (it needs a
@@ -234,11 +399,27 @@ namespace Radios.Tests
             string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
                 FlexBasePartials.RepoRoot(), "Radios", "ProfileReporter.cs"));
             Assert.Contains("outcomes = WalkKindsPuttingBackTheStart(profileTypes,", src);
-            Assert.Contains("lists[t], recordedBefore);", src);
+            Assert.Contains("lists[t], recordedBefore, putBackOnly: step == KindStep.PutBackOnly);", src);
             Assert.Contains("outcome.OriginalSelection = putBackRecordedEarlier.Value;", src);
-            Assert.Contains("result.NotPutBack = KindsNotPutBack(outcomes);", src);
-            // The comparison report keeps reading its own start.
-            Assert.Contains("unreadableCallback, radioList, putBackRecordedEarlier: null);", src);
+            Assert.Equal(2, Count(src, "result.NotPutBack = KindsNotPutBack(outcomes);"));
+            // The comparison report walks through the same sequence, with the
+            // plan's kinds, and hands each walk its early recording.
+            Assert.Contains("var outcomes = WalkKindsPuttingBackTheStart(types,", src);
+            Assert.Contains("k => plan.TypesToLoad.Contains(k),", src);
+            Assert.Contains("CaptureAllProfiles(rig, ptype, recordedBefore, out var walked, progressCallback, readings[ptype]);", src);
+            Assert.Contains("readings[ptype], recordedBefore, putBackOnly: true);", src);
+            Assert.Contains("progressCallback, null, radioList, recordedBefore, putBackOnly: false);", src);
+            Assert.Contains("AppendComparisonNotPutBack(sb, outcomes);", src);
+            // Only the public walker, which nothing in the app calls now, still
+            // reads its own start.
+            Assert.Equal(1, Count(src, "putBackRecordedEarlier: null"));
+        }
+
+        private static int Count(string s, string token)
+        {
+            int n = 0, i = 0;
+            while ((i = s.IndexOf(token, i, StringComparison.Ordinal)) >= 0) { n++; i += token.Length; }
+            return n;
         }
     }
 }

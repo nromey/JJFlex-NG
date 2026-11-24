@@ -802,7 +802,9 @@ namespace Radios.Tests
             // Both reports stop starting new types after a stopped walk: the
             // comparison's loop and the restore capture's loop each record it.
             Assert.Equal(2, CountOf(src, "result.StoppedForTransmit = true;"));
-            Assert.Contains("foreach (var ptype in plan.TypesToLoad)", src);
+            // #1292: the comparison walks the plan's kinds through the shared
+            // sequence (it was a foreach over TypesToLoad).
+            Assert.Contains("k => plan.TypesToLoad.Contains(k),", src);
         }
 
         private static int CountOf(string s, string token)
