@@ -122,32 +122,79 @@ namespace Radios
         /// the roaming folder cannot be resolved at all. For anything that
         /// must engage only on a deliberately isolated test run.
         /// </summary>
-        public static bool RunRelocatedByConfigDir => RelocatedByConfigDir(
-            Environment.GetEnvironmentVariable(RadioConfig.ConfigDirOverrideVariable),
-            RadioConfig.AppDataRoot);
+        /// <remarks>
+        /// <para>
+        /// <b>It asks the resolver, never compares paths.</b> The first version
+        /// said "accepted" when the offered path equalled the settings root.
+        /// But RadioConfig REFUSES an override naming the ordinary settings
+        /// folder and falls back to that same folder, so the two were equal on
+        /// exactly the run that was not isolated: the gate opened on live
+        /// settings and the trace said the run was isolated. Equal paths cannot
+        /// prove acceptance; only the resolver's own verdict can.
+        /// </para>
+        /// <para>
+        /// <b>Why it re-asks rather than recording.</b> The cleaner home is a
+        /// flag RadioConfig records beside its cached root at the moment it
+        /// decides. That file is being changed by Sprint 49, so this does not
+        /// touch it: it runs the same resolver
+        /// (<see cref="RadioConfig.ResolveStartupDirectory"/>) on the same
+        /// standard folder and the same variable, and opens only when the
+        /// resolver says the override was taken AND what it resolved to is the
+        /// root this run actually cached. The equality half covers a variable
+        /// changed after the cache filled. Once Sprint 49 has merged, recording
+        /// the verdict where it is made is the better design.
+        /// </para>
+        /// </remarks>
+        public static bool RunRelocatedByConfigDir
+        {
+            get
+            {
+                // The cached root first, so the cache is filled before the
+                // comparison, as every store that follows the tree sees it.
+                string appDataRoot = RadioConfig.AppDataRoot;
+                string? standard = StandardSettingsFolder();
+                if (standard == null) return false;
+                return RelocatedByConfigDir(
+                    Environment.GetEnvironmentVariable(RadioConfig.ConfigDirOverrideVariable),
+                    standard,
+                    appDataRoot);
+            }
+        }
 
         /// <summary>
         /// The rule behind <see cref="RunRelocatedByConfigDir"/>, without the
-        /// environment: an override was offered, and the settings root this
-        /// run resolved IS that override (RadioConfig resolves to the offered
-        /// path only when it accepts it, and refuses one equal to the
-        /// ordinary folder).
+        /// environment: the real resolver, given <paramref name="standardFolder"/>
+        /// and <paramref name="offered"/>, says it took the override, and the
+        /// folder it took is <paramref name="appDataRoot"/>.
         /// </summary>
-        public static bool RelocatedByConfigDir(string? offered, string? appDataRoot)
+        public static bool RelocatedByConfigDir(string? offered, string standardFolder, string? appDataRoot)
         {
-            if (string.IsNullOrWhiteSpace(offered) || string.IsNullOrWhiteSpace(appDataRoot)) return false;
-            string candidate = offered.Trim();
-            if (!Path.IsPathRooted(candidate)) return false;
-            string full;
-            try { full = Path.GetFullPath(candidate); }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                return false;
-            }
+            string resolved = RadioConfig.ResolveStartupDirectory(
+                standardFolder, offered, out bool isTemporary, out _);
+            if (!isTemporary || string.IsNullOrWhiteSpace(appDataRoot)) return false;
             return string.Equals(
-                Path.TrimEndingDirectorySeparator(full),
+                Path.TrimEndingDirectorySeparator(resolved),
                 Path.TrimEndingDirectorySeparator(Path.GetFullPath(appDataRoot)),
                 StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The ordinary settings folder, built exactly as RadioConfig builds
+        /// the one it hands the resolver; null where RadioConfig would have
+        /// failed to resolve a root at all.
+        /// </summary>
+        private static string? StandardSettingsFolder()
+        {
+            try
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    FallbackFolderName);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         private static string SafeFolder(Environment.SpecialFolder folder)
