@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- The full restore capture now puts your transmit and microphone profiles back to the ones you were using before it started. Before, it could leave you on whichever transmit profile a global profile had picked during the capture, with that profile's power settings. If no global profile was selected before the capture, the radio keeps the last one the capture loaded, because there is no way to clear that selection; the capture's file now says so on a line of its own.

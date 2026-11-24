@@ -501,6 +501,25 @@ namespace Radios
             Action<string> progressCallback = null,
             Action<string, string> unreadableCallback = null,
             FlexBase.RadioProfileList radioList = null)
+            => WalkProfilesCore(rig, profileType, captureWhileLoaded, progressCallback,
+                unreadableCallback, radioList, putBackRecordedEarlier: null);
+
+        /// <summary>
+        /// The one walker behind <see cref="WalkProfiles"/> and the restore
+        /// capture. <paramref name="putBackRecordedEarlier"/> is null for a
+        /// walk that puts back what was selected when IT began (the comparison
+        /// report). The restore capture passes the selection it recorded
+        /// before its FIRST walk (#1292): a global load changes the TX and
+        /// mic selections, so by the time the TX walk begins its own reading
+        /// is the global profile's choice, not the operator's.
+        /// </summary>
+        private static ProfileWalkOutcome WalkProfilesCore(
+            FlexBase rig, ProfileTypes profileType,
+            Action<string> captureWhileLoaded,
+            Action<string> progressCallback,
+            Action<string, string> unreadableCallback,
+            FlexBase.RadioProfileList radioList,
+            RecordedSelection putBackRecordedEarlier)
         {
             var outcome = new ProfileWalkOutcome { ProfileType = profileType };
             string label = TypeLabel(profileType);
@@ -542,14 +561,25 @@ namespace Radios
             // splits "current=" into an empty value and UpdateProfileListSelection
             // stores it). Folding null into "" used to turn "not yet reported"
             // into "none was selected", which a stopped walk then said aloud.
-            try
+            //
+            // #1292: the restore capture recorded every kind's selection before
+            // its first walk, and puts back THAT, never this walk's own reading
+            // (which, after the global walk, is the global profile's choice).
+            if (putBackRecordedEarlier != null)
             {
-                outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);
+                outcome.OriginalSelection = putBackRecordedEarlier.Value;
             }
-            catch (Exception ex)
+            else
             {
-                outcome.OriginalSelection = null;
-                Tracing.TraceLine($"ProfileReporter: could not read the current {label} selection: {ex.Message}", TraceLevel.Warning);
+                try
+                {
+                    outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);
+                }
+                catch (Exception ex)
+                {
+                    outcome.OriginalSelection = null;
+                    Tracing.TraceLine($"ProfileReporter: could not read the current {label} selection: {ex.Message}", TraceLevel.Warning);
+                }
             }
 
             Tracing.TraceLine($"ProfileReporter: Capturing {profiles.Count} {label} profiles (current: '{outcome.OriginalSelection}')", TraceLevel.Info);
@@ -578,6 +608,103 @@ namespace Radios
                 case ProfileTypes.mic: return radio.ProfileMICSelection;
                 default: return null;
             }
+        }
+
+        /// <summary>
+        /// One kind's selection as recorded before the restore capture's first
+        /// walk (#1292). A class, not a bare string, because null is itself a
+        /// recording ("the radio had not reported one") and must stay apart
+        /// from "nothing was recorded early, read it at the walk's start".
+        /// </summary>
+        internal sealed class RecordedSelection
+        {
+            public readonly string Value;
+            public RecordedSelection(string value) { Value = value; }
+        }
+
+        /// <summary>
+        /// The restore capture's walks, every kind in turn, putting back the
+        /// selections in use BEFORE THE FIRST ONE (#1292). Measured on the
+        /// 8600: the global walk left SO2RDefault loaded, which selected
+        /// SO2R_TX1, and the TX walk, reading its start only then, put back
+        /// SO2R_TX1 (100 W) instead of Default (0 W).
+        /// </summary>
+        /// <remarks>
+        /// <para>Every kind's selection is read here, once, before
+        /// <paramref name="walkOne"/> is first called, and never again: a
+        /// reading after a load would be the walk's own request echoed back
+        /// (#469 round three).</para>
+        /// <para>The order is the caller's and matters: global first, so its
+        /// put-back (when one was selected before) lands before the TX and mic
+        /// put-backs that follow it, and cannot drag them off again.</para>
+        /// <para>A walk stopped for transmit ends the sequence: no later kind
+        /// is walked, and RunWalk has already put nothing back.</para>
+        /// </remarks>
+        internal static List<ProfileWalkOutcome> WalkKindsPuttingBackTheStart(
+            IReadOnlyList<ProfileTypes> kinds,
+            Func<ProfileTypes, string> readSelection,
+            Func<ProfileTypes, RecordedSelection, ProfileWalkOutcome> walkOne,
+            Action<ProfileWalkOutcome> afterEach)
+        {
+            var recorded = new Dictionary<ProfileTypes, RecordedSelection>();
+            foreach (var kind in kinds)
+            {
+                string value;
+                try { value = readSelection(kind); }
+                catch (Exception ex)
+                {
+                    value = null;
+                    Tracing.TraceLine($"ProfileReporter: could not read the current {TypeLabel(kind)} selection before the walk: {ex.Message}", TraceLevel.Warning);
+                }
+                recorded[kind] = new RecordedSelection(value);
+            }
+            Tracing.TraceLine("ProfileReporter: selections before the walk — "
+                + string.Join(", ", kinds.Select(k => TypeLabel(k) + " '" + (recorded[k].Value ?? "(none recorded)") + "'")),
+                TraceLevel.Info);
+
+            var outcomes = new List<ProfileWalkOutcome>();
+            foreach (var kind in kinds)
+            {
+                var outcome = walkOne(kind, recorded[kind]);
+                outcomes.Add(outcome);
+                afterEach?.Invoke(outcome);
+                if (outcome.StoppedForTransmit) break;
+            }
+            return outcomes;
+        }
+
+        /// <summary>
+        /// The kinds an ordinary (unkeyed) walk moved and could not put back
+        /// (#1292): it requested loads, and no put-back was requested because
+        /// nothing, or no recording, stood before it. On the 8600 that is the
+        /// global selection: none before, and no radio command clears one.
+        /// A stopped walk is not listed; its own stop sentence covers it.
+        /// </summary>
+        internal static List<ProfileTypes> KindsNotPutBack(IEnumerable<ProfileWalkOutcome> outcomes)
+            => outcomes
+                .Where(o => o != null && !o.StoppedForTransmit && o.LoadAttempts > 0 && !o.RestoreAttempted)
+                .Select(o => o.ProfileType)
+                .ToList();
+
+        /// <summary>
+        /// The restore file's "not put back" value for one kind, or null when
+        /// the kind is not in <see cref="KindsNotPutBack"/>. DRAFT words
+        /// (#1292), for Codex. Says what the walk last loaded and claims
+        /// nothing about whether anything since reached the radio.
+        /// </summary>
+        internal static string NotPutBackValue(ProfileWalkOutcome o)
+        {
+            if (!KindsNotPutBack(new[] { o }).Any()) return null;
+            string kind = TypeLabel(o.ProfileType);
+            string why = o.OriginalSelection == null
+                ? "no " + kind + " selection was recorded before the walk, so there was nothing to put back"
+                : "nothing was selected before the walk, and no radio command clears a " + kind + " selection";
+            string last = o.LastLoaded != null
+                ? "the last " + kind + " profile the walk loaded was " + o.LastLoaded
+                : o.LastRequested != null
+                    ? "the last " + kind + " profile the walk requested was " + o.LastRequested + " (requested only)"
+                    : null;
+            return last == null ? why : why + "; " + last;
         }
 
         /// <summary>
@@ -2293,6 +2420,14 @@ namespace Radios
             /// <summary>The radio was keyed during the walk, so it stopped and
             /// put nothing back (#469); the file says what was not captured.</summary>
             public bool StoppedForTransmit;
+
+            /// <summary>The kinds the walk moved and could not put back
+            /// (#1292), from <see cref="KindsNotPutBack"/>: on the 8600, the
+            /// global selection, which was none before and which no radio
+            /// command clears. Empty when everything moved had a put-back
+            /// requested. The finished sentence is to say these plainly; its
+            /// words wait on a Lexicon key (see the batch report).</summary>
+            public List<ProfileTypes> NotPutBack = new List<ProfileTypes>();
         }
 
         private static int _walkInFlight;
@@ -2343,8 +2478,9 @@ namespace Radios
         /// Build the restore-grade capture. Walks every global, TX and mic
         /// profile (in that order — a global load drags TX and mic selections
         /// with it, so the later walks re-right what the earlier ones moved),
-        /// captures the radio's reported state under each, then puts the
-        /// original profiles back and checks. Reserves the walk itself and
+        /// captures the radio's reported state under each, and requests the
+        /// selections recorded before the FIRST walk back, global first
+        /// (#1292). Reserves the walk itself and
         /// returns null if one is already in flight; the menu reserves at the
         /// press and uses the reservation overload instead (#469).
         /// </summary>
@@ -2620,45 +2756,53 @@ namespace Radios
             else
             {
                 result.WalkRan = true;
-                foreach (var t in profileTypes)
-                {
-                    string label = TypeLabel(t);
-                    var outcome = WalkProfiles(rig, t,
-                        name => AppendProfileSection(sb, label, name, CaptureKeyedSettings(rig)),
-                        progressCallback,
-                        (name, problem) => AppendUnreadableProfileSection(sb, label, name, problem),
-                        lists[t]);
-                    outcomes.Add(outcome);
-                    // A type with nothing to walk still gets a section: after
-                    // the reset, the difference between "the radio had none"
-                    // and "we could not see them" is the whole point (#418).
-                    if (!lists[t].Reported || lists[t].Names.Count == 0)
-                        AppendUnwalkedTypeSection(sb, lists[t]);
-
-                    // #469: keyed part-way. No later type is started, and the
-                    // file says what is missing, so a capture taken before a
-                    // reset cannot pass for a complete one.
-                    if (outcome.StoppedForTransmit)
+                // #1292: every kind's selection is recorded before the first
+                // walk, and each walk puts back THAT one, so a global load that
+                // moved the TX and mic selections cannot become what they are
+                // put back to. Global walks first, so its put-back lands first.
+                outcomes = WalkKindsPuttingBackTheStart(profileTypes,
+                    t => radio == null ? null : StartingSelection(radio, t),
+                    (t, recordedBefore) =>
                     {
-                        result.StoppedForTransmit = true;
-                        var notWalked = profileTypes
-                            .SkipWhile(x => x != t).Skip(1)
-                            .Select(x => TypeLabel(x) + " profiles").ToList();
-                        sb.AppendLine("[profile walk stopped]");
-                        sb.AppendLine("reason = the radio was keyed during the walk, so no more profiles were requested and nothing was put back while transmitting");
-                        sb.AppendLine(outcome.StoppedBefore != null
-                            ? "stopped before = " + TypeLabel(t) + " profile " + outcome.StoppedBefore
-                              + " was requested; it and every " + TypeLabel(t) + " profile after it are not in this file"
-                            : "stopped after = the last " + TypeLabel(t) + " profile was requested, so nothing was put back");
-                        foreach (var (key, value) in StoppedWalkEvidence(outcome))
-                            sb.AppendLine(key + " = " + value);
-                        sb.AppendLine("profile the radio is on now = not known");
-                        sb.AppendLine("not walked at all = " + (notWalked.Count == 0 ? "none" : string.Join(", ", notWalked)));
-                        sb.AppendLine("to capture them = unkey, then run this export again");
-                        sb.AppendLine();
-                        break;
-                    }
-                }
+                        string label = TypeLabel(t);
+                        return WalkProfilesCore(rig, t,
+                            name => AppendProfileSection(sb, label, name, CaptureKeyedSettings(rig)),
+                            progressCallback,
+                            (name, problem) => AppendUnreadableProfileSection(sb, label, name, problem),
+                            lists[t], recordedBefore);
+                    },
+                    outcome =>
+                    {
+                        var t = outcome.ProfileType;
+                        // A type with nothing to walk still gets a section: after
+                        // the reset, the difference between "the radio had none"
+                        // and "we could not see them" is the whole point (#418).
+                        if (!lists[t].Reported || lists[t].Names.Count == 0)
+                            AppendUnwalkedTypeSection(sb, lists[t]);
+
+                        // #469: keyed part-way. No later type is started, and the
+                        // file says what is missing, so a capture taken before a
+                        // reset cannot pass for a complete one.
+                        if (outcome.StoppedForTransmit)
+                        {
+                            result.StoppedForTransmit = true;
+                            var notWalked = profileTypes
+                                .SkipWhile(x => x != t).Skip(1)
+                                .Select(x => TypeLabel(x) + " profiles").ToList();
+                            sb.AppendLine("[profile walk stopped]");
+                            sb.AppendLine("reason = the radio was keyed during the walk, so no more profiles were requested and nothing was put back while transmitting");
+                            sb.AppendLine(outcome.StoppedBefore != null
+                                ? "stopped before = " + TypeLabel(t) + " profile " + outcome.StoppedBefore
+                                  + " was requested; it and every " + TypeLabel(t) + " profile after it are not in this file"
+                                : "stopped after = the last " + TypeLabel(t) + " profile was requested, so nothing was put back");
+                            foreach (var (key, value) in StoppedWalkEvidence(outcome))
+                                sb.AppendLine(key + " = " + value);
+                            sb.AppendLine("profile the radio is on now = not known");
+                            sb.AppendLine("not walked at all = " + (notWalked.Count == 0 ? "none" : string.Join(", ", notWalked)));
+                            sb.AppendLine("to capture them = unkey, then run this export again");
+                            sb.AppendLine();
+                        }
+                    });
                 // Only a capture that requested no load at all may say the
                 // radio was not moved (#469 round six).
                 result.AnyLoadRequested = outcomes.Any(o => o.LoadAttempts > 0);
@@ -2704,6 +2848,15 @@ namespace Radios
                 {
                     sb.AppendLine(TypeLabel(o.ProfileType) + " profile put back = " + AfterTheWalkValue(o));
                 }
+                // #1292: what the walk moved and could not put back, said as
+                // its own line rather than left for the reader to infer.
+                foreach (var o in outcomes)
+                {
+                    string notBack = NotPutBackValue(o);
+                    if (notBack != null)
+                        sb.AppendLine(TypeLabel(o.ProfileType) + " profile not put back = " + notBack);
+                }
+                result.NotPutBack = KindsNotPutBack(outcomes);
             }
             sb.AppendLine();
             sb.AppendLine("End of capture.");
