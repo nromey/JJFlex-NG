@@ -1504,12 +1504,8 @@ namespace Radios
             }
             if (native.result != DialogResult.Retry)
             {
-                Tracing.TraceLine($"PerformNewLogin: native sign-in ended without signing in ({native.result})", TraceLevel.Info);
+                Tracing.TraceLine("PerformNewLogin: native sign-in cancelled", TraceLevel.Info);
                 RestoreParentFocus();
-                // #1244: the operator's own Cancel or Escape says so; a
-                // failure on the dialog's thread (Abort) does not.
-                if (!SuppressSpeech && SmartLinkSignInCancel.ShouldSay(native.result, null, false))
-                    SmartLinkSignInCancel.Say();
                 return null;
             }
             Tracing.TraceLine("PerformNewLogin: falling back to browser sign-in", TraceLevel.Info);
@@ -1565,13 +1561,8 @@ namespace Radios
 
                 if (dialogResult != DialogResult.OK)
                 {
-                    bool operatorClosed = form.ClosedByOperator;
-                    Tracing.TraceLine($"setupRemote: auth form cancelled or failed (closed by the operator: {operatorClosed})", TraceLevel.Info);
+                    Tracing.TraceLine("setupRemote: auth form cancelled or failed", TraceLevel.Info);
                     RestoreParentFocus();
-                    // #1244: only a close the operator made says so, never an
-                    // error box's or a failed exchange's.
-                    if (!SuppressSpeech && SmartLinkSignInCancel.ShouldSay(DialogResult.Retry, dialogResult, operatorClosed))
-                        SmartLinkSignInCancel.Say();
                     return null;
                 }
 
@@ -1633,9 +1624,7 @@ namespace Radios
                 catch (Exception ex)
                 {
                     Tracing.TraceLine($"ShowNativeLoginDialog: dialog thread exception: {ex.Message}", TraceLevel.Error);
-                    // Abort, not Cancel (#1244): Cancel means the operator
-                    // closed the form, and says "Login cancelled".
-                    dr = DialogResult.Abort;
+                    dr = DialogResult.Cancel;
                 }
             });
             dialogThread.SetApartmentState(System.Threading.ApartmentState.STA);
