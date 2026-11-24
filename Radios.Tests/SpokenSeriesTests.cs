@@ -149,6 +149,27 @@ namespace Radios.Tests
 
             public void OtherInterrupt(string text) =>
                 Arbiter.Emit(text, interrupt: true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "test", "other");
+
+            /// <summary>Another part of the app queues a line (an interrupt's own follow-up, a status), on a subject of its own.</summary>
+            public void OtherQueued(string text) =>
+                Arbiter.Emit(text, interrupt: false, SpeechIntent.Queue, VerbosityLevel.Terse, "test", "queued " + text);
+
+            /// <summary>Time passes with the series' timer looking every second, and nothing said.</summary>
+            public void Wait(SpokenSeries series, int ms)
+            {
+                for (int left = ms; left > 0; left -= 1000)
+                {
+                    Clock.Advance(Math.Min(1000, left));
+                    series.Pump();
+                }
+            }
+
+            /// <summary>The reader says everything queued, the series looking after each line, and no time passes.</summary>
+            public void SayQueued(SpokenSeries series)
+            {
+                series.Pump();
+                while (SayOne()) series.Pump();
+            }
         }
 
         private static string[] Lines(int n) => Enumerable.Range(0, n).Select(i => "line" + i).ToArray();
@@ -392,18 +413,22 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// The other half of the one rule: the lines a cut from outside gives
-        /// back unspoken are let go when the arbiter's ledger lets them go (its
-        /// <see cref="SpeechArbiter.SalvageCeilingMs"/> lifetime, judged when
-        /// the arbiter next prunes, here on another part of the app's queued
-        /// line), and the series then carries on. The line that was cut
-        /// part-way follows the same rule, so a lone line and a batch behave
-        /// alike here too. Nothing interrupted, so nothing is put back.
+        /// REWRITTEN by Track SL (#1228, ruled by Noel 2026-11-20, S2). This
+        /// test was <c>A_cut_the_ledger_has_since_let_go_of_no_longer_holds_the_series_whichever_line_was_sounding</c>
+        /// and asserted the defect the ruling removes: once the arbiter's
+        /// ledger let the cut go (its <see cref="SpeechArbiter.SalvageCeilingMs"/>
+        /// lifetime, judged when the arbiter next prunes, here on another part of
+        /// the app's queued line), the series carried on into the silence NVDA's
+        /// Ctrl had made, and the batch's lines given back unspoken were gone.
+        /// Now the list keeps its own place: the series hands nothing into the
+        /// silence however long the pause, whatever the ledger let go of, and
+        /// after our next key every line never said is said, in order, the line
+        /// cut part-way not repeated.
         /// </summary>
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void A_cut_the_ledger_has_since_let_go_of_no_longer_holds_the_series_whichever_line_was_sounding(bool lone)
+        public void A_cut_the_ledger_has_since_let_go_of_still_holds_the_series_until_our_next_key_whichever_line_was_sounding(bool lone)
         {
             var bench = new Bench();
             var series = bench.Series();
@@ -416,7 +441,7 @@ namespace Radios.Tests
                 bench.SayOne();                                      // line0 said; line1 to line4 handed over
                 heardFirst.Add("line0");
                 series.Pump();
-                firstAfter = 5;
+                firstAfter = 2;
             }
             Assert.True(bench.StartOne());
             bench.CutFromOutside(2);
@@ -424,42 +449,258 @@ namespace Radios.Tests
             Assert.Empty(bench.Queue);
 
             bench.Clock.Advance(SpeechArbiter.SalvageCeilingMs + 1000);
-            bench.Arbiter.Emit("status", interrupt: false, SpeechIntent.Queue, VerbosityLevel.Terse, "test", "status");
+            bench.OtherQueued("status");                             // the arbiter prunes the cut here
+            bench.SayQueued(series);
+            bench.Wait(series, 5000);
+
+            Assert.Equal(heardFirst.Append("status"), bench.Heard);   // nothing of ours into the silence
+            Assert.True(series.Owes);
+
+            bench.OtherInterrupt("key");
             bench.SayAll(series, Ours);
 
-            Assert.Equal(heardFirst.Append("status").Concat(Lines(6).Skip(firstAfter)).Append("finished"), bench.Heard);
+            Assert.Equal(heardFirst.Append("status").Append("key").Concat(Lines(6).Skip(firstAfter)).Append("finished"),
+                bench.Heard);
+            Assert.Equal(new[] { lone ? "line0" : "line1" }, bench.CutPartway);
         }
+
+        /// <summary>
+        /// Bench 4a as a test (Track SL, #1228): two lines said (here line0),
+        /// NVDA's Ctrl cuts the sounding line part-way and the three handed over
+        /// behind it at word 0, the operator waits, then presses our key
+        /// (Ctrl+F1 on Start: the key's interrupt, then its own follow-up, the
+        /// help text). Every remaining line is said once, in order, starting at
+        /// the first line never begun, the cut line not repeated, "finished"
+        /// last; lines made during the pause come after the ones taken back.
+        /// <para>5 s is bench 4a2, the control, which held before Track SL and
+        /// is the test that catches a double. 16.5 s is past the arbiter's
+        /// 15-second salvage lifetime (the bench's 15.5 s, plus a second): before
+        /// Track SL the three handed lines were lost there. 70 s and 10 minutes
+        /// are past the one-minute stall bound, which no longer ends a series
+        /// paused by a cut from outside (ruled S4, 2026-11-23).</para>
+        /// </summary>
+        [Theory]
+        [InlineData(5000)]
+        [InlineData(SpeechArbiter.SalvageCeilingMs + 1500)]
+        [InlineData(70_000)]
+        [InlineData(600_000)]
+        public void Bench_4a_after_NVDAs_Ctrl_our_next_key_brings_every_remaining_line_once_in_order_however_long_the_wait(int waitMs)
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            foreach (var l in Lines(6)) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();                                          // line0 said
+            series.Pump();                                           // line1 to line4 handed over
+            Assert.Equal(Lines(5).Skip(1), bench.Queue.Select(q => q.Text));
+            Assert.True(bench.StartOne());                           // line1 sounding
+            bench.CutFromOutside(2);                                 // cut part-way; line2 to line4 given back at word 0
+            series.Pump();
+
+            bench.Wait(series, waitMs);
+            series.Add("line6", VerbosityLevel.Terse);               // the test still running during the pause
+            series.Add("finished", VerbosityLevel.Terse);
+            bench.Wait(series, 1000);
+            Assert.Empty(bench.Queue);                               // nothing into the silence
+            Assert.True(series.Owes);
+
+            bench.OtherInterrupt("key");
+            bench.OtherQueued("help");                               // the key's own follow-up
+            bench.SayAll(series, Ours);
+
+            Assert.Equal(new[] { "line0", "key", "help" }.Concat(Lines(7).Skip(2)).Append("finished"), bench.Heard);
+            Assert.Equal(new[] { "line1" }, bench.CutPartway);
+            Assert.Equal(bench.Heard.Length, bench.Heard.Distinct().Count());   // nothing said twice
+        }
+
+        /// <summary>
+        /// The second shape of a cut from outside (Track SL, #1228; found by the
+        /// brief's cold reader from the code): NVDA's Ctrl lands while some
+        /// OTHER utterance is sounding, so none of the series' lines is cut
+        /// part-way; all of them are given back at word 0, which the arbiter
+        /// records as <see cref="SpeechArbiter.Owed.NeverStarted"/>, the same
+        /// state our own interrupt's flush gives. Before Track SL the series
+        /// noticed only a part-way cut, so these waited in the arbiter's ledger
+        /// and were lost to its 15-second lifetime exactly as in bench 4a.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Ctrl_while_another_utterance_is_sounding_still_keeps_the_lists_place(bool lone)
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            var heardFirst = new List<string>();
+            int firstAfter;
+            if (lone)
+            {
+                bench.OtherQueued("other speech");
+                foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+                Assert.Equal(new[] { "other speech", "line0" }, bench.Queue.Select(q => q.Text));
+                firstAfter = 0;
+            }
+            else
+            {
+                foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+                bench.SayOne();                                      // line0 said
+                heardFirst.Add("line0");
+                bench.OtherQueued("other speech");
+                series.Pump();                                       // line1 to line4 handed over behind it
+                Assert.Equal(new[] { "other speech" }.Concat(Lines(5).Skip(1)), bench.Queue.Select(q => q.Text));
+                firstAfter = 1;
+            }
+            Assert.True(bench.StartOne());                           // the other utterance sounding
+            bench.CutFromOutside(2);                                 // ours all given back at word 0
+            series.Pump();
+            bench.Wait(series, SpeechArbiter.SalvageCeilingMs + 1500);
+            Assert.Equal(heardFirst, bench.Heard);
+            Assert.True(series.Owes);
+
+            bench.OtherInterrupt("key");
+            bench.SayAll(series, Ours);
+
+            Assert.Equal(heardFirst.Append("key").Concat(Lines(6).Skip(firstAfter)).Append("finished"), bench.Heard);
+            Assert.Equal(new[] { "other speech" }, bench.CutPartway);   // not ours, and not repeated
+        }
+
+        /// <summary>
+        /// The interrupt's own speech still goes first (Track SL, item 4; the
+        /// settle window is #507's): the series' timer may look the moment our
+        /// key's interrupt reaches the reader, before the key's own follow-up is
+        /// queued, and must not re-hand its lines then. Bench 4a2 heard the help
+        /// text, then the list.
+        /// </summary>
+        [Fact]
+        public void After_the_pause_our_keys_own_follow_up_is_heard_before_the_list_resumes()
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();
+            series.Pump();
+            Assert.True(bench.StartOne());
+            bench.CutFromOutside(2);
+            series.Pump();
+            bench.Wait(series, SpeechArbiter.SalvageCeilingMs + 1500);
+
+            bench.OtherInterrupt("key");
+            series.Pump();                                           // the timer, before the follow-up exists
+            bench.Clock.Advance(SpeechArbiter.SalvageSettleMs - 100);
+            series.Pump();
+            Assert.Equal(new[] { "key" }, bench.Queue.Select(q => q.Text));
+            bench.OtherQueued("help");
+            bench.SayAll(series, Ours);
+
+            Assert.Equal(new[] { "line0", "key", "help" }.Concat(Lines(6).Skip(2)).Append("finished"), bench.Heard);
+        }
+
+        /// <summary>
+        /// The urgent rule with lines the series had already taken back (Track
+        /// SL): a warning discards ordinary speech, and the series carries on
+        /// behind it, but the lines it took back after a cut from outside were
+        /// no longer in the reader's queue for the warning to discard, so they
+        /// keep their place and follow the warning. The lone-line case, with
+        /// nothing to take back, is <see cref="After_a_cut_from_outside_an_urgent_warning_goes_first_and_the_series_carries_on_behind_it"/>,
+        /// unchanged.
+        /// </summary>
+        [Fact]
+        public void After_a_cut_from_outside_inside_a_batch_an_urgent_warning_goes_first_and_the_lines_taken_back_follow_it()
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();
+            series.Pump();
+            Assert.True(bench.StartOne());
+            bench.CutFromOutside(2);
+            series.Pump();
+            bench.Wait(series, 3000);
+
+            bench.Arbiter.Urgent("warning", VerbosityLevel.Critical, "test", "safety");
+            bench.SayAll(series, Ours);
+
+            Assert.Equal(new[] { "line0", "warning" }.Concat(Lines(6).Skip(2)).Append("finished"), bench.Heard);
+        }
+
+        /// <summary>
+        /// A paused series may wait for hours (ruled S4), so each look its timer
+        /// takes while paused allocates nothing, and nothing it holds grows
+        /// (Track SL, item 6, option a).
+        /// </summary>
+        [Fact]
+        public void A_paused_series_looks_again_without_allocating()
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            foreach (var l in Lines(6).Append("finished")) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();
+            series.Pump();
+            Assert.True(bench.StartOne());
+            bench.CutFromOutside(2);
+            series.Pump();
+            for (int i = 0; i < 100; i++) series.Pump();             // warm
+
+            for (int round = 0; round < 3; round++)
+            {
+                bench.Clock.Advance(StallBoundPlus(round));
+                Assert.Equal(0, CountedWithoutCollections(() => { for (int i = 0; i < 10_000; i++) series.Pump(); }));
+            }
+            Assert.True(series.Owes);
+            Assert.Empty(bench.Queue);
+        }
+
+        /// <summary>
+        /// Bytes this thread allocated running <paramref name="work"/>, counted
+        /// inside a no-collection region. A background collection that starts
+        /// mid-count, set off by another test's allocations, makes the per-thread
+        /// counter report up to 8 KB this thread never allocated (measured by
+        /// Sprint 49 Track P2 repair 3, <c>RxContentClassifierTests</c>, whose
+        /// pattern this follows); with no collection able to start the count is
+        /// exact. A region the runtime refuses or a collection forced anyway is
+        /// counted again, up to three tries.
+        /// </summary>
+        private static long CountedWithoutCollections(Action work)
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                bool region = false;
+                for (long size = 16L * 1024 * 1024; size >= 1024 * 1024 && !region; size /= 2)
+                {
+                    try { region = GC.TryStartNoGCRegion(size); break; }
+                    catch (ArgumentOutOfRangeException) { }
+                }
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                work();
+                long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+                bool held = System.Runtime.GCSettings.LatencyMode == System.Runtime.GCLatencyMode.NoGCRegion;
+                if (held) GC.EndNoGCRegion();
+                if (region && held) return bytes;
+            }
+            throw new InvalidOperationException("no count was held free of collections in three tries");
+        }
+
+        private static int StallBoundPlus(int round) => SpokenSeries.StallMs * (round + 1) + 1000;
 
         /// <summary>
         /// Codex's re-check, C2, on the stepped reader: the stall bound covers
         /// the final batch too. Before repair 2 the series stopped watching once
-        /// nothing was left waiting, so a last line the reader never answered,
-        /// or a last batch whose first line was cut from outside and whose
-        /// other lines were given back unspoken, stayed owed for ever. The
-        /// non-final case is <see cref="A_series_nothing_is_said_from_ends_after_the_stall_bound_and_takes_back_what_it_handed"/>.
+        /// nothing was left waiting, so a last line the reader never answered
+        /// stayed owed for ever. The non-final case is
+        /// <see cref="A_series_nothing_is_said_from_ends_after_the_stall_bound_and_takes_back_what_it_handed"/>.
+        /// <para>CHANGED by Track SL (ruled S4, 2026-11-23): this was a theory
+        /// whose second case (<c>cutFirst</c>) asserted that a final batch cut
+        /// from outside also ends at the bound. After NVDA's Ctrl there is no
+        /// time limit now, so that case is
+        /// <see cref="After_a_cut_from_outside_a_final_batch_waits_past_the_stall_bound_for_our_next_key"/>.
+        /// What stays here is the silent reader nobody pressed Ctrl on, which
+        /// the bound still covers.</para>
         /// </summary>
-        [Theory]
-        [InlineData(false)]
-        [InlineData(true)]
-        public void The_stall_bound_ends_a_final_batch_nothing_more_is_heard_from(bool cutFirst)
+        [Fact]
+        public void The_stall_bound_ends_a_final_batch_nothing_more_is_heard_from()
         {
             var bench = new Bench();
             var series = bench.Series();
-            if (cutFirst)
-            {
-                series.Add("line0", VerbosityLevel.Terse);
-                foreach (var l in new[] { "line1", "line2", "finished" }) series.Add(l, VerbosityLevel.Terse);
-                bench.SayOne();                                      // line0 said; the final batch is handed over
-                series.Pump();
-                Assert.Equal(new[] { "line1", "line2", "finished" }, bench.Queue.Select(q => q.Text));
-                Assert.True(bench.StartOne());
-                bench.CutFromOutside(2);
-            }
-            else
-            {
-                series.Add("finished", VerbosityLevel.Terse);       // the final line, handed over
-                Assert.True(bench.StartOne());                       // and the reader never answers
-            }
+            series.Add("finished", VerbosityLevel.Terse);           // the final line, handed over
+            Assert.True(bench.StartOne());                           // and the reader never answers
 
             bench.Clock.Advance(SpokenSeries.StallMs - 100);
             series.Pump();
@@ -469,6 +710,73 @@ namespace Radios.Tests
 
             Assert.False(series.Owes);
             Assert.Empty(bench.Queue);
+        }
+
+        /// <summary>
+        /// The other half of S4 (Track SL): a final batch whose first line was
+        /// cut part-way from outside, its other lines given back unspoken, is
+        /// still waiting well past the one-minute bound (70 s and ten minutes),
+        /// says nothing into the silence, and our next key brings every
+        /// remaining line once, in order. The control, a reader that simply
+        /// stops answering with no cut, still ends at the bound:
+        /// <see cref="The_stall_bound_ends_a_final_batch_nothing_more_is_heard_from"/>.
+        /// After resuming the stall clock starts afresh, so a reader that then
+        /// goes silent is bounded again.
+        /// </summary>
+        [Theory]
+        [InlineData(70_000)]
+        [InlineData(600_000)]
+        public void After_a_cut_from_outside_a_final_batch_waits_past_the_stall_bound_for_our_next_key(int waitMs)
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            series.Add("line0", VerbosityLevel.Terse);
+            foreach (var l in new[] { "line1", "line2", "line3", "finished" }) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();                                          // line0 said; the final batch is handed over
+            series.Pump();
+            Assert.Equal(new[] { "line1", "line2", "line3", "finished" }, bench.Queue.Select(q => q.Text));
+            Assert.True(bench.StartOne());
+            bench.CutFromOutside(2);
+
+            bench.Wait(series, waitMs);
+            Assert.True(series.Owes);
+            Assert.Empty(bench.Queue);
+            Assert.Empty(bench.Withdrawn);
+
+            bench.OtherInterrupt("key");
+            bench.SayAll(series, Ours);
+            Assert.Equal(new[] { "line0", "key", "line2", "line3", "finished" }, bench.Heard);
+        }
+
+        /// <summary>
+        /// Resuming starts the stall clock afresh (Track SL, item 6): the
+        /// reader goes silent on the first line handed after our key, with no
+        /// Ctrl this time, and the series ends a minute after the resume, not at
+        /// once for the ten minutes it spent paused and not never.
+        /// </summary>
+        [Fact]
+        public void After_resuming_the_stall_clock_starts_afresh()
+        {
+            var bench = new Bench();
+            var series = bench.Series();
+            series.Add("line0", VerbosityLevel.Terse);
+            foreach (var l in new[] { "line1", "line2", "line3", "finished" }) series.Add(l, VerbosityLevel.Terse);
+            bench.SayOne();
+            series.Pump();
+            Assert.True(bench.StartOne());
+            bench.CutFromOutside(2);
+            bench.Wait(series, 600_000);
+
+            bench.OtherInterrupt("key");
+            Assert.True(bench.SayOne());
+            bench.Wait(series, SpeechArbiter.SalvageSettleMs + 100);
+            Assert.Equal(new[] { "line2", "line3", "finished" }, bench.Queue.Select(q => q.Text));
+            Assert.True(bench.StartOne());                           // and the reader never answers
+
+            bench.Wait(series, SpokenSeries.StallMs - 2000);
+            Assert.True(series.Owes);
+            bench.Wait(series, 3000);
+            Assert.False(series.Owes);
         }
 
         [Fact]

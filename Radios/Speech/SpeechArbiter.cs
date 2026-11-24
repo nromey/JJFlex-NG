@@ -726,13 +726,34 @@ namespace Radios.Speech
 
             /// <summary>
             /// <see cref="_interruptsReached"/> as it stood when the reader
-            /// last reported this entry cut part-way by something that is not
-            /// us (<see cref="Owed.PausedUnknownCause"/>). A record only: it
-            /// changes nothing about the entry, and is read by
+            /// last reported this entry cut by something that is not us, at any
+            /// word: part-way (<see cref="Owed.PausedUnknownCause"/>) or given
+            /// back unspoken at word 0 (<see cref="Owed.NeverStarted"/>). A
+            /// record only: it changes nothing about the entry, and is read by
             /// <see cref="RecoveredSinceForeignCut"/> (Sprint 49 Track L2
-            /// repair 2).
+            /// repair 2, which asks it only of a part-way cut) and by
+            /// <see cref="LastCut"/> (Sprint 49 Track SL, #1228, which also
+            /// needs the word-0 cut).
             /// </summary>
             public long ForeignCutAtInterrupt;
+
+            /// <summary>
+            /// <see cref="_ordinaryDiscards"/> as it stood at the same report
+            /// as <see cref="ForeignCutAtInterrupt"/>. A record only, read by
+            /// <see cref="LastCut"/> (Sprint 49 Track SL, #1228).
+            /// </summary>
+            public long ForeignCutAtDiscard;
+
+            /// <summary>
+            /// True when the reader's last report on this entry was a cut made
+            /// by something that is not us, at any word, word 0 included. A
+            /// zero-word cut is recorded as <see cref="Owed.NeverStarted"/>
+            /// whoever made it, so <see cref="State"/> alone cannot say who; this
+            /// keeps the one fact the state drops. Read only through
+            /// <see cref="LastOutcome"/> (a later hand-over clears that), by
+            /// <see cref="LastCut"/>. A record only (Sprint 49 Track SL, #1228).
+            /// </summary>
+            public bool LastCutFromOutside;
 
             /// <summary>
             /// The producer's own answer to "is the state this sentence claims
@@ -861,10 +882,27 @@ namespace Radios.Speech
         /// How many ordinary interrupts of ours have reached the reader: each is
         /// the occasion every owed entry is judged for its put-back, which is
         /// what the lines a cut made outside the app gave back unspoken wait
-        /// for. A counter only, read by <see cref="RecoveredSinceForeignCut"/>;
-        /// no rule here reads it (Sprint 49 Track L2 repair 2).
+        /// for. A counter only, read by <see cref="RecoveredSinceForeignCut"/>
+        /// and <see cref="Interrupts"/>; no rule here reads it (Sprint 49 Track
+        /// L2 repair 2; Track SL).
         /// </summary>
         private long _interruptsReached;
+
+        /// <summary>
+        /// When the newest of <see cref="_interruptsReached"/> reached the
+        /// reader. A record only, read by <see cref="Interrupts"/> to say
+        /// whether that interrupt's settle window has passed (Sprint 49 Track
+        /// SL, #1228).
+        /// </summary>
+        private DateTime _lastInterruptReachedUtc = DateTime.MinValue;
+
+        /// <summary>
+        /// How many discards of ordinary speech an urgent warning or an alarm
+        /// has made (<see cref="DiscardOrdinaryLocked"/>). A counter only, read
+        /// by <see cref="Interrupts"/>; no rule here reads it (Sprint 49 Track
+        /// SL, #1228).
+        /// </summary>
+        private long _ordinaryDiscards;
 
         private readonly object _lock = new object();
 
@@ -1368,6 +1406,84 @@ namespace Radios.Speech
             {
                 var e = (BelievedQueued)piece.Entry;
                 return e.State == Owed.PausedUnknownCause && _interruptsReached > e.ForeignCutAtInterrupt;
+            }
+        }
+
+        /// <summary>What the reader last reported about a followed piece's cut, if anything.</summary>
+        /// <param name="FromOutside">The reader's LAST report on it was a cut made by something that is not us
+        /// (NVDA's own Ctrl, a focus change, another program), at any word, word 0 included. False once it has
+        /// been handed over again, said, or never cut.</param>
+        /// <param name="NeverBegun">No attempt on it ever said a word, by the transport's own report: the
+        /// arbiter's own test for "a later hand-over is a first hearing" (<see cref="Owed.NeverStarted"/> at
+        /// <c>MarksReachedEver</c> 0).</param>
+        /// <param name="AtInterrupt">How many ordinary interrupts of ours had reached the reader at that cut
+        /// from outside; meaningful only when <paramref name="FromOutside"/>.</param>
+        /// <param name="AtDiscard">How many discards of ordinary speech had been made at that cut from
+        /// outside; meaningful only when <paramref name="FromOutside"/>.</param>
+        internal readonly record struct CutView(bool FromOutside, bool NeverBegun, long AtInterrupt, long AtDiscard);
+
+        /// <summary>
+        /// For a followed piece: whether the reader's last report was a cut
+        /// from outside, and whether any attempt on it ever said a word.
+        /// Read-only, allocates nothing, and reads the piece itself rather than
+        /// the ledger, so the answer survives the ledger letting the piece go.
+        /// </summary>
+        /// <remarks>
+        /// Added for <see cref="SpokenSeries"/> (Sprint 49 Track SL, #1228,
+        /// ruled 2026-11-20 and 2026-11-23): the series keeps its own place
+        /// after NVDA's Ctrl, however long the pause, and needs to see BOTH
+        /// shapes of that cut. Its sounding line cut part-way reads as
+        /// <see cref="Owed.PausedUnknownCause"/>; but when Ctrl lands while some
+        /// OTHER utterance is sounding, the series' lines are only given back
+        /// at word 0 and read as <see cref="Owed.NeverStarted"/>, the same state
+        /// our own interrupt's flush gives them. Who cut them is the one fact
+        /// that tells the two apart.
+        /// </remarks>
+        internal CutView LastCut(FollowedPiece piece)
+        {
+            lock (_lock)
+            {
+                var e = (BelievedQueued)piece.Entry;
+                bool fromOutside = e.LastOutcome == SpeechOutcomeKind.Cancelled && e.LastCutFromOutside;
+                bool neverBegun = e.State == Owed.NeverStarted && e.MarksReachedEver == 0;
+                return new CutView(fromOutside, neverBegun, e.ForeignCutAtInterrupt, e.ForeignCutAtDiscard);
+            }
+        }
+
+        /// <summary>The arbiter's ordinary interrupts and discards, as counts, and whether the newest has settled.</summary>
+        /// <param name="Reached">How many ordinary interrupts of ours have reached the reader.</param>
+        /// <param name="Discards">How many discards of ordinary speech an urgent warning or an alarm has made.</param>
+        /// <param name="Settled">Whether an owed line handed to the reader now would go BEHIND the newest
+        /// interrupt's own follow-ups: no held train is waiting for its release, at least
+        /// <see cref="SalvageSettleMs"/> has passed since that interrupt reached the reader, and no value is
+        /// still sweeping toward an interrupt of its own (bounded, as the release is, by
+        /// <see cref="SalvageCeilingMs"/>). The same three things <see cref="ReleaseHeld"/> waits for.</param>
+        internal readonly record struct InterruptView(long Reached, long Discards, bool Settled);
+
+        /// <summary>
+        /// Read the interrupt and discard counts, and whether the newest
+        /// interrupt has settled. Read-only and allocates nothing, so a caller
+        /// may poll it for as long as it waits.
+        /// </summary>
+        /// <remarks>
+        /// Added for <see cref="SpokenSeries"/> (Sprint 49 Track SL, #1228). A
+        /// series paused by a cut from outside holds its own lines rather than
+        /// leaving them to the arbiter's 15-second salvage lifetime, so nothing
+        /// is held here for the next interrupt, no settle window opens for its
+        /// lines, and the series must wait out the same settle itself so the
+        /// interrupt's own follow-ups are heard first (#507). This answers that,
+        /// and changes nothing about any rule.
+        /// </remarks>
+        internal InterruptView Interrupts()
+        {
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                double sinceMs = (now - _lastInterruptReachedUtc).TotalMilliseconds;
+                bool settled = _holdTimer == null
+                    && sinceMs >= SalvageSettleMs
+                    && !(_pending.Count > 0 && sinceMs < SalvageCeilingMs);
+                return new InterruptView(_interruptsReached, _ordinaryDiscards, settled);
             }
         }
 
@@ -2555,6 +2671,7 @@ namespace Radios.Speech
             // attempt that is no longer sounding).
             _safety.NoteOrdinaryInterruptCutTheReader(now);
             _interruptsReached++;
+            _lastInterruptReachedUtc = now;
 
             // The interrupt flushed the reader. Everything believed unspoken
             // is gone from its queue and must be re-queued, in order, behind
@@ -3807,9 +3924,16 @@ namespace Radios.Speech
                             outcome.MarksReached == 0 ? Owed.NeverStarted
                             : outcome.CancelledByUs ? Owed.CutByUs
                             : Owed.PausedUnknownCause;
-                        // A record of when, for RecoveredSinceForeignCut; it
-                        // changes nothing above.
-                        if (entry.State == Owed.PausedUnknownCause) entry.ForeignCutAtInterrupt = _interruptsReached;
+                        // A record of who and when, for RecoveredSinceForeignCut
+                        // and LastCut; it changes nothing above. A cut at word
+                        // 0 is NeverStarted whoever made it, so who made it is
+                        // kept beside the state (Track SL, #1228).
+                        entry.LastCutFromOutside = !outcome.CancelledByUs;
+                        if (!outcome.CancelledByUs)
+                        {
+                            entry.ForeignCutAtInterrupt = _interruptsReached;
+                            entry.ForeignCutAtDiscard = _ordinaryDiscards;
+                        }
 
                         Tracing.TraceLine(
                             $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' is "
@@ -3962,6 +4086,7 @@ namespace Radios.Speech
         /// </summary>
         private void DiscardOrdinaryLocked(string reason)
         {
+            _ordinaryDiscards++;
             ClearTransientLocked();
             KeepProtectedLocked(reason);
             _readerBusyUntilUtc = DateTime.MinValue;
