@@ -207,6 +207,21 @@ namespace JJPortaudio
         public Func<int> NoiseReducerAppliedLatencySamples { get; set; }
 
         /// <summary>
+        /// The expander's other mode (Sprint 49 Track I phase 2, ruled S6):
+        /// asked, while the expander is on, to run in its place on this buffer,
+        /// in place, with this buffer's key state. True when it ran (the
+        /// expander here then only keeps its clock), false to leave the buffer
+        /// to the expander. It decides its own mode switch, at an unkeyed buffer.
+        /// </summary>
+        public delegate bool ExpanderModeStage(float[] buffer, int count, uint sampleRate, bool keyed);
+
+        /// <summary>The plugged <see cref="ExpanderModeStage"/>, or null: the expander always runs.</summary>
+        public ExpanderModeStage ExpanderReplacement { get; set; }
+
+        /// <summary>Called after <see cref="ExpanderReplacement"/> ran: its delay for THIS buffer, samples per channel.</summary>
+        public Func<int> ExpanderReplacementAppliedLatencySamples { get; set; }
+
+        /// <summary>
         /// Monitor sink: (buffer, floatCount, sampleRate), interleaved
         /// stereo, called on the audio callback thread. Must copy the data
         /// synchronously and return quickly.
@@ -553,26 +568,36 @@ namespace JJPortaudio
             (Compressor.TakeOverStats(), Limiter.TakeOverStats());
 
         private float[] _monitorBuf = new float[ScratchFloats];
-        // The residual's delay line (Sprint 49 Track I, repair 2, N4; resized by
-        // Track CL for #1293): preallocated here, with a scratch of the same
-        // size, so a change of look-ahead or engine delay re-lays the line in
-        // place and allocates nothing on the callback. Only a delay past the
+        // The residual's delay line (Sprint 49 Track I, repair 2, N4; #1293 in
+        // phase 2 and in Track CL): preallocated here, so a change of look-ahead
+        // or engine delay re-lays the line in place, through a scratch of the
+        // same size, and allocates nothing on the callback. Only a delay past
         // capacity grows it.
-        //
-        // #1293: the first size, 8,192 frames, held ONE noise engine plus the
-        // look-ahead, but the two noise slots run in series and their delays
-        // add. The worst supported pair (NR2 at 5,024 frames with its pipeline
-        // buffers and NNR Premium at 3,894) is 8,918 frames; each bank that is
-        // not aligned may carry up to 479 frames more; and the expander's
-        // longest look-ahead at the one rate noise reduction runs at (48 kHz)
-        // is 480: 10,356 frames. With no noise reduction (any other rate) the
-        // look-ahead alone is at most 1,920 frames (10 ms at 192 kHz). So the
-        // line holds 16,384 frames. Nothing after the residual's "after" point
-        // (the compressor, the limiter's look-ahead) lengthens it.
 
-        /// <summary>The longest delay the residual's line holds without growing, frames (#1293).</summary>
-        public const int ResidualDelayCapacityFrames = 16384;
-        private const int DelayLineFloats = ResidualDelayCapacityFrames * 2;
+        /// <summary>
+        /// The delay line's capacity, stereo frames (#1293). The whole chain's
+        /// worst case is two noise slots, each with its bank's carry, then the
+        /// expander: at 48 kHz NR2 (4,064 plus two 480-sample frames of helper
+        /// pipeline, 5,024) and NNR Premium (2,454 plus three, 3,894) are 8,918,
+        /// the two carries add 958, and the expander adds the larger of the
+        /// longest look-ahead (10 ms at 192 kHz, 1,920) and WDSP's expander in
+        /// its place (16 plus two frames of pipeline plus a carry, 1,455): 11,796
+        /// frames. 16,384 holds that with room. (8,192 frames, before #1293,
+        /// did not hold the two slots together.) Nothing after the residual's
+        /// "after" point lengthens this line: the compressor adds no delay, and
+        /// the limiter's look-ahead delays what is sent, not the residual's
+        /// input history.
+        /// </summary>
+        public const int DelayLineCapacityFrames = 16384;
+
+        /// <summary>
+        /// The same capacity under the name of what the line holds: the delay
+        /// of the audio at the residual's "after" point
+        /// (<see cref="ResidualDelayFrames"/>). ONE allocation size; Track I
+        /// phase 2 and Track CL each sized it for #1293 and the merge kept one.
+        /// </summary>
+        public const int ResidualDelayCapacityFrames = DelayLineCapacityFrames;
+        private const int DelayLineFloats = DelayLineCapacityFrames * 2;
         private float[] _inputDelay = new float[DelayLineFloats];
         private float[] _inputDelayScratch = new float[DelayLineFloats];
         private int _inputDelayLen;
@@ -631,11 +656,16 @@ namespace JJPortaudio
             // The expander's input, after noise reduction: where the room's
             // floor is measured, unkeyed only (#1252; S15).
             if (!keyed) RoomFloor.Process(buffer, count, sampleRate);
-            Gate.Process(buffer, count, sampleRate);
+            // The expander, or its other mode in its place (phase 2): then the
+            // expander here only keeps its clock, and the mode's delay counts.
+            var replacement = Gate.Enabled ? ExpanderReplacement : null;
+            bool replaced = replacement != null && replacement(buffer, count, sampleRate, keyed);
+            Gate.Process(buffer, replaced ? 0 : count, sampleRate);
             // Keep this history even while the monitor is off. Zero bypass
             // leaves it frozen, just as the bypassed engine freezes its state.
             // The look-ahead is the expander's applied delay (item 9).
-            int delay = nrDelay + Gate.AppliedLookAheadFrames;
+            int expanderDelay = replaced ? Math.Max(0, ExpanderReplacementAppliedLatencySamples?.Invoke() ?? 0) : Gate.AppliedLookAheadFrames;
+            int delay = nrDelay + expanderDelay;
             DelayInputCopy(count, delay);
             System.Threading.Volatile.Write(ref _residualDelay, delay);
 

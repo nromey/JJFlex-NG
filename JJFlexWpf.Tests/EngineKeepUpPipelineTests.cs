@@ -63,6 +63,8 @@ public sealed class EngineKeepUpPipelineTests
     internal sealed class Rig : IDisposable
     {
         public RxAudioPipeline Pipeline { get; }
+        /// <summary>The pipeline's off-audio writer: settled after each buffer (repair 2).</summary>
+        public SettledOffAudioWriter Writer { get; } = new();
         public ConcurrentQueue<(EngineKeepUpResult Result, int Thread)> Results { get; } = new();
         public ConcurrentQueue<EngineKeepUpResult> Delivery { get; } = new();
         public double SlowMs = 6;          // per frame per channel: 12 ms for a 10 ms stereo buffer
@@ -84,7 +86,10 @@ public sealed class EngineKeepUpPipelineTests
                 Row("spectral_capture", DenoiseFamily.Spectral, () => new Engine("spectral_capture")),
                 Row("fastspectral", DenoiseFamily.Spectral, () => new Engine("fastspectral")),
             };
-            Pipeline = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(rows))
+            // Repair 2 (Sprint 49 Track RT): the rig's own writer, settled after every
+            // buffer, so a result published by a buffer has been raised before the test
+            // looks, however loaded the machine is (no fixed wait for the shared writer).
+            Pipeline = new RxAudioPipeline(48000, 2, new DenoiseEngineCatalog(rows), 0, Writer)
             {
                 IsHelperEngine = id => id is "fakehelper" or "stuckhelper",
             };
@@ -96,20 +101,22 @@ public sealed class EngineKeepUpPipelineTests
 
         public void Service(long nanos) => Volatile.Write(ref ServiceNanos, nanos);
 
-        /// <summary>Wait a little for a delivery change that may still be on the pool thread.</summary>
+        /// <summary>Whether a delivery change has been raised: everything published so far is, once the writer is settled.</summary>
         public bool HasDelivery(string id, EngineKeepUpChange change)
         {
-            var t = Stopwatch.StartNew();
-            while (t.ElapsedMilliseconds < 500) { if (Delivery.Any(r => r.EngineId == id && r.Change == change)) return true; Thread.Sleep(5); }
-            return false;
+            Writer.Settle();
+            return Delivery.Any(r => r.EngineId == id && r.Change == change);
         }
+
+        /// <summary>Everything published so far has been raised (repair 2: instead of a fixed wait).</summary>
+        public void Settle() => Writer.Settle();
 
         /// <summary>Run before every pumped buffer: a test that plays the helper's reader thread publishes its answers here.</summary>
         public Action? BeforeBuffer;
 
         public void Pump(int buffers = 1)
         {
-            for (int i = 0; i < buffers; i++) { BeforeBuffer?.Invoke(); Array.Fill(_audio, 0.1f); Pipeline.Process(_audio); }
+            for (int i = 0; i < buffers; i++) { BeforeBuffer?.Invoke(); Array.Fill(_audio, 0.1f); Pipeline.Process(_audio); Writer.Settle(); }
         }
 
         public void Choose(string id)
@@ -151,14 +158,14 @@ public sealed class EngineKeepUpPipelineTests
                 Pump();
                 if (Has(id, change)) return true;
             }
-            var t = Stopwatch.StartNew();
-            while (t.ElapsedMilliseconds < 500) { if (Has(id, change)) return true; Thread.Sleep(5); }
-            return false;
+            // Pump settles the writer after every buffer, so nothing is still on its way.
+            Writer.Settle();
+            return Has(id, change);
         }
 
         public bool Has(string id, EngineKeepUpChange change) => Results.Any(r => r.Result.EngineId == id && r.Result.Change == change);
 
-        public void Dispose() => Pipeline.Dispose();
+        public void Dispose() { Pipeline.Dispose(); Writer.Settle(); Writer.Dispose(); }
     }
 
     [Fact]
@@ -613,6 +620,7 @@ public sealed class EngineKeepUpPipelineTests
         rig.Choose("fast"); rig.UntilRunning("fast");
         Assert.True(rig.PumpUntil("fast", EngineKeepUpChange.KeepingUp, 300));
         Assert.All(rig.Results, r => Assert.NotEqual(Environment.CurrentManagedThreadId, r.Thread));
+        Assert.All(rig.Results, r => Assert.Equal(rig.Writer.ThreadId, r.Thread));
     }
 
     [Fact]

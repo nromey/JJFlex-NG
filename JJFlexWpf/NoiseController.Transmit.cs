@@ -59,6 +59,23 @@ namespace JJFlexWpf
         /// <summary>The side-chain filter on or off: a switch, held for the unkey while keyed (S2).</summary>
         TxChangeResult SetSideChainFilter(bool on) => new(TxChangeTiming.Refused, "no-expander");
 
+        // ── The expander's mode (Sprint 49 Track I phase 2, ruled S6) ──
+
+        /// <summary>The expander's mode: <see cref="ExpanderModes.Jj"/> or <see cref="ExpanderModes.Wdsp"/>.</summary>
+        string ExpanderMode => ExpanderModes.Jj;
+
+        /// <summary>The WDSP mode's strength, its depth in dB (DEXP has no ratio).</summary>
+        float WdspDepthDb => ExpanderModes.DefaultWdspDepthDb;
+
+        /// <summary>Whether WDSP's expander can run here; never starts the helper.</summary>
+        Unavailability WdspAvailability => Unavailability.None;
+
+        /// <summary>The mode: a switch, held for the unkey while keyed (S2).</summary>
+        TxChangeResult SetExpanderMode(string mode) => new(TxChangeTiming.Refused, "no-expander");
+
+        /// <summary>The WDSP mode's depth; it reaches the helper at the unkey.</summary>
+        TxChangeResult SetWdspDepth(float db) => new(TxChangeTiming.Refused, "no-expander");
+
         /// <summary>
         /// The automatic threshold on or off, in order behind anything held
         /// (repair round 2, item 1). Returns when it takes effect.
@@ -154,6 +171,11 @@ namespace JJFlexWpf
         public float LookAheadMs => TxAudioConditioning.LookAheadMs;
         public TxChangeResult SetStrength(float ratio, bool gate) => TxAudioConditioning.SetExpanderStrength(ratio, gate);
         public TxChangeResult SetSideChainFilter(bool on) => TxAudioConditioning.SetSideChainFilter(on);
+        public string ExpanderMode => TxAudioConditioning.ExpanderMode;
+        public float WdspDepthDb => TxAudioConditioning.WdspDepthDb;
+        public Unavailability WdspAvailability => TxAudioConditioning.WdspExpanderAvailability;
+        public TxChangeResult SetExpanderMode(string mode) => TxAudioConditioning.SetExpanderMode(mode);
+        public TxChangeResult SetWdspDepth(float db) => TxAudioConditioning.SetWdspDepth(db);
         public bool MonitorAvailable => TxAudioConditioning.Conditioner != null;
         public int MonitorMode
         {
@@ -193,6 +215,8 @@ namespace JJFlexWpf
         public const string SideChainLow = "sidechain_low";
         public const string SideChainHigh = "sidechain_high";
         public const string LookAhead = "lookahead";
+        // Phase 2: the expander's mode, JJ Flexible's (0) or WDSP's (1).
+        public const string Mode = "mode";
     }
 
     /// <summary>
@@ -1050,6 +1074,15 @@ namespace JJFlexWpf
             (1.5f, false), (2f, false), (3f, false), (4f, false), (6f, false), (10f, false), (0f, true),
         };
 
+        /// <summary>
+        /// The strength lever's stops in WDSP's mode (phase 2): its depth, dB,
+        /// gentlest first. DEXP has no ratio, only a fixed depth, so in that mode
+        /// the ONE strength lever means depth, as the gate's range does, and says
+        /// so; as many stops as the ratio's, so the lever's range is the same.
+        /// 20 dB is the helper's own default.
+        /// </summary>
+        public static readonly float[] WdspDepthStops = { 6f, 10f, 15f, 20f, 25f, 30f, 40f };
+
         /// <summary>Every gate lever, in the order Home lists them: Margin is normal; the rest are Advanced (part seven).</summary>
         private static readonly TxGateLever[] AllGateLevers =
         {
@@ -1065,6 +1098,7 @@ namespace JJFlexWpf
             new(TxGateLever.SideChainLow, "audio.noise_surface.tx.gate.sidechain_low", 50, 500, 25, "audio.unit.hertz", true),
             new(TxGateLever.SideChainHigh, "audio.noise_surface.tx.gate.sidechain_high", 2000, 8000, 250, "audio.unit.hertz", true),
             new(TxGateLever.LookAhead, "audio.noise_surface.tx.gate.lookahead", 0, 10, 1, "audio.unit.milliseconds", true),
+            new(TxGateLever.Mode, "audio.noise_surface.tx.gate.mode", 0, 1, 1, null, true),
             new(TxGateLever.MonitorVolume, "audio.noise_surface.tx.gate.monitor_volume", 0, 100, 5, "audio.noise_surface.unit.percent", true),
         };
 
@@ -1072,11 +1106,36 @@ namespace JJFlexWpf
         private int StrengthIndex()
         {
             var g = TransmitGate;
+            if (ExpanderModes.IsWdsp(g.ExpanderMode)) return NearestDepthStop(g.WdspDepthDb);
             if (g.GateSetting) return StrengthStops.Length - 1;
             int best = 0;
             for (int i = 1; i < StrengthStops.Length - 1; i++)
                 if (Math.Abs(StrengthStops[i].Ratio - g.RatioToOne) < Math.Abs(StrengthStops[best].Ratio - g.RatioToOne)) best = i;
             return best;
+        }
+
+        /// <summary>The WDSP depth stop nearest a depth.</summary>
+        private static int NearestDepthStop(float db)
+        {
+            int best = 0;
+            for (int i = 1; i < WdspDepthStops.Length; i++)
+                if (Math.Abs(WdspDepthStops[i] - db) < Math.Abs(WdspDepthStops[best] - db)) best = i;
+            return best;
+        }
+
+        /// <summary>A strength stop as said in a mode: in WDSP's, its depth (DRAFT PROSE key); otherwise <see cref="StrengthText(int)"/>.</summary>
+        private static string StrengthText(int index, bool wdsp) => wdsp
+            ? Lexicon.Get("audio.noise_surface.tx.gate.strength_depth",
+                ("depth", WdspDepthStops[Math.Clamp(index, 0, WdspDepthStops.Length - 1)].ToString("0", CultureInfo.InvariantCulture)))
+            : StrengthText(index);
+
+        /// <summary>The mode lever's value as said: JJ Flexible's, or WDSP's, and when WDSP's cannot run here, why and what to do (listed, never hidden).</summary>
+        private string ModeText(int value)
+        {
+            if (value == 0) return Lexicon.Get("audio.noise_surface.tx.gate.mode_jj");
+            var reason = TransmitGate.WdspAvailability;
+            return reason == Unavailability.None ? Lexicon.Get("audio.noise_surface.tx.gate.mode_wdsp")
+                : Lexicon.Get("audio.noise_surface.tx.gate.mode_wdsp_unavailable", ("reason", Lexicon.Get(DenoiseEngineCatalog.UnavailabilityKey(reason))));
         }
 
         /// <summary>A strength stop as said: "2 to 1", or the gate (DRAFT PROSE keys).</summary>
@@ -1111,6 +1170,7 @@ namespace JJFlexWpf
                 TxGateLever.Depth => Math.Round(g.RangeDb),
                 TxGateLever.MonitorVolume => Math.Round(g.MonitorVolume * 100),
                 TxGateLever.Strength => StrengthIndex(),
+                TxGateLever.Mode => ExpanderModes.IsWdsp(g.ExpanderMode) ? 1 : 0,
                 TxGateLever.SideChainLow => Math.Round(g.SideChainLowHz),
                 TxGateLever.SideChainHigh => Math.Round(g.SideChainHighHz),
                 TxGateLever.LookAhead => Math.Round(g.LookAheadMs),
@@ -1124,6 +1184,11 @@ namespace JJFlexWpf
             var g = TransmitGate;
             float v = (float)value;
             if (lever.Key == TxGateLever.MonitorVolume) { g.MonitorVolume = v / 100f; return TxChangeResult.Now; }
+            if (lever.Key == TxGateLever.Mode)
+                return g.SetExpanderMode(Math.Round(value) >= 1 ? ExpanderModes.Wdsp : ExpanderModes.Jj);
+            if (lever.Key == TxGateLever.Strength && ExpanderModes.IsWdsp(g.ExpanderMode))
+                // WDSP's mode: the same lever is its depth (its own setting, kept apart from the ratio).
+                return g.SetWdspDepth(WdspDepthStops[Math.Clamp((int)Math.Round(value), 0, WdspDepthStops.Length - 1)]);
             if (lever.Key == TxGateLever.Strength)
             {
                 var stop = StrengthStops[Math.Clamp((int)Math.Round(value), 0, StrengthStops.Length - 1)];
@@ -1135,7 +1200,8 @@ namespace JJFlexWpf
 
         /// <summary>A gate lever's value as spoken from a value asked for (a held write reads the old one back).</summary>
         private string GateValueTextOf(TxGateLever lever, double value) =>
-            lever.Key == TxGateLever.Strength ? StrengthText((int)Math.Round(value))
+            lever.Key == TxGateLever.Strength ? StrengthText((int)Math.Round(value), ExpanderModes.IsWdsp(TransmitGate.ExpanderMode))
+                : lever.Key == TxGateLever.Mode ? ModeText((int)Math.Round(value))
                 : WithUnit(Math.Round(value).ToString("0", CultureInfo.InvariantCulture), lever.UnitKey);
 
         /// <summary>A gate lever's value as spoken, its unit at Chatty.</summary>
@@ -1147,7 +1213,14 @@ namespace JJFlexWpf
             var list = new List<(double, string)>();
             if (lever.Key == TxGateLever.Strength)
             {
-                for (int i = 0; i < StrengthStops.Length; i++) list.Add((i, StrengthText(i)));
+                bool wdsp = ExpanderModes.IsWdsp(TransmitGate.ExpanderMode);
+                for (int i = 0; i < StrengthStops.Length; i++) list.Add((i, StrengthText(i, wdsp)));
+                return list;
+            }
+            if (lever.Key == TxGateLever.Mode)
+            {
+                list.Add((0, ModeText(0)));
+                list.Add((1, ModeText(1)));
                 return list;
             }
             for (double v = lever.Min; v <= lever.Max + 1e-9; v += lever.Step)
@@ -1244,7 +1317,8 @@ namespace JJFlexWpf
             var timing = ApplyWholeTransmit(null, null, fresh);
             NoiseSettingsJournal.Record(NoiseJournalKind.ReturnToDefaults, TxSource(source), "gate", "", "", "defaults");
             // The defaults asked for, not the getters, which a held change has not reached yet (item 2).
-            var said = AllGateLevers.Where(l => !l.Advanced).Select(l => GateLeverName(l).ToLowerInvariant() + " " + GateValueTextOf(l, GateSetupValue(fresh, l)));
+            var said = AllGateLevers.Where(l => !l.Advanced).Select(l => GateLeverName(l).ToLowerInvariant() + " "
+                + (l.Key == TxGateLever.Strength ? StrengthText((int)GateSetupValue(fresh, l), ExpanderModes.IsWdsp(fresh.ExpanderMode)) : GateValueTextOf(l, GateSetupValue(fresh, l))));
             Say(L("audio.noise_surface.tx.gate_defaults", ("values", string.Join(", ", said))), SpeechSubject.TransmitNoiseGate);
             SayAtUnkey(timing);
         }
@@ -1258,6 +1332,8 @@ namespace JJFlexWpf
             TxGateLever.Hold => g.HoldMs,
             TxGateLever.Release => g.ReleaseMs,
             TxGateLever.Depth => g.RangeDb,
+            TxGateLever.Mode => ExpanderModes.IsWdsp(g.ExpanderMode) ? 1 : 0,
+            TxGateLever.Strength when ExpanderModes.IsWdsp(g.ExpanderMode) => NearestDepthStop(g.WdspDepthDb),
             TxGateLever.Strength => g.GateSetting ? StrengthStops.Length - 1
                 : Array.FindIndex(StrengthStops, s => !s.Gate && Math.Abs(s.Ratio - g.RatioToOne) < 0.01f) is int i && i >= 0 ? i : 1,
             TxGateLever.SideChainLow => g.SideChainLowCutHz,

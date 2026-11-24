@@ -1617,7 +1617,8 @@ public sealed class NoiseControllerTests
             f.Pipeline.SelectionResult += (_, r) => results.Enqueue(r);
             f.Settle();
             Assert.Equal("nnr", f.Pipeline.NeuralSlot.ProcessingEngineId);
-            Assert.True(System.Threading.SpinWait.SpinUntil(() => results.Any(r => r.EngineId == "nnr" && r.Processing), 1500));
+            // Repair 2 (Sprint 49 Track RT): a generous wait on the delivery itself, which the shared off-audio writer makes (below normal priority, so seconds late under heavy load), never a fixed sleep.
+            Assert.True(System.Threading.SpinWait.SpinUntil(() => results.Any(r => r.EngineId == "nnr" && r.Processing), 15000));
             noise.OnSelectionResult(results.First(r => r.EngineId == "nnr" && r.Processing));
             noise.Toggle("radio_nrl", "test");
             bool rescued = System.Threading.SpinWait.SpinUntil(() => speaker.Calls.Any(c => c.Text == old && c.Salvaged), 2500);
@@ -1931,7 +1932,8 @@ public sealed class NoiseControllerTests
             f.Pipeline.SelectionResult += (_, r) => results.Enqueue(r);
             f.Settle();
             Assert.Equal("nnr", f.Pipeline.NeuralSlot.ProcessingEngineId);
-            Assert.True(System.Threading.SpinWait.SpinUntil(() => results.Any(r => r.EngineId == "nnr" && r.Processing), 1500));
+            // Repair 2 (Sprint 49 Track RT): a generous wait on the delivery itself, which the shared off-audio writer makes (below normal priority, so seconds late under heavy load), never a fixed sleep.
+            Assert.True(System.Threading.SpinWait.SpinUntil(() => results.Any(r => r.EngineId == "nnr" && r.Processing), 15000));
             f.Noise.OnSelectionResult(results.First(r => r.EngineId == "nnr" && r.Processing));
             f.Noise.Toggle("radio_nrl", "test");                 // a later radio action: the arbiter rescues any owed mode sentence
             bool rescued = System.Threading.SpinWait.SpinUntil(() => speaker.Calls.Any(c => c.Text == old && c.Salvaged), 2500);

@@ -121,7 +121,8 @@ public sealed class EngineKeepUpMeasurementTests
         }
         try
         {
-            using var p = new RxAudioPipeline(catalog: catalog);
+            using var writer = new SettledOffAudioWriter();
+            using var p = new RxAudioPipeline(48000, 2, catalog, 0, writer);
             p.KeepUpResult += (_, r) => events.Enqueue(r.Describe());
             var row = catalog.Find(id)!;
             var slot = row.Family == DenoiseFamily.Spectral ? p.SpectralSlot : p.NeuralSlot;
@@ -168,7 +169,7 @@ public sealed class EngineKeepUpMeasurementTests
                 if (running && runningAt < 0) runningAt = i2;
                 late[i2] = running && (IsHelper(id) ? (slot.RunningBank?.LateFrames ?? 0) != lateBefore && ReferenceEquals(bank, slot.RunningBank) : elapsed[i2] > 10);
             }
-            Thread.Sleep(50); // let the last change be raised
+            writer.Settle(); // the last change raised: everything published so far (repair 2, no fixed wait)
             var sb = new StringBuilder();
             sb.Append(CultureInfo.InvariantCulture, $"{id}, {(loaded ? "LOADED (one processor shared with three busy threads)" : "idle machine")}{(burst ? ", buffers delivered in pairs every 20 ms" : "")}{(killHelperAt != null ? $", helper killed at buffer {killHelperAt}" : "")}: ");
             if (runningAt < 0) { sb.Append("never became the running engine in 9 seconds."); _out.WriteLine(sb.ToString()); return; }

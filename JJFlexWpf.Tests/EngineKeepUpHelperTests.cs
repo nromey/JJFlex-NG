@@ -257,6 +257,8 @@ public sealed class EngineKeepUpHelperTests
         public readonly RxAudioPipeline Pipeline;
         public readonly ConcurrentBag<WdspHelperEngine> Made = new();
         public readonly ConcurrentQueue<EngineKeepUpResult> Results = new(), Delivery = new();
+        /// <summary>The pipeline's off-audio writer, settled after each buffer (repair 2), so a published change has been raised before a test looks.</summary>
+        public readonly SettledOffAudioWriter Writer = new();
         private int _salt;
 
         /// <param name="args">The stub's test options, if any (by launch).</param>
@@ -273,29 +275,29 @@ public sealed class EngineKeepUpHelperTests
                     new[] { DenoiseDirection.Receive }, (_, _) => new SpectralCaptureEngine(), () => Unavailability.None,
                     SettingDescriptors: SpectralCaptureEngine.SettingDescriptors),
             };
-            Pipeline = new RxAudioPipeline(catalog: new DenoiseEngineCatalog(rows));
+            Pipeline = new RxAudioPipeline(48000, 2, new DenoiseEngineCatalog(rows), 0, Writer);
             Pipeline.KeepUpResult += (_, r) => Results.Enqueue(r);
             Pipeline.DeliveryDiagnostic += (_, r) => Delivery.Enqueue(r);
         }
 
         /// <summary>One buffer, paced so the helper's answers are in time.</summary>
-        public void Paced() { HelperTestRig.Pace(Made.ToArray()); Pipeline.Process(Audio(_salt++)); }
+        public void Paced() { HelperTestRig.Pace(Made.ToArray()); Pipeline.Process(Audio(_salt++)); Writer.Settle(); }
 
         /// <summary>One buffer straight after the last: faster than the helper can answer, so its answers are late.</summary>
-        public void Hurried() => Pipeline.Process(Audio(_salt++));
+        public void Hurried() { Pipeline.Process(Audio(_salt++)); Writer.Settle(); }
 
+        /// <summary>
+        /// Whether a change has been raised. Every buffer settles the writer, so after one
+        /// more settle nothing published is still on its way (repair 2): the answer is
+        /// exact, with no wait. <paramref name="waitMs"/> is kept for the callers' reading.
+        /// </summary>
         public bool Has(ConcurrentQueue<EngineKeepUpResult> queue, EngineKeepUpChange change, int waitMs = 500)
         {
-            var t = Stopwatch.StartNew();
-            while (true)
-            {
-                if (queue.Any(r => r.EngineId == "nnr" && r.Change == change)) return true;
-                if (t.ElapsedMilliseconds >= waitMs) return false;
-                Thread.Sleep(5);
-            }
+            Writer.Settle();
+            return queue.Any(r => r.EngineId == "nnr" && r.Change == change);
         }
 
-        public void Dispose() { Pipeline.Dispose(); Rig.Dispose(); }
+        public void Dispose() { Pipeline.Dispose(); Writer.Settle(); Writer.Dispose(); Rig.Dispose(); }
     }
 
     [Fact]

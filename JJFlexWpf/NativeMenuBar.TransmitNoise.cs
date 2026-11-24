@@ -150,6 +150,10 @@ public partial class NativeMenuBar
         }
         AddNoiseToggle(gate, Radios.Lexicon.Get("audio.noise_menu.tx.side_chain"),
             () => AfterMenu(n => n.ToggleSideChain(TransmitMenuSource)), () => _window.Noise.TransmitGate.SideChainFilter);
+        // Phase 2: WDSP's expander in the expander's place (ruled S6), checked while chosen.
+        AddNoiseToggle(gate, Radios.Lexicon.Get("audio.noise_menu.tx.expander_wdsp"),
+            () => AfterMenu(n => n.ToggleExpanderMode(TransmitMenuSource)),
+            () => Radios.ExpanderModes.IsWdsp(_window.Noise.TransmitGate.ExpanderMode));
         AddWired(gate, Radios.Lexicon.Get("audio.noise_menu.tx.learn_room"),
             () => AfterMenu(n => n.LearnTheRoom(TransmitMenuSource)));
         AddWired(gate, Radios.Lexicon.Get("audio.noise_menu.advanced"),

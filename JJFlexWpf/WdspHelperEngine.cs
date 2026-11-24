@@ -32,6 +32,12 @@ namespace JJFlexWpf
         public const int NnrStandardCw = 2;
         public const int NnrPremiumCw = 3;
         public const int Nr2 = 2;
+        /// <summary>
+        /// WDSP's downward expander (Sprint 49 Track I phase 2), transmit only:
+        /// two frames, as NR2. It costs far less than a frame to run, so the
+        /// round trip, not the stage, sets the depth.
+        /// </summary>
+        public const int Dexp = 2;
         /// <summary>Any engine or model not named above, such as one a later helper adds.</summary>
         public const int Other = 2;
 
@@ -47,6 +53,7 @@ namespace JJFlexWpf
                 _ => Other,
             },
             "nr2" => Nr2,
+            "dexp" => Dexp,
             _ => Other,
         };
 

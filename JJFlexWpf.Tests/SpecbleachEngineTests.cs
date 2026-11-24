@@ -568,7 +568,8 @@ public sealed class SpecbleachEngineTests
     private static void Until(Func<bool> predicate, Action? step = null)
     {
         var time = Stopwatch.StartNew();
-        while (!predicate() && time.ElapsedMilliseconds < 5000) { step?.Invoke(); Thread.Sleep(1); }
+        // Repair 2 (Sprint 49 Track RT): a generous wait on the delivery itself, which the shared off-audio writer makes (below normal priority, so seconds late under heavy load), never a fixed sleep.
+        while (!predicate() && time.ElapsedMilliseconds < 15000) { step?.Invoke(); Thread.Sleep(1); }
         Assert.True(predicate(), "condition did not become true");
     }
 

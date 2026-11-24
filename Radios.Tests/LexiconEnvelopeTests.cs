@@ -2924,6 +2924,15 @@ namespace Radios.Tests
                 "audio.noise_surface.phrase_eq",
                 "audio.noise_surface.tx.phrase_eq",
                 "audio.noise_surface.tx.phrase_deesser",
+                // Sprint 49 Track I phase 2: WDSP's expander as the expander's mode. DRAFT PROSE, for Codex.
+                "audio.expander.tx.wdsp_fell_back",
+                "audio.noise_surface.tx.gate.mode",
+                "audio.noise_surface.tx.gate.mode_jj",
+                "audio.noise_surface.tx.gate.mode_wdsp",
+                "audio.noise_surface.tx.gate.mode_wdsp_unavailable",
+                "audio.noise_surface.tx.gate.strength_depth",
+                "audio.noise_help.tx_home.gate.mode",
+                "audio.noise_menu.tx.expander_wdsp",
                 // Sprint 49 Track CL (#1278): the compressor, the limiter, their
                 // editor, menu and Home rows, the audition's two clauses, and the
                 // handoff with the radio's speech processor. All DRAFT PROSE.
