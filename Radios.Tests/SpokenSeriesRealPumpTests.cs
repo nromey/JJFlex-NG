@@ -427,6 +427,123 @@ namespace Radios.Tests
             Assert.True(SpinWait.SpinUntil(() => !r.Series.Owes, 3000));
         }
 
+        // ── Repair 1: NVDA's Ctrl inside the settle after one of our keys ──
+
+        /// <summary>Our key: an ordinary interrupt the reader starts saying; returns its call without finishing it.</summary>
+        private static FakeCompletionChannel.Call OurKeyLeftSounding(Rig r, string text)
+        {
+            r.Arbiter.Emit(text, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "real pump test", "other");
+            var call = r.Channel.WaitForCall();
+            Assert.Equal(text, call.Text);
+            return call;
+        }
+
+        /// <summary>NVDA's Ctrl, on whatever the reader is saying; waits for the pump's report.</summary>
+        private static void NvdaCtrl(Rig r, FakeCompletionChannel.Call sounding)
+        {
+            r.Channel.CancelFromOutside(sounding, marksReached: 2);
+            Assert.True(SpinWait.SpinUntil(() => r.Outcomes.ContainsKey(sounding.Ticket), 5000));
+        }
+
+        /// <summary>
+        /// Bench run 3b on the real pump (repair 1): our key cuts the sounding
+        /// result after one word, the arbiter holds the batch behind the key's
+        /// speech, and NVDA's Ctrl cuts only that speech, inside the settle
+        /// (100, 300, 550 ms) or outside it (700 ms, the control). Nothing is
+        /// said into the silence, past the arbiter's 15 s lifetime; the next key
+        /// brings every remaining result once, in order, the one our key cut
+        /// said again in full.
+        /// </summary>
+        [Theory]
+        [InlineData(100)]
+        [InlineData(300)]
+        [InlineData(550)]
+        [InlineData(700)]
+        public void Repair1_route_3b_on_the_real_pump(int ctrlAfterMs)
+        {
+            using var r = new Rig();
+            r.Series.Add("seed", VerbosityLevel.Terse);
+            var seed = r.Channel.WaitForCall();
+            foreach (var l in new[] { "one", "two", "three", "four", "later" }) r.Series.Add(l, VerbosityLevel.Terse);
+            r.Complete(seed);
+            r.Series.Pump();
+            var one = r.Channel.WaitForCall();
+            Assert.Equal(3, r.Pump.QueuedCount);
+            r.Channel.Mark(one);                                     // one word heard
+            var key = OurKeyLeftSounding(r, "a key of ours");
+            Assert.True(SpinWait.SpinUntil(() => r.Outcomes.ContainsKey(one.Ticket), 5000));
+            r.Series.Pump();
+            r.Clock.Advance(ctrlAfterMs);
+            r.Series.Pump();
+            NvdaCtrl(r, key);
+            r.Series.Pump();
+            r.Clock.Advance(SpeechArbiter.SalvageCeilingMs + 1500);
+            r.Series.Pump();
+            Assert.True(r.NothingMoreSaid(3), "the list spoke into the silence after NVDA's Ctrl");
+
+            r.OurInterrupt("the next key");
+            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);
+            r.Series.Pump();
+            foreach (var expected in new[] { "one", "two", "three", "four", "later" })
+            {
+                var call = r.Channel.WaitForCall();
+                Assert.Equal(expected, call.Text);
+                r.Complete(call);
+                r.Series.Pump();
+            }
+            Assert.False(r.Series.Owes);
+            Assert.True(r.NothingMoreSaid(9));
+            Assert.Equal(new[] { "seed", "one", "a key of ours", "the next key", "one", "two", "three", "four", "later" },
+                r.Channel.Seen.ConvertAll(c => c.Text));
+        }
+
+        /// <summary>
+        /// Bench run 3d on the real pump (repair 1): NVDA's key-press cut of the
+        /// sounding result arrives before our key's interrupt (so the list pauses
+        /// on our own key), then NVDA's Ctrl cuts the key's speech inside the
+        /// settle. The key's interrupt came before that Ctrl, so it does not
+        /// resume the list; the next key does, every remaining result once, in
+        /// order, the result cut part-way from outside not repeated.
+        /// </summary>
+        [Theory]
+        [InlineData(100)]
+        [InlineData(300)]
+        [InlineData(550)]
+        public void Repair1_route_3d_on_the_real_pump(int ctrlAfterMs)
+        {
+            using var r = new Rig();
+            r.Series.Add("seed", VerbosityLevel.Terse);
+            var seed = r.Channel.WaitForCall();
+            foreach (var l in new[] { "one", "two", "three", "four", "later" }) r.Series.Add(l, VerbosityLevel.Terse);
+            r.Complete(seed);
+            r.Series.Pump();
+            var one = r.Channel.WaitForCall();
+            r.CancelFirstPartway(one);                               // NVDA's key-press cut, first
+            var key = OurKeyLeftSounding(r, "a key of ours");        // then our key's interrupt
+            r.Series.Pump();
+            r.Clock.Advance(ctrlAfterMs);
+            r.Series.Pump();
+            NvdaCtrl(r, key);
+            r.Series.Pump();
+            r.Clock.Advance(SpeechArbiter.SalvageCeilingMs + 1500);
+            r.Series.Pump();
+            Assert.True(r.NothingMoreSaid(3), "the list spoke into the silence after NVDA's Ctrl");
+
+            r.OurInterrupt("the next key");
+            r.Clock.Advance(SpeechArbiter.SalvageSettleMs + 100);
+            r.Series.Pump();
+            foreach (var expected in new[] { "two", "three", "four", "later" })
+            {
+                var call = r.Channel.WaitForCall();
+                Assert.Equal(expected, call.Text);
+                r.Complete(call);
+                r.Series.Pump();
+            }
+            Assert.False(r.Series.Owes);
+            Assert.Equal(new[] { "seed", "one", "a key of ours", "the next key", "two", "three", "four", "later" },
+                r.Channel.Seen.ConvertAll(c => c.Text));
+        }
+
         /// <summary>Codex's isolation probe: withdrawing one owner leaves another series on the same subject, and a safety warning in flight, alone.</summary>
         [Fact]
         public void Codex_withdrawing_one_owner_leaves_another_series_and_a_safety_warning_alone()

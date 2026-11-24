@@ -756,6 +756,15 @@ namespace Radios.Speech
             public bool LastCutFromOutside;
 
             /// <summary>
+            /// A line of a <see cref="SpokenSeries"/>, handed over through
+            /// <see cref="EmitSeriesLine"/>. The series owns it until it is
+            /// said, so a held copy is not released into a silence a cut from
+            /// outside asked for (<see cref="ReleaseHeld"/>; Sprint 49 Track SL
+            /// repair 1). Nothing else reads it.
+            /// </summary>
+            public bool SeriesOwned;
+
+            /// <summary>
             /// The producer's own answer to "is the state this sentence claims
             /// still the state", or null where the producer declared none. A
             /// PROTECTED sentence that claims a PRESENT state — "you are no
@@ -903,6 +912,21 @@ namespace Radios.Speech
         /// SL, #1228).
         /// </summary>
         private long _ordinaryDiscards;
+
+        /// <summary>
+        /// How many cuts from outside the reader has reported, of anything:
+        /// an entry, or an interrupter that was never ledgered. With the
+        /// interrupt and discard counts as they stood at the newest one. A
+        /// counter only, read by <see cref="Interrupts"/> and by
+        /// <see cref="ReleaseHeld"/>'s rule for held series lines (Sprint 49
+        /// Track SL repair 1).
+        /// </summary>
+        private long _foreignCuts;
+        private long _lastForeignCutAtInterrupt;
+        private long _lastForeignCutAtDiscard;
+
+        /// <summary><see cref="_foreignCuts"/> as it stood when the open hold began.</summary>
+        private long _foreignCutsAtHoldStart;
 
         private readonly object _lock = new object();
 
@@ -1324,6 +1348,26 @@ namespace Radios.Speech
             }
         }
 
+        /// <summary>
+        /// Hand over one line of a <see cref="SpokenSeries"/>: exactly
+        /// <see cref="EmitQueued"/> with <c>additive</c>, and the entry marked
+        /// as the series' own, so a held copy is never released into a silence
+        /// a cut from outside asked for (<see cref="ReleaseHeld"/>). Added by
+        /// Sprint 49 Track SL repair 1; the series is its only caller.
+        /// </summary>
+        internal FollowedPiece? EmitSeriesLine(string message, VerbosityLevel level, string origin, string subject)
+        {
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                PruneLedgerLocked(now);
+                var made = EmitQueuedLocked(message, SpeechIntent.Queue, level, origin, subject, additive: true, now);
+                if (made == null) return null;
+                made.SeriesOwned = true;
+                return new FollowedPiece(made);
+            }
+        }
+
         /// <summary>Read where a followed piece stands. Read-only: no pruning, no tracing.</summary>
         internal FollowedView Inspect(FollowedPiece piece)
         {
@@ -1420,7 +1464,12 @@ namespace Radios.Speech
         /// from outside; meaningful only when <paramref name="FromOutside"/>.</param>
         /// <param name="AtDiscard">How many discards of ordinary speech had been made at that cut from
         /// outside; meaningful only when <paramref name="FromOutside"/>.</param>
-        internal readonly record struct CutView(bool FromOutside, bool NeverBegun, long AtInterrupt, long AtDiscard);
+        /// <param name="Resumable">It is owed and not with the reader: cut by us (any word), or never
+        /// started in its last attempt (given back at word 0, or refused), whatever an earlier attempt reached.
+        /// Exactly what the arbiter's own put-back would say again in full (<see cref="RecoveryPermitted"/>
+        /// for an ordinary line); a line cut part-way by something that is not us is not resumable, by the
+        /// arbiter's rule for a cut nobody can name (Track SL repair 1, finding 1).</param>
+        internal readonly record struct CutView(bool FromOutside, bool NeverBegun, bool Resumable, long AtInterrupt, long AtDiscard);
 
         /// <summary>
         /// For a followed piece: whether the reader's last report was a cut
@@ -1446,7 +1495,8 @@ namespace Radios.Speech
                 var e = (BelievedQueued)piece.Entry;
                 bool fromOutside = e.LastOutcome == SpeechOutcomeKind.Cancelled && e.LastCutFromOutside;
                 bool neverBegun = e.State == Owed.NeverStarted && e.MarksReachedEver == 0;
-                return new CutView(fromOutside, neverBegun, e.ForeignCutAtInterrupt, e.ForeignCutAtDiscard);
+                bool resumable = e.State == Owed.NeverStarted || e.State == Owed.CutByUs;
+                return new CutView(fromOutside, neverBegun, resumable, e.ForeignCutAtInterrupt, e.ForeignCutAtDiscard);
             }
         }
 
@@ -1458,7 +1508,12 @@ namespace Radios.Speech
         /// <see cref="SalvageSettleMs"/> has passed since that interrupt reached the reader, and no value is
         /// still sweeping toward an interrupt of its own (bounded, as the release is, by
         /// <see cref="SalvageCeilingMs"/>). The same three things <see cref="ReleaseHeld"/> waits for.</param>
-        internal readonly record struct InterruptView(long Reached, long Discards, bool Settled);
+        /// <param name="ForeignCuts">How many cuts from outside the reader has reported, of anything, an
+        /// interrupter included (Track SL repair 1).</param>
+        /// <param name="LastForeignCutAtInterrupt"><paramref name="Reached"/> as it stood at the newest of them.</param>
+        /// <param name="LastForeignCutAtDiscard"><paramref name="Discards"/> as it stood at the newest of them.</param>
+        internal readonly record struct InterruptView(long Reached, long Discards, bool Settled,
+            long ForeignCuts, long LastForeignCutAtInterrupt, long LastForeignCutAtDiscard);
 
         /// <summary>
         /// Read the interrupt and discard counts, and whether the newest
@@ -1483,7 +1538,8 @@ namespace Radios.Speech
                 bool settled = _holdTimer == null
                     && sinceMs >= SalvageSettleMs
                     && !(_pending.Count > 0 && sinceMs < SalvageCeilingMs);
-                return new InterruptView(_interruptsReached, _ordinaryDiscards, settled);
+                return new InterruptView(_interruptsReached, _ordinaryDiscards, settled,
+                    _foreignCuts, _lastForeignCutAtInterrupt, _lastForeignCutAtDiscard);
             }
         }
 
@@ -3039,6 +3095,7 @@ namespace Radios.Speech
                 _holdStartedUtc = now;
                 _holdInterrupts = 0;
                 _wentFirst.Clear();
+                _foreignCutsAtHoldStart = _foreignCuts;
             }
             _holdInterrupts++;
             _holdBehind = behind;
@@ -3129,6 +3186,29 @@ namespace Radios.Speech
                     if (refusal != null)
                     {
                         TraceDropLocked(s, refusal, now);
+                        continue;
+                    }
+
+                    // **A held line of a spoken series is not released into a
+                    // silence a cut from outside asked for (Sprint 49 Track SL
+                    // repair 1, authorised narrowly by its brief).** The train
+                    // waits behind the interrupt's own speech; if NVDA's Ctrl
+                    // (or anything that is not us) cut that speech while the
+                    // train waited, releasing it now would start the list
+                    // talking again a moment after the operator silenced the
+                    // reader (bench 2026-11-23, runs 3b and 3d). The line goes
+                    // back to the ledger still owed, and its series, which
+                    // owns it until it is said, takes it back and says it after
+                    // the operator's next key. Every other held line, ordinary
+                    // or protected, is released exactly as before.
+                    if (!s.Protected && s.SeriesOwned && _foreignCuts > _foreignCutsAtHoldStart)
+                    {
+                        LedgerInsertLocked(s);
+                        Tracing.TraceLine(
+                            "SpeechArbiter: a held line of a spoken series was not released: something that is not us "
+                            + "cut the speech it was waiting behind, so it goes back to its series, which says it after "
+                            + $"the next key: '{Clip(s.Message)}'" + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
+                            TraceLevel.Info);
                         continue;
                     }
 
@@ -3763,6 +3843,19 @@ namespace Radios.Speech
                 int ageMs = (int)(now - e.FirstEmittedUtc).TotalMilliseconds;
                 if (ageMs <= SalvageCeilingMs) continue;
                 _believedQueued.RemoveAt(i);
+                if (e.SupersededBy != null)
+                {
+                    // Not a loss: something newer covered it, or its owner took
+                    // it back (a spoken series that says it in its own turn,
+                    // Track SL repair 1, finding 3). Saying "expired unheard"
+                    // here read as a dropped line when it was not.
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: a ledger copy left at its {SalvageCeilingMs} ms lifetime ({ageMs} ms); it is not "
+                        + $"lost, it was taken back or covered earlier, superseded by {e.SupersededBy}: '{Clip(e.Message)}'"
+                        + (e.Subject != null ? $" [subject '{e.Subject}']" : string.Empty),
+                        TraceLevel.Verbose);
+                    continue;
+                }
                 Tracing.TraceLine(
                     $"SpeechArbiter: an owed utterance expired unheard at {ageMs} ms against the "
                     + $"{SalvageCeilingMs} ms lifetime, {DescribeState(e)}: '{Clip(e.Message)}'"
@@ -3868,6 +3961,20 @@ namespace Radios.Speech
                             + $"{e.AutomaticAttempts} attempt(s) already spent): '{Clip(e.Message)}'",
                             TraceLevel.Info);
                     }
+                }
+
+                // Every cut from outside is counted, whatever it cut: an entry
+                // of ours, or an interrupter, which is never ledgered and so
+                // otherwise leaves no record at all. A record only, read by
+                // Interrupts() and by ReleaseHeld's one rule for held SERIES
+                // lines (Sprint 49 Track SL repair 1: NVDA's Ctrl on the key's
+                // own speech, inside its settle window, must not have the list
+                // released into the silence it asked for).
+                if (outcome.Kind == SpeechOutcomeKind.Cancelled && !outcome.CancelledByUs)
+                {
+                    _foreignCuts++;
+                    _lastForeignCutAtInterrupt = _interruptsReached;
+                    _lastForeignCutAtDiscard = _ordinaryDiscards;
                 }
 
                 var inLedger = true;
