@@ -326,6 +326,8 @@ namespace JJPortaudio
         public void RenderCallback(RxBufferQueue queue, ref float[] buffer, ref uint offset, Span<float> output, bool monoOut,
             int streamChannels, Func<bool> active)
         {
+            // Repair 1, N2: room a Clear freed is given back before anything is decided.
+            queue.Reclaim();
             if (_mode != RxCatchUpMode.On)
             {
                 RenderToday(this, queue, ref buffer, ref offset, output, monoOut, streamChannels, active);
@@ -391,6 +393,7 @@ namespace JJPortaudio
         internal static void RenderToday(RxPlaybackQueue q, RxBufferQueue queue, ref float[] buffer, ref uint offset, Span<float> output,
             bool monoOut, int streamChannels, Func<bool> active)
         {
+            queue.Reclaim();
             int floatsPerFrame = monoOut ? 1 : streamChannels;
             int outAt = 0, outEnd = output.Length;
             long silentFrames = 0;

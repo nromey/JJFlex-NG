@@ -133,6 +133,15 @@ namespace JJPortaudio
             }
         }
 
+        /// <summary>
+        /// The consumer's side: give back the room a <see cref="Clear"/> freed, now.
+        /// The callback calls it before it decides anything (repair 1, N2): a ring
+        /// that was full when it was cleared otherwise refused every new buffer until
+        /// the callback next took one, and a callback holding for its prime takes none.
+        /// No lock, no allocation.
+        /// </summary>
+        public void Reclaim() => ApplyClear();
+
         private void ApplyClear()
         {
             long to = Volatile.Read(ref _clearTo);

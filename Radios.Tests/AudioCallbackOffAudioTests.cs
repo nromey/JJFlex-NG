@@ -331,6 +331,52 @@ namespace Radios.Tests
             Assert.Equal(2, s.Cb.Lines.Summaries);
         }
 
+        /// <summary>
+        /// Repair 1, N1 (Codex's check of af0fc643): nothing after the totals, even when the
+        /// completing callback records a line WHILE the writer is writing an earlier one.
+        /// The writer took its count of the ring, then read whether the stream had
+        /// completed; a flag recorded and a completion marked in between had the totals
+        /// written first and the flag's line after them. Reproduced by holding the writer
+        /// inside the first line.
+        /// </summary>
+        [Fact]
+        public void A_line_the_completing_callback_records_while_the_writer_is_busy_still_comes_before_the_totals()
+        {
+            using var s = new Stream();
+            using var entered = new ManualResetEventSlim(false);
+            using var release = new ManualResetEventSlim(false);
+            var lines = new ConcurrentQueue<string>();
+            s.Cb.Lines.LineObserverForTest = l =>
+            {
+                lines.Enqueue(l);
+                if (l.Contains("paOutputUnderflow")) { entered.Set(); release.Wait(TimeSpan.FromSeconds(10)); }
+            };
+            s.Cb.Playback.LineObserver = lines.Enqueue;
+            try
+            {
+                s.Feed(); s.Callback();
+                s.Callback(PortAudio.PaStreamCallbackFlags.paOutputUnderflow);   // the first flag's record
+                var writer = Task.Run(() => s.Writer.Tick());
+                Assert.True(entered.Wait(5000), "the writer never reached the first line");
+                // While it writes that line: a new flag, then the completing callback.
+                s.Cb.Active = false;
+                Assert.Equal(PortAudio.PaStreamCallbackResult.paComplete, s.Callback(PortAudio.PaStreamCallbackFlags.paOutputOverflow));
+                release.Set();
+                Assert.True(writer.Wait(10000));
+                s.Writer.Tick();
+                var got = lines.ToArray();
+                foreach (var l in got) _out.WriteLine(l);
+                int overflow = Array.FindIndex(got, l => l.Contains("PortAudio reports paOutputOverflow"));
+                int summary = Array.FindIndex(got, l => l.Contains(" stream summary:"));
+                Assert.True(overflow >= 0, "the second flag's line was never written");
+                Assert.True(summary >= 0, "no summary was written");
+                Assert.True(overflow < summary, "the second flag's line came after the totals");
+                AssertSummaryOrder(s, got);
+                Assert.Equal(1, s.Cb.Lines.Summaries);
+            }
+            finally { s.Cb.Lines.LineObserverForTest = null; release.Set(); }
+        }
+
         // ── Muted receive: nothing is fed, and the lines are still written ──
 
         /// <summary>

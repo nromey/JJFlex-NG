@@ -247,6 +247,39 @@ namespace Radios.Tests
             Assert.Equal(0, q.Dropped);
         }
 
+        /// <summary>
+        /// Repair 1, N2 (Codex's check of af0fc643): a ring that was physically full when it
+        /// was cleared reported nothing waiting but refused every new buffer until the
+        /// callback took one, and a callback holding for its prime never takes one, so the
+        /// prime never came. The callback now gives back the cleared room before it
+        /// decides anything.
+        /// </summary>
+        [Fact]
+        public void A_full_queue_cleared_from_another_thread_still_primes_and_plays()
+        {
+            var q = new RxBufferQueue(8);
+            for (int i = 0; i < 8; i++) Assert.True(q.Enqueue(new float[960]));
+            var t = new Thread(q.Clear);                         // the stop path
+            t.Start(); t.Join();
+            Assert.Equal(0, q.Count);
+            // Today's path with a reserve: it holds until the prime target (1 + 6 buffers) is queued.
+            var playback = new RxPlaybackQueue("rt-n2", 1, 10.0, 48000, 60.0, RxCatchUpMode.Off);
+            float[] buffer = Array.Empty<float>(); uint offset = 0;
+            var output = new float[960];
+            for (int c = 0; c < 20 && !playback.EverPlayed; c++)
+            {
+                q.Enqueue(new float[960]);                       // the receive loop, one packet a callback
+                playback.RenderCallback(q, ref buffer, ref offset, output, false, 2, () => true);
+            }
+            _out.WriteLine($"dropped {q.Dropped}, priming {playback.Priming}, played {playback.EverPlayed}");
+            // At most the one packet that arrived before any callback had run: until then
+            // the cleared room is still physically occupied, and only the consumer may
+            // free it (the producer writing a slot the callback may be reading is the
+            // race this ring exists to avoid). Before repair 1 every packet was dropped.
+            Assert.InRange(q.Dropped, 0, 1);
+            Assert.True(playback.EverPlayed, "the prime never came: the cleared room was never given back");
+        }
+
         [Fact]
         public void The_buffer_queue_allocates_nothing_either_side()
         {

@@ -2228,13 +2228,24 @@ namespace JJPortaudio
             protected override void DrainCore()
             {
                 string name = _cb.StreamName;
+                // Whether this pass ends the run is read FIRST (repair 1, N1). The
+                // callback publishes its records before it marks completion, so once
+                // completion is seen every record it made is in the ring, and this
+                // pass writes ALL of them before the totals. Read after the ring, a
+                // record and the completion could both land between the two reads,
+                // and that record's line came after the totals.
+                bool ending = Interlocked.Exchange(ref _endRequested, 0) != 0;
+                int run = Volatile.Read(ref _run);
+                bool summaryDue = run != 2 && (run == 1 || ending);
                 _ring.TakePending();
                 long lost = _ring.TakeLost();
                 if (lost > 0)
                 {
                     Write(OffAudioLines.Lost("audio " + name + " stream: ", lost, "callback"), TraceLevel.Error);
                 }
-                for (int n = _ring.Count; n > 0 && _ring.TryTake(out Line l); n--)
+                // Ending: everything there is. Otherwise what was there when this pass
+                // began; anything later is the next pass's.
+                for (int n = summaryDue ? int.MaxValue : _ring.Count; n > 0 && _ring.TryTake(out Line l); n--)
                 {
                     if (l.Kind == Kind.FirstFlag)
                         Write(describeFirstFlag(name, l.Flag, l.Callback), TraceLevel.Error);
@@ -2242,8 +2253,6 @@ namespace JJPortaudio
                         Write("audio " + name + " stream: " + TestStreamAbort.Variable
                             + " aborts it now", TraceLevel.Error);
                 }
-                bool ending = Interlocked.Exchange(ref _endRequested, 0) != 0;
-                int run = Volatile.Read(ref _run);
                 if (run != 2 && (run == 1 || ending))
                 {
                     WriteSummary(name);
