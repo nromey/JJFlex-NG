@@ -136,24 +136,42 @@ namespace JJPortaudio
             public static string[] DefaultOrder => new[] { NoiseReduction, Expander, Equaliser, DeEsser, Compressor, Limiter };
 
             /// <summary>
-            /// Whether an order runs as the default here: it is the default, or
-            /// the default with stages missing. A setup written before a stage
-            /// existed lists the stages of its day in their default order (a
-            /// Track I setup: noise, expander, eq, deesser); the stages added
-            /// since run at their default places. An id this build does not
-            /// know, a repeat, or a different order is not the default.
+            /// The default orders EARLIER builds wrote into saved setups, each
+            /// in full. A setup saved by one of those builds holds its build's
+            /// default, which is this build's default with the stages added
+            /// since missing; it runs as the default here. Today there is one:
+            /// Track I's four stages, before the compressor and the limiter
+            /// existed. <b>Whoever adds a stage to <see cref="DefaultOrder"/>
+            /// adds the default it replaces to this list.</b>
+            /// </summary>
+            public static string[][] HistoricalDefaults => new[]
+            {
+                new[] { NoiseReduction, Expander, Equaliser, DeEsser },
+            };
+
+            /// <summary>
+            /// Whether an order runs as the default here: it IS the default, or
+            /// it is one of the defaults an earlier build wrote
+            /// (<see cref="HistoricalDefaults"/>). Nothing else: an order with a
+            /// stage left out that no build ever wrote, an id this build does
+            /// not know, a repeat or a different order is somebody's own order,
+            /// and is kept exactly (repair 1: the first version accepted any
+            /// order that was the default with stages missing, and so would
+            /// have rewritten a saved custom order such as noise, eq, deesser).
             /// </summary>
             public static bool RunsAsDefault(string[] order)
             {
                 if (order == null) return true;
-                var all = DefaultOrder;
-                int at = 0;
-                foreach (var id in order)
-                {
-                    while (at < all.Length && all[at] != id) at++;
-                    if (at == all.Length) return false;
-                    at++;
-                }
+                if (Same(order, DefaultOrder)) return true;
+                foreach (var historical in HistoricalDefaults)
+                    if (Same(order, historical)) return true;
+                return false;
+            }
+
+            private static bool Same(string[] a, string[] b)
+            {
+                if (a.Length != b.Length) return false;
+                for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
                 return true;
             }
         }

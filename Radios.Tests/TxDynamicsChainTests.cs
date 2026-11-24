@@ -252,7 +252,13 @@ namespace Radios.Tests
             Assert.True(TxAudioConditioner.StageIds.RunsAsDefault(order));
             // Track I's default, written before these stages existed.
             Assert.True(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "expander", "eq", "deesser" }));
-            // Not the default: another order, an id this build does not know, a repeat.
+            Assert.Equal(new[] { new[] { "noise", "expander", "eq", "deesser" } }, TxAudioConditioner.StageIds.HistoricalDefaults);
+            // Not the default: an order with a stage left out that no build ever wrote (repair 1: the
+            // first rule took any such order for an old default), another order, an unknown id, a repeat.
+            Assert.False(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "eq", "deesser" }));
+            Assert.False(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "expander" }));
+            Assert.False(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "expander", "eq", "deesser", "compressor" }));
+            Assert.False(TxAudioConditioner.StageIds.RunsAsDefault(Array.Empty<string>()));
             Assert.False(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "eq", "expander", "deesser" }));
             Assert.False(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "expander", "eq", "deesser", "limiter", "compressor" }));
             Assert.False(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "expander", "sparkle", "eq" }));
@@ -296,12 +302,16 @@ namespace Radios.Tests
         [Fact]
         public void The_two_slot_worst_case_delay_is_adopted_with_nothing_allocated_on_the_callback()
         {
-            // #1293's figure: NR2 (5,024) plus NNR Premium (3,894), each bank's
-            // possible 479-frame carry, and the expander's longest look-ahead at
-            // 48 kHz (480): 10,356 frames.
-            const int worstCase = 5024 + 3894 + 479 + 479 + 480;
-            Assert.Equal(10356, worstCase);
-            Assert.True(TxAudioConditioner.ResidualDelayCapacityFrames >= worstCase);
+            // #1293's figure as the merged conditioner states it (Track I phase 2's,
+            // the conservative one): NR2 (5,024) plus NNR Premium (3,894), each
+            // bank's possible 479-frame carry, and the expander's part at its
+            // largest (the longest look-ahead, 1,920 frames at 192 kHz; WDSP's
+            // expander in its place is 1,455): 11,796 frames.
+            const int worstCase = 5024 + 3894 + 479 + 479 + 1920;
+            Assert.Equal(11796, worstCase);
+            Assert.True(TxAudioConditioner.DelayLineCapacityFrames >= worstCase);
+            // ONE allocation size under both tracks' names (the merge kept one).
+            Assert.Equal(TxAudioConditioner.DelayLineCapacityFrames, TxAudioConditioner.ResidualDelayCapacityFrames);
 
             int delay = 100;
             var cond = new TxAudioConditioner
@@ -407,6 +417,25 @@ namespace Radios.Tests
             var same = new TxNoiseSetup { Name = "Desk mic" };
             same.Gate.Enabled = true; same.Eq.Enabled = true;
             Assert.True(loaded.SameContentAs(same));
+        }
+
+        [Fact]
+        public void A_saved_order_with_a_stage_left_out_that_no_build_wrote_is_kept_exactly_and_is_not_the_default()
+        {
+            // Somebody's own order (a later build's reordering, or a hand edit): never rewritten as the default.
+            var store = new TxNoiseSetupStore(_root);
+            foreach (var order in new[]
+                     {
+                         new[] { "noise", "eq", "deesser" },
+                         new[] { "noise", "expander", "eq", "deesser", "limiter" },
+                         new[] { "expander", "eq", "deesser", "compressor", "limiter" },
+                     })
+            {
+                Assert.True(store.Save(Radio, new TxNoiseSetup { Name = "Own", StageOrder = order }).Succeeded);
+                var back = store.Find(Radio, "Own")!;
+                Assert.Equal(order, back.StageOrder);
+                Assert.False(back.RunsDefaultOrder);
+            }
         }
 
         [Fact]
