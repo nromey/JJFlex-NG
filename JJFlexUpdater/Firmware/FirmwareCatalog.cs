@@ -43,14 +43,29 @@ public sealed class FirmwareCatalog
         if (isBigBend.HasValue) return isBigBend.Value ? "FLEX-9600" : "FLEX-6x00";
         if (string.IsNullOrWhiteSpace(model)) return string.Empty;
 
-        // Only used when the radio isn't connected to ask. 8600 and the Aurora
-        // AU-520 are the BigBend models we know of; anything else falls to the
-        // common image, and an explicit "models" list in the manifest overrides
-        // this guess anyway.
-        string m = model.ToUpperInvariant();
-        if (m.Contains("8600") || m.Contains("AU-520")) return "FLEX-9600";
-        return "FLEX-6x00";
+        // Only used when the radio isn't connected to ask. The BigBend models
+        // are FlexLib's own list (#1265); anything else falls to the common
+        // image, and an explicit "models" list in the manifest overrides this
+        // guess anyway. This used to name only the 8600 and the AU-520, so the
+        // 8400 family and the AU-510 got the common image.
+        return BigBendModels.Contains(model.Trim()) ? "FLEX-9600" : "FLEX-6x00";
     }
+
+    /// <summary>
+    /// Every model FlexLib's <c>ModelInfo</c> table marks
+    /// <c>RadioPlatform.BigBend</c>, by name, except its DEFAULT entry (#1265).
+    /// A list, not a call to <c>ModelInfo.GetModelInfoForModel</c>: that
+    /// returns the DEFAULT entry, which is BigBend, for a name it does not
+    /// know, so an unknown model would move from the common image to the
+    /// BigBend one. A test holds this list to FlexLib's table whole.
+    /// </summary>
+    public static readonly IReadOnlySet<string> BigBendModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "FLEX-8400", "FLEX-8400M", "FLEX-8600", "FLEX-8600M",
+        "AU-510", "AU-510M", "AU-520", "AU-520M",
+        "ML-9600W", "ML-9600X", "ML-9600", "MLS-9601",
+        "CL-9300", "CLS-9301",
+    };
 
     public async Task<FirmwareManifest> FetchAsync(CancellationToken cancellationToken = default)
         => await FetchAsync(UpdaterEndpoints.FirmwareManifestUrl, cancellationToken).ConfigureAwait(false);

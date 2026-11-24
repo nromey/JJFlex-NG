@@ -66,7 +66,7 @@ public sealed class FileEntry
     public long CompressedSizeBytes { get; set; }
 
     /// <summary>
-    /// Lowercase hex sha256 over the COMPRESSED .lzma blob — the bytes
+    /// Lowercase hex sha256 over the COMPRESSED .xz blob — the bytes
     /// actually fetched from <see cref="Url"/>. Used as a cheap in-flight
     /// integrity check before decompression. Optional in the schema; the
     /// post-decompression sha256 (<see cref="Sha256"/>) is the load-bearing
@@ -76,8 +76,8 @@ public sealed class FileEntry
     public string CompressedSha256 { get; set; } = string.Empty;
 
     /// <summary>
-    /// Content-addressable URL of the .lzma blob. Track N convention:
-    /// <c>https://data.jjflexible.radio/files/&lt;sha-prefix&gt;/&lt;sha&gt;.lzma</c>.
+    /// Content-addressable URL of the .xz blob. Track N convention:
+    /// <c>https://data.jjflexible.radio/files/&lt;sha-prefix&gt;/&lt;sha&gt;.xz</c>.
     /// </summary>
     [JsonPropertyName("url")]
     public string Url { get; set; } = string.Empty;
