@@ -478,7 +478,8 @@ public sealed class TxDynamicsSurfaceTests
         Assert.Equal(40, TxDynamicsEditorModel.ToField(ratio, 4));
         Assert.Equal(4.5, TxDynamicsEditorModel.FromField(ratio, 45));
 
-        Assert.False(model.Restore()); // nothing changed yet: Cancel does nothing
+        Assert.False(model.Restore()); // nothing changed in it: Cancel does nothing
+        model = b.Noise.DynamicsEditor("compressor editor"); // an editor is done with once it has closed: this is the next one
         model.Set(ratio, 75);
         model.Set(ceiling, -60);
         b.Noise.SetCompressorOn(false, "compressor editor");
@@ -858,12 +859,250 @@ public sealed class TxDynamicsSurfaceTests
         b.Noise.SetLimiterOn(true, editor);                     // keyed: waits
         Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false));
         Assert.True(b.Cond.Compressor.Settings.Enabled);        // a switch does not change under an over: the put-back waits
+        Assert.True(b.Noise.CompressorOn);                      // as a change in the chain's order, not even as an intent yet
         b.Unkey();
         Assert.False(b.Cond.Compressor.Settings.Enabled);       // put back at the unkey
         Assert.False(b.Cond.Limiter.Settings.Enabled);          // and the waiting one never landed
         // A second closing finds nothing to do, and does not take back the put-back.
         Assert.False(TxDynamicsEditorDialog.Dismissed(model, kept: false));
     }
+
+    // ── repair 3, B5: an editor's Cancel undoes only what that editor did ──
+
+    private const string Editor = "compressor editor";
+
+    [Fact]
+    public void An_untouched_editors_cancel_keeps_what_an_earlier_editor_kept_while_keyed_and_landed_while_it_was_open()
+    {
+        using var b = new Bridge();
+        b.X.Keyed = true; b.X.Buffer();
+        var first = b.Noise.DynamicsEditor(Editor);
+        b.Noise.SetCompressorOn(true, Editor);                  // waiting for the unkey
+        Assert.False(TxDynamicsEditorDialog.Dismissed(first, kept: true)); // Close: kept
+
+        var second = b.Noise.DynamicsEditor(Editor);            // opened before the unkey; nothing is edited in it
+        b.Unkey();
+        Assert.True(b.Cond.Compressor.Settings.Enabled);        // positive control: the first editor's kept choice landed
+        Assert.False(TxDynamicsEditorDialog.Dismissed(second, kept: false)); // an untouched editor has nothing to take back
+        b.Unkey();
+        Assert.True(b.Cond.Compressor.Settings.Enabled);        // and takes nothing back
+    }
+
+    [Fact]
+    public void An_untouched_editors_cancel_does_not_bring_back_what_an_earlier_editor_cancelled()
+    {
+        using var b = new Bridge();
+        var first = b.Noise.DynamicsEditor(Editor);
+        b.Noise.SetCompressorOn(true, Editor);                  // unkeyed: lands at once
+        b.Unkey();
+        Assert.True(b.Cond.Compressor.Settings.Enabled);
+        b.X.Keyed = true; b.X.Buffer();
+        Assert.True(TxDynamicsEditorDialog.Dismissed(first, kept: false)); // cancelled while keyed: its put-back waits
+
+        var second = b.Noise.DynamicsEditor(Editor);            // opened before the unkey; nothing is edited in it
+        b.Unkey();
+        Assert.False(b.Cond.Compressor.Settings.Enabled);       // positive control: the first editor's cancel landed
+        Assert.False(TxDynamicsEditorDialog.Dismissed(second, kept: false));
+        b.Unkey();
+        Assert.False(b.Cond.Compressor.Settings.Enabled);       // the cancelled choice is not reinstated
+    }
+
+    [Fact]
+    public void An_untouched_editors_cancel_keeps_what_Home_asked_for_before_it_opened()
+    {
+        using var b = new Bridge();
+        b.X.Keyed = true; b.X.Buffer();
+        b.Noise.SetLimiterOn(true, Home);                       // Home's, waiting for the unkey
+        var model = b.Noise.DynamicsEditor(Editor);             // nothing is edited in it
+        b.Unkey();
+        Assert.True(b.Cond.Limiter.Settings.Enabled);           // positive control: Home's limiter came on
+        Assert.False(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+        b.Unkey();
+        Assert.True(b.Cond.Limiter.Settings.Enabled);           // and stays on
+    }
+
+    [Fact]
+    public void A_cancel_takes_back_the_editors_own_change_and_keeps_an_earlier_choice_that_landed_while_it_was_open()
+    {
+        // The editor did change something: its own change goes back, and only to where IT started from.
+        using var b = new Bridge();
+        b.X.Keyed = true; b.X.Buffer();
+        b.Noise.SetLimiterOn(true, Home);                       // Home's, asked before the editor opened
+        b.Noise.SetDynamics(NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "rotator")!, 4, Home);
+        var model = b.Noise.DynamicsEditor(Editor);
+        b.Noise.SetCompressorOn(true, Editor);                  // the editor's own, behind Home's
+        b.Unkey();                                              // all three land, in order
+        Assert.True(b.Cond.Compressor.Settings.Enabled);
+        Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+        b.Unkey();
+        Assert.False(b.Cond.Compressor.Settings.Enabled);       // the editor's switch went back
+        Assert.Equal(4, b.Cond.Compressor.Settings.RotatorStages); // to the compressor as Home had left it, not as it was when the editor opened
+        Assert.True(b.Cond.Limiter.Settings.Enabled);           // and Home's limiter was never the editor's
+    }
+
+    [Fact]
+    public void A_cancel_takes_back_each_thing_the_editor_changed_and_keeps_what_somebody_else_changed_after_it_on_the_same_stage()
+    {
+        using var b = new Bridge();
+        var threshold = NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "threshold")!;
+        var ratio = NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "ratio")!;
+        var model = b.Noise.DynamicsEditor(Editor);
+        b.Noise.SetCompressorOn(true, Editor);                  // the editor's
+        b.Noise.SetDynamics(threshold, -30, Editor);            // the editor's
+        b.Noise.SetLimiterOn(true, Editor);                     // the editor's
+        b.Noise.SetDynamics(threshold, -33, Home);              // Home's, after the editor's, on the very lever the editor moved
+        b.Noise.SetDynamics(ratio, 7, Home);                    // Home's, on a lever the editor never touched
+        b.Unkey();
+        Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+        b.Unkey();
+        Assert.False(b.Cond.Compressor.Settings.Enabled);       // the editor's switch went back
+        Assert.Equal(-33f, b.Cond.Compressor.Settings.ThresholdDb); // the lever Home moved after the editor is Home's
+        Assert.Equal(7f, b.Cond.Compressor.Settings.RatioToOne);    // and so is the one the editor never touched
+        Assert.False(b.Cond.Limiter.Settings.Enabled);          // the editor's limiter switch went back
+    }
+
+    [Fact]
+    public void A_waiting_cancel_asks_again_when_it_runs_and_leaves_what_Home_changed_meanwhile()
+    {
+        using var b = new Bridge();
+        var threshold = NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "threshold")!;
+        var model = b.Noise.DynamicsEditor(Editor);
+        b.Noise.SetCompressorOn(true, Editor);
+        b.Noise.SetDynamics(threshold, -30, Editor);
+        b.Unkey();
+        b.X.Keyed = true; b.X.Buffer();
+        b.Noise.SetCompressorSplitBand(true, Home);             // Home's, waiting
+        b.Noise.SetDynamics(threshold, -33, Home);              // Home's, waiting behind it: the lever the editor moved
+        Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false)); // the cancel waits behind both
+        Assert.Equal(-30f, b.Cond.Compressor.Settings.ThresholdDb); // positive control: when Cancel was pressed the lever still read as the editor left it
+        b.Unkey();
+        Assert.True(b.Cond.Compressor.Settings.SplitBand);      // Home's mode landed and stays
+        Assert.Equal(-33f, b.Cond.Compressor.Settings.ThresholdDb); // Home's lever, moved since: not written over by the cancel that ran after it
+        Assert.False(b.Cond.Compressor.Settings.Enabled);       // the editor's own switch went back
+    }
+
+    [Fact]
+    public void An_untouched_editors_cancel_leaves_the_speech_processor_setting_somebody_else_switched_while_it_was_open()
+    {
+        bool settingWas = AudioOutputConfig.RadioProcessorOffWithCompressorInForce;
+        try
+        {
+            using var b = new Bridge();
+            b.Noise.SetProcessorHandoffSetting(true, Home);
+            var model = b.Noise.DynamicsEditor(Editor);
+            Assert.True(model.OpenedWithHandoff);
+            b.Noise.SetProcessorHandoffSetting(false, Home);    // Home's, while the editor is open
+            Assert.False(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+            b.Unkey();
+            Assert.False(b.Noise.ProcessorHandoffSetting);      // not the editor's to put back
+
+            // The editor's own switch of it, and then Home's on top: Home's stays.
+            var second = b.Noise.DynamicsEditor(Editor);
+            b.Noise.SetProcessorHandoffSetting(true, Editor);
+            b.Noise.SetProcessorHandoffSetting(false, Home);
+            Assert.False(TxDynamicsEditorDialog.Dismissed(second, kept: false));
+            b.Unkey();
+            Assert.False(b.Noise.ProcessorHandoffSetting);
+
+            // The positive control: the editor's own switch, untouched since, does go back.
+            var third = b.Noise.DynamicsEditor(Editor);
+            b.Noise.SetProcessorHandoffSetting(true, Editor);
+            Assert.True(TxDynamicsEditorDialog.Dismissed(third, kept: false));
+            b.Unkey();
+            Assert.False(b.Noise.ProcessorHandoffSetting);
+        }
+        finally { AudioOutputConfig.RadioProcessorOffWithCompressorInForce = settingWas; }
+    }
+
+    [Fact]
+    public void A_field_the_editor_changed_twice_with_somebody_elses_change_in_between_goes_back_to_what_they_left()
+    {
+        using var b = new Bridge();
+        var threshold = NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "threshold")!;
+        var model = b.Noise.DynamicsEditor(Editor);
+        b.Noise.SetDynamics(threshold, -30, Editor);            // the editor's
+        b.Noise.SetDynamics(threshold, -33, Home);              // Home's: the floor from here
+        b.Noise.SetDynamics(threshold, -36, Editor);            // the editor's again
+        b.Unkey();
+        Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+        b.Unkey();
+        Assert.Equal(-33f, b.Cond.Compressor.Settings.ThresholdDb); // back to Home's, not to where the editor first found it
+    }
+
+    // ── the field-by-field walk every setting class goes through ──
+
+    private static object Other(object? value) => value switch
+    {
+        bool flag => !flag,
+        float number => number + 1.5f,
+        int count => count + 1,
+        string word => word + "x",
+        _ => throw new NotSupportedException("no other value for " + value?.GetType().Name),
+    };
+
+    private static IEnumerable<(Func<object, object> Holder, System.Reflection.PropertyInfo Field, string Name)> ValueFields(Type type, Func<object, object> holder, string path)
+    {
+        foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0))
+        {
+            if (p.PropertyType.IsPrimitive || p.PropertyType == typeof(string)) yield return (holder, p, path + p.Name);
+            else foreach (var inner in ValueFields(p.PropertyType, root => p.GetValue(holder(root))!, path + p.Name + ".")) yield return inner;
+        }
+    }
+
+    [Fact]
+    public void Every_field_of_the_compressor_and_the_limiter_is_noted_and_taken_back_on_its_own()
+    {
+        var cases = ValueFields(typeof(TxCompressorSetup), root => root, "compressor.").Select(f => (Make: (Func<object>)(() => new TxCompressorSetup()), f.Holder, f.Field, f.Name))
+            .Concat(ValueFields(typeof(TxLimiterSetup), root => root, "limiter.").Select(f => (Make: (Func<object>)(() => new TxLimiterSetup()), f.Holder, f.Field, f.Name))).ToList();
+        // Positive control: the walk finds the fields, the three bands' included (13 of the compressor's own, 5 in each band, 4 of the limiter's).
+        Assert.Equal(13 + 3 * 5 + 4, cases.Count);
+        Assert.Contains(cases, c => c.Name == "compressor.MidBand.RatioToOne");
+        Assert.Contains(cases, c => c.Name == "compressor.PresetId");
+        Assert.Contains(cases, c => c.Name == "limiter.LookAheadMs");
+
+        foreach (var (make, holder, field, name) in cases)
+        {
+            object before = make(), after = make(), floor = make(), left = make();
+            object was = field.GetValue(holder(before))!;
+            object theirs = Other(was), someoneElses = Other(theirs);
+            field.SetValue(holder(after), theirs);
+
+            // The writer changed this one field.
+            Assert.False(OwnedFields.Differ(floor, left), name);
+            OwnedFields.Note(floor, left, before, after);
+            Assert.True(OwnedFields.Differ(floor, left), name + ": the change was not noted");
+            Assert.Equal(theirs, field.GetValue(holder(left)));
+            Assert.Equal(was, field.GetValue(holder(floor)));
+
+            // Still as the writer left it: it goes back, and nothing else moves.
+            object now = make();
+            field.SetValue(holder(now), theirs);
+            Assert.Equal(1, OwnedFields.TakeBack(floor, left, now));
+            Assert.False(OwnedFields.Differ(now, make()), name + ": taking it back did not restore the setting exactly");
+
+            // Changed by somebody else since: it stays theirs.
+            object changedSince = make();
+            field.SetValue(holder(changedSince), someoneElses);
+            Assert.Equal(0, OwnedFields.TakeBack(floor, left, changedSince));
+            Assert.Equal(someoneElses, field.GetValue(holder(changedSince)));
+
+            // Somebody else's change between two of the writer's: their value is the floor from then on.
+            object second = make(), third = make();
+            field.SetValue(holder(second), someoneElses);
+            field.SetValue(holder(third), Other(someoneElses));
+            OwnedFields.Note(floor, left, second, third);
+            Assert.Equal(someoneElses, field.GetValue(holder(floor)));
+        }
+    }
+
+    [Fact]
+    public void A_kind_of_field_the_walk_cannot_take_back_fails_loudly_instead_of_being_skipped()
+    {
+        var a = new HoldsAList(); var b = new HoldsAList();
+        Assert.Throws<NotSupportedException>(() => OwnedFields.Differ(a, b));
+    }
+
+    private sealed class HoldsAList { public string[] Order { get; set; } = Array.Empty<string>(); }
 
     [Fact]
     public void The_editors_window_puts_back_on_closing_not_on_one_button_and_its_Say_buttons_speak()

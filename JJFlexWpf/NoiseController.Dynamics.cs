@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using Radios;
 using Radios.Speech;
 
@@ -338,27 +339,9 @@ namespace JJFlexWpf
             bool was = ProcessorHandoffSetting;
             WriteProcessorHandoffSetting(on);
             if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "processor-handoff", "", Words(was), Words(on));
+            // The open editor's own change, for its Cancel (repair 3): only what it changed goes back.
+            if (_editor is { } editor && source == editor.Source) editor.NoteHandoff(was, on);
             Say(L(on ? "audio.processor_handoff.setting_on" : "audio.processor_handoff.setting_off"), SpeechSubject.ProcessorHandoff);
-        }
-
-        /// <summary>
-        /// Put the handoff's setting back, silently, as a SWITCH (the editor's
-        /// Cancel and Escape; repair 1, B5): held for the unkey while keyed, in
-        /// order behind anything already held, like the two stages it is put
-        /// back with. The setting decides what happens to the radio's speech
-        /// processor, so it does not change under an over.
-        /// </summary>
-        internal TxChangeResult RestoreProcessorHandoffSetting(bool on, string source)
-        {
-            void Apply()
-            {
-                bool was = ProcessorHandoffSetting;
-                WriteProcessorHandoffSetting(on);
-                if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "processor-handoff", "", Words(was), Words(on));
-            }
-            if (_txChain() is { } chain) return chain.RunOrDefer(Apply);
-            Apply();
-            return TxChangeResult.Now;
         }
 
         private void WriteProcessorHandoffSetting(bool on)
@@ -394,43 +377,238 @@ namespace JJFlexWpf
         /// <summary>A model for the compressor and limiter's editor on this controller: what it shows and how its Cancel puts back.</summary>
         public TxDynamicsEditorModel DynamicsEditor(string source)
         {
-            // The open editor's tag (repair 2, B5): every change asked for with its source while
-            // it is open is held under this tag (OwnTx), so its Cancel can withdraw the ones still
-            // waiting for the unkey. One editor at a time; a new one takes the tag over.
-            var owner = new object();
-            _editorOwner = owner;
-            _editorSource = source;
+            // One editor at a time; a new one takes over as the open one.
+            var editor = new EditorOwned(source);
+            _editor = editor;
             return new(
                 () => TxAudioConditioning.CaptureDynamics(),
                 (lever, value) => SetDynamics(lever, value, source, speak: false),
-                (compressor, limiter) =>
-                {
-                    using var owned = OwnTx(source);
-                    // Each as ONE switch, held for the unkey while keyed, behind anything already held.
-                    TxAudioConditioning.SetCompressorWhole(compressor);
-                    TxAudioConditioning.SetLimiterWhole(limiter);
-                },
-                // The editor offers the speech processor setting too, so its Cancel covers it (repair 1, B5).
                 () => ProcessorHandoffSetting,
-                on => RestoreProcessorHandoffSetting(on, source),
-                withdraw => EndDynamicsEditor(owner, withdraw));
+                withdraw => EndDynamicsEditor(editor, withdraw));
         }
 
-        private object? _editorOwner;
-        private string _editorSource = "";
+        /// <summary>
+        /// What ONE open editor has done (repair 2 and 3, B5). It is the tag
+        /// its waiting changes are held under, and the note of what its
+        /// changes did, kept field by field: for each field it changed, the
+        /// value the field had before the editor first changed it (the
+        /// floor) and the value the editor last left in it. The editor's
+        /// Cancel takes back exactly those fields, and only where they still
+        /// read as it left them. So a change somebody else made (Home, an
+        /// earlier editor's Close or Cancel) is never the editor's to undo,
+        /// whether it landed before the editor's own change, after it, or
+        /// while the editor sat open and untouched.
+        /// </summary>
+        private sealed class EditorOwned
+        {
+            public readonly string Source;
+            public EditorOwned(string source) => Source = source;
+            public TxCompressorSetup? CompressorFloor, CompressorLeft;
+            public TxLimiterSetup? LimiterFloor, LimiterLeft;
+            public bool? HandoffFloor, HandoffLeft;
+
+            /// <summary>One of the editor's writes ran: what both stages read just before it and just after it, in the chain's order.</summary>
+            public void Note((TxCompressorSetup Compressor, TxLimiterSetup Limiter) before, (TxCompressorSetup Compressor, TxLimiterSetup Limiter) after)
+            {
+                CompressorFloor ??= before.Compressor.Clone();
+                CompressorLeft ??= before.Compressor.Clone();
+                LimiterFloor ??= before.Limiter.Clone();
+                LimiterLeft ??= before.Limiter.Clone();
+                OwnedFields.Note(CompressorFloor, CompressorLeft, before.Compressor, after.Compressor);
+                OwnedFields.Note(LimiterFloor, LimiterLeft, before.Limiter, after.Limiter);
+            }
+
+            /// <summary>The editor switched the speech processor setting.</summary>
+            public void NoteHandoff(bool was, bool now)
+            {
+                if (was == now) return;
+                if (HandoffLeft != was) HandoffFloor = was; // its first change, or somebody changed it since the editor's last
+                HandoffLeft = now;
+            }
+
+            /// <summary>Whether anything the editor changed has landed and may still be there to take back.</summary>
+            public bool AnythingLanded =>
+                (CompressorFloor != null && OwnedFields.Differ(CompressorFloor, CompressorLeft!))
+                || (LimiterFloor != null && OwnedFields.Differ(LimiterFloor, LimiterLeft!))
+                || (HandoffFloor is bool floor && HandoffLeft is bool left && floor != left);
+
+            public void Forget()
+            {
+                CompressorFloor = CompressorLeft = null;
+                LimiterFloor = LimiterLeft = null;
+                HandoffFloor = HandoffLeft = null;
+            }
+        }
 
         /// <summary>
-        /// The editor is done with. Nothing asked for with its source is its
-        /// own any more (so the put-back its Cancel asks for is nobody's to
-        /// withdraw); and when it was cancelled, every change it asked for
-        /// while keyed that is still waiting for the unkey is withdrawn, and
-        /// everybody else's waiting changes stay, in their order. Returns how
-        /// many were withdrawn.
+        /// One write by the open editor. What both stages read just before it
+        /// and just after it is taken through the chain's own ordering (as
+        /// the noise layer's writes are), so a change held for the unkey is
+        /// noted when it runs, after the changes held ahead of it and before
+        /// anything asked for later; and all of it carries the editor's tag,
+        /// so a Cancel withdraws the change and runs the notes around it,
+        /// which then find nothing changed.
         /// </summary>
-        private int EndDynamicsEditor(object owner, bool withdraw)
+        private sealed class EditorTxWrite : IDisposable
         {
-            if (ReferenceEquals(_editorOwner, owner)) { _editorOwner = null; _editorSource = ""; }
-            return withdraw && _txChain() is { } chain ? chain.CancelHeld(owner) : 0;
+            private readonly NoiseController _owner;
+            private readonly EditorOwned _editor;
+            private readonly TxNoiseChain? _chain;
+            private readonly IDisposable? _tag;
+            private (TxCompressorSetup Compressor, TxLimiterSetup Limiter)? _before;
+            private bool _done;
+
+            public EditorTxWrite(NoiseController owner, EditorOwned editor, TxNoiseChain? chain)
+            {
+                _owner = owner; _editor = editor; _chain = chain;
+                owner._editorTxDepth++;
+                _tag = chain?.OwnedBy(editor);
+                After(() => _before = TxAudioConditioning.CaptureDynamics());
+            }
+
+            private void After(Action note)
+            {
+                if (_chain != null) _chain.AfterHeld(note); else note();
+            }
+
+            public void Dispose()
+            {
+                if (_done) return;
+                _done = true;
+                try { After(() => { if (_before is { } before) _editor.Note(before, TxAudioConditioning.CaptureDynamics()); }); }
+                finally { _tag?.Dispose(); _owner._editorTxDepth--; }
+            }
+        }
+
+        private EditorOwned? _editor;
+        private int _editorTxDepth;
+
+        /// <summary>
+        /// The editor is done with. Kept (Close): nothing more is its own,
+        /// and what it asked for while keyed stays waiting. Cancelled (every
+        /// other way out): what it asked for while keyed and is still waiting
+        /// is withdrawn, and everybody else's waiting changes stay, in their
+        /// order; then what it did land is taken back, as ONE change held for
+        /// the unkey while keyed, behind anything already waiting, which asks
+        /// again when it runs what still reads as the editor left it. True
+        /// when something was withdrawn, taken back, or is waiting to be.
+        /// </summary>
+        private bool EndDynamicsEditor(EditorOwned editor, bool withdraw)
+        {
+            if (ReferenceEquals(_editor, editor)) _editor = null;
+            if (!withdraw) return false;
+            var chain = _txChain();
+            // Its waiting changes go; the notes around them run, so what is noted is only what landed.
+            bool any = chain != null && chain.CancelHeld(editor) > 0;
+            if (!editor.AnythingLanded) return any;
+            bool tookBack = false;
+            if (chain == null) tookBack = TakeBackEditors(editor);
+            else if (chain.RunOrDefer(() => tookBack = TakeBackEditors(editor)).Timing == TxChangeTiming.AtUnkey) tookBack = true;
+            return any || tookBack;
+        }
+
+        /// <summary>Take back what the editor changed and nobody has changed since. On the control side, unkeyed, in the chain's order. True when anything went back.</summary>
+        private bool TakeBackEditors(EditorOwned editor)
+        {
+            bool any = false;
+            var (compressor, limiter) = TxAudioConditioning.CaptureDynamics();
+            if (editor.CompressorFloor != null && OwnedFields.TakeBack(editor.CompressorFloor, editor.CompressorLeft!, compressor) > 0)
+            {
+                TxAudioConditioning.SetCompressorWholeNow(compressor);
+                any = true;
+            }
+            if (editor.LimiterFloor != null && OwnedFields.TakeBack(editor.LimiterFloor, editor.LimiterLeft!, limiter) > 0)
+            {
+                TxAudioConditioning.SetLimiterWholeNow(limiter);
+                any = true;
+            }
+            if (editor.HandoffFloor is bool floor && editor.HandoffLeft is bool left && floor != left && ProcessorHandoffSetting == left)
+            {
+                WriteProcessorHandoffSetting(floor);
+                NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(editor.Source), "processor-handoff", "", Words(left), Words(floor));
+                any = true;
+            }
+            editor.Forget();
+            return any;
+        }
+    }
+
+    /// <summary>
+    /// One writer's changes to a setting, kept and taken back FIELD BY FIELD
+    /// (Sprint 49 Track CL repair 3). The settings are plain saved classes
+    /// (numbers, switches, words, and smaller settings of the same kind), so
+    /// every public field that can be read and written is walked; a field a
+    /// later build adds is covered without anything here changing, and a kind
+    /// of field this cannot walk (a list) fails loudly rather than being
+    /// skipped.
+    /// </summary>
+    internal static class OwnedFields
+    {
+        private static IEnumerable<PropertyInfo> Fields(Type type) =>
+            type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0);
+
+        private static bool IsValue(Type type)
+        {
+            if (type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)) return true;
+            if (typeof(System.Collections.IEnumerable).IsAssignableFrom(type))
+                throw new NotSupportedException("OwnedFields cannot walk a field of type " + type.Name + ": teach it lists before a setting holds one");
+            return false;
+        }
+
+        /// <summary>
+        /// Note one write by the writer. For every field the write changed:
+        /// if the field no longer read as the writer had last left it,
+        /// somebody else changed it in between and its value just before
+        /// this write is the new floor; and the value after it is what the
+        /// writer left.
+        /// </summary>
+        public static void Note(object floor, object left, object before, object after)
+        {
+            foreach (var field in Fields(before.GetType()))
+            {
+                object? was = field.GetValue(before), now = field.GetValue(after);
+                if (!IsValue(field.PropertyType))
+                {
+                    object? innerFloor = field.GetValue(floor), innerLeft = field.GetValue(left);
+                    if (was != null && now != null && innerFloor != null && innerLeft != null) Note(innerFloor, innerLeft, was, now);
+                    continue;
+                }
+                if (Equals(was, now)) continue;
+                if (!Equals(was, field.GetValue(left))) field.SetValue(floor, was);
+                field.SetValue(left, now);
+            }
+        }
+
+        /// <summary>Whether the writer has left any field other than at its floor.</summary>
+        public static bool Differ(object floor, object left)
+        {
+            foreach (var field in Fields(floor.GetType()))
+            {
+                object? a = field.GetValue(floor), b = field.GetValue(left);
+                if (!IsValue(field.PropertyType)) { if (a != null && b != null && Differ(a, b)) return true; continue; }
+                if (!Equals(a, b)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Take the writer's changes back out of <paramref name="now"/>, in
+        /// place: every field the writer changed that still reads as the
+        /// writer left it goes back to its floor; every other field stays as
+        /// it reads now. Returns how many fields went back.
+        /// </summary>
+        public static int TakeBack(object floor, object left, object now)
+        {
+            int count = 0;
+            foreach (var field in Fields(now.GetType()))
+            {
+                object? a = field.GetValue(floor), b = field.GetValue(left), c = field.GetValue(now);
+                if (!IsValue(field.PropertyType)) { if (a != null && b != null && c != null) count += TakeBack(a, b, c); continue; }
+                if (Equals(a, b) || !Equals(c, b)) continue;
+                field.SetValue(now, a);
+                count++;
+            }
+            return count;
         }
     }
 
@@ -445,27 +623,21 @@ namespace JJFlexWpf
     {
         private readonly Func<(TxCompressorSetup Compressor, TxLimiterSetup Limiter)> _read;
         private readonly Action<DynamicsLever, double> _set;
-        private readonly Action<TxCompressorSetup, TxLimiterSetup> _restore;
-        private readonly Func<bool> _readHandoff;
-        private readonly Action<bool> _restoreHandoff;
-        private readonly Func<bool, int> _end;
+        private readonly Func<bool, bool> _end;
 
-        /// <param name="end">The editor is done with: called with true to withdraw what it asked for while keyed and is still waiting (returning how many), with false to leave it waiting.</param>
+        /// <param name="end">The editor is done with: called with true to take back what this editor did (withdrawing what it asked for while keyed and is still waiting, and undoing what it landed), answering whether there was anything; with false to keep it all.</param>
         public TxDynamicsEditorModel(Func<(TxCompressorSetup, TxLimiterSetup)> read, Action<DynamicsLever, double> set,
-            Action<TxCompressorSetup, TxLimiterSetup> restore, Func<bool> readHandoff, Action<bool> restoreHandoff, Func<bool, int> end)
+            Func<bool> readHandoff, Func<bool, bool> end)
         {
             _end = end ?? throw new ArgumentNullException(nameof(end));
             _read = read ?? throw new ArgumentNullException(nameof(read));
             _set = set ?? throw new ArgumentNullException(nameof(set));
-            _restore = restore ?? throw new ArgumentNullException(nameof(restore));
-            _readHandoff = readHandoff ?? throw new ArgumentNullException(nameof(readHandoff));
-            _restoreHandoff = restoreHandoff ?? throw new ArgumentNullException(nameof(restoreHandoff));
             var (c, l) = _read();
             OpenedWith = (c.Clone(), l.Clone());
-            OpenedWithHandoff = _readHandoff();
+            OpenedWithHandoff = (readHandoff ?? throw new ArgumentNullException(nameof(readHandoff)))();
         }
 
-        /// <summary>The speech processor setting the editor opened with: Cancel and Escape put it back too.</summary>
+        /// <summary>The speech processor setting as it read when the editor opened (for the record; Cancel takes back the editor's own change to it, not this picture).</summary>
         public bool OpenedWithHandoff { get; }
 
         /// <summary>An editor on settings of its own, applying nothing anywhere: the dialog harness's road.</summary>
@@ -473,10 +645,10 @@ namespace JJFlexWpf
         {
             var compressor = new TxCompressorSetup();
             var limiter = TxLimiterSetup.ForNewSetup();
-            return new TxDynamicsEditorModel(() => (compressor, limiter), (_, _) => { }, (_, _) => { }, () => true, _ => { }, _ => 0);
+            return new TxDynamicsEditorModel(() => (compressor, limiter), (_, _) => { }, () => true, _ => false);
         }
 
-        /// <summary>The setting the editor opened with: what Cancel and Escape put back.</summary>
+        /// <summary>The setting as it read when the editor opened (for the record). Cancel does NOT put this picture back: changes asked for before the editor opened may land while it is open, and they are not the editor's to undo (repair 3).</summary>
         public (TxCompressorSetup Compressor, TxLimiterSetup Limiter) OpenedWith { get; }
 
         /// <summary>The setting now: copies.</summary>
@@ -532,23 +704,14 @@ namespace JJFlexWpf
         public void Kept() => _end(false);
 
         /// <summary>
-        /// Every way out but Close: put back everything the editor opened
-        /// with, both stages whole and the speech processor setting. What
-        /// the editor asked for while keyed has not reached the setting yet
-        /// (it waits for the unkey), so comparing the setting cannot see it:
-        /// it is withdrawn FIRST (repair 2, B5), and then whatever did land
-        /// is put back. True when anything was withdrawn or had changed.
+        /// Every way out but Close: take back what THIS editor did, and
+        /// nothing else. What it asked for while keyed and is still waiting
+        /// is withdrawn; what it landed goes back, field by field, to what
+        /// each field was before the editor changed it, wherever the field
+        /// still reads as the editor left it. An editor in which nothing was
+        /// changed takes nothing back, whatever landed while it was open.
+        /// True when there was anything to take back.
         /// </summary>
-        public bool Restore()
-        {
-            int withdrawn = _end(true);
-            var (c, l) = _read();
-            bool stages = !NoiseController.SameCompressor(c, OpenedWith.Compressor) || c.PresetId != OpenedWith.Compressor.PresetId
-                || !NoiseController.SameLimiter(l, OpenedWith.Limiter);
-            if (stages) _restore(OpenedWith.Compressor.Clone(), OpenedWith.Limiter.Clone());
-            bool handoff = _readHandoff() != OpenedWithHandoff;
-            if (handoff) _restoreHandoff(OpenedWithHandoff);
-            return withdrawn > 0 || stages || handoff;
-        }
+        public bool Restore() => _end(true);
     }
 }

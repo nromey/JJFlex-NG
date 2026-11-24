@@ -1233,12 +1233,16 @@ namespace JJFlexWpf
         public static TxChangeResult SetCompressorWhole(TxCompressorSetup setup)
         {
             var copy = (setup ?? new TxCompressorSetup()).Clone();
-            return Chain.RunOrDefer(() =>
-            {
-                lock (_gate) _compIntent = copy.Clone();
-                var whole = copy.ToSettings();
-                Conditioner?.RequestSwitch(g => g.Comp = whole);
-            });
+            return Chain.RunOrDefer(() => SetCompressorWholeNow(copy));
+        }
+
+        /// <summary>The same, now, for a caller that is already ONE held change of the chain's (the editor's put-back): it must not be held a second time inside it, or put behind what was asked after it.</summary>
+        internal static void SetCompressorWholeNow(TxCompressorSetup setup)
+        {
+            var copy = (setup ?? new TxCompressorSetup()).Clone();
+            lock (_gate) _compIntent = copy.Clone();
+            var whole = copy.ToSettings();
+            Conditioner?.RequestSwitch(g => g.Comp = whole);
         }
 
         private static float Within(float value, float low, float high) => Math.Clamp(value, low, high);
@@ -1368,12 +1372,16 @@ namespace JJFlexWpf
         public static TxChangeResult SetLimiterWhole(TxLimiterSetup setup)
         {
             var copy = (setup ?? new TxLimiterSetup()).Clone();
-            return Chain.RunOrDefer(() =>
-            {
-                lock (_gate) _limiterIntent = copy.Clone();
-                var whole = copy.ToSettings();
-                Conditioner?.RequestSwitch(g => g.Limiter = whole);
-            });
+            return Chain.RunOrDefer(() => SetLimiterWholeNow(copy));
+        }
+
+        /// <summary>The same, now (see <see cref="SetCompressorWholeNow"/>).</summary>
+        internal static void SetLimiterWholeNow(TxLimiterSetup setup)
+        {
+            var copy = (setup ?? new TxLimiterSetup()).Clone();
+            lock (_gate) _limiterIntent = copy.Clone();
+            var whole = copy.ToSettings();
+            Conditioner?.RequestSwitch(g => g.Limiter = whole);
         }
 
         // ── readings: on demand, never per frame ──

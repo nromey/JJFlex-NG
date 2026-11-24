@@ -273,15 +273,16 @@ namespace JJFlexWpf
         /// is live; nested writes share the outermost. While open, every change
         /// the chain holds is tagged with the picture, so Escape can withdraw it.
         /// The compressor and limiter editor's writes are tagged the same way
-        /// while it is open (repair 2, B5), with the editor's own tag and none
-        /// of the layer's bookkeeping: its Cancel withdraws what it asked for
-        /// while keyed and is still waiting.
+        /// while it is open (repair 2, B5), with the editor's own tag, so its
+        /// Cancel withdraws what it asked for while keyed and is still
+        /// waiting; and what each one changed is noted, field by field, in
+        /// the chain's order (repair 3), so its Cancel takes back only that.
         /// </summary>
         private IDisposable? OwnTx(string source)
         {
             if (_ownTxDepth > 0) return null;
             if (source == LayerSource && _live is { } snap && _txChain() is { } chain) return new LayerTxWrite(this, snap, chain);
-            if (_editorOwner is { } editor && source == _editorSource && _txChain() is { } editorChain) return editorChain.OwnedBy(editor);
+            if (_editor is { } editor && source == editor.Source && _editorTxDepth == 0) return new EditorTxWrite(this, editor, _txChain());
             return null;
         }
 
