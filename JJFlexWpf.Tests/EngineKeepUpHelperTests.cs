@@ -360,6 +360,13 @@ public sealed class EngineKeepUpHelperTests
         // One buffer asks for the build; then wait, feeding nothing, until it is delivered.
         p.Hurried();
         HelperTestRig.Until(() => p.Pipeline.NeuralSlot.BuildDelivered("nnr"), "the nnr bank delivered");
+        // The answers are to be starved by the gate, so every hurried frame must reach
+        // the helper: a frame given to a channel still opening is never sent
+        // (WdspHelperEngine.ProcessFrame), which starves the warm-up by the connection,
+        // the case the last assertion below rules out. Until Sprint 49 Track RT this held
+        // only because the audio thread was slow enough; with nothing traced on it any
+        // more, the 350 hurried buffers can all go before the stub has opened a channel.
+        HelperTestRig.Until(() => p.Made.Count == 2 && p.Made.All(e => e.Channel is { Opened: true }), "both nnr channels open");
         for (int i = 0; i < EngineKeepUpRule.DefaultStuckWarmup + 50; i++) p.Hurried();
         Assert.True(p.Has(p.Delivery, EngineKeepUpChange.FellBehind), "the warm-up that never ended was never seen");
         Assert.False(p.Has(p.Results, EngineKeepUpChange.FellBehind, 100), "a fast helper whose warm-up was starved was warned about");
