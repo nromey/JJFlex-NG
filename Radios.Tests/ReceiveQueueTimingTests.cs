@@ -413,7 +413,8 @@ namespace Radios.Tests
                 using var writer = new OffAudioDrainer(10, "rxtiming writer");
                 writer.Register(new QueueLines(q));
                 var wait = Stopwatch.StartNew();
-                while (Volatile.Read(ref listener.Calls) == 0 && wait.ElapsedMilliseconds < 3000) System.Threading.Thread.Sleep(10);
+                // Repair 2 (Sprint 49 Track RT): a generous wait on the delivery itself, which the shared off-audio writer makes (below normal priority, so seconds late under heavy load), never a fixed sleep.
+                while (Volatile.Read(ref listener.Calls) == 0 && wait.ElapsedMilliseconds < 15000) System.Threading.Thread.Sleep(10);
                 Assert.Equal(1, Volatile.Read(ref listener.Calls));
                 Assert.NotEqual(Environment.CurrentManagedThreadId, listener.Thread);
                 Assert.False(q.LinesPending);

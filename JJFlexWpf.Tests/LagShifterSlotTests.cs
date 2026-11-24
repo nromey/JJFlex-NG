@@ -503,7 +503,8 @@ public sealed class LagShifterSlotTests
             Assert.Equal("rnnoise", slot.RunningEngineId);
             // A new length is handed to a pool thread on its first buffer; it is long ready by now.
             var wait = System.Diagnostics.Stopwatch.StartNew();
-            while (!slot.ScratchReadyForTest(2 * frames) && wait.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(1);
+            // Repair 2 (Sprint 49 Track RT): a generous wait on the delivery itself, which the shared off-audio writer makes (below normal priority, so seconds late under heavy load), never a fixed sleep.
+            while (!slot.ScratchReadyForTest(2 * frames) && wait.ElapsedMilliseconds < 15000) System.Threading.Thread.Sleep(1);
             Assert.True(slot.ScratchReadyForTest(2 * frames));
             var hits = new List<string>();
             // Every call counted, strictly (repair 3): the "the pool grew during this call"
@@ -645,7 +646,7 @@ public sealed class LagShifterSlotTests
             Assert.Equal(0, slot.TraceWorkForTest.Drains);          // nothing recorded, nothing drained
             slot.TraceForTest(0);
             slot.Process(audio, true, true, false, null);
-            Assert.True(entered.Wait(5000), "the writer never started");
+            Assert.True(entered.Wait(15000), "the writer never started");
             Assert.Equal(1, slot.TraceWorkForTest.Drains);
             Assert.NotEqual(Environment.CurrentManagedThreadId, slot.TraceWorkForTest.LastDrainThread);
             var bytes = new long[128];
@@ -660,7 +661,7 @@ public sealed class LagShifterSlotTests
             Assert.All(bytes, b => Assert.Equal(0, b));
             release.Set();
             var wait = System.Diagnostics.Stopwatch.StartNew();
-            while (lines.Count < 66 && wait.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(5);
+            while (lines.Count < 66 && wait.ElapsedMilliseconds < 15000) System.Threading.Thread.Sleep(5);
             System.Threading.Thread.Sleep(30);
             var got = lines.ToArray();
             _out.WriteLine($"{got.Length} lines; drains {slot.TraceWorkForTest.Drains}; {got.Count(l => l.Contains("lost"))} loss line(s)");
