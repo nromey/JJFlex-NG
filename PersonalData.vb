@@ -893,10 +893,36 @@ Public Class PersonalData
         Return result
     End Function
 
+    ''' <summary>
+    ''' The operator form's licence list position for <paramref name="cls"/>
+    ''' (#1239): the list holds <see cref="LicenseConfig.OfferedClasses"/> in
+    ''' that order, so the position is no longer the enum value. A class the
+    ''' list does not hold opens on the first, Extra.
+    ''' </summary>
+    Friend Shared Function LicenseListIndex(cls As Bands.Licenses) As Integer
+        For i As Integer = 0 To LicenseConfig.OfferedClasses.Count - 1
+            If LicenseConfig.OfferedClasses(i) = cls Then Return i
+        Next
+        Return 0
+    End Function
+
+    ''' <summary>
+    ''' The class at the operator form's licence list position
+    ''' <paramref name="index"/> (#1239), the inverse of
+    ''' <see cref="LicenseListIndex"/>; no selection (-1) keeps the class the
+    ''' list opened on, <paramref name="shown"/>.
+    ''' </summary>
+    Friend Shared Function LicenseAtListIndex(index As Integer, shown As Bands.Licenses) As Bands.Licenses
+        If index < 0 OrElse index >= LicenseConfig.OfferedClasses.Count Then Return shown
+        Return LicenseConfig.OfferedClasses(index)
+    End Function
+
     ''' <summary>The form's licence class for <paramref name="theOp"/>, saved after the operator was (#1239).</summary>
     Private Shared Sub SaveFormLicense(oldName As String, theOp As personal_v1, isNew As Boolean)
+        ' Named, so the class the list opened on and the class it closed on
+        ' cannot trade places: traded, every class change is dropped.
         SaveOperatorLicense(BaseConfigDir & "\Radios", BaseConfigDir, oldName, UniqueOpName(theOp),
-                            PersonalInfo.LicenseShown, PersonalInfo.LicenseChosen, isNew)
+                            shown:=PersonalInfo.LicenseShown, chosen:=PersonalInfo.LicenseChosen, isNew:=isNew)
     End Sub
 
     ' We need to know if we're doing an add.

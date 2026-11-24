@@ -31,13 +31,6 @@ Public Class PersonalInfo
         End If
     End Sub
 
-    Private Shared Function IndexOfLicense(cls As Bands.Licenses) As Integer
-        For i As Integer = 0 To LicenseConfig.OfferedClasses.Count - 1
-            If LicenseConfig.OfferedClasses(i) = cls Then Return i
-        Next
-        Return 0
-    End Function
-
     Private Sub PersonalInfo_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
         wasActive = False
         DialogResult = DialogResult.None
@@ -70,7 +63,7 @@ Public Class PersonalInfo
             licenseStored = lic.Stored
             LicenseShown = lic.Shown
             LicenseChosen = lic.Shown
-            LicenseList.SelectedIndex = IndexOfLicense(lic.Shown)
+            LicenseList.SelectedIndex = PersonalData.LicenseListIndex(lic.Shown)
             BRLSizeBox.Text = .BrailleDisplaySize
             AddressBox.Text = .ClusterHostname
             If .ClusterLoginName = vbNullString Then
@@ -151,8 +144,7 @@ Public Class PersonalInfo
             .GridSquare = Trim(GridSquareBox.Text).ToUpper()
             ' The class goes to the licence file after the operator is saved
             ' (PersonalData); the record keeps the same class (#1239).
-            LicenseChosen = If(LicenseList.SelectedIndex = -1, LicenseShown,
-                               LicenseConfig.OfferedClasses(LicenseList.SelectedIndex))
+            LicenseChosen = PersonalData.LicenseAtListIndex(LicenseList.SelectedIndex, LicenseShown)
             .License = PersonalData.RecordLicenseClass(licenseStored, LicenseShown, LicenseChosen, Not updateFlag)
             ' hostname may be host:port
             Dim clustHost As String = AddressBox.Text.Trim

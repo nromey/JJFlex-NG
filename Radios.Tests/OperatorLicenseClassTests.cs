@@ -249,7 +249,92 @@ namespace Radios.Tests
             Assert.Contains(".License = PersonalData.RecordLicenseClass(licenseStored, LicenseShown, LicenseChosen, Not updateFlag)", src, StringComparison.Ordinal);
         }
 
+        // ---------------- the form's list and its save, line by line ----------------
+        //
+        // Repair 1: three ordinary regressions in the form layer left every test
+        // above green. The list position and the class are mapped by two app
+        // seams, tested by behaviour; the three form lines that call them, and
+        // the save that hands the opened and chosen classes on, can only be
+        // reached through the form itself, so they are pinned by source.
+
+        [Theory]
+        [InlineData(0, Bands.Licenses.extra)]
+        [InlineData(1, Bands.Licenses.advanced)]
+        [InlineData(2, Bands.Licenses.general)]
+        [InlineData(3, Bands.Licenses.technition)]
+        public void Each_list_position_saves_the_class_it_shows(int index, Bands.Licenses cls)
+        {
+            // Settings' order, so position 0 is Extra: read as the enum value it
+            // would save none, which with the lockout on refuses every band.
+            Assert.Equal(cls, AtListIndex(index, shown: Bands.Licenses.technition));
+            Assert.Equal(cls, LicenseConfig.OfferedClasses[index]);
+        }
+
+        [Theory]
+        [InlineData(Bands.Licenses.general)]
+        [InlineData(Bands.Licenses.technition)]
+        public void No_selection_keeps_the_class_the_list_opened_on(Bands.Licenses shown)
+        {
+            Assert.Equal(shown, AtListIndex(-1, shown));
+        }
+
+        [Theory]
+        [InlineData(Bands.Licenses.extra, 0)]
+        [InlineData(Bands.Licenses.advanced, 1)]
+        [InlineData(Bands.Licenses.general, 2)]
+        [InlineData(Bands.Licenses.technition, 3)]
+        public void The_list_opens_on_the_operators_own_class(Bands.Licenses cls, int index)
+        {
+            // An untouched edit of a General operator must save General, not
+            // the first row, Extra.
+            Assert.Equal(index, ListIndex(cls));
+            Assert.Equal(cls, AtListIndex(ListIndex(cls), shown: Bands.Licenses.none));
+        }
+
+        [Fact]
+        public void The_form_opens_and_closes_its_list_through_the_seams_and_nowhere_else()
+        {
+            string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalInfo.vb")).Replace("\r\n", "\n");
+
+            string load = SourceMember.VisualBasic(src, "Private Sub PersonalInfo_Load(");
+            Assert.Contains("LicenseList.SelectedIndex = PersonalData.LicenseListIndex(lic.Shown)", load, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(src, "LicenseList.SelectedIndex = "));
+
+            string ok = SourceMember.VisualBasic(src, "Private Sub OKButton_Click(");
+            Assert.Contains("LicenseChosen = PersonalData.LicenseAtListIndex(LicenseList.SelectedIndex, LicenseShown)", ok, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(ok, "LicenseChosen = "));
+            Assert.DoesNotContain("CType(LicenseList.SelectedIndex", src, StringComparison.Ordinal);
+            // The chosen class is set before the record's own class is taken from it.
+            Assert.True(ok.IndexOf("LicenseChosen = ", StringComparison.Ordinal)
+                        < ok.IndexOf(".License = PersonalData.RecordLicenseClass(", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void The_form_save_hands_on_the_opened_class_as_shown_and_the_chosen_class_as_chosen()
+        {
+            // Traded, SaveClass sees the old class as the choice and every class
+            // change on the form is silently dropped.
+            string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalData.vb")).Replace("\r\n", "\n");
+            string save = SourceMember.VisualBasic(src, "Private Shared Sub SaveFormLicense(");
+            Assert.Contains("shown:=PersonalInfo.LicenseShown, chosen:=PersonalInfo.LicenseChosen, isNew:=isNew)", save, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(save, "SaveOperatorLicense("));
+            Assert.Equal(1, Occurrences(save, "PersonalInfo.LicenseShown"));
+            Assert.Equal(1, Occurrences(save, "PersonalInfo.LicenseChosen"));
+        }
+
+        private static int Occurrences(string text, string what)
+        {
+            int n = 0;
+            for (int i = text.IndexOf(what, StringComparison.Ordinal); i >= 0; i = text.IndexOf(what, i + what.Length, StringComparison.Ordinal)) n++;
+            return n;
+        }
+
         // ---------------- the app's seams ----------------
+
+        private Bands.Licenses AtListIndex(int index, Bands.Licenses shown) =>
+            Enum.Parse<Bands.Licenses>((string)Call("LicenseAtListIndex", index, shown)!);
+
+        private static int ListIndex(Bands.Licenses cls) => (int)Call("LicenseListIndex", cls)!;
 
         private (Bands.Licenses Stored, Bands.Licenses Shown) AtOpen(string? opName)
         {
