@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- With transmit band lockout on, an FM slice whose transmit offset was set somewhere else, such as by another program on the radio, is now checked where it will actually transmit, not where it is listening. A repeater offset that would take your signal outside your license privileges is refused, and one that brings it back inside them is allowed.
