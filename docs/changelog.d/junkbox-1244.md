@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- Closing a SmartLink sign-in window without signing in now says "Login cancelled", from JJ Flexible's own sign-in window and from the browser sign-in page alike, the same words the Manage SmartLink Accounts sign-in has always used. It is not said when an error closed the page, or when you chose the browser page instead.
+- SmartLink sign-in in JJ Flexible Radio Access now ends with "Login cancelled" when you cancel the app's sign-in window or close the browser sign-in page. The connection attempt then stops without a failure message, another connection method or an "Auto-Connect Failed" window.
