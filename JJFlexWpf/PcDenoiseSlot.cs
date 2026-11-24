@@ -271,7 +271,11 @@ namespace JJFlexWpf
             Family = family; _catalog = catalog; _channels = channels; _sampleRate = sampleRate;
             _nextAudio = new float[Math.Max(1, sampleRate / 100) * Math.Max(1, channels)];
             _retimeAudio = new float[_nextAudio.Length];
+            // One scheduler for everything when a test gives one; otherwise the lines
+            // go to the diagnostics writer and the events (results, retirements,
+            // builds, scratch) to the normal-priority events writer (repair 3).
             _scheduler = scheduler ?? OffAudioDrainer.Shared;
+            _eventScheduler = scheduler ?? OffAudioDrainer.Events;
             _scratchMaker = new ScratchMaker(this);
             _traceWork = new SlotTraces(this);
             _events = new SlotEvents(this);
@@ -318,7 +322,7 @@ namespace JJFlexWpf
             }
             // Last, once everything the writer could read is in place (Track RT).
             _scheduler.Register(_traceWork);
-            _scheduler.Register(_events);
+            _eventScheduler.Register(_events);
         }
 
         /// <summary>
@@ -1778,7 +1782,7 @@ namespace JJFlexWpf
 
         internal const int TraceCapacity = 64;
         private readonly RecordRing<TraceRecord> _traceRing = new(TraceCapacity);
-        private readonly IOffAudioScheduler _scheduler;
+        private readonly IOffAudioScheduler _scheduler, _eventScheduler;
         // One drain at a time, looking again before it stands down (Codex's re-check 2
         // of 0d8ecb3c): OffAudioWork.Drain's own discipline now, shared by the writer's
         // period and DisposeOwned's flush.
@@ -2084,7 +2088,7 @@ namespace JJFlexWpf
             // slot is closed, which the raise checks.
             DisposeRetired();
             _scheduler.Unregister(_traceWork);
-            _scheduler.Unregister(_events);
+            _eventScheduler.Unregister(_events);
             // The id stays, as it always did; only the bank goes, so the delay reads 0.
             var run = Volatile.Read(ref _runningBuild);
             if (run?.Bank != null) { run.Bank.Dispose(); Volatile.Write(ref _runningBuild, run with { Bank = null }); }

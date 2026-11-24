@@ -393,6 +393,158 @@ public sealed class ReceiveOffAudioWriterTests
         finally { Trace.Listeners.Remove(listener); }
     }
 
+    // ── Repair 3: the events writer, and every keep-up change kept ──
+
+    private static DenoiseEngineEntry BurstRow(string id, Func<IDenoiseEngine> make) =>
+        new(id, DenoiseSide.Pc, DenoiseFamily.Neural, "audio.denoise." + id, new[] { DenoiseDirection.Receive }, (_, _) => make(), () => Unavailability.None);
+
+    /// <summary>
+    /// A burst of keep-up changes made faster than the writer drains them is
+    /// delivered whole, in order (repair 3). The writer here is held still while
+    /// the engine keeps up, falls behind and recovers, as a starved writer is held
+    /// on a busy machine; then one pass raises all three. Until repair 3 the
+    /// mailbox kept only the newest change, so this pass raised "recovered" alone
+    /// and the fall was never heard.
+    /// </summary>
+    [Fact]
+    public void A_burst_of_keep_up_changes_faster_than_the_writer_drains_is_delivered_whole_in_order()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        bool slowNow = false;
+        var rows = new[]
+        {
+            BurstRow("rnnoise", () => new EngineKeepUpPipelineTests.Engine("rnnoise")),
+            BurstRow("switchable", () => new EngineKeepUpPipelineTests.Engine("switchable", () => Volatile.Read(ref slowNow) ? 6 : 0)),
+        };
+        var writer = new ManualOffAudioScheduler();
+        using var p = new RxAudioPipeline(48000, 2, new DenoiseEngineCatalog(rows), 0, writer);
+        var results = new ConcurrentQueue<EngineKeepUpResult>();
+        p.KeepUpResult += (_, r) => results.Enqueue(r);
+        var audio = new float[960];
+        void Pump() { Array.Fill(audio, 0.1f); p.Process(audio); }
+        Assert.True(p.SelectPcEngine("switchable", out var refusal), refusal);
+        p.RnnEnabled = true;
+        var t = Stopwatch.StartNew();
+        while (p.NeuralSlot.ProcessingEngineId != "switchable" && t.ElapsedMilliseconds < 15000) { Pump(); Thread.Sleep(1); }
+        Assert.Equal("switchable", p.NeuralSlot.ProcessingEngineId);
+        writer.Tick();
+        while (results.TryDequeue(out _)) { }
+        var rule = p.KeepUpRuleFor(DenoiseFamily.Neural);
+        // Keeping up: the window fills clean after the grace. The writer is not run.
+        for (int i = 0; i < 600 && rule.Filled < EngineKeepUpRule.DefaultWindow; i++) Pump();
+        // Falling behind: 12 ms of processing for each 10 ms buffer.
+        Volatile.Write(ref slowNow, true);
+        for (int i = 0; i < 400 && !rule.Behind; i++) Pump();
+        Assert.True(rule.Behind, "the engine never fell behind, so there is no burst");
+        // Recovering.
+        Volatile.Write(ref slowNow, false);
+        for (int i = 0; i < 800 && rule.Behind; i++) Pump();
+        Assert.False(rule.Behind, "the engine never recovered, so there is no burst");
+        Assert.Empty(results);                         // nothing raised yet: the writer was held
+
+        writer.Tick();                                 // one pass, after all three changes
+        var got = results.Select(r => r.Change).ToArray();
+        _out.WriteLine(string.Join(", ", got));
+        Assert.Equal(new[] { EngineKeepUpChange.KeepingUp, EngineKeepUpChange.FellBehind, EngineKeepUpChange.Recovered }, got);
+        Assert.All(results, r => Assert.Equal("switchable", r.EngineId));
+    }
+
+    private static void PublishN(RxAudioPipeline.KeepUpMailbox box, int from, int count)
+    {
+        for (int i = from; i < from + count; i++)
+            box.Publish("e" + (i % 3), (EngineKeepUpChange)(1 + i % 3), false, i, i, i, i, i);
+    }
+
+    /// <summary>
+    /// At the bound: sixteen changes wait in the ring, and every later one goes to
+    /// the overflow slot, so the NEWEST is always delivered, last; those it
+    /// replaced are counted, and the pipeline traces the count off the audio thread.
+    /// </summary>
+    [Fact]
+    public void A_full_mailbox_still_delivers_the_newest_change_last_and_counts_the_lost()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var box = new RxAudioPipeline.KeepUpMailbox(false);
+        int n = RxAudioPipeline.KeepUpMailbox.Capacity + 5;           // 21 changes, late = 0..20
+        PublishN(box, 0, n);
+        var lates = new List<int>();
+        while (box.TryTake(DenoiseFamily.Neural, out var r)) lates.Add(r.LateBuffers);
+        _out.WriteLine(string.Join(", ", lates));
+        Assert.Equal(Enumerable.Range(0, RxAudioPipeline.KeepUpMailbox.Capacity).Append(n - 1), lates);
+        Assert.Equal(4, box.TakeLost());                               // the four the overflow slot was holding when a newer one came
+        Assert.Equal(0, box.TakeLost());
+        // And it carries on in order after the bound.
+        PublishN(box, 100, 3);
+        lates.Clear();
+        while (box.TryTake(DenoiseFamily.Neural, out var r)) lates.Add(r.LateBuffers);
+        Assert.Equal(new[] { 100, 101, 102 }, lates);
+        Assert.Equal(0, box.TakeLost());
+    }
+
+    /// <summary>
+    /// The order holds when the reader takes some, the ring refills past its bound,
+    /// and the overflow slot holds a change newer than what waits in the ring.
+    /// </summary>
+    [Fact]
+    public void The_mailbox_delivers_in_order_across_the_ring_and_the_overflow_slot()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var box = new RxAudioPipeline.KeepUpMailbox(true);
+        PublishN(box, 0, 16);                                          // the ring full
+        Assert.True(box.TryTake(DenoiseFamily.Neural, out var first)); // 0 taken: one slot free
+        PublishN(box, 16, 2);                                          // 16 into the ring, 17 to the overflow
+        var lates = new List<int> { first.LateBuffers };
+        while (box.TryTake(DenoiseFamily.Neural, out var r)) { lates.Add(r.LateBuffers); Assert.True(r.Delivery); }
+        Assert.Equal(Enumerable.Range(0, 18), lates);
+        Assert.Equal(0, box.TakeLost());
+    }
+
+    /// <summary>The audio side of the mailbox allocates nothing, in the ring or at its bound.</summary>
+    [Fact]
+    public void Publishing_a_keep_up_change_allocates_nothing_on_the_audio_thread()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        var box = new RxAudioPipeline.KeepUpMailbox(false);
+        var names = new[] { "e0", "e1", "e2" };
+        box.Publish(names[0], EngineKeepUpChange.KeepingUp, false, 0, 0, 0, 0, 0);   // the JIT's first pass
+        while (box.TryTake(DenoiseFamily.Neural, out _)) { }
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 1000; i++)
+            box.Publish(names[i % 3], (EngineKeepUpChange)(1 + i % 3), false, i, i, i, i, i);   // fills, then overflows 984 times
+        long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, bytes);
+        int taken = 0;
+        while (box.TryTake(DenoiseFamily.Neural, out _)) taken++;
+        Assert.Equal(RxAudioPipeline.KeepUpMailbox.Capacity + 1, taken);  // positive control: it really filled and overflowed
+        Assert.Equal(1000 - RxAudioPipeline.KeepUpMailbox.Capacity - 1, box.TakeLost());
+    }
+
+    /// <summary>
+    /// What goes where (repair 3): a pipeline and its slots built as the app builds
+    /// them put the EVENTS (the keep-up raiser, the slot's results, retirements and
+    /// builds) on the normal-priority events writer, and the trace lines on the
+    /// below-normal diagnostics writer.
+    /// </summary>
+    [Fact]
+    public void Events_go_to_the_normal_priority_writer_and_trace_lines_to_the_below_normal_one()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        using var p = new RxAudioPipeline(48000, 2, new DenoiseEngineCatalog(new[] { BurstRow("rnnoise", () => new EngineKeepUpPipelineTests.Engine("rnnoise")) }));
+        Assert.Equal(ThreadPriority.Normal, OffAudioDrainer.Events.Priority);
+        Assert.Equal(ThreadPriority.BelowNormal, OffAudioDrainer.Shared.Priority);
+        Assert.True(OffAudioDrainer.Events.IsRegistered(p.KeepUpWorkForTest));
+        Assert.False(OffAudioDrainer.Shared.IsRegistered(p.KeepUpWorkForTest));
+        foreach (var slot in new[] { p.NeuralSlot, p.SpectralSlot })
+        {
+            Assert.True(OffAudioDrainer.Events.IsRegistered(slot.EventWorkForTest));
+            Assert.False(OffAudioDrainer.Shared.IsRegistered(slot.EventWorkForTest));
+            Assert.True(OffAudioDrainer.Shared.IsRegistered(slot.TraceWorkForTest));
+            Assert.False(OffAudioDrainer.Events.IsRegistered(slot.TraceWorkForTest));
+        }
+        var bank = p.NeuralSlot.RunningBankForTest;
+        if (bank != null) Assert.True(OffAudioDrainer.Shared.IsRegistered(bank.LinesForTest));
+    }
+
     // ── Repair 1, B1: the captured-noise engine allocates nothing per FFT frame ──
 
     /// <summary>

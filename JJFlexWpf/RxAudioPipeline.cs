@@ -135,7 +135,11 @@ namespace JJFlexWpf
         internal RxAudioPipeline(int sampleRate, int channels, DenoiseEngineCatalog? catalog, long tallyPeriodTicks,
             IOffAudioScheduler? scheduler)
         {
+            // The keep-up raiser is an EVENT (the warning an operator hears): the
+            // normal-priority events writer, unless a test gives one for everything
+            // (repair 3). The capture's end line is a diagnostic.
             _scheduler = scheduler ?? OffAudioDrainer.Shared;
+            _eventScheduler = scheduler ?? OffAudioDrainer.Events;
             _channels = channels;
             _sampleRate = sampleRate;
             _catalog = catalog ?? new DenoiseEngineCatalog();
@@ -143,8 +147,8 @@ namespace JJFlexWpf
             // on one thread, so two drains at once must not double the rate.
             _switchBudget = new RxLagBudget(sampleRate);
             _classifier = new RxContentClassifier();
-            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget, _scheduler);
-            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget, _scheduler);
+            SpectralSlot = new(DenoiseFamily.Spectral, "spectral_capture", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget, scheduler);
+            NeuralSlot = new(DenoiseFamily.Neural, "rnnoise", sampleRate, channels, _catalog, DenoiseDirection.Receive, _switchBudget, scheduler);
             SpectralSlot.SelectionResult += ForwardSelection;
             NeuralSlot.SelectionResult += ForwardSelection;
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
@@ -153,7 +157,7 @@ namespace JJFlexWpf
             _spectralKeepUp = new SlotKeepUp(this, DenoiseFamily.Spectral, tallyPeriodTicks);
             _neuralKeepUp = new SlotKeepUp(this, DenoiseFamily.Neural, tallyPeriodTicks);
             _keepUpRaiser = new KeepUpRaiser(this);
-            _scheduler.Register(_keepUpRaiser);
+            _eventScheduler.Register(_keepUpRaiser);
 
             Trace.WriteLine($"RxAudioPipeline: created ({sampleRate}Hz, {channels}ch)");
         }
@@ -416,7 +420,7 @@ namespace JJFlexWpf
         private long _lastProcessEnd;
         private readonly SlotKeepUp _spectralKeepUp, _neuralKeepUp;
         private readonly KeepUpRaiser _keepUpRaiser;
-        private readonly IOffAudioScheduler _scheduler;
+        private readonly IOffAudioScheduler _scheduler, _eventScheduler;
 
         /// <summary>Tests only: the keep-up raiser's off-audio work.</summary>
         internal OffAudioWork KeepUpWorkForTest => _keepUpRaiser;
@@ -454,6 +458,13 @@ namespace JJFlexWpf
         /// not allocate or wait; tests give their own figures here.
         /// </summary>
         internal HelperServiceSource HelperService { get; set; } = static (bank, meter, now) => meter.Read(bank, now);
+
+        /// <summary>Tests only: one slot's keep-up mailbox, the warning's or the delivery diagnostic's.</summary>
+        internal KeepUpMailbox KeepUpMailboxFor(DenoiseFamily family, bool delivery)
+        {
+            var probe = family == DenoiseFamily.Spectral ? _spectralKeepUp : _neuralKeepUp;
+            return delivery ? probe.Delivery : probe.Main;
+        }
 
         /// <summary>The rule for one slot, for tests.</summary>
         internal EngineKeepUpRule KeepUpRuleFor(DenoiseFamily family) =>
@@ -519,16 +530,29 @@ namespace JJFlexWpf
 
         private void Raise(SlotKeepUp probe)
         {
-            if (probe.Delivery.TakePublished(probe.Family, out var delivery))
+            // Every change, oldest first (repair 3): the delivery diagnostic's, then the warning's.
+            while (probe.Delivery.TryTake(probe.Family, out var delivery))
             {
                 Trace.WriteLine("RxAudioPipeline: helper " + delivery.Describe());
                 try { DeliveryDiagnostic?.Invoke(this, delivery); }
                 catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a delivery listener threw: " + ex.Message); }
             }
-            if (!probe.Main.TakePublished(probe.Family, out var result)) return;
-            Trace.WriteLine("RxAudioPipeline: keep-up " + result.Describe());
-            try { KeepUpResult?.Invoke(this, result); }
-            catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a keep-up listener threw: " + ex.Message); }
+            ReportLost(probe.Delivery, probe.Family);
+            while (probe.Main.TryTake(probe.Family, out var result))
+            {
+                Trace.WriteLine("RxAudioPipeline: keep-up " + result.Describe());
+                try { KeepUpResult?.Invoke(this, result); }
+                catch (Exception ex) { Trace.WriteLine("RxAudioPipeline: a keep-up listener threw: " + ex.Message); }
+            }
+            ReportLost(probe.Main, probe.Family);
+        }
+
+        private static void ReportLost(KeepUpMailbox mailbox, DenoiseFamily family)
+        {
+            long lost = mailbox.TakeLost();
+            if (lost > 0)
+                Trace.WriteLine($"RxAudioPipeline: {lost} {family} {(mailbox.IsDelivery ? "helper delivery" : "keep-up")} change(s) lost: "
+                    + $"more than {KeepUpMailbox.Capacity} were waiting when the next arrived, and the newest is always kept");
         }
 
         /// <summary>The keep-up raiser, drained by the off-audio writer (Track RT): one raise at a time, looking again before it stands down.</summary>
@@ -540,48 +564,128 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// One published change, waiting for the pool thread. Written only by
-        /// the audio thread under a sequence lock, so the pool thread reads a
-        /// whole change or tries again, and the audio thread never waits.
+        /// The keep-up changes waiting for the events writer, EVERY one of them,
+        /// oldest first (Sprint 49 Track RT, repair 3). Until then this held only
+        /// the newest change, which was harmless while the pool raised it within a
+        /// millisecond; once the writer could be seconds late on a busy machine, a
+        /// short fall was replaced by its recovery before anyone raised it.
         /// </summary>
-        private sealed class Mailbox
+        /// <remarks>
+        /// <para>
+        /// <b>The audio side</b> (<see cref="Publish(string, EngineKeepUpChange, bool, int, int, double, double, int)"/>)
+        /// copies the change, with a sequence number, into a preallocated ring of
+        /// <see cref="Capacity"/>: no lock, no allocation, never waits.
+        /// </para>
+        /// <para>
+        /// <b>At the bound</b> (the ring full: sixteen changes waiting, which takes a
+        /// writer stalled for many seconds, since a change needs a window of
+        /// buffers): the change goes to a single overflow slot instead, written
+        /// under a sequence lock, so the NEWEST change is always delivered. A change
+        /// that overflow slot was still holding is the one lost. The reader counts
+        /// the losses exactly (overflow writes less overflow deliveries) and the
+        /// pipeline traces them off the audio thread. The reader merges the ring
+        /// and the overflow slot by sequence number, so delivery stays in order.
+        /// </para>
+        /// </remarks>
+        internal sealed class KeepUpMailbox
         {
-            private readonly bool _delivery;
-            private int _seq, _taken; // _seq is odd while the audio thread writes
-            private string _engine = "";
-            private EngineKeepUpChange _change;
-            private bool _helper;
-            private int _late, _filled, _missed;
-            private double _averageTicks, _bufferTicks;
+            /// <summary>Changes held before the overflow slot is used.</summary>
+            internal const int Capacity = 16;
 
-            public Mailbox(bool delivery) => _delivery = delivery;
-
-            public void Publish(EngineKeepUpRule rule, EngineKeepUpChange change, bool helper, double averageTicks, double bufferTicks, int missed)
+            private struct Change
             {
-                Interlocked.Increment(ref _seq);
-                _engine = rule.EngineId; _change = change; _helper = helper;
-                _late = rule.LateInWindow; _filled = rule.Filled; _missed = missed;
-                _averageTicks = averageTicks; _bufferTicks = bufferTicks;
-                Interlocked.Increment(ref _seq);
+                public long Seq;
+                public string Engine;
+                public EngineKeepUpChange Kind;
+                public bool Helper;
+                public int Late, Filled, Missed;
+                public double AverageTicks, BufferTicks;
             }
 
-            /// <summary>The newest published change not yet taken, read whole. Off the audio thread only.</summary>
-            public bool TakePublished(DenoiseFamily family, out EngineKeepUpResult result)
+            private readonly bool _delivery;
+            private readonly RecordRing<Change> _ring = new(Capacity);
+            private long _published;              // the audio thread's counter
+            // The overflow slot: odd version while the audio thread writes it.
+            private int _overVersion, _overTaken;
+            private Change _over;
+            private long _overWrites;             // audio thread writes, reader reads
+            // Reader-only state.
+            private Change _held;
+            private bool _hasHeld;
+            private long _overDelivered, _lostSaid;
+
+            public KeepUpMailbox(bool delivery) => _delivery = delivery;
+
+            /// <summary>True for the helper delivery diagnostic's mailbox.</summary>
+            public bool IsDelivery => _delivery;
+
+            /// <summary>Tests only: the ring's own array, to prove it is not a large object.</summary>
+            internal object StorageForTest => _ring.Storage;
+
+            /// <summary>Audio side: a change of <paramref name="rule"/>'s state.</summary>
+            public void Publish(EngineKeepUpRule rule, EngineKeepUpChange change, bool helper, double averageTicks, double bufferTicks, int missed) =>
+                Publish(rule.EngineId, change, helper, rule.LateInWindow, rule.Filled, averageTicks, bufferTicks, missed);
+
+            /// <summary>Audio side: one change, copied in. No lock, no allocation, never waits; never lost unless sixteen are already waiting.</summary>
+            public void Publish(string engine, EngineKeepUpChange change, bool helper, int late, int filled, double averageTicks, double bufferTicks, int missed)
+            {
+                var c = new Change
+                {
+                    Seq = ++_published, Engine = engine, Kind = change, Helper = helper, Late = late, Filled = filled,
+                    Missed = missed, AverageTicks = averageTicks, BufferTicks = bufferTicks,
+                };
+                if (_ring.TryRecord(in c)) return;
+                Interlocked.Increment(ref _overVersion);
+                _over = c;
+                Interlocked.Increment(ref _overVersion);
+                Volatile.Write(ref _overWrites, _overWrites + 1);
+            }
+
+            /// <summary>Reader side (the events writer, serialised by the raiser's drain): the oldest change not yet taken.</summary>
+            public bool TryTake(DenoiseFamily family, out EngineKeepUpResult result)
+            {
+                if (!_hasHeld && _ring.TryTake(out _held)) _hasHeld = true;
+                bool haveOver = TryReadOverflow(out var over, out int version);
+                Change c;
+                if (haveOver && (!_hasHeld || over.Seq < _held.Seq))
+                {
+                    Volatile.Write(ref _overTaken, version);
+                    _overDelivered++;
+                    c = over;
+                }
+                else if (_hasHeld) { c = _held; _hasHeld = false; _held = default; }
+                else { result = null!; return false; }
+                result = new EngineKeepUpResult(family, c.Engine ?? "", c.Kind, c.Helper, c.Late, c.Filled,
+                    c.AverageTicks * 1000.0 / Stopwatch.Frequency, c.BufferTicks * 1000.0 / Stopwatch.Frequency, c.Missed, _delivery);
+                return true;
+            }
+
+            /// <summary>The overflow slot's change, read whole, if it has not been taken.</summary>
+            private bool TryReadOverflow(out Change change, out int version)
             {
                 var spin = new SpinWait();
                 while (true)
                 {
-                    int seq = Volatile.Read(ref _seq);
-                    if ((seq & 1) != 0) { spin.SpinOnce(); continue; }
-                    if (seq == Volatile.Read(ref _taken)) { result = null!; return false; }
-                    var r = new EngineKeepUpResult(family, _engine, _change, _helper, _late, _filled,
-                        _averageTicks * 1000.0 / Stopwatch.Frequency, _bufferTicks * 1000.0 / Stopwatch.Frequency, _missed, _delivery);
-                    Interlocked.MemoryBarrier(); // the field reads above may not move past the second look
-                    if (Volatile.Read(ref _seq) != seq) continue;
-                    Volatile.Write(ref _taken, seq);
-                    result = r;
+                    version = Volatile.Read(ref _overVersion);
+                    if ((version & 1) != 0) { spin.SpinOnce(); continue; }
+                    if (version == Volatile.Read(ref _overTaken)) { change = default; return false; }
+                    change = _over;
+                    Interlocked.MemoryBarrier(); // the reads above may not move past the second look
+                    if (Volatile.Read(ref _overVersion) != version) continue;
                     return true;
                 }
+            }
+
+            /// <summary>Reader side: changes lost since the last call (overwritten in the overflow slot before anyone took them).</summary>
+            public long TakeLost()
+            {
+                _ring.TakeLost();   // the ring's own count of refusals: every one went to the overflow slot, counted there
+                int version = Volatile.Read(ref _overVersion);
+                bool waiting = (version & 1) != 0 || version != Volatile.Read(ref _overTaken);
+                long lost = Volatile.Read(ref _overWrites) - _overDelivered - (waiting ? 1 : 0) - _lostSaid;
+                if (lost <= 0) return 0;
+                _lostSaid += lost;
+                return lost;
             }
         }
 
@@ -605,7 +709,7 @@ namespace JJFlexWpf
             /// that never end. Traced, never warned about.
             /// </summary>
             public readonly EngineKeepUpRule Missed = new();
-            public readonly Mailbox Main = new(false), Delivery = new(true);
+            public readonly KeepUpMailbox Main = new(false), Delivery = new(true);
             /// <summary>The helper's new work since this slot last looked (repair 2): each answer counted once.</summary>
             public readonly HelperServiceMeter Meter = new();
             /// <summary>The running tally (#1229): a line a minute, at a stop or change, and a session total at PC audio off.</summary>
@@ -907,7 +1011,7 @@ namespace JJFlexWpf
                 if (wait.ElapsedMilliseconds >= 250)
                 {
                     Trace.WriteLine("RxAudioPipeline: disconnect timed out; retaining engines rather than freeing during Process");
-                    _scheduler.RetireAfterDrain(_keepUpRaiser);
+                    _eventScheduler.RetireAfterDrain(_keepUpRaiser);
                     return;
                 }
                 spin.SpinOnce();
@@ -915,7 +1019,7 @@ namespace JJFlexWpf
             SpectralSlot.DisposeOwned(); NeuralSlot.DisposeOwned();
             // The tallies queued as PC audio went off are still written, off this
             // thread, as the pool used to; then the raiser is no longer drained (Track RT).
-            _scheduler.RetireAfterDrain(_keepUpRaiser);
+            _eventScheduler.RetireAfterDrain(_keepUpRaiser);
             _classifier.Dispose();
             Trace.WriteLine("RxAudioPipeline: disposed");
         }
