@@ -836,6 +836,69 @@ Public Class PersonalData
         Return UniqueOpName(op) & ".xml"
     End Function
 
+    ' ---------------- one licence class per operator (#1239) ----------------
+
+    ''' <summary>
+    ''' The licence class the operator form opens on (#1239): Settings' class,
+    ''' from the licence file the transmit lockout reads, because Settings wins
+    ''' where the two disagree (Noel, 2026-11-23). <c>Stored</c> is what that file
+    ''' holds (Extra when there is no file, or it does not read, as it always
+    ''' has); <c>Shown</c> is it as one of the four offered classes. A new
+    ''' operator (<paramref name="opName"/> Nothing) opens on General.
+    ''' </summary>
+    Friend Shared Function LicenseClassAtOpen(configDir As String, legacyDir As String, opName As String) As (Stored As Bands.Licenses, Shown As Bands.Licenses)
+        If opName Is Nothing Then Return (LicenseConfig.NewOperatorClass, LicenseConfig.NewOperatorClass)
+        Dim firstRun As Boolean
+        Dim stored As Bands.Licenses = LicenseConfig.LoadOrCarry(configDir, legacyDir, opName, firstRun).LicenseClass
+        Return (stored, LicenseConfig.ShownClass(stored))
+    End Function
+
+    ''' <summary>
+    ''' The class the operator record's own <c>License</c> carries after a form
+    ''' save (#1239), kept in step with the licence file, which the band display
+    ''' (ShowBands) reads: the chosen class when it was chosen (or the operator
+    ''' is new), otherwise the class the licence file already holds.
+    ''' </summary>
+    Friend Shared Function RecordLicenseClass(stored As Bands.Licenses, shown As Bands.Licenses, chosen As Bands.Licenses,
+                                              isNew As Boolean) As Bands.Licenses
+        Return If(isNew OrElse chosen <> shown, chosen, stored)
+    End Function
+
+    ''' <summary>
+    ''' Write the class chosen on the operator form into the operator's licence
+    ''' file (#1239), called only once the operator itself has been saved, and
+    ''' before any change is reported, so the reload reads the new class. The
+    ''' rest of the file (the transmit lockout, boundary notices, country and
+    ''' the 60 m rules) is kept as it is (<see cref="LicenseConfig.SaveClass"/>).
+    ''' A new operator gets a file; an existing one is written only when its
+    ''' class was changed, or its name was, in which case the file is carried to
+    ''' the new name. An untouched class leaves the file, and a stored class
+    ''' the form cannot offer, exactly as they were. A file that does not read
+    ''' is left in place.
+    ''' </summary>
+    Friend Shared Function SaveOperatorLicense(configDir As String, legacyDir As String, oldName As String, newName As String,
+                                               shown As Bands.Licenses, chosen As Bands.Licenses,
+                                               isNew As Boolean) As LicenseConfig.ClassSave
+        Dim classChanged As Boolean = isNew OrElse chosen <> shown
+        Dim renamed As Boolean = Not isNew AndAlso Not String.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase)
+        If Not classChanged AndAlso Not renamed Then Return LicenseConfig.ClassSave.Unchanged
+        Dim cls As Bands.Licenses? = Nothing
+        If classChanged Then cls = chosen
+        Dim result As LicenseConfig.ClassSave =
+            LicenseConfig.SaveClass(configDir, legacyDir, If(isNew, newName, oldName), newName, cls, classChanged)
+        Tracing.TraceLine("PersonalData: the operator form's licence class for " & newName & ": " & result.ToString() &
+                          If(classChanged, " (" & chosen.ToString() & ")", " (carried to the new name)"),
+                          If(result = LicenseConfig.ClassSave.Saved OrElse result = LicenseConfig.ClassSave.Unchanged OrElse
+                             result = LicenseConfig.ClassSave.NothingToCarry, TraceLevel.Info, TraceLevel.Warning))
+        Return result
+    End Function
+
+    ''' <summary>The form's licence class for <paramref name="theOp"/>, saved after the operator was (#1239).</summary>
+    Private Shared Sub SaveFormLicense(oldName As String, theOp As personal_v1, isNew As Boolean)
+        SaveOperatorLicense(BaseConfigDir & "\Radios", BaseConfigDir, oldName, UniqueOpName(theOp),
+                            PersonalInfo.LicenseShown, PersonalInfo.LicenseChosen, isNew)
+    End Sub
+
     ' We need to know if we're doing an add.
     Private addFlag As Boolean = False
     ''' <summary>
@@ -856,6 +919,9 @@ Public Class PersonalData
             ' save left an operator in the list that was not on disk, and an
             ' "Exception" box read the .NET message and stack trace aloud.
             rv = SaveThenAdd(ops, theOp, Function() TryWrite(theOp), OperatorNotSavedNotice)
+            ' The licence class chosen on the form, only once the operator is
+            ' saved: a failed save leaves no licence file behind (#1239).
+            If rv >= 0 Then SaveFormLicense(Nothing, theOp, isNew:=True)
             If rv >= 0 AndAlso theOp.DefaultFlag Then
                 DefaultID = rv
             End If
@@ -907,6 +973,8 @@ Public Class PersonalData
             ' a new file, and the old one goes only once the new one is written
             ' (SaveThenRetireOld): deleted first, a failed write lost the record.
             Dim oldPath As String = ops(id).pathName
+            ' The name its per-operator files go by, for the licence (#1239).
+            Dim oldName As String = UniqueOpName(ops(id))
             ' #1253: an old file that could not be loaded this session is never
             ' retired (deleted) by the rename; it is left where it is, so the
             ' step is given the new path as the old one and removes nothing.
@@ -922,6 +990,10 @@ Public Class PersonalData
             ' took the NEW path as the old one and never retired the old file,
             ' and both loaded at the next start.
             If SaveThenReplace(ops, id, theOp, oldPath, theOp.pathName, Function() TryWrite(theOp)) Then
+                ' The licence class chosen on the form, after the operator is
+                ' saved and BEFORE the change is reported, so the reload below
+                ' reads the new class into the live lockout (#1239).
+                SaveFormLicense(oldName, theOp, isNew:=False)
                 ' Reset the default if changed.
                 ' Note we only allow for this one becoming the default.
                 If (dfltID <> id) And theOp.DefaultFlag Then

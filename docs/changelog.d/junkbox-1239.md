@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- The licence class on the operator form and the one in Settings are now the same thing. The form offers the same four classes as Settings (Technician, General, Advanced and Extra), opens on the class your transmit lockout uses, and changing it there changes it everywhere, without touching your other licence settings. A new operator starts on General, and a Novice licence now shows as Technician in Settings instead of Extra.

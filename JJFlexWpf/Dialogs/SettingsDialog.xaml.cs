@@ -337,11 +337,15 @@ namespace JJFlexWpf.Dialogs
             // License tab — populate from LicenseConfig
             foreach (var (label, _) in LicenseClassMap)
                 LicenseClassCombo.Items.Add(label);
-            // Find the matching entry for the current license
+            // Find the matching entry for the current license. A held Novice
+            // reads as Technician (#1239), the class the band table already
+            // treats it as; it used to fall through to Extra, and the next OK
+            // saved Extra. A stored "none" still reads as Extra, as before.
             int licIdx = 0;
+            var shownClass = LicenseConfig.ShownClass(_licenseConfig.LicenseClass);
             for (int i = 0; i < LicenseClassMap.Length; i++)
             {
-                if (LicenseClassMap[i].value == _licenseConfig.LicenseClass) { licIdx = i; break; }
+                if (LicenseClassMap[i].value == shownClass) { licIdx = i; break; }
             }
             LicenseClassCombo.SelectedIndex = licIdx;
 
