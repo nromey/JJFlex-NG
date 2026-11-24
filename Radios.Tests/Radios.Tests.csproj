@@ -48,4 +48,24 @@
          flag it — a pass on that file means the instrument is broken. -->
     <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- A run that discovers no tests is a failure, never a pass. Without this an
+       x86 run built an x64 test DLL against an x86 Radios.dll, xUnit skipped the
+       whole assembly ("could not find dependent assembly") and the command exited
+       0 having run nothing, so every "x86 Radios.Tests green" counted nothing.
+       TreatNoTestsAsError is VSTest's own run setting (RunConfiguration); dotnet
+       test hands VSTestCLIRunSettings to it as if typed after "- -". A run that
+       passes its own run settings after "- -" replaces this list, so keep the
+       setting in any such list. RadiosTestsRunGuardTests pins both guards. -->
+  <PropertyGroup>
+    <VSTestCLIRunSettings>$(VSTestCLIRunSettings);RunConfiguration.TreatNoTestsAsError=true</VSTestCLIRunSettings>
+  </PropertyGroup>
+
+  <!-- 32-bit is retired (ruled 2026-11-21), so this project is never made to build
+       for x86: an x86 run is refused before anything compiles, in words that say
+       which command to run instead. The zero-tests guard above is the class fix;
+       this is the plain answer for the one known way to reach it. -->
+  <Target Name="RefuseX86TestRun" BeforeTargets="PrepareForBuild" Condition="'$(Platform)' == 'x86'">
+    <Error Text="Radios.Tests runs on x64 only. 32-bit support is retired, and an x86 run would load none of the tests and report a pass. Run: dotnet test Radios.Tests/Radios.Tests.csproj -c Debug -p:Platform=x64" />
+  </Target>
 </Project>
