@@ -565,19 +565,26 @@ internal static class DeskRunRules
     /// a watch could not measure) outranks everything: each is the harm the
     /// operator experiences, or a run in which that harm was not measured.
     /// Then an incomplete cleanup (71), then a timeout (124), and only then
-    /// the child's own code, except that a run in which a job process crashed
-    /// never ends at 0 (75, round 4).
+    /// the child's own code.
     /// </summary>
+    /// <remarks>
+    /// Round 5 (task #906): how the job's OTHER processes ended is not an
+    /// input here, on purpose. Round 4 made a sampled exception code end an
+    /// otherwise passing run at 75, and Codex's re-check showed that promise
+    /// cannot be kept: a process born and gone between two samples is never
+    /// seen (so a fast crash still ended at 0), and an ordinary
+    /// <c>Environment.Exit</c> with an exception-shaped code read as a crash.
+    /// The child's own code already fails a run whose child crashed; a
+    /// grandchild that a passing test started, waited on and checked is that
+    /// test's business. The ledger REPORTS what it saw and decides nothing.
+    /// </remarks>
     /// <param name="violation">The code the watch killed the run with, if it did.</param>
     /// <param name="cleanupComplete">Every recorded process gone, the job empty, the desktop gone, all of it MEASURED.</param>
-    /// <param name="jobProcessCrashed">A process in the job exited with an exception code (<see cref="IsCrashExitCode"/>).</param>
-    public static int RunExitCode(int? violation, bool cleanupComplete, bool timedOut, int childExit,
-                                  bool jobProcessCrashed = false)
+    public static int RunExitCode(int? violation, bool cleanupComplete, bool timedOut, int childExit)
     {
         if (violation is { } code) return code;
         if (!cleanupComplete) return ExitLeftSomethingBehind;
         if (timedOut) return ExitTimedOut;
-        if (childExit == 0 && jobProcessCrashed) return ExitJobProcessCrashed;
         return childExit;
     }
 
@@ -833,21 +840,61 @@ internal static class DeskRunRules
         0xC0000096u, // privileged instruction
         0xC00000FDu, // stack overflow
         0xC0000374u, // heap corruption
-        0xC0000409u, // stack buffer overrun, and every fail-fast
+        0xC0000409u, // stack buffer overrun, and a native __fastfail
         0xC000041Du, // an exception that escaped a window procedure (2026-11-23's testhost)
         0xC0000420u, // assertion failure
-        0xC0000602u, // fail-fast exception
+        0xC0000602u, // a native fail-fast exception (RaiseFailFastException)
         0xC00002B4u, 0xC00002B5u, // multiple floating point faults and traps
     };
 
     /// <summary>
-    /// Did a process crash: is its exit code an exception code (round 4)?
-    /// Under <see cref="JobLimitDieOnUnhandledException"/> a process that dies
-    /// of an unhandled exception exits with the exception code. Counted: every
-    /// customer exception code (0xE..., where .NET's 0xE0434352 and C++'s
-    /// 0xE06D7363 live) and <see cref="SystemExceptionCodes"/>.
+    /// The codes the .NET runtime ITSELF terminates a process with on a fatal
+    /// error (round 5, R1). These are not Windows exception codes: CoreCLR
+    /// ends the process with <c>TerminateProcess(GetCurrentProcess(),
+    /// exitCode)</c> (<c>CrashDumpAndTerminateProcess</c>, excep.cpp), passing
+    /// an HRESULT. Source: dotnet/runtime tag v10.0.0,
+    /// <c>src/coreclr/vm/eepolicy.cpp</c> (<c>HandleFatalError</c> passes its
+    /// <c>exitCode</c> through <c>SafeExitProcess</c>;
+    /// <c>HandleFatalStackOverflow</c> calls
+    /// <c>CrashDumpAndTerminateProcess(COR_E_STACKOVERFLOW)</c>),
+    /// <c>src/coreclr/vm/excep.cpp</c> (every
+    /// <c>EEPOLICY_HANDLE_FATAL_ERROR(COR_E_EXECUTIONENGINE)</c>) and
+    /// <c>src/coreclr/inc/corerror.xml</c> (the values).
     /// </summary>
     /// <remarks>
+    /// <c>Environment.FailFast</c>'s 0x80131623 was MEASURED on this machine's
+    /// installed .NET 10 runtime by Codex on 2026-11-23 (main and background
+    /// thread, both) and again in round 5; round 4 had assumed 0xC0000409 and
+    /// missed it. The stack-overflow and execution-engine codes come from the
+    /// source above and were NOT provoked live: a stack overflow goes through
+    /// a fatal-error path no run has exercised under deskrun, and the night's
+    /// rule is no deliberate run that could put a box on the operator's screen.
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<uint, string> RuntimeFatalExitCodes = new Dictionary<uint, string>
+    {
+        [0x80131623u] = "COR_E_FAILFAST, Environment.FailFast",
+        [0x800703E9u] = "COR_E_STACKOVERFLOW, a .NET stack overflow",
+        [0x80131506u] = "COR_E_EXECUTIONENGINE, a fatal error inside the .NET runtime",
+    };
+
+    /// <summary>
+    /// Is this exit code exception-SHAPED (round 4, reworded round 5)? Under
+    /// <see cref="JobLimitDieOnUnhandledException"/> a process that dies of an
+    /// unhandled exception exits with the exception code, and the .NET
+    /// runtime ends a fatal error with one of
+    /// <see cref="RuntimeFatalExitCodes"/>. Counted: every customer exception
+    /// code (0xE..., where .NET's 0xE0434352 and C++'s 0xE06D7363 live),
+    /// <see cref="SystemExceptionCodes"/> and <see cref="RuntimeFatalExitCodes"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This reads a NUMBER, so it is not proof of a crash (R4).</b> An
+    /// ordinary <c>Environment.Exit(unchecked((int)0xE0000001))</c>, with no
+    /// exception anywhere, is counted too; Codex measured exactly that. So
+    /// the report says a process "ended with exception code X", never that it
+    /// crashed, and nothing here changes the run's exit code.
+    /// </para>
+    /// <para>
     /// NOT counted: any other status, even an error one. Measured 2026-11-23:
     /// in one DialogInvariantTests run, 334 short-lived WebView2 helper
     /// processes each ended with 0xC00000BB (STATUS_NOT_SUPPORTED), a status a
@@ -857,26 +904,31 @@ internal static class DeskRunRules
     /// is the 0xF... range, where ordinary negative exit codes land (a test
     /// host ended with -1, 0xFFFFFFFF, in a passing run that night), nor any
     /// code deskrun itself kills the job with.
+    /// </para>
     /// </remarks>
-    public static bool IsCrashExitCode(uint code)
-        => (code & 0xF0000000u) == 0xE0000000u || SystemExceptionCodes.Contains(code);
+    public static bool IsExceptionExitCode(uint code)
+        => (code & 0xF0000000u) == 0xE0000000u || SystemExceptionCodes.Contains(code)
+           || RuntimeFatalExitCodes.ContainsKey(code);
 
     /// <summary>
     /// An exit with an NTSTATUS error code that is not an exception code
     /// (0xC... or 0xD..., not in <see cref="SystemExceptionCodes"/>): worth
-    /// reporting, not a crash.
+    /// reporting, not an exception code.
     /// </summary>
     public static bool IsErrorStatusExit(uint code)
-        => (code & 0xE0000000u) == 0xC0000000u && !IsCrashExitCode(code);
+        => (code & 0xE0000000u) == 0xC0000000u && !IsExceptionExitCode(code);
 
-    /// <summary>A crash exit code in words, for the report.</summary>
+    /// <summary>An exit code in words, for the report.</summary>
     public static string DescribeExitCode(uint code) => code switch
     {
+        _ when RuntimeFatalExitCodes.TryGetValue(code, out string? name)
+            => "0x" + code.ToString("X8", System.Globalization.CultureInfo.InvariantCulture) + ", " + name,
         0xE0434352u => "0xE0434352, an unhandled .NET exception",
         0xE06D7363u => "0xE06D7363, an unhandled C++ exception",
         0xC0000005u => "0xC0000005, an access violation",
         0xC00000FDu => "0xC00000FD, a stack overflow",
-        0xC0000409u => "0xC0000409, a fail-fast (Environment.FailFast or a security check)",
+        0xC0000409u => "0xC0000409, a stack buffer overrun or a native __fastfail",
+        0xC0000602u => "0xC0000602, a native fail-fast (RaiseFailFastException)",
         0xC000041Du => "0xC000041D, an exception that escaped a window procedure",
         0xC0000374u => "0xC0000374, heap corruption",
         0xC00000BBu => "0xC00000BB, STATUS_NOT_SUPPORTED",
@@ -885,10 +937,39 @@ internal static class DeskRunRules
     };
 
     /// <summary>
-    /// Exit code when a process in the job crashed but the child itself
-    /// reported success (round 4): a crash never ends a run at 0.
+    /// How one process the ledger SAW ended, in words (round 5). Pure, so the
+    /// failure cases are tested rather than read off the code.
     /// </summary>
-    public const int ExitJobProcessCrashed = 75;
+    /// <param name="exitCode">The exit code, when it was read.</param>
+    /// <param name="exitReadError">
+    /// The Windows error when the process had ended but
+    /// <c>GetExitCodeProcess</c> failed (R3). Round 4 dropped that failure
+    /// and the process read as "still running"; it is now said as what it is.
+    /// </param>
+    /// <param name="waitError">The Windows error when waiting on the process's handle failed, so whether it ended is unknown.</param>
+    public static string DescribeLedgerExit(uint? exitCode, int? exitReadError, int? waitError)
+    {
+        if (exitCode is { } c)
+            return IsExceptionExitCode(c) ? "ended with exception code " + DescribeExitCode(c)
+                 : IsErrorStatusExit(c) ? "ended with error status " + DescribeExitCode(c)
+                 : "exit code " + c.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (exitReadError is { } r)
+            return "exit not read (it had ended, but reading its exit code failed: Windows error "
+                   + r.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
+        if (waitError is { } w)
+            return "state not read (waiting on its handle failed: Windows error "
+                   + w.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
+        return "still running when read";
+    }
+
+    /// <summary>
+    /// The heading of the ledger's exit report (round 5): what it is, that it
+    /// is a sample, and that it decides nothing. Said once per run.
+    /// </summary>
+    public const string LedgerExitHeading =
+        "how the processes the sampler SAW in the job ended (a SAMPLE: a process is seen only if it was alive "
+        + "at one of the job-list samples, about every 250 ms, so one born and gone between two is not here; "
+        + "this is a report and does not change the run's exit code)";
 
     // ─────────────── round 3: test-only faults (B4) ───────────────
 
@@ -909,6 +990,8 @@ internal static class DeskRunRules
         "audio-peak-late",  // GetPeakValue fails about a second in, after the child is running
         "window-enum",      // enumerating the window station's desktops fails
         "job-list",         // the job's process list cannot be read
+        "ledger-exit-read", // NOT a 74: the ledger's exit-code read is made to fail (round 5, R3), and each
+                            // ended process must be reported as "exit not read", never as still running.
         "stale-snapshot",   // NOT a failure: a positive control. Each window pass starts from an empty
                             // snapshot of the job, so every job window must be attributed by the fresh
                             // read of the job's list; the run should pass and report those reads.

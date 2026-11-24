@@ -142,7 +142,7 @@ internal static class Program
         Say("timeout: " + parsed.TimeoutSeconds + " s");
 
         if (parsed.InjectFault != null)
-            Say("TEST-ONLY: injecting fault '" + parsed.InjectFault + "' into the launcher's own watches.");
+            Say("TEST-ONLY: injecting fault '" + parsed.InjectFault + "' into the launcher's own watches (or, for ledger-exit-read, its exit ledger).");
 
         int result = Run(job, desktop, name, qualified, commandLine, childEnv, parsed.TimeoutSeconds,
                          parsed.LifecycleBarrier, parsed.InjectFault, out bool finished);
@@ -163,7 +163,7 @@ internal static class Program
     {
         finished = false;
         var seen = new Dictionary<int, (string Name, DateTime Start)>();
-        using var ledger = new JobLedger(job);
+        using var ledger = new JobLedger(job, fault);
         bool timedOut = false;
         Watch? watch = null;
         int childExit = -1;
@@ -448,20 +448,18 @@ internal static class Program
 
         if (watch != null)
             foreach (string line in watch.Report()) Say(line);
+        // Round 5: the ledger REPORTS how the processes it saw ended. It is a
+        // sample and it decides nothing; the result below never reads it.
         foreach (string line in ledger.Report()) Say(line);
-        var crashed = ledger.Crashed();
 
         bool cleanupComplete = active == 0 && survivors.Count == 0 && desktopGone;
         int? violation = watch?.Violation?.Code;
         if (watch?.Violation is { } v) Say("FAILED: " + v.Reason);
         if (!cleanupComplete) Say((violation != null ? "ALSO failed" : "FAILED") + " to clean up completely; see above.");
 
-        int result = DeskRunRules.RunExitCode(violation, cleanupComplete, timedOut, childExit, crashed.Count > 0);
+        int result = DeskRunRules.RunExitCode(violation, cleanupComplete, timedOut, childExit);
         if (violation == null && cleanupComplete && !timedOut)
-            Say("child exit code " + childExit + "."
-                + (crashed.Count > 0
-                    ? " FAILED: a process in the job crashed (see above); the run exits " + result + "."
-                    : ""));
+            Say("child exit code " + childExit + ".");
         return result;
     }
 
@@ -647,12 +645,12 @@ internal static class Program
         that cannot measure fails the run (exit 74). A crashing process ends
         without a box (the job's die-on-unhandled-exception limit and an
         inherited error mode), and a new crash box on the operator's screen
-        kills the run (exit 72).
+        kills the run (exit 72). How each process the sampler saw in the job
+        ended is reported; that report is a sample and decides nothing.
 
         Exit codes: the child's own, or 64 refused before anything was created,
         70 nothing started, 71 something was left behind, 72 a window reached
         another desktop or a crash box reached the operator's, 73 the job made
-        sound, 74 a watch could not measure, 75 a job process crashed while the
-        child reported success, 124 timed out.
+        sound, 74 a watch could not measure, 124 timed out.
         """;
 }
