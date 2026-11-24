@@ -64,7 +64,8 @@ public sealed record ClarityProposal(
 /// region (1.6 to 3.15 kHz, where #736's plan and the per-take analysis place
 /// presence), and the FULLNESS region (160 to 315 Hz).</para>
 /// <para><b>Brightness</b> (the high band): the presence shortfall is the
-/// middle's mean deviation minus the presence region's, in dB. At or above
+/// middle's deviation minus the presence region's, in dB, each region's
+/// deviation taken in power (<see cref="RegionDeviationDb"/>). At or above
 /// <see cref="PresenceThresholdDb"/> the high band is proposed on; its tune
 /// is the centre of the lowest presence band that is short by the threshold;
 /// its mix is the current mix (zero when the band is off) plus
@@ -117,7 +118,7 @@ public static class ClarityProposalRule
         var presence = deviations.Where(d => d.NominalHz >= PresenceLowHz && d.NominalHz <= PresenceHighHz).OrderBy(d => d.NominalHz).ToList();
         var fullnessBands = deviations.Where(d => d.NominalHz >= FullnessLowHz && d.NominalHz <= FullnessHighHz).ToList();
 
-        double middleMean = middle.Count > 0 ? middle.Average(d => d.DeviationDb) : double.NaN;
+        double middleMean = middle.Count > 0 ? RegionDeviationDb(middle) : double.NaN;
         var proposed = current;
 
         // Brightness.
@@ -126,7 +127,7 @@ public static class ClarityProposalRule
         if (middle.Count < 2 || presence.Count < 1) brightness = ClarityJudgement.RegionOutsidePassband;
         else
         {
-            presenceShortfall = middleMean - presence.Average(d => d.DeviationDb);
+            presenceShortfall = middleMean - RegionDeviationDb(presence);
             if (presenceShortfall < PresenceThresholdDb) brightness = ClarityJudgement.AlreadyEnough;
             else
             {
@@ -152,7 +153,7 @@ public static class ClarityProposalRule
         if (middle.Count < 2 || fullnessBands.Count < 1) fullness = ClarityJudgement.RegionOutsidePassband;
         else
         {
-            fullnessShortfall = middleMean - fullnessBands.Average(d => d.DeviationDb);
+            fullnessShortfall = middleMean - RegionDeviationDb(fullnessBands);
             if (fullnessShortfall < FullnessThresholdDb) fullness = ClarityJudgement.AlreadyEnough;
             else
             {
@@ -173,5 +174,18 @@ public static class ClarityProposalRule
 
         return new ClarityProposal(current, proposed, brightness, fullness, presenceShortfall, fullnessShortfall,
             middleMean, deviations);
+    }
+
+    /// <summary>
+    /// A region's deviation from the reference, dB: the voice's power in the
+    /// region over the reference's, summed in POWER, not averaged in dB, so
+    /// one near-empty band cannot drag a region tens of dB (a voice has gaps
+    /// between its harmonics that a narrow band can fall into).
+    /// </summary>
+    public static double RegionDeviationDb(IReadOnlyCollection<BandDeviation> region)
+    {
+        double measured = 0, reference = 0;
+        foreach (var d in region) { measured += Math.Pow(10.0, d.MeasuredDb / 10.0); reference += Math.Pow(10.0, d.ReferenceDb / 10.0); }
+        return 10.0 * Math.Log10(Math.Max(1e-30, measured) / Math.Max(1e-30, reference));
     }
 }
