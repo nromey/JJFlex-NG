@@ -1879,6 +1879,18 @@ namespace Radios
 
         private static string OnOff(bool value) => value ? "on" : "off";
 
+        /// <summary>
+        /// A level the radio keeps on its own 0 to 100 scale, written with
+        /// that scale so a restore capture never carries a bare number: a
+        /// bare number is how "100 watts" and "100 of a scale" once sat in
+        /// the same file unseen. The scale is true whatever the level means
+        /// in the radio's own units, which is why it is used for the AM
+        /// carrier level rather than "watts": what 100 delivers in AM is
+        /// still an open question on the bench.
+        /// </summary>
+        // DRAFT wording, for Codex: " of 100".
+        internal static string OfHundred(int value) => value + " of 100";
+
         /// <summary>The folder inside a relocated settings tree that stands in
         /// for Documents\JJFlexRadio (#1066).</summary>
         public const string RelocatedExportFolderName = "Exports";
@@ -2011,6 +2023,41 @@ namespace Radios
         }
 
         /// <summary>
+        /// One stored memory's lines in the [memories] section, numbered from
+        /// one in frequency order. Each read is guarded on its own, as the
+        /// settings are.
+        /// </summary>
+        internal static void AddMemoryLines(List<SettingLine> memLines, int n, Memory m)
+        {
+            string p = "memory " + n + " ";
+            void Mem(string key, Func<string> read)
+            {
+                try
+                {
+                    string v = read();
+                    memLines.Add(new SettingLine(key, string.IsNullOrEmpty(v) ? "none" : v, null));
+                }
+                catch (Exception ex)
+                {
+                    memLines.Add(new SettingLine(key, null, ex.Message));
+                }
+            }
+            Mem(p + "name", () => m.Name);
+            Mem(p + "group", () => m.Group);
+            Mem(p + "frequency", () => RadioStatusBuilder.FormatFreqDisplay((ulong)(m.Freq * 1_000_000d)));
+            Mem(p + "mode", () => m.Mode);
+            Mem(p + "tune step", () => m.Step + " hertz");
+            Mem(p + "repeater offset direction", () => m.OffsetDirection.ToString());
+            Mem(p + "repeater offset", () => m.RepeaterOffset + " megahertz");
+            Mem(p + "tone mode", () => m.ToneMode.ToString());
+            Mem(p + "tone value", () => m.ToneValue);
+            Mem(p + "squelch", () => m.SquelchOn ? "on, level " + OfHundred(m.SquelchLevel) : "off");
+            Mem(p + "rf power", () => m.RFPower + " watts");
+            Mem(p + "rx filter low", () => m.RXFilterLow + " hertz");
+            Mem(p + "rx filter high", () => m.RXFilterHigh + " hertz");
+        }
+
+        /// <summary>
         /// Read every setting the capture records, from the radio's own
         /// reported state. Each read is guarded on its own: one setting the
         /// radio will not give up costs that line, not the section.
@@ -2048,21 +2095,21 @@ namespace Radios
             Key("rf power", () => radio.RFPower + " watts");
             Key("tune power", () => radio.TunePower + " watts");
             Key("mic input", () => radio.MicInput);
-            Key("mic gain", () => radio.MicLevel.ToString());
+            Key("mic gain", () => OfHundred(radio.MicLevel));
             Key("mic boost", () => OnOff(radio.MicBoost));
             Key("mic bias", () => OnOff(radio.MicBias));
             Key("speech processor", () => OnOff(radio.SpeechProcessorEnable));
             Key("speech processor level", () => ((FlexBase.ProcessorSettings)radio.SpeechProcessorLevel).ToString());
             Key("compander", () => OnOff(radio.CompanderOn));
-            Key("compander level", () => radio.CompanderLevel.ToString());
+            Key("compander level", () => OfHundred(radio.CompanderLevel));
             Key("tx filter low", () => radio.TXFilterLow + " hertz");
             Key("tx filter high", () => radio.TXFilterHigh + " hertz");
-            Key("am carrier level", () => radio.AMCarrierLevel.ToString());
+            Key("am carrier level", () => OfHundred(radio.AMCarrierLevel));
             Key("transmit monitor", () => OnOff(radio.TXMonitor));
-            Key("transmit monitor level, sideband", () => radio.TXSBMonitorGain.ToString());
-            Key("transmit monitor level, CW", () => radio.TXCWMonitorGain.ToString());
+            Key("transmit monitor level, sideband", () => OfHundred(radio.TXSBMonitorGain));
+            Key("transmit monitor level, CW", () => OfHundred(radio.TXCWMonitorGain));
             Key("vox", () => OnOff(radio.SimpleVOXEnable));
-            Key("vox gain", () => radio.SimpleVOXLevel.ToString());
+            Key("vox gain", () => OfHundred(radio.SimpleVOXLevel));
             Key("vox delay", () => (radio.SimpleVOXDelay * FlexBase.VoxDelayMS) + " milliseconds");
 
             // CW.
@@ -2075,9 +2122,9 @@ namespace Radios
             Key("cw iambic mode", () => radio.CWIambic ? (radio.CWIambicModeB ? "B" : "A") : "not iambic");
 
             // Audio outputs.
-            Key("lineout gain", () => radio.LineoutGain.ToString());
+            Key("lineout gain", () => OfHundred(radio.LineoutGain));
             Key("lineout muted", () => radio.LineoutMute ? "yes" : "no");
-            Key("headphone gain", () => radio.HeadphoneGain.ToString());
+            Key("headphone gain", () => OfHundred(radio.HeadphoneGain));
             Key("headphone muted", () => radio.HeadphoneMute ? "yes" : "no");
             Key("binaural receive", () => OnOff(radio.BinauralRX));
 
@@ -2120,26 +2167,29 @@ namespace Radios
                 Key(p + "tune step", () => s.TuneStep + " hertz");
                 Key(p + "locked", () => OnOff(s.Lock));
                 Key(p + "agc mode", () => s.AGCMode.ToString());
-                Key(p + "agc threshold", () => s.AGCThreshold.ToString());
-                Key(p + "audio gain", () => s.AudioGain.ToString());
-                Key(p + "audio pan", () => s.AudioPan.ToString());
+                Key(p + "agc threshold", () => OfHundred(s.AGCThreshold));
+                Key(p + "audio gain", () => OfHundred(s.AudioGain));
+                Key(p + "audio pan", () => OfHundred(s.AudioPan));
                 Key(p + "muted", () => s.Mute ? "yes" : "no");
-                Key(p + "rf gain", () => s.RFGain.ToString());
+                // Decibels, as the app's own RF preamp announcement already
+                // speaks this figure, and as FlexLib's own summary of it
+                // says. DRAFT wording, for Codex: " decibels".
+                Key(p + "rf gain", () => s.RFGain + " decibels");
                 Key(p + "squelch", () => OnOff(s.SquelchOn));
-                Key(p + "squelch level", () => s.SquelchLevel.ToString());
+                Key(p + "squelch level", () => OfHundred(s.SquelchLevel));
                 Key(p + "rit", () => s.RITOn ? "on at " + s.RITFreq + " hertz" : "off");
                 Key(p + "xit", () => s.XITOn ? "on at " + s.XITFreq + " hertz" : "off");
                 Key(p + "dax channel", () => s.DAXChannel == 0 ? "none" : s.DAXChannel.ToString());
-                Key(p + "noise reduction", () => s.NROn ? "on, level " + s.NRLevel : "off");
-                Key(p + "spectral noise reduction", () => s.NRSOn ? "on, level " + s.NRSLevel : "off");
-                Key(p + "legacy noise reduction", () => s.NRLOn ? "on, level " + s.NRL_Level : "off");
-                Key(p + "noise reduction filter", () => s.NRFOn ? "on, level " + s.NRFLevel : "off");
+                Key(p + "noise reduction", () => s.NROn ? "on, level " + OfHundred(s.NRLevel) : "off");
+                Key(p + "spectral noise reduction", () => s.NRSOn ? "on, level " + OfHundred(s.NRSLevel) : "off");
+                Key(p + "legacy noise reduction", () => s.NRLOn ? "on, level " + OfHundred(s.NRL_Level) : "off");
+                Key(p + "noise reduction filter", () => s.NRFOn ? "on, level " + OfHundred(s.NRFLevel) : "off");
                 Key(p + "neural noise reduction", () => OnOff(s.RNNOn));
-                Key(p + "noise blanker", () => s.NBOn ? "on, level " + s.NBLevel : "off");
-                Key(p + "wideband noise blanker", () => s.WNBOn ? "on, level " + s.WNBLevel : "off");
+                Key(p + "noise blanker", () => s.NBOn ? "on, level " + OfHundred(s.NBLevel) : "off");
+                Key(p + "wideband noise blanker", () => s.WNBOn ? "on, level " + OfHundred(s.WNBLevel) : "off");
                 Key(p + "auto notch", () => OnOff(s.ANFTOn));
-                Key(p + "legacy auto notch", () => s.ANFOn ? "on, level " + s.ANFLevel : "off");
-                Key(p + "audio peaking filter", () => s.APFOn ? "on, level " + s.APFLevel : "off");
+                Key(p + "legacy auto notch", () => s.ANFOn ? "on, level " + OfHundred(s.ANFLevel) : "off");
+                Key(p + "audio peaking filter", () => s.APFOn ? "on, level " + OfHundred(s.APFLevel) : "off");
             }
 
             return lines;
@@ -2588,32 +2638,7 @@ namespace Radios
                 foreach (var m in mems ?? new List<Memory>())
                 {
                     n++;
-                    string p = "memory " + n + " ";
-                    void Mem(string key, Func<string> read)
-                    {
-                        try
-                        {
-                            string v = read();
-                            memLines.Add(new SettingLine(key, string.IsNullOrEmpty(v) ? "none" : v, null));
-                        }
-                        catch (Exception ex)
-                        {
-                            memLines.Add(new SettingLine(key, null, ex.Message));
-                        }
-                    }
-                    Mem(p + "name", () => m.Name);
-                    Mem(p + "group", () => m.Group);
-                    Mem(p + "frequency", () => RadioStatusBuilder.FormatFreqDisplay((ulong)(m.Freq * 1_000_000d)));
-                    Mem(p + "mode", () => m.Mode);
-                    Mem(p + "tune step", () => m.Step + " hertz");
-                    Mem(p + "repeater offset direction", () => m.OffsetDirection.ToString());
-                    Mem(p + "repeater offset", () => m.RepeaterOffset + " megahertz");
-                    Mem(p + "tone mode", () => m.ToneMode.ToString());
-                    Mem(p + "tone value", () => m.ToneValue);
-                    Mem(p + "squelch", () => m.SquelchOn ? "on, level " + m.SquelchLevel : "off");
-                    Mem(p + "rf power", () => m.RFPower + " watts");
-                    Mem(p + "rx filter low", () => m.RXFilterLow + " hertz");
-                    Mem(p + "rx filter high", () => m.RXFilterHigh + " hertz");
+                    AddMemoryLines(memLines, n, m);
                 }
             }
             AppendSettingLines(sb, memLines);

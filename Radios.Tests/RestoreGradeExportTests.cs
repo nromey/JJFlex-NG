@@ -350,6 +350,127 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // Every quantity carries its unit or its scale (#426)
+        // ------------------------------------------------------------------
+
+        // A unit, or the radio's 0 to 100 scale. Deliberately NOT "watts" as
+        // a requirement on the power lines: whether the radio's power figure
+        // is watts on every model (and in AM) is an open question of its own,
+        // so this accepts any unit or scale and refuses only a bare number.
+        private static readonly System.Text.RegularExpressions.Regex Quantity =
+            new System.Text.RegularExpressions.Regex(
+                @"^-?\d+(\.\d+)? (watts|hertz|megahertz|milliseconds|words per minute|decibels|of 100)$");
+
+        // A toggled level: "off", or "on, level" with its scale.
+        private static readonly System.Text.RegularExpressions.Regex ToggledLevel =
+            new System.Text.RegularExpressions.Regex(@"^(off|on, level -?\d+ of 100)$");
+
+        // A toggled offset: "off", or "on at" with its unit.
+        private static readonly System.Text.RegularExpressions.Regex ToggledOffset =
+            new System.Text.RegularExpressions.Regex(@"^(off|on at -?\d+ hertz)$");
+
+        [Fact]
+        public void The_patterns_refuse_a_bare_number()
+        {
+            // Instrument control: the very shape this fix removes must fail.
+            Assert.DoesNotMatch(Quantity, "100");
+            Assert.DoesNotMatch(Quantity, "-10");
+            Assert.DoesNotMatch(ToggledLevel, "on, level 40");
+            Assert.DoesNotMatch(ToggledOffset, "on at 250");
+            Assert.Matches(Quantity, "100 watts");
+            Assert.Matches(Quantity, "100 of 100");
+            Assert.Matches(Quantity, "-10 decibels");
+            Assert.Matches(ToggledLevel, "on, level 40 of 100");
+        }
+
+        [Fact]
+        public void Every_quantity_in_the_settings_capture_carries_a_unit_or_a_scale()
+        {
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4426");
+            var slice = (Flex.Smoothlake.FlexLib.Slice)Activator.CreateInstance(
+                typeof(Flex.Smoothlake.FlexLib.Slice), Private, null, new object[] { vendor.Radio }, null)!;
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_active", Private)!.SetValue(slice, true);
+            // Every toggled level on, so its "on, level" form is what is read.
+            slice.NROn = true; slice.NRSOn = true; slice.NRLOn = true; slice.NRFOn = true;
+            slice.NBOn = true; slice.WNBOn = true; slice.ANFOn = true; slice.APFOn = true;
+            slice.RITOn = true; slice.XITOn = true;
+            vendor.Radio.SliceList.Add(slice);
+            var rig = MakeRig();
+            rig.theRadio = vendor.Radio;
+            try
+            {
+                var lines = ProfileReporter.CaptureKeyedSettings(rig);
+                var values = lines.ToDictionary(l => l.Key, l => l);
+
+                string[] quantities =
+                {
+                    "rf power", "tune power", "mic gain", "compander level",
+                    "tx filter low", "tx filter high", "am carrier level",
+                    "transmit monitor level, sideband", "transmit monitor level, CW",
+                    "vox gain", "vox delay",
+                    "cw speed", "cw sidetone pitch", "cw break-in delay",
+                    "lineout gain", "headphone gain",
+                };
+                string sl = "slice " + slice.Letter + " ";
+                string[] sliceQuantities =
+                {
+                    "filter low", "filter high", "tune step", "agc threshold",
+                    "audio gain", "audio pan", "rf gain", "squelch level",
+                };
+                string[] sliceToggledLevels =
+                {
+                    "noise reduction", "spectral noise reduction", "legacy noise reduction",
+                    "noise reduction filter", "noise blanker", "wideband noise blanker",
+                    "legacy auto notch", "audio peaking filter",
+                };
+
+                void Check(string key, System.Text.RegularExpressions.Regex shape)
+                {
+                    Assert.True(values.TryGetValue(key, out var line), "the capture has no line for " + key);
+                    Assert.True(line.Readable, key + " was not readable from the vendor radio: " + line.Problem);
+                    Assert.True(shape.IsMatch(line.Value),
+                        key + " = " + line.Value + " carries no unit or scale");
+                }
+                foreach (string k in quantities) Check(k, Quantity);
+                foreach (string k in sliceQuantities) Check(sl + k, Quantity);
+                foreach (string k in sliceToggledLevels) Check(sl + k, ToggledLevel);
+                Check(sl + "rit", ToggledOffset);
+                Check(sl + "xit", ToggledOffset);
+
+                // The AM carrier level is never claimed as watts here: what
+                // 100 delivers in AM is an open question on the bench.
+                Assert.EndsWith(" of 100", values["am carrier level"].Value, StringComparison.Ordinal);
+            }
+            finally
+            {
+                rig.theRadio = null;   // never FlexBase's to disconnect
+                rig.Dispose();
+            }
+        }
+
+        [Fact]
+        public void Every_quantity_in_a_memory_carries_a_unit_or_a_scale()
+        {
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4427");
+            var memory = new Flex.Smoothlake.FlexLib.Memory(vendor.Radio, 0);
+            memory.SquelchOn = true;
+            memory.SquelchLevel = 20;
+            var lines = new List<ProfileReporter.SettingLine>();
+            ProfileReporter.AddMemoryLines(lines, 1, memory);
+            var values = lines.ToDictionary(l => l.Key, l => l);
+
+            foreach (string k in new[] { "tune step", "repeater offset", "rf power", "rx filter low", "rx filter high" })
+            {
+                var line = values["memory 1 " + k];
+                Assert.True(line.Readable, k + " was not readable: " + line.Problem);
+                Assert.Matches(Quantity, line.Value);
+            }
+            Assert.Equal("on, level 20 of 100", values["memory 1 squelch"].Value);
+        }
+
+        // ------------------------------------------------------------------
         // Plumbing (same shape as ChangeNothingGuardTests)
         // ------------------------------------------------------------------
 
