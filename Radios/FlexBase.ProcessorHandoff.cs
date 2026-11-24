@@ -117,7 +117,11 @@ namespace Radios
             }
 
             /// <summary>
-            /// FlexLib's cache and property event, set to what was sent. The
+            /// FlexLib's cache and property event, set to what was sent, BY
+            /// SENDING IT AGAIN: FlexLib's setter is a command whenever its
+            /// cache differs, never a cache-only assignment. So this is called
+            /// from one place only, the write itself, behind the write's own
+            /// gates (connected, not transmitting, still wanted). The
             /// APPLICATION's change: it goes to the radio's own property, never
             /// through the operator-facing setter (whose first acts are to note
             /// an operator's change and to tell this handoff it was taken
@@ -143,19 +147,16 @@ namespace Radios
                         report?.Invoke(ProcessorWriteStep.Refused);
                         return;
                     }
-                    // The radio took it, as of this point in what it sends. FlexLib reads the radio's
-                    // lines in order on this one thread, so a report it parsed before this answer was
-                    // sent before the radio reached our command: if such a report has put the old
-                    // value back in the cache, the cache is behind the radio, and is set right. Only
-                    // while the handoff still wants this write (somebody taking the processor over
-                    // withdraws it), and never for the leave, which is not waited for.
-                    if (stillWanted != null && stillWanted() && ReferenceEquals(_rig.theRadio, radio) && radio.SpeechProcessorEnable != on)
-                    {
-                        Tracing.TraceLine("ProcessorHandoff: a report from before the radio took the command had put the old value back in the reading; it is set to " + (on ? "on" : "off") + " again", TraceLevel.Info);
-                        SetReading(radio, on);
-                    }
-                    Tracing.TraceLine("ProcessorHandoff: the radio answered that it took the speech processor " + (on ? "on" : "off"), TraceLevel.Info);
-                    report?.Invoke(ProcessorWriteStep.Accepted);
+                    // The radio took it. NOTHING is sent or written from here (repair 3): this is the
+                    // reader's thread, behind none of the write's gates, and FlexLib's setter is a
+                    // command, not a way to correct a cache. If FlexLib's reading holds another value
+                    // at this moment, something was reported since the write: an older report, or
+                    // somebody's newer change. The order the lines arrive in does not say which, so
+                    // the policy is told only that the reading is unsettled.
+                    bool differs = ReferenceEquals(_rig.theRadio, radio) && radio.SpeechProcessorEnable != on;
+                    Tracing.TraceLine("ProcessorHandoff: the radio answered that it took the speech processor " + (on ? "on" : "off")
+                        + (differs ? "; the reading shows otherwise at this moment and is left alone" : ""), TraceLevel.Info);
+                    report?.Invoke(differs ? ProcessorWriteStep.AcceptedUnsettled : ProcessorWriteStep.Accepted);
                 }
                 catch (Exception ex)
                 {
@@ -202,10 +203,44 @@ namespace Radios
         /// somebody else's from here (repair 2, B3b). Nothing to tell when no
         /// handoff has been made for this rig.
         /// </summary>
-        private void ProcessorSetThroughTheRigsSetter()
+        private void ProcessorSetThroughTheRigsSetter(OffOnValues value)
         {
-            try { _processorHandoff?.TakenOver(); }
+            try { _processorHandoff?.TakenOver(value == OffOnValues.on); }
             catch (Exception ex) { Tracing.TraceLine("ProcessorSetThroughTheRigsSetter: " + ex.Message, TraceLevel.Warning); }
+        }
+
+        /// <summary>
+        /// The radio's speech processor as the OPERATOR has it (#1302). While
+        /// our compressor holds the processor off, <see cref="ProcessorOn"/>
+        /// reads off by the app's hand; the operator's own value is the one
+        /// the handoff recorded and will put back. Anything that SAVES the
+        /// operator's settings, or compares them with a saved set, reads
+        /// this; anything that shows or reports what the radio is doing now
+        /// reads <see cref="ProcessorOn"/>.
+        /// </summary>
+        public OffOnValues ProcessorOnAsTheOperatorHasIt
+        {
+            get
+            {
+                bool? theirs = null;
+                try { theirs = _processorHandoff?.OperatorsValue; }
+                catch (Exception ex) { Tracing.TraceLine("ProcessorOnAsTheOperatorHasIt: " + ex.Message, TraceLevel.Warning); }
+                return theirs is bool on ? (on ? OffOnValues.on : OffOnValues.off) : ProcessorOn;
+            }
+        }
+
+        /// <summary>
+        /// Whether the handoff is holding the processor for our compressor and
+        /// <paramref name="value"/> is the operator's own value underneath
+        /// (#1302). Applying a saved set that says that value changes nothing
+        /// then: the processor stays held, and the handoff still puts that
+        /// value back. Any other value is a choice, and goes through
+        /// <see cref="ProcessorOn"/>'s setter like anybody's.
+        /// </summary>
+        public bool ProcessorHeldWithOperatorsValue(OffOnValues value)
+        {
+            try { return _processorHandoff?.OperatorsValue is bool theirs && theirs == (value == OffOnValues.on); }
+            catch (Exception ex) { Tracing.TraceLine("ProcessorHeldWithOperatorsValue: " + ex.Message, TraceLevel.Warning); return false; }
         }
 
         /// <summary>

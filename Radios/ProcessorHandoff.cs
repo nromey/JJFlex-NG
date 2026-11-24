@@ -83,6 +83,14 @@ namespace Radios
         Sent,
         /// <summary>The radio answered that it took the command: the only confirmation there is.</summary>
         Accepted,
+        /// <summary>
+        /// The radio answered that it took the command, and at that moment the
+        /// reading held a different value from the one written: something was
+        /// reported since the write. It may be a report older than the command
+        /// or somebody's newer change; the radio's side cannot tell which, and
+        /// sends nothing to find out (repair 3).
+        /// </summary>
+        AcceptedUnsettled,
         /// <summary>The radio answered that it did not take the command.</summary>
         Refused,
     }
@@ -262,6 +270,22 @@ namespace Radios
     /// A processor that reads on after the radio accepted the app's off, with
     /// no such call (another station's doing), is treated the same way. It
     /// is never fought.</item>
+    /// <item><b>A reading that disagrees at the moment of the radio's answer
+    /// is UNSETTLED</b> (repair 3). The order the radio's lines arrive in
+    /// says which was parsed first, not which the radio did last: an "on"
+    /// parsed between the app's off and its answer may be a report older than
+    /// the off, or another station's newer turn-on. So nothing is sent to
+    /// find out and nothing is written over. The off is said (the radio took
+    /// it). While it is unsettled the processor is neither turned off again
+    /// nor treated as somebody's: the record is kept. A later reading of off
+    /// settles it as held. Otherwise the session's end settles it: the
+    /// put-back is asked for, behind the usual gates, whatever the reading
+    /// says, and an "on" sent to a radio that is already on changes nothing.
+    /// If, while it is unsettled, the processor is set through the rig's
+    /// setter to the very value the app owes, the radio's software may send
+    /// nothing for it (its reading already shows that value): the app's own
+    /// put-back, asked at once behind the usual gates and said by nobody, is
+    /// what makes their change true.</item>
     /// <item><b>At the end of a session</b> the processor is put back on only
     /// if the app's off was sent and the reading still holds the value the app
     /// set (or holds only the app's own unanswered put-back). The level is
@@ -338,6 +362,8 @@ namespace Radios
         // What is known of the radio and of the reading.
         private bool _offSent;      // the app's off went to the radio (on this connection, or before it for a record read from disk)
         private bool _offAccepted;  // the radio answered that it took the app's off, or a connection's first reading showed it still off
+        private bool _offUnsettled; // ...and the reading disagreed at that answer: an older report or somebody's newer change, not known which
+        private bool _handedBack;   // set through the rig's setter to the value the app owes, while unsettled: the app's put-back makes it true, and the off is not tried again until the compressor is next switched on
         private bool _backSent;     // the app's put-back went to the radio and has not been answered: the reading may show the app's own write
         private bool _offRefused;   // the radio refused the app's off: not tried again until the compressor is next switched on
         private bool _backRefused;  // the radio refused the app's put-back: the record waits for the next connection
@@ -379,7 +405,7 @@ namespace Radios
             _store.Remove(serial);
             _record = null; _recordRead = true;
             _pending = Pending.None;
-            _offSent = _offAccepted = _backSent = _backRefused = _quietBack = false;
+            _offSent = _offAccepted = _offUnsettled = _backSent = _backRefused = _quietBack = false;
             Withdraw();
         }
 
@@ -414,6 +440,26 @@ namespace Radios
         /// <summary>Whether the app has turned this radio's processor off (or asked to) and the radio has not yet answered that it is back.</summary>
         public bool HoldsRecord { get { lock (_sync) return Record(_radio.Serial) != null; } }
 
+        /// <summary>
+        /// The processor's value as the OPERATOR has it, while the app holds a
+        /// record of having changed it: the value from before the app's change,
+        /// which is what the app will put back. Null when the app holds no
+        /// record (the reading is then the operator's own). For whatever saves
+        /// or compares the operator's settings (#1302): the app's temporary
+        /// off must never be saved as the operator's choice.
+        /// </summary>
+        public bool? OperatorsValue
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    if (!_radio.Connected) return null;
+                    return Record(_radio.Serial)?.PreviousOn;
+                }
+            }
+        }
+
         /// <summary>The radio has just connected: the next tick applies the connect rule to any record an earlier session left.</summary>
         public void Connected()
         {
@@ -423,7 +469,7 @@ namespace Radios
                 _session = _declined = _settled = _faulted = _faultPutBack = _saidNotYours = _connectPutBack = false;
                 _faultsSeen = -1;
                 _pending = Pending.None;
-                _offSent = _offAccepted = _backSent = _offRefused = _backRefused = _quietBack = false;
+                _offSent = _offAccepted = _offUnsettled = _backSent = _offRefused = _backRefused = _quietBack = _handedBack = false;
                 Withdraw();
                 _recordRead = false; // read again from the store: another session may have written it
             }
@@ -439,8 +485,22 @@ namespace Radios
         /// off again in this session. Call it BEFORE their write is queued,
         /// so the app's own queued write, ahead of theirs, is already
         /// withdrawn when the queue reaches it.
+        /// <para>A set to the value the app already holds in the reading (a
+        /// preset that says off while the app holds the processor off) is
+        /// still their choice, and drops the record the same way: the app
+        /// then has nothing to put back, and their off stands (#1302's other
+        /// half; a saved preset holds the operator's own value, never the
+        /// app's temporary one, so a preset that says off means it).</para>
+        /// <para>One case does not drop it (repair 3): the reading is
+        /// unsettled and <paramref name="setTo"/> is the very value the app
+        /// owes. The radio's software sends nothing for a value its reading
+        /// already shows, so their change might never reach the radio; the
+        /// app's own put-back is asked instead, behind the usual gates, and
+        /// the record is kept until the radio answers it. Nothing is said:
+        /// they did it themselves.</para>
         /// </summary>
-        public void TakenOver()
+        /// <param name="setTo">The value being set, when the caller knows it.</param>
+        public void TakenOver(bool? setTo = null)
         {
             lock (_sync)
             {
@@ -450,6 +510,15 @@ namespace Radios
                 Withdraw();
                 bool held = _pending != Pending.None || Record(serial) != null;
                 _pending = Pending.None;
+                if (_offUnsettled && Record(serial) is { } owed && setTo == owed.PreviousOn)
+                {
+                    _handedBack = true;
+                    _quietBack = true;
+                    _connectPutBack = false; _faultPutBack = false;
+                    if (_session) _declined = true;
+                    _trace("ProcessorHandoff: the processor of " + serial + " was set through the rig's own setter to the value the app owes it, while its reading is unsettled; the app's own put-back is asked so that it reaches the radio, and the record is kept until the radio answers");
+                    return;
+                }
                 if (Record(serial) != null) Drop(serial);
                 _connectPutBack = false; _faultPutBack = false;
                 if (_session) _declined = true;
@@ -522,8 +591,8 @@ namespace Radios
                 }
             }
 
-            if (!want) { _faulted = false; _offRefused = false; } // the compressor next coming on is a new session
-            bool active = want && !_faulted && !_offRefused;
+            if (!want) { _faulted = false; _offRefused = false; _handedBack = false; } // the compressor next coming on is a new session
+            bool active = want && !_faulted && !_offRefused && !_handedBack;
 
             // What became of the app's own writes. After any news, the rules read the new state on the next tick:
             // this tick's reading was taken before the news was read, and may be older than the write it tells of.
@@ -574,7 +643,10 @@ namespace Radios
                 {
                     if (_offAccepted)
                     {
-                        if (on == record.AppSetOn) return;        // held off, as the radio answered
+                        if (on == record.AppSetOn) { _offUnsettled = false; return; } // held off, as the radio answered (and, if it was unsettled, now settled)
+                        // Unsettled: an older report or somebody's newer change, not known which. Neither
+                        // fought nor forgotten: the session's end asks the put-back whatever the reading says.
+                        if (_offUnsettled) return;
                         // On again after the radio took the app's off, and not by the rig's own setter: another
                         // station's doing. Their intent: never fought, and not turned off again this session.
                         _trace("ProcessorHandoff: the processor of " + serial + " was turned on while the compressor is on; the app's record is dropped and it is left on for this session");
@@ -612,7 +684,7 @@ namespace Radios
                     _settled = true;
                     return;
                 }
-                _offSent = _offAccepted = _backSent = _backRefused = _quietBack = false;
+                _offSent = _offAccepted = _offUnsettled = _backSent = _backRefused = _quietBack = false;
                 if (!Ask(false, Pending.Off))
                 {
                     Drop(serial);
@@ -636,9 +708,10 @@ namespace Radios
             }
             if (_backRefused) return;                         // the radio refused: the record waits for the next connection's first reading
             if (reading is not bool now) return;
-            if (now != record.AppSetOn && !_backSent)
+            if (now != record.AppSetOn && !_backSent && !_offUnsettled)
             {
-                // Not the app's own put-back (none has gone out): somebody else's change.
+                // Not the app's own put-back (none has gone out), and not a reading left unsettled by
+                // the radio's answer (that one is settled by asking the put-back): somebody else's change.
                 _trace("ProcessorHandoff: the processor of " + serial + " no longer holds the value the app set; nothing is put back");
                 Drop(serial);
                 _connectPutBack = false; _faultPutBack = false;
@@ -669,7 +742,11 @@ namespace Radios
                         break;
                     case ProcessorWriteStep.Accepted:
                         NoteSent(item.Ticket);
-                        Accepted(serial, record);
+                        Accepted(serial, record, unsettled: false);
+                        break;
+                    case ProcessorWriteStep.AcceptedUnsettled:
+                        NoteSent(item.Ticket);
+                        Accepted(serial, record, unsettled: true);
                         break;
                     case ProcessorWriteStep.Refused:
                         NoteSent(item.Ticket);
@@ -683,7 +760,7 @@ namespace Radios
         /// <summary>A write of this episode is on the wire: from here the reading may show it, which proves nothing.</summary>
         private void NoteSent(int ticket)
         {
-            if (_pending == Pending.Off) { _offSent = true; _backSent = false; _backRefused = false; }
+            if (_pending == Pending.Off) { _offSent = true; _offUnsettled = false; _backSent = false; _backRefused = false; }
             else { _backSent = true; _offAccepted = false; }
             if (ticket != _newest || _sent) return;
             _sent = true;
@@ -691,7 +768,7 @@ namespace Radios
         }
 
         /// <summary>The radio answered that it took the write: the only confirmation there is.</summary>
-        private void Accepted(string serial, ProcessorHandoffRecord? record)
+        private void Accepted(string serial, ProcessorHandoffRecord? record, bool unsettled)
         {
             var kind = _pending;
             _pending = Pending.None;
@@ -699,16 +776,19 @@ namespace Radios
             if (kind == Pending.Off)
             {
                 _offAccepted = true;
+                _offUnsettled = unsettled;
                 _quietBack = false;
                 _trace("ProcessorHandoff: the compressor is on, and the radio answered that the processor of " + serial + " is off (it was on at level "
-                    + (record?.PreviousLevel ?? 0).ToString(CultureInfo.InvariantCulture) + ")");
+                    + (record?.PreviousLevel ?? 0).ToString(CultureInfo.InvariantCulture) + ")"
+                    + (unsettled ? "; its reading showed on at that answer, which may be an older report or somebody's newer change: nothing is sent or written over, and the session's end settles it" : ""));
                 _toSay.Add(_radio.AnotherClientMayBeConnected ? ProcessorHandoffNotice.TurnedOffShared : ProcessorHandoffNotice.TurnedOff);
                 return;
             }
             // Answered: only now is the debt paid and the record forgotten.
             bool quiet = _quietBack;
             _trace("ProcessorHandoff: the radio answered that the processor of " + serial + " is " + ((record?.PreviousOn ?? true) ? "on" : "off") + " again"
-                + (quiet ? " (the radio had refused the app's off, so nothing is said)" : _faultPutBack ? " after the transmit chain faulted" : _connectPutBack ? " at connect" : ""));
+                + (quiet ? " (nothing was said to have gone off, or they set it themselves, so nothing is said)" : _faultPutBack ? " after the transmit chain faulted" : _connectPutBack ? " at connect" : "")
+                + (unsettled ? "; its reading showed otherwise at that answer and is left as the radio's reports made it" : ""));
             var notice = _faultPutBack ? ProcessorHandoffNotice.PutBackAfterFault
                 : _connectPutBack ? ProcessorHandoffNotice.PutBackAtConnect
                 : _radio.AnotherClientMayBeConnected ? ProcessorHandoffNotice.PutBackShared
@@ -759,13 +839,20 @@ namespace Radios
         {
             try
             {
+                // What the radio's side has reported and no tick has read yet, FIRST (repair 3): a write
+                // sent or answered in the last half second is otherwise taken for never sent, and the
+                // leave would put nothing back. Whatever it would have said is not said on the way out.
+                string leaving = _radio.Serial;
+                if (!string.IsNullOrWhiteSpace(leaving)) ReadNews(leaving, Record(leaving));
+                _toSay.Clear();
                 Withdraw();
                 _pending = Pending.None;
                 if (!_radio.Connected) return;
                 var record = Record(_radio.Serial);
                 if (record == null || !_offSent) return;
-                // Still the app's off, or the app's own put-back that the radio never answered (sent again here).
-                if (_radio.ProcessorOn is not bool on || (on != record.AppSetOn && !_backSent)) return;
+                // Still the app's off; or the app's own put-back that the radio never answered (sent again
+                // here); or a reading left unsettled by the radio's answer (an "on" already there changes nothing).
+                if (_radio.ProcessorOn is not bool on || (on != record.AppSetOn && !_backSent && !_offUnsettled)) return;
                 if (_radio.Transmitting)
                 {
                     _trace("ProcessorHandoff: leaving " + _radio.Serial + " while it transmits; the processor is put back at the next connect");

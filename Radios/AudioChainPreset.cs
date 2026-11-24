@@ -158,7 +158,11 @@ public class AudioChainPreset
         rig.MicBias = MicBias ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
         rig.Compander = CompanderOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
         rig.CompanderLevel = CompanderLevel;
-        rig.ProcessorOn = SpeechProcessorOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+        // While our compressor holds the radio's processor off, the operator's own value is the one
+        // the handoff will put back (#1302). A set that says that same value changes nothing: writing
+        // it would turn the processor on under the compressor, or be taken for a new choice.
+        var processor = SpeechProcessorOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+        if (!rig.ProcessorHeldWithOperatorsValue(processor)) rig.ProcessorOn = processor;
         rig.ProcessorSetting = (FlexBase.ProcessorSettings)SpeechProcessorLevel;
         rig.TXFilterLow = TxFilterLow;
         rig.TXFilterHigh = TxFilterHigh;
@@ -234,7 +238,8 @@ public class AudioChainPreset
             MicBias = rig.MicBias == FlexBase.OffOnValues.on,
             CompanderOn = rig.Compander == FlexBase.OffOnValues.on,
             CompanderLevel = rig.CompanderLevel,
-            SpeechProcessorOn = rig.ProcessorOn == FlexBase.OffOnValues.on,
+            // The operator's own value, not the app's temporary off while our compressor holds it (#1302).
+            SpeechProcessorOn = rig.ProcessorOnAsTheOperatorHasIt == FlexBase.OffOnValues.on,
             SpeechProcessorLevel = (int)rig.ProcessorSetting,
             TxFilterLow = rig.TXFilterLow,
             TxFilterHigh = rig.TXFilterHigh,

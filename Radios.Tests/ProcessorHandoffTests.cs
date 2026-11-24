@@ -92,7 +92,8 @@ public sealed class ProcessorHandoffTests : IDisposable
             var (on, report) = _unanswered[0];
             _unanswered.RemoveAt(0);
             if (accept) RadioOn = on;
-            report?.Invoke(accept ? ProcessorWriteStep.Accepted : ProcessorWriteStep.Refused);
+            // The contract: an answer that finds another value in the reading says the reading is unsettled.
+            report?.Invoke(!accept ? ProcessorWriteStep.Refused : On == on ? ProcessorWriteStep.Accepted : ProcessorWriteStep.AcceptedUnsettled);
         }
         private bool Make(bool on, Func<bool>? stillWanted, Action<ProcessorWriteStep>? report)
         {
@@ -425,7 +426,7 @@ public sealed class ProcessorHandoffTests : IDisposable
         b.Tick(ProcessorHandoff.SettleTicks - 1);
         Assert.NotNull(b.Store.Find(Serial));  // not mistaken for somebody turning it on
         Assert.Empty(b.Said);
-        b.Radio.On = false;                    // the radio's side sets the reading right as of the answer...
+        b.Radio.On = false;                    // the radio reports off (its own report, by the time it answers)...
         b.Radio.Answer();                      // ...and the answer arrives
         b.Tick(5);
         Assert.NotNull(b.Store.Find(Serial));
@@ -1061,6 +1062,190 @@ public sealed class ProcessorHandoffTests : IDisposable
         Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOff }, b.Said);
     }
 
+    // ── a reading that disagrees at the radio's answer is unsettled (repair 3) ──
+
+    /// <summary>A bench whose off was taken by the radio while its reading said on.</summary>
+    private Bench Unsettled()
+    {
+        var b = NewBench();
+        b.Radio.Answers = null;
+        b.Compressor = true;
+        b.Tick();
+        b.Radio.On = true;                          // a report parsed since the write: older than it, or somebody's newer turn-on
+        b.Radio.Answer();                           // the radio took the off
+        b.Radio.Answers = true;
+        b.Tick(2);
+        Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOff }, b.Said);
+        return b;
+    }
+
+    [Fact]
+    public void An_unsettled_reading_is_neither_fought_nor_forgotten_and_the_sessions_end_puts_the_processor_back_whatever_it_says()
+    {
+        var b = Unsettled();
+        b.Tick(40);
+        Assert.Equal(new[] { false }, b.Radio.Writes); // not turned off again
+        Assert.NotNull(b.Store.Find(Serial));       // and the record is not dropped: if that "on" was an older report, the radio is off
+
+        b.Compressor = false;
+        b.Tick(3);
+        Assert.Equal(new[] { false, true }, b.Radio.Writes); // put back although the reading already said on
+        Assert.Equal(ProcessorHandoffNotice.PutBack, b.Said[^1]);
+        Assert.Null(b.Store.Find(Serial));
+        Assert.True(b.Radio.RadioOn);
+    }
+
+    [Fact]
+    public void An_unsettled_reading_that_next_reads_off_is_settled_as_held_and_an_on_after_that_is_somebodys()
+    {
+        var b = Unsettled();
+        b.Radio.On = false;                         // the radio reports off
+        b.Tick(2);
+        b.Radio.On = true;                          // and later on: somebody turned it on
+        b.Tick(3);
+        Assert.Null(b.Store.Find(Serial));
+        Assert.Equal(new[] { false }, b.Radio.Writes);
+        b.Compressor = false;
+        b.Tick(3);
+        Assert.Equal(new[] { false }, b.Radio.Writes); // nothing of the app's to put back
+    }
+
+    [Fact]
+    public void Taken_over_with_the_owed_value_while_unsettled_the_apps_put_back_is_asked_quietly_and_the_off_is_not_tried_again()
+    {
+        var b = Unsettled();
+        b.Handoff.TakenOver(true);                  // the operator says on; the reading already says on
+        Assert.NotNull(b.Store.Find(Serial));       // not dropped: their "on" may never reach the radio by itself
+        b.Tick(3);
+        Assert.Equal(new[] { false, true }, b.Radio.Writes);
+        Assert.Null(b.Store.Find(Serial));
+        Assert.Single(b.Said);                      // nothing is said about it
+        b.Tick(40);
+        Assert.Equal(new[] { false, true }, b.Radio.Writes); // theirs for this session
+
+        // The compressor next switched on is a new session.
+        b.Compressor = false;
+        b.Tick();
+        b.Compressor = true;
+        b.Tick(2);
+        Assert.Equal(new[] { false, true, false }, b.Radio.Writes);
+    }
+
+    [Fact]
+    public void Taken_over_with_the_other_value_while_unsettled_or_with_no_value_named_drops_the_record_as_ever()
+    {
+        var b = Unsettled();
+        b.Handoff.TakenOver(false);                 // they say off: the radio's software sends that itself
+        Assert.Null(b.Store.Find(Serial));
+        b.Compressor = false;
+        b.Tick(4);
+        Assert.Equal(new[] { false }, b.Radio.Writes);
+
+        var c = Unsettled();
+        c.Handoff.TakenOver();                      // a caller that does not know the value
+        Assert.Null(c.Store.Find(Serial));
+    }
+
+    [Fact]
+    public void Taken_over_with_the_owed_value_when_the_reading_is_settled_drops_the_record_as_ever()
+    {
+        // Held off, the reading says off: their "on" differs from the reading, so the radio's software sends it.
+        var b = NewBench();
+        b.Compressor = true;
+        b.Tick(2);
+        b.Handoff.TakenOver(true);
+        Assert.Null(b.Store.Find(Serial));
+        b.Radio.On = true;
+        b.Tick(5);
+        Assert.Equal(new[] { false }, b.Radio.Writes);
+    }
+
+    [Fact]
+    public void A_put_back_the_radio_took_while_its_reading_said_otherwise_is_paid_and_said()
+    {
+        var b = NewBench();
+        b.Compressor = true;
+        b.Tick(2);
+        b.Radio.Answers = null;
+        b.Compressor = false;
+        b.Tick(2);                                  // the put-back: sent
+        b.Radio.On = false;                         // a report parsed since
+        b.Radio.Answer();                           // the radio took the put-back
+        b.Radio.Answers = true;
+        b.Tick(2);
+        Assert.Equal(new[] { ProcessorHandoffNotice.TurnedOff, ProcessorHandoffNotice.PutBack }, b.Said);
+        Assert.Null(b.Store.Find(Serial));
+        b.Tick(20);
+        Assert.Equal(new[] { false, true }, b.Radio.Writes); // nothing is sent to make the reading agree
+    }
+
+    [Fact]
+    public void The_leave_puts_the_processor_back_while_the_reading_is_unsettled()
+    {
+        var b = Unsettled();
+        b.Handoff.Leaving();
+        Assert.Equal(new[] { false, true }, b.Radio.Writes);
+        Assert.NotNull(b.Store.Find(Serial));
+    }
+
+    // ── the leave reads its news first (repair 3) ──
+
+    [Fact]
+    public void The_leave_reads_what_the_radios_side_reported_since_the_last_tick_before_it_decides()
+    {
+        var b = NewBench();
+        b.Compressor = true;
+        b.Tick();                                   // the off: sent and answered, and no tick has read that yet
+        Assert.Equal(new[] { false }, b.Radio.Writes);
+        b.Handoff.Leaving();
+        Assert.Equal(new[] { false, true }, b.Radio.Writes); // put back on the way out
+        Assert.NotNull(b.Store.Find(Serial));
+        Assert.Empty(b.Said);                       // and nothing is said on the way out
+        b.Tick();
+        Assert.Empty(b.Said);                       // nor is a "turned off" from before the leave left over for a tick that comes after it
+
+        // Sent and not yet answered: the same.
+        var c = new Bench(Path.Combine(_root, "leave-news"));
+        c.Handoff.Connected();
+        c.Tick();
+        c.Radio.Answers = null;
+        c.Compressor = true;
+        c.Tick();
+        c.Handoff.Leaving();
+        Assert.Equal(new[] { false, true }, c.Radio.Writes);
+
+        // The positive control: an off still in the queue was never sent, and the leave writes nothing.
+        var d = new Bench(Path.Combine(_root, "leave-queued"));
+        d.Handoff.Connected();
+        d.Tick();
+        d.Radio.Queued = true;
+        d.Compressor = true;
+        d.Tick();
+        d.Handoff.Leaving();
+        d.Radio.Drain();
+        Assert.Empty(d.Radio.Writes);
+    }
+
+    // ── the operator's own value, for whatever saves it (#1302) ──
+
+    [Fact]
+    public void The_operators_value_is_the_one_from_before_the_apps_change_for_as_long_as_the_app_holds_a_record()
+    {
+        var b = NewBench();
+        Assert.Null(b.Handoff.OperatorsValue);      // no record: the reading is the operator's own
+        b.Compressor = true;
+        b.Tick(2);
+        Assert.False(b.Radio.On);                   // positive control: the reading says off, by the app's hand
+        Assert.True(b.Handoff.OperatorsValue);
+        b.Radio.Connected = false;
+        Assert.Null(b.Handoff.OperatorsValue);      // nothing is claimed about a radio that is not there
+        b.Radio.Connected = true;
+        b.Compressor = false;
+        b.Tick(2);
+        Assert.Null(b.Handoff.OperatorsValue);      // put back and answered: no record
+        Assert.True(b.Radio.On);
+    }
+
     // ── somebody else's change wins at once (repair 2, B3b) ──
 
     [Fact]
@@ -1595,24 +1780,272 @@ public sealed class ProcessorHandoffTests : IDisposable
     }
 
     [Fact]
-    public void A_report_the_radio_sent_before_it_took_our_write_does_not_pass_for_somebody_turning_the_processor_on()
+    public void A_reading_left_unsettled_settles_as_held_when_the_radio_next_reports_off_and_a_later_on_is_somebodys()
     {
         using var f = HandoffRig(out var said, out _);
         string serial = f.Vendor.Radio.Serial;
+        var store = f.Rig.ProcessorHandoffStoreOverride!;
         var answered = new HashSet<int>();
 
         f.Rig.ProcessorHandoff.Tick(CompressorOn);
         Drain(f.Rig);
-        Assert.False(f.Vendor.Radio.SpeechProcessorEnable);
-        // A transmit report on its way before the radio reached our command lands after FlexLib's setter ran.
-        f.Vendor.Status("transmit speech_processor_enable=1 speech_processor_level=1");
-        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);          // positive control: the older report overwrote the reading
-        Assert.True(Answer(f, answered) > 0);                       // then the radio's answer: it took the off
-        Assert.False(f.Vendor.Radio.SpeechProcessorEnable);         // the reading is set right, as of the answer
+        f.Vendor.Status("transmit speech_processor_enable=1 speech_processor_level=1"); // a report parsed between the off and its answer
+        Assert.True(Answer(f, answered) > 0);
+        Poll(f, CompressorOn, 3, answering: answered);
+        Assert.Single(said);
+        Assert.NotNull(store.Find(serial));                         // unsettled: kept
 
-        Poll(f, CompressorOn, 6, answering: answered);
-        Assert.Single(said);                                        // the off is said, once
-        Assert.NotNull(f.Rig.ProcessorHandoffStoreOverride!.Find(serial)); // and the record is kept: nobody turned anything on
+        f.Vendor.Status("transmit speech_processor_enable=0");      // the radio reports off: settled, held
+        Poll(f, CompressorOn, 2, answering: answered);
+        Assert.NotNull(store.Find(serial));
+        int offs = ProcessorCommands(f).Count(c => c == OffCommand);
+
+        f.Vendor.Status("transmit speech_processor_enable=1");      // and an "on" after that is somebody's turn-on, as ever
+        Poll(f, CompressorOn, 5, answering: answered);
+        Assert.Null(store.Find(serial));
+        Assert.Equal(offs, ProcessorCommands(f).Count(c => c == OffCommand)); // never fought
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);
+        Assert.DoesNotContain(OnCommand, ProcessorCommands(f));     // and nothing of the app's to put back
+    }
+
+    [Fact]
+    public void The_Flex_side_tells_an_answer_that_finds_another_value_in_the_reading_from_one_that_agrees()
+    {
+        using var f = ConnectedRig("handoff-unsettled");
+        var processor = f.Rig.SpeechProcessorForHandoff;
+        var steps = new List<ProcessorWriteStep>();
+        Assert.True(processor.WriteProcessorOn(false, () => true, steps.Add));
+        Drain(f.Rig);
+        f.Vendor.Status("transmit speech_processor_enable=1");
+        int written;
+        lock (f.Vendor.Transport.Written) written = f.Vendor.Transport.Written.Count;
+        f.Vendor.ReplyOk(f.Vendor.Transport.SequenceOf(0));
+        Assert.Equal(new[] { ProcessorWriteStep.Sent, ProcessorWriteStep.AcceptedUnsettled }, steps);
+        lock (f.Vendor.Transport.Written) Assert.Equal(written, f.Vendor.Transport.Written.Count);
+
+        // The positive control: with the reading agreeing, the plain answer.
+        steps.Clear();
+        Assert.True(processor.WriteProcessorOn(false, () => true, steps.Add));
+        Drain(f.Rig);
+        Assert.False(f.Vendor.Radio.SpeechProcessorEnable);
+        f.Vendor.ReplyOk(f.Vendor.Transport.SequenceOf(f.Vendor.Transport.Written.Count - 2)); // the command with the handler goes first; FlexLib's own copy follows it
+        Assert.Equal(new[] { ProcessorWriteStep.Sent, ProcessorWriteStep.Accepted }, steps);
+    }
+
+    [Fact]
+    public void While_the_reading_is_unsettled_the_operators_own_on_reaches_the_radio_through_the_apps_put_back()
+    {
+        // FlexLib sends nothing for a value its reading already shows. If that "on" was an older
+        // report, the radio is off, and the operator's own "on" would be swallowed.
+        using var f = HandoffRig(out var said, out var receipts);
+        string serial = f.Vendor.Radio.Serial;
+        var store = f.Rig.ProcessorHandoffStoreOverride!;
+        var answered = new HashSet<int>();
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(f.Rig);
+        f.Vendor.Status("transmit speech_processor_enable=1");
+        Answer(f, answered);
+        Poll(f, CompressorOn, 2, answering: answered);
+        Assert.Single(said);
+
+        f.Rig.ProcessorOn = FlexBase.OffOnValues.on;                // the operator says on; the reading already says on
+        Drain(f.Rig);
+        Assert.Contains("ProcessorOn", receipts);
+        Assert.DoesNotContain(OnCommand, ProcessorCommands(f));     // positive control: FlexLib itself sent nothing for it
+        Assert.NotNull(store.Find(serial));                         // so the app's record is not dropped yet
+
+        Poll(f, CompressorOn, 4, answering: answered);
+        Assert.Equal(1, ProcessorCommands(f).Count(c => c == OnCommand)); // the app's put-back carried it to the radio
+        Assert.Null(store.Find(serial));
+        Assert.Single(said);                                        // nothing more is said: they did it themselves
+        int offs = ProcessorCommands(f).Count(c => c == OffCommand);
+        Poll(f, CompressorOn, 20, answering: answered);
+        Assert.Equal(offs, ProcessorCommands(f).Count(c => c == OffCommand)); // and it is theirs for this session
+    }
+
+    [Fact]
+    public void While_the_reading_is_unsettled_the_operators_own_off_is_theirs_and_nothing_is_put_back()
+    {
+        using var f = HandoffRig(out var said, out _);
+        string serial = f.Vendor.Radio.Serial;
+        var answered = new HashSet<int>();
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(f.Rig);
+        f.Vendor.Status("transmit speech_processor_enable=1");
+        Answer(f, answered);
+        Poll(f, CompressorOn, 2, answering: answered);
+        int offs = ProcessorCommands(f).Count(c => c == OffCommand);
+
+        f.Rig.ProcessorOn = FlexBase.OffOnValues.off;               // the operator says off; the reading says on, so FlexLib sends it
+        Drain(f.Rig);
+        Assert.Equal(offs + 1, ProcessorCommands(f).Count(c => c == OffCommand));
+        Assert.Null(f.Rig.ProcessorHandoffStoreOverride!.Find(serial));
+        Poll(f, CompressorOff, 5, answering: answered);
+        Assert.DoesNotContain(OnCommand, ProcessorCommands(f));     // their off stands
+        Assert.Single(said);
+    }
+
+    // ── repair 3: nothing reaches the wire but behind the write's own gates; the leave reads its news; a preset holds the operator's value ──
+
+    [Fact]
+    public void The_radios_answer_sends_nothing_itself_keyed_or_not_whatever_the_reading_says()
+    {
+        // Codex's re-check 2: the answer's handler set FlexLib's reading right through FlexLib's
+        // setter, which SENDS. With the radio transmitting, a third OFF went out from the reader's thread.
+        using var f = HandoffRig(out _, out _);
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(f.Rig);
+        Assert.Equal(new[] { OffCommand, OffCommand }, ProcessorCommands(f));   // the write itself, unkeyed
+        f.Vendor.Status("interlock state=TRANSMITTING source=RCA");
+        Assert.True(f.Rig.SpeechProcessorForHandoff.Transmitting, "the fixture's radio does not read as transmitting: the test proves nothing");
+        f.Vendor.Status("transmit speech_processor_enable=1");                    // a report that disagrees with what was written
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);                        // positive control: the reading disagrees
+
+        // Positive control: an ordinary write in this very state makes nothing.
+        var steps = new List<ProcessorWriteStep>();
+        f.Rig.SpeechProcessorForHandoff.WriteProcessorOn(false, () => true, steps.Add);
+        Drain(f.Rig);
+        Assert.Equal(new[] { ProcessorWriteStep.NotMade }, steps);
+        int written;
+        lock (f.Vendor.Transport.Written) written = f.Vendor.Transport.Written.Count;
+
+        f.Vendor.ReplyOk(f.Vendor.Transport.SequenceOf(0));                       // the radio's answer to the app's off
+        lock (f.Vendor.Transport.Written) Assert.Equal(written, f.Vendor.Transport.Written.Count); // nothing went out on it
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);                        // and the reading was not written over
+    }
+
+    [Fact]
+    public void FlexLibs_setter_is_called_from_the_write_alone_behind_the_writes_own_gates()
+    {
+        // FlexLib's setter is a command whenever its cache differs. The Flex side may call it from
+        // one place: the write itself, after it has asked connected, not transmitting, still wanted.
+        string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.ProcessorHandoff.cs"));
+        Assert.Equal(1, source.Split("radio.SpeechProcessorEnable = on;").Length - 1);
+        Assert.Equal(1, source.Split("SetReading(radio!, on);").Length - 1);
+        Assert.Equal(2, source.Split("SetReading(").Length - 1);    // the one call and the definition
+        string write = Between(source, "private bool WriteIfStillRight(", "private void SetReading(");
+        Assert.True(write.IndexOf(": Transmitting ? \"the radio is transmitting\"", StringComparison.Ordinal) >= 0
+            && write.IndexOf(": Transmitting ? \"the radio is transmitting\"", StringComparison.Ordinal) < write.IndexOf("SetReading(radio!, on);", StringComparison.Ordinal));
+        // And the answer's handler sends and sets nothing.
+        string answered = Between(source, "private void Answered(", "private ProcessorHandoff? _processorHandoff;");
+        Assert.DoesNotContain("SetReading", answered);
+        Assert.DoesNotContain("SendReplyCommand", answered);
+        Assert.DoesNotContain("SpeechProcessorEnable =", answered);
+    }
+
+    [Fact]
+    public void A_reading_that_disagrees_when_the_radio_answers_is_neither_written_over_nor_taken_for_somebodys_turn_on()
+    {
+        // It may be a report older than our command or somebody's newer change: the answer does
+        // not say which. So nothing is sent to find out, the record is kept, and the processor
+        // is neither turned off again nor forgotten: the put-back at the session's end settles
+        // it, and an "on" sent to a radio that is already on changes nothing.
+        using var f = HandoffRig(out var said, out _);
+        string serial = f.Vendor.Radio.Serial;
+        var store = f.Rig.ProcessorHandoffStoreOverride!;
+        var answered = new HashSet<int>();
+
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(f.Rig);
+        f.Vendor.Status("transmit speech_processor_enable=1 speech_processor_level=1");
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);          // positive control: the reading says on
+        int before = ProcessorCommands(f).Count;
+        Assert.True(Answer(f, answered) > 0);                       // the radio took the off
+        Assert.Equal(before, ProcessorCommands(f).Count);           // nothing was sent on the answer
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);          // the reading is left as the radio's reports made it
+
+        Poll(f, CompressorOn, 20, answering: answered);
+        Assert.Single(said);                                        // the radio took the off: said, once
+        Assert.NotNull(store.Find(serial));                         // the record is NOT dropped: the original hazard (the processor off, and nothing left to put it back)
+        Assert.Equal(before, ProcessorCommands(f).Count);           // and nothing is fought
+
+        // The session ends: the put-back goes out although the reading already says on.
+        Poll(f, CompressorOff, 3, answering: answered);
+        Assert.Equal(1, ProcessorCommands(f).Count(c => c == OnCommand)); // once, with its reply handler; FlexLib's setter has nothing to send
+        Assert.Null(store.Find(serial));
+        Assert.Equal(2, said.Count);
+        Assert.Contains(said[1], new[] { ProcessorHandoffNotice.PutBack, ProcessorHandoffNotice.PutBackShared });
+    }
+
+    [Fact]
+    public void A_leave_straight_after_the_radio_took_the_off_and_before_any_tick_still_puts_the_processor_back()
+    {
+        // Codex's re-check 2: the news of the write (sent, accepted) was still waiting to be read
+        // when the leave came, so the leave took the off for never sent and wrote nothing.
+        using var f = HandoffRig(out _, out _);
+        string serial = f.Vendor.Radio.Serial;
+        f.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(f.Rig);
+        Answer(f, new HashSet<int>());
+        Assert.False(f.Vendor.Radio.SpeechProcessorEnable);         // positive control: the off went out
+        f.Vendor.Transport.Written.Clear();
+
+        f.Rig.ProcessorHandoff.Leaving();                           // no tick in between
+        Assert.Equal(new[] { OnCommand, OnCommand }, f.Vendor.Transport.Commands);
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);
+        Assert.NotNull(f.Rig.ProcessorHandoffStoreOverride!.Find(serial)); // kept until the next connect confirms it
+
+        // The same with the write sent and not yet answered.
+        using var g = HandoffRig(out _, out _, "5432-8765-2109-6543");
+        g.Rig.ProcessorHandoff.Tick(CompressorOn);
+        Drain(g.Rig);
+        g.Vendor.Transport.Written.Clear();
+        g.Rig.ProcessorHandoff.Leaving();
+        Assert.Equal(new[] { OnCommand, OnCommand }, g.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public void A_preset_saved_while_the_app_holds_the_processor_off_keeps_the_operators_own_value_and_applying_it_changes_nothing()
+    {
+        // #1302: the capture read the app's temporary off as the operator's choice, and applying
+        // that preset then dropped the app's record, so the processor stayed off for good.
+        using var f = HandoffRig(out var said, out _);
+        string serial = f.Vendor.Radio.Serial;
+        var store = f.Rig.ProcessorHandoffStoreOverride!;
+        var answered = new HashSet<int>();
+        Poll(f, CompressorOn, 2, answering: answered);
+        Assert.Single(said);
+        Assert.Equal(FlexBase.OffOnValues.off, f.Rig.ProcessorOn);  // positive control: the radio reads off, by the app's hand
+        Assert.NotNull(store.Find(serial));
+
+        var preset = AudioChainPreset.CaptureFrom(f.Rig, "saved while the compressor is on");
+        Assert.True(preset.SpeechProcessorOn, "the preset recorded the app's temporary off as the operator's choice");
+
+        int before = ProcessorCommands(f).Count;
+        preset.ApplyTo(f.Rig);
+        Drain(f.Rig);
+        Assert.Equal(before, ProcessorCommands(f).Count);           // the same state, applied: nothing about the processor is sent
+        Assert.NotNull(store.Find(serial));                         // and the app still knows what it owes
+
+        Poll(f, CompressorOff, 4, answering: answered);             // the compressor goes off
+        Assert.True(f.Vendor.Radio.SpeechProcessorEnable);          // the operator's processor is back
+        Assert.Null(store.Find(serial));
+        Assert.Contains(said.Last(), new[] { ProcessorHandoffNotice.PutBack, ProcessorHandoffNotice.PutBackShared });
+    }
+
+    [Fact]
+    public void A_preset_that_really_says_processor_off_wins_and_the_app_does_not_put_it_back_on()
+    {
+        // The other half of #1302's judgement: a set through the rig's setter to the value the app
+        // already holds is still somebody's choice. With the capture telling the truth, a preset
+        // that says off was saved with the processor off by the operator's own hand.
+        using var f = HandoffRig(out var said, out _);
+        string serial = f.Vendor.Radio.Serial;
+        var store = f.Rig.ProcessorHandoffStoreOverride!;
+        var answered = new HashSet<int>();
+        Poll(f, CompressorOn, 2, answering: answered);
+        Assert.NotNull(store.Find(serial));
+
+        var preset = AudioChainPreset.CaptureFrom(f.Rig, "the operator's quiet setup");
+        preset.SpeechProcessorOn = false;                           // saved another day, with the processor off
+        preset.ApplyTo(f.Rig);
+        Drain(f.Rig);
+        Assert.Null(store.Find(serial));                            // theirs now
+
+        Poll(f, CompressorOff, 6, answering: answered);
+        Assert.False(f.Vendor.Radio.SpeechProcessorEnable);         // their off stands
+        Assert.DoesNotContain(OnCommand, ProcessorCommands(f));
+        Assert.Single(said);
     }
 
     // ── the teardown road (repair 1, B2): where the leave is called from ──
