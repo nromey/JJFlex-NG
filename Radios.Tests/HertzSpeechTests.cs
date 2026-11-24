@@ -354,9 +354,22 @@ namespace Radios.Tests
             @"/\s*1000(\.0)?[dDmMRr]?\s*\)?\s*(\.ToString\(\s*""[FfNn0#][^""]*""|:\s*(0\.#|[FfNn]\d)|,\s*""[FfNn0#][^""]*"")",
             RegexOptions.Compiled);
 
+        /// <summary>
+        /// A width that does not say "width" on its line (#984): the old
+        /// FilterPreset line divided a local <c>w</c> and wrote the kilo letter
+        /// straight after the number ("2.4k SSB"). Two narrow shapes, chosen so
+        /// the tree's sample rates, durations and meter ages still pass: the
+        /// operand is <c>w</c> or <c>bw</c> by itself, or the formatted number is
+        /// followed at once by a bare "k" (never "kHz", never a space first).
+        /// </summary>
+        private static readonly Regex WidthShapedWithoutTheWord = new Regex(
+            @"(?<![\w.])(w|bw)\s*/\s*1000|\}k\b",
+            RegexOptions.Compiled);
+
         internal static bool IsHandRolledKiloWidth(string line)
-            => line.IndexOf("width", StringComparison.OrdinalIgnoreCase) >= 0
-               && HandRolledKiloWidth.IsMatch(line);
+            => HandRolledKiloWidth.IsMatch(line)
+               && (line.IndexOf("width", StringComparison.OrdinalIgnoreCase) >= 0
+                   || WidthShapedWithoutTheWord.IsMatch(line));
 
         [Fact]
         public void The_scan_recognises_each_shape_it_claims_to_refuse()
@@ -369,9 +382,19 @@ namespace Radios.Tests
             Assert.True(IsHandRolledKiloWidth("? Words(\"width_khz\", (\"width\", $\"{p.Width / 1000.0:0.#}\"))"));
             // VB's Format(..., "0.0"), the other source language in the tree.
             Assert.True(IsHandRolledKiloWidth("Dim w As String = Format(width / 1000, \"0.0\")"));
-            // And what it must leave alone: a sample rate, a duration.
+            // FilterPreset.FormatForSpeech before #747, with no "width" on its
+            // line (#984), and the same width as "bw".
+            Assert.True(IsHandRolledKiloWidth("return $\"{w / 1000.0:0.#}k {Name}\".Trim();"));
+            Assert.True(IsHandRolledKiloWidth("string s = (bw / 1000.0).ToString(\"F1\");"));
+            Assert.True(IsHandRolledKiloWidth("string s = $\"{(high - low) / 1000.0:0.#}k\";"));
+            // And what it must leave alone: a sample rate, a duration, and the
+            // shapes the tree really has that sit nearest the new ones.
             Assert.False(IsHandRolledKiloWidth("return $\"{quality} — {rate / 1000.0:0.#} kHz\""));
             Assert.False(IsHandRolledKiloWidth("string seconds = (durationMs / 1000.0).ToString(\"F1\");"));
+            Assert.False(IsHandRolledKiloWidth("string time = $\"{r.DurationMs / 1000.0:F1}s\";"));
+            Assert.False(IsHandRolledKiloWidth("return \"Windows runs it at \" + (rate / 1000.0).ToString(\"0.###\")"));
+            Assert.False(IsHandRolledKiloWidth("string s = $\"{rate / 1000.0:0.#}kHz\";"));
+            Assert.False(IsHandRolledKiloWidth("string s = (p.w / 1000.0).ToString(\"F1\");"));
         }
 
         [Fact]
