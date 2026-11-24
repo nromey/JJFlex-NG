@@ -808,6 +808,9 @@ public partial class NativeMenuBar : IDisposable
         if (group == DenoiseGroup.NoiseReduction)
         {
             BuildNoisePresetItems(AddSubmenu(parent, Radios.Lexicon.Get("audio.noise_menu.presets")), null);
+            // Sprint 49 Track I (#1240, ruled S2): the parametric equaliser's
+            // receive side, the same rows the Transmit menu has.
+            BuildEqualizerItems(AddSubmenu(parent, Radios.Lexicon.Get("audio.noise_menu.eq")), Radios.DenoiseDirection.Receive, MenuSource);
             AddWired(parent, Radios.Lexicon.Get("audio.noise_menu.settings_on_home"),
                 () => _window.OpenNoiseOnHome(null, advanced: false));
         }

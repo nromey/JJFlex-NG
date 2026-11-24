@@ -535,7 +535,9 @@ public sealed class TransmitNoiseSurfaceTests : IDisposable
         f.Noise.SetGateAutoThreshold(false, "test");
         Assert.False(gate.AutoThreshold);
         Assert.Contains(f.Noise.GateLevers(true), l => l.Key == TxGateLever.Threshold);
-        Assert.Equal(new[] { TxGateLever.Margin }, f.Noise.GateLevers(false).Select(l => l.Key));
+        // Sprint 49 Track I: the expander's strength is a normal lever beside Margin
+        // (its main lever: one item whose top stop is the gate, #432).
+        Assert.Equal(new[] { TxGateLever.Margin, TxGateLever.Strength }, f.Noise.GateLevers(false).Select(l => l.Key));
     }
 
     [Fact]

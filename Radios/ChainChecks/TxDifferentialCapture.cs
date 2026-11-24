@@ -126,7 +126,9 @@ namespace Radios.ChainChecks
             {
                 JJPortaudio.TxAudioConditioner c = rig?.TxConditioner;
                 if (c == null) return null;
-                return c.Gate.Enabled || c.NoiseReducer != null;
+                // Every in-process stage and the CW and digital bypass, and the noise
+                // stage only when switched on (Sprint 49 Track I, repair 1, N3).
+                return c.AnyStageActive;
             }
             catch (Exception ex)
             {

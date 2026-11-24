@@ -149,11 +149,13 @@ namespace JJFlexWpf
             {
                 var cond = rig.TxConditioner;
                 if (cond == null) return null;
-                var profile = rig.TxLoudnessProfile;
+                // Sprint 49 Track I (#1252): the live rule's floor is the room
+                // meter at the expander's input now, not the meter after the chain.
+                var room = cond.RoomFloor;
                 string mode;
                 try { mode = TxAudioConditioning.TransmitModeOf(rig) ?? ""; }
                 catch (Exception) { mode = ""; }
-                return LiveState(cond.AutoThresholdInForce, cond.Gate.ThresholdDb, profile.IsValid, profile.NoiseFloorLufs,
+                return LiveState(cond.AutoThresholdInForce, cond.Gate.ThresholdDb, room.HasFloor, room.HasFloor ? room.FloorDb : LufsMeter.Floor,
                     cond.ThresholdMarginInForceDb, mode);
             }
             catch (Exception ex)
@@ -228,10 +230,17 @@ namespace JJFlexWpf
                 var row = catalog.Find(id);
                 plans.Add(new SlotPlan(family, id, row != null ? Lexicon.Get(row.LabelKey) : id));
             }
+            // The in-process stages after the noise slots (Sprint 49 Track I): the
+            // expander, the equaliser and the de-esser. Any of them on is a chain
+            // to render, the expander or not: rendering without one that is on
+            // would offer the operator a chain they are not using as theirs.
+            bool eqOn = setup.Eq?.ToDesign() is { IsIdentity: false };
+            bool deEssOn = setup.DeEsser?.Enabled == true;
+            bool inProcess = gate.Enabled || eqOn || deEssOn;
             // Nothing on (Noel's S4): render nothing; only the raw take is offered.
-            if (plans.Count == 0 && !gate.Enabled)
+            if (plans.Count == 0 && !inProcess)
             {
-                Trace.WriteLine("ChainAuditionTwin: both noise slots and the gate are off; nothing rendered");
+                Trace.WriteLine("ChainAuditionTwin: both noise slots, the expander, the equaliser and the de-esser are off; nothing rendered");
                 return ChainProcessing.NothingIsOn(live);
             }
 
@@ -267,7 +276,7 @@ namespace JJFlexWpf
 
                 // 5. The noise pass.
                 int buffers = (rawMono.Length + BufferFrames - 1) / BufferFrames;
-                int steps = buffers * (gate.Enabled ? 2 : 1);
+                int steps = buffers * (inProcess ? 2 : 1);
                 int lastPercent = -1;
                 void Report(int done)
                 {
@@ -312,33 +321,44 @@ namespace JJFlexWpf
                     Math.Max(0, rawMono.Length - delay), TxNoiseChain.SampleRate);
                 var (threshold, source, floor) = Threshold(gate, floorProfile, live);
 
-                // 8. The gate pass, keyed for the whole take.
+                // 8. The in-process pass, keyed for the whole take: the expander,
+                // the equaliser and the de-esser, put in force directly through the
+                // ONE wiring function the live chain uses (Track I, item 7). The
+                // de-esser hears the live transmit filter's edge, as the live one does.
                 var output = new float[rawMono.Length];
+                float[]? cleanupOnly = null;
                 float? reported = null;
-                if (gate.Enabled)
+                if (inProcess)
                 {
-                    var conditioner = new TxAudioConditioner { KeySource = () => true };
-                    conditioner.SetGateInForce(TxAudioConditioning.ToConditioner(gate, gate.AutoThreshold, gate.ThresholdMarginDb));
-                    if (gate.AutoThreshold) conditioner.Gate.ThresholdDb = threshold!.Value;
-                    for (int b = 0; b < buffers; b++)
+                    float edge = TxAudioConditioning.Conditioner?.DeEsser.PassbandHighEdgeHz ?? 0f;
+                    reported = InProcessPass(TxAudioConditioning.ToConditioner(setup), gate, threshold, edge, noise, output, buffers, stereo, cancel,
+                        b => Report(buffers + b + 1));
+                    // "What was removed" is the cleanup stages only (S8): the same
+                    // pass with the equaliser and the de-esser off. The expander
+                    // never hears them, so this is exactly its output.
+                    if (eqOn || deEssOn)
                     {
-                        cancel.ThrowIfCancellationRequested();
-                        int at = b * BufferFrames;
-                        for (int f = 0; f < BufferFrames; f++) { stereo[2 * f] = noise[at + f]; stereo[2 * f + 1] = noise[at + f]; }
-                        conditioner.Process(stereo, stereo.Length, TxNoiseChain.SampleRate);
-                        for (int f = 0; f < BufferFrames && at + f < output.Length; f++) output[at + f] = stereo[2 * f];
-                        Report(buffers + b + 1);
+                        var cleanupRecord = TxAudioConditioning.ToConditioner(setup);
+                        cleanupRecord.Eq = null;
+                        cleanupRecord.DeEsserEnabled = false;
+                        cleanupOnly = new float[rawMono.Length];
+                        InProcessPass(cleanupRecord, gate, threshold, edge, noise, cleanupOnly, buffers, new float[BufferFrames * 2], cancel, null);
                     }
-                    // What the gate really held (its setter clamps).
-                    reported = conditioner.Gate.ThresholdDb;
+                    // The look-ahead is the expander's applied delay (item 9).
+                    if (gate.Enabled) delay += TxNoiseGate.LookAheadFramesFor(gate.LookAheadMs, (uint)TxNoiseChain.SampleRate);
                 }
                 else Array.Copy(noise, output, output.Length);
 
-                Trace.WriteLine("ChainAuditionTwin: rendered " + rawMono.Length + " samples, gate "
+                var stages = new List<string>(4);
+                if (plans.Count > 0) stages.Add(TxAudioConditioner.StageIds.NoiseReduction);
+                if (gate.Enabled) stages.Add(gate.GateSetting ? ChainAudition.GateStageId : TxAudioConditioner.StageIds.Expander);
+                if (eqOn) stages.Add(TxAudioConditioner.StageIds.Equaliser);
+                if (deEssOn) stages.Add(TxAudioConditioner.StageIds.DeEsser);
+                Trace.WriteLine("ChainAuditionTwin: rendered " + rawMono.Length + " samples, stages " + string.Join(",", stages) + ", gate "
                     + (gate.Enabled ? "on at " + F(reported!.Value) + " dB (" + source
-                        + (floor is float fl ? ", floor " + F(fl) + " LUFS" : "") + ")" : "off"));
-                return ChainProcessing.Rendered(output, delay, gate.Enabled, reported,
-                    gate.Enabled ? source : null, gate.Enabled ? floor : null, live);
+                        + (floor is float fl ? ", floor " + F(fl) + " LUFS" : "") + ")" : "off") + ", delay " + delay);
+                return ChainProcessing.Rendered(output, delay, gate.Enabled, gate.Enabled ? reported : null,
+                    gate.Enabled ? source : null, gate.Enabled ? floor : null, live, cleanupOnly, stages);
             }
             catch (OperationCanceledException)
             {
@@ -365,6 +385,30 @@ namespace JJFlexWpf
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// One keyed pass of the in-process stages over the noise pass's output,
+        /// through a fresh conditioner with <paramref name="record"/> in force.
+        /// Returns the threshold the expander really held (its setter clamps).
+        /// </summary>
+        internal static float InProcessPass(TxAudioConditioner.StagedGate record, TxNoiseGateSetup gate, float? threshold, float passbandEdgeHz,
+            float[] noise, float[] output, int buffers, float[] stereo, CancellationToken cancel, Action<int>? report)
+        {
+            var conditioner = new TxAudioConditioner { KeySource = () => true };
+            conditioner.SetGateInForce(record);
+            conditioner.DeEsser.PassbandHighEdgeHz = passbandEdgeHz;
+            if (gate.Enabled && gate.AutoThreshold && threshold is float t) conditioner.Gate.ThresholdDb = t;
+            for (int b = 0; b < buffers; b++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                int at = b * BufferFrames;
+                for (int f = 0; f < BufferFrames; f++) { stereo[2 * f] = noise[at + f]; stereo[2 * f + 1] = noise[at + f]; }
+                conditioner.Process(stereo, stereo.Length, TxNoiseChain.SampleRate);
+                for (int f = 0; f < BufferFrames && at + f < output.Length; f++) output[at + f] = stereo[2 * f];
+                report?.Invoke(b);
+            }
+            return conditioner.Gate.ThresholdDb;
         }
 
         /// <summary>

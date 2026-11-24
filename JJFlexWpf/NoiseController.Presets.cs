@@ -221,6 +221,15 @@ namespace JJFlexWpf
                             phrases.Add(L(re.On ? "audio.noise_surface.phrase_on" : "audio.noise_surface.phrase_off", ("engine", Lexicon.Get(e.LabelKey))));
                         }
                     }
+                // Sprint 49 Track I, repair 1 (N2): the receive equaliser, when the
+                // preset carries one (an older preset does not, and changes nothing
+                // here). A switch: it takes the receive switch choices (#873).
+                if (noise.Eq is { } eq && !SameEq(p.EqualizerSetup, eq))
+                {
+                    p.SetEqualizer(eq, isSwitch: true);
+                    changes.Add(new("equalizer", "", "", "preset"));
+                    phrases.Add(L("audio.noise_surface.phrase_eq"));
+                }
                 RememberModeState();
             }
             if (preset.TransmitNoise is { } transmit)
@@ -280,7 +289,23 @@ namespace JJFlexWpf
                 changes.Add(new("tx:gate", "", "", "preset"));
                 phrases.Add(L("audio.noise_surface.tx.phrase_gate"));
             }
-            return ApplyWholeTransmit(section.Spectral ?? new TxNoiseSlotSetup(), section.Neural ?? new TxNoiseSlotSetup(), section.Gate);
+            // Sprint 49 Track I, repair 1 (B3): the stages the section also applies
+            // (ApplyWholeTransmit puts a missing one back to off), so a preset that
+            // changes only these never says "nothing to change".
+            var (eqNow, deNow, orderNow) = TransmitGate.CaptureStages();
+            if (!SameEq(eqNow, section.Eq ?? new ParametricEqSetup()))
+            {
+                changes.Add(new("tx:equalizer", "", "", "preset"));
+                phrases.Add(L("audio.noise_surface.tx.phrase_eq"));
+            }
+            if (!new TxNoiseSetup { DeEsser = deNow }.SameContentAs(new TxNoiseSetup { DeEsser = section.DeEsser ?? new TxDeEsserSetup() }))
+            {
+                changes.Add(new("tx:deesser", "", "", "preset"));
+                phrases.Add(L("audio.noise_surface.tx.phrase_deesser"));
+            }
+            if (!orderNow.SequenceEqual(section.StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder))
+                changes.Add(new("tx:order", "", "", "preset")); // journal only: this build runs one order
+            return ApplyWholeTransmit(section.Spectral ?? new TxNoiseSlotSetup(), section.Neural ?? new TxNoiseSlotSetup(), section.Gate, section);
         }
 
         /// <summary>
@@ -302,7 +327,11 @@ namespace JJFlexWpf
             && Math.Abs(a.ThresholdMarginDb - b.ThresholdMarginDb) < 0.01f
             && (a.AutoThreshold || Math.Abs(a.ThresholdDb - b.ThresholdDb) < 0.01f)
             && Math.Abs(a.AttackMs - b.AttackMs) < 0.01f && Math.Abs(a.HoldMs - b.HoldMs) < 0.01f
-            && Math.Abs(a.ReleaseMs - b.ReleaseMs) < 0.01f && Math.Abs(a.RangeDb - b.RangeDb) < 0.01f;
+            && Math.Abs(a.ReleaseMs - b.ReleaseMs) < 0.01f && Math.Abs(a.RangeDb - b.RangeDb) < 0.01f
+            // Sprint 49 Track I: the expander's own settings.
+            && a.GateSetting == b.GateSetting && Math.Abs(a.RatioToOne - b.RatioToOne) < 0.01f
+            && a.SideChainFilter == b.SideChainFilter && Math.Abs(a.SideChainLowCutHz - b.SideChainLowCutHz) < 0.5f
+            && Math.Abs(a.SideChainHighCutHz - b.SideChainHighCutHz) < 0.5f && Math.Abs(a.LookAheadMs - b.LookAheadMs) < 0.01f;
 
         /// <summary>Every preset that holds transmit noise reduction (the Transmit menu's Presets, the layer's preset brackets after T).</summary>
         public IReadOnlyList<AudioChainPreset> TransmitNoisePresets() => AllPresets(LoadPresets()).Where(p => p.TransmitNoise != null).ToList();
@@ -398,6 +427,7 @@ namespace JJFlexWpf
             {
                 section.Spectral = CaptureSlot(p.SpectralSlot);
                 section.Neural = CaptureSlot(p.NeuralSlot);
+                section.Eq = p.EqualizerSetup; // Sprint 49 Track I, repair 1 (N2)
             }
             if (_radio() is { } r)
                 foreach (var e in Engines().Where(e => e.Side == DenoiseSide.Radio))

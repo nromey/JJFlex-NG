@@ -64,6 +64,49 @@ namespace JJFlexWpf
             on && selection == "spectral_capture" ? "audio.noise.capture.spectral_is_using_it" : "audio.noise.capture.turn_spectral_on";
         private readonly int _channels;
 
+        // ── The receive equaliser (Sprint 49 Track I, #1240; ruled S2: one
+        //    equaliser and one editor, both sides). App-wide like the receive
+        //    noise choices (Noel 2026-10-31), saved by ReceiveDenoiseConfig. ──
+
+        /// <summary>The parametric equaliser on what you hear: after noise reduction, before the duck. Zero delay.</summary>
+        public JJPortaudio.ParametricEq Equalizer { get; } = new JJPortaudio.ParametricEq();
+
+        private Radios.ParametricEqSetup _equalizerSetup = new();
+        private readonly object _equalizerLock = new();
+
+        /// <summary>The receive equaliser as intended: a copy.</summary>
+        public Radios.ParametricEqSetup EqualizerSetup { get { lock (_equalizerLock) return _equalizerSetup.Clone(); } }
+
+        /// <summary>
+        /// Put a receive equaliser setting in place. Published whole and adopted
+        /// at the next buffer, where it fades over <see cref="JJPortaudio.ParametricEq.CrossFadeMs"/>
+        /// from the old one, so turning it on or off, loading a preset and moving
+        /// a band are all click-free.
+        /// </summary>
+        public void SetEqualizer(Radios.ParametricEqSetup setup) => SetEqualizer(setup, isSwitch: false);
+
+        /// <summary>
+        /// As above; a SWITCH (on or off, a preset; repair 1, B4, #873) takes the
+        /// operator's receive switch choices exactly as an engine switch does: the
+        /// Mute gap when it is on (<see cref="PcDenoiseSlot.SwitchMuteEnabled"/>),
+        /// else a cross-fade, or a straight cut when cross-fade is off
+        /// (<see cref="PcDenoiseSlot.CrossFadeEnabled"/>). A band edit always fades.
+        /// </summary>
+        public void SetEqualizer(Radios.ParametricEqSetup setup, bool isSwitch)
+        {
+            var copy = (setup ?? new Radios.ParametricEqSetup()).Clone();
+            lock (_equalizerLock) _equalizerSetup = copy;
+            var style = !isSwitch ? JJPortaudio.ParametricEqSwitch.Fade
+                : (EqMuteOverrideForTest ?? PcDenoiseSlot.SwitchMuteEnabled) ? JJPortaudio.ParametricEqSwitch.Mute
+                : (EqCrossFadeOverrideForTest ?? PcDenoiseSlot.CrossFadeEnabled) ? JJPortaudio.ParametricEqSwitch.Fade
+                : JJPortaudio.ParametricEqSwitch.Cut;
+            Equalizer.Use(copy.ToDesign(), style, PcDenoiseSlot.MuteSamples, PcDenoiseSlot.MuteRampSamples);
+        }
+
+        /// <summary>Tests only: this pipeline's equaliser switch choices instead of the app-wide ones.</summary>
+        internal bool? EqMuteOverrideForTest { get; set; }
+        internal bool? EqCrossFadeOverrideForTest { get; set; }
+
         /// <summary>Kept for the duck's ramp, which has to convert a time
         /// constant into a per-frame increment.</summary>
         private readonly int _sampleRate;
@@ -313,6 +356,10 @@ namespace JJFlexWpf
                     ? (long)((double)(count / _channels) * Stopwatch.Frequency / _sampleRate) : 0;
                 _spectralKeepUp.After(SpectralSlot, spectralBank, spectralLate, afterSpectral - start, bufferTicks, gap, capturing, afterNeural);
                 _neuralKeepUp.After(NeuralSlot, neuralBank, neuralLate, afterNeural - afterSpectral, bufferTicks, gap, false, afterNeural);
+                // Sprint 49 Track I (#1240, S2): the parametric equaliser, after the
+                // cleaned audio and before the duck. Zero delay, so outDelay and the
+                // out-class below are unchanged; no allocation, lock or trace here.
+                Equalizer.Process(buffer, count, (uint)_sampleRate, false, _channels);
                 ApplyDuck(buffer, count);
                 ApplyPlaybackLevel(buffer, count);
                 // The class of the audio coming OUT: every input block this buffer holds,

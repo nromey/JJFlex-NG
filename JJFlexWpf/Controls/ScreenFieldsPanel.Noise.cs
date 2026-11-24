@@ -186,6 +186,27 @@ public partial class ScreenFieldsPanel
         JJFlexHelp.SetText(_noiseSavePreset, Lexicon.Get("audio.noise_help.home.save_preset"));
         DspContent.Children.Add(_noiseSavePreset);
 
+        // Sprint 49 Track I (#1240, ruled S2): the receive equaliser's flat rows,
+        // the same three the transmit side has: on, the editor's door, a summary.
+        _rxEqOn = MakeToggle(Lexicon.Get("audio.noise_home.eq_on"));
+        _rxEqOn.Checked += (s, e) => { if (!_polling) { NoiseCtl?.SetEqualizerOn(DenoiseDirection.Receive, true, NoiseSource); RefreshReceiveEqualizer(); } };
+        _rxEqOn.Unchecked += (s, e) => { if (!_polling) { NoiseCtl?.SetEqualizerOn(DenoiseDirection.Receive, false, NoiseSource); RefreshReceiveEqualizer(); } };
+        JJFlexHelp.SetText(_rxEqOn, Lexicon.Get("audio.noise_help.home.eq_on"));
+        DspContent.Children.Add(_rxEqOn);
+        _rxEqEdit = new Button
+        {
+            Content = Lexicon.Get("audio.noise_home.eq_edit"),
+            Margin = new Thickness(0, 2, 0, 2), Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        AutomationProperties.SetName(_rxEqEdit, Lexicon.Get("audio.noise_home.eq_edit"));
+        _rxEqEdit.Click += (s, e) => FindMainWindow()?.ShowEqualizerEditor(DenoiseDirection.Receive);
+        JJFlexHelp.SetText(_rxEqEdit, Lexicon.Get("audio.noise_help.home.eq_edit"));
+        DspContent.Children.Add(_rxEqEdit);
+        _rxEqSummary = new TextBlock { TextWrapping = TextWrapping.Wrap, Focusable = true };
+        JJFlexHelp.SetText(_rxEqSummary, Lexicon.Get("audio.noise_help.home.eq_summary"));
+        DspContent.Children.Add(_rxEqSummary);
+
         // Captured noise's capture length (the capture button, the profile
         // readout and the Noise Profiles button follow, as they always have).
         _captureLength = MakeValue(Lexicon.Get("audio.noise_home.capture_length"), 1, 5, 1);
@@ -348,8 +369,32 @@ public partial class ScreenFieldsPanel
     }
 
     /// <summary>Refresh every noise field's value from the controller, silently (the poll, and after an action).</summary>
+    private CheckBox _rxEqOn = null!;
+    private Button _rxEqEdit = null!;
+    private TextBlock _rxEqSummary = null!;
+
+    /// <summary>The receive equaliser's rows from the controller (Sprint 49 Track I).</summary>
+    private void RefreshReceiveEqualizer()
+    {
+        if (NoiseCtl is not { } noise || _rxEqOn == null) return;
+        bool wasPolling = _polling;
+        _polling = true;
+        try
+        {
+            _rxEqOn.IsChecked = noise.EqualizerOn(DenoiseDirection.Receive);
+            string summary = noise.EqualizerSummary(DenoiseDirection.Receive);
+            if (_rxEqSummary.Text != summary)
+            {
+                _rxEqSummary.Text = summary;
+                AutomationProperties.SetName(_rxEqSummary, summary);
+            }
+        }
+        finally { _polling = wasPolling; }
+    }
+
     private void RefreshNoiseValues()
     {
+        RefreshReceiveEqualizer();
         if (NoiseCtl is not { } noise || _noiseFieldsFor == null) return;
         bool wasPolling = _polling;
         _polling = true;

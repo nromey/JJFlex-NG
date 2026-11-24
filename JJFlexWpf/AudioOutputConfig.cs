@@ -179,6 +179,13 @@ namespace JJFlexWpf
         public Radios.TxNoiseSetup? TransmitNoise { get; set; }
 
         /// <summary>
+        /// The receive parametric equaliser (Sprint 49 Track I, #1240): app-wide,
+        /// beside the receive noise choices, as receive noise settings are (Noel
+        /// 2026-10-31). Null until first saved, which means off.
+        /// </summary>
+        public Radios.ParametricEqSetup? ReceiveEq { get; set; }
+
+        /// <summary>
         /// Noise favourites (Sprint 49 Track E): ONE ordered list across the
         /// radio and the computer and both subjects, app-wide. The list order
         /// is the bracket keys' order (Noel 2026-11-07 21:16: arrangeable); an
@@ -657,6 +664,8 @@ namespace JJFlexWpf
                 // than immortalising the old one.
                 if (loaded != null)
                 {
+                    // Sprint 49 Track I: the live transmit choices' version 1 upgrade (S7, N1).
+                    loaded.TransmitNoise?.AfterLoad();
                     MeterConfigMigration.Migrate(loaded);
                     loaded.UpgradeCountdownDefaults();
                 }

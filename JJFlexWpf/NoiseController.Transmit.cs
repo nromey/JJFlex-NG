@@ -35,6 +35,30 @@ namespace JJFlexWpf
         float ReleaseMs { get; }
         float RangeDb { get; }
 
+        // ── The downward expander's own settings (Sprint 49 Track I) ──
+        // Default bodies so a test's fake gate needs none of them.
+
+        /// <summary>The expander's ratio, n:1 (used when <see cref="GateSetting"/> is false).</summary>
+        float RatioToOne => JJPortaudio.TxNoiseGate.DefaultRatioToOne;
+
+        /// <summary>Whether the expander is at its top setting, the gate.</summary>
+        bool GateSetting => false;
+
+        /// <summary>Whether the detector hears the voice band only.</summary>
+        bool SideChainFilter => true;
+
+        float SideChainLowHz => JJPortaudio.TxNoiseGate.DefaultSideChainLowHz;
+
+        float SideChainHighHz => JJPortaudio.TxNoiseGate.DefaultSideChainHighHz;
+
+        float LookAheadMs => JJPortaudio.TxNoiseGate.DefaultLookAheadMs;
+
+        /// <summary>The expander's strength: a ratio, or the gate. A continuous lever (S15).</summary>
+        TxChangeResult SetStrength(float ratio, bool gate) => new(TxChangeTiming.Refused, "no-expander");
+
+        /// <summary>The side-chain filter on or off: a switch, held for the unkey while keyed (S2).</summary>
+        TxChangeResult SetSideChainFilter(bool on) => new(TxChangeTiming.Refused, "no-expander");
+
         /// <summary>
         /// The automatic threshold on or off, in order behind anything held
         /// (repair round 2, item 1). Returns when it takes effect.
@@ -69,6 +93,25 @@ namespace JJFlexWpf
         /// as ONE change, so nothing in here may defer a second time.
         /// </summary>
         void ApplyNow(TxNoiseGateSetup gate);
+
+        /// <summary>
+        /// The stages after the gate as a setup carries them (Sprint 49 Track I):
+        /// the equaliser, the de-esser and the stage order. A gate that has none
+        /// (a test's fake) answers with them off and the default order.
+        /// </summary>
+        (ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order) CaptureStages() =>
+            (new ParametricEqSetup(), new TxDeEsserSetup(), JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder);
+
+        /// <summary>
+        /// Put a setup's equaliser, de-esser and stage order in place NOW with
+        /// its gate (or the gate as it is, when null), as ONE staged record. The
+        /// same contract as <see cref="ApplyNow"/>: only inside one change the
+        /// controller holds.
+        /// </summary>
+        void ApplyStagesNow(ParametricEqSetup eq, TxDeEsserSetup deEsser, string[] order, TxNoiseGateSetup? gate)
+        {
+            if (gate != null) ApplyNow(gate);
+        }
     }
 
     /// <summary>The app's gate: <see cref="TxAudioConditioning"/>, the session's one transmit chain.</summary>
@@ -88,6 +131,14 @@ namespace JJFlexWpf
         public float RangeDb => TxAudioConditioning.GateRangeDb;
         public TxChangeResult SetAutoThreshold(bool on) => TxAudioConditioning.SetAutoThreshold(on);
         public TxChangeResult SetLevel(string key, float value) => TxAudioConditioning.SetGateLevel(key, value);
+        public float RatioToOne => TxAudioConditioning.ExpanderRatio;
+        public bool GateSetting => TxAudioConditioning.ExpanderIsGate;
+        public bool SideChainFilter => TxAudioConditioning.SideChainFilter;
+        public float SideChainLowHz => TxAudioConditioning.SideChainCorners.Low;
+        public float SideChainHighHz => TxAudioConditioning.SideChainCorners.High;
+        public float LookAheadMs => TxAudioConditioning.LookAheadMs;
+        public TxChangeResult SetStrength(float ratio, bool gate) => TxAudioConditioning.SetExpanderStrength(ratio, gate);
+        public TxChangeResult SetSideChainFilter(bool on) => TxAudioConditioning.SetSideChainFilter(on);
         public bool MonitorAvailable => TxAudioConditioning.Conditioner != null;
         public int MonitorMode
         {
@@ -100,6 +151,13 @@ namespace JJFlexWpf
         // default, off", so a gate-only setup through ApplySetup would reset the
         // engines. The gate's own half, now, inside the controller's one change.
         public void ApplyNow(TxNoiseGateSetup gate) => TxAudioConditioning.ApplyGateNow(gate);
+        public (ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order) CaptureStages()
+        {
+            var s = TxAudioConditioning.CaptureSetup("");
+            return (s.Eq, s.DeEsser, s.StageOrder);
+        }
+        public void ApplyStagesNow(ParametricEqSetup eq, TxDeEsserSetup deEsser, string[] order, TxNoiseGateSetup? gate) =>
+            TxAudioConditioning.ApplyStagesNow(eq, deEsser, order, gate);
     }
 
     /// <summary>One of the gate's levers: what it is, its range, its step and its unit.</summary>
@@ -112,6 +170,12 @@ namespace JJFlexWpf
         public const string Release = "release";
         public const string Depth = "depth";
         public const string MonitorVolume = "monitor_volume";
+        // Sprint 49 Track I: the downward expander's levers.
+        /// <summary>The ratio, as stops; the top stop is the gate. Its value is the stop's index.</summary>
+        public const string Strength = "strength";
+        public const string SideChainLow = "sidechain_low";
+        public const string SideChainHigh = "sidechain_high";
+        public const string LookAhead = "lookahead";
     }
 
     /// <summary>
@@ -958,17 +1022,53 @@ namespace JJFlexWpf
         //  The gate
         // ────────────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// The expander's strength stops, gentlest first; the last is the gate
+        /// (one item, Noel 2026-11-23 11:32). 2:1 is a new expander's start (S7).
+        /// </summary>
+        // Declared BEFORE AllGateLevers on purpose: static fields initialise in
+        // textual order, and the lever table reads this one's length.
+        public static readonly (float Ratio, bool Gate)[] StrengthStops =
+        {
+            (1.5f, false), (2f, false), (3f, false), (4f, false), (6f, false), (10f, false), (0f, true),
+        };
+
         /// <summary>Every gate lever, in the order Home lists them: Margin is normal; the rest are Advanced (part seven).</summary>
         private static readonly TxGateLever[] AllGateLevers =
         {
             new(TxGateLever.Margin, "audio.noise_surface.tx.gate.margin", 3, 15, 1, "audio.unit.decibels", false),
+            // Sprint 49 Track I: the expander's strength, normal (it is the stage's
+            // main lever); its value is a stop's index, see StrengthStops.
+            new(TxGateLever.Strength, "audio.noise_surface.tx.gate.strength", 0, StrengthStops.Length - 1, 1, null, false),
             new(TxGateLever.Threshold, "audio.noise_surface.tx.gate.threshold", -80, -10, 1, "audio.unit.decibels", true),
             new(TxGateLever.Attack, "audio.noise_surface.tx.gate.attack", 1, 20, 1, "audio.unit.milliseconds", true),
             new(TxGateLever.Hold, "audio.noise_surface.tx.gate.hold", 50, 1000, 25, "audio.unit.milliseconds", true),
             new(TxGateLever.Release, "audio.noise_surface.tx.gate.release", 50, 1000, 25, "audio.unit.milliseconds", true),
             new(TxGateLever.Depth, "audio.noise_surface.tx.gate.depth", 6, 40, 1, "audio.unit.decibels", true),
+            new(TxGateLever.SideChainLow, "audio.noise_surface.tx.gate.sidechain_low", 50, 500, 25, "audio.unit.hertz", true),
+            new(TxGateLever.SideChainHigh, "audio.noise_surface.tx.gate.sidechain_high", 2000, 8000, 250, "audio.unit.hertz", true),
+            new(TxGateLever.LookAhead, "audio.noise_surface.tx.gate.lookahead", 0, 10, 1, "audio.unit.milliseconds", true),
             new(TxGateLever.MonitorVolume, "audio.noise_surface.tx.gate.monitor_volume", 0, 100, 5, "audio.noise_surface.unit.percent", true),
         };
+
+        /// <summary>The stop nearest what the expander holds now.</summary>
+        private int StrengthIndex()
+        {
+            var g = TransmitGate;
+            if (g.GateSetting) return StrengthStops.Length - 1;
+            int best = 0;
+            for (int i = 1; i < StrengthStops.Length - 1; i++)
+                if (Math.Abs(StrengthStops[i].Ratio - g.RatioToOne) < Math.Abs(StrengthStops[best].Ratio - g.RatioToOne)) best = i;
+            return best;
+        }
+
+        /// <summary>A strength stop as said: "2 to 1", or the gate (DRAFT PROSE keys).</summary>
+        private static string StrengthText(int index)
+        {
+            var stop = StrengthStops[Math.Clamp(index, 0, StrengthStops.Length - 1)];
+            return stop.Gate ? Lexicon.Get("audio.noise_surface.tx.gate.strength_gate")
+                : Lexicon.Get("audio.noise_surface.tx.gate.strength_ratio", ("ratio", stop.Ratio.ToString("0.#", CultureInfo.InvariantCulture)));
+        }
 
         /// <summary>A gate lever by its key, or null.</summary>
         public TxGateLever? GateLever(string key) => AllGateLevers.FirstOrDefault(l => l.Key == key);
@@ -993,6 +1093,10 @@ namespace JJFlexWpf
                 TxGateLever.Release => Math.Round(g.ReleaseMs),
                 TxGateLever.Depth => Math.Round(g.RangeDb),
                 TxGateLever.MonitorVolume => Math.Round(g.MonitorVolume * 100),
+                TxGateLever.Strength => StrengthIndex(),
+                TxGateLever.SideChainLow => Math.Round(g.SideChainLowHz),
+                TxGateLever.SideChainHigh => Math.Round(g.SideChainHighHz),
+                TxGateLever.LookAhead => Math.Round(g.LookAheadMs),
                 _ => 0,
             };
         }
@@ -1003,21 +1107,32 @@ namespace JJFlexWpf
             var g = TransmitGate;
             float v = (float)value;
             if (lever.Key == TxGateLever.MonitorVolume) { g.MonitorVolume = v / 100f; return TxChangeResult.Now; }
+            if (lever.Key == TxGateLever.Strength)
+            {
+                var stop = StrengthStops[Math.Clamp((int)Math.Round(value), 0, StrengthStops.Length - 1)];
+                // The ratio is kept when the gate is chosen, so stepping back down returns to it.
+                return g.SetStrength(stop.Gate ? g.RatioToOne : stop.Ratio, stop.Gate);
+            }
             return g.SetLevel(lever.Key, v);
         }
 
         /// <summary>A gate lever's value as spoken from a value asked for (a held write reads the old one back).</summary>
         private string GateValueTextOf(TxGateLever lever, double value) =>
-            WithUnit(Math.Round(value).ToString("0", CultureInfo.InvariantCulture), lever.UnitKey);
+            lever.Key == TxGateLever.Strength ? StrengthText((int)Math.Round(value))
+                : WithUnit(Math.Round(value).ToString("0", CultureInfo.InvariantCulture), lever.UnitKey);
 
         /// <summary>A gate lever's value as spoken, its unit at Chatty.</summary>
-        public string GateValueText(TxGateLever lever) =>
-            WithUnit(GateNumber(lever).ToString("0", CultureInfo.InvariantCulture), lever.UnitKey);
+        public string GateValueText(TxGateLever lever) => GateValueTextOf(lever, GateNumber(lever));
 
         /// <summary>Every value a gate lever takes, least to most, with its unit: a Home field arrows through exactly what the menu and the layer step.</summary>
         public IReadOnlyList<(double Value, string Text)> GateSteps(TxGateLever lever)
         {
             var list = new List<(double, string)>();
+            if (lever.Key == TxGateLever.Strength)
+            {
+                for (int i = 0; i < StrengthStops.Length; i++) list.Add((i, StrengthText(i)));
+                return list;
+            }
             for (double v = lever.Min; v <= lever.Max + 1e-9; v += lever.Step)
                 list.Add((v, v.ToString("0", CultureInfo.InvariantCulture) + (lever.UnitKey is string u ? " " + Lexicon.Get(u) : "")));
             return list;
@@ -1126,6 +1241,11 @@ namespace JJFlexWpf
             TxGateLever.Hold => g.HoldMs,
             TxGateLever.Release => g.ReleaseMs,
             TxGateLever.Depth => g.RangeDb,
+            TxGateLever.Strength => g.GateSetting ? StrengthStops.Length - 1
+                : Array.FindIndex(StrengthStops, s => !s.Gate && Math.Abs(s.Ratio - g.RatioToOne) < 0.01f) is int i && i >= 0 ? i : 1,
+            TxGateLever.SideChainLow => g.SideChainLowCutHz,
+            TxGateLever.SideChainHigh => g.SideChainHighCutHz,
+            TxGateLever.LookAhead => g.LookAheadMs,
             _ => 0,
         };
 
@@ -1204,7 +1324,7 @@ namespace JJFlexWpf
                 Say(Lexicon.Get("audio.denoise.tx.setup_missing", ("setup", name)), SpeechSubject.TransmitNoiseSetup);
                 return;
             }
-            var timing = ApplyWholeTransmit(setup.Spectral, setup.Neural, setup.Gate ?? new TxNoiseGateSetup());
+            var timing = ApplyWholeTransmit(setup.Spectral, setup.Neural, setup.Gate ?? new TxNoiseGateSetup(), setup);
             NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, TxSource(source), "transmit setup", "", "", setup.Name);
             // Held for the unkey, the live state is not yet the setup's: name the
             // setup and say it waits, never a summary of what it will replace.
@@ -1224,13 +1344,27 @@ namespace JJFlexWpf
         /// the slots alone (the gate's defaults); a null gate leaves the gate
         /// alone (Escape). Every unsettled engine field choice is superseded.
         /// </summary>
-        private TxChangeResult ApplyWholeTransmit(TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate)
+        private TxChangeResult ApplyWholeTransmit(TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate,
+            TxNoiseSetup? stages = null)
         {
             bool slots = spectral != null || neural != null;
             var chain = _txChain();
+            // Sprint 49 Track I: a whole setup or preset carries the equaliser,
+            // the de-esser and the stage order too, applied with the gate as one
+            // staged record; null leaves them as they are (the gate's defaults,
+            // the layer's Escape).
+            var eqCopy = stages?.Eq?.Clone();
+            var deCopy = stages?.DeEsser?.Clone();
+            var orderCopy = stages?.StageOrder == null ? null : (string[])stages.StageOrder.Clone();
+            void ApplyGateAndStages(TxNoiseGateSetup? g)
+            {
+                if (stages != null) TransmitGate.ApplyStagesNow(eqCopy ?? new ParametricEqSetup(), deCopy ?? new TxDeEsserSetup(),
+                    orderCopy ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder, g);
+                else if (g != null) TransmitGate.ApplyNow(g);
+            }
             if (chain == null)
             {
-                if (gate != null) TransmitGate.ApplyNow(gate);
+                ApplyGateAndStages(gate);
                 return TxChangeResult.Now;
             }
             // A whole request identical to what is in place, with nothing waiting
@@ -1239,7 +1373,8 @@ namespace JJFlexWpf
             // Escape has nothing to withdraw and does not report a restoration.
             // With anything waiting it is queued as before, because it may be
             // overriding a different intent that would otherwise land.
-            if (!chain.HasDeferredChanges && _txSettling.Count == 0 && WholeAlreadyInPlace(chain, slots, spectral, neural, gate))
+            if (!chain.HasDeferredChanges && _txSettling.Count == 0 && WholeAlreadyInPlace(chain, slots, spectral, neural, gate)
+                && (stages == null || SameStages(TransmitGate.CaptureStages(), stages)))
                 return TxChangeResult.Now;
             if (slots) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
             var spectralCopy = spectral?.Clone();
@@ -1248,9 +1383,14 @@ namespace JJFlexWpf
             return chain.RunOrDefer(() =>
             {
                 if (slots) chain.ApplySlotsNow(spectralCopy, neuralCopy);
-                if (gateCopy != null) TransmitGate.ApplyNow(gateCopy);
+                ApplyGateAndStages(gateCopy);
             });
         }
+
+        /// <summary>Whether the equaliser, the de-esser and the order in place are a setup's (compared through the record's own serialized form, so a field added later is compared too).</summary>
+        private static bool SameStages((ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order) now, TxNoiseSetup want) =>
+            new TxNoiseSetup { Eq = now.Eq, DeEsser = now.DeEsser, StageOrder = now.Order }
+                .SameContentAs(new TxNoiseSetup { Eq = want.Eq ?? new(), DeEsser = want.DeEsser ?? new(), StageOrder = want.StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder });
 
         /// <summary>Whether a whole request would leave both slots (when it names them) and the gate (when it names one) exactly as they are.</summary>
         private bool WholeAlreadyInPlace(TxNoiseChain chain, bool slots, TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate)
@@ -1269,6 +1409,7 @@ namespace JJFlexWpf
         {
             var setup = new TxNoiseSetup { Name = name ?? "", Gate = TransmitGate.Capture() };
             if (_txChain() is { } chain) (setup.Spectral, setup.Neural) = chain.CaptureSlots();
+            (setup.Eq, setup.DeEsser, setup.StageOrder) = TransmitGate.CaptureStages();
             return setup;
         }
 

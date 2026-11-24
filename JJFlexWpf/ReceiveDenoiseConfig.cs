@@ -23,6 +23,8 @@ namespace JJFlexWpf
                 config.ReceiveDenoiseVersion = 1;
                 config.ReceiveNeural = Export(pipeline.NeuralSlot);
                 config.ReceiveSpectral = Export(pipeline.SpectralSlot);
+                // Sprint 49 Track I: the receive equaliser, app-wide beside them.
+                config.ReceiveEq = pipeline.EqualizerSetup;
                 // Dual-write the legacy fields for builds that know only these.
                 config.RNNoiseEnabled = pipeline.RnnEnabled;
                 config.RNNoiseStrength = pipeline.RnnStrength;
@@ -55,6 +57,8 @@ namespace JJFlexWpf
                 pipeline.RnnEnabled = config.RNNoiseEnabled;
                 pipeline.SpectralEnabled = config.SpectralSubEnabled;
             }
+            // Sprint 49 Track I: the receive equaliser; nothing saved is off.
+            pipeline.SetEqualizer(config.ReceiveEq ?? new ParametricEqSetup());
             // Each slot's first shared-delay plan, from the favourites and the
             // expected figures; the noise controller refines it with measured
             // ones as engines run (#873, Sprint 49 Track P).

@@ -57,7 +57,7 @@ public sealed class RulingsRoundTests : IDisposable
         TxAudioConditioning.ThresholdMarginDb = 8;
         x.Buffer();
         var rig = (FlexBase)typeof(TxAudioConditioning).GetField("_rig", Any)!.GetValue(null)!;
-        float expected = x.Meter.Profile.NoiseFloorLufs + 8;
+        float expected = x.Cond.RoomFloor.FloorDb + 8; // Sprint 49 Track I (#1252): the rule reads the room meter at the expander's input
 
         x.Cond.Gate.ThresholdDb = -70f;  // a sentinel inside the gate's range
         SetKeyed(rig, true);                  // our Mox (the interlock reads the same way)
