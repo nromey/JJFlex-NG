@@ -60,6 +60,19 @@ public sealed class UpdaterSettings
     /// would flood the file with the same sentence.</summary>
     private static bool _warnedUnreadableChannel;
 
+    /// <summary>
+    /// The channel as an enum: a view over <see cref="ChannelWire"/>, which is
+    /// the one that is stored.
+    /// <para><b>It must stay out of the JSON.</b> Unannotated, it serialises
+    /// under its own name "Channel", and the options below read names without
+    /// regard to case, so it collides with <see cref="ChannelWire"/>'s
+    /// "channel": System.Text.Json refuses the whole type and every
+    /// <see cref="Save"/> threw. That is why no update choice was ever
+    /// remembered between sessions until this attribute went on.
+    /// <c>UpdaterSettingsPersistenceTests</c> holds every serialised type in
+    /// the updater to the same rule.</para>
+    /// </summary>
+    [JsonIgnore]
     public UpdateChannel Channel
     {
         get
@@ -125,7 +138,25 @@ public sealed class UpdaterSettings
         }
     }
 
+    /// <summary>
+    /// Write the preferences. Never throws: a save failure must not crash the
+    /// app or break an in-flight update. But it is traced, at Error, naming
+    /// the file and the reason, because a failed save silently forgets every
+    /// choice the operator just made. This catch was bare from the file's
+    /// first commit, and that is how every save failing went unseen.
+    /// </summary>
     public void Save(string? path = null)
+    {
+        if (!TrySave(path, out string? failure))
+            Tracing.TraceLine(failure!, System.Diagnostics.TraceLevel.Error);
+    }
+
+    /// <summary>
+    /// <see cref="Save"/>'s work, reporting instead of tracing: true when the
+    /// file was written, otherwise false with the sentence <see cref="Save"/>
+    /// traces. Never throws.
+    /// </summary>
+    public bool TrySave(string? path, out string? failure)
     {
         path ??= DefaultPath();
         try
@@ -133,11 +164,14 @@ public sealed class UpdaterSettings
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             string json = JsonSerializer.Serialize(this, Options);
             File.WriteAllText(path, json);
+            failure = null;
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
-            // Settings are best-effort; we never want a save failure to
-            // crash the app or break an in-flight update.
+            failure = $"UpdaterSettings.Save: could not write {path} ({ex.GetType().Name}: {ex.Message}). "
+                + "The update preferences just chosen will be lost at the next start.";
+            return false;
         }
     }
 
