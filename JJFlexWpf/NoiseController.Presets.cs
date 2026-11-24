@@ -305,6 +305,19 @@ namespace JJFlexWpf
             }
             if (!orderNow.SequenceEqual(section.StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder))
                 changes.Add(new("tx:order", "", "", "preset")); // journal only: this build runs one order
+            // Sprint 49 Track CL: the compressor and the limiter the section also
+            // applies (a section without them puts them off), said the same way.
+            var (compNow, limiterNow) = TransmitGate.CaptureDynamics();
+            if (!SameCompressor(compNow, section.Compressor ?? new TxCompressorSetup()))
+            {
+                changes.Add(new("tx:compressor", "", "", "preset"));
+                phrases.Add(L("audio.noise_surface.tx.phrase_compressor"));
+            }
+            if (!SameLimiter(limiterNow, section.Limiter ?? new TxLimiterSetup()))
+            {
+                changes.Add(new("tx:limiter", "", "", "preset"));
+                phrases.Add(L("audio.noise_surface.tx.phrase_limiter"));
+            }
             return ApplyWholeTransmit(section.Spectral ?? new TxNoiseSlotSetup(), section.Neural ?? new TxNoiseSlotSetup(), section.Gate, section);
         }
 

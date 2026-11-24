@@ -488,6 +488,11 @@ public partial class FlexBase
                 ["tone-level-db"] = TxToneLevelDb.ToString(CultureInfo.InvariantCulture),
                 ["processor"] = radio.SpeechProcessorEnable.ToString(),
                 ["processor-level"] = radio.SpeechProcessorLevel.ToString(CultureInfo.InvariantCulture),
+                // Sprint 49 Track CL (CL8): what the COMPUTER's transmit chain was
+                // doing, beside the radio's own processor above: the named setup,
+                // the stages on, the compressor and the limiter. A comparison of
+                // our compressor against the radio's processor reads both lines.
+                ["pc-chain"] = PcTransmitChain.DescribeNow(),
                 ["render-scale"] = "1/32768; fixed; no normalization; no AGC",
                 ["preflight"] = RemoteRig ? _listenbackPreflightResult : "LAN; not required",
                 ["kind"] = options.OffAir ? "off-air" : "receive-only-diagnostic"

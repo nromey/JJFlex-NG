@@ -136,6 +136,11 @@ namespace Radios
                 // transmitting, or it could not confirm) (#835, 2026-10-29): say so again now.
                 AnnounceCheckRestoreReminder();
 
+                // The radio's speech processor, if an earlier session turned it
+                // off for our compressor and could not put it back (#1278): the
+                // handoff's next tick puts it back or keeps it off, and says so.
+                ProcessorHandoffAtConnect();
+
                 cwx = theRadio.GetCWX();
                 cwx.Delay = theRadio.CWDelay;
                 cwx.Speed = theRadio.CWSpeed;

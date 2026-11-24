@@ -73,6 +73,18 @@ namespace JJPortaudio
     /// was removed" is the cleanup stages only; 20:56, the de-esser is not
     /// one): <see cref="ResidualEndsAfter"/>, the expander's output. The EQ
     /// and the de-esser are heard in what goes out, never in the residual.</para>
+    /// <para><b>The chain since Sprint 49 Track CL</b> (#1278): after the
+    /// de-esser come the compressor stage (<see cref="Compressor"/>: the phase
+    /// rotator, the drive, the compressor and its split-band mode) and, LAST,
+    /// the limiter (<see cref="Limiter"/>). The limiter is the chain's
+    /// guarantee on peaks, and it is only a guarantee while nothing follows
+    /// it: when the order becomes the operator's to change, the limiter stays
+    /// pinned last. Both ride in the same one-owner record
+    /// (<see cref="StagedGate"/>) and neither is part of "what was removed",
+    /// because both sit after <see cref="ResidualEndsAfter"/>. The chain's
+    /// delay (<see cref="AppliedDelayFrames"/>) now also counts the limiter's
+    /// look-ahead; the residual's own alignment does not, because the residual
+    /// ends upstream of it.</para>
     /// </summary>
     public class TxAudioConditioner
     {
@@ -99,6 +111,12 @@ namespace JJPortaudio
         /// <summary>The de-esser, after the equaliser (Sprint 49 Track I, item 4).</summary>
         public DeEsser DeEsser { get; } = new DeEsser();
 
+        /// <summary>The compressor stage, after the de-esser: phase rotator, drive, compressor, split-band mode (Sprint 49 Track CL, #1278).</summary>
+        public TxCompressor Compressor { get; } = new TxCompressor();
+
+        /// <summary>The limiter, last in the chain (Sprint 49 Track CL, #1278).</summary>
+        public TxLimiter Limiter { get; } = new TxLimiter();
+
         /// <summary>The room's floor at the expander's input, learned while unkeyed (#1252).</summary>
         public TxRoomFloor RoomFloor { get; } = new TxRoomFloor();
 
@@ -109,9 +127,53 @@ namespace JJPortaudio
             public const string Expander = "expander";
             public const string Equaliser = "eq";
             public const string DeEsser = "deesser";
+            /// <summary>The compressor stage (Sprint 49 Track CL): rotator, drive, compressor.</summary>
+            public const string Compressor = "compressor";
+            /// <summary>The limiter (Sprint 49 Track CL). Always last: see the class remarks.</summary>
+            public const string Limiter = "limiter";
 
             /// <summary>The default order, and the only one this build runs.</summary>
-            public static string[] DefaultOrder => new[] { NoiseReduction, Expander, Equaliser, DeEsser };
+            public static string[] DefaultOrder => new[] { NoiseReduction, Expander, Equaliser, DeEsser, Compressor, Limiter };
+
+            /// <summary>
+            /// The default orders EARLIER builds wrote into saved setups, each
+            /// in full. A setup saved by one of those builds holds its build's
+            /// default, which is this build's default with the stages added
+            /// since missing; it runs as the default here. Today there is one:
+            /// Track I's four stages, before the compressor and the limiter
+            /// existed. <b>Whoever adds a stage to <see cref="DefaultOrder"/>
+            /// adds the default it replaces to this list.</b>
+            /// </summary>
+            public static string[][] HistoricalDefaults => new[]
+            {
+                new[] { NoiseReduction, Expander, Equaliser, DeEsser },
+            };
+
+            /// <summary>
+            /// Whether an order runs as the default here: it IS the default, or
+            /// it is one of the defaults an earlier build wrote
+            /// (<see cref="HistoricalDefaults"/>). Nothing else: an order with a
+            /// stage left out that no build ever wrote, an id this build does
+            /// not know, a repeat or a different order is somebody's own order,
+            /// and is kept exactly (repair 1: the first version accepted any
+            /// order that was the default with stages missing, and so would
+            /// have rewritten a saved custom order such as noise, eq, deesser).
+            /// </summary>
+            public static bool RunsAsDefault(string[] order)
+            {
+                if (order == null) return true;
+                if (Same(order, DefaultOrder)) return true;
+                foreach (var historical in HistoricalDefaults)
+                    if (Same(order, historical)) return true;
+                return false;
+            }
+
+            private static bool Same(string[] a, string[] b)
+            {
+                if (a.Length != b.Length) return false;
+                for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+                return true;
+            }
         }
 
         /// <summary>
@@ -152,7 +214,9 @@ namespace JJPortaudio
                 bool expander = Gate.Enabled || GateInForce.Enabled;
                 bool eq = Eq.IsActive || GateInForce.Eq is { IsIdentity: false };
                 bool deEss = DeEsser.Enabled || GateInForce.DeEsserEnabled;
-                return nr || expander || eq || deEss;
+                bool dynamics = Compressor.Settings.Enabled || GateInForce.Comp.Enabled
+                    || Limiter.Settings.Enabled || GateInForce.Limiter.Enabled;
+                return nr || expander || eq || deEss || dynamics;
             }
         }
 
@@ -260,6 +324,10 @@ namespace JJPortaudio
             public bool DeEsserEnabled;
             public float DeEsserFrequencyHz = JJPortaudio.DeEsser.DefaultFrequencyHz, DeEsserAmountDb = JJPortaudio.DeEsser.DefaultAmountDb,
                 DeEsserThresholdDb = JJPortaudio.DeEsser.DefaultThresholdDb;
+            /// <summary>The compressor stage's settings (Sprint 49 Track CL). Immutable, so a copy may share it: on or off, the rotator's stage count and the mode are switches; every level is a continuous lever.</summary>
+            public TxCompressorSettings Comp = TxCompressorSettings.Default;
+            /// <summary>The limiter's settings (Sprint 49 Track CL). Immutable: on or off and the look-ahead's length are switches; the ceiling and the release are continuous levers.</summary>
+            public TxLimiterSettings Limiter = TxLimiterSettings.Default;
             public StagedGate Copy() => (StagedGate)MemberwiseClone();
         }
 
@@ -398,6 +466,8 @@ namespace JJPortaudio
             DeEsser.AmountDb = live.DeEsserAmountDb;
             DeEsser.ThresholdDb = live.DeEsserThresholdDb;
             DeEsser.Enabled = live.DeEsserEnabled;
+            Compressor.Settings = live.Comp ?? TxCompressorSettings.Default;
+            Limiter.Settings = live.Limiter ?? TxLimiterSettings.Default;
             _appliedLive = live;
         }
 
@@ -460,11 +530,28 @@ namespace JJPortaudio
 
         /// <summary>
         /// The chain's applied delay on the last buffer, frames: noise
-        /// reduction's plus the expander's look-ahead. The equaliser and the
-        /// de-esser add none (item 9). The residual, the audition and any
-        /// later unkey hold align to this.
+        /// reduction's, plus the expander's look-ahead, plus the limiter's
+        /// look-ahead (Sprint 49 Track CL; zero by default). The equaliser,
+        /// the de-esser and the compressor add none. The audition and any
+        /// later unkey hold align to this. The residual aligns to
+        /// <see cref="ResidualDelayFrames"/>, which leaves the limiter out.
         /// </summary>
         public int AppliedDelayFrames => System.Threading.Volatile.Read(ref _appliedDelay);
+
+        private volatile uint _lastSampleRate;
+
+        /// <summary>The rate of the last buffer this chain was given, Hz, or 0 before any: the rate the transmit stream really opened at. The audition renders at 48 kHz and says so when this differs.</summary>
+        public uint LastSampleRate => _lastSampleRate;
+
+        private int _residualDelay;
+
+        /// <summary>
+        /// The delay of the audio at the residual's "after" point
+        /// (<see cref="ResidualEndsAfter"/>) on the last buffer, frames: noise
+        /// reduction's plus the expander's look-ahead. What "what was removed"
+        /// aligns its input copy to; it never includes a stage after that point.
+        /// </summary>
+        public int ResidualDelayFrames => System.Threading.Volatile.Read(ref _residualDelay);
 
         /// <summary>Whether a buffer reached this chain in the last half second: the honest "is the computer's audio reaching it" test (a radio's own microphone sends none).</summary>
         public bool HasRecentAudio
@@ -493,11 +580,17 @@ namespace JJPortaudio
             return (clips, frames, deepest);
         }
 
+        /// <summary>One over's readings from the compressor and the limiter, taken and zeroed (Sprint 49 Track CL). Counted on keyed buffers only.</summary>
+        public ((float MaxReductionDb, float AverageReductionDb, long Frames) Compressor,
+            (long Caught, long OutputOverFullScale, long LimitedFrames, float MaxReductionDb) Limiter) TakeDynamicsOverStats() =>
+            (Compressor.TakeOverStats(), Limiter.TakeOverStats());
+
         private float[] _monitorBuf = new float[ScratchFloats];
         // The residual's delay line (Sprint 49 Track I, repair 2, N4; #1293 in
-        // phase 2): preallocated here, so a change of look-ahead or engine delay
-        // re-lays the line in place, through a scratch of the same size, and
-        // allocates nothing on the callback. Only a delay past capacity grows it.
+        // phase 2 and in Track CL): preallocated here, so a change of look-ahead
+        // or engine delay re-lays the line in place, through a scratch of the
+        // same size, and allocates nothing on the callback. Only a delay past
+        // capacity grows it.
 
         /// <summary>
         /// The delay line's capacity, stereo frames (#1293). The whole chain's
@@ -508,9 +601,20 @@ namespace JJPortaudio
         /// longest look-ahead (10 ms at 192 kHz, 1,920) and WDSP's expander in
         /// its place (16 plus two frames of pipeline plus a carry, 1,455): 11,796
         /// frames. 16,384 holds that with room. (8,192 frames, before #1293,
-        /// did not hold the two slots together.)
+        /// did not hold the two slots together.) Nothing after the residual's
+        /// "after" point lengthens this line: the compressor adds no delay, and
+        /// the limiter's look-ahead delays what is sent, not the residual's
+        /// input history.
         /// </summary>
         public const int DelayLineCapacityFrames = 16384;
+
+        /// <summary>
+        /// The same capacity under the name of what the line holds: the delay
+        /// of the audio at the residual's "after" point
+        /// (<see cref="ResidualDelayFrames"/>). ONE allocation size; Track I
+        /// phase 2 and Track CL each sized it for #1293 and the merge kept one.
+        /// </summary>
+        public const int ResidualDelayCapacityFrames = DelayLineCapacityFrames;
         private const int DelayLineFloats = DelayLineCapacityFrames * 2;
         private float[] _inputDelay = new float[DelayLineFloats];
         private float[] _inputDelayScratch = new float[DelayLineFloats];
@@ -527,6 +631,7 @@ namespace JJPortaudio
             bool keyed = ReadKey();
             UpdateGate(keyed);
             System.Threading.Volatile.Write(ref _lastBufferMs, Environment.TickCount64);
+            _lastSampleRate = sampleRate;
             if (_bypassAll) return;
 
             var nr = NoiseReducer;
@@ -534,7 +639,8 @@ namespace JJPortaudio
             var sink = MonitorSink;
             var mode = (MonitorModes)_monitorMode;
             bool wantMonitor = mode != MonitorModes.Off && sink != null;
-            bool anyStage = nr != null || Gate.Enabled || Eq.IsActive || DeEsser.Enabled;
+            bool anyStage = nr != null || Gate.Enabled || Eq.IsActive || DeEsser.Enabled
+                || Compressor.Settings.Enabled || Limiter.Settings.Enabled;
 
             // Nothing attached, nothing monitored: stay entirely out of the
             // way. (The gate still wants its clock stamped so enabling it
@@ -546,6 +652,10 @@ namespace JJPortaudio
                 if (!keyed) RoomFloor.Process(buffer, count, sampleRate);
                 Gate.Process(buffer, 0, sampleRate);
                 System.Threading.Volatile.Write(ref _appliedDelay, 0);
+                System.Threading.Volatile.Write(ref _residualDelay, 0);
+                // Nothing on: the limiter still counts what leaves over full
+                // scale on a keyed buffer (it touches nothing while off).
+                Limiter.Process(buffer, count, sampleRate, keyed);
                 return;
             }
 
@@ -575,7 +685,7 @@ namespace JJPortaudio
             int expanderDelay = replaced ? Math.Max(0, ExpanderReplacementAppliedLatencySamples?.Invoke() ?? 0) : Gate.AppliedLookAheadFrames;
             int delay = nrDelay + expanderDelay;
             DelayInputCopy(count, delay);
-            System.Threading.Volatile.Write(ref _appliedDelay, delay);
+            System.Threading.Volatile.Write(ref _residualDelay, delay);
 
             // The residual's "after" point (S8, ResidualEndsAfter): the audio
             // as it left the cleanup stages, before anything that shapes.
@@ -590,6 +700,14 @@ namespace JJPortaudio
             // buffers only; the policy tick writes them to the trace.
             Eq.Process(buffer, count, sampleRate, keyed);
             DeEsser.Process(buffer, count, sampleRate, keyed);
+
+            // Then the dynamics (Sprint 49 Track CL): the compressor stage, and
+            // the limiter LAST, so its ceiling holds whatever came before it.
+            // Only the limiter's look-ahead adds delay, and only to the chain's
+            // figure: the residual ended upstream.
+            Compressor.Process(buffer, count, sampleRate, keyed);
+            Limiter.Process(buffer, count, sampleRate, keyed);
+            System.Threading.Volatile.Write(ref _appliedDelay, delay + Limiter.AppliedLookAheadFrames);
 
             if (!wantMonitor) return;
 

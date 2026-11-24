@@ -178,6 +178,50 @@ public partial class NativeMenuBar
         AddWired(deEsser, Radios.Lexicon.Get("audio.noise_menu.tx.settings_on_home"),
             () => _window.OpenTransmitNoiseOnHome(null, advanced: false, gate: true));
 
+        // ── The compressor and the limiter (Sprint 49 Track CL, #1278) ──
+        // The compressor here is the COMPUTER's; the radio's own speech
+        // processor keeps its own items, and every label here says which it is.
+        var compressor = AddSubmenu(parent, Radios.Lexicon.Get("audio.dynamics_menu.compressor"));
+        AddNoiseToggle(compressor, Radios.Lexicon.Get("audio.dynamics_menu.compressor_on"),
+            () => AfterMenu(n => n.ToggleCompressor(TransmitMenuSource)), () => _window.Noise.CompressorOn);
+        var compressorPresets = AddSubmenu(compressor, Radios.Lexicon.Get("audio.dynamics_menu.presets"));
+        foreach (var preset in NoiseController.CompressorPresets)
+        {
+            string presetId = preset.Id;
+            AddWired(compressorPresets, NoiseController.CompressorPresetName(preset),
+                () => AfterMenu(n => n.LoadCompressorPreset(presetId, TransmitMenuSource)));
+        }
+        AddNoiseToggle(compressor, Radios.Lexicon.Get("audio.dynamics_menu.split_band"),
+            () => AfterMenu(n => n.SetCompressorSplitBand(!n.CompressorSplitBand, TransmitMenuSource)), () => _window.Noise.CompressorSplitBand);
+        foreach (var lever in NoiseController.CompressorLevers.Where(l => l.OnHome))
+        {
+            var l = lever;
+            string leverName = noise.DynamicsLeverName(l);
+            AddWired(compressor, Radios.Lexicon.Get("audio.noise_menu.up", ("lever", leverName)),
+                () => AfterMenu(n => n.AdjustDynamics(l, +1, TransmitMenuSource)));
+            AddWired(compressor, Radios.Lexicon.Get("audio.noise_menu.down", ("lever", leverName)),
+                () => AfterMenu(n => n.AdjustDynamics(l, -1, TransmitMenuSource)));
+        }
+        AddWired(compressor, Radios.Lexicon.Get("audio.dynamics_menu.say_compressor"), () => AfterMenu(n => n.SayCompressorNow()));
+        AddNoiseToggle(compressor, Radios.Lexicon.Get("audio.dynamics_menu.handoff"),
+            () => AfterMenu(n => n.SetProcessorHandoffSetting(!n.ProcessorHandoffSetting, TransmitMenuSource)), () => _window.Noise.ProcessorHandoffSetting);
+        AddWired(compressor, Radios.Lexicon.Get("audio.dynamics_menu.edit"), () => _window.ShowDynamicsEditor());
+
+        var limiter = AddSubmenu(parent, Radios.Lexicon.Get("audio.dynamics_menu.limiter"));
+        AddNoiseToggle(limiter, Radios.Lexicon.Get("audio.dynamics_menu.limiter_on"),
+            () => AfterMenu(n => n.ToggleLimiter(TransmitMenuSource)), () => _window.Noise.LimiterOn);
+        foreach (var lever in NoiseController.LimiterLevers.Where(l => !l.Advanced))
+        {
+            var l = lever;
+            string leverName = noise.DynamicsLeverName(l);
+            AddWired(limiter, Radios.Lexicon.Get("audio.noise_menu.up", ("lever", leverName)),
+                () => AfterMenu(n => n.AdjustDynamics(l, +1, TransmitMenuSource)));
+            AddWired(limiter, Radios.Lexicon.Get("audio.noise_menu.down", ("lever", leverName)),
+                () => AfterMenu(n => n.AdjustDynamics(l, -1, TransmitMenuSource)));
+        }
+        AddWired(limiter, Radios.Lexicon.Get("audio.dynamics_menu.say_limiter"), () => AfterMenu(n => n.SayLimiterNow()));
+        AddWired(limiter, Radios.Lexicon.Get("audio.dynamics_menu.edit"), () => _window.ShowDynamicsEditor());
+
         // ── Transmit noise setups: this radio's, each applying; Save; Manage ──
         // The list follows the store (bench round, item 3): a setup saved,
         // renamed or deleted this session rebuilds the menu, coalesced like

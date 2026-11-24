@@ -11078,7 +11078,7 @@ namespace Radios
         public OffOnValues ProcessorOn
         {
             get { return (theRadio?.SpeechProcessorEnable == true) ? OffOnValues.on : OffOnValues.off; }
-            set { NoteOperatorChangedRadioSetting("ProcessorOn"); q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
+            set { NoteOperatorChangedRadioSetting("ProcessorOn"); ProcessorSetThroughTheRigsSetter(value); q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
         }
 
         public enum ProcessorSettings

@@ -185,6 +185,40 @@ namespace JJFlexWpf
         /// </summary>
         public Radios.ParametricEqSetup? ReceiveEq { get; set; }
 
+        private bool _radioProcessorOffWithCompressor = true;
+
+        /// <summary>
+        /// "Turn off the radio's speech processor while the compressor is on"
+        /// (Sprint 49 Track CL, #1278; Noel 2026-11-23 20:42: "if we turn on
+        /// compressor, we turn off speech processing settings either that or
+        /// have a setting"). Default on; an operator who wants both clears it.
+        /// App-wide, here, because it is a policy about this computer's chain,
+        /// not a sound; the record of what was changed on which radio is the
+        /// handoff's own, per radio.
+        /// </summary>
+        /// <remarks>
+        /// Setting it (the serializer reading a file that has it, or the
+        /// operator's switch) also writes
+        /// <see cref="RadioProcessorOffWithCompressorInForce"/>, which is what
+        /// the handoff's tick reads. A file from before the setting existed
+        /// does not carry the element, so it never runs this setter and the
+        /// value in force stays at its default, on.
+        /// </remarks>
+        public bool RadioProcessorOffWithCompressor
+        {
+            get => _radioProcessorOffWithCompressor;
+            set { _radioProcessorOffWithCompressor = value; RadioProcessorOffWithCompressorInForce = value; }
+        }
+
+        private static volatile bool _radioProcessorOffInForce = true;
+
+        /// <summary>The setting as last read from the operator's file or switched by the operator: what the handoff acts on. Every config is read from the one app-wide file, so the last one read is the operator's.</summary>
+        public static bool RadioProcessorOffWithCompressorInForce
+        {
+            get => _radioProcessorOffInForce;
+            internal set => _radioProcessorOffInForce = value;
+        }
+
         /// <summary>
         /// Noise favourites (Sprint 49 Track E): ONE ordered list across the
         /// radio and the computer and both subjects, app-wide. The list order

@@ -70,4 +70,19 @@ public partial class MainWindow
             dialog.ShowDialog();
         });
     }
+
+    /// <summary>
+    /// "Edit compressor and limiter...": every parameter of the transmit
+    /// compressor stage and the limiter, in one window (Sprint 49 Track CL,
+    /// #1278). The Transmit menu and Home open it here.
+    /// </summary>
+    public void ShowDynamicsEditor()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            const string source = "compressor editor";
+            var dialog = new TxDynamicsEditorDialog(Noise.DynamicsEditor(source), Noise, source) { Owner = Window.GetWindow(this) };
+            dialog.ShowDialog();
+        });
+    }
 }
