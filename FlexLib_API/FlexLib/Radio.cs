@@ -15605,7 +15605,7 @@ namespace Flex.Smoothlake.FlexLib
         private int _udpWatchGeneration;
         private long _openStartedTimestamp;
 
-        /// <summary>JJFlex patch (items 30 and 31): raised off the receive thread when Flex VITA
+        /// <summary>JJFlex patch (items 30 and 33): raised off the receive thread when Flex VITA
         /// arrives from the radio's own address: once per VITA socket for each command
         /// connection it arrives under.</summary>
         public event Action<QualifiedUdpObservation> QualifiedUdpObserved;

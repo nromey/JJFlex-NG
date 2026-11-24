@@ -269,14 +269,14 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Migration_lists_the_per_connection_sighting_as_item_31_and_the_source_is_marked()
+        public void Migration_lists_the_per_connection_sighting_as_item_33_and_the_source_is_marked()
         {
-            Assert.Contains("31. **Qualified-UDP observation, once per socket AND command connection", Src("MIGRATION.md"));
+            Assert.Contains("33. **Qualified-UDP observation, once per socket AND command connection", Src("MIGRATION.md"));
             string watch = Src("FlexLib_API", "FlexLib", "QualifiedUdpObservation.cs");
             Assert.Contains("JJFlex patch (MIGRATION.md item 33)", watch);
             Assert.Contains("JJFlex patch (item 33)", watch);
             Assert.Contains("ReferenceEquals(Volatile.Read(ref _matchedUnder), under)", watch);
-            Assert.Contains("items 30 and 31", Src("FlexLib_API", "FlexLib", "Radio.cs"));
+            Assert.Contains("items 30 and 33", Src("FlexLib_API", "FlexLib", "Radio.cs"));
         }
     }
 }
