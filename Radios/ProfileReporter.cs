@@ -389,6 +389,17 @@ namespace Radios
             /// back. RunWalk asks transmit before that request as it does
             /// before any put-back.</summary>
             public bool PutBackOnly;
+
+            /// <summary>#1292 repair 1: the recorded selection was NOT put
+            /// back because the radio's own list did not name it (or never
+            /// arrived). A put-back goes through SelectProfileGuarded, which
+            /// can create a missing TX or mic profile, and a put-back must
+            /// never create one.</summary>
+            public bool PutBackNotListed;
+
+            /// <summary>Whether this walk has a put-back to request: a
+            /// recorded selection the radio's list names.</summary>
+            internal bool HasPutBackToSend => !string.IsNullOrEmpty(OriginalSelection) && !PutBackNotListed;
         }
 
         // ── #418: the three-state profile list, and its renderings ──
@@ -511,17 +522,11 @@ namespace Radios
                 unreadableCallback, radioList, putBackRecordedEarlier: null, putBackOnly: false);
 
         /// <summary>
-        /// The one walker behind <see cref="WalkProfiles"/> and the restore
-        /// capture. <paramref name="putBackRecordedEarlier"/> is null for a
-        /// walk that puts back what was selected when IT began (the comparison
-        /// report). The restore capture passes the selection it recorded
-        /// before its FIRST walk (#1292): a global load changes the TX and
-        /// mic selections, so by the time the TX walk begins its own reading
-        /// is the global profile's choice, not the operator's.
-        /// <paramref name="putBackOnly"/> walks no profile at all: it only
-        /// requests the recorded selection back, for a kind an earlier global
-        /// walk moved and this run does not walk (the comparison report never
-        /// walks mic; either report skips a kind whose list is empty).
+        /// The one walker behind <see cref="WalkProfiles"/> and both reports,
+        /// bound to the rig: it reads the list, asks whether there is a radio,
+        /// and hands <see cref="WalkOneKind"/> the real load, the real transmit
+        /// state and the real starting-selection read. Every decision is in
+        /// <see cref="WalkOneKind"/>, which the tests drive.
         /// </summary>
         private static ProfileWalkOutcome WalkProfilesCore(
             FlexBase rig, ProfileTypes profileType,
@@ -532,9 +537,6 @@ namespace Radios
             RecordedSelection putBackRecordedEarlier,
             bool putBackOnly)
         {
-            var outcome = new ProfileWalkOutcome { ProfileType = profileType, PutBackOnly = putBackOnly };
-            string label = TypeLabel(profileType);
-
             // #418: the walk enumerates from the RADIO, never from the
             // operator's profile references — a radio full of profiles its
             // owner never named must still be captured, and this walk exists
@@ -543,6 +545,56 @@ namespace Radios
             // carries it so every caller can render the difference between
             // "the radio has none" and "we never asked".
             if (radioList == null) radioList = ReadListSafely(rig, profileType);
+
+            bool haveRadio;
+            try { haveRadio = rig.theRadio != null; }
+            catch { haveRadio = false; }
+
+            return WalkOneKind(profileType, radioList, putBackRecordedEarlier, putBackOnly, haveRadio,
+                () => StartingSelection(rig.theRadio, profileType),
+                name => LoadProfileAndWait(rig, profileType, name),
+                () => rig.Transmit,
+                captureWhileLoaded, progressCallback, unreadableCallback);
+        }
+
+        /// <summary>
+        /// One kind's walk, every decision in it, reaching the radio only
+        /// through the functions passed in so a test can drive it.
+        /// <paramref name="putBackRecordedEarlier"/> is null for a walk that
+        /// puts back what was selected when IT began (the public
+        /// <see cref="WalkProfiles"/>). Both reports pass the selection they
+        /// recorded before their FIRST walk (#1292): a global load changes the
+        /// TX and mic selections, so by the time the TX walk begins its own
+        /// reading is the global profile's choice, not the operator's.
+        /// <paramref name="putBackOnly"/> walks no profile at all: it only
+        /// requests the recorded selection back, for a kind an earlier global
+        /// walk moved and this run does not walk (the comparison report never
+        /// walks mic; either report skips a kind whose list is empty).
+        /// </summary>
+        /// <remarks>
+        /// <b>A put-back only ever names a profile the radio's own list
+        /// reports.</b> A put-back goes through SelectProfileGuarded, which
+        /// on an owner's radio CREATES a TX or mic profile its list does not
+        /// show before loading it. A put-back must never create a profile, so
+        /// a recorded name the list does not report (or a list that never
+        /// arrived) is not put back, and the kind is listed as not put back.
+        /// </remarks>
+        internal static ProfileWalkOutcome WalkOneKind(
+            ProfileTypes profileType,
+            FlexBase.RadioProfileList radioList,
+            RecordedSelection putBackRecordedEarlier,
+            bool putBackOnly,
+            bool haveRadio,
+            Func<string> readStartingSelection,
+            Func<string, ProfileLoadResult> load,
+            Func<bool> keyed,
+            Action<string> captureWhileLoaded,
+            Action<string> progressCallback,
+            Action<string, string> unreadableCallback)
+        {
+            var outcome = new ProfileWalkOutcome { ProfileType = profileType, PutBackOnly = putBackOnly };
+            string label = TypeLabel(profileType);
+
             outcome.RadioList = radioList;
             List<string> profiles;
             if (putBackOnly)
@@ -555,9 +607,6 @@ namespace Radios
             // With no radio object there is nothing to load from: every
             // profile is unreadable for the same plain reason, and no load
             // request goes out — so the radio, wherever it is, is not moved.
-            bool haveRadio;
-            try { haveRadio = rig.theRadio != null; }
-            catch { haveRadio = false; }
             if (!haveRadio)
             {
                 foreach (var name in profiles)
@@ -579,8 +628,8 @@ namespace Radios
             // stores it). Folding null into "" used to turn "not yet reported"
             // into "none was selected", which a stopped walk then said aloud.
             //
-            // #1292: the restore capture recorded every kind's selection before
-            // its first walk, and puts back THAT, never this walk's own reading
+            // #1292: both reports recorded every kind's selection before their
+            // first walk, and put back THAT, never this walk's own reading
             // (which, after the global walk, is the global profile's choice).
             if (putBackRecordedEarlier != null)
             {
@@ -590,7 +639,7 @@ namespace Radios
             {
                 try
                 {
-                    outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);
+                    outcome.OriginalSelection = readStartingSelection();
                 }
                 catch (Exception ex)
                 {
@@ -599,11 +648,19 @@ namespace Radios
                 }
             }
 
+            // Never create a profile from a put-back (see remarks).
+            if (!string.IsNullOrEmpty(outcome.OriginalSelection)
+                && !(radioList.Reported && radioList.Names.Contains(outcome.OriginalSelection, StringComparer.Ordinal)))
+            {
+                outcome.PutBackNotListed = true;
+                Tracing.TraceLine($"ProfileReporter: {label} put-back of '{outcome.OriginalSelection}' withheld — "
+                    + (radioList.Reported ? "the radio's list does not name it" : "the radio's list never arrived")
+                    + "; a put-back never creates a profile", TraceLevel.Warning);
+            }
+
             Tracing.TraceLine($"ProfileReporter: Capturing {profiles.Count} {label} profiles (current: '{outcome.OriginalSelection}')", TraceLevel.Info);
 
-            RunWalk(outcome, profiles,
-                name => LoadProfileAndWait(rig, profileType, name),
-                () => rig.Transmit,
+            RunWalk(outcome, profiles, load, keyed,
                 captureWhileLoaded, progressCallback, unreadableCallback);
 
             return outcome;
@@ -720,10 +777,21 @@ namespace Radios
             return outcomes;
         }
 
+        /// <summary>Why a recorded selection was withheld from the put-back
+        /// (#1292 repair 1). DRAFT words, for Codex.</summary>
+        internal static string NotListedReason(ProfileWalkOutcome o)
+        {
+            string kind = TypeLabel(o.ProfileType);
+            return (o.RadioList != null && o.RadioList.Reported
+                    ? "the radio's " + kind + " profile list does not name it"
+                    : "the radio's " + kind + " profile list never arrived")
+                + ", and putting back a profile the list does not show could create a new one";
+        }
+
         /// <summary>
         /// The kinds an ordinary (unkeyed) walk moved and could not put back
         /// (#1292): it requested loads, and no put-back was requested because
-        /// nothing, or no recording, stood before it. On the 8600 that is the
+        /// nothing, no recording, or no name the radio's list shows stood before it. On the 8600 that is the
         /// global selection: none before, and no radio command clears one.
         /// A stopped walk is not listed; its own stop sentence covers it.
         /// </summary>
@@ -745,7 +813,13 @@ namespace Radios
             string kind = TypeLabel(o.ProfileType);
             string why = o.OriginalSelection == null
                 ? "no " + kind + " selection was recorded before the walk, so there was nothing to put back"
-                : "nothing was selected before the walk, and no radio command clears a " + kind + " selection";
+                : o.PutBackNotListed
+                    ? o.OriginalSelection + " was in use before the walk, and " + NotListedReason(o)
+                    // Measured on the 8600 for global only: no radio command
+                    // clears a global selection. Not claimed for TX or mic.
+                    : o.ProfileType == ProfileTypes.global
+                        ? "nothing was selected before the walk, and no radio command clears a global selection"
+                        : "nothing was selected before the walk, so there was nothing to put back";
             string last = o.LastLoaded != null
                 ? "the last " + kind + " profile the walk loaded was " + o.LastLoaded
                 : o.LastRequested != null
@@ -847,7 +921,7 @@ namespace Radios
             // blocker 1, where this path once left the radio moved and said
             // nothing). A walk that never loaded did not move the radio.
             if (!outcome.StoppedForTransmit
-                && (outcome.LoadAttempts > 0 || (outcome.PutBackOnly && !string.IsNullOrEmpty(outcome.OriginalSelection)))
+                && (outcome.LoadAttempts > 0 || (outcome.PutBackOnly && outcome.HasPutBackToSend))
                 && keyed())
             {
                 outcome.StoppedForTransmit = true;
@@ -864,7 +938,7 @@ namespace Radios
             // Request the starting selection again. Whether it reached the
             // radio is not known and is never claimed (#469 round six); the
             // result goes to the trace only.
-            if (!string.IsNullOrEmpty(outcome.OriginalSelection))
+            if (outcome.HasPutBackToSend)
             {
                 outcome.RestoreAttempted = true;
                 progressCallback?.Invoke($"Asking the radio to load the {label} profile recorded before the walk: {outcome.OriginalSelection}");
@@ -895,6 +969,9 @@ namespace Radios
                 return "No " + kind + " selection was recorded before the walk, so no put-back was requested.";
             if (o.OriginalSelection.Length == 0)
                 return "The " + kind + " selection recorded before the walk was empty, so no put-back was requested.";
+            if (o.PutBackNotListed)
+                return o.OriginalSelection + ", the app's last recorded " + kind + " selection before the walk, was not put back: "
+                    + NotListedReason(o) + ".";
             return "A put-back of " + o.OriginalSelection + ", the app's last recorded " + kind
                 + " selection before the walk (it may be the app's own earlier request), was requested;"
                 + " whether it reached the radio is not known.";

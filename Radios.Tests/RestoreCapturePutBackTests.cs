@@ -73,33 +73,46 @@ namespace Radios.Tests
             /// <summary>One kind's walk, as the production walker runs it
             /// once it has its put-back target: RunWalk, with this station's
             /// load and transmit state.</summary>
-            /// <summary>One kind's step, as the production walker runs it
-            /// once it has its put-back target: RunWalk, with this station's
-            /// load and transmit state. A put-back-only step walks nothing.
+            /// <summary>The radio's own list for a kind, as both reports read
+            /// it before walking: reported with its names, or never arrived.</summary>
+            public FlexBase.RadioProfileList List(ProfileTypes t)
+                => Unreported.Contains(t)
+                    ? new FlexBase.RadioProfileList { ProfileType = t, Reported = false }
+                    : new FlexBase.RadioProfileList
+                    {
+                        ProfileType = t,
+                        Reported = true,
+                        Names = (Stored.TryGetValue(t, out var n) ? n : new string[0]).ToList(),
+                    };
+
+            /// <summary>Kinds whose list never arrived, although their
+            /// selection did (the create-on-select route of #1292 repair 1).</summary>
+            public readonly HashSet<ProfileTypes> Unreported = new HashSet<ProfileTypes>();
+
+            /// <summary>One kind's step through the PRODUCTION walker,
+            /// <see cref="ProfileReporter.WalkOneKind"/>, with this station's
+            /// load, transmit state and selection read in place of the rig's.
             /// <paramref name="notWalkedOutcome"/> is the restore capture's
-            /// behaviour (an outcome with no loads); the comparison report's
+            /// behaviour (the walker is still called); the comparison report's
             /// is null.</summary>
             public ProfileReporter.ProfileWalkOutcome WalkOne(ProfileTypes t, ProfileReporter.RecordedSelection before,
                 ProfileReporter.KindStep step, bool notWalkedOutcome)
             {
-                if (step == ProfileReporter.KindStep.NotWalked)
-                    return notWalkedOutcome ? new ProfileReporter.ProfileWalkOutcome { ProfileType = t } : null;
-                var o = new ProfileReporter.ProfileWalkOutcome
-                {
-                    ProfileType = t,
-                    OriginalSelection = before.Value,
-                    PutBackOnly = step == ProfileReporter.KindStep.PutBackOnly,
-                };
-                var names = o.PutBackOnly ? new string[0] : Stored[t];
-                ProfileReporter.RunWalk(o, names, n => Load(t, n), () => Keyed, null, Spoken.Add, null);
-                return o;
+                if (step == ProfileReporter.KindStep.NotWalked && !notWalkedOutcome) return null;
+                return ProfileReporter.WalkOneKind(t, List(t), before,
+                    putBackOnly: step == ProfileReporter.KindStep.PutBackOnly,
+                    haveRadio: true,
+                    readStartingSelection: () => Read(t),
+                    load: n => Load(t, n),
+                    keyed: () => Keyed,
+                    captureWhileLoaded: null, progressCallback: Spoken.Add, unreadableCallback: null);
             }
 
             /// <summary>The full restore capture: every kind with stored
             /// profiles is walked.</summary>
             public List<ProfileReporter.ProfileWalkOutcome> Capture()
                 => ProfileReporter.WalkKindsPuttingBackTheStart(Order,
-                    k => Stored.TryGetValue(k, out var n) && n.Length > 0, Read,
+                    k => !Unreported.Contains(k) && Stored.TryGetValue(k, out var n) && n.Length > 0, Read,
                     (k, before, step) => WalkOne(k, before, step, notWalkedOutcome: true), null);
 
             /// <summary>The comparison report: only the plan's kinds are
@@ -250,24 +263,83 @@ namespace Radios.Tests
             Assert.Equal(new[] { "global:JJRadioDefault", "global:SO2RDefault" }, s.Loads);
         }
 
+        // ------------------------------------------------------------------
+        // Repair 1: a put-back never creates a profile. It goes through
+        // SelectProfileGuarded, which on an owner's radio creates a TX or mic
+        // profile its list does not show before loading it; so a put-back
+        // names only a profile the radio's own list reports.
+        // ------------------------------------------------------------------
+
         [Fact]
-        public void A_kind_the_capture_cannot_walk_is_still_put_back_after_a_global_load_moved_it()
+        public void A_kind_whose_list_never_arrived_is_not_put_back_and_says_so()
         {
-            // The radio reported no mic list, so the capture walks no mic
-            // profile; the global load still moved the mic selection, so its
-            // recording is requested back.
+            // The TX list did not arrive but the TX selection did. The global
+            // walk moved TX, so TX is put-back-only; sending Default would go
+            // through create-on-select, so nothing is sent.
+            var s = TheBench();
+            s.Unreported.Add(ProfileTypes.tx);
+            var outcomes = s.Capture();
+
+            Assert.DoesNotContain(s.Loads, l => l.StartsWith("tx:", StringComparison.Ordinal));
+            var tx = outcomes.Single(o => o.ProfileType == ProfileTypes.tx);
+            Assert.True(tx.PutBackOnly);
+            Assert.True(tx.PutBackNotListed);
+            Assert.False(tx.RestoreAttempted);
+            Assert.Contains(ProfileTypes.tx, ProfileReporter.KindsNotPutBack(outcomes));
+            Assert.Equal("Default was in use before the walk, and the radio's TX profile list never arrived, and putting "
+                + "back a profile the list does not show could create a new one; a global profile the walk loaded may "
+                + "have changed it", ProfileReporter.NotPutBackValue(tx));
+            Assert.Equal("Default, the app's last recorded TX selection before the walk, was not put back: the radio's "
+                + "TX profile list never arrived, and putting back a profile the list does not show could create a new one.",
+                ProfileReporter.PutBackNote(tx));
+            // The mic, walked and listed, still goes back.
+            Assert.Equal("Default", s.Mic);
+        }
+
+        [Fact]
+        public void A_kind_the_capture_cannot_walk_because_its_list_is_empty_is_not_put_back()
+        {
             var s = TheBench();
             s.Stored.Remove(ProfileTypes.mic);
             var outcomes = s.Capture();
 
-            Assert.Equal("Default", s.Mic);
+            Assert.DoesNotContain(s.Loads, l => l.StartsWith("mic:", StringComparison.Ordinal));
             var mic = outcomes.Single(o => o.ProfileType == ProfileTypes.mic);
             Assert.True(mic.PutBackOnly);
-            Assert.True(mic.RestoreAttempted);
-            Assert.Equal(0, mic.LoadAttempts);
-            Assert.Equal("mic:Default", s.Loads.Last());
-            Assert.StartsWith("A put-back of Default, the app's last recorded mic selection before the walk",
-                ProfileReporter.AfterTheWalkValue(mic));
+            Assert.True(mic.PutBackNotListed);
+            Assert.Contains(ProfileTypes.mic, ProfileReporter.KindsNotPutBack(outcomes));
+            Assert.StartsWith("Default, the app's last recorded mic selection before the walk, was not put back: "
+                + "the radio's mic profile list does not name it", ProfileReporter.AfterTheWalkValue(mic));
+        }
+
+        [Fact]
+        public void A_walked_kind_whose_recorded_name_its_list_does_not_show_is_not_put_back()
+        {
+            // Pre-existing exposure, closed the same way: a TX selection the
+            // TX list does not name is never sent back.
+            var s = TheBench();
+            s.Tx = "Ghost";
+            var outcomes = s.Capture();
+
+            Assert.DoesNotContain("tx:Ghost", s.Loads);
+            var tx = outcomes.Single(o => o.ProfileType == ProfileTypes.tx);
+            Assert.False(tx.PutBackOnly);
+            Assert.True(tx.PutBackNotListed);
+            Assert.Contains(ProfileTypes.tx, ProfileReporter.KindsNotPutBack(outcomes));
+        }
+
+        [Fact]
+        public void An_empty_TX_or_mic_selection_is_not_said_to_be_uncleareable()
+        {
+            // Measured for global only (no radio command clears a global
+            // selection); not claimed for TX or mic.
+            var s = TheBench();
+            s.Tx = "";
+            var outcomes = s.Capture();
+            var tx = outcomes.Single(o => o.ProfileType == ProfileTypes.tx);
+            Assert.Equal("nothing was selected before the walk, so there was nothing to put back; the last TX profile "
+                + "the walk loaded was SO2R_TX2", ProfileReporter.NotPutBackValue(tx));
+            Assert.DoesNotContain("clears", ProfileReporter.NotPutBackValue(tx));
         }
 
         // ------------------------------------------------------------------
@@ -301,6 +373,18 @@ namespace Radios.Tests
             // Global's put-back would come first; TX's and mic's follow it.
             Assert.Equal(new[] { "tx:Default", "mic:Default" }, s.Loads.Skip(s.Loads.Count - 2));
             Assert.DoesNotContain(s.Loads, l => l.StartsWith("mic:", StringComparison.Ordinal) && l != "mic:Default");
+        }
+
+        [Fact]
+        public void The_comparison_does_not_put_the_mic_back_when_its_list_never_arrived()
+        {
+            var s = TheBench();
+            s.Unreported.Add(ProfileTypes.mic);
+            var outcomes = s.Compare(ProfileTypes.global, ProfileTypes.tx);
+
+            Assert.DoesNotContain(s.Loads, l => l.StartsWith("mic:", StringComparison.Ordinal));
+            Assert.Contains(ProfileTypes.mic, ProfileReporter.KindsNotPutBack(outcomes));
+            Assert.Equal("Default", s.Tx);
         }
 
         [Fact]

@@ -709,7 +709,10 @@ namespace Radios.Tests
             // FlexLib Radio, which no test here can build.
             string src = Read("Radios/ProfileReporter.cs");
             Assert.DoesNotContain("Selection ?? \"\"", src);
-            Assert.Contains("outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);", src);
+            // #1292 repair 1: the read is handed to the testable WalkOneKind
+            // as a function, and stored exactly as it returns.
+            Assert.Contains("() => StartingSelection(rig.theRadio, profileType),", src);
+            Assert.Contains("outcome.OriginalSelection = readStartingSelection();", src);
             Assert.Contains("case ProfileTypes.global: return radio.ProfileGlobalSelection;", src);
             string flex = Read("FlexLib_API/FlexLib/Radio.cs");
             Assert.Contains("UpdateProfileListSelection(profile_type, value);", flex);
