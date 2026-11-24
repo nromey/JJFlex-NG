@@ -257,6 +257,29 @@ checks (the job's process count, or whether the desktop is gone) failing to
 read. When the failure comes before the first pass completes, the child is
 never resumed.
 
+## WebView2 does not render inside the job (task #1286)
+
+Measured 2026-11-24 with `WebView2InJobTests` (one window, one WebView2
+control, a throwaway browser profile): WebView2's browser process starts and
+reports itself ready, then every renderer it launches fails at once
+(`RenderProcessExited`, reason `LaunchFailed`, exit code 0x12) and the page
+never renders. In one full sweep the job-list sampler saw 316 helpers end
+with 0xC00000BB (STATUS_NOT_SUPPORTED).
+
+Each of the job's UI limits except the desktop limit was lifted in turn, one
+per run, with that test alone: none of the seven made the page render. The
+desktop limit was not lifted, because it is what stops a job process making
+the hidden desktop the visible one. Which limit, or which other property of
+the job or the hidden desktop, stops the renderers is NOT established; no
+run lifted two limits together or turned off WebView2's own sandbox.
+
+So the dialog sweep skips the dialogs that host WebView2 (`AboutDialog`,
+`FixerDialog`, `HtmlInfoDialog`, beside `AuthDialog`), with that reason, in
+`DialogCatalog.DeclaredSkips`. `WebView2InJobTests` keeps the skip honest:
+through deskrun it asserts the page does NOT render, so the day it does, it
+fails and says to take them off the list. Neither the limits nor the job
+were changed.
+
 ## What it refuses
 
 - **No project, or a solution.** Exactly one project file is required. A bare
