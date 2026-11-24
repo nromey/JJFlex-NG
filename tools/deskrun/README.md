@@ -66,12 +66,15 @@ tools/deskrun/bin/x64/Debug/net10.0-windows/deskrun.exe JJFlexWpf.Tests/JJFlexWp
 
 Exit codes: the child's own on a normal finish; 64 when the arguments or the
 project's build files were refused (nothing was created); 70 when nothing was
-started (no desktop, no job object or its limits, not on the console's window
-station, or the child could not be created inside the job); 71 when something
-was left behind (a process or the desktop); 72 when a window from the job
-reached any desktop but the hidden one; 73 when the job made sound; 74 when a
-watch could not measure; 124 on timeout. A watch result (72, 73, 74) outranks
-everything else, then 71, then 124, then the child's own code.
+started (no desktop, no job object or its limits, the error mode the child
+inherits, not on the console's window station, or the child could not be
+created inside the job); 71 when something was left behind (a process or the
+desktop); 72 when a window from the job reached any desktop but the hidden
+one, or a new crash box appeared on the operator's screen; 73 when the job
+made sound; 74 when a watch could not measure; 75 when a process in the job
+crashed and the child itself reported success; 124 on timeout. A watch result
+(72, 73, 74) outranks everything else, then 71, then 124, then the child's
+own code (75 only in place of a 0).
 
 ## What keeps the windows hidden, and what only watches
 
@@ -105,7 +108,61 @@ refused was tested: inside the job the guard's fallback reports
 Sound is kept off structurally by the test process's own `QuietRun` gate,
 which the guard requires before it allows a window.
 
-**Then two watches, which are SAMPLING TRIPWIRES, not proofs.** They look
+**A crash must not put a box on the operator's screen (task #906 round 4).**
+On 2026-11-23 a test host crashed under deskrun (a dialog's `Loaded` handler
+threw, #907) and Windows put a "dotnet.exe - Application Error" box, owned by
+csrss with one OK button, on the VISIBLE desktop, where the screen reader read
+it every time focus fell to it. The hidden desktop cannot hide that box: it is
+drawn on the input desktop by csrss (and Windows Error Reporting's dialog by
+WerFault), neither of which is in the job. Two preventions, both set before
+the child exists and both read back:
+
+- **The job's `JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION`**, beside
+  kill-on-close. Windows applies it to every process in the job, whatever its
+  parent did: when an exception reaches the operating system's
+  unhandled-exception filter, there is no box and no error report, and the
+  process simply ends with the exception code as its exit code. This is the
+  one that does not depend on any process's own settings. .NET sends an
+  unhandled managed exception to that filter ("Let unhandled exceptions except
+  stack overflow go to the OS", `WatsonLastChance` in CoreCLR's `excep.cpp`).
+- **The launcher's own error mode, `SEM_FAILCRITICALERRORS |
+  SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX` (0x8003)**, set before
+  `CreateProcess` and inherited, because deskrun never passes
+  `CREATE_DEFAULT_ERROR_MODE` and neither does .NET's `Process.Start` (read in
+  `SafeProcessHandle.Windows.cs`), which is how dotnet starts vstest and vstest
+  starts testhost. It also covers what the job limit does not: the
+  critical-error box a failed DLL or disk access can raise, and a fail-fast
+  (`Environment.FailFast`, a stack overflow), which CoreCLR hands to Windows
+  Error Reporting directly through `RaiseFailFastException`, past the
+  unhandled-exception filter. The runtime's own `WindowsEventLog` test
+  suppresses both its unhandled-exception and its fail-fast dialogs exactly
+  this way. Before trusting the read-back for other processes, the launcher
+  checks it against its own `GetErrorMode` and refuses (70) if they disagree.
+
+**The error mode is not a guarantee on its own, and that was measured.** A
+process can change its own error mode, and a process started with
+`CREATE_DEFAULT_ERROR_MODE` does not inherit it. In the 2026-11-23
+DialogInvariantTests run the test host's own mode read 0x0001 (no fault-box
+flag) at some point in 593 readings, and 334 short-lived WebView2 helper
+processes read 0x0001 throughout. The run's crash still raised no box. That
+is why the job limit is the load-bearing one, and why each job process's
+error mode is reported at the end of every run, readings without the flags
+counted, rather than assumed.
+
+**The crash still reports.** deskrun holds a handle on every process it sees
+in the job and reads its exit code when it ends. A process that ended with an
+exception code (any 0xE... customer code, where .NET's 0xE0434352 lives, or
+one of Windows' own fault codes such as 0xC0000005 or 0xC000041D) is named as
+CRASHED, with the code in words, and a crash never ends the run at 0: when
+the child itself reported success, the run exits 75. A run whose test host
+crashed already fails through `dotnet test`'s own "test host process crashed"
+(exit 1), which stands. An exit with an ordinary error status (0xC00000BB,
+for example, which 334 WebView2 helpers ended with in one run) is reported
+apart and is not a crash. A process born and gone between two samples (about
+250 ms) is not seen, so its exit code is not reported; it was in the job, so
+the job's limit applied to it all the same.
+
+**Then the watches, which are SAMPLING TRIPWIRES, not proofs.** They look
 often for the case where the facts above did not hold, and end the run when
 they see it. Both report at the end of every run, including the clean ones,
 and both finish one full pass before the child runs a single instruction.
@@ -120,6 +177,16 @@ and both finish one full pass before the child runs a single instruction.
   run exits 72, naming the window's class, title and process. The hidden
   desktop is enumerated by the same code and its job windows are counted and
   listed: that is the proof the watch can see a test window at all.
+- **Crash boxes (round 4), the catch for when the prevention above failed.**
+  On every pass, each dialog-class (`#32770`) top-level window on the input
+  desktop owned by csrss, WerFault or WerFaultSecure is compared with the ones
+  there at the first pass, which finishes before the child runs. A new one
+  kills the job at once and the run exits 72, naming it. It cannot be proved
+  to be the run's, since its owner is not in the job (another program crashing
+  at the same moment would trip it too); the run fails either way, and the box
+  is left for the operator. Boxes already there when the run started are
+  listed at the end and never blamed on the run: the 2026-11-23 box sat on the
+  screen through every round 4 run, and was listed as already there each time.
 - **Sound.** About every 6 ms, every audio session on every active render
   endpoint has its peak meter read; sessions are re-listed every 200 ms and
   endpoints every 2 s. A session owned by a process that was ever in the job,
