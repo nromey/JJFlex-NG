@@ -593,7 +593,11 @@ public sealed class RefusalFinalSentenceTests
         string text = Read("JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs").Replace("\r\n", "\n");
         int at = text.IndexOf("if (sent == GuardedOutcome.Refused)", StringComparison.Ordinal);
         Assert.True(at > 0);
-        int end = text.IndexOf("else if (sent != GuardedOutcome.Done)", at, StringComparison.Ordinal);
+        // The Refused branch alone: it ends at the next branch, which since
+        // #1244 is the Skipped one (a cancelled sign-in), whose own refresh is
+        // not this branch's.
+        int end = text.IndexOf("else if (sent ", at, StringComparison.Ordinal);
+        Assert.True(end > at);
         string branch = text.Substring(at, end - at);
         int refresh = branch.IndexOf("RefreshSetupStatuses(startARegistrationCheck: false);", StringComparison.Ordinal);
         int reason = branch.IndexOf("SetupRegisterStatus.Text = FlexBase.HoldRefusalSentence(\"settings.guard.action.registration\")", StringComparison.Ordinal);

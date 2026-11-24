@@ -555,8 +555,11 @@ namespace Radios
         /// <see cref="GuardedOutcome.Done"/> when the command went out;
         /// <see cref="GuardedOutcome.Refused"/> when the change-nothing hold
         /// declined it and has already said so, so the caller says nothing
-        /// more (#486); <see cref="GuardedOutcome.Failed"/> if the command could
-        /// not be sent at all.
+        /// more (#486); <see cref="GuardedOutcome.Skipped"/> when the operator
+        /// closed the SmartLink sign-in this needed, "Login cancelled" has
+        /// been said, and the caller says nothing more (#1244);
+        /// <see cref="GuardedOutcome.Failed"/> if the command could not be sent
+        /// at all.
         /// </returns>
         public GuardedOutcome BeginSmartLinkRegistration(RegistrationCheck confirmed, Action<string, bool> onStateChange)
             => SendRegistrationCommand(register: true, confirmed, onStateChange);
@@ -630,13 +633,18 @@ namespace Radios
             try
             {
 
+                // Only this send's own sign-in may say the operator cancelled (#1244).
+                SignInCancelledByOperator = false;
                 string jwt = RegistrationTokenForTest != null
                     ? RegistrationTokenForTest(account)
                     : GetJwtFromSavedAccount(account);
                 if (string.IsNullOrEmpty(jwt))
                 {
-                    Tracing.TraceLine("SendRegistrationCommand: no JWT available", TraceLevel.Error);
-                    return GuardedOutcome.Failed;
+                    Tracing.TraceLine(SignInCancelledByOperator
+                            ? "SendRegistrationCommand: the operator cancelled the sign-in; nothing sent"
+                            : "SendRegistrationCommand: no JWT available",
+                        SignInCancelledByOperator ? TraceLevel.Info : TraceLevel.Error);
+                    return RegistrationWithoutAToken(SignInCancelledByOperator);
                 }
 
                 // Progress: each state the radio raises is queued WITH its own

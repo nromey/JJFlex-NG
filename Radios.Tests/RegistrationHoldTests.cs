@@ -117,6 +117,56 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// #1244: the token is the confirmed account's own, its silent
+        /// recovery is gone, and the SmartLink sign-in it offers is cancelled
+        /// by the operator. Nothing is sent, and the outcome is Skipped, so
+        /// Radio Setup adds nothing after "Login cancelled". Run through the
+        /// real token fetch (<c>GetJwtFromSavedAccount</c>, then
+        /// <c>PerformNewLogin</c>): no test token, and the sign-in windows are
+        /// the rig's test seam, so no window is built.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_cancelled_sign_in_sends_nothing_and_is_skipped_not_failed(bool register)
+        {
+            var rig = ConnectedRig();
+            rig.Rig.SuppressSpeech = true;
+            var signIns = new List<string>();
+            rig.Rig.SignInWindowsForTest = account => { signIns.Add(account?.Email ?? ""); return (System.Windows.Forms.DialogResult.Cancel, null, false); };
+
+            var sent = Outcome(rig, register, (_, __) => { });
+
+            Assert.Equal(new[] { Owner }, signIns);   // the confirmed account's recovery sign-in was reached
+            Assert.Equal(GuardedOutcome.Skipped, sent);
+            Assert.True(rig.Rig.SignInCancelledByOperator);
+            Assert.Empty(RegistrationCommands(rig));
+        }
+
+        /// <summary>
+        /// The control: the same road with a sign-in that ended any other way
+        /// (here a failure on the form's own thread) is Failed as before, so
+        /// Radio Setup still says the command could not be sent.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void A_sign_in_that_fails_any_other_way_is_still_failed(bool register)
+        {
+            var rig = ConnectedRig();
+            rig.Rig.SuppressSpeech = true;
+            var signIns = new List<string>();
+            rig.Rig.SignInWindowsForTest = account => { signIns.Add(account?.Email ?? ""); return (System.Windows.Forms.DialogResult.Abort, null, false); };
+
+            var sent = Outcome(rig, register, (_, __) => { });
+
+            Assert.Single(signIns);
+            Assert.Equal(GuardedOutcome.Failed, sent);
+            Assert.False(rig.Rig.SignInCancelledByOperator);
+            Assert.Empty(RegistrationCommands(rig));
+        }
+
+        /// <summary>
         /// The check and the write are one step against the hold: while the
         /// hold's lock is held, arming the hold waits, and a send's last
         /// check and command wait too. Neither can slip between the other's

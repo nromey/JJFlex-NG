@@ -554,6 +554,14 @@ namespace JJFlexWpf.Dialogs
                 RefreshSetupStatuses(startARegistrationCheck: false);
                 SetupRegisterStatus.Text = FlexBase.HoldRefusalSentence("settings.guard.action.registration");
             }
+            else if (sent == GuardedOutcome.Skipped)
+            {
+                // The operator closed the SmartLink sign-in the command needed
+                // (#1244). "Login cancelled" has been said; nothing broke, so
+                // no "could not send" and no trace-file advice. The steps are
+                // refreshed so the status line shows where things stand.
+                RefreshSetupStatuses();
+            }
             else if (sent != GuardedOutcome.Done)
             {
                 SetupRegisterStatus.Text =

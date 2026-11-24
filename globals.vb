@@ -4174,6 +4174,17 @@ Module globals
             _connectingForm?.CloseForm()
             _connectingForm = Nothing
 
+            ' A SmartLink sign-in the operator cancelled is not a failure
+            ' (#1244): "Login cancelled" has been said, and a box titled
+            ' Auto-Connect Failed, saying the radio is not available, would
+            ' contradict it. The same landing as that box's own Cancel.
+            If startupRig.SignInCancelledByOperator Then
+                Tracing.TraceLine("TryAutoConnectOnStartup: the operator cancelled the SmartLink sign-in; no failure box", TraceLevel.Info)
+                RigControl.Dispose()
+                RigControl = Nothing
+                Return AutoConnectStartupResult.UserCancelled
+            End If
+
             Tracing.TraceLine("TryAutoConnectOnStartup: failed, showing dialog", TraceLevel.Info)
             ' QB Track L: hand the dialog the classified failure evidence
             ' (Track D's report) so it states WHY, not just who. Bare wording
@@ -4205,6 +4216,13 @@ Module globals
                         End If
                         _connectingForm?.CloseForm()
                         _connectingForm = Nothing
+                        ' As above (#1244): the operator cancelled the sign-in.
+                        If tryAgainRig.SignInCancelledByOperator Then
+                            Tracing.TraceLine("TryAutoConnectOnStartup: try again ended by the operator cancelling the SmartLink sign-in", TraceLevel.Info)
+                            RigControl.Dispose()
+                            RigControl = Nothing
+                            Return AutoConnectStartupResult.UserCancelled
+                        End If
                         tierRaised = OfferHigherSmartLinkTier(tryAgainRig, "startup auto-connect, try again")
                     Loop While tierRaised
                     RigControl.Dispose()
@@ -5201,8 +5219,14 @@ Module globals
                 ' they stopped it — and holding the verdict until the shell is in
                 ' front is exactly what would make that reliably audible for the
                 ' first time. A cancel has to sound like stopping.
+                '
+                ' THE SAME FOR A SIGN-IN THE OPERATOR CANCELLED (#1244): closing
+                ' a SmartLink sign-in window already said "Login cancelled", and
+                ' "Connection failed" after it would contradict them.
                 If RigControl.CancelRequested Then
                     Tracing.TraceLine("wpfSelectorProc: connect ended by operator cancel — no failure verdict", TraceLevel.Info)
+                ElseIf RigControl.SignInCancelledByOperator Then
+                    Tracing.TraceLine("wpfSelectorProc: connect ended by the operator cancelling the SmartLink sign-in — no failure verdict", TraceLevel.Info)
                 Else
                     PendingConnectVerdict = failMsg
                     Tracing.TraceLine("wpfSelectorProc: holding the connect verdict until the shell is back in front — " & failMsg, TraceLevel.Info)
@@ -5229,6 +5253,7 @@ Module globals
                 ' this is the common case rather than a corner of one.
                 Dim failClass = RigControl.LastConnectFailureReport?.Class
                 If Not RigControl.CancelRequested AndAlso
+                   Not RigControl.SignInCancelledByOperator AndAlso
                    (Not failClass.HasValue OrElse
                     failClass.Value <> Radios.ConnectFailureClass.AuthenticationFailed) Then
                     Dim failedName = RigControl.RadioNickname
@@ -5279,8 +5304,8 @@ Module globals
     Private Function OfferHigherSmartLinkTier(rig As FlexBase, where As String) As Boolean
         Dim offer = rig?.PendingTierOffer
         If offer Is Nothing Then Return False
-        If rig.CancelRequested Then
-            rig.DismissTierOffer($"{where}: the operator cancelled the connect")
+        If rig.CancelRequested OrElse rig.SignInCancelledByOperator Then
+            rig.DismissTierOffer($"{where}: the operator cancelled the {If(rig.CancelRequested, "connect", "SmartLink sign-in")}")
             Return False
         End If
         If _tierOfferAskedThisConnect Then
@@ -5351,10 +5376,12 @@ Module globals
     ''' True when the operator cancelled this connect: the rig's own flag, or a
     ''' cancel its SmartLink leg saw at one of its waits (the tiers work, Track
     ''' B). The second is kept by the leg, so it survives the flag being cleared.
+    ''' Or a SmartLink sign-in window the operator closed (#1244): "Login
+    ''' cancelled" has been said, and the walk never goes on to another path.
     ''' </summary>
     Private Function WalkCancelled() As Boolean
         Dim rig = RigControl
-        Return rig IsNot Nothing AndAlso (rig.CancelRequested OrElse rig.SmartLinkLegCancelled)
+        Return rig IsNot Nothing AndAlso (rig.CancelRequested OrElse rig.SmartLinkLegCancelled OrElse rig.SignInCancelledByOperator)
     End Function
 
     ''' <summary>
@@ -5838,7 +5865,8 @@ RadioConnected:
                 ' entirely. The cancel was deliberate; retrying would defeat the purpose.
                 If Not rv AndAlso RigControl IsNot Nothing AndAlso
                    Not RigControl.IsConnected AndAlso
-                   Not RigControl.CancelRequested Then
+                   Not RigControl.CancelRequested AndAlso
+                   Not RigControl.SignInCancelledByOperator Then
 
                     Dim retrySerial = RigControl.ConnectedSerial
                     ' The LIVE connection's own answer, not the picker row's.
@@ -5974,7 +6002,12 @@ RadioConnected:
                             autoTierRaised = Not rv AndAlso OfferHigherSmartLinkTier(autoRetryRig, "OpenTheRadio auto-connect retry")
                         Loop While autoTierRaised
 
-                        If Not rv Then
+                        If Not rv AndAlso RigControl IsNot Nothing AndAlso RigControl.SignInCancelledByOperator Then
+                            ' The retry's SmartLink sign-in was cancelled by the
+                            ' operator (#1244): "Login cancelled" has been said,
+                            ' and "Connection failed" would contradict it.
+                            Tracing.TraceLine("OpenTheRadio:auto-connect retry ended by the operator cancelling the SmartLink sign-in — no failure verdict", TraceLevel.Info)
+                        ElseIf Not rv Then
                             Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
                             TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryFailed,
                                 "Auto-connect retry attempt exhausted")
@@ -6001,7 +6034,7 @@ RadioConnected:
                 If Not rv AndAlso RigControl IsNot Nothing Then
                     Dim giveUpRig = RigControl
                     rv = Radios.SmartLink.TierOfferAtGiveUp.RecoverAfterFailedOpen(
-                        giveUpRig.PendingTierOffer, giveUpRig.CancelRequested, giveUpRig.IsConnected,
+                        giveUpRig.PendingTierOffer, giveUpRig.CancelRequested OrElse giveUpRig.SignInCancelledByOperator, giveUpRig.IsConnected,
                         Function(offer) OfferTierAndReplanSmartLink(offer.Serial, giveUpRig.ConnectedLowBW,
                             giveUpRig.SmartLinkPathForced, "OpenTheRadio (failed open, before giving up)"),
                         Function() RunConnectPhaseOffUiThread("TierOfferGiveUpStart", Function() giveUpRig.Start()),
