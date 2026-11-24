@@ -203,6 +203,42 @@ public partial class FlexBase
         return null;
     }
 
+    /// <summary>
+    /// The listening pan's entries in a take's recovery record: for a pan and
+    /// slice the take CREATED, their removal; and always, the pan's prior IQ
+    /// channel. Restored in reverse, so the IQ channel is put back before the
+    /// slice and then the pan are removed.
+    /// </summary>
+    /// <remarks>
+    /// A pan the take created has no prior binding to put back, so its prior
+    /// IQ channel is recorded as 0 (#870), never read off the pan. The radio
+    /// can hand a new pan back already bound (it restores a client's saved pan,
+    /// IQ channel included). Read off the pan, that binding became the "prior":
+    /// the restore then kept it, and the created-pan removal refused a pan
+    /// still bound ("pan-has-stream-binding-or-slice"), leaving it on the radio.
+    /// Recorded as 0, the restore unbinds it and the existing removal runs.
+    /// A pan the take did NOT create keeps its real prior, read off the pan,
+    /// and gets no removal entry.
+    /// </remarks>
+    internal static void AddListeningPanRestore(RadioRecoverySnapshot snapshot, Dictionary<string, object> identities,
+        Panadapter pan, Slice created, int channel)
+    {
+        if (created != null)
+        {
+            // Restore in reverse: unbind, remove slice, then its pan.
+            snapshot.Settings.Add(new("created-pan", "removed", $"display pan remove 0x{pan.StreamID:X}",
+                $"display pan 0x{pan.StreamID:X}", "", "pan", pan.StreamID, RequestedValue: "created"));
+            snapshot.Settings.Add(new("created-slice", "removed", $"slice remove {created.Index}",
+                $"slice {created.Index}", "", "slice", (uint)created.Index, RequestedValue: "created"));
+            identities["created-pan"] = pan;
+            identities["created-slice"] = created;
+        }
+        string prior = created != null ? "0" : pan.DAXIQChannel.ToString(CultureInfo.InvariantCulture);
+        snapshot.Settings.Add(new("pan-iq-channel", prior,
+            $"display pan set 0x{pan.StreamID:X} daxiq_channel={prior}", $"display pan 0x{pan.StreamID:X}", "daxiq_channel", "pan", pan.StreamID, RequestedValue: channel.ToString(CultureInfo.InvariantCulture)));
+        identities["pan-iq-channel"] = pan;
+    }
+
     public async Task<ListenbackRun> StartListenbackAsync(ListenbackOptions options, CancellationToken cancellation)
     {
         // #835: no IQ take starts while an Audio Check teardown holds admission.
@@ -403,19 +439,7 @@ public partial class FlexBase
             }
             Panadapter pan = created?.Panadapter ?? tx.Panadapter;
             snapshot.ResourceCreationPending = false;
-            if (created != null)
-            {
-                // Restore in reverse: unbind, remove slice, then its pan.
-                snapshot.Settings.Add(new("created-pan", "removed", $"display pan remove 0x{pan.StreamID:X}",
-                    $"display pan 0x{pan.StreamID:X}", "", "pan", pan.StreamID, RequestedValue: "created"));
-                snapshot.Settings.Add(new("created-slice", "removed", $"slice remove {created.Index}",
-                    $"slice {created.Index}", "", "slice", (uint)created.Index, RequestedValue: "created"));
-                identities["created-pan"] = pan;
-                identities["created-slice"] = created;
-            }
-            snapshot.Settings.Add(new("pan-iq-channel", pan.DAXIQChannel.ToString(CultureInfo.InvariantCulture),
-                $"display pan set 0x{pan.StreamID:X} daxiq_channel={pan.DAXIQChannel}", $"display pan 0x{pan.StreamID:X}", "daxiq_channel", "pan", pan.StreamID, RequestedValue: channel.ToString(CultureInfo.InvariantCulture)))
-            ; identities["pan-iq-channel"] = pan;
+            AddListeningPanRestore(snapshot, identities, pan, created, channel);
             store.Save(snapshot);
             string rxAnt = options.ReceiveAntenna;
             if (options.OffAir)

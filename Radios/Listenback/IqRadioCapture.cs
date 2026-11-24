@@ -99,7 +99,14 @@ public sealed class IqRadioCapture : IAsyncDisposable
             {
                 if (code != 0) _ended.TrySetResult("rate-request-refused");
             }, $"stream set 0x{_stream.StreamID:X} daxiq_rate={_rate}");
-            if (_pan.DAXIQChannel != 0) throw new InvalidOperationException("pan-iq-in-use");
+            // A pan the radio handed back already bound to THIS take's own
+            // channel (it restores a client's saved pan, IQ channel included,
+            // and the stream is then born bound to it) is the take's binding,
+            // not someone else's: accepted, and the setter below sends nothing.
+            // Any other channel is another binding and still refuses. The
+            // restore removes a take-created pan whatever it came back bound
+            // to: its recorded prior IQ channel is 0 (FlexBase.Listenback).
+            if (_pan.DAXIQChannel != 0 && _pan.DAXIQChannel != _channel) throw new InvalidOperationException("pan-iq-in-use");
             _pan.DAXIQChannel = _channel;
         }).ConfigureAwait(false);
         bool ready;
