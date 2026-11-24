@@ -76,7 +76,6 @@ internal static class Program
             "focus" => CmdFocus(opt),
             "watch" => CmdWatch(opt),
             "press" => Armed(CmdPress, opt),
-            "selfcheck" => Armed(CmdSelfCheck, opt),
             "act" => CmdAct(opt),
             "value" => CmdValue(opt),
             "inventory" => CmdInventory(opt),
@@ -93,9 +92,8 @@ internal static class Program
     /// Run a command that is allowed to inject synthetic input.
     ///
     /// <para>Deliberately explicit rather than ambient. Everything else in this
-    /// tool observes; only these three type (press, selfcheck and sweep).
-    /// Marking the boundary in one place means the claim "the read-only
-    /// commands cannot take your keyboard" is
+    /// tool observes; only these two type. Marking the boundary in one place
+    /// means the claim "the read-only commands cannot take your keyboard" is
     /// checkable by reading four lines instead of auditing the whole program.
     /// One codicil: <see cref="CaptureGuard"/> may press the capture toggle at
     /// exit, and it can only have been armed from inside an armed sweep — it is
@@ -121,8 +119,6 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
   jjprobe press     [--pid N] [--window SEL] --chord "Ctrl+J, Ctrl+A"
                     [--quiet-ms 400] [--max-settle-ms 2500] [--json] [--no-digest]
                     [--risk safe|mutates|transmits] [--transmit-clearance FILE]
-  jjprobe selfcheck [--pid N] [--window SEL] [--appdir DIR] [--selfcheck-chord "Ctrl+Shift+F12"] [--json]
-                    (presses ONE unbound key and proves the app's dispatcher got it)
   jjprobe act       [--pid N] --op invoke|toggle|select|expand|focus|value|listitems
                     (--id ID | --name NAME | --class CLASS) [--index N] [--value V]
                     (--op value SETS the value: it needs --armed and --value)
@@ -136,11 +132,7 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
   jjprobe sweep     [--pid N] [--window SEL] [--appdir DIR] [--context NAME]
                     [--risk safe,mutates,transmits] [--max N] [--no-capture] [--digest]
                     [--transmit-clearance FILE] [--exclude "Comma,Period"] [--dry-run]
-                    [--out FILE] [--json] [--no-selfcheck] [--selfcheck-chord CHORD]
-
-A sweep that presses runs `selfcheck` first and stops, pressing nothing else,
-unless it passes: one unbound key, pressed with the window in front, must show
-up in the dispatcher's trace line. --no-selfcheck skips it, and says so.
+                    [--out FILE] [--json]
 
 Every command that reads the app's trace looks in --config-dir DIR when given,
 else in JJFLEX_CONFIG_DIR from jjprobe's own environment, else in
@@ -160,7 +152,7 @@ immediately before keying is a ceiling.
 
 Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
 4 target window not found (for `value` and `act`: no such control) ·
-5 could not foreground the window (or the self-check failed) · 6 refused at the safety gate
+5 could not foreground the window · 6 refused at the safety gate
 (including `act --op value` without --armed or --value) ·
 7 `value` found the control but it has no value pattern, or the read failed.
 """);
@@ -536,24 +528,6 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             return 0;
         }
 
-        // Prove injection before trusting any press (the self-check). A
-        // sweep whose keys never arrive reports a wall of silent keys that
-        // reads exactly like an app that ignores them.
-        if (a.Flag("no-selfcheck"))
-        {
-            Console.Error.WriteLine("jjprobe: --no-selfcheck: this sweep did NOT prove its own key injection first.");
-        }
-        else
-        {
-            SelfCheckResult check = RunSelfCheck(a, o.Pid, o.WindowSelector, o.AppDir, out int code);
-            Console.Error.WriteLine("jjprobe: " + check.Message);
-            if (!check.Passed)
-            {
-                Console.Error.WriteLine("jjprobe: the sweep did not start; nothing else was pressed.");
-                return code;
-            }
-        }
-
         SweepReport report = Sweep.Run(o);
         string text = a.Flag("json") ? Sweep.ToJson(report) : Sweep.ToText(report);
         Write(a, text);
@@ -564,58 +538,6 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             File.WriteAllText(Path.ChangeExtension(outPath, ".json"), Sweep.ToJson(report));
 
         return report.AbortedBecause != null ? 1 : 0;
-    }
-
-    private static int CmdSelfCheck(Args a)
-    {
-        int pid = ResolvePid(a);
-        SelfCheckResult check = RunSelfCheck(a, pid, a.Str("window"), a.Str("appdir"), out int code);
-        if (a.Flag("json"))
-            Console.WriteLine(JsonSerializer.Serialize(new
-            {
-                verdict = check.Verdict.ToString(), chord = check.Chord, passed = check.Passed,
-                message = check.Message, press = check.Press,
-            }, Json));
-        else
-            Console.WriteLine(check.Message);
-        return code;
-    }
-
-    /// <summary>
-    /// Find the window, the build and THIS process's live trace, as `press`
-    /// does, and run the self-check. The exit code: 0 passed, 4 no window,
-    /// 6 refused before pressing, 5 pressed and failed.
-    /// </summary>
-    private static SelfCheckResult RunSelfCheck(Args a, int pid, string? windowSelector, string? appDirOption,
-        out int exitCode)
-    {
-        string chordText = a.Str("selfcheck-chord") ?? InjectionSelfCheck.DefaultChord;
-        WindowInfo? window = Targets.Resolve(pid, windowSelector);
-        if (window == null)
-        {
-            exitCode = 4;
-            return new SelfCheckResult
-            {
-                Verdict = SelfCheckVerdict.NotForeground, Chord = chordText,
-                Message = "self-check FAILED: no visible window for that process, so nothing was pressed.",
-            };
-        }
-
-        string? appDir = appDirOption != null ? Path.GetFullPath(appDirOption) : Inventory.AppDirOf(pid);
-        TraceLog.TraceHeader? header = appDir != null ? TraceLog.FindForApp(appDir) : null;
-        string? observeLog = header != null
-            ? TraceLog.LiveLogForInstance(header.Instance) ?? header.Path
-            : null;
-
-        SelfCheckResult check = SelfCheck.Run(pid, window, appDir ?? "", observeLog, chordText);
-        exitCode = check.Verdict switch
-        {
-            SelfCheckVerdict.Passed => 0,
-            SelfCheckVerdict.RefusedBoundKey or SelfCheckVerdict.RefusedBindingUnknown
-                or SelfCheckVerdict.RefusedSequence => 6,
-            _ => 5,
-        };
-        return check;
     }
 
     // ───────────────────────────── plumbing ─────────────────────────────
