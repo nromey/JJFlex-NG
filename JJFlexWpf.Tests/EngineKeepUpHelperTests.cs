@@ -394,22 +394,54 @@ public sealed class EngineKeepUpHelperTests
         Assert.False(HelperServiceTime.Late(nanos / answers), "the stub's echo is far inside 10 ms");
     }
 
+    /// <summary>
+    /// Sprint 49 Track CL repair 2, test code only (Codex's re-check of the CL branch at
+    /// f4a1e2b7): this made the running helper's answers late by feeding 400 buffers as
+    /// fast as possible and assuming the echo helper could not keep up with them. That is
+    /// the throughput race the starved-warm-up test above had: on a machine or a build
+    /// where the helper did keep up with most of them, fewer than the 100 late frames the
+    /// setup asks for were made, and the test failed before any of its assertions about
+    /// the product ran (measured on the integration base and on the CL tip alike: 1 and 2
+    /// runs in 10 on x64, 3 and 6 in 10 on x86). The lateness is now made on purpose, in
+    /// the test only: the helper answers in time until the test sets an event, and from
+    /// the next frame on holds each channel's answer until sixteen more of that channel's
+    /// frames have arrived (past the deepest pipeline the Advanced tab allows), so every
+    /// answer is late by frames whatever the pace, each one still fast, and the connection
+    /// stays up. Nothing in the product changed, and no assertion or figure moved.
+    /// </summary>
     [Fact]
     public void Through_the_real_pipeline_a_fast_running_helper_whose_answers_turn_late_raises_only_the_delivery_diagnostic()
     {
-        using var p = new Pipe();
+        const int behind = 16;
+        Assert.True(behind > WdspPipelineDepth.MaxReceiveDepth, "the gate must hold answers past every pipeline depth");
+        string gateName = "jjf-stub-answers-turn-late-" + Guid.NewGuid().ToString("N");
+        using var turnLate = new EventWaitHandle(false, EventResetMode.ManualReset, gateName);
+        using var p = new Pipe(_ => new[] { "--answer-behind", behind.ToString(System.Globalization.CultureInfo.InvariantCulture), "--answer-behind-when", gateName });
         p.Pipeline.RnnEnabled = true;
         Assert.True(p.Pipeline.SelectPcEngine("nnr"));
 
-        // Paced: it warms, runs and keeps up.
+        // Paced: it warms, runs and keeps up. (The gate is not set: every answer comes at once.)
         HelperTestRig.Until(() => p.Pipeline.NeuralSlot.ProcessingEngineId == "nnr", "nnr processing", step: p.Paced);
         HelperTestRig.Until(() => p.Results.Any(r => r.EngineId == "nnr" && r.Change == EngineKeepUpChange.KeepingUp),
             "nnr keeping up", ms: 20000, step: p.Paced);
 
-        // Hurried again while running: late answers, fast processing.
+        // Hurried again while running: late answers, fast processing. The answers are made
+        // late by the gate, so every hurried frame must reach the helper: a frame the audio
+        // thread cannot queue is dropped (WdspChannel.TrySend), which is the connection
+        // falling behind, not the answers. So each buffer still goes at once, never waiting
+        // for an ANSWER, but only once the writer has room for its frame.
         int deliveryFalls = p.Delivery.Count(r => r.Change == EngineKeepUpChange.FellBehind);
         long lateBefore = p.Pipeline.NeuralSlot.RunningBank!.LateFrames;
-        for (int i = 0; i < 400; i++) p.Hurried();
+        var channels = p.Made.Where(e => e.Channel is { Opened: true }).Select(e => e.Channel!).ToArray();
+        Assert.True(channels.Length > 0, "no open channel to hurry");
+        turnLate.Set();
+        for (int i = 0; i < 400; i++)
+        {
+            var room = Stopwatch.StartNew();
+            while (channels.Any(c => c.SendHead - Volatile.Read(ref c.SendTail) >= WdspChannel.SendCapacity) && room.ElapsedMilliseconds < 2000)
+                Thread.Sleep(0);
+            p.Hurried();
+        }
         long late = p.Pipeline.NeuralSlot.RunningBank!.LateFrames - lateBefore;
         _out.WriteLine($"{late} late frames over 400 hurried buffers");
         Assert.True(late >= 100, "the hurried buffers did not make the answers late: " + late);
