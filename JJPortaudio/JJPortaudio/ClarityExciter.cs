@@ -159,14 +159,13 @@ namespace JJPortaudio
         /// <summary>The high band's tune may be applied at most this fraction of the ceiling (times the order ratio).</summary>
         public const float PassbandFraction = 0.8f;
 
-        /// <summary>Sections per band: [0] the input high-pass, [1..4] the input low-pass (eighth-order Butterworth), [5] the added path's high-pass, [6..7] its low-pass (fourth-order).</summary>
-        internal const int SectionsPerBand = 8;
+        /// <summary>Sections per band: [0] the input high-pass, [1..4] the input low-pass (eighth-order Butterworth), [5] the added path's high-pass, [6..9] its low-pass at the ceiling (eighth-order).</summary>
+        internal const int SectionsPerBand = 10;
 
         internal const int HighBand = 0, LowBand = 1;
 
         // Butterworth pole-pair Qs.
         private static readonly double[] Q8 = { 0.50979558, 0.60134489, 0.89997622, 2.56291545 };
-        private static readonly double[] Q4 = { 0.54119610, 1.30656296 };
         private const double Q2 = 0.70710678;
 
         /// <summary>The low band's input high-pass: below this is rumble, not voice.</summary>
@@ -272,8 +271,8 @@ namespace JJPortaudio
             for (int k = 0; k < 4; k++)
                 into[o + 1 + k] = bandLimit ? BiquadCoefficients.Design(BiquadKind.LowPass, ceiling / hHi, 0, Q8[k], fs) : BiquadCoefficients.Identity;
             into[o + 5] = BiquadCoefficients.Design(BiquadKind.HighPass, Math.Max(20.0, hTune * 0.7), 0, Q2, fs);
-            for (int k = 0; k < 2; k++)
-                into[o + 6 + k] = BiquadCoefficients.Design(BiquadKind.LowPass, ceiling, 0, Q4[k], fs);
+            for (int k = 0; k < 4; k++)
+                into[o + 6 + k] = BiquadCoefficients.Design(BiquadKind.LowPass, ceiling, 0, Q8[k], fs);
 
             // The low band: the shaper is fed [30 Hz, tune]; what it makes below the passband's low edge is wasted, so the added path starts there.
             var l = s.Low;
@@ -284,8 +283,8 @@ namespace JJPortaudio
                 into[o + 1 + k] = bandLimit ? BiquadCoefficients.Design(BiquadKind.LowPass, lTune, 0, Q8[k], fs) : BiquadCoefficients.Identity;
             double lowCut = lowEdge > 0 ? Math.Min(lowEdge, ceiling * 0.5) : 20.0;
             into[o + 5] = BiquadCoefficients.Design(BiquadKind.HighPass, Math.Max(20.0, lowCut), 0, Q2, fs);
-            for (int k = 0; k < 2; k++)
-                into[o + 6 + k] = BiquadCoefficients.Design(BiquadKind.LowPass, ceiling, 0, Q4[k], fs);
+            for (int k = 0; k < 4; k++)
+                into[o + 6 + k] = BiquadCoefficients.Design(BiquadKind.LowPass, ceiling, 0, Q8[k], fs);
         }
 
         /// <summary>The magnitude, dB, of a band's input filter (what feeds its shaper) at a frequency. For tests and readouts.</summary>
