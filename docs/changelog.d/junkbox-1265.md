@@ -1,0 +1,1 @@
+- The firmware updater now recognises the FLEX-8400 and Aurora AU-510 families, along with other models that use FLEX-8600 firmware, even when the radio is disconnected.

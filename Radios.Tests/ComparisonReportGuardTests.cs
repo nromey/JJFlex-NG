@@ -709,7 +709,10 @@ namespace Radios.Tests
             // FlexLib Radio, which no test here can build.
             string src = Read("Radios/ProfileReporter.cs");
             Assert.DoesNotContain("Selection ?? \"\"", src);
-            Assert.Contains("outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);", src);
+            // #1292 repair 1: the read is handed to the testable WalkOneKind
+            // as a function, and stored exactly as it returns.
+            Assert.Contains("() => StartingSelection(rig.theRadio, profileType),", src);
+            Assert.Contains("outcome.OriginalSelection = readStartingSelection();", src);
             Assert.Contains("case ProfileTypes.global: return radio.ProfileGlobalSelection;", src);
             string flex = Read("FlexLib_API/FlexLib/Radio.cs");
             Assert.Contains("UpdateProfileListSelection(profile_type, value);", flex);
@@ -802,7 +805,9 @@ namespace Radios.Tests
             // Both reports stop starting new types after a stopped walk: the
             // comparison's loop and the restore capture's loop each record it.
             Assert.Equal(2, CountOf(src, "result.StoppedForTransmit = true;"));
-            Assert.Contains("foreach (var ptype in plan.TypesToLoad)", src);
+            // #1292: the comparison walks the plan's kinds through the shared
+            // sequence (it was a foreach over TypesToLoad).
+            Assert.Contains("k => plan.TypesToLoad.Contains(k),", src);
         }
 
         private static int CountOf(string s, string token)

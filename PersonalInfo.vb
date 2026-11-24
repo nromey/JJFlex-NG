@@ -10,12 +10,23 @@ Public Class PersonalInfo
     Private originalOp As PersonalData.personal_v1
     Private updateFlag As Boolean
 
+    ' The licence class (#1239): one per operator, Settings' own, so the form
+    ' reads and writes the licence file the transmit lockout uses. Shown is
+    ' the class the list opened on, Chosen the one it closed on; PersonalData
+    ' saves the file after the operator itself is saved.
+    Private licenseStored As Bands.Licenses
+    Friend LicenseShown As Bands.Licenses
+    Friend LicenseChosen As Bands.Licenses
+
     Private Sub setupLicense()
         Static alreadyDone As Boolean = False
         If Not alreadyDone Then
             alreadyDone = True
-            For Each l As Bands.Licenses In [Enum].GetValues(GetType(Bands.Licenses))
-                LicenseList.Items.Add(l.ToString)
+            ' The four classes an operator can hold today, in Settings' order
+            ' and with Settings' words (#1239). Bands.Licenses keeps six on
+            ' purpose; the list index is no longer the enum value.
+            For Each l As Bands.Licenses In LicenseConfig.OfferedClasses
+                LicenseList.Items.Add(LicenseConfig.ClassLabel(l))
             Next
         End If
     End Sub
@@ -45,7 +56,14 @@ Public Class PersonalInfo
             HandleBox.Text = .handl
             QTHBox.Text = .qth
             GridSquareBox.Text = If(.GridSquare, "")
-            LicenseList.SelectedIndex = .License
+            ' Settings' class, from the licence file; General for a new
+            ' operator (#1239). The record's own License no longer decides it.
+            Dim lic = PersonalData.LicenseClassAtOpen(BaseConfigDir & "\Radios", BaseConfigDir,
+                If(updateFlag, PersonalData.UniqueOpName(theOp), Nothing))
+            licenseStored = lic.Stored
+            LicenseShown = lic.Shown
+            LicenseChosen = lic.Shown
+            LicenseList.SelectedIndex = PersonalData.LicenseListIndex(lic.Shown)
             BRLSizeBox.Text = .BrailleDisplaySize
             AddressBox.Text = .ClusterHostname
             If .ClusterLoginName = vbNullString Then
@@ -124,11 +142,10 @@ Public Class PersonalInfo
             .callSign = Trim(CallSignBox.Text)
             .qth = Trim(QTHBox.Text)
             .GridSquare = Trim(GridSquareBox.Text).ToUpper()
-            If LicenseList.SelectedIndex = -1 Then
-                .License = Bands.Licenses.none
-            Else
-                .License = LicenseList.SelectedIndex
-            End If
+            ' The class goes to the licence file after the operator is saved
+            ' (PersonalData); the record keeps the same class (#1239).
+            LicenseChosen = PersonalData.LicenseAtListIndex(LicenseList.SelectedIndex, LicenseShown)
+            .License = PersonalData.RecordLicenseClass(licenseStored, LicenseShown, LicenseChosen, Not updateFlag)
             ' hostname may be host:port
             Dim clustHost As String = AddressBox.Text.Trim
             If IsValidHostname(clustHost) Then

@@ -382,10 +382,43 @@ namespace Radios.Tests
         [Fact]
         public void A_hook_that_throws_does_not_take_the_drop_path_down_with_it()
         {
+            // This test once asserted nothing (#622): the hook ran on a queued
+            // worker, so its throw never reached this thread, and nothing showed
+            // the hook had even been called. The worker now runs inline, so the
+            // test sees the hook called exactly once, and sees the worker run to
+            // its end with the throw contained, no archive announced.
             TraceSessionContext.BeginSession();
-            CaptureArchive.ArchiveHook = _ => throw new InvalidOperationException("disk busy");
-            CaptureArchive.AfterConnectionDrop(new RemovedRadio("A"), "A");   // must not throw here
-            Thread.Sleep(200);
+            int calls = 0;
+            CaptureArchive.ArchiveHook = _ =>
+            {
+                Interlocked.Increment(ref calls);
+                throw new InvalidOperationException("disk busy");
+            };
+            int ran = 0, finished = 0;
+            Exception escaped = null;
+            CaptureArchive.Queue = work =>
+            {
+                ran++;
+                try { work(); finished++; }
+                catch (Exception ex) { escaped = ex; }
+            };
+            bool told = false;
+            Action<CaptureArchiveNotice> onArchived = _ => told = true;
+            CaptureArchive.ArchivedAfterDrop += onArchived;
+            try
+            {
+                CaptureArchive.AfterConnectionDrop(new RemovedRadio("A"), "A");   // must not throw here
+            }
+            finally
+            {
+                CaptureArchive.ArchivedAfterDrop -= onArchived;
+            }
+
+            Assert.Equal(1, ran);                          // positive control: the drop reached the worker
+            Assert.Equal(1, Volatile.Read(ref calls));     // and the worker called the hook
+            Assert.Null(escaped);                          // the throw stayed inside the worker
+            Assert.Equal(1, finished);                     // which ran to its end
+            Assert.False(told, "a hook that threw archived nothing, so nothing may be announced");
         }
 
         [Fact]

@@ -27,10 +27,13 @@
         <GroupBox Header="Address mode" Margin="0,0,0,8"
                   AutomationProperties.Name="Radio address mode">
             <StackPanel Margin="4">
+                <!-- The name is the visible label, word for word, so the spoken
+                     name contains what is on screen (a speech-input user says
+                     what they see). Approved by Noel 2026-11-24. -->
                 <RadioButton x:Name="DhcpRadio"
                              GroupName="AddressMode"
                              Margin="0,4,0,4"
-                             AutomationProperties.Name="Automatic, the router assigns the address. Default."
+                             AutomationProperties.Name="Automatic — the router assigns the address (default)"
                              Checked="AddressModeRadio_Checked">
                     <TextBlock Text="Automatic — the router assigns the address (default)"/>
                 </RadioButton>

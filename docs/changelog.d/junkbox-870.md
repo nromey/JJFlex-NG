@@ -1,0 +1,1 @@
+- The Heard on the air audio check method in the Check your audio tool no longer refuses a check because the radio has already connected the check's own listening panadapter to its recording channel. The cleanup phase of the audio check process now disconnects and removes the panadapter created for that check.

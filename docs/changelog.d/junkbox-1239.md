@@ -1,0 +1,1 @@
+- Licence changes saved from the operator form now apply to the transmit lockout as well as JJ Flexible Radio Access settings. New operators start on General.

@@ -111,17 +111,28 @@ Friend Class Lister
                 End If
             End If
             If removeIt Then
-                listObj.RemoveAT(id)
-                ' May need to adjust the current id.
-                If id <= currentID Then
-                    currentID -= 1
-                End If
+                ' The store keeps the current operator current; see
+                ' RemoveFromStore. Nothing here touches the current id.
+                RemoveFromStore(listObj, id)
                 refreshScreenList(id)
             End If
         Else
             MsgBox(Radios.Lexicon.Get("settings.lister.must_select_item"))
         End If
         ScreenList.Focus()
+    End Sub
+
+    ''' <summary>
+    ''' The Delete button's one change to the store, once the list has decided
+    ''' to remove <paramref name="id"/>. The store's RemoveAt keeps the current
+    ''' operator current itself: it lowers the current id when an operator
+    ''' above it goes (#1276). Lowered here as well, the id moved twice, so the
+    ''' operator above the current one became current with nothing said, or
+    ''' nobody was current. Shared, so a test drives this exact path against a
+    ''' store with no list on the screen.
+    ''' </summary>
+    Friend Shared Sub RemoveFromStore(store As PersonalData, id As Integer)
+        store.RemoveAt(id)
     End Sub
 
     Private Sub refreshScreenList(id As Integer)

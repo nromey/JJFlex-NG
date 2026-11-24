@@ -173,7 +173,7 @@ namespace Radios.Tests
                 new List<ProfileReporter.SettingLine>
                 {
                     new ProfileReporter.SettingLine("rf power", "100 watts", null),
-                    new ProfileReporter.SettingLine("slice A frequency", "14.250.000", null),
+                    new ProfileReporter.SettingLine("slice A frequency", "14.250000 megahertz", null),
                     new ProfileReporter.SettingLine("mic gain", null, "the read threw mid-walk"),
                 });
             string text = sb.ToString();
@@ -181,7 +181,7 @@ namespace Radios.Tests
             Assert.StartsWith("[global profile: HomeStation]", text);
             Assert.Contains("captured = yes", text);
             Assert.Contains("rf power = 100 watts", text);
-            Assert.Contains("slice A frequency = 14.250.000", text);
+            Assert.Contains("slice A frequency = 14.250000 megahertz", text);
             Assert.Contains("mic gain = unreadable: the read threw mid-walk", text);
         }
 
@@ -347,6 +347,299 @@ namespace Radios.Tests
 
             Assert.True(ended, "the file never said End of capture.");
             return sections;
+        }
+
+        // ------------------------------------------------------------------
+        // Every quantity carries its unit or its scale (#426)
+        // ------------------------------------------------------------------
+
+        // A unit, or the radio's 0 to 100 scale. Deliberately NOT "watts" as
+        // a requirement on the power lines: whether the radio's power figure
+        // is watts on every model (and in AM) is an open question of its own,
+        // so this accepts any unit or scale and refuses only a bare number.
+        private static readonly System.Text.RegularExpressions.Regex Quantity =
+            new System.Text.RegularExpressions.Regex(
+                @"^-?\d+(\.\d+)? (watts|hertz|megahertz|milliseconds|words per minute|decibels|of 100)$");
+
+        // A toggled level: "off", or "on, level" with its scale.
+        private static readonly System.Text.RegularExpressions.Regex ToggledLevel =
+            new System.Text.RegularExpressions.Regex(@"^(off|on, level -?\d+ of 100)$");
+
+        // A toggled offset: "off", or "on at" with its unit.
+        private static readonly System.Text.RegularExpressions.Regex ToggledOffset =
+            new System.Text.RegularExpressions.Regex(@"^(off|on at -?\d+ hertz)$");
+
+        [Fact]
+        public void The_patterns_refuse_a_bare_number()
+        {
+            // Instrument control: the very shape this fix removes must fail.
+            Assert.DoesNotMatch(Quantity, "100");
+            Assert.DoesNotMatch(Quantity, "-10");
+            Assert.DoesNotMatch(ToggledLevel, "on, level 40");
+            Assert.DoesNotMatch(ToggledOffset, "on at 250");
+            Assert.Matches(Quantity, "100 watts");
+            Assert.Matches(Quantity, "100 of 100");
+            Assert.Matches(Quantity, "-10 decibels");
+            Assert.Matches(ToggledLevel, "on, level 40 of 100");
+        }
+
+        [Fact]
+        public void Every_quantity_in_the_settings_capture_carries_a_unit_or_a_scale()
+        {
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4426");
+            var slice = (Flex.Smoothlake.FlexLib.Slice)Activator.CreateInstance(
+                typeof(Flex.Smoothlake.FlexLib.Slice), Private, null, new object[] { vendor.Radio }, null)!;
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_active", Private)!.SetValue(slice, true);
+            // Every toggled level on, so its "on, level" form is what is read.
+            slice.NROn = true; slice.NRSOn = true; slice.NRLOn = true; slice.NRFOn = true;
+            slice.NBOn = true; slice.WNBOn = true; slice.ANFOn = true; slice.APFOn = true;
+            slice.RITOn = true; slice.XITOn = true;
+            // A real frequency, so the line is checked for its exact form,
+            // not only its shape.
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_freq", Private)!.SetValue(slice, 14.25);
+            vendor.Radio.SliceList.Add(slice);
+            var rig = MakeRig();
+            rig.theRadio = vendor.Radio;
+            try
+            {
+                var lines = ProfileReporter.CaptureKeyedSettings(rig);
+                var values = lines.ToDictionary(l => l.Key, l => l);
+
+                string[] quantities =
+                {
+                    "rf power", "tune power", "mic gain", "compander level",
+                    "tx filter low", "tx filter high", "am carrier level",
+                    "transmit monitor level, sideband", "transmit monitor level, CW",
+                    "vox gain", "vox delay",
+                    "cw speed", "cw sidetone pitch", "cw break-in delay",
+                    "lineout gain", "headphone gain",
+                };
+                string sl = "slice " + slice.Letter + " ";
+                string[] sliceQuantities =
+                {
+                    "frequency", "filter low", "filter high", "tune step", "agc threshold",
+                    "audio gain", "audio pan", "rf gain", "squelch level",
+                };
+                string[] sliceToggledLevels =
+                {
+                    "noise reduction", "spectral noise reduction", "legacy noise reduction",
+                    "noise reduction filter", "noise blanker", "wideband noise blanker",
+                    "legacy auto notch", "audio peaking filter",
+                };
+
+                void Check(string key, System.Text.RegularExpressions.Regex shape)
+                {
+                    Assert.True(values.TryGetValue(key, out var line), "the capture has no line for " + key);
+                    Assert.True(line.Readable, key + " was not readable from the vendor radio: " + line.Problem);
+                    Assert.True(shape.IsMatch(line.Value),
+                        key + " = " + line.Value + " carries no unit or scale");
+                }
+                foreach (string k in quantities) Check(k, Quantity);
+                foreach (string k in sliceQuantities) Check(sl + k, Quantity);
+                foreach (string k in sliceToggledLevels) Check(sl + k, ToggledLevel);
+                Check(sl + "rit", ToggledOffset);
+                Check(sl + "xit", ToggledOffset);
+
+                // The AM carrier level is never claimed as watts here: what
+                // 100 delivers in AM is an open question on the bench.
+                Assert.EndsWith(" of 100", values["am carrier level"].Value, StringComparison.Ordinal);
+                // The slice frequency names its unit, and is not the dotted
+                // display form, which names none.
+                Assert.Equal("14.250000 megahertz", values[sl + "frequency"].Value);
+            }
+            finally
+            {
+                rig.theRadio = null;   // never FlexBase's to disconnect
+                rig.Dispose();
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // A slice's RF gain: the slice's own figure AND its panadapter's
+        // ------------------------------------------------------------------
+
+        private static Flex.Smoothlake.FlexLib.Slice ActiveSlice(Radios.Tests.StationConnect.VendorRadioFixture vendor)
+        {
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var slice = (Flex.Smoothlake.FlexLib.Slice)Activator.CreateInstance(
+                typeof(Flex.Smoothlake.FlexLib.Slice), Private, null, new object[] { vendor.Radio }, null)!;
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_active", Private)!.SetValue(slice, true);
+            vendor.Radio.SliceList.Add(slice);
+            return slice;
+        }
+
+        private static Dictionary<string, ProfileReporter.SettingLine> CaptureOf(Flex.Smoothlake.FlexLib.Radio radio)
+        {
+            var rig = MakeRig();
+            rig.theRadio = radio;
+            try
+            {
+                return ProfileReporter.CaptureKeyedSettings(rig).ToDictionary(l => l.Key, l => l);
+            }
+            finally
+            {
+                rig.theRadio = null;   // never FlexBase's to disconnect
+                rig.Dispose();
+            }
+        }
+
+        [Fact]
+        public void A_slice_on_a_panadapter_records_both_its_own_rf_gain_and_the_panadapters()
+        {
+            // The app itself sets and restores the slice-level figure (the
+            // off-air take's listening slice), and FlexLib points at the
+            // panadapter's as the one in use, so the capture keeps both lines.
+            // Different values on purpose: each line must come from its own
+            // source, never one copied into the other.
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4429");
+            var slice = ActiveSlice(vendor);
+            var pan = (Flex.Smoothlake.FlexLib.Panadapter)Activator.CreateInstance(
+                typeof(Flex.Smoothlake.FlexLib.Panadapter), Private, null, new object[] { vendor.Radio }, null)!;
+            typeof(Flex.Smoothlake.FlexLib.Panadapter).GetField("_rfGain", Private)!.SetValue(pan, 20);
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_rfGain", Private)!.SetValue(slice, 10);
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_panadapter", Private)!.SetValue(slice, pan);
+
+            var values = CaptureOf(vendor.Radio);
+            string sl = "slice " + slice.Letter + " ";
+
+            Assert.True(values[sl + "rf gain"].Readable, values[sl + "rf gain"].Problem);
+            Assert.Equal("10 decibels", values[sl + "rf gain"].Value);
+            Assert.True(values.TryGetValue(sl + "panadapter rf gain", out var panLine),
+                "the capture has no line for the slice's panadapter RF gain");
+            Assert.True(panLine.Readable, panLine.Problem);
+            Assert.Equal("20 decibels", panLine.Value);
+        }
+
+        [Fact]
+        public void A_slice_with_no_panadapter_marks_the_panadapter_rf_gain_unreadable_not_a_value()
+        {
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4430");
+            var slice = ActiveSlice(vendor);
+
+            var values = CaptureOf(vendor.Radio);
+            var line = values["slice " + slice.Letter + " panadapter rf gain"];
+
+            Assert.False(line.Readable, "a missing panadapter must not read as a value: " + line.Value);
+            Assert.Null(line.Value);
+            Assert.Equal("the slice has no panadapter", line.Problem);
+            // The slice's own line is still written beside it.
+            Assert.True(values["slice " + slice.Letter + " rf gain"].Readable);
+        }
+
+        // ------------------------------------------------------------------
+        // The readable export's transmit levels carry their scale
+        // ------------------------------------------------------------------
+
+        // Every number the section may legitimately write, with its unit or
+        // scale; "X to Y hertz" for the filter. Whatever is left after these
+        // are removed must contain no digit.
+        private static readonly System.Text.RegularExpressions.Regex ReadableQuantity =
+            new System.Text.RegularExpressions.Regex(
+                @"-?\d+(\.\d+)? (watts|hertz|milliseconds|of 100)\b|-?\d+ to (?=-?\d+ hertz)");
+
+        [Fact]
+        public void The_readable_quantity_pattern_leaves_a_bare_level_behind()
+        {
+            // Instrument control: a bare level must survive the strip.
+            Assert.Matches(@"\d", ReadableQuantity.Replace("Mic gain: 50", ""));
+            Assert.DoesNotMatch(@"\d", ReadableQuantity.Replace("Mic gain: 50 of 100", ""));
+            Assert.DoesNotMatch(@"\d", ReadableQuantity.Replace("TX filter: 100 to 2900 hertz", ""));
+            Assert.Matches(@"\d", ReadableQuantity.Replace("Compander: on at level 70", ""));
+        }
+
+        [Fact]
+        public void Every_level_in_the_readable_transmit_settings_carries_a_scale_or_a_unit()
+        {
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4431");
+            // Non-zero values, so a level written bare is visibly a number.
+            var radio = vendor.Radio;
+            var t = typeof(Flex.Smoothlake.FlexLib.Radio);
+            foreach (var (field, value) in new (string, int)[]
+            {
+                ("_micLevel", 41), ("_companderLevel", 42), ("_txSBMonitorGain", 43),
+                ("_txCWMonitorGain", 44), ("_simpleVOXLevel", 45),
+            })
+            {
+                var f = t.GetField(field, Private);
+                Assert.True(f != null, "the vendored Radio has no field " + field + "; this test would read defaults");
+                f!.SetValue(radio, value);
+            }
+
+            var sb = new StringBuilder();
+            ProfileReporter.AppendTransmitSettings(sb, radio);
+            string text = sb.ToString();
+
+            // Each level is read, in the form a person hears it.
+            Assert.Contains("Mic gain: 41 of 100", text);
+            Assert.Contains("at level 42 of 100", text);
+            Assert.Contains("sideband level 43 of 100, CW level 44 of 100", text);
+            Assert.Contains("gain 45 of 100", text);
+            foreach (string line in text.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                Assert.DoesNotMatch(@"\d", ReadableQuantity.Replace(line, ""));
+            }
+        }
+
+        [Fact]
+        public void Every_quantity_in_a_memory_carries_a_unit_or_a_scale()
+        {
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4427");
+            var memory = new Flex.Smoothlake.FlexLib.Memory(vendor.Radio, 0);
+            memory.SquelchOn = true;
+            memory.SquelchLevel = 20;
+            // A repeater memory: a real frequency and a CTCSS tone, so both
+            // physical quantities are read in the form that needs a unit.
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var type = typeof(Flex.Smoothlake.FlexLib.Memory);
+            type.GetField("_freq", Private)!.SetValue(memory, 145.25);
+            type.GetField("_toneMode", Private)!.SetValue(memory, Flex.Smoothlake.FlexLib.FMToneMode.CTCSS_TX);
+            type.GetField("_toneValue", Private)!.SetValue(memory, "100.0");
+            var lines = new List<ProfileReporter.SettingLine>();
+            ProfileReporter.AddMemoryLines(lines, 1, memory);
+            var values = lines.ToDictionary(l => l.Key, l => l);
+
+            foreach (string k in new[] { "frequency", "tune step", "repeater offset", "tone value", "rf power", "rx filter low", "rx filter high" })
+            {
+                var line = values["memory 1 " + k];
+                Assert.True(line.Readable, k + " was not readable: " + line.Problem);
+                Assert.Matches(Quantity, line.Value);
+            }
+            Assert.Equal("on, level 20 of 100", values["memory 1 squelch"].Value);
+            Assert.Equal("145.250000 megahertz", values["memory 1 frequency"].Value);
+            Assert.Equal("CTCSS_TX", values["memory 1 tone mode"].Value);
+            Assert.Equal("100.0 hertz", values["memory 1 tone value"].Value);
+        }
+
+        [Fact]
+        public void A_memory_with_its_tone_off_writes_no_tone_unit()
+        {
+            // The other half of the tone rule: with the tone off the value
+            // names no tone, so it must not be dressed as a frequency.
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4428");
+            var memory = new Flex.Smoothlake.FlexLib.Memory(vendor.Radio, 0);
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var type = typeof(Flex.Smoothlake.FlexLib.Memory);
+            type.GetField("_toneMode", Private)!.SetValue(memory, Flex.Smoothlake.FlexLib.FMToneMode.Off);
+            type.GetField("_toneValue", Private)!.SetValue(memory, "100.0");
+            var lines = new List<ProfileReporter.SettingLine>();
+            ProfileReporter.AddMemoryLines(lines, 1, memory);
+            var values = lines.ToDictionary(l => l.Key, l => l);
+
+            Assert.Equal("Off", values["memory 1 tone mode"].Value);
+            Assert.Equal("100.0", values["memory 1 tone value"].Value);
+            // And the helper itself: a CTCSS tone with no value stays empty
+            // rather than becoming a unit with no number.
+            Assert.Equal("", ProfileReporter.ToneValue(Flex.Smoothlake.FlexLib.FMToneMode.CTCSS_TX, ""));
+            Assert.Equal("7.000100 megahertz", ProfileReporter.Megahertz(7.0001));
         }
 
         // ------------------------------------------------------------------

@@ -224,6 +224,8 @@
   "connect.home.rem_on_enabled": "REM ON enabled on the radio, as saved for this radio.",
   "connect.home.returning_to_mode": "Returning to {mode} tuning mode",
   "connect.home.sixty_meter_channel": "{label}, {freq} megahertz, {mode}",
+  "_note_sixty_meter_channel_arriving": "Approved by Noel 2026-11-24 (junk box batch 21): connect.home.sixty_meter_channel_arriving is a 60 meter channel stop whose mode has to change. It names the channel and the dial and not the mode; the mode request's own clause follows it (settings.band.mode_switching, ', switching to {mode}', or one of the two refusals), as the segment stop's does. {label} is 'Channel 1' and so on; {freq} is the dial in megahertz.",
+  "connect.home.sixty_meter_channel_arriving": { "text": "{label}, {freq} megahertz", "delivery": null },
   "_note_sixty_meter_rule": "60 meter table to the FCC rule of 2026-02-13 (junk box, 2026-11-19): connect.home.sixty_meter_digital: approved by Noel 2026-11-21. The segment now carries phone as well as CW and data, so the old 'digital and CW segment' is untrue. {freq} is the rotation's one segment stop, 5.3570.",
   "connect.home.sixty_meter_digital": { "text": "60 meter segment, {freq} megahertz", "delivery": null },
   "connect.home.status_power_off": "Radio connected — power off",

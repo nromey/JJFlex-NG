@@ -1,0 +1,1 @@
+- The Tools menu's "Full restore capture, loads every profile" and "Profile comparison report, loads each one" now request your original transmit and microphone profiles when the radio's lists include them. Each file explains starting selections that could not be requested, including an initially empty global selection, which leaves the radio on the last global profile loaded.

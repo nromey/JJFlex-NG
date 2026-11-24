@@ -180,6 +180,65 @@ public partial class FlexBase
         catch (OperationCanceledException) when (expiry.IsCancellationRequested) { throw new TimeoutException("command-queue-stalled"); }
     }
 
+    /// <summary>
+    /// Why a listenback take records no sent audio, or null when it records
+    /// it. The sent track is copied from the PC microphone's transmit
+    /// pipeline, so it exists only when the microphone is the PC's and that
+    /// pipeline opened. A session whose microphone could not open still has
+    /// the pipeline object, so it used to get a sent writer that recorded
+    /// nothing and said nothing: its test tone, if it has one, goes out on a
+    /// transmit path of its own that this take does not copy.
+    /// </summary>
+    // DRAFT wording, for Codex: the two "did not open" reasons. The first two
+    // reasons are unchanged.
+    internal static string SentAbsentReason(string micSource, bool pipelinePresent,
+        bool microphoneOpened, bool toneHasOwnPath)
+    {
+        if (micSource != "PC") return "radio microphone jack; DAX MIC is outside this build";
+        if (!pipelinePresent) return "PC pipeline unavailable";
+        if (!microphoneOpened)
+            return toneHasOwnPath
+                ? "PC microphone did not open this session; the test tone transmits on a path of its own, which this take does not record"
+                : "PC microphone did not open this session, and the test tone has no transmit path of its own";
+        return null;
+    }
+
+    /// <summary>
+    /// The listening pan's entries in a take's recovery record: for a pan and
+    /// slice the take CREATED, their removal; and always, the pan's prior IQ
+    /// channel. Restored in reverse, so the IQ channel is put back before the
+    /// slice and then the pan are removed.
+    /// </summary>
+    /// <remarks>
+    /// A pan the take created has no prior binding to put back, so its prior
+    /// IQ channel is recorded as 0 (#870), never read off the pan. The radio
+    /// can hand a new pan back already bound (it restores a client's saved pan,
+    /// IQ channel included). Read off the pan, that binding became the "prior":
+    /// the restore then kept it, and the created-pan removal refused a pan
+    /// still bound ("pan-has-stream-binding-or-slice"), leaving it on the radio.
+    /// Recorded as 0, the restore unbinds it and the existing removal runs.
+    /// A pan the take did NOT create keeps its real prior, read off the pan,
+    /// and gets no removal entry.
+    /// </remarks>
+    internal static void AddListeningPanRestore(RadioRecoverySnapshot snapshot, Dictionary<string, object> identities,
+        Panadapter pan, Slice created, int channel)
+    {
+        if (created != null)
+        {
+            // Restore in reverse: unbind, remove slice, then its pan.
+            snapshot.Settings.Add(new("created-pan", "removed", $"display pan remove 0x{pan.StreamID:X}",
+                $"display pan 0x{pan.StreamID:X}", "", "pan", pan.StreamID, RequestedValue: "created"));
+            snapshot.Settings.Add(new("created-slice", "removed", $"slice remove {created.Index}",
+                $"slice {created.Index}", "", "slice", (uint)created.Index, RequestedValue: "created"));
+            identities["created-pan"] = pan;
+            identities["created-slice"] = created;
+        }
+        string prior = created != null ? "0" : pan.DAXIQChannel.ToString(CultureInfo.InvariantCulture);
+        snapshot.Settings.Add(new("pan-iq-channel", prior,
+            $"display pan set 0x{pan.StreamID:X} daxiq_channel={prior}", $"display pan 0x{pan.StreamID:X}", "daxiq_channel", "pan", pan.StreamID, RequestedValue: channel.ToString(CultureInfo.InvariantCulture)));
+        identities["pan-iq-channel"] = pan;
+    }
+
     public async Task<ListenbackRun> StartListenbackAsync(ListenbackOptions options, CancellationToken cancellation)
     {
         // #835: no IQ take starts while an Audio Check teardown holds admission.
@@ -290,8 +349,9 @@ public partial class FlexBase
             // Unified takes, part 4g: an off-air or diagnostic take joins the
             // active test too, its number held in its own sidecar.
             joined = JoinActiveTest(directory);
-            if (MicSource == "PC" && pipeline != null) sent = new SentAudioWriter(pipeline, directory);
-            else writer.Header.Write("sent-absent-reason", MicSource == "PC" ? "PC pipeline unavailable" : "radio microphone jack; DAX MIC is outside this build");
+            string sentAbsent = SentAbsentReason(MicSource, pipeline != null, opusInputAvailable, _standaloneTx != null);
+            if (sentAbsent == null) sent = new SentAudioWriter(pipeline, directory);
+            else writer.Header.Write("sent-absent-reason", sentAbsent);
             edge = (_, keyed) =>
             {
                 if (keyed) { heardKeying = true; run?.NoteRadioKeying(); }
@@ -379,19 +439,7 @@ public partial class FlexBase
             }
             Panadapter pan = created?.Panadapter ?? tx.Panadapter;
             snapshot.ResourceCreationPending = false;
-            if (created != null)
-            {
-                // Restore in reverse: unbind, remove slice, then its pan.
-                snapshot.Settings.Add(new("created-pan", "removed", $"display pan remove 0x{pan.StreamID:X}",
-                    $"display pan 0x{pan.StreamID:X}", "", "pan", pan.StreamID, RequestedValue: "created"));
-                snapshot.Settings.Add(new("created-slice", "removed", $"slice remove {created.Index}",
-                    $"slice {created.Index}", "", "slice", (uint)created.Index, RequestedValue: "created"));
-                identities["created-pan"] = pan;
-                identities["created-slice"] = created;
-            }
-            snapshot.Settings.Add(new("pan-iq-channel", pan.DAXIQChannel.ToString(CultureInfo.InvariantCulture),
-                $"display pan set 0x{pan.StreamID:X} daxiq_channel={pan.DAXIQChannel}", $"display pan 0x{pan.StreamID:X}", "daxiq_channel", "pan", pan.StreamID, RequestedValue: channel.ToString(CultureInfo.InvariantCulture)))
-            ; identities["pan-iq-channel"] = pan;
+            AddListeningPanRestore(snapshot, identities, pan, created, channel);
             store.Save(snapshot);
             string rxAnt = options.ReceiveAntenna;
             if (options.OffAir)

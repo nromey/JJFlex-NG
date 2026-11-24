@@ -1,0 +1,1 @@
+- The exit question for an unsaved contact from the full log entry form now offers Cancel. Select Cancel or press Escape to keep JJ Flexible Radio Access open without losing the contact.

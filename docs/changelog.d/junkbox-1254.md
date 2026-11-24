@@ -1,0 +1,1 @@
+- A renamed operator no longer reappears under the old name after deletion. A different operator saved under that old name is also protected from deletion on restart.

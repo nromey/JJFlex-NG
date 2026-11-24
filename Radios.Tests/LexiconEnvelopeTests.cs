@@ -3055,6 +3055,10 @@ namespace Radios.Tests
                 // untrue. Approved by Noel 2026-11-21.
                 "connect.home.sixty_meter_digital",
                 "settings.band.digital_segment",
+                // Junk box batch 21 (2026-11-23), #1249: a 60 m channel stop
+                // whose mode changes says the channel and dial, then the mode
+                // request's own clause. DRAFT words, for Codex.
+                "connect.home.sixty_meter_channel_arriving",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

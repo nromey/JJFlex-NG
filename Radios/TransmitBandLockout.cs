@@ -13,7 +13,16 @@ namespace Radios
     /// <param name="Mode">The transmit slice's mode, as FlexLib names it ("LSB", "DIGU", ...).</param>
     /// <param name="FilterLow">That slice's filter low edge, as FlexLib reports it (signed: negative in LSB).</param>
     /// <param name="FilterHigh">That slice's filter high edge, as FlexLib reports it.</param>
-    public readonly record struct TransmitSliceReading(ulong Hz, string Mode, int FilterLow, int FilterHigh);
+    public readonly record struct TransmitSliceReading(ulong Hz, string Mode, int FilterLow, int FilterHigh)
+    {
+        /// <summary>
+        /// A second frequency the slice may transmit on, judged as well as
+        /// <see cref="Hz"/> and refused if either is outside the licence; null
+        /// when there is only one (#1207: a transmit offset in an FM-like mode
+        /// nobody has read on a radio, which may or may not apply it).
+        /// </summary>
+        public ulong? AlsoJudgeHz { get; init; }
+    }
 
     /// <summary>
     /// The TX band lockout's judgement: whether the signal a slice would send
@@ -57,7 +66,9 @@ namespace Radios
             if (transmit is { } t && t.Hz != 0UL)
             {
                 judgedSelected = false;
-                return Allows(t.Hz, t.Mode, t.FilterLow, t.FilterHigh, license);
+                if (!Allows(t.Hz, t.Mode, t.FilterLow, t.FilterHigh, license)) return false;
+                // Not established which of two frequencies the radio uses: both must pass (#1207).
+                return t.AlsoJudgeHz is not { } also || Allows(also, t.Mode, t.FilterLow, t.FilterHigh, license);
             }
             judgedSelected = true;
             // Exactly as before #1173: no mode, so today's arithmetic.

@@ -407,24 +407,34 @@ Friend Class LogEntry
     ''' <summary>
     ''' ask user to write the log if necessary
     ''' </summary>
+    ''' <param name="offerCancel">
+    ''' True only where the caller acts on a Cancel: the exit's questions
+    ''' (<c>AskExitQuestions</c>), where Cancel keeps JJ Flexible open (#1242).
+    ''' Page Up, Page Down and Find Log Entry ignore the answer, so a Cancel
+    ''' there would quietly discard the entry; they still get Yes and No.
+    ''' </param>
     ''' <returns>false if cancelled, true otherwise</returns>
     ''' <remarks>
     ''' We'll ask if there is new or updated data, and the entry has a callsign.
-    ''' If not cancelled, returns true even if the file wasn't written
+    ''' If not cancelled, returns true even if the file wasn't written.
+    ''' A Cancel leaves the entry unsaved and still marked as needing a write,
+    ''' so the next exit asks again. The box carried only Yes and No until
+    ''' #1242, so the Cancel below could never happen and Escape did nothing.
     ''' </remarks>
-    Friend Function optionalWrite() As Boolean
-        Dim rv As Boolean = True
+    Friend Function optionalWrite(Optional offerCancel As Boolean = False) As Boolean
         Dim callText As String = vbNullString
         If NeedsWrite AndAlso (getFieldText(AdifTags.ADIF_Call, callText) AndAlso (callText <> vbNullString)) Then
-            Select Case MessageBox.Show(Radios.Lexicon.Get("logging.entry.write_confirm", ("call", callText)), Radios.Lexicon.Get("logging.entry.write_confirm_title"), MessageBoxButtons.YesNo)
+            Dim buttons As MessageBoxButtons = If(offerCancel, MessageBoxButtons.YesNoCancel, MessageBoxButtons.YesNo)
+            Select Case MessageBox.Show(Radios.Lexicon.Get("logging.entry.write_confirm", ("call", callText)), Radios.Lexicon.Get("logging.entry.write_confirm_title"), buttons)
                 Case DialogResult.Yes
                     iWrite()
                 Case DialogResult.Cancel
-                    rv = False
+                    ' Stay: nothing written, and the question stands for next time.
+                    Return False
             End Select
         End If
         NeedsWrite = False ' Won't ask again.
-        Return rv
+        Return True
     End Function
 
     Private Sub setModeIfNotSet()

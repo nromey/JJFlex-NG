@@ -383,6 +383,23 @@ namespace Radios
             /// change-nothing and ownership gates in SelectProfileGuarded), so
             /// it never means "sent" and is never spoken (#469 round four).</summary>
             public string LastRequested;
+
+            /// <summary>#1292: this kind was not walked; an earlier global walk
+            /// moved it, so only its recorded selection was to be requested
+            /// back. RunWalk asks transmit before that request as it does
+            /// before any put-back.</summary>
+            public bool PutBackOnly;
+
+            /// <summary>#1292 repair 1: the recorded selection was NOT put
+            /// back because the radio's own list did not name it (or never
+            /// arrived). A put-back goes through SelectProfileGuarded, which
+            /// can create a missing TX or mic profile, and a put-back must
+            /// never create one.</summary>
+            public bool PutBackNotListed;
+
+            /// <summary>Whether this walk has a put-back to request: a
+            /// recorded selection the radio's list names.</summary>
+            internal bool HasPutBackToSend => !string.IsNullOrEmpty(OriginalSelection) && !PutBackNotListed;
         }
 
         // ── #418: the three-state profile list, and its renderings ──
@@ -501,10 +518,25 @@ namespace Radios
             Action<string> progressCallback = null,
             Action<string, string> unreadableCallback = null,
             FlexBase.RadioProfileList radioList = null)
-        {
-            var outcome = new ProfileWalkOutcome { ProfileType = profileType };
-            string label = TypeLabel(profileType);
+            => WalkProfilesCore(rig, profileType, captureWhileLoaded, progressCallback,
+                unreadableCallback, radioList, putBackRecordedEarlier: null, putBackOnly: false);
 
+        /// <summary>
+        /// The one walker behind <see cref="WalkProfiles"/> and both reports,
+        /// bound to the rig: it reads the list, asks whether there is a radio,
+        /// and hands <see cref="WalkOneKind"/> the real load, the real transmit
+        /// state and the real starting-selection read. Every decision is in
+        /// <see cref="WalkOneKind"/>, which the tests drive.
+        /// </summary>
+        private static ProfileWalkOutcome WalkProfilesCore(
+            FlexBase rig, ProfileTypes profileType,
+            Action<string> captureWhileLoaded,
+            Action<string> progressCallback,
+            Action<string, string> unreadableCallback,
+            FlexBase.RadioProfileList radioList,
+            RecordedSelection putBackRecordedEarlier,
+            bool putBackOnly)
+        {
             // #418: the walk enumerates from the RADIO, never from the
             // operator's profile references — a radio full of profiles its
             // owner never named must still be captured, and this walk exists
@@ -513,16 +545,68 @@ namespace Radios
             // carries it so every caller can render the difference between
             // "the radio has none" and "we never asked".
             if (radioList == null) radioList = ReadListSafely(rig, profileType);
+
+            bool haveRadio;
+            try { haveRadio = rig.theRadio != null; }
+            catch { haveRadio = false; }
+
+            return WalkOneKind(profileType, radioList, putBackRecordedEarlier, putBackOnly, haveRadio,
+                () => StartingSelection(rig.theRadio, profileType),
+                name => LoadProfileAndWait(rig, profileType, name),
+                () => rig.Transmit,
+                captureWhileLoaded, progressCallback, unreadableCallback);
+        }
+
+        /// <summary>
+        /// One kind's walk, every decision in it, reaching the radio only
+        /// through the functions passed in so a test can drive it.
+        /// <paramref name="putBackRecordedEarlier"/> is null for a walk that
+        /// puts back what was selected when IT began (the public
+        /// <see cref="WalkProfiles"/>). Both reports pass the selection they
+        /// recorded before their FIRST walk (#1292): a global load changes the
+        /// TX and mic selections, so by the time the TX walk begins its own
+        /// reading is the global profile's choice, not the operator's.
+        /// <paramref name="putBackOnly"/> walks no profile at all: it only
+        /// requests the recorded selection back, for a kind an earlier global
+        /// walk moved and this run does not walk (the comparison report never
+        /// walks mic; either report skips a kind whose list is empty).
+        /// </summary>
+        /// <remarks>
+        /// <b>A put-back only ever names a profile the radio's own list
+        /// reports.</b> A put-back goes through SelectProfileGuarded, which
+        /// on an owner's radio CREATES a TX or mic profile its list does not
+        /// show before loading it. A put-back must never create a profile, so
+        /// a recorded name the list does not report (or a list that never
+        /// arrived) is not put back, and the kind is listed as not put back.
+        /// </remarks>
+        internal static ProfileWalkOutcome WalkOneKind(
+            ProfileTypes profileType,
+            FlexBase.RadioProfileList radioList,
+            RecordedSelection putBackRecordedEarlier,
+            bool putBackOnly,
+            bool haveRadio,
+            Func<string> readStartingSelection,
+            Func<string, ProfileLoadResult> load,
+            Func<bool> keyed,
+            Action<string> captureWhileLoaded,
+            Action<string> progressCallback,
+            Action<string, string> unreadableCallback)
+        {
+            var outcome = new ProfileWalkOutcome { ProfileType = profileType, PutBackOnly = putBackOnly };
+            string label = TypeLabel(profileType);
+
             outcome.RadioList = radioList;
-            if (!radioList.Reported || radioList.Names.Count == 0) return outcome;
-            List<string> profiles = radioList.Names;
+            List<string> profiles;
+            if (putBackOnly)
+                profiles = new List<string>();
+            else if (!radioList.Reported || radioList.Names.Count == 0)
+                return outcome;
+            else
+                profiles = radioList.Names;
 
             // With no radio object there is nothing to load from: every
             // profile is unreadable for the same plain reason, and no load
             // request goes out — so the radio, wherever it is, is not moved.
-            bool haveRadio;
-            try { haveRadio = rig.theRadio != null; }
-            catch { haveRadio = false; }
             if (!haveRadio)
             {
                 foreach (var name in profiles)
@@ -531,6 +615,7 @@ namespace Radios
                     unreadableCallback?.Invoke(name, "no radio connection");
                 }
                 Tracing.TraceLine($"ProfileReporter: {label} walk skipped — no radio connection", TraceLevel.Warning);
+                outcome.PutBackOnly = false;
                 return outcome;
             }
 
@@ -542,21 +627,40 @@ namespace Radios
             // splits "current=" into an empty value and UpdateProfileListSelection
             // stores it). Folding null into "" used to turn "not yet reported"
             // into "none was selected", which a stopped walk then said aloud.
-            try
+            //
+            // #1292: both reports recorded every kind's selection before their
+            // first walk, and put back THAT, never this walk's own reading
+            // (which, after the global walk, is the global profile's choice).
+            if (putBackRecordedEarlier != null)
             {
-                outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);
+                outcome.OriginalSelection = putBackRecordedEarlier.Value;
             }
-            catch (Exception ex)
+            else
             {
-                outcome.OriginalSelection = null;
-                Tracing.TraceLine($"ProfileReporter: could not read the current {label} selection: {ex.Message}", TraceLevel.Warning);
+                try
+                {
+                    outcome.OriginalSelection = readStartingSelection();
+                }
+                catch (Exception ex)
+                {
+                    outcome.OriginalSelection = null;
+                    Tracing.TraceLine($"ProfileReporter: could not read the current {label} selection: {ex.Message}", TraceLevel.Warning);
+                }
+            }
+
+            // Never create a profile from a put-back (see remarks).
+            if (!string.IsNullOrEmpty(outcome.OriginalSelection)
+                && !(radioList.Reported && radioList.Names.Contains(outcome.OriginalSelection, StringComparer.Ordinal)))
+            {
+                outcome.PutBackNotListed = true;
+                Tracing.TraceLine($"ProfileReporter: {label} put-back of '{outcome.OriginalSelection}' withheld — "
+                    + (radioList.Reported ? "the radio's list does not name it" : "the radio's list never arrived")
+                    + "; a put-back never creates a profile", TraceLevel.Warning);
             }
 
             Tracing.TraceLine($"ProfileReporter: Capturing {profiles.Count} {label} profiles (current: '{outcome.OriginalSelection}')", TraceLevel.Info);
 
-            RunWalk(outcome, profiles,
-                name => LoadProfileAndWait(rig, profileType, name),
-                () => rig.Transmit,
+            RunWalk(outcome, profiles, load, keyed,
                 captureWhileLoaded, progressCallback, unreadableCallback);
 
             return outcome;
@@ -578,6 +682,152 @@ namespace Radios
                 case ProfileTypes.mic: return radio.ProfileMICSelection;
                 default: return null;
             }
+        }
+
+        /// <summary>
+        /// One kind's selection as recorded before the restore capture's first
+        /// walk (#1292). A class, not a bare string, because null is itself a
+        /// recording ("the radio had not reported one") and must stay apart
+        /// from "nothing was recorded early, read it at the walk's start".
+        /// </summary>
+        internal sealed class RecordedSelection
+        {
+            public readonly string Value;
+            public RecordedSelection(string value) { Value = value; }
+        }
+
+        /// <summary>
+        /// What <see cref="WalkKindsPuttingBackTheStart"/> asks of one kind.
+        /// </summary>
+        internal enum KindStep
+        {
+            /// <summary>Walk its profiles, then request its recorded selection back.</summary>
+            Walk,
+            /// <summary>Not walked, but an earlier global walk moved it: only
+            /// request its recorded selection back.</summary>
+            PutBackOnly,
+            /// <summary>Not walked and not moved. The comparison report
+            /// returns no outcome for it; the restore capture still renders
+            /// why it was not walked.</summary>
+            NotWalked,
+        }
+
+        /// <summary>
+        /// Both profile walks — the restore capture's and the comparison
+        /// report's — every kind in turn, putting back the selections in use
+        /// BEFORE THE FIRST ONE (#1292). Measured on the 8600: the global walk
+        /// left SO2RDefault loaded, which selected SO2R_TX1, and the TX walk,
+        /// reading its start only then, put back SO2R_TX1 (100 W) instead of
+        /// Default (0 W).
+        /// </summary>
+        /// <remarks>
+        /// <para>Every kind's selection is read here, once, before
+        /// <paramref name="walkOne"/> is first called, and never again: a
+        /// reading after a load would be the walk's own request echoed back
+        /// (#469 round three).</para>
+        /// <para>The order is the caller's and matters: global first, so its
+        /// put-back (when one was selected before) lands before the TX and mic
+        /// put-backs that follow it, and cannot drag them off again.</para>
+        /// <para>A kind the run does not walk (<paramref name="walks"/> false)
+        /// is still put back when a global walk before it requested loads,
+        /// because a global load moves it: the comparison report never walks
+        /// mic, and either report skips a kind whose list is empty.</para>
+        /// <para>A walk stopped for transmit ends the sequence: no later kind
+        /// is walked or put back, and RunWalk has already put nothing back.</para>
+        /// <para><paramref name="walkOne"/> may return null for
+        /// <see cref="KindStep.NotWalked"/>; nothing is recorded for it.</para>
+        /// </remarks>
+        internal static List<ProfileWalkOutcome> WalkKindsPuttingBackTheStart(
+            IReadOnlyList<ProfileTypes> kinds,
+            Func<ProfileTypes, bool> walks,
+            Func<ProfileTypes, string> readSelection,
+            Func<ProfileTypes, RecordedSelection, KindStep, ProfileWalkOutcome> walkOne,
+            Action<ProfileWalkOutcome> afterEach)
+        {
+            var recorded = new Dictionary<ProfileTypes, RecordedSelection>();
+            foreach (var kind in kinds)
+            {
+                string value;
+                try { value = readSelection(kind); }
+                catch (Exception ex)
+                {
+                    value = null;
+                    Tracing.TraceLine($"ProfileReporter: could not read the current {TypeLabel(kind)} selection before the walk: {ex.Message}", TraceLevel.Warning);
+                }
+                recorded[kind] = new RecordedSelection(value);
+            }
+            Tracing.TraceLine("ProfileReporter: selections before the walk — "
+                + string.Join(", ", kinds.Select(k => TypeLabel(k) + " '" + (recorded[k].Value ?? "(none recorded)") + "'")),
+                TraceLevel.Info);
+
+            var outcomes = new List<ProfileWalkOutcome>();
+            bool movedByGlobal = false;
+            foreach (var kind in kinds)
+            {
+                KindStep step = walks(kind)
+                    ? KindStep.Walk
+                    : movedByGlobal && kind != ProfileTypes.global ? KindStep.PutBackOnly : KindStep.NotWalked;
+                var outcome = walkOne(kind, recorded[kind], step);
+                if (outcome == null) continue;
+                outcomes.Add(outcome);
+                afterEach?.Invoke(outcome);
+                if (outcome.StoppedForTransmit) break;
+                if (kind == ProfileTypes.global && outcome.LoadAttempts > 0) movedByGlobal = true;
+            }
+            return outcomes;
+        }
+
+        /// <summary>Why a recorded selection was withheld from the put-back
+        /// (#1292 repair 1). DRAFT words, for Codex.</summary>
+        internal static string NotListedReason(ProfileWalkOutcome o)
+        {
+            string kind = TypeLabel(o.ProfileType);
+            return (o.RadioList != null && o.RadioList.Reported
+                    ? "the radio's " + kind + " profile list does not name it"
+                    : "the radio's " + kind + " profile list never arrived")
+                + ", and putting back a profile the list does not show could create a new one";
+        }
+
+        /// <summary>
+        /// The kinds an ordinary (unkeyed) walk moved and could not put back
+        /// (#1292): it requested loads, and no put-back was requested because
+        /// nothing, no recording, or no name the radio's list shows stood before it. On the 8600 that is the
+        /// global selection: none before, and no radio command clears one.
+        /// A stopped walk is not listed; its own stop sentence covers it.
+        /// </summary>
+        internal static List<ProfileTypes> KindsNotPutBack(IEnumerable<ProfileWalkOutcome> outcomes)
+            => outcomes
+                .Where(o => o != null && !o.StoppedForTransmit && (o.LoadAttempts > 0 || o.PutBackOnly) && !o.RestoreAttempted)
+                .Select(o => o.ProfileType)
+                .ToList();
+
+        /// <summary>
+        /// The restore file's "not put back" value for one kind, or null when
+        /// the kind is not in <see cref="KindsNotPutBack"/>. DRAFT words
+        /// (#1292), for Codex. Says what the walk last loaded and claims
+        /// nothing about whether anything since reached the radio.
+        /// </summary>
+        internal static string NotPutBackValue(ProfileWalkOutcome o)
+        {
+            if (!KindsNotPutBack(new[] { o }).Any()) return null;
+            string kind = TypeLabel(o.ProfileType);
+            string why = o.OriginalSelection == null
+                ? "no " + kind + " selection was recorded before the walk, so there was nothing to put back"
+                : o.PutBackNotListed
+                    ? o.OriginalSelection + " was in use before the walk, and " + NotListedReason(o)
+                    // Measured on the 8600 for global only: no radio command
+                    // clears a global selection. Not claimed for TX or mic.
+                    : o.ProfileType == ProfileTypes.global
+                        ? "nothing was selected before the walk, and no radio command clears a global selection"
+                        : "nothing was selected before the walk, so there was nothing to put back";
+            string last = o.LastLoaded != null
+                ? "the last " + kind + " profile the walk loaded was " + o.LastLoaded
+                : o.LastRequested != null
+                    ? "the last " + kind + " profile the walk requested was " + o.LastRequested + " (requested only)"
+                    : null;
+            if (last == null && o.PutBackOnly)
+                last = "a global profile the walk loaded may have changed it";
+            return last == null ? why : why + "; " + last;
         }
 
         /// <summary>
@@ -670,7 +920,9 @@ namespace Radios
             // one: the put-back is a load, so it is not sent (Codex's round-one
             // blocker 1, where this path once left the radio moved and said
             // nothing). A walk that never loaded did not move the radio.
-            if (!outcome.StoppedForTransmit && outcome.LoadAttempts > 0 && keyed())
+            if (!outcome.StoppedForTransmit
+                && (outcome.LoadAttempts > 0 || (outcome.PutBackOnly && outcome.HasPutBackToSend))
+                && keyed())
             {
                 outcome.StoppedForTransmit = true;
                 Tracing.TraceLine($"ProfileReporter: {label} walk keyed after its last profile — the original is not put back", TraceLevel.Warning);
@@ -686,7 +938,7 @@ namespace Radios
             // Request the starting selection again. Whether it reached the
             // radio is not known and is never claimed (#469 round six); the
             // result goes to the trace only.
-            if (!string.IsNullOrEmpty(outcome.OriginalSelection))
+            if (outcome.HasPutBackToSend)
             {
                 outcome.RestoreAttempted = true;
                 progressCallback?.Invoke($"Asking the radio to load the {label} profile recorded before the walk: {outcome.OriginalSelection}");
@@ -711,12 +963,15 @@ namespace Radios
         /// </summary>
         internal static string PutBackNote(ProfileWalkOutcome o)
         {
-            if (o.LoadAttempts == 0) return null;
+            if (o.LoadAttempts == 0 && !o.PutBackOnly) return null;
             string kind = TypeLabel(o.ProfileType);
             if (o.OriginalSelection == null)
                 return "No " + kind + " selection was recorded before the walk, so no put-back was requested.";
             if (o.OriginalSelection.Length == 0)
                 return "The " + kind + " selection recorded before the walk was empty, so no put-back was requested.";
+            if (o.PutBackNotListed)
+                return o.OriginalSelection + ", the app's last recorded " + kind + " selection before the walk, was not put back: "
+                    + NotListedReason(o) + ".";
             return "A put-back of " + o.OriginalSelection + ", the app's last recorded " + kind
                 + " selection before the walk (it may be the app's own earlier request), was requested;"
                 + " whether it reached the radio is not known.";
@@ -770,12 +1025,33 @@ namespace Radios
             FlexBase rig, ProfileTypes profileType, out ProfileWalkOutcome walk,
             Action<string> progressCallback = null,
             FlexBase.RadioProfileList radioList = null)
+            => CaptureAllProfilesCore(rig, profileType, null, out walk, progressCallback, radioList);
+
+        /// <summary>
+        /// The same capture, putting back <paramref name="recordedBefore"/>:
+        /// the selection the comparison report recorded before its first walk
+        /// (#1292). The comparison pass calls this one.
+        /// </summary>
+        internal static List<ProfileSnapshot> CaptureAllProfiles(
+            FlexBase rig, ProfileTypes profileType, RecordedSelection recordedBefore,
+            out ProfileWalkOutcome walk, Action<string> progressCallback,
+            FlexBase.RadioProfileList radioList)
+            => CaptureAllProfilesCore(rig, profileType, recordedBefore, out walk, progressCallback, radioList);
+
+        /// <summary>
+        /// Both captures' body: a walk that snapshots each profile, putting
+        /// back <paramref name="recordedBefore"/>, or, when null, the
+        /// selection read at the walk's start.
+        /// </summary>
+        private static List<ProfileSnapshot> CaptureAllProfilesCore(
+            FlexBase rig, ProfileTypes profileType, RecordedSelection recordedBefore,
+            out ProfileWalkOutcome walk, Action<string> progressCallback,
+            FlexBase.RadioProfileList radioList)
         {
             var snapshots = new List<ProfileSnapshot>();
-            walk = WalkProfiles(rig, profileType,
+            walk = WalkProfilesCore(rig, profileType,
                 name => snapshots.Add(CaptureCurrentState(rig, name, profileType.ToString())),
-                progressCallback,
-                radioList: radioList);
+                progressCallback, null, radioList, recordedBefore, putBackOnly: false);
             return snapshots;
         }
 
@@ -1102,6 +1378,12 @@ namespace Radios
             /// <summary>Some walk requested at least one profile load. That is
             /// the whole test for the pointer sentence (#469 round six).</summary>
             public bool AnyLoadRequested;
+
+            /// <summary>The kinds the walk moved and could not put back
+            /// (#1292), as <see cref="RestoreGradeExport.NotPutBack"/>. The
+            /// finished sentence is to say these; its words wait on a Lexicon
+            /// key.</summary>
+            public List<ProfileTypes> NotPutBack = new List<ProfileTypes>();
         }
 
         /// <summary>The sentence for a refused run, true to why it refused.</summary>
@@ -1337,42 +1619,63 @@ namespace Radios
                     TraceLevel.Warning);
             }
             else
-            // The plan's types and nothing else (#469): the start sentence
-            // named exactly these, so the walk loads exactly these.
-            foreach (var ptype in plan.TypesToLoad)
             {
-                var list = readings[ptype];
+                // The plan's types and nothing else are walked (#469): the start
+                // sentence named exactly these, so the walk loads exactly these.
+                // #1292: every kind's selection is recorded before the first
+                // walk and THAT is put back, global first; a kind the plan does
+                // not walk (mic, always) is still put back once a global load
+                // has moved it.
+                var snapshotsByType = new Dictionary<ProfileTypes, List<ProfileSnapshot>>();
+                var outcomes = WalkKindsPuttingBackTheStart(types,
+                    k => plan.TypesToLoad.Contains(k),
+                    k => rig.theRadio == null ? null : StartingSelection(rig.theRadio, k),
+                    (ptype, recordedBefore, step) =>
+                    {
+                        if (step == KindStep.NotWalked) return null;
+                        if (step == KindStep.PutBackOnly)
+                            return WalkProfilesCore(rig, ptype, null, progressCallback, null,
+                                readings[ptype], recordedBefore, putBackOnly: true);
+                        // Traced, not spoken (#469): the walker's first "Loading ...
+                        // profile 1 of N" line follows at once and would interrupt it,
+                        // so the first spoken progress is the first thing that takes
+                        // time — the restore capture's rule.
+                        Tracing.TraceLine($"ProfileReporter: comparing {TypeLabel(ptype)} profiles", TraceLevel.Info);
+                        snapshotsByType[ptype] = CaptureAllProfiles(rig, ptype, recordedBefore, out var walked, progressCallback, readings[ptype]);
+                        return walked;
+                    },
+                    walk =>
+                    {
+                        var ptype = walk.ProfileType;
+                        if (walk.LoadAttempts > 0) result.AnyLoadRequested = true;
+                        if (snapshotsByType.TryGetValue(ptype, out var snapshots) && snapshots.Count >= 2)
+                        {
+                            sb.AppendLine();
+                            sb.AppendLine(new string('=', 60));
+                            sb.AppendLine($"{ptype.ToString().ToUpperInvariant()} PROFILE COMPARISON");
+                            sb.AppendLine(new string('=', 60));
 
-                // Traced, not spoken (#469): the walker's first "Loading ...
-                // profile 1 of N" line follows at once and would interrupt it,
-                // so the first spoken progress is the first thing that takes
-                // time — the restore capture's rule.
-                Tracing.TraceLine($"ProfileReporter: comparing {TypeLabel(ptype)} profiles", TraceLevel.Info);
-                var snapshots = CaptureAllProfiles(rig, ptype, out var walk, progressCallback, list);
-                if (walk.LoadAttempts > 0) result.AnyLoadRequested = true;
-                if (snapshots.Count >= 2)
-                {
-                    sb.AppendLine();
-                    sb.AppendLine(new string('=', 60));
-                    sb.AppendLine($"{ptype.ToString().ToUpperInvariant()} PROFILE COMPARISON");
-                    sb.AppendLine(new string('=', 60));
+                            FormatProfileComparison(sb, snapshots);
+                        }
 
-                    FormatProfileComparison(sb, snapshots);
-                }
+                        // What the app requested for the starting profile, and nothing
+                        // about whether it reached the radio (#469 round six).
+                        if (!walk.StoppedForTransmit) AppendComparisonPutBack(sb, walk);
 
-                // What the app requested for the starting profile, and nothing
-                // about whether it reached the radio (#469 round six).
-                if (!walk.StoppedForTransmit) AppendComparisonPutBack(sb, walk);
+                        // #469: keyed part-way. The walk stopped loading, and no later
+                        // type is started (the shared walk ends the sequence); the
+                        // report says where it stopped, and names no profile as
+                        // where the radio was left.
+                        if (walk.StoppedForTransmit)
+                        {
+                            result.StoppedForTransmit = true;
+                            AppendComparisonStopped(sb, walk);
+                        }
+                    });
 
-                // #469: keyed part-way. The walk stopped loading, and no later
-                // type is started; the report says where it stopped, and names
-                // no profile as where the radio was left.
-                if (walk.StoppedForTransmit)
-                {
-                    result.StoppedForTransmit = true;
-                    AppendComparisonStopped(sb, walk);
-                    break;
-                }
+                // #1292: what the walk moved and could not put back, said plainly.
+                AppendComparisonNotPutBack(sb, outcomes);
+                result.NotPutBack = KindsNotPutBack(outcomes);
             }
 
             // Meter enumeration. Instant, so nothing is spoken for it: the
@@ -1397,6 +1700,22 @@ namespace Radios
         }
 
         /// <summary>
+        /// The comparison report's lines for the kinds the walk moved and
+        /// could not put back (#1292), one sentence each; nothing when every
+        /// moved kind had a put-back requested. DRAFT words, for Codex.
+        /// </summary>
+        internal static void AppendComparisonNotPutBack(StringBuilder sb, IEnumerable<ProfileWalkOutcome> outcomes)
+        {
+            foreach (var o in outcomes)
+            {
+                string value = NotPutBackValue(o);
+                if (value == null) continue;
+                sb.AppendLine();
+                sb.AppendLine("The " + TypeLabel(o.ProfileType) + " profile was not put back: " + value + ".");
+            }
+        }
+
+        /// <summary>
         /// The comparison report's section for a walk stopped by a key-up
         /// (#469): what was not compared, and the labelled evidence. It does
         /// not say where the radio was left, because that is not known.
@@ -1412,7 +1731,9 @@ namespace Radios
             sb.AppendLine("were requested and nothing was put back while transmitting.");
             sb.AppendLine(walk.StoppedBefore != null
                 ? $"Loading stopped before {label} profile '{walk.StoppedBefore}' was requested; that profile and every one after it are not compared here."
-                : $"The radio was keyed after the last {label} profile was requested, so nothing was put back.");
+                : walk.PutBackOnly
+                    ? $"The radio was keyed before the {label} profile was put back, so nothing was put back."
+                    : $"The radio was keyed after the last {label} profile was requested, so nothing was put back.");
             // Evidence, each value labelled for what it is (#469 round four):
             // which profile the radio is on is NOT known, and is not claimed.
             foreach (var (key, value) in StoppedWalkEvidence(walk))
@@ -1713,23 +2034,7 @@ namespace Radios
                 }
             });
 
-            Section(sb, "Transmit settings", () =>
-            {
-                if (radio == null) { sb.AppendLine("Not readable: no radio."); return; }
-                sb.AppendLine($"RF power: {radio.RFPower} watts");
-                sb.AppendLine($"Tune power: {radio.TunePower} watts");
-                sb.AppendLine($"Mic gain: {radio.MicLevel}");
-                sb.AppendLine($"Mic boost: {OnOff(radio.MicBoost)}");
-                sb.AppendLine($"Mic bias: {OnOff(radio.MicBias)}");
-                sb.AppendLine($"Speech processor: {OnOff(radio.SpeechProcessorEnable)}"
-                    + $", level setting {(FlexBase.ProcessorSettings)radio.SpeechProcessorLevel}");
-                sb.AppendLine($"Compander: {OnOff(radio.CompanderOn)} at level {radio.CompanderLevel}");
-                sb.AppendLine($"TX filter: {radio.TXFilterLow} to {radio.TXFilterHigh} hertz");
-                sb.AppendLine($"Transmit monitor: {OnOff(radio.TXMonitor)}"
-                    + $", sideband level {radio.TXSBMonitorGain}, CW level {radio.TXCWMonitorGain}");
-                sb.AppendLine($"VOX: {OnOff(radio.SimpleVOXEnable)}"
-                    + $", gain {radio.SimpleVOXLevel}, delay {radio.SimpleVOXDelay * FlexBase.VoxDelayMS} milliseconds");
-            });
+            Section(sb, "Transmit settings", () => AppendTransmitSettings(sb, radio));
 
             Section(sb, "CW settings", () =>
             {
@@ -1797,6 +2102,29 @@ namespace Radios
             sb.AppendLine();
             sb.AppendLine("End of export.");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// The export's "Transmit settings" section body. Every level carries
+        /// its scale ("of 100"), as the restore capture writes the same
+        /// quantities; a bare number could be read as watts or decibels.
+        /// </summary>
+        internal static void AppendTransmitSettings(StringBuilder sb, Radio radio)
+        {
+            if (radio == null) { sb.AppendLine("Not readable: no radio."); return; }
+            sb.AppendLine($"RF power: {radio.RFPower} watts");
+            sb.AppendLine($"Tune power: {radio.TunePower} watts");
+            sb.AppendLine($"Mic gain: {OfHundred(radio.MicLevel)}");
+            sb.AppendLine($"Mic boost: {OnOff(radio.MicBoost)}");
+            sb.AppendLine($"Mic bias: {OnOff(radio.MicBias)}");
+            sb.AppendLine($"Speech processor: {OnOff(radio.SpeechProcessorEnable)}"
+                + $", level setting {(FlexBase.ProcessorSettings)radio.SpeechProcessorLevel}");
+            sb.AppendLine($"Compander: {OnOff(radio.CompanderOn)} at level {OfHundred(radio.CompanderLevel)}");
+            sb.AppendLine($"TX filter: {radio.TXFilterLow} to {radio.TXFilterHigh} hertz");
+            sb.AppendLine($"Transmit monitor: {OnOff(radio.TXMonitor)}"
+                + $", sideband level {OfHundred(radio.TXSBMonitorGain)}, CW level {OfHundred(radio.TXCWMonitorGain)}");
+            sb.AppendLine($"VOX: {OnOff(radio.SimpleVOXEnable)}"
+                + $", gain {OfHundred(radio.SimpleVOXLevel)}, delay {radio.SimpleVOXDelay * FlexBase.VoxDelayMS} milliseconds");
         }
 
         /// <summary>
@@ -1878,6 +2206,45 @@ namespace Radios
         }
 
         private static string OnOff(bool value) => value ? "on" : "off";
+
+        /// <summary>
+        /// A level the radio keeps on its own 0 to 100 scale, written with
+        /// that scale so a restore capture never carries a bare number: a
+        /// bare number is how "100 watts" and "100 of a scale" once sat in
+        /// the same file unseen. The scale is true whatever the level means
+        /// in the radio's own units, which is why it is used for the AM
+        /// carrier level rather than "watts": what 100 delivers in AM is
+        /// still an open question on the bench.
+        /// </summary>
+        // DRAFT wording, for Codex: " of 100".
+        internal static string OfHundred(int value) => value + " of 100";
+
+        /// <summary>
+        /// A frequency the radio holds in megahertz, written as plain decimal
+        /// megahertz to the hertz, e.g. "14.250000 megahertz". Not the dotted
+        /// display form ("14.250.000"): with a unit after it, that form reads
+        /// as a thousands-grouped number in some locales and names no unit on
+        /// its own. Rounded, not truncated, to the nearest hertz.
+        /// </summary>
+        // DRAFT wording, for Codex: " megahertz" (the word the repeater offset line already uses).
+        internal static string Megahertz(double megahertz)
+        {
+            ulong hz = (ulong)Math.Round(megahertz * 1_000_000d, MidpointRounding.AwayFromZero);
+            return (hz / 1_000_000).ToString(System.Globalization.CultureInfo.InvariantCulture) + "."
+                + (hz % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture)
+                + " megahertz";
+        }
+
+        /// <summary>
+        /// A memory's tone value: a CTCSS tone is a frequency, written with
+        /// "hertz"; with the tone off the value is written as the radio gave
+        /// it, since it names no tone at all.
+        /// </summary>
+        // DRAFT wording, for Codex: " hertz" on a CTCSS tone, e.g. "100.0 hertz".
+        internal static string ToneValue(FMToneMode mode, string value)
+            => mode == FMToneMode.CTCSS_TX && !string.IsNullOrWhiteSpace(value)
+                ? value.Trim() + " hertz"
+                : value;
 
         /// <summary>The folder inside a relocated settings tree that stands in
         /// for Documents\JJFlexRadio (#1066).</summary>
@@ -2011,6 +2378,41 @@ namespace Radios
         }
 
         /// <summary>
+        /// One stored memory's lines in the [memories] section, numbered from
+        /// one in frequency order. Each read is guarded on its own, as the
+        /// settings are.
+        /// </summary>
+        internal static void AddMemoryLines(List<SettingLine> memLines, int n, Memory m)
+        {
+            string p = "memory " + n + " ";
+            void Mem(string key, Func<string> read)
+            {
+                try
+                {
+                    string v = read();
+                    memLines.Add(new SettingLine(key, string.IsNullOrEmpty(v) ? "none" : v, null));
+                }
+                catch (Exception ex)
+                {
+                    memLines.Add(new SettingLine(key, null, ex.Message));
+                }
+            }
+            Mem(p + "name", () => m.Name);
+            Mem(p + "group", () => m.Group);
+            Mem(p + "frequency", () => Megahertz(m.Freq));
+            Mem(p + "mode", () => m.Mode);
+            Mem(p + "tune step", () => m.Step + " hertz");
+            Mem(p + "repeater offset direction", () => m.OffsetDirection.ToString());
+            Mem(p + "repeater offset", () => m.RepeaterOffset + " megahertz");
+            Mem(p + "tone mode", () => m.ToneMode.ToString());
+            Mem(p + "tone value", () => ToneValue(m.ToneMode, m.ToneValue));
+            Mem(p + "squelch", () => m.SquelchOn ? "on, level " + OfHundred(m.SquelchLevel) : "off");
+            Mem(p + "rf power", () => m.RFPower + " watts");
+            Mem(p + "rx filter low", () => m.RXFilterLow + " hertz");
+            Mem(p + "rx filter high", () => m.RXFilterHigh + " hertz");
+        }
+
+        /// <summary>
         /// Read every setting the capture records, from the radio's own
         /// reported state. Each read is guarded on its own: one setting the
         /// radio will not give up costs that line, not the section.
@@ -2048,21 +2450,21 @@ namespace Radios
             Key("rf power", () => radio.RFPower + " watts");
             Key("tune power", () => radio.TunePower + " watts");
             Key("mic input", () => radio.MicInput);
-            Key("mic gain", () => radio.MicLevel.ToString());
+            Key("mic gain", () => OfHundred(radio.MicLevel));
             Key("mic boost", () => OnOff(radio.MicBoost));
             Key("mic bias", () => OnOff(radio.MicBias));
             Key("speech processor", () => OnOff(radio.SpeechProcessorEnable));
             Key("speech processor level", () => ((FlexBase.ProcessorSettings)radio.SpeechProcessorLevel).ToString());
             Key("compander", () => OnOff(radio.CompanderOn));
-            Key("compander level", () => radio.CompanderLevel.ToString());
+            Key("compander level", () => OfHundred(radio.CompanderLevel));
             Key("tx filter low", () => radio.TXFilterLow + " hertz");
             Key("tx filter high", () => radio.TXFilterHigh + " hertz");
-            Key("am carrier level", () => radio.AMCarrierLevel.ToString());
+            Key("am carrier level", () => OfHundred(radio.AMCarrierLevel));
             Key("transmit monitor", () => OnOff(radio.TXMonitor));
-            Key("transmit monitor level, sideband", () => radio.TXSBMonitorGain.ToString());
-            Key("transmit monitor level, CW", () => radio.TXCWMonitorGain.ToString());
+            Key("transmit monitor level, sideband", () => OfHundred(radio.TXSBMonitorGain));
+            Key("transmit monitor level, CW", () => OfHundred(radio.TXCWMonitorGain));
             Key("vox", () => OnOff(radio.SimpleVOXEnable));
-            Key("vox gain", () => radio.SimpleVOXLevel.ToString());
+            Key("vox gain", () => OfHundred(radio.SimpleVOXLevel));
             Key("vox delay", () => (radio.SimpleVOXDelay * FlexBase.VoxDelayMS) + " milliseconds");
 
             // CW.
@@ -2075,9 +2477,9 @@ namespace Radios
             Key("cw iambic mode", () => radio.CWIambic ? (radio.CWIambicModeB ? "B" : "A") : "not iambic");
 
             // Audio outputs.
-            Key("lineout gain", () => radio.LineoutGain.ToString());
+            Key("lineout gain", () => OfHundred(radio.LineoutGain));
             Key("lineout muted", () => radio.LineoutMute ? "yes" : "no");
-            Key("headphone gain", () => radio.HeadphoneGain.ToString());
+            Key("headphone gain", () => OfHundred(radio.HeadphoneGain));
             Key("headphone muted", () => radio.HeadphoneMute ? "yes" : "no");
             Key("binaural receive", () => OnOff(radio.BinauralRX));
 
@@ -2110,7 +2512,7 @@ namespace Radios
             foreach (var s in slices)
             {
                 string p = "slice " + s.Letter + " ";
-                Key(p + "frequency", () => RadioStatusBuilder.FormatFreqDisplay((ulong)(s.Freq * 1_000_000d)));
+                Key(p + "frequency", () => Megahertz(s.Freq));
                 Key(p + "mode", () => s.DemodMode);
                 Key(p + "filter low", () => s.FilterLow + " hertz");
                 Key(p + "filter high", () => s.FilterHigh + " hertz");
@@ -2120,26 +2522,42 @@ namespace Radios
                 Key(p + "tune step", () => s.TuneStep + " hertz");
                 Key(p + "locked", () => OnOff(s.Lock));
                 Key(p + "agc mode", () => s.AGCMode.ToString());
-                Key(p + "agc threshold", () => s.AGCThreshold.ToString());
-                Key(p + "audio gain", () => s.AudioGain.ToString());
-                Key(p + "audio pan", () => s.AudioPan.ToString());
+                Key(p + "agc threshold", () => OfHundred(s.AGCThreshold));
+                Key(p + "audio gain", () => OfHundred(s.AudioGain));
+                Key(p + "audio pan", () => OfHundred(s.AudioPan));
                 Key(p + "muted", () => s.Mute ? "yes" : "no");
-                Key(p + "rf gain", () => s.RFGain.ToString());
+                // Decibels, as the app's own RF preamp announcement already
+                // speaks this figure, and as FlexLib's own summary of it
+                // says. DRAFT wording, for Codex: " decibels".
+                Key(p + "rf gain", () => s.RFGain + " decibels");
+                // FlexLib marks the slice's own RF gain obsolete in favour of
+                // the panadapter's, but the app still sets and restores the
+                // slice-level figure (the off-air take's listening slice), so
+                // that line stays and this one is added beside it: a capture
+                // records both, and nobody restoring from it has to know which
+                // one the radio honours. A slice with no panadapter gets the
+                // file's own unreadable form ("= unreadable: reason"), so a
+                // missing figure never reads as a value. DRAFT wording, for
+                // Codex: the key "panadapter rf gain" and the reason "the
+                // slice has no panadapter".
+                Key(p + "panadapter rf gain", () => s.Panadapter == null
+                    ? throw new InvalidOperationException("the slice has no panadapter")
+                    : s.Panadapter.RFGain + " decibels");
                 Key(p + "squelch", () => OnOff(s.SquelchOn));
-                Key(p + "squelch level", () => s.SquelchLevel.ToString());
+                Key(p + "squelch level", () => OfHundred(s.SquelchLevel));
                 Key(p + "rit", () => s.RITOn ? "on at " + s.RITFreq + " hertz" : "off");
                 Key(p + "xit", () => s.XITOn ? "on at " + s.XITFreq + " hertz" : "off");
                 Key(p + "dax channel", () => s.DAXChannel == 0 ? "none" : s.DAXChannel.ToString());
-                Key(p + "noise reduction", () => s.NROn ? "on, level " + s.NRLevel : "off");
-                Key(p + "spectral noise reduction", () => s.NRSOn ? "on, level " + s.NRSLevel : "off");
-                Key(p + "legacy noise reduction", () => s.NRLOn ? "on, level " + s.NRL_Level : "off");
-                Key(p + "noise reduction filter", () => s.NRFOn ? "on, level " + s.NRFLevel : "off");
+                Key(p + "noise reduction", () => s.NROn ? "on, level " + OfHundred(s.NRLevel) : "off");
+                Key(p + "spectral noise reduction", () => s.NRSOn ? "on, level " + OfHundred(s.NRSLevel) : "off");
+                Key(p + "legacy noise reduction", () => s.NRLOn ? "on, level " + OfHundred(s.NRL_Level) : "off");
+                Key(p + "noise reduction filter", () => s.NRFOn ? "on, level " + OfHundred(s.NRFLevel) : "off");
                 Key(p + "neural noise reduction", () => OnOff(s.RNNOn));
-                Key(p + "noise blanker", () => s.NBOn ? "on, level " + s.NBLevel : "off");
-                Key(p + "wideband noise blanker", () => s.WNBOn ? "on, level " + s.WNBLevel : "off");
+                Key(p + "noise blanker", () => s.NBOn ? "on, level " + OfHundred(s.NBLevel) : "off");
+                Key(p + "wideband noise blanker", () => s.WNBOn ? "on, level " + OfHundred(s.WNBLevel) : "off");
                 Key(p + "auto notch", () => OnOff(s.ANFTOn));
-                Key(p + "legacy auto notch", () => s.ANFOn ? "on, level " + s.ANFLevel : "off");
-                Key(p + "audio peaking filter", () => s.APFOn ? "on, level " + s.APFLevel : "off");
+                Key(p + "legacy auto notch", () => s.ANFOn ? "on, level " + OfHundred(s.ANFLevel) : "off");
+                Key(p + "audio peaking filter", () => s.APFOn ? "on, level " + OfHundred(s.APFLevel) : "off");
             }
 
             return lines;
@@ -2196,6 +2614,14 @@ namespace Radios
             /// <summary>The radio was keyed during the walk, so it stopped and
             /// put nothing back (#469); the file says what was not captured.</summary>
             public bool StoppedForTransmit;
+
+            /// <summary>The kinds the walk moved and could not put back
+            /// (#1292), from <see cref="KindsNotPutBack"/>: on the 8600, the
+            /// global selection, which was none before and which no radio
+            /// command clears. Empty when everything moved had a put-back
+            /// requested. The finished sentence is to say these plainly; its
+            /// words wait on a Lexicon key (see the batch report).</summary>
+            public List<ProfileTypes> NotPutBack = new List<ProfileTypes>();
         }
 
         private static int _walkInFlight;
@@ -2246,8 +2672,9 @@ namespace Radios
         /// Build the restore-grade capture. Walks every global, TX and mic
         /// profile (in that order — a global load drags TX and mic selections
         /// with it, so the later walks re-right what the earlier ones moved),
-        /// captures the radio's reported state under each, then puts the
-        /// original profiles back and checks. Reserves the walk itself and
+        /// captures the radio's reported state under each, and requests the
+        /// selections recorded before the FIRST walk back, global first
+        /// (#1292). Reserves the walk itself and
         /// returns null if one is already in flight; the menu reserves at the
         /// press and uses the reservation overload instead (#469).
         /// </summary>
@@ -2523,45 +2950,56 @@ namespace Radios
             else
             {
                 result.WalkRan = true;
-                foreach (var t in profileTypes)
-                {
-                    string label = TypeLabel(t);
-                    var outcome = WalkProfiles(rig, t,
-                        name => AppendProfileSection(sb, label, name, CaptureKeyedSettings(rig)),
-                        progressCallback,
-                        (name, problem) => AppendUnreadableProfileSection(sb, label, name, problem),
-                        lists[t]);
-                    outcomes.Add(outcome);
-                    // A type with nothing to walk still gets a section: after
-                    // the reset, the difference between "the radio had none"
-                    // and "we could not see them" is the whole point (#418).
-                    if (!lists[t].Reported || lists[t].Names.Count == 0)
-                        AppendUnwalkedTypeSection(sb, lists[t]);
-
-                    // #469: keyed part-way. No later type is started, and the
-                    // file says what is missing, so a capture taken before a
-                    // reset cannot pass for a complete one.
-                    if (outcome.StoppedForTransmit)
+                // #1292: every kind's selection is recorded before the first
+                // walk, and each walk puts back THAT one, so a global load that
+                // moved the TX and mic selections cannot become what they are
+                // put back to. Global walks first, so its put-back lands first.
+                outcomes = WalkKindsPuttingBackTheStart(profileTypes,
+                    t => lists[t].Reported && lists[t].Names.Count > 0,
+                    t => radio == null ? null : StartingSelection(radio, t),
+                    (t, recordedBefore, step) =>
                     {
-                        result.StoppedForTransmit = true;
-                        var notWalked = profileTypes
-                            .SkipWhile(x => x != t).Skip(1)
-                            .Select(x => TypeLabel(x) + " profiles").ToList();
-                        sb.AppendLine("[profile walk stopped]");
-                        sb.AppendLine("reason = the radio was keyed during the walk, so no more profiles were requested and nothing was put back while transmitting");
-                        sb.AppendLine(outcome.StoppedBefore != null
-                            ? "stopped before = " + TypeLabel(t) + " profile " + outcome.StoppedBefore
-                              + " was requested; it and every " + TypeLabel(t) + " profile after it are not in this file"
-                            : "stopped after = the last " + TypeLabel(t) + " profile was requested, so nothing was put back");
-                        foreach (var (key, value) in StoppedWalkEvidence(outcome))
-                            sb.AppendLine(key + " = " + value);
-                        sb.AppendLine("profile the radio is on now = not known");
-                        sb.AppendLine("not walked at all = " + (notWalked.Count == 0 ? "none" : string.Join(", ", notWalked)));
-                        sb.AppendLine("to capture them = unkey, then run this export again");
-                        sb.AppendLine();
-                        break;
-                    }
-                }
+                        string label = TypeLabel(t);
+                        return WalkProfilesCore(rig, t,
+                            name => AppendProfileSection(sb, label, name, CaptureKeyedSettings(rig)),
+                            progressCallback,
+                            (name, problem) => AppendUnreadableProfileSection(sb, label, name, problem),
+                            lists[t], recordedBefore, putBackOnly: step == KindStep.PutBackOnly);
+                    },
+                    outcome =>
+                    {
+                        var t = outcome.ProfileType;
+                        // A type with nothing to walk still gets a section: after
+                        // the reset, the difference between "the radio had none"
+                        // and "we could not see them" is the whole point (#418).
+                        if (!lists[t].Reported || lists[t].Names.Count == 0)
+                            AppendUnwalkedTypeSection(sb, lists[t]);
+
+                        // #469: keyed part-way. No later type is started, and the
+                        // file says what is missing, so a capture taken before a
+                        // reset cannot pass for a complete one.
+                        if (outcome.StoppedForTransmit)
+                        {
+                            result.StoppedForTransmit = true;
+                            var notWalked = profileTypes
+                                .SkipWhile(x => x != t).Skip(1)
+                                .Select(x => TypeLabel(x) + " profiles").ToList();
+                            sb.AppendLine("[profile walk stopped]");
+                            sb.AppendLine("reason = the radio was keyed during the walk, so no more profiles were requested and nothing was put back while transmitting");
+                            sb.AppendLine(outcome.StoppedBefore != null
+                                ? "stopped before = " + TypeLabel(t) + " profile " + outcome.StoppedBefore
+                                  + " was requested; it and every " + TypeLabel(t) + " profile after it are not in this file"
+                                : outcome.PutBackOnly
+                                    ? "stopped before the put-back = the radio was keyed before the " + TypeLabel(t) + " profile was put back, so nothing was put back"
+                                    : "stopped after = the last " + TypeLabel(t) + " profile was requested, so nothing was put back");
+                            foreach (var (key, value) in StoppedWalkEvidence(outcome))
+                                sb.AppendLine(key + " = " + value);
+                            sb.AppendLine("profile the radio is on now = not known");
+                            sb.AppendLine("not walked at all = " + (notWalked.Count == 0 ? "none" : string.Join(", ", notWalked)));
+                            sb.AppendLine("to capture them = unkey, then run this export again");
+                            sb.AppendLine();
+                        }
+                    });
                 // Only a capture that requested no load at all may say the
                 // radio was not moved (#469 round six).
                 result.AnyLoadRequested = outcomes.Any(o => o.LoadAttempts > 0);
@@ -2588,32 +3026,7 @@ namespace Radios
                 foreach (var m in mems ?? new List<Memory>())
                 {
                     n++;
-                    string p = "memory " + n + " ";
-                    void Mem(string key, Func<string> read)
-                    {
-                        try
-                        {
-                            string v = read();
-                            memLines.Add(new SettingLine(key, string.IsNullOrEmpty(v) ? "none" : v, null));
-                        }
-                        catch (Exception ex)
-                        {
-                            memLines.Add(new SettingLine(key, null, ex.Message));
-                        }
-                    }
-                    Mem(p + "name", () => m.Name);
-                    Mem(p + "group", () => m.Group);
-                    Mem(p + "frequency", () => RadioStatusBuilder.FormatFreqDisplay((ulong)(m.Freq * 1_000_000d)));
-                    Mem(p + "mode", () => m.Mode);
-                    Mem(p + "tune step", () => m.Step + " hertz");
-                    Mem(p + "repeater offset direction", () => m.OffsetDirection.ToString());
-                    Mem(p + "repeater offset", () => m.RepeaterOffset + " megahertz");
-                    Mem(p + "tone mode", () => m.ToneMode.ToString());
-                    Mem(p + "tone value", () => m.ToneValue);
-                    Mem(p + "squelch", () => m.SquelchOn ? "on, level " + m.SquelchLevel : "off");
-                    Mem(p + "rf power", () => m.RFPower + " watts");
-                    Mem(p + "rx filter low", () => m.RXFilterLow + " hertz");
-                    Mem(p + "rx filter high", () => m.RXFilterHigh + " hertz");
+                    AddMemoryLines(memLines, n, m);
                 }
             }
             AppendSettingLines(sb, memLines);
@@ -2632,6 +3045,15 @@ namespace Radios
                 {
                     sb.AppendLine(TypeLabel(o.ProfileType) + " profile put back = " + AfterTheWalkValue(o));
                 }
+                // #1292: what the walk moved and could not put back, said as
+                // its own line rather than left for the reader to infer.
+                foreach (var o in outcomes)
+                {
+                    string notBack = NotPutBackValue(o);
+                    if (notBack != null)
+                        sb.AppendLine(TypeLabel(o.ProfileType) + " profile not put back = " + notBack);
+                }
+                result.NotPutBack = KindsNotPutBack(outcomes);
             }
             sb.AppendLine();
             sb.AppendLine("End of capture.");
@@ -2649,6 +3071,11 @@ namespace Radios
         internal static string AfterTheWalkValue(ProfileWalkOutcome o)
         {
             string typeWord = TypeLabel(o.ProfileType);
+            // #1292: not walked, but an earlier global walk moved it, so only
+            // the put-back was in question; the list readings below would
+            // wrongly say the radio was not moved.
+            if (o.PutBackOnly && !o.StoppedForTransmit)
+                return PutBackNote(o) + " Your profile may not be the one you started with; load it again from Profiles, in the Radio menu, if needed";
             if (o.RadioList != null && o.RadioList.CouldNotAsk)
                 return "no load was ever sent — the " + typeWord
                     + " profile list could not be read (" + o.RadioList.Problem
@@ -2660,7 +3087,7 @@ namespace Radios
                 return "nothing was loaded — the radio reports no stored "
                     + typeWord + " profiles, so there was nothing to put back";
             if (o.StoppedForTransmit)
-                return o.LastRequested == null
+                return o.LastRequested == null && !o.PutBackOnly
                     ? "nothing was requested, so nothing needed putting back"
                     : "NO — the radio was keyed, so nothing was put back while transmitting; "
                       + "which profile the radio is on now is not known. " + TransmitStopSentence();

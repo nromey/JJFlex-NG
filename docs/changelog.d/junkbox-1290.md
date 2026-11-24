@@ -1,0 +1,1 @@
+- The Tools menu's "Quick settings export, read only" now gives transmit levels a scale, such as "Mic gain: 50 of 100". The "Full restore capture, loads every profile" in the same menu also records each slice's panadapter RF gain alongside the slice's own RF gain, both in decibels.

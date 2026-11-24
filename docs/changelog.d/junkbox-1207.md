@@ -1,0 +1,1 @@
+- The transmit (TX) band lockout now checks an FM signal at its transmit frequency, including XIT and any transmit offset already set on the radio. An offset that moves the signal outside your license privileges now blocks the transmission.

@@ -6101,7 +6101,8 @@ RadioConnected:
         Ending = True
         Try
             ' Check for unsaved QSO
-            If Not LogEntry.optionalWrite() Then Return False
+            ' Cancel keeps the app open (#1242); offered here only, where it is acted on.
+            If Not LogEntry.optionalWrite(offerCancel:=True) Then Return False
 
             ' The register's exit read (#253) — Noel's ruled priority boundary.
             ' Second, after the unsaved QSO: losing a contact is worse than leaving

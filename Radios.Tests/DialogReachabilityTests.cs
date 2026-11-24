@@ -95,7 +95,9 @@ namespace Radios.Tests
             ["ManageGroupsDialog"] = new("WPF replacement; WinForms original still live.", "ManageGroups.vb"),
             ["MemoryGroupDialog"] = new("WPF replacement; WinForms original still live.", "MemoryGroup.vb"),
             ["MemoryScanDialog"] = new("WPF replacement; WinForms original still live.", "MemoryScan.vb"),
-            ["PersonalInfoDialog"] = new("WPF replacement; WinForms original still live.", "PersonalInfo.vb"),
+            ["PersonalInfoDialog"] = new("WPF replacement; WinForms original still live. NOT safe to wire as it stands: "
+                + "its licence list still reads the list position as the licence class (see its remarks and "
+                + "PersonalInfoDialog_keeps_its_exemption_while_it_reads_the_licence_position_as_the_class).", "PersonalInfo.vb"),
             ["ReverseBeaconDialog"] = new("WPF replacement; WinForms original still live.", "ReverseBeacon.vb"),
             ["ScanDialog"] = new("WPF replacement; WinForms original still live.", "scan.vb"),
             ["SelectScanDialog"] = new("WPF replacement; WinForms original still live.", "SelectScan.vb"),
@@ -185,6 +187,30 @@ namespace Radios.Tests
                 + "Either give it a route, or add it to the exemption list in this file with the "
                 + "reason — and if the reason is that a WinForms original is still the live one, "
                 + "NAME that file, so its deletion cannot pass unnoticed the way FlexTNF.cs did (#482).");
+        }
+
+        /// <summary>
+        /// The dormant WPF operator dialog still puts the licence list's POSITION
+        /// in as the licence class and takes it back out the same way, which the
+        /// live form stopped doing (the four classes Settings offers, so position 0
+        /// is Extra). While that line is there, its exemption must stay, so wiring
+        /// it fails <see cref="No_exemption_outlives_the_absence_it_describes"/>
+        /// and whoever wires it meets this first.
+        /// </summary>
+        [Fact]
+        public void PersonalInfoDialog_keeps_its_exemption_while_it_reads_the_licence_position_as_the_class()
+        {
+            string path = Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "PersonalInfoDialog.xaml.cs");
+            Assert.True(File.Exists(path), "PersonalInfoDialog.xaml.cs not found at " + path);
+            string code = Regex.Replace(File.ReadAllText(path), @"//[^\r\n]*", "");
+            bool rawPosition = Regex.IsMatch(code, @"LicenseList\.SelectedIndex\s*=\s*data\.LicenseIndex\b");
+            if (rawPosition)
+                Assert.True(Exempt.ContainsKey("PersonalInfoDialog"),
+                    "PersonalInfoDialog is no longer exempt (so something constructs it) while its licence list "
+                    + "still reads the list position as the licence class. Give it the four-class mapping first.");
+            else
+                Assert.False(Exempt.ContainsKey("PersonalInfoDialog") && Exempt["PersonalInfoDialog"].Why.Contains("NOT safe to wire", StringComparison.Ordinal),
+                    "PersonalInfoDialog no longer reads the raw position; drop the warning from its exemption.");
         }
 
         [Fact]

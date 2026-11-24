@@ -1,0 +1,1 @@
+- A 60 meter channel that has to change your mode now says "switching to" the new mode, the way the 60 meter segment does, instead of naming the mode as if it were already set.

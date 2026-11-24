@@ -1,0 +1,1 @@
+- Your update channel, checks on launch and while running, skipped version, and acceptance of the nightly warning are now remembered after restarting JJ Flexible Radio Access. Earlier versions never saved these choices, so please choose your update preferences again.

@@ -1,0 +1,1 @@
+- Under Radio, Operators, the current operator remains selected in the Operators list. Previously, when an operator was deleted, the wrong operator was selected.

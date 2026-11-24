@@ -14,7 +14,7 @@
     <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
   </ItemGroup>
 
-  <!-- SharpCompress: per-file LZMA decompression of the .lzma blobs Track N
+  <!-- SharpCompress: per-file XZ decompression of the .xz blobs Track N
        publishes to data.jjflexible.radio. Same package + version JJTrace
        already pins (see commit 441608e6); single dep avoids version skew. -->
   <ItemGroup>

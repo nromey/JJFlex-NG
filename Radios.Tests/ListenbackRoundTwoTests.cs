@@ -367,4 +367,117 @@ public sealed class ListenbackRoundTwoTests : IDisposable
         Assert.DoesNotContain("slice remove 3", c.F.Vendor.Transport.Commands);
         Assert.DoesNotContain("slice remove 2", c.F.Vendor.Transport.Commands);
     }
+
+    // ------------------------------------------------------------------
+    // #870: a pan the take created comes back bound; a pan it did not create
+    // ------------------------------------------------------------------
+
+    private static SavedRadioSetting Setting(RadioRecoverySnapshot s, string name) =>
+        s.Settings.Single(x => x.Name == name);
+
+    [Fact]
+    public void A_take_created_pan_records_a_prior_IQ_channel_of_0_even_when_the_radio_handed_it_back_bound()
+    {
+        using var c = new RadioCase();
+        var ears = c.Add(0, 14.2);
+        Field(ears.Panadapter, "_daxIQChannel", 1);   // born bound to the take's own channel
+        var s = new RadioRecoverySnapshot();
+        var identities = new Dictionary<string, object>();
+        FlexBase.AddListeningPanRestore(s, identities, ears.Panadapter, ears, 1);
+
+        Assert.Equal(new[] { "created-pan", "created-slice", "pan-iq-channel" }, s.Settings.Select(x => x.Name));
+        var iq = Setting(s, "pan-iq-channel");
+        Assert.Equal("0", iq.Value);
+        Assert.Equal("display pan set 0x40000000 daxiq_channel=0", iq.RestoreCommand);
+        Assert.Equal("1", iq.RequestedValue);
+        Assert.Same(ears.Panadapter, identities["created-pan"]);
+        Assert.Same(ears.Panadapter, identities["pan-iq-channel"]);
+    }
+
+    [Fact]
+    public void A_pan_the_take_did_not_create_keeps_its_real_prior_IQ_channel_and_gets_no_removal()
+    {
+        using var c = new RadioCase();
+        Field(c.Tx.Panadapter, "_daxIQChannel", 2);
+        var s = new RadioRecoverySnapshot();
+        FlexBase.AddListeningPanRestore(s, new Dictionary<string, object>(), c.Tx.Panadapter, null, 1);
+
+        Assert.Equal(new[] { "pan-iq-channel" }, s.Settings.Select(x => x.Name));
+        Assert.Equal("2", Setting(s, "pan-iq-channel").Value);
+        Assert.Equal("display pan set 0x40000001 daxiq_channel=2", Setting(s, "pan-iq-channel").RestoreCommand);
+    }
+
+    /// <summary>
+    /// The 2026-11-03 failure's restore, with the guard fixed: the take ran on a
+    /// created pan the radio handed back already bound to IQ channel 1. The
+    /// record is built by the production helper and the restore runs with the
+    /// take's own identities, as at the end of a real take. Before #870 the
+    /// prior was read off the pan as 1, the restore kept the binding, and the
+    /// created-pan removal refused ("pan-has-stream-binding-or-slice"),
+    /// leaving the pan on the radio.
+    /// </summary>
+    [Fact]
+    public async Task A_take_created_pan_that_came_back_bound_is_unbound_and_removed_by_the_restore()
+    {
+        using var c = new RadioCase();
+        var ears = c.Add(0, 14.2);
+        Field(ears.Panadapter, "_daxIQChannel", 1);
+        Field(c.F.Rig, "_RXVFO", 1); Field(c.F.Rig, "_TXVFO", 1);
+        Field(c.Tx, "_txant", "XVT-A");
+        var r = c.F.Vendor.Radio;
+        var s = new RadioRecoverySnapshot { Serial = r.Serial, ClientHandle = r.ClientHandle,
+            ConnectionId = r.CurrentCommandConnection.Id, TakeDirectory = "take-870" };
+        var identities = new Dictionary<string, object>();
+        s.ResourceNotes.Add("preexisting-slice-indices=1"); s.ResourceNotes.Add("preexisting-pan-ids=" + c.Tx.Panadapter.StreamID);
+        s.Settings.Add(new("tx-antenna", "ANT1", "slice set 1 txant=ANT1", "slice 1", "txant", "slice", 1));
+        identities["tx-antenna"] = c.Tx;
+        FlexBase.AddListeningPanRestore(s, identities, ears.Panadapter, ears, 1);
+        s.Settings.Add(new("created-stream", "removed", "stream remove 0x20000000", "stream 0x20000000", "", "stream", 0x20000000));
+        c.Store.Save(s);
+        Field(c.F.Rig, "_pendingListenbackIdentities", identities);
+        Field(c.F.Rig, "_pendingListenbackDirectory", "take-870");
+        Field(c.F.Rig, "_pendingListenbackConnection", r.CurrentCommandConnection);
+        c.F.Vendor.Transport.Written.Clear();
+
+        Assert.True(await c.Pump(c.F.Rig.RestoreListenbackSnapshotAsync(c.F.Rig.PendingListenbackRecovery, true)));
+        var commands = c.F.Vendor.Transport.Commands.ToList();
+        int unbind = commands.IndexOf("display pan set 0x40000000 daxiq_channel=0");
+        int remove = commands.IndexOf("display pan remove 0x40000000");
+        Assert.True(unbind >= 0, "the created pan was never unbound: " + string.Join(" | ", commands));
+        Assert.True(remove > unbind, "the created pan was not removed after it was unbound: " + string.Join(" | ", commands));
+        Assert.Contains("slice remove 0", commands);
+        Assert.Null(c.Store.Find(s.Serial));
+    }
+
+    /// <summary>
+    /// The other side: a take on the transmit slice's own pan (the shared
+    /// path) created nothing, so its pan is put back to its prior IQ channel
+    /// and is never removed, whatever it is bound to at the restore.
+    /// </summary>
+    [Fact]
+    public async Task A_pan_the_take_did_not_create_is_put_back_and_never_removed()
+    {
+        using var c = new RadioCase();
+        var r = c.F.Vendor.Radio;
+        var pan = c.Tx.Panadapter;
+        var s = new RadioRecoverySnapshot { Serial = r.Serial, ClientHandle = r.ClientHandle,
+            ConnectionId = r.CurrentCommandConnection.Id, TakeDirectory = "take-870-shared" };
+        var identities = new Dictionary<string, object>();
+        s.ResourceNotes.Add("preexisting-slice-indices=1"); s.ResourceNotes.Add("preexisting-pan-ids=" + pan.StreamID);
+        FlexBase.AddListeningPanRestore(s, identities, pan, null, 1);   // prior read off the pan: 0
+        s.Settings.Add(new("created-stream", "removed", "stream remove 0x20000000", "stream 0x20000000", "", "stream", 0x20000000));
+        Field(pan, "_daxIQChannel", 1);                                   // the take bound it
+        c.Store.Save(s);
+        Field(c.F.Rig, "_pendingListenbackIdentities", identities);
+        Field(c.F.Rig, "_pendingListenbackDirectory", "take-870-shared");
+        Field(c.F.Rig, "_pendingListenbackConnection", r.CurrentCommandConnection);
+        c.F.Vendor.Transport.Written.Clear();
+
+        Assert.True(await c.Pump(c.F.Rig.RestoreListenbackSnapshotAsync(c.F.Rig.PendingListenbackRecovery, true)));
+        var commands = c.F.Vendor.Transport.Commands.ToList();
+        Assert.Contains("display pan set 0x40000001 daxiq_channel=0", commands);
+        Assert.DoesNotContain(commands, x => x.StartsWith("display pan remove", StringComparison.Ordinal));
+        Assert.DoesNotContain(commands, x => x.StartsWith("slice remove", StringComparison.Ordinal));
+        Assert.Contains(pan, r.PanadapterList);
+    }
 }
