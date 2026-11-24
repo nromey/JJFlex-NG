@@ -456,6 +456,137 @@ namespace Radios.Tests
             }
         }
 
+        // ------------------------------------------------------------------
+        // A slice's RF gain: the slice's own figure AND its panadapter's
+        // ------------------------------------------------------------------
+
+        private static Flex.Smoothlake.FlexLib.Slice ActiveSlice(Radios.Tests.StationConnect.VendorRadioFixture vendor)
+        {
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var slice = (Flex.Smoothlake.FlexLib.Slice)Activator.CreateInstance(
+                typeof(Flex.Smoothlake.FlexLib.Slice), Private, null, new object[] { vendor.Radio }, null)!;
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_active", Private)!.SetValue(slice, true);
+            vendor.Radio.SliceList.Add(slice);
+            return slice;
+        }
+
+        private static Dictionary<string, ProfileReporter.SettingLine> CaptureOf(Flex.Smoothlake.FlexLib.Radio radio)
+        {
+            var rig = MakeRig();
+            rig.theRadio = radio;
+            try
+            {
+                return ProfileReporter.CaptureKeyedSettings(rig).ToDictionary(l => l.Key, l => l);
+            }
+            finally
+            {
+                rig.theRadio = null;   // never FlexBase's to disconnect
+                rig.Dispose();
+            }
+        }
+
+        [Fact]
+        public void A_slice_on_a_panadapter_records_both_its_own_rf_gain_and_the_panadapters()
+        {
+            // The app itself sets and restores the slice-level figure (the
+            // off-air take's listening slice), and FlexLib points at the
+            // panadapter's as the one in use, so the capture keeps both lines.
+            // Different values on purpose: each line must come from its own
+            // source, never one copied into the other.
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4429");
+            var slice = ActiveSlice(vendor);
+            var pan = (Flex.Smoothlake.FlexLib.Panadapter)Activator.CreateInstance(
+                typeof(Flex.Smoothlake.FlexLib.Panadapter), Private, null, new object[] { vendor.Radio }, null)!;
+            typeof(Flex.Smoothlake.FlexLib.Panadapter).GetField("_rfGain", Private)!.SetValue(pan, 20);
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_rfGain", Private)!.SetValue(slice, 10);
+            typeof(Flex.Smoothlake.FlexLib.Slice).GetField("_panadapter", Private)!.SetValue(slice, pan);
+
+            var values = CaptureOf(vendor.Radio);
+            string sl = "slice " + slice.Letter + " ";
+
+            Assert.True(values[sl + "rf gain"].Readable, values[sl + "rf gain"].Problem);
+            Assert.Equal("10 decibels", values[sl + "rf gain"].Value);
+            Assert.True(values.TryGetValue(sl + "panadapter rf gain", out var panLine),
+                "the capture has no line for the slice's panadapter RF gain");
+            Assert.True(panLine.Readable, panLine.Problem);
+            Assert.Equal("20 decibels", panLine.Value);
+        }
+
+        [Fact]
+        public void A_slice_with_no_panadapter_marks_the_panadapter_rf_gain_unreadable_not_a_value()
+        {
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4430");
+            var slice = ActiveSlice(vendor);
+
+            var values = CaptureOf(vendor.Radio);
+            var line = values["slice " + slice.Letter + " panadapter rf gain"];
+
+            Assert.False(line.Readable, "a missing panadapter must not read as a value: " + line.Value);
+            Assert.Null(line.Value);
+            Assert.Equal("the slice has no panadapter", line.Problem);
+            // The slice's own line is still written beside it.
+            Assert.True(values["slice " + slice.Letter + " rf gain"].Readable);
+        }
+
+        // ------------------------------------------------------------------
+        // The readable export's transmit levels carry their scale
+        // ------------------------------------------------------------------
+
+        // Every number the section may legitimately write, with its unit or
+        // scale; "X to Y hertz" for the filter. Whatever is left after these
+        // are removed must contain no digit.
+        private static readonly System.Text.RegularExpressions.Regex ReadableQuantity =
+            new System.Text.RegularExpressions.Regex(
+                @"-?\d+(\.\d+)? (watts|hertz|milliseconds|of 100)\b|-?\d+ to (?=-?\d+ hertz)");
+
+        [Fact]
+        public void The_readable_quantity_pattern_leaves_a_bare_level_behind()
+        {
+            // Instrument control: a bare level must survive the strip.
+            Assert.Matches(@"\d", ReadableQuantity.Replace("Mic gain: 50", ""));
+            Assert.DoesNotMatch(@"\d", ReadableQuantity.Replace("Mic gain: 50 of 100", ""));
+            Assert.DoesNotMatch(@"\d", ReadableQuantity.Replace("TX filter: 100 to 2900 hertz", ""));
+            Assert.Matches(@"\d", ReadableQuantity.Replace("Compander: on at level 70", ""));
+        }
+
+        [Fact]
+        public void Every_level_in_the_readable_transmit_settings_carries_a_scale_or_a_unit()
+        {
+            const System.Reflection.BindingFlags Private =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var vendor = new Radios.Tests.StationConnect.VendorRadioFixture("1111-2222-6300-4431");
+            // Non-zero values, so a level written bare is visibly a number.
+            var radio = vendor.Radio;
+            var t = typeof(Flex.Smoothlake.FlexLib.Radio);
+            foreach (var (field, value) in new (string, int)[]
+            {
+                ("_micLevel", 41), ("_companderLevel", 42), ("_txSBMonitorGain", 43),
+                ("_txCWMonitorGain", 44), ("_simpleVOXLevel", 45),
+            })
+            {
+                var f = t.GetField(field, Private);
+                Assert.True(f != null, "the vendored Radio has no field " + field + "; this test would read defaults");
+                f!.SetValue(radio, value);
+            }
+
+            var sb = new StringBuilder();
+            ProfileReporter.AppendTransmitSettings(sb, radio);
+            string text = sb.ToString();
+
+            // Each level is read, in the form a person hears it.
+            Assert.Contains("Mic gain: 41 of 100", text);
+            Assert.Contains("at level 42 of 100", text);
+            Assert.Contains("sideband level 43 of 100, CW level 44 of 100", text);
+            Assert.Contains("gain 45 of 100", text);
+            foreach (string line in text.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                Assert.DoesNotMatch(@"\d", ReadableQuantity.Replace(line, ""));
+            }
+        }
+
         [Fact]
         public void Every_quantity_in_a_memory_carries_a_unit_or_a_scale()
         {

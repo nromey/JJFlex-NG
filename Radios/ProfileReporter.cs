@@ -1713,23 +1713,7 @@ namespace Radios
                 }
             });
 
-            Section(sb, "Transmit settings", () =>
-            {
-                if (radio == null) { sb.AppendLine("Not readable: no radio."); return; }
-                sb.AppendLine($"RF power: {radio.RFPower} watts");
-                sb.AppendLine($"Tune power: {radio.TunePower} watts");
-                sb.AppendLine($"Mic gain: {radio.MicLevel}");
-                sb.AppendLine($"Mic boost: {OnOff(radio.MicBoost)}");
-                sb.AppendLine($"Mic bias: {OnOff(radio.MicBias)}");
-                sb.AppendLine($"Speech processor: {OnOff(radio.SpeechProcessorEnable)}"
-                    + $", level setting {(FlexBase.ProcessorSettings)radio.SpeechProcessorLevel}");
-                sb.AppendLine($"Compander: {OnOff(radio.CompanderOn)} at level {radio.CompanderLevel}");
-                sb.AppendLine($"TX filter: {radio.TXFilterLow} to {radio.TXFilterHigh} hertz");
-                sb.AppendLine($"Transmit monitor: {OnOff(radio.TXMonitor)}"
-                    + $", sideband level {radio.TXSBMonitorGain}, CW level {radio.TXCWMonitorGain}");
-                sb.AppendLine($"VOX: {OnOff(radio.SimpleVOXEnable)}"
-                    + $", gain {radio.SimpleVOXLevel}, delay {radio.SimpleVOXDelay * FlexBase.VoxDelayMS} milliseconds");
-            });
+            Section(sb, "Transmit settings", () => AppendTransmitSettings(sb, radio));
 
             Section(sb, "CW settings", () =>
             {
@@ -1797,6 +1781,29 @@ namespace Radios
             sb.AppendLine();
             sb.AppendLine("End of export.");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// The export's "Transmit settings" section body. Every level carries
+        /// its scale ("of 100"), as the restore capture writes the same
+        /// quantities; a bare number could be read as watts or decibels.
+        /// </summary>
+        internal static void AppendTransmitSettings(StringBuilder sb, Radio radio)
+        {
+            if (radio == null) { sb.AppendLine("Not readable: no radio."); return; }
+            sb.AppendLine($"RF power: {radio.RFPower} watts");
+            sb.AppendLine($"Tune power: {radio.TunePower} watts");
+            sb.AppendLine($"Mic gain: {OfHundred(radio.MicLevel)}");
+            sb.AppendLine($"Mic boost: {OnOff(radio.MicBoost)}");
+            sb.AppendLine($"Mic bias: {OnOff(radio.MicBias)}");
+            sb.AppendLine($"Speech processor: {OnOff(radio.SpeechProcessorEnable)}"
+                + $", level setting {(FlexBase.ProcessorSettings)radio.SpeechProcessorLevel}");
+            sb.AppendLine($"Compander: {OnOff(radio.CompanderOn)} at level {OfHundred(radio.CompanderLevel)}");
+            sb.AppendLine($"TX filter: {radio.TXFilterLow} to {radio.TXFilterHigh} hertz");
+            sb.AppendLine($"Transmit monitor: {OnOff(radio.TXMonitor)}"
+                + $", sideband level {OfHundred(radio.TXSBMonitorGain)}, CW level {OfHundred(radio.TXCWMonitorGain)}");
+            sb.AppendLine($"VOX: {OnOff(radio.SimpleVOXEnable)}"
+                + $", gain {OfHundred(radio.SimpleVOXLevel)}, delay {radio.SimpleVOXDelay * FlexBase.VoxDelayMS} milliseconds");
         }
 
         /// <summary>
@@ -2202,6 +2209,19 @@ namespace Radios
                 // speaks this figure, and as FlexLib's own summary of it
                 // says. DRAFT wording, for Codex: " decibels".
                 Key(p + "rf gain", () => s.RFGain + " decibels");
+                // FlexLib marks the slice's own RF gain obsolete in favour of
+                // the panadapter's, but the app still sets and restores the
+                // slice-level figure (the off-air take's listening slice), so
+                // that line stays and this one is added beside it: a capture
+                // records both, and nobody restoring from it has to know which
+                // one the radio honours. A slice with no panadapter gets the
+                // file's own unreadable form ("= unreadable: reason"), so a
+                // missing figure never reads as a value. DRAFT wording, for
+                // Codex: the key "panadapter rf gain" and the reason "the
+                // slice has no panadapter".
+                Key(p + "panadapter rf gain", () => s.Panadapter == null
+                    ? throw new InvalidOperationException("the slice has no panadapter")
+                    : s.Panadapter.RFGain + " decibels");
                 Key(p + "squelch", () => OnOff(s.SquelchOn));
                 Key(p + "squelch level", () => OfHundred(s.SquelchLevel));
                 Key(p + "rit", () => s.RITOn ? "on at " + s.RITFreq + " hertz" : "off");
