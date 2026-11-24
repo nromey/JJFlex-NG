@@ -81,13 +81,13 @@ namespace Radios.Tests
 
         /// <summary>
         /// Every way PerformNewLogin ends without a token goes through ONE
-        /// method, SignInEndedWithoutAToken, which the execution tests in
-        /// SmartLinkSignInPlanTests.SignInCancel and SignInCancelSpeechTests run
-        /// through the test seam. What is left to pin is the glue: each window's
-        /// ending RETURNS that method's answer (Codex found a <c>false &amp;&amp;</c>
-        /// in front of the old conditions stayed green; there is no condition
-        /// left at the call sites to falsify), and nothing else in the method
-        /// speaks or decides.
+        /// method, SignInEndedWithoutAToken. Since repair 1 the test seam stands
+        /// in for the two WINDOWS only, so the execution tests in
+        /// SmartLinkSignInPlanTests.SignInCancel and RegistrationHoldTests run
+        /// the method's own two endings: a <c>false &amp;&amp;</c> in front of
+        /// either (Codex's note) now turns a cancel test red by running it.
+        /// What is left to pin is that the seam never builds either window, and
+        /// that nothing else in the method speaks or decides.
         /// </summary>
         [Fact]
         public void PerformNewLogin_ends_every_window_without_a_token_through_the_one_method()
@@ -96,12 +96,20 @@ namespace Radios.Tests
             string perform = SourceMember.CSharp(wan, "private string PerformNewLogin(");
             Assert.Contains("return SignInEndedWithoutAToken(native.result, null, false);", perform, StringComparison.Ordinal);
             Assert.Contains("return SignInEndedWithoutAToken(DialogResult.Retry, dialogResult, operatorClosed);", perform, StringComparison.Ordinal);
-            Assert.Contains("bool operatorClosed = form.ClosedByOperator;", perform, StringComparison.Ordinal);
-            // The seam's ending is the same method, so the tests run the real one.
-            Assert.Contains("return SignInEndedWithoutAToken(ended.native, ended.browser, ended.browserClosedByOperator);", perform, StringComparison.Ordinal);
-            // Exactly three endings without a token, and the decision and the
+            Assert.Contains("bool operatorClosed = windowsForTest?.browserClosedByOperator ?? form.ClosedByOperator;", perform, StringComparison.Ordinal);
+            // The seam replaces the windows and never builds one: the native
+            // form is not shown and the browser page is not constructed.
+            Assert.Contains("var windowsForTest = SignInWindowsForTest?.Invoke(expectedAccount);", perform, StringComparison.Ordinal);
+            Assert.Contains(": ShowNativeLoginDialog(expectedAccount, forceNewLogin);", perform, StringComparison.Ordinal);
+            Assert.Contains("var form = windowsForTest == null ? new AuthFormWebView2() : null;", perform, StringComparison.Ordinal);
+            Assert.Single(perform.Split("new AuthFormWebView2()").Skip(1));
+            Assert.Single(perform.Split("ShowNativeLoginDialog(").Skip(1));
+            // The seam offers no sign-in that signs in, so it can never reach
+            // FinishInteractiveLogin and save an account.
+            Assert.Equal(2, perform.Split("throw new InvalidOperationException(\"SignInWindowsForTest offers no sign-in that signs in.\");").Length - 1);
+            // Exactly two endings without a token, and the decision and the
             // words live only in the one method.
-            Assert.Equal(3, perform.Split("SignInEndedWithoutAToken(").Length - 1);
+            Assert.Equal(2, perform.Split("SignInEndedWithoutAToken(").Length - 1);
             Assert.DoesNotContain("SmartLinkSignInCancel.", perform, StringComparison.Ordinal);
             Assert.DoesNotContain("login_cancelled", perform, StringComparison.Ordinal);
             // Each sign-in decides its own cancel, before either window.

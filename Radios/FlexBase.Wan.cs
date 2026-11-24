@@ -1484,6 +1484,17 @@ namespace Radios
         public bool SignInCancelledByOperator { get; private set; }
 
         /// <summary>
+        /// How the last SmartLink pass ended, for the radio picker's discovery
+        /// and refresh callbacks (#1244): a sign-in the operator cancelled is
+        /// <see cref="RemotePassOutcome.SignInCancelled"/>, not a failure.
+        /// Read it straight after <see cref="RemoteRadios"/> or
+        /// <see cref="RefreshRemoteRadios"/>; <see cref="setupRemote"/> clears
+        /// the cancel at the start of every pass.
+        /// </summary>
+        public RemotePassOutcome RemotePassOutcome =>
+            RemotePassOutcomes.For(IsSmartLinkSessionLive, SignInCancelledByOperator);
+
+        /// <summary>
         /// For a windowless test: stands in for the two sign-in windows, which
         /// are never built while it is set, and says how they closed without a
         /// token. Null in the product. A sign-in that SIGNS IN is not offered.
@@ -1626,14 +1637,18 @@ namespace Radios
             // Each sign-in decides its own cancel (#1244): one the operator
             // cancelled before must not stand for this one.
             SignInCancelledByOperator = false;
-            if (SignInWindowsForTest != null)
-            {
-                var ended = SignInWindowsForTest(expectedAccount);
-                return SignInEndedWithoutAToken(ended.native, ended.browser, ended.browserClosedByOperator);
-            }
-            var native = ShowNativeLoginDialog(expectedAccount, forceNewLogin);
+            // The test seam stands in for both windows, so the tests run THIS
+            // method's own endings below; neither window is built while it is
+            // set (#1244 repair 1). Null in the product, where every line below
+            // does exactly what it did before.
+            var windowsForTest = SignInWindowsForTest?.Invoke(expectedAccount);
+            var native = windowsForTest is { } nativeForTest
+                ? (result: nativeForTest.native, email: "", idToken: "", refreshToken: "", expiresIn: 0, friendlyName: "", rememberSignIn: false)
+                : ShowNativeLoginDialog(expectedAccount, forceNewLogin);
             if (native.result == DialogResult.OK)
             {
+                if (windowsForTest != null)
+                    throw new InvalidOperationException("SignInWindowsForTest offers no sign-in that signs in.");
                 RestoreParentFocus();
                 return FinishInteractiveLogin(native.email, native.idToken, native.refreshToken, native.expiresIn, expectedAccount,
                     friendlyNameFromForm: native.friendlyName, rememberSignIn: native.rememberSignIn);
@@ -1663,21 +1678,25 @@ namespace Radios
             // this type, and the caller immediately downcast to it. The IE form
             // is gone (2026-08-17), and with one implementation left the
             // factory was pure indirection.
-            var form = new AuthFormWebView2();
+            // Never built while the test seam is set: the seam says how the page closed.
+            var form = windowsForTest == null ? new AuthFormWebView2() : null;
             try
             {
-                form.ForceNewLogin = forceNewLogin;
-                // AccountEmail follows the account being authenticated, not
-                // whichever account happens to be current. It selects the
-                // per-account WebView2 cookie profile (re-added in 1957420b
-                // after the 81b688fe revert — an earlier comment here claimed
-                // profiles were gone, which Don's 2026-08-06 trace disproved).
-                // Cross-account safety = per-account profiles + ForceNewLogin
-                // cookie clearing + the identity check in FinishInteractiveLogin.
-                form.AccountEmail = expectedAccount?.Email ?? _currentAccount?.Email ?? "";
-                if (!string.IsNullOrEmpty(title))
+                if (form != null)
                 {
-                    form.Text = title;
+                    form.ForceNewLogin = forceNewLogin;
+                    // AccountEmail follows the account being authenticated, not
+                    // whichever account happens to be current. It selects the
+                    // per-account WebView2 cookie profile (re-added in 1957420b
+                    // after the 81b688fe revert — an earlier comment here claimed
+                    // profiles were gone, which Don's 2026-08-06 trace disproved).
+                    // Cross-account safety = per-account profiles + ForceNewLogin
+                    // cookie clearing + the identity check in FinishInteractiveLogin.
+                    form.AccountEmail = expectedAccount?.Email ?? _currentAccount?.Email ?? "";
+                    if (!string.IsNullOrEmpty(title))
+                    {
+                        form.Text = title;
+                    }
                 }
 
                 // Show dialog on the main UI thread so it gets foreground focus.
@@ -1688,7 +1707,11 @@ namespace Radios
                 DialogResult dialogResult = DialogResult.Cancel;
                 var parent = Callouts?.ParentWindow;
                 var ui = Callouts?.UiThread;
-                if (parent != null && UiThreadInvoker.MustMarshal(ui))
+                if (windowsForTest is { } browserForTest)
+                {
+                    dialogResult = browserForTest.browser ?? DialogResult.Cancel;
+                }
+                else if (parent != null && UiThreadInvoker.MustMarshal(ui))
                 {
                     UiThreadInvoker.Run(ui, () => { dialogResult = form.ShowDialog(parent); });
                 }
@@ -1699,7 +1722,7 @@ namespace Radios
 
                 if (dialogResult != DialogResult.OK)
                 {
-                    bool operatorClosed = form.ClosedByOperator;
+                    bool operatorClosed = windowsForTest?.browserClosedByOperator ?? form.ClosedByOperator;
                     Tracing.TraceLine($"setupRemote: auth form cancelled or failed (closed by the operator: {operatorClosed})", TraceLevel.Info);
                     RestoreParentFocus();
                     // #1244: only a close the operator made is a cancel, never
@@ -1710,13 +1733,15 @@ namespace Radios
                 // Restore focus to the main app window after auth form closes.
                 // Without this, focus falls to whatever window is behind the app
                 // because ShowDialog() runs without an owner (cross-thread unsafe).
+                if (windowsForTest != null)
+                    throw new InvalidOperationException("SignInWindowsForTest offers no sign-in that signs in.");
                 RestoreParentFocus();
 
                 jwt = FinishInteractiveLogin(form.Email, form.IdToken, form.RefreshToken, form.ExpiresIn, expectedAccount);
             }
             finally
             {
-                DisposeAuthFormOnUiThread(form);
+                if (form != null) DisposeAuthFormOnUiThread(form);
             }
 
             return jwt;

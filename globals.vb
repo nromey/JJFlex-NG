@@ -4743,7 +4743,7 @@ Module globals
                                        localDiscoveryRunning = True
                                    End Sub,
             .ReplayDiscoveredRadios = Sub() RigControl.ReplayDiscoveredRadios(),
-            .StartRemoteDiscovery = Sub(onComplete As Action(Of Boolean))
+            .StartRemoteDiscovery = Sub(onComplete As Action(Of Radios.RemotePassOutcome))
                                         ' Run on background thread — WebView2 auth can take seconds
                                         Dim t As New Thread(
                                             Sub()
@@ -4751,8 +4751,11 @@ Module globals
                                                 ' Notify completion immediately. Session-level success:
                                                 ' IsConnected is RADIO-level and is still False after a
                                                 ' successful radio-LIST pass, so it can't carry this flag.
-                                                Tracing.TraceLine("StartRemoteDiscovery: calling onComplete", TraceLevel.Info)
-                                                onComplete?.Invoke(RigControl.IsSmartLinkSessionLive)
+                                                ' The outcome, not a Boolean: a sign-in the operator
+                                                ' cancelled is not "unreachable" (#1244).
+                                                Dim outcome = RigControl.RemotePassOutcome
+                                                Tracing.TraceLine($"StartRemoteDiscovery: calling onComplete ({outcome})", TraceLevel.Info)
+                                                onComplete?.Invoke(outcome)
                                                 Tracing.TraceLine("StartRemoteDiscovery: onComplete returned", TraceLevel.Info)
                                             End Sub)
                                         t.IsBackground = True
@@ -4776,15 +4779,16 @@ Module globals
                                           RemoveHandler FlexBase.RadioRemoved, AddressOf wpfRadioRemovedHandler
                                           _wpfRadioRemovedCallback = Nothing
                                       End Sub,
-            .StartRemoteRefresh = Sub(onComplete As Action(Of Boolean))
+            .StartRemoteRefresh = Sub(onComplete As Action(Of Radios.RemotePassOutcome))
                                       ' Same shape as StartRemoteDiscovery, but cycles the
                                       ' SmartLink session first so the server sends a fresh
                                       ' radio list (it sends one per TLS session, ever).
                                       Dim t As New Thread(
                                           Sub()
                                               RigControl.RefreshRemoteRadios()
-                                              Tracing.TraceLine("StartRemoteRefresh: calling onComplete", TraceLevel.Info)
-                                              onComplete?.Invoke(RigControl.IsSmartLinkSessionLive)
+                                              Dim outcome = RigControl.RemotePassOutcome
+                                              Tracing.TraceLine($"StartRemoteRefresh: calling onComplete ({outcome})", TraceLevel.Info)
+                                              onComplete?.Invoke(outcome)
                                               Tracing.TraceLine("StartRemoteRefresh: onComplete returned", TraceLevel.Info)
                                           End Sub)
                                       t.IsBackground = True
