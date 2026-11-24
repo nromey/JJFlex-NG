@@ -36,9 +36,15 @@ namespace JJFlexWpf
         /// <summary>
         /// The window is closing: unless Close was pressed, put back everything
         /// the editor opened with (both stages and the speech processor
-        /// setting). True when something was put back.
+        /// setting), after withdrawing what it asked for while keyed and is
+        /// still waiting (repair 2, B5). True when something was withdrawn or
+        /// put back.
         /// </summary>
-        internal static bool Dismissed(TxDynamicsEditorModel model, bool kept) => !kept && model.Restore();
+        internal static bool Dismissed(TxDynamicsEditorModel model, bool kept)
+        {
+            if (kept) { model.Kept(); return false; }
+            return model.Restore();
+        }
 
         /// <summary>A detached editor (no radio, nothing applied): the dialog harness's road.</summary>
         public TxDynamicsEditorDialog() : this(TxDynamicsEditorModel.Detached(), null, "detached") { }

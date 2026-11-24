@@ -392,19 +392,46 @@ namespace JJFlexWpf
         // ────────────────────────────────────────────────────────────────
 
         /// <summary>A model for the compressor and limiter's editor on this controller: what it shows and how its Cancel puts back.</summary>
-        public TxDynamicsEditorModel DynamicsEditor(string source) => new(
-            () => TxAudioConditioning.CaptureDynamics(),
-            (lever, value) => SetDynamics(lever, value, source, speak: false),
-            (compressor, limiter) =>
-            {
-                using var owned = OwnTx(source);
-                // Each as ONE switch, held for the unkey while keyed, behind anything already held.
-                TxAudioConditioning.SetCompressorWhole(compressor);
-                TxAudioConditioning.SetLimiterWhole(limiter);
-            },
-            // The editor offers the speech processor setting too, so its Cancel covers it (repair 1, B5).
-            () => ProcessorHandoffSetting,
-            on => RestoreProcessorHandoffSetting(on, source));
+        public TxDynamicsEditorModel DynamicsEditor(string source)
+        {
+            // The open editor's tag (repair 2, B5): every change asked for with its source while
+            // it is open is held under this tag (OwnTx), so its Cancel can withdraw the ones still
+            // waiting for the unkey. One editor at a time; a new one takes the tag over.
+            var owner = new object();
+            _editorOwner = owner;
+            _editorSource = source;
+            return new(
+                () => TxAudioConditioning.CaptureDynamics(),
+                (lever, value) => SetDynamics(lever, value, source, speak: false),
+                (compressor, limiter) =>
+                {
+                    using var owned = OwnTx(source);
+                    // Each as ONE switch, held for the unkey while keyed, behind anything already held.
+                    TxAudioConditioning.SetCompressorWhole(compressor);
+                    TxAudioConditioning.SetLimiterWhole(limiter);
+                },
+                // The editor offers the speech processor setting too, so its Cancel covers it (repair 1, B5).
+                () => ProcessorHandoffSetting,
+                on => RestoreProcessorHandoffSetting(on, source),
+                withdraw => EndDynamicsEditor(owner, withdraw));
+        }
+
+        private object? _editorOwner;
+        private string _editorSource = "";
+
+        /// <summary>
+        /// The editor is done with. Nothing asked for with its source is its
+        /// own any more (so the put-back its Cancel asks for is nobody's to
+        /// withdraw); and when it was cancelled, every change it asked for
+        /// while keyed that is still waiting for the unkey is withdrawn, and
+        /// everybody else's waiting changes stay, in their order. Returns how
+        /// many were withdrawn.
+        /// </summary>
+        private int EndDynamicsEditor(object owner, bool withdraw)
+        {
+            if (ReferenceEquals(_editorOwner, owner)) { _editorOwner = null; _editorSource = ""; }
+            return withdraw && _txChain() is { } chain ? chain.CancelHeld(owner) : 0;
+        }
     }
 
     /// <summary>
@@ -421,10 +448,13 @@ namespace JJFlexWpf
         private readonly Action<TxCompressorSetup, TxLimiterSetup> _restore;
         private readonly Func<bool> _readHandoff;
         private readonly Action<bool> _restoreHandoff;
+        private readonly Func<bool, int> _end;
 
+        /// <param name="end">The editor is done with: called with true to withdraw what it asked for while keyed and is still waiting (returning how many), with false to leave it waiting.</param>
         public TxDynamicsEditorModel(Func<(TxCompressorSetup, TxLimiterSetup)> read, Action<DynamicsLever, double> set,
-            Action<TxCompressorSetup, TxLimiterSetup> restore, Func<bool> readHandoff, Action<bool> restoreHandoff)
+            Action<TxCompressorSetup, TxLimiterSetup> restore, Func<bool> readHandoff, Action<bool> restoreHandoff, Func<bool, int> end)
         {
+            _end = end ?? throw new ArgumentNullException(nameof(end));
             _read = read ?? throw new ArgumentNullException(nameof(read));
             _set = set ?? throw new ArgumentNullException(nameof(set));
             _restore = restore ?? throw new ArgumentNullException(nameof(restore));
@@ -443,7 +473,7 @@ namespace JJFlexWpf
         {
             var compressor = new TxCompressorSetup();
             var limiter = TxLimiterSetup.ForNewSetup();
-            return new TxDynamicsEditorModel(() => (compressor, limiter), (_, _) => { }, (_, _) => { }, () => true, _ => { });
+            return new TxDynamicsEditorModel(() => (compressor, limiter), (_, _) => { }, (_, _) => { }, () => true, _ => { }, _ => 0);
         }
 
         /// <summary>The setting the editor opened with: what Cancel and Escape put back.</summary>
@@ -498,20 +528,27 @@ namespace JJFlexWpf
         /// <summary>The field changed: set the lever (a continuous lever live, a switch at the unkey).</summary>
         public void Set(DynamicsLever lever, int field) => _set(lever, FromField(lever, field));
 
+        /// <summary>Close: everything the editor changed is kept, what it asked for while keyed and is still waiting included.</summary>
+        public void Kept() => _end(false);
+
         /// <summary>
         /// Every way out but Close: put back everything the editor opened
-        /// with, both stages whole and the speech processor setting. True
-        /// when anything had changed.
+        /// with, both stages whole and the speech processor setting. What
+        /// the editor asked for while keyed has not reached the setting yet
+        /// (it waits for the unkey), so comparing the setting cannot see it:
+        /// it is withdrawn FIRST (repair 2, B5), and then whatever did land
+        /// is put back. True when anything was withdrawn or had changed.
         /// </summary>
         public bool Restore()
         {
+            int withdrawn = _end(true);
             var (c, l) = _read();
             bool stages = !NoiseController.SameCompressor(c, OpenedWith.Compressor) || c.PresetId != OpenedWith.Compressor.PresetId
                 || !NoiseController.SameLimiter(l, OpenedWith.Limiter);
             if (stages) _restore(OpenedWith.Compressor.Clone(), OpenedWith.Limiter.Clone());
             bool handoff = _readHandoff() != OpenedWithHandoff;
             if (handoff) _restoreHandoff(OpenedWithHandoff);
-            return stages || handoff;
+            return withdrawn > 0 || stages || handoff;
         }
     }
 }

@@ -750,6 +750,121 @@ public sealed class TxDynamicsSurfaceTests
         finally { AudioOutputConfig.RadioProcessorOffWithCompressorInForce = settingWas; }
     }
 
+    // ── repair 2, B5: what the editor asked for while keyed is still waiting when it is cancelled ──
+
+    private static void EditWhileKeyed(Bridge b, string change, string source)
+    {
+        switch (change)
+        {
+            case "compressor-on": b.Noise.SetCompressorOn(true, source); break;
+            case "limiter-on": b.Noise.SetLimiterOn(true, source); break;
+            case "preset": b.Noise.LoadCompressorPreset("dx", source); break;
+            case "split-band": b.Noise.SetCompressorSplitBand(true, source); break;
+            case "rotator": b.Noise.SetDynamics(NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "rotator")!, 4, source); break;
+            // A continuous lever is live while keyed, but once something is waiting it goes in order behind it.
+            case "lever-behind-a-switch":
+                b.Noise.SetLimiterOn(true, source);
+                b.Noise.SetDynamics(NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "makeup")!, 3, source);
+                break;
+            default: b.Noise.SetDynamics(NoiseController.FindDynamicsLever(DynamicsLever.LimiterStage, "lookahead")!, 5, source); break;
+        }
+    }
+
+    private static (bool Compressor, bool Limiter, string Preset, float LookAhead, bool SplitBand, int Rotator, float Makeup) InForce(Bridge b)
+        => (b.Cond.Compressor.Settings.Enabled, b.Cond.Limiter.Settings.Enabled, TxAudioConditioning.CompressorSetup.PresetId, b.Cond.Limiter.Settings.LookAheadMs,
+            b.Cond.Compressor.Settings.SplitBand, b.Cond.Compressor.Settings.RotatorStages, b.Cond.Compressor.Settings.MakeupDb);
+
+    [Theory]
+    [InlineData("compressor-on")]
+    [InlineData("limiter-on")]
+    [InlineData("preset")]
+    [InlineData("lookahead")]
+    [InlineData("split-band")]
+    [InlineData("rotator")]
+    [InlineData("lever-behind-a-switch")]
+    public void An_edit_made_keyed_and_cancelled_before_the_unkey_never_lands(string change)
+    {
+        const string editor = "compressor editor";
+        using var b = new Bridge();
+        var opened = InForce(b);
+        Assert.Equal((false, false, "", 0f, false, 0, TxCompressorSettings.DefaultMakeupDb), opened);
+        var model = b.Noise.DynamicsEditor(editor);
+        b.X.Keyed = true; b.X.Buffer();
+
+        EditWhileKeyed(b, change, editor);
+        Assert.True(b.X.Chain.HasDeferredChanges);              // positive control: the edit is waiting for the unkey
+        Assert.Equal(opened, InForce(b));                       // and has not landed
+
+        Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false)); // Cancel, Escape, the title bar: there was something to take back
+        Assert.False(b.X.Chain.HasDeferredChanges);             // nothing of the editor's is left waiting
+        b.Unkey();
+        Assert.Equal(opened, InForce(b));                       // the cancelled edit never lands
+    }
+
+    [Theory]
+    [InlineData("compressor-on")]
+    [InlineData("limiter-on")]
+    [InlineData("preset")]
+    [InlineData("lookahead")]
+    [InlineData("split-band")]
+    [InlineData("rotator")]
+    [InlineData("lever-behind-a-switch")]
+    public void An_edit_made_keyed_and_kept_with_Close_lands_at_the_unkey(string change)
+    {
+        // The positive control for the theory above: the same edit, kept, does land.
+        const string editor = "compressor editor";
+        using var b = new Bridge();
+        var opened = InForce(b);
+        var model = b.Noise.DynamicsEditor(editor);
+        b.X.Keyed = true; b.X.Buffer();
+        EditWhileKeyed(b, change, editor);
+        Assert.False(TxDynamicsEditorDialog.Dismissed(model, kept: true));
+        Assert.True(b.X.Chain.HasDeferredChanges);
+        b.Unkey();
+        Assert.NotEqual(opened, InForce(b));
+    }
+
+    [Fact]
+    public void Cancelling_the_editor_keeps_what_somebody_else_asked_for_while_keyed_and_takes_back_only_its_own()
+    {
+        const string editor = "compressor editor";
+        using var b = new Bridge();
+        var model = b.Noise.DynamicsEditor(editor);
+        b.X.Keyed = true; b.X.Buffer();
+
+        b.Noise.SetLimiterOn(true, Home);                       // asked from Home, before the editor's edits: waiting
+        b.Noise.SetCompressorOn(true, editor);                  // the editor's own, waiting behind it
+        b.Noise.LoadCompressorPreset("dx", editor);
+        b.Noise.SetDynamics(NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "rotator")!, 4, Home); // Home again, behind the editor's
+        Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+        Assert.True(b.X.Chain.HasDeferredChanges);              // Home's two are still waiting
+        b.Unkey();
+        Assert.True(b.Cond.Limiter.Settings.Enabled);           // Home's limiter came on
+        Assert.Equal(4, b.Cond.Compressor.Settings.RotatorStages); // and Home's rotator
+        Assert.False(b.Cond.Compressor.Settings.Enabled);       // the editor's cancelled switch did not
+        Assert.Equal("", TxAudioConditioning.CompressorSetup.PresetId); // nor its preset
+    }
+
+    [Fact]
+    public void An_edit_that_landed_and_one_still_waiting_are_both_taken_back_by_one_cancel()
+    {
+        const string editor = "compressor editor";
+        using var b = new Bridge();
+        var model = b.Noise.DynamicsEditor(editor);
+        b.Noise.SetCompressorOn(true, editor);                  // unkeyed: lands at once
+        b.Unkey();
+        Assert.True(b.Cond.Compressor.Settings.Enabled);
+        b.X.Keyed = true; b.X.Buffer();
+        b.Noise.SetLimiterOn(true, editor);                     // keyed: waits
+        Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+        Assert.True(b.Cond.Compressor.Settings.Enabled);        // a switch does not change under an over: the put-back waits
+        b.Unkey();
+        Assert.False(b.Cond.Compressor.Settings.Enabled);       // put back at the unkey
+        Assert.False(b.Cond.Limiter.Settings.Enabled);          // and the waiting one never landed
+        // A second closing finds nothing to do, and does not take back the put-back.
+        Assert.False(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+    }
+
     [Fact]
     public void The_editors_window_puts_back_on_closing_not_on_one_button_and_its_Say_buttons_speak()
     {
