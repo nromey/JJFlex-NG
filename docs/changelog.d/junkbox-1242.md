@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- When you exit with a contact you have not saved, the question now has a Cancel button, and Escape answers it: JJ Flexible stays open with the contact still there, and the next exit asks again.
+- The exit question for an unsaved contact from the full log entry form now offers Cancel. Select Cancel or press Escape to keep JJ Flexible Radio Access open without losing the contact.

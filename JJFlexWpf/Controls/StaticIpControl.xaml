@@ -27,9 +27,9 @@
         <GroupBox Header="Address mode" Margin="0,0,0,8"
                   AutomationProperties.Name="Radio address mode">
             <StackPanel Margin="4">
-                <!-- DRAFT name, for Codex to word: the visible label, word for
-                     word, so the spoken name contains what is on screen (a
-                     speech-input user says what they see). -->
+                <!-- The name is the visible label, word for word, so the spoken
+                     name contains what is on screen (a speech-input user says
+                     what they see). Approved by Noel 2026-11-24. -->
                 <RadioButton x:Name="DhcpRadio"
                              GroupName="AddressMode"
                              Margin="0,4,0,4"

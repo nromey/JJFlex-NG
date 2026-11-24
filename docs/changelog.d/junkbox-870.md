@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- "Heard on the air" in Check your audio no longer stops with "the listening pan already has an IQ binding" when the radio brings back a listening pan already set up for that same check. The take goes ahead, and afterwards the extra pan is taken off the radio as it should be.
+- The Heard on the air audio check method in the Check your audio tool no longer refuses a check because the radio has already connected the check's own listening panadapter to its recording channel. The cleanup phase of the audio check process now disconnects and removes the panadapter created for that check.

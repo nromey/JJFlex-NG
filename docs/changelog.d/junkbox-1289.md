@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- Your update choices are now remembered between sessions: the update channel, checking on launch, checking while running, a version you chose to skip, and your nightly confirmation all stay as you set them after you restart.
+- Your update channel, checks on launch and while running, skipped version, and acceptance of the nightly warning are now remembered after restarting JJ Flexible Radio Access. Earlier versions never saved these choices, so please choose your update preferences again.
