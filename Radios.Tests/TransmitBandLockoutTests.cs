@@ -213,7 +213,7 @@ public sealed class TransmitBandLockoutTests : IDisposable
         Assert.Equal(0L, FlexBase.XitOffsetHz(false, -2000));
     }
 
-    // ---- #1207: the slice's transmit offset moves the transmitted frequency ----
+    // ---- #1207: the slice's transmit offset moves the transmitted frequency, in FM ----
 
     /// <summary>
     /// The fixture's transmit slice moved to slice 0 at <paramref name="mhz"/>
@@ -221,7 +221,7 @@ public sealed class TransmitBandLockoutTests : IDisposable
     /// <c>tx_offset_freq</c> and anything else); returns the lockout's verdict
     /// for a General on that slice's reading, and the frequency it judged.
     /// </summary>
-    private static (bool Allowed, ulong Hz) JudgeWithStatus(double mhz, string mode, int low, int high, string status)
+    private static (bool Allowed, ulong Hz, ulong? AlsoHz) JudgeWithStatus(double mhz, string mode, int low, int high, string status)
     {
         using var c = new RadioCase();
         c.Add(0, mhz);
@@ -231,10 +231,10 @@ public sealed class TransmitBandLockoutTests : IDisposable
         Assert.NotNull(reading);
         bool allowed = TransmitBandLockout.Judge(reading, 0, 0, 0, Bands.Licenses.general, out bool judgedSelected);
         Assert.False(judgedSelected);
-        return (allowed, reading!.Value.Hz);
+        return (allowed, reading!.Value.Hz, reading.Value.AlsoJudgeHz);
     }
 
-    private static (bool Allowed, ulong Hz) JudgeFmWithOffset(double mhz, string txOffsetMhz) =>
+    private static (bool Allowed, ulong Hz, ulong? AlsoHz) JudgeFmWithOffset(double mhz, string txOffsetMhz) =>
         JudgeWithStatus(mhz, "FM", -8000, 8000, "tx_offset_freq=" + txOffsetMhz);
 
     [Fact]
@@ -294,16 +294,12 @@ public sealed class TransmitBandLockoutTests : IDisposable
     }
 
     [Fact]
-    public void A_transmit_offset_on_a_slice_that_is_not_FM_is_judged_too()
+    public void FM_adds_XIT_and_the_offset_each_with_its_sign()
     {
-        // Applied in every mode (FlexLib carries the field without a mode; the
-        // bench measured FM only). 14.230 USB is inside a General's phone;
-        // -10 kHz transmits at 14.220, under the 14.225 edge.
-        Assert.True(JudgeWithStatus(14.23, "USB", 100, 2800, "tx_offset_freq=0.000000").Allowed,
-            "positive control: with no offset the slice is allowed");
-        var usb = JudgeWithStatus(14.23, "USB", 100, 2800, "tx_offset_freq=-0.010000");
-        Assert.Equal(14_220_000UL, usb.Hz);
-        Assert.False(usb.Allowed);
+        // Measured on an 8600 at rest: 29.640 FM, +0.05 MHz and XIT +1,000 Hz
+        // transmitted on 29.691; with XIT -1,000, on 29.689.
+        Assert.Equal(29_691_000UL, JudgeWithStatus(29.64, "FM", -8000, 8000, "xit_on=1 xit_freq=1000 tx_offset_freq=0.050000").Hz);
+        Assert.Equal(29_689_000UL, JudgeWithStatus(29.64, "FM", -8000, 8000, "xit_on=1 xit_freq=-1000 tx_offset_freq=0.050000").Hz);
     }
 
     [Fact]
@@ -317,22 +313,136 @@ public sealed class TransmitBandLockoutTests : IDisposable
     }
 
     [Fact]
-    public void XIT_and_a_transmit_offset_together_are_both_added()
+    public void An_FM_offset_that_carries_the_transmitter_below_zero_is_refused_not_judged_on_the_selected_slice()
     {
-        // How the radio combines the two is not established; both are added.
-        var both = JudgeWithStatus(14.25, "USB", 100, 2800, "xit_on=1 xit_freq=1000 tx_offset_freq=0.050000");
-        Assert.Equal(14_301_000UL, both.Hz);
+        // -40 MHz on a 29.600 FM slice: no frequency the radio could key lawfully.
+        // Judged at 1 Hz, outside every band; never a null reading, which
+        // would hand the judgement to the selected slice.
+        var below = JudgeFmWithOffset(29.6, "-40.000000");
+        Assert.Equal(1UL, below.Hz);
+        Assert.Null(below.AlsoHz);
+        Assert.False(below.Allowed);
+    }
+
+    // USB: measured, the radio keeps the offset but transmits on the dial.
+
+    [Fact]
+    public void In_USB_the_stored_offset_is_not_judged_the_dial_is()
+    {
+        // 14.230 USB is inside a General's phone. A -10 kHz offset would put it
+        // at 14.220, under the 14.225 edge, but in USB the radio transmits on
+        // the dial, so the slice keys.
+        var usb = JudgeWithStatus(14.23, "USB", 100, 2800, "tx_offset_freq=-0.010000");
+        Assert.Equal(14_230_000UL, usb.Hz);
+        Assert.Null(usb.AlsoHz);
+        Assert.True(usb.Allowed);
     }
 
     [Fact]
-    public void An_offset_that_carries_the_transmitter_below_zero_is_refused_not_judged_on_the_selected_slice()
+    public void In_USB_an_offset_over_the_band_edge_is_not_refused()
     {
-        // -20 MHz on a 14.230 slice: no frequency the radio could key lawfully.
-        // Judged at 1 Hz, outside every band; never a null reading, which
-        // would hand the judgement to the selected slice.
-        var below = JudgeWithStatus(14.23, "USB", 100, 2800, "tx_offset_freq=-20.000000");
-        Assert.Equal(1UL, below.Hz);
-        Assert.False(below.Allowed);
+        // 29.680 USB is inside 10 m; +100 kHz would be above it, and is idle in USB.
+        var usb = JudgeWithStatus(29.68, "USB", 100, 2800, "tx_offset_freq=0.100000");
+        Assert.Equal(29_680_000UL, usb.Hz);
+        Assert.True(usb.Allowed);
+    }
+
+    [Fact]
+    public void In_USB_XIT_still_moves_the_judged_frequency_and_the_offset_does_not()
+    {
+        var usb = JudgeWithStatus(14.25, "USB", 100, 2800, "xit_on=1 xit_freq=1000 tx_offset_freq=0.050000");
+        Assert.Equal(14_251_000UL, usb.Hz);
+    }
+
+    [Fact]
+    public void In_LSB_the_stored_offset_is_not_judged_presumed_from_USB()
+    {
+        // Not measured: LSB is presumed to follow USB's firmware path.
+        var lsb = JudgeWithStatus(7.178, "LSB", -2800, -100, "tx_offset_freq=-0.010000");
+        Assert.Equal(7_178_000UL, lsb.Hz);
+        Assert.Null(lsb.AlsoHz);
+        Assert.True(lsb.Allowed);
+    }
+
+    // NFM, DFM and DSTR: nobody has read them, so both frequencies are judged.
+
+    [Theory]
+    [InlineData("NFM")]
+    [InlineData("DFM")]
+    [InlineData("DSTR")]
+    public void In_an_unmeasured_FM_like_mode_an_offset_over_the_edge_is_refused(string mode)
+    {
+        // 29.680 is inside 10 m; +100 kHz is 29.780, above it. Refused on the offset frequency.
+        var r = JudgeWithStatus(29.68, mode, -8000, 8000, "tx_offset_freq=0.100000");
+        Assert.Equal(29_780_000UL, r.Hz);
+        Assert.Equal(29_680_000UL, r.AlsoHz);
+        Assert.False(r.Allowed);
+    }
+
+    [Theory]
+    [InlineData("NFM")]
+    [InlineData("DFM")]
+    [InlineData("DSTR")]
+    public void In_an_unmeasured_FM_like_mode_an_offset_back_inside_still_refuses_while_the_dial_is_outside(string mode)
+    {
+        // 29.750 is above 10 m; -100 kHz is 29.650, inside. In FM this keys
+        // (the radio applies the offset); here the radio may transmit on the
+        // dial, so it is refused.
+        Assert.True(JudgeFmWithOffset(29.75, "-0.100000").Allowed, "positive control: in FM it keys");
+        var r = JudgeWithStatus(29.75, mode, -8000, 8000, "tx_offset_freq=-0.100000");
+        Assert.Equal(29_650_000UL, r.Hz);
+        Assert.Equal(29_750_000UL, r.AlsoHz);
+        Assert.False(r.Allowed);
+    }
+
+    [Theory]
+    [InlineData("NFM")]
+    [InlineData("DFM")]
+    [InlineData("DSTR")]
+    public void In_an_unmeasured_FM_like_mode_an_offset_with_both_ends_inside_keys(string mode)
+    {
+        var r = JudgeWithStatus(29.52, mode, -8000, 8000, "tx_offset_freq=0.100000");
+        Assert.Equal(29_620_000UL, r.Hz);
+        Assert.Equal(29_520_000UL, r.AlsoHz);
+        Assert.True(r.Allowed);
+    }
+
+    [Fact]
+    public void In_an_unmeasured_FM_like_mode_with_no_offset_there_is_one_frequency()
+    {
+        var r = JudgeWithStatus(29.6, "NFM", -8000, 8000, "tx_offset_freq=0.000000");
+        Assert.Equal(29_600_000UL, r.Hz);
+        Assert.Null(r.AlsoHz);
+        Assert.True(r.Allowed);
+    }
+
+    [Theory]
+    [InlineData("FM", "Applied")]
+    [InlineData("fm", "Applied")]
+    [InlineData("NFM", "NotMeasured")]
+    [InlineData("DFM", "NotMeasured")]
+    [InlineData("DSTR", "NotMeasured")]
+    [InlineData("", "NotMeasured")]
+    [InlineData(null, "NotMeasured")]
+    [InlineData("USB", "Ignored")]
+    [InlineData("LSB", "Ignored")]
+    [InlineData("CW", "Ignored")]
+    [InlineData("AM", "Ignored")]
+    [InlineData("SAM", "Ignored")]
+    [InlineData("DIGU", "Ignored")]
+    [InlineData("DIGL", "Ignored")]
+    [InlineData("RTTY", "Ignored")]
+    [InlineData("FDV", "Ignored")]
+    public void Each_mode_has_its_offset_rule(string? mode, string rule) =>
+        Assert.Equal(rule, FlexBase.TxOffsetRuleFor(mode).ToString());
+
+    [Fact]
+    public void The_judgement_refuses_when_the_second_frequency_is_outside_and_keys_when_both_are_inside()
+    {
+        var inside = new TransmitSliceReading(29_650_000, "NFM", -8000, 8000);
+        Assert.True(TransmitBandLockout.Judge(inside, 0, 0, 0, Bands.Licenses.general, out _), "positive control: one frequency, inside");
+        Assert.False(TransmitBandLockout.Judge(inside with { AlsoJudgeHz = 29_750_000 }, 0, 0, 0, Bands.Licenses.general, out _));
+        Assert.True(TransmitBandLockout.Judge(inside with { AlsoJudgeHz = 29_550_000 }, 0, 0, 0, Bands.Licenses.general, out _));
     }
 
     [Theory]
