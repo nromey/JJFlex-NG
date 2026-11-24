@@ -367,7 +367,20 @@ public sealed class EngineKeepUpHelperTests
         // only because the audio thread was slow enough; with nothing traced on it any
         // more, the 350 hurried buffers can all go before the stub has opened a channel.
         HelperTestRig.Until(() => p.Made.Count == 2 && p.Made.All(e => e.Channel is { Opened: true }), "both nnr channels open");
-        for (int i = 0; i < EngineKeepUpRule.DefaultStuckWarmup + 50; i++) p.Hurried();
+        // Nor may a hurried frame find the channel's send ring full: the audio thread
+        // drops a frame it cannot queue (WdspChannel.TrySend, eight frames), which is the
+        // connection starving the warm-up again. So each buffer still goes at once, never
+        // waiting for an ANSWER, but only once the writer has room for its frame. Sprint
+        // 49 Track RT repair 1: under a full suite's load the loop (about 80 us a buffer
+        // with nothing traced on it) outran the writer thread and the answers fell to 21.
+        var channels = p.Made.Select(e => e.Channel!).ToArray();
+        for (int i = 0; i < EngineKeepUpRule.DefaultStuckWarmup + 50; i++)
+        {
+            var room = Stopwatch.StartNew();
+            while (channels.Any(c => c.SendHead - Volatile.Read(ref c.SendTail) >= WdspChannel.SendCapacity) && room.ElapsedMilliseconds < 2000)
+                Thread.Sleep(0);
+            p.Hurried();
+        }
         Assert.True(p.Has(p.Delivery, EngineKeepUpChange.FellBehind), "the warm-up that never ended was never seen");
         Assert.False(p.Has(p.Results, EngineKeepUpChange.FellBehind, 100), "a fast helper whose warm-up was starved was warned about");
         // Starved by the gate, not by silence: the answers kept coming, each one fast.
