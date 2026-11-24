@@ -225,6 +225,144 @@ public sealed class TxDeEsserSetup
     public TxDeEsserSetup Clone() => (TxDeEsserSetup)MemberwiseClone();
 }
 
+/// <summary>One band of the compressor's split-band mode as a setup carries it (Sprint 49 Track CL, phase 2).</summary>
+public sealed class TxCompressorBandSetup
+{
+    /// <summary>dBFS of the band's own sample peak.</summary>
+    public float ThresholdDb { get; set; } = JJPortaudio.TxCompressorSettings.DefaultThresholdDb;
+    public float RatioToOne { get; set; } = 2f;
+    public float AttackMs { get; set; } = JJPortaudio.TxCompressorSettings.DefaultAttackMs;
+    public float ReleaseMs { get; set; } = JJPortaudio.TxCompressorSettings.DefaultReleaseMs;
+    public float MakeupDb { get; set; }
+
+    public TxCompressorBandSetup Clone() => (TxCompressorBandSetup)MemberwiseClone();
+
+    public JJPortaudio.TxCompressorBand ToBand() => new()
+    {
+        ThresholdDb = ThresholdDb, RatioToOne = RatioToOne, AttackMs = AttackMs, ReleaseMs = ReleaseMs, MakeupDb = MakeupDb,
+    };
+
+    public static TxCompressorBandSetup From(JJPortaudio.TxCompressorBand b) => new()
+    {
+        ThresholdDb = b.ThresholdDb, RatioToOne = b.RatioToOne, AttackMs = b.AttackMs, ReleaseMs = b.ReleaseMs, MakeupDb = b.MakeupDb,
+    };
+}
+
+/// <summary>The compressor's modes, stored as words so a mode a later build adds loads here, runs as the single band, and is kept on save.</summary>
+public static class TxCompressorModes
+{
+    /// <summary>One band: the whole voice through one compressor.</summary>
+    public const string Single = "single";
+    /// <summary>Split band: three bands, each with its own compressor (Sprint 49 Track CL, phase 2).</summary>
+    public const string Split = "split";
+
+    /// <summary>Every mode this build runs, in the order a surface offers them.</summary>
+    public static IReadOnlyList<string> All { get; } = new[] { Single, Split };
+
+    /// <summary>The mode a stored word runs as: split when it says so, the single band for anything else.</summary>
+    public static bool IsSplit(string? mode) => string.Equals((mode ?? "").Trim(), Split, StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>
+/// The transmit compressor stage as a setup carries it (Sprint 49 Track CL,
+/// #1278): the compressor, its drive, its phase rotator and its split-band
+/// mode. Off when absent from a file, so every setup saved before it existed
+/// loads with it off. The defaults are a newly switched-on compressor's: plain
+/// and moderate, no drive, the rotator off (the presets are where those come
+/// on). Ranges are <see cref="JJPortaudio.TxCompressorSettings"/>'s; a value
+/// out of range in a file is clamped where it is applied, and kept as written.
+/// </summary>
+public sealed class TxCompressorSetup
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>The preset the fields were last loaded from, by id, or empty. Informational: every field stays the operator's.</summary>
+    public string PresetId { get; set; } = "";
+
+    /// <summary>One of <see cref="TxCompressorModes"/>, as a word.</summary>
+    public string Mode { get; set; } = TxCompressorModes.Single;
+
+    /// <summary>Where compression starts, dBFS of one channel's sample peak, read after the drive.</summary>
+    public float ThresholdDb { get; set; } = JJPortaudio.TxCompressorSettings.DefaultThresholdDb;
+    public float RatioToOne { get; set; } = JJPortaudio.TxCompressorSettings.DefaultRatio;
+    public float AttackMs { get; set; } = JJPortaudio.TxCompressorSettings.DefaultAttackMs;
+    public float ReleaseMs { get; set; } = JJPortaudio.TxCompressorSettings.DefaultReleaseMs;
+    public float KneeDb { get; set; } = JJPortaudio.TxCompressorSettings.DefaultKneeDb;
+    public float MakeupDb { get; set; } = JJPortaudio.TxCompressorSettings.DefaultMakeupDb;
+
+    /// <summary>Gain before the compressor, dB (0 to 18).</summary>
+    public float DriveDb { get; set; }
+
+    /// <summary>The phase rotator's sections, 0 (off) to 6.</summary>
+    public int RotatorStages { get; set; }
+
+    public float CrossoverLowHz { get; set; } = JJPortaudio.TxCompressorSettings.DefaultCrossoverLowHz;
+    public float CrossoverHighHz { get; set; } = JJPortaudio.TxCompressorSettings.DefaultCrossoverHighHz;
+
+    public TxCompressorBandSetup LowBand { get; set; } = TxCompressorBandSetup.From(JJPortaudio.TxCompressorSettings.DefaultLow);
+    public TxCompressorBandSetup MidBand { get; set; } = TxCompressorBandSetup.From(JJPortaudio.TxCompressorSettings.DefaultMid);
+    public TxCompressorBandSetup HighBand { get; set; } = TxCompressorBandSetup.From(JJPortaudio.TxCompressorSettings.DefaultHigh);
+
+    /// <summary>Band 0, 1 or 2: low, middle, high. Never null.</summary>
+    public TxCompressorBandSetup Band(int index) => index <= 0 ? (LowBand ??= new()) : index == 1 ? (MidBand ??= new()) : (HighBand ??= new());
+
+    public TxCompressorSetup Clone()
+    {
+        var copy = (TxCompressorSetup)MemberwiseClone();
+        copy.LowBand = (LowBand ?? new()).Clone();
+        copy.MidBand = (MidBand ?? new()).Clone();
+        copy.HighBand = (HighBand ?? new()).Clone();
+        return copy;
+    }
+
+    /// <summary>What the stage runs: these fields, each clamped to its range.</summary>
+    public JJPortaudio.TxCompressorSettings ToSettings() => new()
+    {
+        Enabled = Enabled,
+        ThresholdDb = ThresholdDb, RatioToOne = RatioToOne, AttackMs = AttackMs, ReleaseMs = ReleaseMs,
+        KneeDb = KneeDb, MakeupDb = MakeupDb, DriveDb = DriveDb, RotatorStages = RotatorStages,
+        SplitBand = TxCompressorModes.IsSplit(Mode),
+        CrossoverLowHz = CrossoverLowHz, CrossoverHighHz = CrossoverHighHz,
+        Low = (LowBand ?? new()).ToBand(), Mid = (MidBand ?? new()).ToBand(), High = (HighBand ?? new()).ToBand(),
+    };
+}
+
+/// <summary>
+/// The transmit limiter as a setup carries it (Sprint 49 Track CL, #1278).
+/// Off when absent from a file: a setup saved before the limiter existed
+/// loads with it off, so nobody's transmit audio changes on upgrade (the
+/// principle Noel ruled for saved gates, S7, applied by extension). A NEW
+/// setup starts with it on, at full scale: <see cref="ForNewSetup"/>.
+/// </summary>
+public sealed class TxLimiterSetup
+{
+    /// <summary>
+    /// Whether a new transmit setup starts with the limiter on (the brief's
+    /// question 7 to Noel; its stated default, yes: at full scale it only
+    /// catches samples that would have gone past full scale). One place to flip.
+    /// </summary>
+    public const bool NewSetupsStartOn = true;
+
+    public bool Enabled { get; set; }
+
+    /// <summary>The ceiling, dBFS of the sample peak (-12 to 0). 0 is full scale: audio within it is never touched.</summary>
+    public float CeilingDb { get; set; } = JJPortaudio.TxLimiterSettings.DefaultCeilingDb;
+    public float ReleaseMs { get; set; } = JJPortaudio.TxLimiterSettings.DefaultReleaseMs;
+
+    /// <summary>Look-ahead, ms (0 to 5; Advanced). A switch: its length moves the stream in time.</summary>
+    public float LookAheadMs { get; set; } = JJPortaudio.TxLimiterSettings.DefaultLookAheadMs;
+
+    public TxLimiterSetup Clone() => (TxLimiterSetup)MemberwiseClone();
+
+    /// <summary>The limiter a new setup starts with: at full scale, no look-ahead, on if <see cref="NewSetupsStartOn"/>.</summary>
+    public static TxLimiterSetup ForNewSetup() => new() { Enabled = NewSetupsStartOn };
+
+    public JJPortaudio.TxLimiterSettings ToSettings() => new()
+    {
+        Enabled = Enabled, CeilingDb = CeilingDb, ReleaseMs = ReleaseMs, LookAheadMs = LookAheadMs,
+    };
+}
+
 /// <summary>
 /// One named transmit noise setup: both reducer slots, spectral first then
 /// neural, and the gate. Held per radio by <see cref="TxNoiseSetupStore"/>.
@@ -292,6 +430,15 @@ public sealed class TxNoiseSetup
             _version = CurrentVersion;
         }
         else if (!_versionRead) _version = CurrentVersion;
+        // An older build's DEFAULT order (the default of its day: this build's
+        // with the stages added since missing) is this build's default, said
+        // in full (Sprint 49 Track CL). Nothing about how it runs changes; it
+        // only stops two spellings of one order reading as different setups.
+        // A newer build's record, and any order this build does not
+        // understand, are left exactly as written.
+        if (_version <= CurrentVersion && StageOrder != null
+            && JJPortaudio.TxAudioConditioner.StageIds.RunsAsDefault(StageOrder))
+            StageOrder = JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
     }
 
     private bool _loaded;
@@ -312,6 +459,12 @@ public sealed class TxNoiseSetup
     /// </summary>
     public string[] StageOrder { get; set; } = JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
 
+    /// <summary>The compressor stage, after the de-esser (Sprint 49 Track CL, #1278). Off in every record saved before it existed.</summary>
+    public TxCompressorSetup Compressor { get; set; } = new();
+
+    /// <summary>The limiter, last in the chain (Sprint 49 Track CL, #1278). Off in every record saved before it existed.</summary>
+    public TxLimiterSetup Limiter { get; set; } = new();
+
     /// <summary>A deep copy, so a caller holding a setup can never change the store's copy behind its back.</summary>
     public TxNoiseSetup Clone() => new()
     {
@@ -323,12 +476,13 @@ public sealed class TxNoiseSetup
         Eq = (Eq ?? new()).Clone(),
         DeEsser = (DeEsser ?? new()).Clone(),
         StageOrder = (string[])(StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder).Clone(),
+        Compressor = (Compressor ?? new()).Clone(),
+        Limiter = (Limiter ?? new()).Clone(),
     };
 
-    /// <summary>Whether <see cref="StageOrder"/> is the order this build runs.</summary>
+    /// <summary>Whether <see cref="StageOrder"/> is the order this build runs: the default, or an older build's default (the same order with the stages added since missing).</summary>
     public bool RunsDefaultOrder =>
-        (StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder)
-            .SequenceEqual(JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder);
+        JJPortaudio.TxAudioConditioner.StageIds.RunsAsDefault(StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder);
 
     /// <summary>The same setup under another name.</summary>
     public TxNoiseSetup CloneAs(string name)
@@ -591,6 +745,8 @@ public sealed class TxNoiseSetupStore
                     s.Eq.Bands ??= new();
                     s.DeEsser ??= new();
                     s.StageOrder ??= JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
+                    s.Compressor ??= new();
+                    s.Limiter ??= new();
                     s.AfterLoad(); // the version 1 upgrade, once the whole record is read (N1)
                 }
                 return file;
@@ -870,4 +1026,82 @@ public static class ParametricEqPresets
     /// <summary>The presets offered on one side.</summary>
     public static IReadOnlyList<ParametricEqPreset> For(bool transmit) =>
         All.Where(p => transmit ? p.ForTransmit : p.ForReceive).ToList();
+}
+
+/// <summary>A named starting point for the compressor stage (Sprint 49 Track CL; Noel 2026-11-23 20:48: "presets that one could start with").</summary>
+/// <param name="Id">Stable id, saved in <see cref="TxCompressorSetup.PresetId"/>.</param>
+/// <param name="NameKey">The lexicon key of its spoken name (DRAFT PROSE until Codex words it).</param>
+/// <param name="Settings">Every field the preset fills. Its on or off is never taken: loading a preset leaves the switch as it was.</param>
+public sealed record TxCompressorPreset(string Id, string NameKey, TxCompressorSetup Settings);
+
+/// <summary>
+/// The compressor's presets: DATA, so adding one is a line here. Loading one
+/// fills every field; every field stays the operator's afterwards. The set and
+/// the reason for each is Track CL's proposal, in its report, for Noel.
+/// </summary>
+/// <remarks>
+/// <b>How the makeup in each was chosen:</b> so that a voice peaking at
+/// -6 dBFS at the microphone leaves the compressor peaking near -6 dBFS once
+/// it has settled. The peak stays where it was and the quieter parts come up,
+/// which is "same peak, more average power". Attack transients pass the
+/// compressor before it settles; the limiter after it is what holds those.
+/// </remarks>
+public static class TxCompressorPresets
+{
+    /// <summary>Every preset, in the order a surface offers them.</summary>
+    public static IReadOnlyList<TxCompressorPreset> All { get; } = new[]
+    {
+        // Plain: the stage's own defaults, and the way back. 3 to 1 from
+        // -18 dBFS, a 6 dB knee, 6 dB of makeup, no drive, no rotator.
+        new TxCompressorPreset("plain", "audio.compressor.preset.plain", new TxCompressorSetup()),
+        // Ragchew: gentle. 2.5 to 1 with a wide knee so it eases in, slower
+        // times so it does not pump on pauses; about 7 dB of reduction on a
+        // -6 dBFS peak, given back as makeup.
+        new TxCompressorPreset("ragchew", "audio.compressor.preset.ragchew", new TxCompressorSetup
+        {
+            ThresholdDb = -18f, RatioToOne = 2.5f, AttackMs = 10f, ReleaseMs = 200f, KneeDb = 10f, MakeupDb = 7f,
+        }),
+        // DX and contest: the rotator at the broadcast four sections evens the
+        // voice's lopsided peaks, 6 dB of drive pushes more of the voice over
+        // the threshold, 5 to 1 with fast times holds it there. About 16 dB of
+        // reduction on a -6 dBFS peak after the drive; 10 dB of makeup.
+        new TxCompressorPreset("dx", "audio.compressor.preset.dx", new TxCompressorSetup
+        {
+            ThresholdDb = -20f, RatioToOne = 5f, AttackMs = 2f, ReleaseMs = 80f, KneeDb = 6f, MakeupDb = 10f,
+            DriveDb = 6f, RotatorStages = JJPortaudio.PhaseRotator.BroadcastStages,
+        }),
+        // Level only: for consistency, not punch. A low threshold with a low
+        // ratio and slow times rides the level as the operator leans in and
+        // out, and leaves the voice's own dynamics alone inside each word.
+        new TxCompressorPreset("level", "audio.compressor.preset.level", new TxCompressorSetup
+        {
+            ThresholdDb = -24f, RatioToOne = 2f, AttackMs = 30f, ReleaseMs = 800f, KneeDb = 12f, MakeupDb = 9f,
+        }),
+        // Bass control (split band, phase 2): the low band held firmly so a
+        // boomy voice or a close microphone cannot swamp the rest, the middle
+        // and high bands compressed gently. Each band's makeup gives back what
+        // its own curve takes from a -6 dBFS peak in that band, less a little
+        // in the low band, which is the point.
+        new TxCompressorPreset("bass_control", "audio.compressor.preset.bass_control", new TxCompressorSetup
+        {
+            Mode = TxCompressorModes.Split, KneeDb = 6f, MakeupDb = 0f,
+            CrossoverLowHz = 300f, CrossoverHighHz = 1800f,
+            LowBand = new TxCompressorBandSetup { ThresholdDb = -24f, RatioToOne = 4f, AttackMs = 10f, ReleaseMs = 200f, MakeupDb = 9f },
+            MidBand = new TxCompressorBandSetup { ThresholdDb = -18f, RatioToOne = 2.5f, AttackMs = 5f, ReleaseMs = 150f, MakeupDb = 7f },
+            HighBand = new TxCompressorBandSetup { ThresholdDb = -20f, RatioToOne = 2.5f, AttackMs = 2f, ReleaseMs = 100f, MakeupDb = 8f },
+        }),
+    };
+
+    /// <summary>The preset with this id, or null.</summary>
+    public static TxCompressorPreset? Find(string? id) =>
+        All.FirstOrDefault(p => string.Equals(p.Id, (id ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A preset's fields as a setup, with this on or off and the preset's id noted.</summary>
+    public static TxCompressorSetup Load(TxCompressorPreset preset, bool enabled)
+    {
+        var copy = preset.Settings.Clone();
+        copy.Enabled = enabled;
+        copy.PresetId = preset.Id;
+        return copy;
+    }
 }

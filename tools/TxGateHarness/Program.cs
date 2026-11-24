@@ -51,6 +51,14 @@ namespace TxGateHarness
             CheckDeEsserIdleIsExact();
             CheckResidualLeavesTheEqualiserOut();
 
+            // Sprint 49 Track CL: the compressor stage and the limiter.
+            CheckCompressorAtRatioOneIsExact();
+            CheckCompressorSettlesToThePeaksReduction();
+            CheckRotatorKeepsTheLevel();
+            CheckLimiterLeavesAudioUnderTheCeilingAlone();
+            CheckLimiterHoldsTheCeiling();
+            CheckResidualLeavesTheDynamicsOut();
+
             Console.WriteLine();
             Console.WriteLine($"{checks} checks, {failures} failed.");
             return failures;
@@ -595,6 +603,112 @@ namespace TxGateHarness
         }
 
         private static double Ratio(double a, double b) => b > 0 ? a / b : 0;
+
+        // ---------------------------------------------------------------- //
+        // The compressor stage and the limiter (Sprint 49 Track CL)
+        // ---------------------------------------------------------------- //
+
+        /// <summary>Ratio 1, no drive, no makeup, no rotator: on, and still the input bit for bit.</summary>
+        private static void CheckCompressorAtRatioOneIsExact()
+        {
+            var comp = new TxCompressor { Settings = new TxCompressorSettings { Enabled = true, RatioToOne = 1f, MakeupDb = 0f } };
+            bool same = true;
+            for (int k = 0; k < 20; k++)
+            {
+                float[] buf = SineBuffer(700.0, -3f, FrameFloats), r = (float[])buf.Clone();
+                comp.Process(buf, buf.Length, Fs);
+                for (int i = 0; i < buf.Length; i++) same &= buf[i] == r[i];
+            }
+            Assert(same, "a compressor at ratio 1 with no drive, makeup or rotator passes samples bit-for-bit");
+        }
+
+        /// <summary>A steady -6 dBFS tone, 12 dB over a -18 dBFS threshold at 3 to 1, settles to 8 dB of reduction: the PEAK's, not several dB short.</summary>
+        private static void CheckCompressorSettlesToThePeaksReduction()
+        {
+            var comp = new TxCompressor { Settings = new TxCompressorSettings { Enabled = true, ThresholdDb = -18f, RatioToOne = 3f, KneeDb = 6f, MakeupDb = 0f } };
+            for (int k = 0; k < 200; k++)
+            {
+                float[] buf = SineBuffer(1000.0, -6f, FrameFloats);
+                comp.Process(buf, buf.Length, Fs);
+            }
+            Assert(comp.ReductionDb > 7.5f && comp.ReductionDb < 8.05f,
+                $"a steady tone settles to the reduction its peak calls for (8 dB; read {comp.ReductionDb:F2})");
+        }
+
+        /// <summary>Six all-pass sections change the phase and not the level.</summary>
+        private static void CheckRotatorKeepsTheLevel()
+        {
+            var comp = new TxCompressor { Settings = new TxCompressorSettings { Enabled = true, RatioToOne = 1f, MakeupDb = 0f, RotatorStages = PhaseRotator.MaxStages } };
+            double input = 0, output = 0;
+            bool changed = false;
+            for (int k = 0; k < 100; k++)
+            {
+                float[] buf = SineBuffer(700.0, -12f, FrameFloats), r = (float[])buf.Clone();
+                comp.Process(buf, buf.Length, Fs);
+                if (k < 50) continue; // settled
+                input += Energy(r); output += Energy(buf);
+                for (int i = 0; i < buf.Length; i++) changed |= buf[i] != r[i];
+            }
+            double db = 10.0 * Math.Log10(output / input);
+            Assert(changed && Math.Abs(db) < 0.01, $"the phase rotator moves the samples and keeps the level (off by {db:F4} dB)");
+        }
+
+        /// <summary>The #1278 property: with the limiter on at its default ceiling, audio within full scale is not touched.</summary>
+        private static void CheckLimiterLeavesAudioUnderTheCeilingAlone()
+        {
+            var lim = new TxLimiter { Settings = new TxLimiterSettings { Enabled = true } };
+            bool same = true;
+            for (int k = 0; k < 20; k++)
+            {
+                float[] buf = SineBuffer(700.0, 0f, FrameFloats), r = (float[])buf.Clone(); // peaks AT full scale
+                lim.Process(buf, buf.Length, Fs);
+                for (int i = 0; i < buf.Length; i++) same &= buf[i] == r[i];
+            }
+            Assert(same, "a limiter at full scale passes audio that never exceeds full scale bit-for-bit (it cannot lower peak drive)");
+        }
+
+        /// <summary>A tone 6 dB over full scale leaves with no sample over the ceiling, with and without look-ahead.</summary>
+        private static void CheckLimiterHoldsTheCeiling()
+        {
+            foreach (float lookAhead in new[] { 0f, 5f })
+            {
+                var lim = new TxLimiter { Settings = new TxLimiterSettings { Enabled = true, LookAheadMs = lookAhead } };
+                float worst = 0;
+                for (int k = 0; k < 50; k++)
+                {
+                    float[] buf = SineBuffer(700.0, 6f, FrameFloats);
+                    lim.Process(buf, buf.Length, Fs);
+                    for (int i = 0; i < buf.Length; i++) worst = Math.Max(worst, Math.Abs(buf[i]));
+                }
+                var (caught, over, _, _) = lim.TakeOverStats();
+                Assert(worst <= 1f && caught > 0 && over == 0,
+                    $"a limiter with {lookAhead:F0} ms look-ahead holds a +6 dBFS tone at the ceiling (worst sample {worst:F4}, caught {caught})");
+            }
+        }
+
+        /// <summary>The compressor and the limiter after the cleanup stages leave "what was removed" silent (S8, by extension).</summary>
+        private static void CheckResidualLeavesTheDynamicsOut()
+        {
+            var cond = new TxAudioConditioner { MonitorMode = TxAudioConditioner.MonitorModes.Residual };
+            double residual = 0;
+            cond.MonitorSink = (b, n, r) => residual += Energy(b, 0, n);
+            var record = new TxAudioConditioner.StagedGate
+            {
+                Comp = new TxCompressorSettings { Enabled = true, ThresholdDb = -30f, RatioToOne = 4f, MakeupDb = 12f, DriveDb = 6f, RotatorStages = 4 },
+                Limiter = new TxLimiterSettings { Enabled = true, CeilingDb = -6f, LookAheadMs = 5f },
+            };
+            cond.SetGateInForce(record);
+            double sent = 0, input = 0;
+            for (int k = 0; k < 50; k++)
+            {
+                float[] buf = SineBuffer(700.0, -6f, FrameFloats);
+                input += Energy(buf);
+                cond.Process(buf, buf.Length, Fs);
+                sent += Energy(buf);
+            }
+            Assert(residual == 0.0 && Math.Abs(10.0 * Math.Log10(sent / input)) > 1.0,
+                "the compressor and the limiter change what is sent and leave \"what was removed\" silent");
+        }
 
         private static void Assert(bool ok, string what)
         {

@@ -21,5 +21,9 @@
     <Compile Include="..\..\JJPortaudio\JJPortaudio\ParametricEq.cs" Link="ParametricEq.cs" />
     <Compile Include="..\..\JJPortaudio\JJPortaudio\DeEsser.cs" Link="DeEsser.cs" />
     <Compile Include="..\..\JJPortaudio\JJPortaudio\TxRoomFloor.cs" Link="TxRoomFloor.cs" />
+    <!-- Sprint 49 Track CL: the compressor stage and the limiter, System-only too. -->
+    <Compile Include="..\..\JJPortaudio\JJPortaudio\PhaseRotator.cs" Link="PhaseRotator.cs" />
+    <Compile Include="..\..\JJPortaudio\JJPortaudio\TxCompressor.cs" Link="TxCompressor.cs" />
+    <Compile Include="..\..\JJPortaudio\JJPortaudio\TxLimiter.cs" Link="TxLimiter.cs" />
   </ItemGroup>
 </Project>
