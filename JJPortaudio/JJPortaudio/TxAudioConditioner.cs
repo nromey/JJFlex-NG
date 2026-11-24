@@ -505,6 +505,11 @@ namespace JJPortaudio
         /// </summary>
         public int AppliedDelayFrames => System.Threading.Volatile.Read(ref _appliedDelay);
 
+        private volatile uint _lastSampleRate;
+
+        /// <summary>The rate of the last buffer this chain was given, Hz, or 0 before any: the rate the transmit stream really opened at. The audition renders at 48 kHz and says so when this differs.</summary>
+        public uint LastSampleRate => _lastSampleRate;
+
         private int _residualDelay;
 
         /// <summary>
@@ -583,6 +588,7 @@ namespace JJPortaudio
             bool keyed = ReadKey();
             UpdateGate(keyed);
             System.Threading.Volatile.Write(ref _lastBufferMs, Environment.TickCount64);
+            _lastSampleRate = sampleRate;
             if (_bypassAll) return;
 
             var nr = NoiseReducer;

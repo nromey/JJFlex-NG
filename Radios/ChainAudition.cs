@@ -107,7 +107,40 @@ namespace Radios
     /// <param name="Gate">The live gate.</param>
     /// <param name="TransmitMode">The transmit slice's mode, as the live chain's own policy reads it.</param>
     /// <param name="ChainStandsAside">The live chain stands aside in that mode (CW and the digital modes).</param>
-    public sealed record AuditionLiveState(AuditionLiveGate Gate, string TransmitMode, bool ChainStandsAside);
+    public sealed record AuditionLiveState(AuditionLiveGate Gate, string TransmitMode, bool ChainStandsAside)
+    {
+        /// <summary>
+        /// The rate the live transmit stream opened at, Hz, or 0 when unknown
+        /// (Sprint 49 Track CL). The audition renders at 48 kHz; when the live
+        /// rate differs the verdict says so, because a stage that is not
+        /// linear (the compressor, the limiter) can sound different at
+        /// another rate.
+        /// </summary>
+        public uint TransmitRateHz { get; init; }
+    }
+
+    /// <summary>
+    /// What the computer's transmit chain is doing, in one line, for a
+    /// listen-back take's header (Sprint 49 Track CL, CL8): which stages are
+    /// on, the named setup, the compressor's and the limiter's settings.
+    /// Radio-neutral: whoever owns the chain sets <see cref="Describe"/>, and a
+    /// radio's take writer asks <see cref="DescribeNow"/>.
+    /// </summary>
+    public static class PcTransmitChain
+    {
+        /// <summary>Said when nothing has told us: the app's chain owner is not attached.</summary>
+        public const string NotReported = "not reported";
+
+        /// <summary>The chain owner's description, or null before one is attached.</summary>
+        public static Func<string>? Describe { get; set; }
+
+        /// <summary>The description now, never throwing: a take must not fail because its header line could not be made.</summary>
+        public static string DescribeNow()
+        {
+            try { return Describe?.Invoke() ?? NotReported; }
+            catch (Exception) { return NotReported; }
+        }
+    }
 
     /// <summary>What the verdict says about the live gate beside the take's threshold.</summary>
     public enum AuditionLiveClause
@@ -767,6 +800,17 @@ namespace Radios
             if (result.RenderedStages.Count > 0)
                 parts.Add(Lexicon.Get("audio.audition.verdict.stages",
                     ("stages", string.Join(", ", result.RenderedStages.Select(StageName)))));
+            // Sprint 49 Track CL. The audition renders at 48 kHz whatever the
+            // live stream runs at; said when they differ.
+            if (result.RenderedStages.Count > 0 && result.Live is { TransmitRateHz: > 0 and not 48000 } other)
+                parts.Add(Lexicon.Get("audio.audition.verdict.rendered_at_48k",
+                    ("rate", (other.TransmitRateHz / 1000.0).ToString("0.#", CultureInfo.InvariantCulture))));
+            // The two takes are matched on speech loudness, which hides the
+            // compressor's makeup gain and leaves what it does to dynamics and
+            // colour audible: the honest comparison, said so nobody listens for
+            // a level difference that the matching removed.
+            if (result.LevelMatched && result.RenderedStages.Contains(TxAudioConditioner.StageIds.Compressor))
+                parts.Add(Lexicon.Get("audio.audition.verdict.compressor_level_matched"));
             if (!result.GateEnabled) parts.Add(Lexicon.Get("audio.audition.verdict.gate_off"));
             else if (result.ThresholdDb is float threshold)
                 parts.Add(Lexicon.Get("audio.audition.verdict.threshold", ("threshold", Number(threshold))));
@@ -806,6 +850,8 @@ namespace Radios
                 GateStageId => "audio.audition.stage.gate",
                 TxAudioConditioner.StageIds.Equaliser => "audio.audition.stage.eq",
                 TxAudioConditioner.StageIds.DeEsser => "audio.audition.stage.deesser",
+                TxAudioConditioner.StageIds.Compressor => "audio.audition.stage.compressor",
+                TxAudioConditioner.StageIds.Limiter => "audio.audition.stage.limiter",
                 _ => "audio.audition.stage.unknown",
             };
             return Lexicon.Get(key);

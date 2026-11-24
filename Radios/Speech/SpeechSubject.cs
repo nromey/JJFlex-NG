@@ -838,6 +838,15 @@ namespace Radios.Speech
         /// <summary>The transmit de-esser (Sprint 49 Track I): on or off, a lever's value, its band clamped to the transmit filter. No receive twin; the newest covers an unheard older one.</summary>
         public const string TransmitDeEsser = "transmit-deesser";
 
+        /// <summary>The transmit compressor stage (Sprint 49 Track CL, #1278): on or off, a preset loaded, its mode, a lever's value, and the "gain reduction now" reading. No receive twin; the newest covers an unheard older one.</summary>
+        public const string TransmitCompressor = "transmit-compressor";
+
+        /// <summary>The transmit limiter (Sprint 49 Track CL, #1278): on or off and a lever's value. No receive twin; the newest covers an unheard older one.</summary>
+        public const string TransmitLimiter = "transmit-limiter";
+
+        /// <summary>The handoff between our compressor and the radio's speech processor (Sprint 49 Track CL, #1278): the processor turned off for the compressor, put back, kept off at a connect, or left alone on a radio that is not the operator's. Never silent; a later notice covers an unheard earlier one, because only the newest state is true.</summary>
+        public const string ProcessorHandoff = "processor-handoff";
+
         /// <summary>The transmit parametric equaliser (Sprint 49 Track I, #1240): on or off, a preset, a band or field, the summary. The receive twin is <see cref="ReceiveEqualizer"/>; the newest covers an unheard older one.</summary>
         public const string TransmitEqualizer = "transmit-equalizer";
 

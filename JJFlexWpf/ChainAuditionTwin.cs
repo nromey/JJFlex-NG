@@ -156,7 +156,7 @@ namespace JJFlexWpf
                 try { mode = TxAudioConditioning.TransmitModeOf(rig) ?? ""; }
                 catch (Exception) { mode = ""; }
                 return LiveState(cond.AutoThresholdInForce, cond.Gate.ThresholdDb, room.HasFloor, room.HasFloor ? room.FloorDb : LufsMeter.Floor,
-                    cond.ThresholdMarginInForceDb, mode);
+                    cond.ThresholdMarginInForceDb, mode) with { TransmitRateHz = cond.LastSampleRate };
             }
             catch (Exception ex)
             {
@@ -236,11 +236,15 @@ namespace JJFlexWpf
             // would offer the operator a chain they are not using as theirs.
             bool eqOn = setup.Eq?.ToDesign() is { IsIdentity: false };
             bool deEssOn = setup.DeEsser?.Enabled == true;
-            bool inProcess = gate.Enabled || eqOn || deEssOn;
+            // Sprint 49 Track CL: the compressor stage and the limiter. Either
+            // alone is a chain to render.
+            bool compOn = setup.Compressor?.Enabled == true;
+            bool limiterOn = setup.Limiter?.Enabled == true;
+            bool inProcess = gate.Enabled || eqOn || deEssOn || compOn || limiterOn;
             // Nothing on (Noel's S4): render nothing; only the raw take is offered.
             if (plans.Count == 0 && !inProcess)
             {
-                Trace.WriteLine("ChainAuditionTwin: both noise slots, the expander, the equaliser and the de-esser are off; nothing rendered");
+                Trace.WriteLine("ChainAuditionTwin: both noise slots, the expander, the equaliser, the de-esser, the compressor and the limiter are off; nothing rendered");
                 return ChainProcessing.NothingIsOn(live);
             }
 
@@ -336,16 +340,31 @@ namespace JJFlexWpf
                     // "What was removed" is the cleanup stages only (S8): the same
                     // pass with the equaliser and the de-esser off. The expander
                     // never hears them, so this is exactly its output.
-                    if (eqOn || deEssOn)
+                    // The limiter's look-ahead delays what is SENT and nothing
+                    // upstream of it (Sprint 49 Track CL).
+                    int limiterAhead = limiterOn ? TxLimiter.LookAheadFramesFor(setup.Limiter!.LookAheadMs, (uint)TxNoiseChain.SampleRate) : 0;
+                    if (eqOn || deEssOn || compOn || limiterOn)
                     {
                         var cleanupRecord = TxAudioConditioning.ToConditioner(setup);
                         cleanupRecord.Eq = null;
                         cleanupRecord.DeEsserEnabled = false;
+                        cleanupRecord.Comp = TxCompressorSettings.Default;
+                        cleanupRecord.Limiter = TxLimiterSettings.Default;
                         cleanupOnly = new float[rawMono.Length];
                         InProcessPass(cleanupRecord, gate, threshold, edge, noise, cleanupOnly, buffers, new float[BufferFrames * 2], cancel, null);
+                        // "What was removed" is read at the SAME latency as the
+                        // render (ChainProcessing.CleanupOnly's contract), so the
+                        // cleanup pass, which has no limiter, is moved later by
+                        // the limiter's look-ahead.
+                        if (limiterAhead > 0)
+                        {
+                            Array.Copy(cleanupOnly, 0, cleanupOnly, limiterAhead, Math.Max(0, cleanupOnly.Length - limiterAhead));
+                            Array.Clear(cleanupOnly, 0, Math.Min(limiterAhead, cleanupOnly.Length));
+                        }
                     }
                     // The look-ahead is the expander's applied delay (item 9).
                     if (gate.Enabled) delay += TxNoiseGate.LookAheadFramesFor(gate.LookAheadMs, (uint)TxNoiseChain.SampleRate);
+                    delay += limiterAhead;
                 }
                 else Array.Copy(noise, output, output.Length);
 
@@ -354,6 +373,8 @@ namespace JJFlexWpf
                 if (gate.Enabled) stages.Add(gate.GateSetting ? ChainAudition.GateStageId : TxAudioConditioner.StageIds.Expander);
                 if (eqOn) stages.Add(TxAudioConditioner.StageIds.Equaliser);
                 if (deEssOn) stages.Add(TxAudioConditioner.StageIds.DeEsser);
+                if (compOn) stages.Add(TxAudioConditioner.StageIds.Compressor);
+                if (limiterOn) stages.Add(TxAudioConditioner.StageIds.Limiter);
                 Trace.WriteLine("ChainAuditionTwin: rendered " + rawMono.Length + " samples, stages " + string.Join(",", stages) + ", gate "
                     + (gate.Enabled ? "on at " + F(reported!.Value) + " dB (" + source
                         + (floor is float fl ? ", floor " + F(fl) + " LUFS" : "") + ")" : "off") + ", delay " + delay);

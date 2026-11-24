@@ -79,6 +79,15 @@ namespace JJFlexWpf
         private static TxDeEsserSetup _deEsserIntent = new();
         private static string[] _orderIntent = JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder;
 
+        // The compressor stage and the limiter, as intents too (Sprint 49 Track
+        // CL, #1278). Guarded by _gate with the rest, and put on the
+        // conditioner in the SAME one staged record. A session that has loaded
+        // nothing starts as a NEW setup does: the compressor off, the limiter
+        // on at full scale (TxLimiterSetup.ForNewSetup). A saved setup then
+        // replaces both, and one saved before they existed has both off.
+        private static TxCompressorSetup _compIntent = new();
+        private static TxLimiterSetup _limiterIntent = TxLimiterSetup.ForNewSetup();
+
         /// <summary>The chain on the current rig, or null when detached.</summary>
         public static JJPortaudio.TxAudioConditioner Conditioner => _rig?.TxConditioner;
 
@@ -214,6 +223,10 @@ namespace JJFlexWpf
             PlugNoiseStage(cond, rig.TransmitKeySource, NrStage, AppliedNrLatency, EngagedOf(chain));
             cond.MonitorSink = MonitorStage;
             PushGate(cond);
+            // The take header's "pc-chain" line asks here what the computer's chain was doing (Track CL, CL8).
+            PcTransmitChain.Describe = DescribePcChain;
+            // The handoff with the radio's speech processor (#1278): its notices are said here, never silent.
+            rig.ProcessorHandoffNoticed += OnProcessorHandoffNotice;
 
             // The TRANSMIT slice's mode (Sprint 49 Track H2, slice-mode round):
             // ModeChanged follows only the active slice, so a second slice in CW
@@ -236,6 +249,9 @@ namespace JJFlexWpf
                 // the stages' per-over counts are written at the unkey, here,
                 // never on the audio thread.
                 PolicyTickStages();
+                // Sprint 49 Track CL: the handoff between our compressor and the
+                // radio's speech processor is driven from here, twice a second.
+                ProcessorHandoffTick();
                 // An over the microphone capture never saw end (a file over:
                 // the capture is stopped while a recording sends) ends by the key
                 // state (Sprint 49 Track H2 bench round, item 5).
@@ -257,6 +273,13 @@ namespace JJFlexWpf
             _rig = null;
             if (rig != null)
             {
+                // An orderly leave: the radio's speech processor goes back on if
+                // our compressor turned it off (#1278; the brief's question 8).
+                // If the radio is already gone this writes nothing, and the
+                // record waits for the next connect.
+                try { rig.ProcessorHandoff.Leaving(); }
+                catch (Exception ex) { Trace.WriteLine("TxAudioConditioning: the processor handoff's leave failed: " + ex.Message); }
+                rig.ProcessorHandoffNoticed -= OnProcessorHandoffNotice;
                 rig.ModeChanged -= OnModeChanged;
                 rig.TransmitModeMayHaveChanged -= OnTransmitModeMayHaveChanged;
                 var cond = rig.TxConditioner;
@@ -642,9 +665,9 @@ namespace JJFlexWpf
         /// <summary>Put the held gate settings in force on a rig's conditioner (attach: there is no over yet to protect).</summary>
         private static void PushGate(JJPortaudio.TxAudioConditioner cond)
         {
-            TxNoiseGateSetup g; ParametricEqSetup eq; TxDeEsserSetup de;
-            lock (_gate) { g = _gateIntent.Clone(); eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); }
-            cond.SetGateInForce(ToConditioner(g, eq, de, _autoThreshold, _thresholdMarginDb));
+            TxNoiseGateSetup g; ParametricEqSetup eq; TxDeEsserSetup de; TxCompressorSetup comp; TxLimiterSetup lim;
+            lock (_gate) { g = _gateIntent.Clone(); eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); comp = _compIntent.Clone(); lim = _limiterIntent.Clone(); }
+            cond.SetGateInForce(ToConditioner(g, eq, de, _autoThreshold, _thresholdMarginDb, comp, lim));
         }
 
         /// <summary>A setup's gate as the conditioner's one record, with the equaliser and the de-esser off.</summary>
@@ -654,11 +677,16 @@ namespace JJFlexWpf
         /// <summary>A whole setup's in-process stages as the conditioner's one record (Sprint 49 Track I): the expander, the equaliser and the de-esser. ONE function for the live wiring and the audition.</summary>
         internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseSetup s) =>
             ToConditioner(s.Gate ?? new TxNoiseGateSetup(), s.Eq, s.DeEsser, (s.Gate ?? new TxNoiseGateSetup()).AutoThreshold,
-                (s.Gate ?? new TxNoiseGateSetup()).ThresholdMarginDb);
+                (s.Gate ?? new TxNoiseGateSetup()).ThresholdMarginDb, s.Compressor, s.Limiter);
 
         /// <summary>The expander, the equaliser and the de-esser as the conditioner's one record. A null equaliser or de-esser is off.</summary>
-        internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, ParametricEqSetup? eq, TxDeEsserSetup? de, bool auto, float margin) => new()
+        internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, ParametricEqSetup? eq, TxDeEsserSetup? de, bool auto, float margin,
+            TxCompressorSetup? compressor = null, TxLimiterSetup? limiter = null) => new()
         {
+            // Sprint 49 Track CL: the compressor stage and the limiter ride in
+            // the same record. Null is off, as for the equaliser and the de-esser.
+            Comp = compressor?.ToSettings() ?? JJPortaudio.TxCompressorSettings.Default,
+            Limiter = limiter?.ToSettings() ?? JJPortaudio.TxLimiterSettings.Default,
             Enabled = g.Enabled,
             HasThreshold = !auto,
             ThresholdDb = g.ThresholdDb,
@@ -999,10 +1027,359 @@ namespace JJFlexWpf
         /// <summary>One trace line per over for the stages after the expander: samples past full scale after the equaliser (it never clips silently), and the de-esser's work. Policy tick only, never the audio thread.</summary>
         private static void TraceOverStats(JJPortaudio.TxAudioConditioner cond)
         {
+            TraceDynamicsOverStats(cond);
             var (clips, reduced, deepest) = cond.TakeOverStats();
             var (hasFloor, floor) = (cond.RoomFloor.HasFloor, cond.RoomFloor.FloorDb);
             Trace.WriteLine(FormattableString.Invariant(
                 $"TxAudioConditioning: over ended: equaliser {(cond.Eq.IsActive ? "on" : "off")}, {clips} samples past full scale; de-esser {(cond.DeEsser.Enabled ? "on" : "off")} at {cond.DeEsser.AppliedFrequencyHz:F0} Hz{(cond.DeEsser.Clamped ? " (clamped to the transmit filter)" : "")}, {reduced} frames reduced, deepest {deepest:F1} dB; chain delay {cond.AppliedDelayFrames} frames; room floor {(hasFloor ? floor.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " dB" : "not yet measured")}"));
+        }
+
+        // ------------------------------------------------------------------
+        // The compressor stage and the limiter (Sprint 49 Track CL, #1278).
+        // Switches (on or off, a preset, the mode, the rotator's stage count,
+        // the limiter's look-ahead) go through RunOrDefer and land at an
+        // unkeyed buffer (S2); every level is a continuous lever through
+        // Continuous and is live (S15). Every one is an intent held with no
+        // radio (#1077).
+        // ------------------------------------------------------------------
+
+        /// <summary>The compressor stage as intended: a copy.</summary>
+        public static TxCompressorSetup CompressorSetup { get { lock (_gate) return _compIntent.Clone(); } }
+
+        /// <summary>The limiter as intended: a copy.</summary>
+        public static TxLimiterSetup LimiterSetup { get { lock (_gate) return _limiterIntent.Clone(); } }
+
+        /// <summary>The compressor on or off: a switch (S2).</summary>
+        public static TxChangeResult SetCompressorEnabled(bool on) => Chain.RunOrDefer(() =>
+        {
+            lock (_gate) _compIntent.Enabled = on;
+            Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { Enabled = on });
+        });
+
+        /// <summary>
+        /// Load a preset into the compressor: a switch (S2), because it
+        /// replaces the whole shape at once. Every field becomes the
+        /// operator's to change; its on or off is left as it was.
+        /// </summary>
+        public static TxChangeResult LoadCompressorPreset(string presetId)
+        {
+            var preset = TxCompressorPresets.Find(presetId);
+            if (preset == null) return new TxChangeResult(TxChangeTiming.Refused, "unknown-compressor-preset");
+            return Chain.RunOrDefer(() =>
+            {
+                JJPortaudio.TxCompressorSettings loaded;
+                lock (_gate)
+                {
+                    _compIntent = TxCompressorPresets.Load(preset, _compIntent.Enabled);
+                    loaded = _compIntent.ToSettings();
+                }
+                Conditioner?.RequestSwitch(g => g.Comp = loaded with { Enabled = g.Comp.Enabled });
+            });
+        }
+
+        /// <summary>The compressor's mode, one band or split band: a switch (S2), because the split restarts the stage.</summary>
+        public static TxChangeResult SetCompressorSplitBand(bool split) => Chain.RunOrDefer(() =>
+        {
+            lock (_gate) _compIntent.Mode = split ? TxCompressorModes.Split : TxCompressorModes.Single;
+            Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { SplitBand = split });
+        });
+
+        /// <summary>The phase rotator's sections, 0 (off) to 6: a switch (S2), because a change of count restarts the rotator.</summary>
+        public static TxChangeResult SetCompressorRotator(int stages)
+        {
+            int n = Math.Clamp(stages, 0, JJPortaudio.PhaseRotator.MaxStages);
+            return Chain.RunOrDefer(() =>
+            {
+                lock (_gate) _compIntent.RotatorStages = n;
+                Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { RotatorStages = n });
+            });
+        }
+
+        /// <summary>A whole compressor setting, on or off included, as ONE switch (the editor's Cancel): held for the unkey while keyed, in order behind anything already held.</summary>
+        public static TxChangeResult SetCompressorWhole(TxCompressorSetup setup)
+        {
+            var copy = (setup ?? new TxCompressorSetup()).Clone();
+            return Chain.RunOrDefer(() =>
+            {
+                lock (_gate) _compIntent = copy.Clone();
+                var whole = copy.ToSettings();
+                Conditioner?.RequestSwitch(g => g.Comp = whole);
+            });
+        }
+
+        private static float Within(float value, float low, float high) => Math.Clamp(value, low, high);
+
+        /// <summary>One continuous compressor lever: how it changes the intent, and how it changes the record in force.</summary>
+        private static (Action<TxCompressorSetup> Intent, Func<JJPortaudio.TxCompressorSettings, JJPortaudio.TxCompressorSettings> Live)? CompressorLever(string key, float value)
+        {
+            float v;
+            switch (key)
+            {
+                case "threshold":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinThresholdDb, JJPortaudio.TxCompressorSettings.MaxThresholdDb);
+                    return (c => c.ThresholdDb = v, s => s with { ThresholdDb = v });
+                case "ratio":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinRatio, JJPortaudio.TxCompressorSettings.MaxRatio);
+                    return (c => c.RatioToOne = v, s => s with { RatioToOne = v });
+                case "attack":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinAttackMs, JJPortaudio.TxCompressorSettings.MaxAttackMs);
+                    return (c => c.AttackMs = v, s => s with { AttackMs = v });
+                case "release":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinReleaseMs, JJPortaudio.TxCompressorSettings.MaxReleaseMs);
+                    return (c => c.ReleaseMs = v, s => s with { ReleaseMs = v });
+                case "knee":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinKneeDb, JJPortaudio.TxCompressorSettings.MaxKneeDb);
+                    return (c => c.KneeDb = v, s => s with { KneeDb = v });
+                case "makeup":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinMakeupDb, JJPortaudio.TxCompressorSettings.MaxMakeupDb);
+                    return (c => c.MakeupDb = v, s => s with { MakeupDb = v });
+                case "drive":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinDriveDb, JJPortaudio.TxCompressorSettings.MaxDriveDb);
+                    return (c => c.DriveDb = v, s => s with { DriveDb = v });
+                case "crossover_low":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinCrossoverLowHz, JJPortaudio.TxCompressorSettings.MaxCrossoverLowHz);
+                    return (c => c.CrossoverLowHz = v, s => s with { CrossoverLowHz = v });
+                case "crossover_high":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinCrossoverHighHz, JJPortaudio.TxCompressorSettings.MaxCrossoverHighHz);
+                    return (c => c.CrossoverHighHz = v, s => s with { CrossoverHighHz = v });
+            }
+            // A split band's lever: "low.threshold", "mid.ratio", "high.makeup" and so on.
+            int dot = key.IndexOf('.');
+            if (dot <= 0) return null;
+            int band = key[..dot] switch { "low" => 0, "mid" => 1, "high" => 2, _ => -1 };
+            if (band < 0) return null;
+            static JJPortaudio.TxCompressorSettings WithBand(JJPortaudio.TxCompressorSettings s, int b, Func<JJPortaudio.TxCompressorBand, JJPortaudio.TxCompressorBand> change) =>
+                b == 0 ? s with { Low = change(s.Low) } : b == 1 ? s with { Mid = change(s.Mid) } : s with { High = change(s.High) };
+            switch (key[(dot + 1)..])
+            {
+                case "threshold":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinThresholdDb, JJPortaudio.TxCompressorSettings.MaxThresholdDb);
+                    return (c => c.Band(band).ThresholdDb = v, s => WithBand(s, band, x => x with { ThresholdDb = v }));
+                case "ratio":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinRatio, JJPortaudio.TxCompressorSettings.MaxRatio);
+                    return (c => c.Band(band).RatioToOne = v, s => WithBand(s, band, x => x with { RatioToOne = v }));
+                case "attack":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinAttackMs, JJPortaudio.TxCompressorSettings.MaxAttackMs);
+                    return (c => c.Band(band).AttackMs = v, s => WithBand(s, band, x => x with { AttackMs = v }));
+                case "release":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinReleaseMs, JJPortaudio.TxCompressorSettings.MaxReleaseMs);
+                    return (c => c.Band(band).ReleaseMs = v, s => WithBand(s, band, x => x with { ReleaseMs = v }));
+                case "makeup":
+                    v = Within(value, JJPortaudio.TxCompressorSettings.MinMakeupDb, JJPortaudio.TxCompressorSettings.MaxMakeupDb);
+                    return (c => c.Band(band).MakeupDb = v, s => WithBand(s, band, x => x with { MakeupDb = v }));
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// One compressor level by key, live (S15): "threshold", "ratio",
+        /// "attack", "release", "knee", "makeup", "drive", "crossover_low",
+        /// "crossover_high", and a split band's "low.threshold", "mid.ratio",
+        /// "high.makeup" and so on. "rotator" is the stage count, a switch.
+        /// </summary>
+        public static TxChangeResult SetCompressorLevel(string key, float value)
+        {
+            if (!float.IsFinite(value)) return new TxChangeResult(TxChangeTiming.Refused, "not-a-number");
+            if (key == "rotator") return SetCompressorRotator((int)Math.Round(value));
+            var lever = CompressorLever(key ?? "", value);
+            if (lever == null) return new TxChangeResult(TxChangeTiming.Refused, "unknown-compressor-lever");
+            var (intent, live) = lever.Value;
+            return Chain.Continuous(() =>
+            {
+                lock (_gate) { intent(_compIntent); _compIntent.PresetId = ""; }
+                Conditioner?.ChangeGate(g => g.Comp = live(g.Comp));
+            });
+        }
+
+        /// <summary>The limiter on or off: a switch (S2).</summary>
+        public static TxChangeResult SetLimiterEnabled(bool on) => Chain.RunOrDefer(() =>
+        {
+            lock (_gate) _limiterIntent.Enabled = on;
+            Conditioner?.RequestSwitch(g => g.Limiter = g.Limiter with { Enabled = on });
+        });
+
+        /// <summary>One limiter level by key: "ceiling" (dBFS) and "release" (ms) are live (S15); "lookahead" (ms) is a switch, because its length moves the stream in time.</summary>
+        public static TxChangeResult SetLimiterLevel(string key, float value)
+        {
+            if (!float.IsFinite(value)) return new TxChangeResult(TxChangeTiming.Refused, "not-a-number");
+            float v;
+            switch (key)
+            {
+                case "ceiling":
+                    v = Within(value, JJPortaudio.TxLimiterSettings.MinCeilingDb, JJPortaudio.TxLimiterSettings.MaxCeilingDb);
+                    return Chain.Continuous(() =>
+                    {
+                        lock (_gate) _limiterIntent.CeilingDb = v;
+                        Conditioner?.ChangeGate(g => g.Limiter = g.Limiter with { CeilingDb = v });
+                    });
+                case "release":
+                    v = Within(value, JJPortaudio.TxLimiterSettings.MinReleaseMs, JJPortaudio.TxLimiterSettings.MaxReleaseMs);
+                    return Chain.Continuous(() =>
+                    {
+                        lock (_gate) _limiterIntent.ReleaseMs = v;
+                        Conditioner?.ChangeGate(g => g.Limiter = g.Limiter with { ReleaseMs = v });
+                    });
+                case "lookahead":
+                    v = Within(value, JJPortaudio.TxLimiterSettings.MinLookAheadMs, JJPortaudio.TxLimiterSettings.MaxLookAheadMs);
+                    return Chain.RunOrDefer(() =>
+                    {
+                        lock (_gate) _limiterIntent.LookAheadMs = v;
+                        Conditioner?.RequestSwitch(g => g.Limiter = g.Limiter with { LookAheadMs = v });
+                    });
+            }
+            return new TxChangeResult(TxChangeTiming.Refused, "unknown-limiter-lever");
+        }
+
+        /// <summary>A whole limiter setting as ONE switch (the editor's Cancel).</summary>
+        public static TxChangeResult SetLimiterWhole(TxLimiterSetup setup)
+        {
+            var copy = (setup ?? new TxLimiterSetup()).Clone();
+            return Chain.RunOrDefer(() =>
+            {
+                lock (_gate) _limiterIntent = copy.Clone();
+                var whole = copy.ToSettings();
+                Conditioner?.RequestSwitch(g => g.Limiter = whole);
+            });
+        }
+
+        // ── readings: on demand, never per frame ──
+
+        /// <summary>What the compressor and the limiter are doing now. Running is false with no radio or when the stage is off in force.</summary>
+        public sealed record DynamicsNow(bool CompressorRunning, float CompressorReductionDb, bool SplitBand,
+            float LowReductionDb, float MidReductionDb, float HighReductionDb, bool LimiterRunning, float LimiterReductionDb);
+
+        /// <summary>The gain reduction being applied now, read from the stages (the end of the last buffer).</summary>
+        public static DynamicsNow ReadDynamicsNow()
+        {
+            var c = Conditioner;
+            if (c == null) return new DynamicsNow(false, 0, false, 0, 0, 0, false, 0);
+            var comp = c.Compressor;
+            var s = comp.Settings;
+            bool running = s.Enabled && !c.BypassAll;
+            bool limiting = c.Limiter.Settings.Enabled && !c.BypassAll;
+            return new DynamicsNow(running, running ? comp.ReductionDb : 0f, s.SplitBand,
+                running ? comp.BandReductionDb(0) : 0f, running ? comp.BandReductionDb(1) : 0f, running ? comp.BandReductionDb(2) : 0f,
+                limiting, limiting ? c.Limiter.ReductionDb : 0f);
+        }
+
+        /// <summary>One over's readings from the compressor and the limiter.</summary>
+        public sealed record DynamicsOver(float CompressorMaxDb, float CompressorAverageDb, long CompressorFrames,
+            long LimiterCaught, long OutputOverFullScale, long LimitedFrames, float LimiterMaxDb);
+
+        /// <summary>The last finished over's readings, or null before any. Written by the policy tick at the unkey.</summary>
+        public static DynamicsOver? LastDynamicsOver { get; private set; }
+
+        /// <summary>One trace line per over for the compressor and the limiter, and the readings kept for the "now" sentence. Policy tick only, never the audio thread.</summary>
+        private static void TraceDynamicsOverStats(JJPortaudio.TxAudioConditioner cond)
+        {
+            var (comp, lim) = cond.TakeDynamicsOverStats();
+            var over = new DynamicsOver(comp.MaxReductionDb, comp.AverageReductionDb, comp.Frames,
+                lim.Caught, lim.OutputOverFullScale, lim.LimitedFrames, lim.MaxReductionDb);
+            LastDynamicsOver = over;
+            var cs = cond.Compressor.Settings;
+            var ls = cond.Limiter.Settings;
+            Trace.WriteLine(FormattableString.Invariant(
+                $"TxAudioConditioning: over ended: compressor {(cs.Enabled ? (cs.SplitBand ? "on (split band)" : "on") : "off")}, deepest reduction {over.CompressorMaxDb:F1} dB, average {over.CompressorAverageDb:F1} dB over {over.CompressorFrames} frames, drive {cs.DriveDb:F0} dB, rotator {cs.RotatorStages}; limiter {(ls.Enabled ? "on" : "off")} at {ls.CeilingDb:F1} dBFS, look-ahead {cond.Limiter.AppliedLookAheadFrames} frames, caught {over.LimiterCaught} samples over the ceiling on {over.LimitedFrames} frames, deepest {over.LimiterMaxDb:F1} dB, {over.OutputOverFullScale} samples left over full scale"));
+        }
+
+        // ── the handoff with the radio's speech processor (#1278) ──
+
+        /// <summary>One handoff tick: what is true on the computer's side now, handed to the radio-neutral policy. Policy tick only.</summary>
+        private static void ProcessorHandoffTick()
+        {
+            var rig = _rig;
+            var cond = rig?.TxConditioner;
+            if (cond == null) return;
+            try
+            {
+                rig!.ProcessorHandoff.Tick(new ProcessorHandoffInputs(
+                    SettingOn: AudioOutputConfig.RadioProcessorOffWithCompressorInForce,
+                    // In force on the chain: a switch still waiting for the unkey has not come on yet.
+                    CompressorOn: cond.GateInForce.Comp.Enabled,
+                    PcMicrophone: rig.PcMicrophoneIsTransmitSource,
+                    VoiceMode: !cond.BypassAll,
+                    ChainFaults: rig.TransmitChainFaults));
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("TxAudioConditioning: the processor handoff's tick failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>The words (a DRAFT PROSE key) for each thing the handoff did.</summary>
+        internal static string ProcessorHandoffKey(ProcessorHandoffNotice notice) => notice switch
+        {
+            ProcessorHandoffNotice.TurnedOff => "audio.processor_handoff.turned_off",
+            ProcessorHandoffNotice.TurnedOffShared => "audio.processor_handoff.turned_off_shared",
+            ProcessorHandoffNotice.PutBack => "audio.processor_handoff.put_back",
+            ProcessorHandoffNotice.PutBackShared => "audio.processor_handoff.put_back_shared",
+            ProcessorHandoffNotice.PutBackAtConnect => "audio.processor_handoff.put_back_at_connect",
+            ProcessorHandoffNotice.StillOffAtConnect => "audio.processor_handoff.still_off_at_connect",
+            ProcessorHandoffNotice.PutBackAfterFault => "audio.processor_handoff.put_back_after_fault",
+            _ => "audio.processor_handoff.left_alone_not_yours",
+        };
+
+        /// <summary>Tests only: what would have been said, in place of speech.</summary>
+        internal static Action<string, string>? ProcessorHandoffSpeechForTest;
+
+        /// <summary>The handoff did something: say it, once, on its own subject. Never silent (#1278).</summary>
+        private static void OnProcessorHandoffNotice(ProcessorHandoffNotice notice)
+        {
+            try
+            {
+                string key = ProcessorHandoffKey(notice);
+                Trace.WriteLine("TxAudioConditioning: processor handoff notice: " + notice);
+                if (ProcessorHandoffSpeechForTest is { } test) { test(key, Radios.Speech.SpeechSubject.ProcessorHandoff); return; }
+                ScreenReaderOutput.Speak(Lexicon.Get(key),
+                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                    subject: Radios.Speech.SpeechSubject.ProcessorHandoff);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("TxAudioConditioning: the processor handoff's notice could not be given: " + ex.Message);
+            }
+        }
+
+        // ── the take header's line about the computer's chain (CL8) ──
+
+        private static string _namedSetup = "";
+        private static TxNoiseSetup? _namedSetupAsApplied;
+
+        private static void NoteNamedSetupApplied(TxNoiseSetup setup)
+        {
+            lock (_gate) { _namedSetup = setup.Name ?? ""; _namedSetupAsApplied = setup.Clone(); }
+        }
+
+        /// <summary>
+        /// One line for a listen-back take's header: the named transmit setup
+        /// last applied (and whether the chain still is that setup), the
+        /// stages that are on in order, and the compressor's and the limiter's
+        /// settings. A comparison bench reads it; nothing is said from it.
+        /// </summary>
+        internal static string DescribePcChain()
+        {
+            var s = CaptureSetup("");
+            string name; TxNoiseSetup? asApplied;
+            lock (_gate) { name = _namedSetup; asApplied = _namedSetupAsApplied?.Clone(); }
+            string applied = "no-named-setup";
+            if (asApplied != null)
+            {
+                // The automatic threshold moves by itself; it is not a change to the setup.
+                if (s.Gate.AutoThreshold && asApplied.Gate.AutoThreshold) asApplied.Gate.ThresholdDb = s.Gate.ThresholdDb;
+                applied = s.SameContentAs(asApplied) ? "as-applied" : "changed-since-applied";
+            }
+            var stages = new List<string>(6);
+            if (s.Spectral.Enabled || s.Neural.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.NoiseReduction);
+            if (s.Gate.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Expander);
+            if (s.Eq.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Equaliser);
+            if (s.DeEsser.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.DeEsser);
+            if (s.Compressor.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Compressor);
+            if (s.Limiter.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Limiter);
+            var c = s.Compressor.ToSettings();
+            var l = s.Limiter.ToSettings();
+            bool bypassed = Conditioner?.BypassAll == true;
+            return FormattableString.Invariant(
+                $"setup={(name.Length > 0 ? name : "none")} ({applied}); stages={(stages.Count > 0 ? string.Join(",", stages) : "none")}{(bypassed ? " (standing aside: CW or digital)" : "")}; compressor={(c.Enabled ? (c.SplitBand ? "split band, crossovers " + c.CrossoverLowHz.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " and " + c.CrossoverHighHz.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " Hz, " : "") + FormattableString.Invariant($"threshold {c.ThresholdDb:0.#} dBFS peak, ratio {c.RatioToOne:0.##}, attack {c.AttackMs:0.#} ms, release {c.ReleaseMs:0} ms, knee {c.KneeDb:0.#} dB, makeup {c.MakeupDb:0.#} dB, drive {c.DriveDb:0.#} dB, rotator {c.RotatorStages}") + (s.Compressor.PresetId.Length > 0 ? ", preset " + s.Compressor.PresetId : "") : "off")}; limiter={(l.Enabled ? FormattableString.Invariant($"ceiling {l.CeilingDb:0.#} dBFS, release {l.ReleaseMs:0} ms, look-ahead {l.LookAheadMs:0.#} ms") : "off")}");
         }
 
         // ------------------------------------------------------------------
@@ -1019,9 +1396,17 @@ namespace JJFlexWpf
             gate.ThresholdMarginDb = _thresholdMarginDb;
             var live = Conditioner?.Gate;
             if (live != null) gate.ThresholdDb = live.ThresholdDb;
-            ParametricEqSetup eq; TxDeEsserSetup de; string[] order;
-            lock (_gate) { eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); order = (string[])_orderIntent.Clone(); }
-            return new TxNoiseSetup { Name = name ?? "", Spectral = spectral, Neural = neural, Gate = gate, Eq = eq, DeEsser = de, StageOrder = order };
+            ParametricEqSetup eq; TxDeEsserSetup de; string[] order; TxCompressorSetup comp; TxLimiterSetup lim;
+            lock (_gate)
+            {
+                eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); order = (string[])_orderIntent.Clone();
+                comp = _compIntent.Clone(); lim = _limiterIntent.Clone();
+            }
+            return new TxNoiseSetup
+            {
+                Name = name ?? "", Spectral = spectral, Neural = neural, Gate = gate, Eq = eq, DeEsser = de, StageOrder = order,
+                Compressor = comp, Limiter = lim,
+            };
         }
 
         /// <summary>
@@ -1054,8 +1439,35 @@ namespace JJFlexWpf
         /// the stage order. For a caller that holds the whole change through
         /// <see cref="TxNoiseChain.RunOrDefer"/> already.
         /// </summary>
-        internal static void ApplyStagesNow(TxNoiseSetup setup) =>
+        internal static void ApplyStagesNow(TxNoiseSetup setup)
+        {
+            // The compressor and the limiter first, as intents only: the record
+            // the next line stages carries them, so the whole setup still lands
+            // on ONE unkeyed buffer (Sprint 49 Track CL).
+            StageDynamics(setup.Compressor, setup.Limiter);
             ApplyStagesNow(setup.Eq, setup.DeEsser, setup.StageOrder, setup.Gate ?? new TxNoiseGateSetup());
+        }
+
+        /// <summary>
+        /// A whole setup's compressor and limiter as INTENTS, for a caller
+        /// that is about to stage the rest of the setup (<see cref="ApplyStagesNow(ParametricEqSetup?, TxDeEsserSetup?, string[]?, TxNoiseGateSetup?)"/>
+        /// or <see cref="ApplyGateNow"/>), whose one staged record then carries
+        /// them. Null is off. Nothing reaches the conditioner from here.
+        /// </summary>
+        internal static void StageDynamics(TxCompressorSetup? compressor, TxLimiterSetup? limiter)
+        {
+            lock (_gate)
+            {
+                _compIntent = (compressor ?? new TxCompressorSetup()).Clone();
+                _limiterIntent = (limiter ?? new TxLimiterSetup()).Clone();
+            }
+        }
+
+        /// <summary>The compressor and the limiter as intended: copies.</summary>
+        public static (TxCompressorSetup Compressor, TxLimiterSetup Limiter) CaptureDynamics()
+        {
+            lock (_gate) return (_compIntent.Clone(), _limiterIntent.Clone());
+        }
 
         /// <summary>
         /// The equaliser, the de-esser and the stage order, now, with the gate
@@ -1072,7 +1484,9 @@ namespace JJFlexWpf
                 _orderIntent = o;
                 gate ??= _gateIntent.Clone();
             }
-            if (!o.SequenceEqual(JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder))
+            // An older build's default (this build's with the stages added since
+            // missing) runs as the default and is not worth a line (Track CL).
+            if (!JJPortaudio.TxAudioConditioner.StageIds.RunsAsDefault(o))
                 Trace.WriteLine("TxAudioConditioning: the setup names the stage order " + string.Join(",", o)
                     + "; this build runs only " + string.Join(",", JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder) + ", and keeps the saved order as it is.");
             ApplyGateNow(gate);
@@ -1090,13 +1504,13 @@ namespace JJFlexWpf
             var g = (gate ?? new TxNoiseGateSetup()).Clone();
             _autoThreshold = g.AutoThreshold;
             _thresholdMarginDb = Math.Clamp(g.ThresholdMarginDb, 3f, 15f);
-            ParametricEqSetup eq; TxDeEsserSetup de;
-            lock (_gate) { _gateIntent = g; eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); }
+            ParametricEqSetup eq; TxDeEsserSetup de; TxCompressorSetup comp; TxLimiterSetup lim;
+            lock (_gate) { _gateIntent = g; eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); comp = _compIntent.Clone(); lim = _limiterIntent.Clone(); }
             // The gate as a whole, on or off, levels and threshold policy, staged
             // for the next unkeyed buffer (repair round 3): never partway through
             // an over, even if this call is running when a key-down arrives. The
             // equaliser and the de-esser in force ride in the same record (Track I).
-            Conditioner?.StageGate(ToConditioner(g, eq, de, g.AutoThreshold, g.ThresholdMarginDb));
+            Conditioner?.StageGate(ToConditioner(g, eq, de, g.AutoThreshold, g.ThresholdMarginDb, comp, lim));
         }
 
         private static readonly HashSet<string> _missingSaid = new(StringComparer.OrdinalIgnoreCase);
@@ -1125,6 +1539,7 @@ namespace JJFlexWpf
             }
             lock (_missingSaid) _missingSaid.Remove(key);
             var timing = ApplySetup(setup).Timing;
+            NoteNamedSetupApplied(setup);
             return new(TxSetupApplyOutcome.Applied, false, timing);
         }
 
@@ -1143,7 +1558,11 @@ namespace JJFlexWpf
         {
             // The recommended setup replaces both slots (spectral off, RNNoise
             // at its default floor and off) and the gate, as one change.
-            ApplySetupNow(TxNoiseSetupMigration.FromConditioning("", new TxConditioningSettings()));
+            // The compressor off at its defaults, and the limiter as a new setup
+            // has it (Sprint 49 Track CL).
+            var recommended = TxNoiseSetupMigration.FromConditioning("", new TxConditioningSettings());
+            recommended.Limiter = TxLimiterSetup.ForNewSetup();
+            ApplySetupNow(recommended);
             var gate = Conditioner?.Gate;
             if (gate != null) gate.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
             lock (_gate) _gateIntent.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;

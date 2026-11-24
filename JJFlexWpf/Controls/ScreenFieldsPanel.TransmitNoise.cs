@@ -56,6 +56,12 @@ public partial class ScreenFieldsPanel
     private Button _txEqEdit = null!;
     private TextBlock _txEqSummary = null!;
     private CheckBox _txDeEsserOn = null!;
+    // Sprint 49 Track CL (#1278): the compressor and the limiter, as flat rows.
+    private CheckBox _txCompressorOn = null!, _txLimiterOn = null!, _txHandoff = null!;
+    private CycleFieldControl _txCompressorPreset = null!;
+    private Button _txDynamicsEdit = null!;
+    private TextBlock _txCompressorNow = null!, _txLimiterNow = null!;
+    private readonly List<(CycleFieldControl Field, DynamicsLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> _txDynamicsFields = new();
     private readonly List<(CycleFieldControl Field, DeEsserLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> _txDeEsserFields = new();
     private CheckBox _txGateAdvanced = null!;
     private StackPanel _txGateAdvancedFields = null!;
@@ -287,6 +293,8 @@ public partial class ScreenFieldsPanel
             TxContent.Children.Add(field);
         }
 
+        BuildTransmitDynamicsRows();
+
         _txGateDefaults = MakeTxButton("audio.noise_home.tx.gate_defaults", "audio.noise_help.tx_home.gate_defaults");
         _txGateDefaults.Click += (s, e) =>
         {
@@ -434,6 +442,135 @@ public partial class ScreenFieldsPanel
         finally { _txNoiseRebuilding = false; }
     }
 
+    /// <summary>
+    /// The compressor's and the limiter's flat rows (Sprint 49 Track CL,
+    /// #1278): each switch, the compressor's preset, the levers Home carries
+    /// (threshold, ratio and makeup; the limiter's ceiling), each stage's
+    /// "now" reading, the setting about the radio's speech processor, and the
+    /// door to the editor that holds every parameter. Flat rows only (#489).
+    /// </summary>
+    private void BuildTransmitDynamicsRows()
+    {
+        _txCompressorOn = MakeToggle(Lexicon.Get("audio.dynamics_home.compressor_on"));
+        _txCompressorOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetCompressorOn(true, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        _txCompressorOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetCompressorOn(false, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        JJFlexHelp.SetText(_txCompressorOn, Lexicon.Get("audio.dynamics_help.compressor_on"));
+        TxContent.Children.Add(_txCompressorOn);
+
+        var presetNames = new[] { Lexicon.Get("audio.compressor.preset_none") }
+            .Concat(NoiseController.CompressorPresets.Select(NoiseController.CompressorPresetName)).ToArray();
+        _txCompressorPreset = MakeCycle(Lexicon.Get("audio.dynamics_home.preset"), presetNames);
+        _txCompressorPreset.SelectionChanged += (s, i) =>
+        {
+            if (_polling || _txNoiseRebuilding || i <= 0 || i > NoiseController.CompressorPresets.Count) return;
+            NoiseCtl?.LoadCompressorPreset(NoiseController.CompressorPresets[i - 1].Id, TxNoiseSource);
+            RefreshTransmitDynamicsValues();
+        };
+        JJFlexHelp.SetText(_txCompressorPreset, Lexicon.Get("audio.dynamics_help.preset"));
+        TxContent.Children.Add(_txCompressorPreset);
+
+        void AddLeverRows(IEnumerable<DynamicsLever> levers)
+        {
+            foreach (var lever in levers)
+            {
+                var l = lever;
+                var field = MakeCycle(Lexicon.Get(l.LabelKey), Array.Empty<string>());
+                field.SelectionChanged += (s, i) =>
+                {
+                    if (_polling || _txNoiseRebuilding || i < 0) return;
+                    var entry = _txDynamicsFields.FirstOrDefault(f => ReferenceEquals(f.Field, field));
+                    if (entry.Field == null || i >= entry.Steps.Count) return;
+                    NoiseCtl?.SetDynamics(entry.Lever, entry.Steps[i].Value, TxNoiseSource);
+                };
+                JJFlexHelp.SetText(field, Lexicon.Get(l.HelpKey));
+                _txDynamicsFields.Add((field, l, Array.Empty<(double, string)>()));
+                TxContent.Children.Add(field);
+            }
+        }
+        AddLeverRows(NoiseController.CompressorLevers.Where(l => l.OnHome));
+
+        _txCompressorNow = new TextBlock { TextWrapping = TextWrapping.Wrap, Focusable = true };
+        JJFlexHelp.SetText(_txCompressorNow, Lexicon.Get("audio.dynamics_help.compressor_now"));
+        TxContent.Children.Add(_txCompressorNow);
+
+        _txHandoff = MakeToggle(Lexicon.Get("audio.dynamics_home.handoff"));
+        _txHandoff.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) NoiseCtl?.SetProcessorHandoffSetting(true, TxNoiseSource); };
+        _txHandoff.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) NoiseCtl?.SetProcessorHandoffSetting(false, TxNoiseSource); };
+        JJFlexHelp.SetText(_txHandoff, Lexicon.Get("audio.dynamics_help.handoff"));
+        TxContent.Children.Add(_txHandoff);
+
+        _txLimiterOn = MakeToggle(Lexicon.Get("audio.dynamics_home.limiter_on"));
+        _txLimiterOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetLimiterOn(true, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        _txLimiterOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetLimiterOn(false, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        JJFlexHelp.SetText(_txLimiterOn, Lexicon.Get("audio.dynamics_help.limiter_on"));
+        TxContent.Children.Add(_txLimiterOn);
+        AddLeverRows(NoiseController.LimiterLevers.Where(l => l.OnHome));
+
+        _txLimiterNow = new TextBlock { TextWrapping = TextWrapping.Wrap, Focusable = true };
+        JJFlexHelp.SetText(_txLimiterNow, Lexicon.Get("audio.dynamics_help.limiter_now"));
+        TxContent.Children.Add(_txLimiterNow);
+
+        _txDynamicsEdit = MakeTxButton("audio.dynamics_home.edit", "audio.dynamics_help.edit");
+        _txDynamicsEdit.Click += (s, e) => FindMainWindow()?.ShowDynamicsEditor();
+        TxContent.Children.Add(_txDynamicsEdit);
+    }
+
+    /// <summary>The compressor's and the limiter's rows' steps, set from the controller (Sprint 49 Track CL).</summary>
+    private void SetupTransmitDynamicsFields(NoiseController noise)
+    {
+        for (int k = 0; k < _txDynamicsFields.Count; k++)
+        {
+            var (field, lever, _) = _txDynamicsFields[k];
+            var steps = noise.DynamicsSteps(lever);
+            field.Setup(noise.DynamicsLeverName(lever), steps.Select(s => s.Text).ToArray(), NearestStep(steps, noise.DynamicsNumber(lever)));
+            field.Wraps = false;
+            field.HomeEndJump = true;
+            _txDynamicsFields[k] = (field, lever, steps);
+        }
+        RefreshTransmitDynamicsValues();
+    }
+
+    /// <summary>The compressor's and the limiter's rows' values, from the controller: the switches, the preset in place, the levers and the two "now" readings.</summary>
+    private void RefreshTransmitDynamicsValues()
+    {
+        if (NoiseCtl is not { } noise || _txCompressorOn == null) return;
+        bool wasPolling = _polling;
+        _polling = true;
+        try
+        {
+            _txCompressorOn.IsChecked = noise.CompressorOn;
+            _txLimiterOn.IsChecked = noise.LimiterOn;
+            _txHandoff.IsChecked = noise.ProcessorHandoffSetting;
+            var inPlace = noise.CompressorPresetInPlace;
+            int presetIndex = 0;
+            for (int i = 0; i < NoiseController.CompressorPresets.Count; i++)
+                if (ReferenceEquals(NoiseController.CompressorPresets[i], inPlace)) presetIndex = i + 1;
+            _txCompressorPreset.SuppressEvents = true;
+            try { _txCompressorPreset.SelectedIndex = presetIndex; }
+            finally { _txCompressorPreset.SuppressEvents = false; }
+            foreach (var (field, lever, steps) in _txDynamicsFields)
+            {
+                if (steps.Count == 0) continue;
+                field.SuppressEvents = true;
+                try { field.SelectedIndex = NearestStep(steps, noise.DynamicsNumber(lever)); }
+                finally { field.SuppressEvents = false; }
+            }
+            string compressorNow = noise.CompressorNowSentence();
+            if (_txCompressorNow.Text != compressorNow)
+            {
+                _txCompressorNow.Text = compressorNow;
+                AutomationProperties.SetName(_txCompressorNow, compressorNow);
+            }
+            string limiterNow = noise.LimiterNowSentence();
+            if (_txLimiterNow.Text != limiterNow)
+            {
+                _txLimiterNow.Text = limiterNow;
+                AutomationProperties.SetName(_txLimiterNow, limiterNow);
+            }
+        }
+        finally { _polling = wasPolling; }
+    }
+
     /// <summary>The de-esser's fields' steps and the stages' toggles and summary, set from the controller (Sprint 49 Track I).</summary>
     private void SetupTransmitStageFields(NoiseController noise)
     {
@@ -447,11 +584,13 @@ public partial class ScreenFieldsPanel
             _txDeEsserFields[k] = (field, lever, steps);
         }
         RefreshTransmitStageValues();
+        SetupTransmitDynamicsFields(noise);
     }
 
     /// <summary>The Track I rows' values, from the controller: equaliser and de-esser on, the de-esser's levers, the side-chain filter, the summary.</summary>
     private void RefreshTransmitStageValues()
     {
+        RefreshTransmitDynamicsValues();
         if (NoiseCtl is not { } noise || _txEqOn == null) return;
         bool wasPolling = _polling;
         _polling = true;

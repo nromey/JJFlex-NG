@@ -33,7 +33,8 @@ public sealed class TxGateOwnerTests
         public bool Keyed;
         public Context()
         {
-            _saved = new[] { "_rig", "_chain", "_autoThreshold", "_thresholdMarginDb", "_gateIntent", "_eqIntent", "_deEsserIntent", "_orderIntent", "_learnBaseline" }
+            _saved = new[] { "_rig", "_chain", "_autoThreshold", "_thresholdMarginDb", "_gateIntent", "_eqIntent", "_deEsserIntent", "_orderIntent", "_learnBaseline",
+                    "_compIntent", "_limiterIntent", "_namedSetup", "_namedSetupAsApplied" }
                 .Select(n => typeof(TxAudioConditioning).GetField(n, Flags)!).Select(f => (f, f.GetValue(null))).ToArray();
             var rig = (FlexBase)RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
             GC.SuppressFinalize(rig); // only the injected numerical fields exist; never enter radio teardown
@@ -42,6 +43,12 @@ public sealed class TxGateOwnerTests
             typeof(TxAudioConditioning).GetField("_rig", Flags)!.SetValue(null, rig);
             TxAudioConditioning.UseChainForTest(Chain);
             typeof(TxAudioConditioning).GetField("_gateIntent", Flags)!.SetValue(null, new TxNoiseGateSetup());
+            // Sprint 49 Track CL: the compressor and the limiter start OFF here, as after
+            // a setup saved before they existed, so every test written before them still
+            // starts from a chain with nothing on. (A session that has loaded nothing
+            // starts with the limiter on; TxDynamicsSurfaceTests covers that state.)
+            typeof(TxAudioConditioning).GetField("_compIntent", Flags)!.SetValue(null, new TxCompressorSetup());
+            typeof(TxAudioConditioning).GetField("_limiterIntent", Flags)!.SetValue(null, new TxLimiterSetup());
             Chain.KeySource = () => Volatile.Read(ref Keyed);
             Cond.KeySource = () => Volatile.Read(ref Keyed);
         }
