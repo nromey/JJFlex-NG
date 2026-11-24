@@ -479,7 +479,16 @@ namespace JJPortaudio
         }
 
         private float[] _monitorBuf = new float[ScratchFloats];
-        private float[] _inputDelay = Array.Empty<float>();
+        // The residual's delay line (Sprint 49 Track I, repair 2, N4): preallocated
+        // here for 8,192 stereo frames, which holds the longest look-ahead (10 ms,
+        // 1,920 frames at 192 kHz) plus any noise engine's delay this app runs,
+        // so a change of look-ahead or engine delay re-lays the line in place,
+        // through a scratch of the same size, and allocates nothing on the
+        // callback. Only a delay past that capacity grows it (a follow-up).
+        private const int DelayLineFloats = 16384;
+        private float[] _inputDelay = new float[DelayLineFloats];
+        private float[] _inputDelayScratch = new float[DelayLineFloats];
+        private int _inputDelayLen;
         private int _inputDelayAt;
 
         /// <summary>
@@ -580,15 +589,21 @@ namespace JJPortaudio
         {
             if (delaySamples == 0) return;
             int length = checked(delaySamples * 2); // stereo interleaved
-            if (_inputDelay.Length != length)
+            if (_inputDelayLen != length)
             {
-                var next = new float[length];
-                int keep = Math.Min(length, _inputDelay.Length);
+                int old = _inputDelayLen;
+                if (_inputDelayScratch.Length < length) _inputDelayScratch = new float[length]; // past capacity only
+                var next = _inputDelayScratch;
+                Array.Clear(next, 0, length);
+                int keep = Math.Min(length, old);
                 // Preserve the latest pending samples. Increasing carry adds
                 // silence before them, the same one-time lead as the bank.
                 for (int i = 0; i < keep; i++)
-                    next[length - keep + i] = _inputDelay[(_inputDelayAt + _inputDelay.Length - keep + i) % _inputDelay.Length];
+                    next[length - keep + i] = _inputDelay[(_inputDelayAt + old - keep + i) % old];
+                // The two buffers swap roles: no copy back, nothing allocated.
+                _inputDelayScratch = _inputDelay;
                 _inputDelay = next;
+                _inputDelayLen = length;
                 _inputDelayAt = 0;
             }
             int at = _inputDelayAt;
