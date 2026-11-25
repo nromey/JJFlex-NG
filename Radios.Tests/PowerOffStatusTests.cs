@@ -10,6 +10,7 @@ namespace Radios.Tests;
 /// that it stopped hearing from the radio. The causes below are the ones that
 /// really reach that line (read from the code at batch 29).
 /// </summary>
+[Collection(RadioConfigStaticsCollection.Name)]
 public sealed class PowerOffStatusTests
 {
     private static string PowerOff => Lexicon.Get("connect.home.status_power_off");
