@@ -1164,6 +1164,7 @@
   "settings.silenced.item_when_unknown": "Silenced before JJ Flexible started keeping the date.",
   "settings.silenced.lead": "These messages are not being shown. Pick one and choose Show this again to bring it back.",
   "settings.silenced.lead_empty": "Nothing is silenced. When a message offers Don't show this again and you take it, it lands here so you can bring it back.",
+  "settings.silenced.no_callsign_reminder": {"text": "The reminder at startup that no callsign is set", "delivery": null},
   "settings.silenced.no_physical_access": "The explanation before turning on remote access to a radio you cannot get to",
   "settings.silenced.ownership": "The ownership question for radio {serial}",
   "settings.silenced.register": {"text": "The SmartLink radio list problem notice for radio {serial}", "delivery": null},

@@ -667,6 +667,11 @@ public partial class MainWindow : UserControl
         try { runningNotice = Radios.RunningCostRegister.DescribeNotableForSpeech(); }
         catch { /* never let a diagnostics read cost somebody their arrival announcement */ }
 
+        // #1306: the no-callsign reminder is decided here, once per launch.
+        // When it takes the turn now, Home's focus grab and arrival wait
+        // behind it like an advisory's (MainWindow.CallsignReminder.cs).
+        bool reminderFirst = TakeCallsignReminderTurnAtWelcome();
+
         // Land on the frequency display at startup — or on the rescue page's
         // first button when there is no radio and the display is collapsed.
         // The grab waits while an advisory is up (it would yank keyboard
@@ -688,19 +693,25 @@ public partial class MainWindow : UserControl
         // the shell was shown, which put it in the MIDDLE of the connect
         // narration with profile talk on both sides of it.
         var briefing = Radios.ConnectBriefing.Current;
-        briefing.RequestHomeArrival(message, Radios.VerbosityLevel.Terse);
-        if (runningNotice != null)
+        void Arrive()
         {
-            // Critical because the operator did not ask and cannot see it.
-            // Brief at connect because "Recording is on." is the part that
-            // changes what they do next; the rest is reference.
-            briefing.Note(new Radios.ConnectFact(
-                Radios.ConnectFactKind.RunningInstrumentation,
-                runningNotice,
-                Radios.Lexicon.Get("logging.running.startup_brief"),
-                Radios.VerbosityLevel.Critical,
-                Radios.Speech.SpeechSubject.RunningInstrumentation));
+            briefing.RequestHomeArrival(message, Radios.VerbosityLevel.Terse);
+            if (runningNotice != null)
+            {
+                // Critical because the operator did not ask and cannot see it.
+                // Brief at connect because "Recording is on." is the part that
+                // changes what they do next; the rest is reference.
+                briefing.Note(new Radios.ConnectFact(
+                    Radios.ConnectFactKind.RunningInstrumentation,
+                    runningNotice,
+                    Radios.Lexicon.Get("logging.running.startup_brief"),
+                    Radios.VerbosityLevel.Critical,
+                    Radios.Speech.SpeechSubject.RunningInstrumentation));
+            }
         }
+        // #1306: behind the reminder when it has the floor, replayed when it closes.
+        if (reminderFirst) _pendingArrival = Arrive;
+        else Arrive();
     }
 
     /// <summary>
@@ -4211,32 +4222,25 @@ public partial class MainWindow : UserControl
     /// </summary>
     private async void RunStartupAdvisories()
     {
+        // #1306: never stacked over the no-callsign reminder's own turn.
+        await WaitForCallsignReminderTurnAsync();
         _advisorySequenceActive = true;
         try
         {
             await SuggestRegistrationIfUnregisteredAsync();
             await SuggestFirmwareUpdateIfAvailableAsync();
+            // Last, so the connect statement stays parked behind it too.
+            await ShowCallsignReminderInChainAsync();
         }
         finally
         {
             _advisorySequenceActive = false;
 
             // Bring-up that arrived while the chain was active gets its turn
-            // now that the user is done reading — focus first (the parked
-            // welcome focus grab), then the parked connect settle, which
-            // speaks the composed statement and releases the Home arrival
-            // behind it. One policy for every bring-up path, not per-path
-            // patches.
-            if (_welcomeFocusPending)
-            {
-                _welcomeFocusPending = false;
-                try { FocusHome(); } catch { /* window may be closing */ }
-            }
-            if (_pendingSettle is { } settle)
-            {
-                _pendingSettle = null;
-                Radios.ConnectBriefing.Current.Settle(settle.lead, settle.censusFull);
-            }
+            // now that the user is done reading. One policy for every
+            // bring-up path, not per-path patches: ReplayParkedBringUp, shared
+            // with the no-callsign reminder (MainWindow.CallsignReminder.cs).
+            ReplayParkedBringUp();
         }
     }
 

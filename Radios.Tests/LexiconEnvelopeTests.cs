@@ -3210,6 +3210,11 @@ namespace Radios.Tests
                 "settings.operators.callsign_check_off_help",
                 "settings.operators.callsign_check_turned_off",
                 "settings.operators.callsign_check_off_not_saved",
+                // ...and the startup reminder when no callsign is set, with its
+                // line in Messages You Have Silenced. DRAFT.
+                "connect.startup.no_callsign_reminder_title",
+                "connect.startup.no_callsign_reminder_body",
+                "settings.silenced.no_callsign_reminder",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

@@ -37,6 +37,7 @@ namespace Radios
         private const string NoPhysicalAccessCascadeValue = "no-physical-access-cascade-v1";
         private const string StillRunningAtExitValue = "still-running-at-exit-v1";
         private const string StationSaveExplanationValue = "station-save-explanation-v1";
+        private const string NoCallsignReminderValue = "no-callsign-reminder-v1";
         private const string RegisterPrefix = "register|";
         private const string OwnershipPrefix = "radio-ownership|";
         private const string OwnershipVersion = "-v1";
@@ -114,6 +115,18 @@ namespace Radios
             Lexicon.Get("settings.silenced.station_save"));
 
         /// <summary>
+        /// The reminder at startup that the operator has no callsign (#1306,
+        /// ruled by Noel 2026-11-24): about logging and the other callsign
+        /// features, not a transmit refusal. Per operator, as every message
+        /// here is since #1073, which fits a reminder about that operator's own
+        /// callsign.
+        /// </summary>
+        // DRAFT: the review-list label awaits Codex's wording.
+        public static AdvisoryKey NoCallsignReminder => new(
+            NoCallsignReminderValue,
+            Lexicon.Get("settings.silenced.no_callsign_reminder"));
+
+        /// <summary>
         /// The words for a key that is already in the store — the same table
         /// read backwards.
         /// </summary>
@@ -135,6 +148,7 @@ namespace Radios
                 case NoPhysicalAccessCascadeValue: return NoPhysicalAccessCascade.Label;
                 case StillRunningAtExitValue: return StillRunningAtExit.Label;
                 case StationSaveExplanationValue: return StationSaveExplanation.Label;
+                case NoCallsignReminderValue: return NoCallsignReminder.Label;
             }
 
             if (key.StartsWith(OwnershipPrefix, StringComparison.Ordinal)

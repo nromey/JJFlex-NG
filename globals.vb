@@ -2914,9 +2914,13 @@ Module globals
         ' Load operator and rig data.
         Operators = New PersonalData(BaseConfigDir)
         ' There must be a default operator!
+        ' #1306: remembered so the no-callsign reminder is not shown on the
+        ' launch that has just been through the operator form, which asks.
+        Dim operatorCreatedThisLaunch As Boolean = False
         While CurrentOp Is Nothing
             SetCurrentOp(Operators.TheDefault, Operators.DefaultID)
             If CurrentOp Is Nothing Then
+                operatorCreatedThisLaunch = True
                 If MessageBox.Show(AppShellForm, reqOpMsg, reqOpMsgTitle, MessageBoxButtons.YesNo) <> DialogResult.Yes Then
                     End
                 End If
@@ -2924,6 +2928,12 @@ Module globals
                 Lister.ShowDialog()
             End If
         End While
+        ' #1306: the startup reminder reads the operator's callsign the same
+        ' way the radio's callsign check does, at the moment it asks.
+        If WpfMainWindow IsNot Nothing Then
+            WpfMainWindow.OperatorCreatedThisLaunch = operatorCreatedThisLaunch
+            WpfMainWindow.OperatorCallsignSource = AddressOf currentOperatorCallsign
+        End If
 
         ' setup log file
         ConfigContactLog()
