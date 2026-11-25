@@ -85,6 +85,17 @@ namespace JJPortaudio
     /// delay (<see cref="AppliedDelayFrames"/>) now also counts the limiter's
     /// look-ahead; the residual's own alignment does not, because the residual
     /// ends upstream of it.</para>
+    /// <para><b>The chain since Sprint 49 Track J phase 2</b> (#736): JJ Clarity
+    /// (<see cref="Clarity"/>), an exciter, runs after the de-esser and before
+    /// the compressor, so the dynamics stages control the energy it adds. It
+    /// rides in the same one-owner record, and it is not part of "what was
+    /// removed". Its design depends on the transmit passband's two edges, and
+    /// THIS class is the one owner of them
+    /// (<see cref="SetClarityPassband"/>): every published record's Clarity
+    /// design is built here, off the audio thread, from the record's settings
+    /// and the edges, and an edge change rebuilds the design in the record in
+    /// force AND in the one waiting, in one publish. Nothing else may set an
+    /// edge on <see cref="Clarity"/>.</para>
     /// </summary>
     public class TxAudioConditioner
     {
@@ -111,7 +122,16 @@ namespace JJPortaudio
         /// <summary>The de-esser, after the equaliser (Sprint 49 Track I, item 4).</summary>
         public DeEsser DeEsser { get; } = new DeEsser();
 
-        /// <summary>The compressor stage, after the de-esser: phase rotator, drive, compressor, split-band mode (Sprint 49 Track CL, #1278).</summary>
+        /// <summary>
+        /// JJ Clarity, after the de-esser and before the compressor (Sprint 49
+        /// Track J, #736). Read it for what it is doing; publish to it ONLY
+        /// through this class's record (never <c>Use(ClaritySettings)</c> or
+        /// its own passband edge setters, which would be a second writer that
+        /// ignores the waiting record).
+        /// </summary>
+        public ClarityExciter Clarity { get; } = new ClarityExciter();
+
+        /// <summary>The compressor stage, after JJ Clarity: phase rotator, drive, compressor, split-band mode (Sprint 49 Track CL, #1278).</summary>
         public TxCompressor Compressor { get; } = new TxCompressor();
 
         /// <summary>The limiter, last in the chain (Sprint 49 Track CL, #1278).</summary>
@@ -127,26 +147,30 @@ namespace JJPortaudio
             public const string Expander = "expander";
             public const string Equaliser = "eq";
             public const string DeEsser = "deesser";
+            /// <summary>JJ Clarity, the exciter (Sprint 49 Track J): after the de-esser, before the compressor.</summary>
+            public const string Clarity = "clarity";
             /// <summary>The compressor stage (Sprint 49 Track CL): rotator, drive, compressor.</summary>
             public const string Compressor = "compressor";
             /// <summary>The limiter (Sprint 49 Track CL). Always last: see the class remarks.</summary>
             public const string Limiter = "limiter";
 
             /// <summary>The default order, and the only one this build runs.</summary>
-            public static string[] DefaultOrder => new[] { NoiseReduction, Expander, Equaliser, DeEsser, Compressor, Limiter };
+            public static string[] DefaultOrder => new[] { NoiseReduction, Expander, Equaliser, DeEsser, Clarity, Compressor, Limiter };
 
             /// <summary>
             /// The default orders EARLIER builds wrote into saved setups, each
             /// in full. A setup saved by one of those builds holds its build's
             /// default, which is this build's default with the stages added
-            /// since missing; it runs as the default here. Today there is one:
+            /// since missing; it runs as the default here. Today there are two:
             /// Track I's four stages, before the compressor and the limiter
-            /// existed. <b>Whoever adds a stage to <see cref="DefaultOrder"/>
+            /// existed, and Track CL's six, before JJ Clarity existed.
+            /// <b>Whoever adds a stage to <see cref="DefaultOrder"/>
             /// adds the default it replaces to this list.</b>
             /// </summary>
             public static string[][] HistoricalDefaults => new[]
             {
                 new[] { NoiseReduction, Expander, Equaliser, DeEsser },
+                new[] { NoiseReduction, Expander, Equaliser, DeEsser, Compressor, Limiter },
             };
 
             /// <summary>
@@ -216,7 +240,12 @@ namespace JJPortaudio
                 bool deEss = DeEsser.Enabled || GateInForce.DeEsserEnabled;
                 bool dynamics = Compressor.Settings.Enabled || GateInForce.Comp.Enabled
                     || Limiter.Settings.Enabled || GateInForce.Limiter.Enabled;
-                return nr || expander || eq || deEss || dynamics;
+                // JJ Clarity (Track J): doing something now (its switch-off fade
+                // included), or on in the record IN FORCE with a design that adds
+                // something. Never the waiting record, as for the equaliser.
+                var inForce = GateInForce;
+                bool clarity = Clarity.IsActive || (inForce.ClarityEnabled && inForce.ClarityDesign is { AddsNothing: false });
+                return nr || expander || eq || deEss || clarity || dynamics;
             }
         }
 
@@ -328,6 +357,14 @@ namespace JJPortaudio
             public TxCompressorSettings Comp = TxCompressorSettings.Default;
             /// <summary>The limiter's settings (Sprint 49 Track CL). Immutable: on or off and the look-ahead's length are switches; the ceiling and the release are continuous levers.</summary>
             public TxLimiterSettings Limiter = TxLimiterSettings.Default;
+            /// <summary>JJ Clarity on or off as a whole (Sprint 49 Track J): a switch.</summary>
+            public bool ClarityEnabled;
+            /// <summary>JJ Clarity's settings, the operator's INTENT. Immutable, so a copy may share it: a band's on or off and its harmonics are switches; tune, drive and mix are continuous levers.</summary>
+            public ClaritySettings Clarity = ClaritySettings.Default;
+            /// <summary>The design <see cref="Clarity"/> makes with the passband edges the conditioner holds. Built by the conditioner when a record is published, off the audio thread; a caller never sets it.</summary>
+            internal ClarityDesign ClarityBuilt;
+            /// <summary>The Clarity design this record carries, once published: its settings with the passband edges in force. Null on a record that has not been published.</summary>
+            public ClarityDesign ClarityDesign => ClarityBuilt;
             public StagedGate Copy() => (StagedGate)MemberwiseClone();
         }
 
@@ -337,12 +374,69 @@ namespace JJPortaudio
             public readonly StagedGate Pending;
             /// <summary>Pending as Live, built by the control side so adopting it allocates nothing on the audio thread.</summary>
             public readonly GateState Adopted;
-            public GateState(StagedGate live, StagedGate pending)
+            /// <summary>The transmit passband's edges, Hz (0 unknown), that every Clarity design in this state was built with (Track J).</summary>
+            public readonly float LowEdgeHz, HighEdgeHz;
+            public GateState(StagedGate live, StagedGate pending, float lowEdgeHz, float highEdgeHz, uint designRate)
             {
-                Live = live; Pending = pending;
-                Adopted = pending == null ? null : new GateState(pending, null);
+                LowEdgeHz = lowEdgeHz; HighEdgeHz = highEdgeHz;
+                // Both records carry a Clarity design made from their OWN settings
+                // and THESE edges, so whichever is in force, and whichever is
+                // adopted later, runs with the newest edges (Track J, item 2).
+                Live = Designed(live, lowEdgeHz, highEdgeHz, designRate);
+                Pending = pending == null ? null : Designed(pending, lowEdgeHz, highEdgeHz, designRate);
+                Adopted = Pending == null ? null : new GateState(Pending, null, lowEdgeHz, highEdgeHz, designRate);
             }
         }
+
+        /// <summary>
+        /// A record whose Clarity design is its settings at these edges: the
+        /// record itself when it already is, else a copy with the design built
+        /// here, on the control side. Never called on the audio thread.
+        /// </summary>
+        private static StagedGate Designed(StagedGate record, float lowEdgeHz, float highEdgeHz, uint designRate)
+        {
+            var settings = record.Clarity ?? ClaritySettings.Default;
+            var built = record.ClarityBuilt;
+            if (built != null && ReferenceEquals(record.Clarity, settings) && built.Settings.Equals(settings)
+                && built.PassbandLowEdgeHz == lowEdgeHz && built.PassbandHighEdgeHz == highEdgeHz) return record;
+            var next = record.Copy();
+            next.Clarity = settings;
+            next.ClarityBuilt = JJPortaudio.ClarityDesign.Create(settings, lowEdgeHz, highEdgeHz, designRate);
+            return next;
+        }
+
+        /// <summary>The rate a Clarity design is built for: the stream's last rate, 48 kHz before it has run. A design adopted at another rate is recomputed in place by the stage, allocating nothing.</summary>
+        private uint ClarityDesignRate { get { uint r = _lastSampleRate; return r == 0 ? JJPortaudio.ClarityDesign.DesignRate : r; } }
+
+        private GateState Next(GateState was, StagedGate live, StagedGate pending) =>
+            new GateState(live, pending, was.LowEdgeHz, was.HighEdgeHz, ClarityDesignRate);
+
+        private static float PassbandEdge(float hz) => float.IsFinite(hz) && hz > 0 ? hz : 0f;
+
+        /// <summary>
+        /// The transmit passband's two edges, Hz (0 or anything not positive
+        /// and finite: unknown, nothing is clamped to it), set by the policy
+        /// layer (on a Flex, from the transmit filter). JJ Clarity keeps its
+        /// work inside them. THE ONE ROAD an edge takes to Clarity (Sprint 49
+        /// Track J, item 2): an edge that changed rebuilds the Clarity design
+        /// of the record in force AND of the record waiting for the unkey, in
+        /// one publish, each keeping its own settings; the waiting record is
+        /// then adopted unchanged at the unkey, so it carries the newest edges.
+        /// Unchanged edges publish nothing. Off the audio thread (it builds
+        /// designs).
+        /// </summary>
+        public void SetClarityPassband(float lowEdgeHz, float highEdgeHz)
+        {
+            float low = PassbandEdge(lowEdgeHz), high = PassbandEdge(highEdgeHz);
+            PublishGate(was => was.LowEdgeHz == low && was.HighEdgeHz == high
+                ? was : new GateState(was.Live, was.Pending, low, high, ClarityDesignRate));
+        }
+
+        /// <summary>The passband's low edge Clarity's designs are built with, Hz; 0 when unknown.</summary>
+        public float ClarityPassbandLowEdgeHz => System.Threading.Volatile.Read(ref _gateState).LowEdgeHz;
+
+        /// <summary>The passband's high edge Clarity's designs are built with, Hz; 0 when unknown.</summary>
+        public float ClarityPassbandHighEdgeHz => System.Threading.Volatile.Read(ref _gateState).HighEdgeHz;
 
         private GateState _gateState;
         private StagedGate _appliedLive;
@@ -371,7 +465,7 @@ namespace JJPortaudio
         {
             if (gate == null) throw new ArgumentNullException(nameof(gate));
             var copy = gate.Copy();
-            PublishGate(was => new GateState(was.Live, copy));
+            PublishGate(was => Next(was, was.Live, copy));
         }
 
         /// <summary>
@@ -382,7 +476,7 @@ namespace JJPortaudio
         public void ChangeGate(Action<StagedGate> change)
         {
             if (change == null) throw new ArgumentNullException(nameof(change));
-            PublishGate(was => new GateState(With(was.Live, change), was.Pending == null ? null : With(was.Pending, change)));
+            PublishGate(was => Next(was, With(was.Live, change), was.Pending == null ? null : With(was.Pending, change)));
         }
 
         /// <summary>Put a whole gate in force at once, with nothing waiting (attach: there is no over to protect yet).</summary>
@@ -390,7 +484,7 @@ namespace JJPortaudio
         {
             if (gate == null) throw new ArgumentNullException(nameof(gate));
             var copy = gate.Copy();
-            PublishGate(_ => new GateState(copy, null));
+            PublishGate(was => Next(was, copy, null));
         }
 
         /// <summary>
@@ -411,7 +505,7 @@ namespace JJPortaudio
         public void RequestSwitch(Action<StagedGate> change)
         {
             if (change == null) throw new ArgumentNullException(nameof(change));
-            PublishGate(was => new GateState(was.Live, With(was.Pending ?? was.Live, change)));
+            PublishGate(was => Next(was, was.Live, With(was.Pending ?? was.Live, change)));
         }
 
         /// <summary>Whether a whole gate (or an on-or-off) is waiting for an unkeyed buffer.</summary>
@@ -466,6 +560,11 @@ namespace JJPortaudio
             DeEsser.AmountDb = live.DeEsserAmountDb;
             DeEsser.ThresholdDb = live.DeEsserThresholdDb;
             DeEsser.Enabled = live.DeEsserEnabled;
+            // JJ Clarity (Track J): the switch, and the design the control side
+            // built for this record. A stored reference: nothing is allocated,
+            // and nothing is decided here.
+            Clarity.Enabled = live.ClarityEnabled;
+            Clarity.Use(live.ClarityBuilt);
             Compressor.Settings = live.Comp ?? TxCompressorSettings.Default;
             Limiter.Settings = live.Limiter ?? TxLimiterSettings.Default;
             _appliedLive = live;
@@ -474,9 +573,9 @@ namespace JJPortaudio
         /// <summary>Starts the published state at the gate's own defaults, already applied, so code that writes <see cref="Gate"/> directly before any change is not overwritten.</summary>
         public TxAudioConditioner()
         {
-            var initial = new StagedGate();
-            _gateState = new GateState(initial, null);
-            _appliedLive = initial;
+            _gateState = new GateState(new StagedGate(), null, 0f, 0f, JJPortaudio.ClarityDesign.DesignRate);
+            _appliedLive = _gateState.Live;
+            Clarity.Use(_appliedLive.ClarityBuilt); // off, with its default design, so its settings read true from the start
         }
 
         /// <summary>Read the key state for this buffer. Runs before the bypass, so a CW over still counts as an over.</summary>
@@ -585,6 +684,9 @@ namespace JJPortaudio
             (long Caught, long OutputOverFullScale, long LimitedFrames, float MaxReductionDb) Limiter) TakeDynamicsOverStats() =>
             (Compressor.TakeOverStats(), Limiter.TakeOverStats());
 
+        /// <summary>One over's readings from JJ Clarity, taken and zeroed (Sprint 49 Track J): what it added (RMS and peak) and the samples past full scale at its output. Counted on keyed buffers only. Taken separately, like the dynamics' readings, so <see cref="TakeOverStats"/> keeps its shape.</summary>
+        public ClarityOverStats TakeClarityOverStats() => Clarity.TakeOverStats();
+
         private float[] _monitorBuf = new float[ScratchFloats];
         // The residual's delay line (Sprint 49 Track I, repair 2, N4; #1293 in
         // phase 2 and in Track CL): preallocated here, so a change of look-ahead
@@ -639,7 +741,11 @@ namespace JJPortaudio
             var sink = MonitorSink;
             var mode = (MonitorModes)_monitorMode;
             bool wantMonitor = mode != MonitorModes.Off && sink != null;
+            // JJ Clarity counts while it has anything to do on THIS buffer: on
+            // and adding, fading, or just switched off with its added path still
+            // to fade out (Track J, item 3).
             bool anyStage = nr != null || Gate.Enabled || Eq.IsActive || DeEsser.Enabled
+                || Clarity.RunsOnThisBuffer
                 || Compressor.Settings.Enabled || Limiter.Settings.Enabled;
 
             // Nothing attached, nothing monitored: stay entirely out of the
@@ -700,6 +806,11 @@ namespace JJPortaudio
             // buffers only; the policy tick writes them to the trace.
             Eq.Process(buffer, count, sampleRate, keyed);
             DeEsser.Process(buffer, count, sampleRate, keyed);
+
+            // Then JJ Clarity (Sprint 49 Track J): it adds harmonics, so it runs
+            // before the dynamics that control what it adds. No delay; its
+            // per-over counts are kept for keyed buffers only.
+            Clarity.Process(buffer, count, sampleRate, keyed);
 
             // Then the dynamics (Sprint 49 Track CL): the compressor stage, and
             // the limiter LAST, so its ceiling holds whatever came before it.

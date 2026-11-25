@@ -57,6 +57,21 @@ namespace JJFlexWpf
     /// microphone setup. <see cref="CaptureSetup"/> and <see cref="ApplySetup"/>
     /// move between this live state and a setup.</para>
     /// </summary>
+    /// <summary>
+    /// The compressor, the limiter and JJ Clarity as ONE thing a change edits
+    /// (Sprint 49 Track J repair 1, B1): the three transmit shaping settings
+    /// whose switches wait for the unkey. A change through the chain says
+    /// what it does to these as an edit; <see cref="TxAudioConditioning.AskedShaping"/>
+    /// runs the waiting edits on a copy, so a control can step from the
+    /// newest request and not from the value before it.
+    /// </summary>
+    internal sealed class TxShaping
+    {
+        public TxCompressorSetup Compressor = new();
+        public TxLimiterSetup Limiter = new();
+        public TxClaritySetup Clarity = new();
+    }
+
     public static class TxAudioConditioning
     {
         private static readonly object _gate = new();
@@ -110,6 +125,152 @@ namespace JJFlexWpf
         // replaces both, and one saved before they existed has both off.
         private static TxCompressorSetup _compIntent = new();
         private static TxLimiterSetup _limiterIntent = TxLimiterSetup.ForNewSetup();
+
+        // JJ Clarity, as an intent too (Sprint 49 Track J, #736): off until the
+        // operator turns it on, held with or without a radio, guarded by _gate
+        // with the rest, and put on the conditioner in the SAME one staged
+        // record. Its design is the conditioner's to build (it owns the
+        // passband edges): nothing here ever builds one or sets an edge on the
+        // stage itself.
+        private static TxClaritySetup _clarityIntent = new();
+
+        // ------------------------------------------------------------------
+        // The newest request (Sprint 49 Track J repair 1, B1). A switch asked
+        // for while keyed is HELD by the chain, and its intent above changes
+        // only when it runs, at the unkey. A control that reads the intent to
+        // decide what to do next (a toggle, a "next" row, "is this already
+        // so?") therefore read the value from BEFORE the waiting request: two
+        // toggles while keyed both asked for the same thing, and an explicit
+        // off after a waiting on was dropped as "already off". So every road
+        // that changes the compressor, the limiter or JJ Clarity through the
+        // chain's ordering also says what it will do to the three, as an
+        // EDIT, kept here while the change waits. AskedShaping() is the three
+        // with every waiting edit run on them, in the chain's order: what
+        // they will read once everything now waiting has run.
+        //
+        // An edit stops waiting when its change RUNS, or when its owner
+        // WITHDRAWS it (the editor's Cancel, the noise layer's Escape): a
+        // record is queued right behind the change, tagged with the same
+        // owner, and the chain runs an owner's records when it withdraws that
+        // owner's changes. So a withdrawn request is never counted, and
+        // nothing here needs to know who owns what.
+        // ------------------------------------------------------------------
+
+        private sealed class WaitingEdit
+        {
+            public readonly TxNoiseChain Chain;
+            public readonly Action<TxShaping> Edit;
+            public WaitingEdit(TxNoiseChain chain, Action<TxShaping> edit) { Chain = chain; Edit = edit; }
+        }
+
+        /// <summary>The edits of changes now held by a chain, in the order they were asked for. Guarded by _gate.</summary>
+        private static readonly List<WaitingEdit> _waitingEdits = new();
+
+        /// <summary>
+        /// The compressor, the limiter and JJ Clarity as LAST ASKED FOR: the
+        /// intents with every change still waiting for the unkey run on them,
+        /// in the chain's order. With nothing waiting, the intents. Copies;
+        /// reading changes nothing. For a control that steps from where things
+        /// are going (a toggle, a "next" row, one step of a lever), and for
+        /// "is this already what was asked?".
+        /// </summary>
+        internal static TxShaping AskedShaping()
+        {
+            var chain = _chain;
+            TxShaping asked;
+            WaitingEdit[] waiting;
+            lock (_gate)
+            {
+                asked = new TxShaping { Compressor = _compIntent.Clone(), Limiter = _limiterIntent.Clone(), Clarity = _clarityIntent.Clone() };
+                // Only what THIS session's chain holds: a change held by any
+                // other chain says nothing about these intents.
+                waiting = _waitingEdits.Where(w => ReferenceEquals(w.Chain, chain)).ToArray();
+            }
+            // Outside the lock: an edit may read the controller's own notes.
+            foreach (var w in waiting)
+            {
+                try { w.Edit(asked); }
+                catch (Exception ex) { Trace.WriteLine("TxAudioConditioning: a waiting change could not be read ahead: " + ex.GetType().Name + ": " + ex.Message); }
+            }
+            return asked;
+        }
+
+        /// <summary>How many changes this session's chain holds whose edits <see cref="AskedShaping"/> is counting. For tests and traces.</summary>
+        internal static int WaitingShapingEdits
+        {
+            get { var chain = _chain; lock (_gate) return _waitingEdits.Count(w => ReferenceEquals(w.Chain, chain)); }
+        }
+
+        /// <summary>
+        /// ONE change through the chain's ordering, with what it will do to
+        /// the compressor, the limiter and JJ Clarity (null: nothing). A
+        /// switch is held while keyed (<see cref="TxNoiseChain.RunOrDefer"/>);
+        /// a lever is live unless something is held ahead of it
+        /// (<see cref="TxNoiseChain.Continuous"/>). While the change waits,
+        /// <see cref="AskedShaping"/> counts its edit. The edit must give the
+        /// same answer however often it is asked.
+        /// </summary>
+        internal static TxChangeResult Ask(TxNoiseChain chain, bool lever, Action change, Action<TxShaping>? edit)
+        {
+            if (chain == null) throw new ArgumentNullException(nameof(chain));
+            if (edit == null) return lever ? chain.Continuous(change) : chain.RunOrDefer(change);
+            var result = lever ? chain.Continuous(change) : chain.RunOrDefer(change);
+            if (result.Timing != TxChangeTiming.AtUnkey) return result;
+            // Held: its edit waits with it. The record runs straight after the
+            // change when it runs, and at the withdrawal when its owner
+            // withdraws it (this thread, so the same owner's tag as the change
+            // just held). Had the change already run by now (an unkey between
+            // the two lines), the record runs at once.
+            var waiting = new WaitingEdit(chain, edit);
+            lock (_gate) _waitingEdits.Add(waiting);
+            chain.AfterHeld(() => { lock (_gate) _waitingEdits.Remove(waiting); });
+            return result;
+        }
+
+        /// <summary>Make an edit to the three intents; a copy of the three as they then read.</summary>
+        private static TxShaping CommitShaping(Action<TxShaping> edit)
+        {
+            lock (_gate)
+            {
+                var now = new TxShaping { Compressor = _compIntent, Limiter = _limiterIntent, Clarity = _clarityIntent };
+                edit(now);
+                _compIntent = now.Compressor ?? new TxCompressorSetup();
+                _limiterIntent = now.Limiter ?? new TxLimiterSetup();
+                _clarityIntent = now.Clarity ?? new TxClaritySetup();
+                return new TxShaping { Compressor = _compIntent.Clone(), Limiter = _limiterIntent.Clone(), Clarity = _clarityIntent.Clone() };
+            }
+        }
+
+        /// <summary>A switch of the three (S2): the edit is made when the change runs, then <paramref name="push"/> puts it on the conditioner; the same edit is what waits.</summary>
+        private static TxChangeResult ShapingSwitch(Action<TxShaping> edit, Action<TxShaping> push) =>
+            Ask(Chain, lever: false, () => push(CommitShaping(edit)), edit);
+
+        /// <summary>A continuous lever of the three (S15): live unless something is held ahead of it, when it waits behind it and is counted like a switch.</summary>
+        private static TxChangeResult ShapingLever(Action<TxShaping> edit, Action<TxShaping> push) =>
+            Ask(Chain, lever: true, () => push(CommitShaping(edit)), edit);
+
+        /// <summary>What a whole setup's compressor and limiter do to the three: replace both. Null is off.</summary>
+        internal static Action<TxShaping> DynamicsEdit(TxCompressorSetup? compressor, TxLimiterSetup? limiter)
+        {
+            var c = (compressor ?? new TxCompressorSetup()).Clone();
+            var l = (limiter ?? new TxLimiterSetup()).Clone();
+            return s => { s.Compressor = c.Clone(); s.Limiter = l.Clone(); };
+        }
+
+        /// <summary>What a whole JJ Clarity setting does to the three: replace it. Null is off.</summary>
+        internal static Action<TxShaping> ClarityEdit(TxClaritySetup? clarity)
+        {
+            var c = (clarity ?? new TxClaritySetup()).Clone();
+            return s => s.Clarity = c.Clone();
+        }
+
+        /// <summary>What a whole setup does to the three: its compressor, limiter and JJ Clarity replace them (a setup saved before one of them existed puts it off).</summary>
+        internal static Action<TxShaping> WholeSetupEdit(TxNoiseSetup setup)
+        {
+            var dynamics = DynamicsEdit(setup?.Compressor, setup?.Limiter);
+            var clarity = ClarityEdit(setup?.Clarity);
+            return s => { dynamics(s); clarity(s); };
+        }
 
         /// <summary>The chain on the current rig, or null when detached.</summary>
         public static JJPortaudio.TxAudioConditioner Conditioner => _rig?.TxConditioner;
@@ -235,7 +396,7 @@ namespace JJFlexWpf
         internal static TxNoiseChain CreateChain(DenoiseEngineCatalog catalog = null) => new TxNoiseChain(catalog);
 
         /// <summary>Tests only: put a chain in place (null to drop it) without attaching a rig.</summary>
-        internal static void UseChainForTest(TxNoiseChain chain) { lock (_gate) _chain = chain; }
+        internal static void UseChainForTest(TxNoiseChain chain) { lock (_gate) { _chain = chain; _waitingEdits.Clear(); } }
 
         /// <summary>
         /// Wire the conditioning chain of the given rig: plug the noise
@@ -737,9 +898,9 @@ namespace JJFlexWpf
         /// <summary>Put the held gate settings in force on a rig's conditioner (attach: there is no over yet to protect).</summary>
         private static void PushGate(JJPortaudio.TxAudioConditioner cond)
         {
-            TxNoiseGateSetup g; ParametricEqSetup eq; TxDeEsserSetup de; TxCompressorSetup comp; TxLimiterSetup lim;
-            lock (_gate) { g = _gateIntent.Clone(); eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); comp = _compIntent.Clone(); lim = _limiterIntent.Clone(); }
-            cond.SetGateInForce(ToConditioner(g, eq, de, _autoThreshold, _thresholdMarginDb, comp, lim));
+            TxNoiseGateSetup g; ParametricEqSetup eq; TxDeEsserSetup de; TxCompressorSetup comp; TxLimiterSetup lim; TxClaritySetup clarity;
+            lock (_gate) { g = _gateIntent.Clone(); eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); comp = _compIntent.Clone(); lim = _limiterIntent.Clone(); clarity = _clarityIntent.Clone(); }
+            cond.SetGateInForce(ToConditioner(g, eq, de, _autoThreshold, _thresholdMarginDb, comp, lim, clarity));
         }
 
         /// <summary>A setup's gate as the conditioner's one record, with the equaliser and the de-esser off.</summary>
@@ -749,16 +910,22 @@ namespace JJFlexWpf
         /// <summary>A whole setup's in-process stages as the conditioner's one record (Sprint 49 Track I): the expander, the equaliser and the de-esser. ONE function for the live wiring and the audition.</summary>
         internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseSetup s) =>
             ToConditioner(s.Gate ?? new TxNoiseGateSetup(), s.Eq, s.DeEsser, (s.Gate ?? new TxNoiseGateSetup()).AutoThreshold,
-                (s.Gate ?? new TxNoiseGateSetup()).ThresholdMarginDb, s.Compressor, s.Limiter);
+                (s.Gate ?? new TxNoiseGateSetup()).ThresholdMarginDb, s.Compressor, s.Limiter, s.Clarity);
 
         /// <summary>The expander, the equaliser and the de-esser as the conditioner's one record. A null equaliser or de-esser is off.</summary>
         internal static JJPortaudio.TxAudioConditioner.StagedGate ToConditioner(TxNoiseGateSetup g, ParametricEqSetup? eq, TxDeEsserSetup? de, bool auto, float margin,
-            TxCompressorSetup? compressor = null, TxLimiterSetup? limiter = null) => new()
+            TxCompressorSetup? compressor = null, TxLimiterSetup? limiter = null, TxClaritySetup? clarity = null) => new()
         {
             // Sprint 49 Track CL: the compressor stage and the limiter ride in
             // the same record. Null is off, as for the equaliser and the de-esser.
             Comp = compressor?.ToSettings() ?? JJPortaudio.TxCompressorSettings.Default,
             Limiter = limiter?.ToSettings() ?? JJPortaudio.TxLimiterSettings.Default,
+            // Sprint 49 Track J: JJ Clarity rides in the same record, as its
+            // switch and its settings. Null is off. The DESIGN is not made
+            // here: the conditioner builds it when the record is published,
+            // with the passband edges it owns.
+            ClarityEnabled = clarity?.Enabled ?? false,
+            Clarity = clarity?.ToSettings() ?? JJPortaudio.ClaritySettings.Default,
             Enabled = g.Enabled,
             HasThreshold = !auto,
             ThresholdDb = g.ThresholdDb,
@@ -1121,6 +1288,12 @@ namespace JJFlexWpf
                 // The de-esser's band follows the transmit filter (radio-neutral:
                 // the conditioner only ever hears a number).
                 cond.DeEsser.PassbandHighEdgeHz = rig!.TXFilterHigh;
+                // JJ Clarity keeps its work inside the transmit filter (Sprint 49
+                // Track J): both edges, through the conditioner's one owner,
+                // which publishes only when an edge has changed and rebuilds the
+                // design in force and the one waiting together. Never through
+                // the stage's own edge setters.
+                cond.SetClarityPassband(rig.TXFilterLow, rig.TXFilterHigh);
                 bool keyed = rig.TransmitKeyedOrInterlock;
                 FinishLearnIfDone(cond, keyed);
                 // WDSP's expander follows the gate's settings and the threshold in
@@ -1162,6 +1335,7 @@ namespace JJFlexWpf
         private static void TraceOverStats(JJPortaudio.TxAudioConditioner cond)
         {
             TraceDynamicsOverStats(cond);
+            TraceClarityOverStats(cond);
             var (clips, reduced, deepest) = cond.TakeOverStats();
             var (hasFloor, floor) = (cond.RoomFloor.HasFloor, cond.RoomFloor.FloorDb);
             Trace.WriteLine(FormattableString.Invariant(
@@ -1184,11 +1358,8 @@ namespace JJFlexWpf
         public static TxLimiterSetup LimiterSetup { get { lock (_gate) return _limiterIntent.Clone(); } }
 
         /// <summary>The compressor on or off: a switch (S2).</summary>
-        public static TxChangeResult SetCompressorEnabled(bool on) => Chain.RunOrDefer(() =>
-        {
-            lock (_gate) _compIntent.Enabled = on;
-            Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { Enabled = on });
-        });
+        public static TxChangeResult SetCompressorEnabled(bool on) => ShapingSwitch(s => s.Compressor.Enabled = on,
+            _ => Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { Enabled = on }));
 
         /// <summary>
         /// Load a preset into the compressor: a switch (S2), because it
@@ -1199,41 +1370,31 @@ namespace JJFlexWpf
         {
             var preset = TxCompressorPresets.Find(presetId);
             if (preset == null) return new TxChangeResult(TxChangeTiming.Refused, "unknown-compressor-preset");
-            return Chain.RunOrDefer(() =>
+            return ShapingSwitch(s => s.Compressor = TxCompressorPresets.Load(preset, s.Compressor.Enabled), now =>
             {
-                JJPortaudio.TxCompressorSettings loaded;
-                lock (_gate)
-                {
-                    _compIntent = TxCompressorPresets.Load(preset, _compIntent.Enabled);
-                    loaded = _compIntent.ToSettings();
-                }
+                var loaded = now.Compressor.ToSettings();
                 Conditioner?.RequestSwitch(g => g.Comp = loaded with { Enabled = g.Comp.Enabled });
             });
         }
 
         /// <summary>The compressor's mode, one band or split band: a switch (S2), because the split restarts the stage.</summary>
-        public static TxChangeResult SetCompressorSplitBand(bool split) => Chain.RunOrDefer(() =>
-        {
-            lock (_gate) _compIntent.CompressorMode = split ? TxCompressorModes.Split : TxCompressorModes.Single;
-            Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { SplitBand = split });
-        });
+        public static TxChangeResult SetCompressorSplitBand(bool split) => ShapingSwitch(
+            s => s.Compressor.CompressorMode = split ? TxCompressorModes.Split : TxCompressorModes.Single,
+            _ => Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { SplitBand = split }));
 
         /// <summary>The phase rotator's sections, 0 (off) to 6: a switch (S2), because a change of count restarts the rotator.</summary>
         public static TxChangeResult SetCompressorRotator(int stages)
         {
             int n = Math.Clamp(stages, 0, JJPortaudio.PhaseRotator.MaxStages);
-            return Chain.RunOrDefer(() =>
-            {
-                lock (_gate) _compIntent.RotatorStages = n;
-                Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { RotatorStages = n });
-            });
+            return ShapingSwitch(s => s.Compressor.RotatorStages = n,
+                _ => Conditioner?.RequestSwitch(g => g.Comp = g.Comp with { RotatorStages = n }));
         }
 
         /// <summary>A whole compressor setting, on or off included, as ONE switch (the editor's Cancel): held for the unkey while keyed, in order behind anything already held.</summary>
         public static TxChangeResult SetCompressorWhole(TxCompressorSetup setup)
         {
             var copy = (setup ?? new TxCompressorSetup()).Clone();
-            return Chain.RunOrDefer(() => SetCompressorWholeNow(copy));
+            return Ask(Chain, lever: false, () => SetCompressorWholeNow(copy), s => s.Compressor = copy.Clone());
         }
 
         /// <summary>The same, now, for a caller that is already ONE held change of the chain's (the editor's put-back): it must not be held a second time inside it, or put behind what was asked after it.</summary>
@@ -1322,19 +1483,13 @@ namespace JJFlexWpf
             var lever = CompressorLever(key ?? "", value);
             if (lever == null) return new TxChangeResult(TxChangeTiming.Refused, "unknown-compressor-lever");
             var (intent, live) = lever.Value;
-            return Chain.Continuous(() =>
-            {
-                lock (_gate) { intent(_compIntent); _compIntent.PresetId = ""; }
-                Conditioner?.ChangeGate(g => g.Comp = live(g.Comp));
-            });
+            return ShapingLever(s => { intent(s.Compressor); s.Compressor.PresetId = ""; },
+                _ => Conditioner?.ChangeGate(g => g.Comp = live(g.Comp)));
         }
 
         /// <summary>The limiter on or off: a switch (S2).</summary>
-        public static TxChangeResult SetLimiterEnabled(bool on) => Chain.RunOrDefer(() =>
-        {
-            lock (_gate) _limiterIntent.Enabled = on;
-            Conditioner?.RequestSwitch(g => g.Limiter = g.Limiter with { Enabled = on });
-        });
+        public static TxChangeResult SetLimiterEnabled(bool on) => ShapingSwitch(s => s.Limiter.Enabled = on,
+            _ => Conditioner?.RequestSwitch(g => g.Limiter = g.Limiter with { Enabled = on }));
 
         /// <summary>One limiter level by key: "ceiling" (dBFS) and "release" (ms) are live (S15); "lookahead" (ms) is a switch, because its length moves the stream in time.</summary>
         public static TxChangeResult SetLimiterLevel(string key, float value)
@@ -1345,25 +1500,16 @@ namespace JJFlexWpf
             {
                 case "ceiling":
                     v = Within(value, JJPortaudio.TxLimiterSettings.MinCeilingDb, JJPortaudio.TxLimiterSettings.MaxCeilingDb);
-                    return Chain.Continuous(() =>
-                    {
-                        lock (_gate) _limiterIntent.CeilingDb = v;
-                        Conditioner?.ChangeGate(g => g.Limiter = g.Limiter with { CeilingDb = v });
-                    });
+                    return ShapingLever(s => s.Limiter.CeilingDb = v,
+                        _ => Conditioner?.ChangeGate(g => g.Limiter = g.Limiter with { CeilingDb = v }));
                 case "release":
                     v = Within(value, JJPortaudio.TxLimiterSettings.MinReleaseMs, JJPortaudio.TxLimiterSettings.MaxReleaseMs);
-                    return Chain.Continuous(() =>
-                    {
-                        lock (_gate) _limiterIntent.ReleaseMs = v;
-                        Conditioner?.ChangeGate(g => g.Limiter = g.Limiter with { ReleaseMs = v });
-                    });
+                    return ShapingLever(s => s.Limiter.ReleaseMs = v,
+                        _ => Conditioner?.ChangeGate(g => g.Limiter = g.Limiter with { ReleaseMs = v }));
                 case "lookahead":
                     v = Within(value, JJPortaudio.TxLimiterSettings.MinLookAheadMs, JJPortaudio.TxLimiterSettings.MaxLookAheadMs);
-                    return Chain.RunOrDefer(() =>
-                    {
-                        lock (_gate) _limiterIntent.LookAheadMs = v;
-                        Conditioner?.RequestSwitch(g => g.Limiter = g.Limiter with { LookAheadMs = v });
-                    });
+                    return ShapingSwitch(s => s.Limiter.LookAheadMs = v,
+                        _ => Conditioner?.RequestSwitch(g => g.Limiter = g.Limiter with { LookAheadMs = v }));
             }
             return new TxChangeResult(TxChangeTiming.Refused, "unknown-limiter-lever");
         }
@@ -1372,7 +1518,7 @@ namespace JJFlexWpf
         public static TxChangeResult SetLimiterWhole(TxLimiterSetup setup)
         {
             var copy = (setup ?? new TxLimiterSetup()).Clone();
-            return Chain.RunOrDefer(() => SetLimiterWholeNow(copy));
+            return Ask(Chain, lever: false, () => SetLimiterWholeNow(copy), s => s.Limiter = copy.Clone());
         }
 
         /// <summary>The same, now (see <see cref="SetCompressorWholeNow"/>).</summary>
@@ -1386,7 +1532,7 @@ namespace JJFlexWpf
 
         // ── readings: on demand, never per frame ──
 
-        /// <summary>What the compressor and the limiter are doing now. Running is false with no radio or when the stage is off in force.</summary>
+        /// <summary>What the compressor and the limiter are doing now. Running is false with no radio, when the stage is off in force, and when no buffer has reached the chain in the last half second (Track J repair 1, B3: the stages keep the last buffer's figure, and that is not "now" once the audio has stopped).</summary>
         public sealed record DynamicsNow(bool CompressorRunning, float CompressorReductionDb, bool SplitBand,
             float LowReductionDb, float MidReductionDb, float HighReductionDb, bool LimiterRunning, float LimiterReductionDb);
 
@@ -1397,8 +1543,9 @@ namespace JJFlexWpf
             if (c == null) return new DynamicsNow(false, 0, false, 0, 0, 0, false, 0);
             var comp = c.Compressor;
             var s = comp.Settings;
-            bool running = s.Enabled && !c.BypassAll;
-            bool limiting = c.Limiter.Settings.Enabled && !c.BypassAll;
+            bool arriving = c.HasRecentAudio;
+            bool running = s.Enabled && !c.BypassAll && arriving;
+            bool limiting = c.Limiter.Settings.Enabled && !c.BypassAll && arriving;
             return new DynamicsNow(running, running ? comp.ReductionDb : 0f, s.SplitBand,
                 running ? comp.BandReductionDb(0) : 0f, running ? comp.BandReductionDb(1) : 0f, running ? comp.BandReductionDb(2) : 0f,
                 limiting, limiting ? c.Limiter.ReductionDb : 0f);
@@ -1422,6 +1569,179 @@ namespace JJFlexWpf
             var ls = cond.Limiter.Settings;
             Trace.WriteLine(FormattableString.Invariant(
                 $"TxAudioConditioning: over ended: compressor {(cs.Enabled ? (cs.SplitBand ? "on (split band)" : "on") : "off")}, deepest reduction {over.CompressorMaxDb:F1} dB, average {over.CompressorAverageDb:F1} dB over {over.CompressorFrames} frames, drive {cs.DriveDb:F0} dB, rotator {cs.RotatorStages}; limiter {(ls.Enabled ? "on" : "off")} at {ls.CeilingDb:F1} dBFS, look-ahead {cond.Limiter.AppliedLookAheadFrames} frames, caught {over.LimiterCaught} samples over the ceiling on {over.LimitedFrames} frames, deepest {over.LimiterMaxDb:F1} dB, {over.OutputOverFullScale} samples left over full scale"));
+        }
+
+        // ------------------------------------------------------------------
+        // JJ Clarity (Sprint 49 Track J, #736): an exciter, after the de-esser
+        // and before the compressor. Switches (the whole stage, a band's own
+        // on or off, a band's harmonics, a preset) go through RunOrDefer and
+        // land at an unkeyed buffer (S2); tune, drive and mix are continuous
+        // levers through Continuous and are live (S15). Every one is an
+        // intent held with no radio (#1077). It changes nothing on the radio.
+        // ------------------------------------------------------------------
+
+        /// <summary>JJ Clarity as intended: a copy.</summary>
+        public static TxClaritySetup ClaritySetup { get { lock (_gate) return _clarityIntent.Clone(); } }
+
+        /// <summary>JJ Clarity as a whole, on or off: a switch (S2).</summary>
+        public static TxChangeResult SetClarityEnabled(bool on) => ShapingSwitch(s => s.Clarity.Enabled = on,
+            _ => Conditioner?.RequestSwitch(g => g.ClarityEnabled = on));
+
+        /// <summary>Put JJ Clarity's bands as they now read into whatever record is waiting, as a switch.</summary>
+        private static void RequestClarityBands(TxShaping now)
+        {
+            var settings = now.Clarity.ToSettings();
+            Conditioner?.RequestSwitch(g => g.Clarity = settings);
+        }
+
+        /// <summary>One band of JJ Clarity on or off (the high band adds brightness, the low band fullness): a switch (S2).</summary>
+        public static TxChangeResult SetClarityBandEnabled(bool high, bool on) => ShapingSwitch(
+            s => { s.Clarity.Band(high).Enabled = on; s.Clarity.PresetId = ""; }, RequestClarityBands);
+
+        /// <summary>The harmonics one band makes (a word of <see cref="TxClarityHarmonics"/>): a switch (S2), because it changes the sound's character and the band the shaper is fed.</summary>
+        public static TxChangeResult SetClarityHarmonics(bool high, string harmonics)
+        {
+            string word = TxClarityHarmonics.ToWord(TxClarityHarmonics.ToChoice(harmonics));
+            return ShapingSwitch(s => { s.Clarity.Band(high).Harmonics = word; s.Clarity.PresetId = ""; }, RequestClarityBands);
+        }
+
+        /// <summary>
+        /// Load a preset into JJ Clarity: a switch (S2), because it replaces
+        /// both bands at once. Every field becomes the operator's to change;
+        /// the whole stage's on or off is left as it was.
+        /// </summary>
+        public static TxChangeResult LoadClarityPreset(string presetId)
+        {
+            var preset = JJPortaudio.ClarityPresets.Find((presetId ?? "").Trim());
+            if (preset == null) return new TxChangeResult(TxChangeTiming.Refused, "unknown-clarity-preset");
+            return ShapingSwitch(s => s.Clarity = TxClaritySetup.Load(preset, s.Clarity.Enabled), RequestClarityBands);
+        }
+
+        /// <summary>
+        /// One JJ Clarity level by key, live (S15): "high.tune", "high.drive",
+        /// "high.mix", "low.tune", "low.drive", "low.mix". The value is
+        /// clamped to the lever's range; a tune stays the operator's choice
+        /// and is applied clamped inside the transmit filter.
+        /// </summary>
+        public static TxChangeResult SetClarityLevel(string key, float value)
+        {
+            if (!float.IsFinite(value)) return new TxChangeResult(TxChangeTiming.Refused, "not-a-number");
+            int dot = (key ?? "").IndexOf('.');
+            string bandWord = dot > 0 ? key![..dot] : "";
+            if (bandWord != "high" && bandWord != "low") return new TxChangeResult(TxChangeTiming.Refused, "unknown-clarity-lever");
+            bool high = bandWord == "high";
+            Action<TxClarityBandSetup>? intent = key![(dot + 1)..] switch
+            {
+                "tune" => b => b.TuneHz = high
+                    ? Within(value, JJPortaudio.ClaritySettings.HighTuneMinHz, JJPortaudio.ClaritySettings.HighTuneMaxHz)
+                    : Within(value, JJPortaudio.ClaritySettings.LowTuneMinHz, JJPortaudio.ClaritySettings.LowTuneMaxHz),
+                "drive" => b => b.DriveDb = Within(value, JJPortaudio.ClaritySettings.DriveMinDb, JJPortaudio.ClaritySettings.DriveMaxDb),
+                "mix" => b => b.MixPercent = Within(value, JJPortaudio.ClaritySettings.MixMinPercent, JJPortaudio.ClaritySettings.MixMaxPercent),
+                _ => null,
+            };
+            if (intent == null) return new TxChangeResult(TxChangeTiming.Refused, "unknown-clarity-lever");
+            return ShapingLever(s => { intent(s.Clarity.Band(high)); s.Clarity.PresetId = ""; }, now =>
+            {
+                var settings = now.Clarity.ToSettings();
+                // The one owner: in force and in anything waiting, each keeping
+                // its own switch. The conditioner builds the design.
+                Conditioner?.ChangeGate(g => g.Clarity = Levers(g.Clarity, settings));
+            });
+        }
+
+        /// <summary>
+        /// A record's Clarity settings with the LEVERS of <paramref name="want"/>
+        /// (each band's tune, drive and mix) and its own switches (each band's
+        /// on or off and harmonics) kept, so a lever turned while a switch is
+        /// still waiting for the unkey never carries that switch into force.
+        /// </summary>
+        private static JJPortaudio.ClaritySettings Levers(JJPortaudio.ClaritySettings record, JJPortaudio.ClaritySettings want)
+        {
+            record ??= JJPortaudio.ClaritySettings.Default;
+            static JJPortaudio.ClarityBand Band(JJPortaudio.ClarityBand keep, JJPortaudio.ClarityBand lever) =>
+                keep.WithTune(lever.TuneHz).WithDrive(lever.DriveDb).WithMix(lever.MixPercent);
+            return new JJPortaudio.ClaritySettings(Band(record.High, want.High), Band(record.Low, want.Low));
+        }
+
+        /// <summary>A whole JJ Clarity setting, on or off included, as ONE switch (the suggest pass's Keep, the editor's put-back): held for the unkey while keyed, in order behind anything already held.</summary>
+        public static TxChangeResult SetClarityWhole(TxClaritySetup setup)
+        {
+            var copy = (setup ?? new TxClaritySetup()).Clone();
+            return Ask(Chain, lever: false, () => SetClarityWholeNow(copy), ClarityEdit(copy));
+        }
+
+        /// <summary>The same, now, for a caller that is already ONE held change of the chain's (see <see cref="SetCompressorWholeNow"/>).</summary>
+        internal static void SetClarityWholeNow(TxClaritySetup setup)
+        {
+            var copy = (setup ?? new TxClaritySetup()).Clone();
+            lock (_gate) _clarityIntent = copy.Clone();
+            var settings = copy.ToSettings();
+            bool on = copy.Enabled;
+            Conditioner?.RequestSwitch(g => { g.ClarityEnabled = on; g.Clarity = settings; });
+        }
+
+        /// <summary>
+        /// A whole setup's JJ Clarity as an INTENT, for a caller that is about
+        /// to stage the rest of the setup (as <see cref="StageDynamics"/> is
+        /// for the compressor and the limiter): the one staged record then
+        /// carries it. Null is off. Nothing reaches the conditioner from here.
+        /// </summary>
+        internal static void StageClarity(TxClaritySetup? clarity)
+        {
+            CommitShaping(ClarityEdit(clarity));
+        }
+
+        /// <summary>JJ Clarity as intended: a copy (the whole-setup roads' name for <see cref="ClaritySetup"/>).</summary>
+        public static TxClaritySetup CaptureClarity() => ClaritySetup;
+
+        // ── readings: on demand, never per frame ──
+
+        /// <summary>
+        /// What JJ Clarity is doing now. Running is false with no radio, in CW
+        /// or digital, when the stage is off or adds nothing in force, and
+        /// when no buffer has reached the chain in the last half second (the
+        /// computer's audio was switched off or its stream was lost, repair 1,
+        /// B3): the stage keeps the last buffer's figure for ever, and a
+        /// figure from a buffer that is no longer arriving is not "now".
+        /// AddingDbfs is the RMS of what it added on the last buffer (-200:
+        /// nothing). The applied tunes are the chosen ones clamped inside the
+        /// transmit filter at the rate in force.
+        /// </summary>
+        public sealed record ClarityNow(bool Running, float AddingDbfs, float AppliedHighTuneHz, bool HighTuneClamped,
+            float AppliedLowTuneHz, bool LowTuneClamped, float PassbandLowHz, float PassbandHighHz);
+
+        /// <summary>The reading now, from the stage (the end of the last buffer).</summary>
+        public static ClarityNow ReadClarityNow()
+        {
+            var c = Conditioner;
+            if (c == null)
+            {
+                var s = ClaritySetup;
+                return new ClarityNow(false, -200f, s.Band(true).TuneHz, false, s.Band(false).TuneHz, false, 0f, 0f);
+            }
+            var stage = c.Clarity;
+            bool running = stage.IsActive && !c.BypassAll && c.HasRecentAudio;
+            return new ClarityNow(running, running ? stage.AddingNowDbfs : -200f, stage.AppliedHighTuneHz, stage.HighTuneClamped,
+                stage.AppliedLowTuneHz, stage.LowTuneClamped, c.ClarityPassbandLowEdgeHz, c.ClarityPassbandHighEdgeHz);
+        }
+
+        /// <summary>One over's readings from JJ Clarity: what it added, and the samples past full scale at its output.</summary>
+        public sealed record ClarityOver(long Samples, double AddedRmsDbfs, double AddedPeakDbfs, long OverFullScale);
+
+        /// <summary>The last finished over's readings, or null before any. Written by the policy tick at the unkey.</summary>
+        public static ClarityOver? LastClarityOver { get; private set; }
+
+        /// <summary>One trace line per over for JJ Clarity, and the readings kept for the "now" sentence. Policy tick only, never the audio thread.</summary>
+        private static void TraceClarityOverStats(JJPortaudio.TxAudioConditioner cond)
+        {
+            var stats = cond.TakeClarityOverStats();
+            var over = new ClarityOver(stats.Samples, stats.AddedRmsDbfs, stats.AddedPeakDbfs, stats.OverFullScale);
+            LastClarityOver = over;
+            var inForce = cond.GateInForce;
+            var s = inForce.Clarity ?? JJPortaudio.ClaritySettings.Default;
+            var stage = cond.Clarity;
+            Trace.WriteLine(FormattableString.Invariant(
+                $"TxAudioConditioning: over ended: JJ Clarity {(inForce.ClarityEnabled ? "on" : "off")}; high band {s.High} applied at {stage.AppliedHighTuneHz:F0} Hz{(stage.HighTuneClamped ? " (clamped to the transmit filter)" : "")}; low band {s.Low} applied at {stage.AppliedLowTuneHz:F0} Hz{(stage.LowTuneClamped ? " (clamped)" : "")}; passband {cond.ClarityPassbandLowEdgeHz:F0} to {cond.ClarityPassbandHighEdgeHz:F0} Hz; added {over.AddedRmsDbfs:F1} dBFS RMS, peak {over.AddedPeakDbfs:F1} dBFS, over {over.Samples} samples; {over.OverFullScale} samples past full scale at its output"));
         }
 
         // ── the handoff with the radio's speech processor (#1278) ──
@@ -1534,13 +1854,23 @@ namespace JJFlexWpf
             if (s.Gate.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Expander);
             if (s.Eq.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Equaliser);
             if (s.DeEsser.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.DeEsser);
+            // JJ Clarity is named when it is on (Sprint 49 Track J, J9): the
+            // same key Track CL added, one more stage and its settings.
+            if (s.Clarity.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Clarity);
             if (s.Compressor.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Compressor);
             if (s.Limiter.Enabled) stages.Add(JJPortaudio.TxAudioConditioner.StageIds.Limiter);
             var c = s.Compressor.ToSettings();
             var l = s.Limiter.ToSettings();
             bool bypassed = Conditioner?.BypassAll == true;
+            var cl = s.Clarity.ToSettings();
+            static string ClarityBandText(JJPortaudio.ClarityBand b) => b.Enabled
+                ? FormattableString.Invariant($"tune {b.TuneHz:0} Hz, drive {b.DriveDb:0.#} dB, mix {b.MixPercent:0.#} percent, {TxClarityHarmonics.ToWord(b.Harmonics)} harmonics")
+                : "off";
+            string clarity = s.Clarity.Enabled
+                ? "high band " + ClarityBandText(cl.High) + "; low band " + ClarityBandText(cl.Low) + (s.Clarity.PresetId.Length > 0 ? "; preset " + s.Clarity.PresetId : "")
+                : "off";
             return FormattableString.Invariant(
-                $"setup={(name.Length > 0 ? name : "none")} ({applied}); stages={(stages.Count > 0 ? string.Join(",", stages) : "none")}{(bypassed ? " (standing aside: CW or digital)" : "")}; compressor={(c.Enabled ? (c.SplitBand ? "split band, crossovers " + c.CrossoverLowHz.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " and " + c.CrossoverHighHz.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " Hz, " : "") + FormattableString.Invariant($"threshold {c.ThresholdDb:0.#} dBFS peak, ratio {c.RatioToOne:0.##}, attack {c.AttackMs:0.#} ms, release {c.ReleaseMs:0} ms, knee {c.KneeDb:0.#} dB, makeup {c.MakeupDb:0.#} dB, drive {c.DriveDb:0.#} dB, rotator {c.RotatorStages}") + (s.Compressor.PresetId.Length > 0 ? ", preset " + s.Compressor.PresetId : "") : "off")}; limiter={(l.Enabled ? FormattableString.Invariant($"ceiling {l.CeilingDb:0.#} dBFS, release {l.ReleaseMs:0} ms, look-ahead {l.LookAheadMs:0.#} ms") : "off")}");
+                $"setup={(name.Length > 0 ? name : "none")} ({applied}); stages={(stages.Count > 0 ? string.Join(",", stages) : "none")}{(bypassed ? " (standing aside: CW or digital)" : "")}; clarity=[{clarity}]; compressor={(c.Enabled ? (c.SplitBand ? "split band, crossovers " + c.CrossoverLowHz.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " and " + c.CrossoverHighHz.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " Hz, " : "") + FormattableString.Invariant($"threshold {c.ThresholdDb:0.#} dBFS peak, ratio {c.RatioToOne:0.##}, attack {c.AttackMs:0.#} ms, release {c.ReleaseMs:0} ms, knee {c.KneeDb:0.#} dB, makeup {c.MakeupDb:0.#} dB, drive {c.DriveDb:0.#} dB, rotator {c.RotatorStages}") + (s.Compressor.PresetId.Length > 0 ? ", preset " + s.Compressor.PresetId : "") : "off")}; limiter={(l.Enabled ? FormattableString.Invariant($"ceiling {l.CeilingDb:0.#} dBFS, release {l.ReleaseMs:0} ms, look-ahead {l.LookAheadMs:0.#} ms") : "off")}");
         }
 
         // ------------------------------------------------------------------
@@ -1564,16 +1894,16 @@ namespace JJFlexWpf
             // (Track CL repair 1, found by B4's test with a gate in the setup).
             var live = Conditioner?.Gate;
             if (live != null && gate.AutoThreshold) gate.ThresholdDb = live.ThresholdDb;
-            ParametricEqSetup eq; TxDeEsserSetup de; string[] order; TxCompressorSetup comp; TxLimiterSetup lim;
+            ParametricEqSetup eq; TxDeEsserSetup de; string[] order; TxCompressorSetup comp; TxLimiterSetup lim; TxClaritySetup clarity;
             lock (_gate)
             {
                 eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); order = (string[])_orderIntent.Clone();
-                comp = _compIntent.Clone(); lim = _limiterIntent.Clone();
+                comp = _compIntent.Clone(); lim = _limiterIntent.Clone(); clarity = _clarityIntent.Clone();
             }
             return new TxNoiseSetup
             {
                 Name = name ?? "", Spectral = spectral, Neural = neural, Gate = gate, Eq = eq, DeEsser = de, StageOrder = order,
-                Compressor = comp, Limiter = lim,
+                Compressor = comp, Limiter = lim, Clarity = clarity,
             };
         }
 
@@ -1587,7 +1917,7 @@ namespace JJFlexWpf
             if (setup == null) throw new ArgumentNullException(nameof(setup));
             // A copy now: the caller's object may change before the unkey.
             var copy = setup.Clone();
-            return Chain.RunOrDefer(() => ApplySetupNow(copy));
+            return Ask(Chain, lever: false, () => ApplySetupNow(copy), WholeSetupEdit(copy));
         }
 
         /// <summary>
@@ -1613,6 +1943,9 @@ namespace JJFlexWpf
             // the next line stages carries them, so the whole setup still lands
             // on ONE unkeyed buffer (Sprint 49 Track CL).
             StageDynamics(setup.Compressor, setup.Limiter);
+            // And JJ Clarity, the same way (Sprint 49 Track J): a setup saved
+            // before it existed carries it off, so applying one switches it off.
+            StageClarity(setup.Clarity);
             ApplyStagesNow(setup.Eq, setup.DeEsser, setup.StageOrder, setup.Gate ?? new TxNoiseGateSetup());
         }
 
@@ -1624,11 +1957,7 @@ namespace JJFlexWpf
         /// </summary>
         internal static void StageDynamics(TxCompressorSetup? compressor, TxLimiterSetup? limiter)
         {
-            lock (_gate)
-            {
-                _compIntent = (compressor ?? new TxCompressorSetup()).Clone();
-                _limiterIntent = (limiter ?? new TxLimiterSetup()).Clone();
-            }
+            CommitShaping(DynamicsEdit(compressor, limiter));
         }
 
         /// <summary>The compressor and the limiter as intended: copies.</summary>
@@ -1672,13 +2001,13 @@ namespace JJFlexWpf
             var g = (gate ?? new TxNoiseGateSetup()).Clone();
             _autoThreshold = g.AutoThreshold;
             _thresholdMarginDb = Math.Clamp(g.ThresholdMarginDb, 3f, 15f);
-            ParametricEqSetup eq; TxDeEsserSetup de; TxCompressorSetup comp; TxLimiterSetup lim;
-            lock (_gate) { _gateIntent = g; eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); comp = _compIntent.Clone(); lim = _limiterIntent.Clone(); }
+            ParametricEqSetup eq; TxDeEsserSetup de; TxCompressorSetup comp; TxLimiterSetup lim; TxClaritySetup clarity;
+            lock (_gate) { _gateIntent = g; eq = _eqIntent.Clone(); de = _deEsserIntent.Clone(); comp = _compIntent.Clone(); lim = _limiterIntent.Clone(); clarity = _clarityIntent.Clone(); }
             // The gate as a whole, on or off, levels and threshold policy, staged
             // for the next unkeyed buffer (repair round 3): never partway through
             // an over, even if this call is running when a key-down arrives. The
             // equaliser and the de-esser in force ride in the same record (Track I).
-            Conditioner?.StageGate(ToConditioner(g, eq, de, g.AutoThreshold, g.ThresholdMarginDb, comp, lim));
+            Conditioner?.StageGate(ToConditioner(g, eq, de, g.AutoThreshold, g.ThresholdMarginDb, comp, lim, clarity));
             SyncWdsp();
         }
 
@@ -1723,20 +2052,31 @@ namespace JJFlexWpf
         }
 
         /// <summary>Back to the recommended state: RNNoise at its default floor, off; spectral off; the gate as shipped, its threshold derived from the floor again.</summary>
-        public static TxChangeResult ResetToRecommended() => Chain.RunOrDefer(() =>
+        public static TxChangeResult ResetToRecommended()
         {
-            // The recommended setup replaces both slots (spectral off, RNNoise
-            // at its default floor and off) and the gate, as one change.
-            // The compressor off at its defaults, and the limiter as a new setup
-            // has it (Sprint 49 Track CL).
+            var recommended = RecommendedSetup();
+            return Ask(Chain, lever: false, () =>
+            {
+                ApplySetupNow(recommended);
+                var gate = Conditioner?.Gate;
+                if (gate != null) gate.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
+                lock (_gate) _gateIntent.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
+                RefreshDerivedThreshold();
+            }, WholeSetupEdit(recommended));
+        }
+
+        /// <summary>
+        /// The recommended setup: it replaces both slots (spectral off, RNNoise
+        /// at its default floor and off) and the gate, as one change; the
+        /// compressor off at its defaults, and the limiter as a new setup has
+        /// it (Sprint 49 Track CL); JJ Clarity off.
+        /// </summary>
+        private static TxNoiseSetup RecommendedSetup()
+        {
             var recommended = TxNoiseSetupMigration.FromConditioning("", new TxConditioningSettings());
             recommended.Limiter = TxLimiterSetup.ForNewSetup();
-            ApplySetupNow(recommended);
-            var gate = Conditioner?.Gate;
-            if (gate != null) gate.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
-            lock (_gate) _gateIntent.ThresholdDb = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
-            RefreshDerivedThreshold();
-        });
+            return recommended;
+        }
     }
 
 

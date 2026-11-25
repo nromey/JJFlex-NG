@@ -850,6 +850,7 @@ namespace Radios
                 GateStageId => "audio.audition.stage.gate",
                 TxAudioConditioner.StageIds.Equaliser => "audio.audition.stage.eq",
                 TxAudioConditioner.StageIds.DeEsser => "audio.audition.stage.deesser",
+                TxAudioConditioner.StageIds.Clarity => "audio.audition.stage.clarity",
                 TxAudioConditioner.StageIds.Compressor => "audio.audition.stage.compressor",
                 TxAudioConditioner.StageIds.Limiter => "audio.audition.stage.limiter",
                 _ => "audio.audition.stage.unknown",
@@ -1009,6 +1010,47 @@ namespace Radios
         }
 
         private static float ScaleFor(float peak) => peak > PeakCeiling ? PeakCeiling / peak : 1f;
+
+        /// <summary>Two renders of ONE take, made ready to compare by ear: see <see cref="MatchPair"/>.</summary>
+        /// <param name="Before">The first render, scaled for playback.</param>
+        /// <param name="After">The second render, level-matched to the first and scaled the same.</param>
+        /// <param name="MatchGainDb">The gain the second was given so its speech is as loud as the first's; 0 when not matched.</param>
+        /// <param name="LevelMatched">False when either render held no measurable speech, or the two were more than <see cref="MaxMatchGainDb"/> apart: both are then played as they came out.</param>
+        public sealed record MatchedPair(float[] Before, float[] After, float MatchGainDb, bool LevelMatched);
+
+        /// <summary>
+        /// Two renders of one take (the same samples through the chain set two
+        /// ways), lined up and level-matched on speech loudness the way the
+        /// audition matches its cleaned render to the raw one (#262): the
+        /// second is raised or lowered until its speech is as loud as the
+        /// first's, and both share one scale so neither clips and the match
+        /// survives. For a pair whose difference is something ADDED (JJ
+        /// Clarity's suggest pass, Sprint 49 Track J): the meter is K-weighted,
+        /// so a brighter render reads louder and is turned down, which is the
+        /// fair comparison. Both renders start <paramref name="latencySamples"/>
+        /// in, where the take's first sample comes out.
+        /// </summary>
+        public static MatchedPair MatchPair(float[] before, float[] after, int latencySamples, int sampleRate)
+        {
+            if (before == null) throw new ArgumentNullException(nameof(before));
+            if (after == null) throw new ArgumentNullException(nameof(after));
+            if (sampleRate <= 0) sampleRate = 48000;
+            int latency = Math.Clamp(latencySamples, 0, Math.Min(before.Length, after.Length));
+            int length = Math.Min(before.Length, after.Length) - latency;
+            var first = new float[length];
+            var second = new float[length];
+            Array.Copy(before, latency, first, 0, length);
+            Array.Copy(after, latency, second, 0, length);
+            var firstProfile = Measure(first, length, sampleRate);
+            var secondProfile = Measure(second, length, sampleRate);
+            bool heard = ClassifySpeech(firstProfile) == AuditionSpeech.Heard && ClassifySpeech(secondProfile) == AuditionSpeech.Heard;
+            float match = heard ? firstProfile.SpeechLufs - secondProfile.SpeechLufs : 0f;
+            bool matched = heard && Math.Abs(match) <= MaxMatchGainDb;
+            float gainDb = matched ? match : 0f;
+            float gain = (float)Math.Pow(10, gainDb / 20.0);
+            float scale = ScaleFor(Math.Max(Peak(first, length), Peak(second, length) * gain));
+            return new MatchedPair(Scaled(first, length, 1f, scale), Scaled(second, length, gain, scale), gainDb, matched);
+        }
 
         private static float[] Scaled(float[] samples, int count, float gain, float scale)
         {

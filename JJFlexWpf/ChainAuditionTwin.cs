@@ -75,6 +75,27 @@ namespace JJFlexWpf
         private readonly TimeSpan _buildWait;
 
         /// <summary>
+        /// The transmit passband the in-process stages are rendered inside
+        /// (Sprint 49 Track J, item 5): the de-esser's high edge, and JJ
+        /// Clarity's low and high edges, as the LIVE chain holds them, so a
+        /// render is clamped exactly as what is sent. Zero is unknown: nothing
+        /// is clamped to it.
+        /// </summary>
+        internal readonly record struct Passband(float DeEsserHighEdgeHz, float ClarityLowEdgeHz, float ClarityHighEdgeHz)
+        {
+            /// <summary>The live conditioner's edges now, or all unknown with no radio.</summary>
+            public static Passband Live()
+            {
+                var cond = TxAudioConditioning.Conditioner;
+                return cond == null ? default
+                    : new Passband(cond.DeEsser.PassbandHighEdgeHz, cond.ClarityPassbandLowEdgeHz, cond.ClarityPassbandHighEdgeHz);
+            }
+        }
+
+        /// <summary>Asked as each render starts: the passband. The app's is <see cref="Passband.Live"/>; a test gives its own.</summary>
+        internal Func<Passband> PassbandSource { get; init; } = Passband.Live;
+
+        /// <summary>
         /// What one render builds its engines from: the catalog, and the helper
         /// host the twin OWNS for that render (disposed when it ends), or null
         /// when the host belongs to someone else (a test's stub rig).
@@ -227,8 +248,8 @@ namespace JJFlexWpf
             }
         }
 
-        private ChainProcessing Render(float[] rawMono, TxNoiseSetup setup, AuditionLiveState? live, TxNoiseGateSetup gate,
-            DenoiseEngineCatalog catalog, WdspHost? expanderHost, CancellationToken cancel, Action<double>? progress)
+        /// <summary>The enabled noise slots a setup asks for, in the order they run.</summary>
+        private static List<SlotPlan> PlansOf(TxNoiseSetup setup, DenoiseEngineCatalog catalog)
         {
             var plans = new List<SlotPlan>(2);
             foreach (var (family, slotSetup) in new[] { (DenoiseFamily.Spectral, setup.Spectral), (DenoiseFamily.Neural, setup.Neural) })
@@ -238,24 +259,43 @@ namespace JJFlexWpf
                 var row = catalog.Find(id);
                 plans.Add(new SlotPlan(family, id, row != null ? Lexicon.Get(row.LabelKey) : id));
             }
-            // The in-process stages after the noise slots (Sprint 49 Track I): the
-            // expander, the equaliser and the de-esser. Any of them on is a chain
-            // to render, the expander or not: rendering without one that is on
-            // would offer the operator a chain they are not using as theirs.
-            bool eqOn = setup.Eq?.ToDesign() is { IsIdentity: false };
-            bool deEssOn = setup.DeEsser?.Enabled == true;
-            // Sprint 49 Track CL: the compressor stage and the limiter. Either
-            // alone is a chain to render.
-            bool compOn = setup.Compressor?.Enabled == true;
-            bool limiterOn = setup.Limiter?.Enabled == true;
-            bool inProcess = gate.Enabled || eqOn || deEssOn || compOn || limiterOn;
-            // Nothing on (Noel's S4): render nothing; only the raw take is offered.
-            if (plans.Count == 0 && !inProcess)
-            {
-                Trace.WriteLine("ChainAuditionTwin: both noise slots, the expander, the equaliser, the de-esser, the compressor and the limiter are off; nothing rendered");
-                return ChainProcessing.NothingIsOn(live);
-            }
+            return plans;
+        }
 
+        /// <summary>
+        /// What a render has once everything UPSTREAM of the in-process pass
+        /// has run: the noise pass's output, the expander's input (WDSP's
+        /// expander's output in its mode), the delays, and the threshold. The
+        /// in-process pass can then be run over it any number of times with
+        /// different settings (the Clarity suggest pass renders several).
+        /// </summary>
+        internal sealed class UpstreamAudio
+        {
+            public float[] Noise = Array.Empty<float>();
+            public float[] ExpanderInput = Array.Empty<float>();
+            public int Buffers;
+            /// <summary>The noise pass's delay, samples.</summary>
+            public int NoiseDelay;
+            /// <summary>WDSP's expander's delay in its mode, samples; else 0.</summary>
+            public int ExpanderDelay;
+            public bool WdspMode;
+            public float? Threshold;
+            public AuditionThresholdSource? Source;
+            public float? Floor;
+        }
+
+        /// <summary>
+        /// Steps 3 to 7 and WDSP's expander pass: the engines checked, built
+        /// and waited for, the noise pass, its completeness, the threshold, and
+        /// the expander in WDSP's mode. Null when it ran, with
+        /// <paramref name="upstream"/> filled; otherwise the verdict. The chain
+        /// it builds is torn down before it returns, either way.
+        /// </summary>
+        private ChainProcessing? Upstream(float[] rawMono, TxNoiseSetup setup, AuditionLiveState? live, TxNoiseGateSetup gate,
+            DenoiseEngineCatalog catalog, WdspHost? expanderHost, List<SlotPlan> plans, CancellationToken cancel,
+            Action<int>? reportBuffer, out UpstreamAudio upstream)
+        {
+            upstream = new UpstreamAudio();
             // 3. An engine reported unavailable is said at once, in the words
             // the rest of the app already uses for it, with its name.
             foreach (var plan in plans)
@@ -288,17 +328,6 @@ namespace JJFlexWpf
 
                 // 5. The noise pass.
                 int buffers = (rawMono.Length + BufferFrames - 1) / BufferFrames;
-                int steps = buffers * (inProcess ? 2 : 1);
-                int lastPercent = -1;
-                void Report(int done)
-                {
-                    if (progress == null) return;
-                    int percent = (int)((long)done * 100 / Math.Max(1, steps));
-                    if (percent == lastPercent) return;
-                    lastPercent = percent;
-                    progress(Math.Min(1.0, (double)done / Math.Max(1, steps)));
-                }
-
                 var noise = new float[buffers * BufferFrames];
                 var stereo = new float[BufferFrames * 2];
                 int? latency = null;
@@ -318,7 +347,7 @@ namespace JJFlexWpf
                     int applied = chain.AppliedLatencySamples;
                     if (latency == null) latency = applied;
                     else if (applied != latency) latencyMoved = true;
-                    Report(b + 1);
+                    reportBuffer?.Invoke(b + 1);
                 }
 
                 // 9. Completeness: never a partly dry render presented as the chain's.
@@ -346,17 +375,97 @@ namespace JJFlexWpf
                     var refused = WdspExpanderPass(expanderHost, gate, threshold, noise, buffers, cancel, out expanderInput, out expanderDelay);
                     if (refused != null) return refused;
                 }
+                upstream.Noise = noise;
+                upstream.ExpanderInput = expanderInput;
+                upstream.Buffers = buffers;
+                upstream.NoiseDelay = delay;
+                upstream.ExpanderDelay = expanderDelay;
+                upstream.WdspMode = wdspMode;
+                upstream.Threshold = threshold;
+                upstream.Source = source;
+                upstream.Floor = floor;
+                return null;
+            }
+            finally
+            {
+                // 11. Torn down on success, failure and cancellation alike. A build
+                // still on its way when admission closes disposes itself on
+                // arrival (PcDenoiseSlot.BuildChoice), so its helper channel
+                // closes once that build returns.
+                if (chain != null)
+                {
+                    foreach (var slot in new[] { chain.SpectralSlot, chain.NeuralSlot })
+                    {
+                        try { slot.CloseAdmission(); slot.DisposeOwned(); }
+                        catch (Exception ex) { Trace.WriteLine("ChainAuditionTwin: teardown: " + ex.GetType().Name); }
+                    }
+                }
+            }
+        }
+
+        private ChainProcessing Render(float[] rawMono, TxNoiseSetup setup, AuditionLiveState? live, TxNoiseGateSetup gate,
+            DenoiseEngineCatalog catalog, WdspHost? expanderHost, CancellationToken cancel, Action<double>? progress)
+        {
+            var plans = PlansOf(setup, catalog);
+            // The in-process stages after the noise slots (Sprint 49 Track I): the
+            // expander, the equaliser and the de-esser. Any of them on is a chain
+            // to render, the expander or not: rendering without one that is on
+            // would offer the operator a chain they are not using as theirs.
+            bool eqOn = setup.Eq?.ToDesign() is { IsIdentity: false };
+            bool deEssOn = setup.DeEsser?.Enabled == true;
+            // Sprint 49 Track CL: the compressor stage and the limiter. Either
+            // alone is a chain to render.
+            bool compOn = setup.Compressor?.Enabled == true;
+            bool limiterOn = setup.Limiter?.Enabled == true;
+            // Sprint 49 Track J: JJ Clarity, on with a band that adds something.
+            // Alone, it is a chain to render.
+            bool clarityOn = setup.Clarity?.AddsSomething == true;
+            bool inProcess = gate.Enabled || eqOn || deEssOn || clarityOn || compOn || limiterOn;
+            // Nothing on (Noel's S4): render nothing; only the raw take is offered.
+            if (plans.Count == 0 && !inProcess)
+            {
+                Trace.WriteLine("ChainAuditionTwin: both noise slots, the expander, the equaliser, the de-esser, JJ Clarity, the compressor and the limiter are off; nothing rendered");
+                return ChainProcessing.NothingIsOn(live);
+            }
+
+            try
+            {
+                int buffers = (rawMono.Length + BufferFrames - 1) / BufferFrames;
+                int steps = buffers * (inProcess ? 2 : 1);
+                int lastPercent = -1;
+                void Report(int done)
+                {
+                    if (progress == null) return;
+                    int percent = (int)((long)done * 100 / Math.Max(1, steps));
+                    if (percent == lastPercent) return;
+                    lastPercent = percent;
+                    progress(Math.Min(1.0, (double)done / Math.Max(1, steps)));
+                }
+
+                var refusedUpstream = Upstream(rawMono, setup, live, gate, catalog, expanderHost, plans, cancel, Report, out var up);
+                if (refusedUpstream != null) return refusedUpstream;
+                var noise = up.Noise;
+                var expanderInput = up.ExpanderInput;
+                bool wdspMode = up.WdspMode;
+                int expanderDelay = up.ExpanderDelay;
+                int delay = up.NoiseDelay;
+                var threshold = up.Threshold;
+                var source = up.Source;
+                var floor = up.Floor;
+                var stereo = new float[BufferFrames * 2];
 
                 // 8. The in-process pass, keyed for the whole take: the expander,
-                // the equaliser and the de-esser, put in force directly through the
-                // ONE wiring function the live chain uses (Track I, item 7). The
-                // de-esser hears the live transmit filter's edge, as the live one does.
+                // the equaliser, the de-esser, JJ Clarity, the compressor and the
+                // limiter, put in force directly through the ONE wiring function
+                // the live chain uses (Track I, item 7). The de-esser and JJ
+                // Clarity hear the live transmit filter's edges, as the live
+                // ones do (Track J, item 5).
                 var output = new float[rawMono.Length];
                 float[]? cleanupOnly = null;
                 float? reported = null;
                 if (inProcess)
                 {
-                    float edge = TxAudioConditioning.Conditioner?.DeEsser.PassbandHighEdgeHz ?? 0f;
+                    var edge = PassbandSource();
                     // In WDSP's mode the expander has run already; this pass is the
                     // stages after it, the in-process expander switched off.
                     var record = TxAudioConditioning.ToConditioner(setup);
@@ -369,11 +478,14 @@ namespace JJFlexWpf
                     // The limiter's look-ahead delays what is SENT and nothing
                     // upstream of it (Sprint 49 Track CL).
                     int limiterAhead = limiterOn ? TxLimiter.LookAheadFramesFor(setup.Limiter!.LookAheadMs, (uint)TxNoiseChain.SampleRate) : 0;
-                    if (eqOn || deEssOn || compOn || limiterOn)
+                    if (eqOn || deEssOn || clarityOn || compOn || limiterOn)
                     {
                         var cleanupRecord = TxAudioConditioning.ToConditioner(setup);
                         cleanupRecord.Eq = null;
                         cleanupRecord.DeEsserEnabled = false;
+                        // JJ Clarity adds; it removes nothing (Track J): off here,
+                        // so "what was removed" is the same with it on or off.
+                        cleanupRecord.ClarityEnabled = false;
                         if (wdspMode) cleanupRecord.Enabled = false;
                         cleanupRecord.Comp = TxCompressorSettings.Default;
                         cleanupRecord.Limiter = TxLimiterSettings.Default;
@@ -402,6 +514,7 @@ namespace JJFlexWpf
                 if (gate.Enabled) stages.Add(gate.GateSetting && !wdspMode ? ChainAudition.GateStageId : TxAudioConditioner.StageIds.Expander);
                 if (eqOn) stages.Add(TxAudioConditioner.StageIds.Equaliser);
                 if (deEssOn) stages.Add(TxAudioConditioner.StageIds.DeEsser);
+                if (clarityOn) stages.Add(TxAudioConditioner.StageIds.Clarity);
                 if (compOn) stages.Add(TxAudioConditioner.StageIds.Compressor);
                 if (limiterOn) stages.Add(TxAudioConditioner.StageIds.Limiter);
                 Trace.WriteLine("ChainAuditionTwin: rendered " + rawMono.Length + " samples, stages " + string.Join(",", stages) + ", gate "
@@ -420,34 +533,145 @@ namespace JJFlexWpf
                 Trace.WriteLine("ChainAuditionTwin: render failed: " + ex.GetType().Name + ": " + ex.Message);
                 return ChainProcessing.Unavailable(RenderFailedKey);
             }
+        }
+
+        // ── JJ Clarity's suggest pass: the same chain, rendered several times ──
+
+        /// <summary>
+        /// The operator's take, taken as far as the in-process stages ONCE, so
+        /// the suggest pass can render it with JJ Clarity as it is now and with
+        /// each candidate the peak guard tries (Sprint 49 Track J, J7; item 6).
+        /// Every render is this twin's chain: the same wiring function, the
+        /// same passband edges, the setup's own stages. It writes nothing
+        /// anywhere.
+        /// </summary>
+        internal sealed class ClarityRenders
+        {
+            private readonly TxNoiseSetup _setup;
+            private readonly TxNoiseGateSetup _gate;
+            private readonly UpstreamAudio _up;
+            private readonly Passband _passband;
+            private readonly int _length;
+            private readonly CancellationToken _cancel;
+
+            internal ClarityRenders(TxNoiseSetup setup, TxNoiseGateSetup gate, UpstreamAudio up, Passband passband, int length, CancellationToken cancel,
+                AuditionLiveState? live)
+            {
+                _setup = setup; _gate = gate; _up = up; _passband = passband; _length = length; _cancel = cancel;
+                Live = live;
+            }
+
+            /// <summary>
+            /// The live transmit side as it read when the take was prepared, or
+            /// null with no radio (repair 1, B2). Every render here is at 48 kHz
+            /// with the whole chain running; the live stream may run at another
+            /// rate, and in CW and the digital modes the live chain stands
+            /// aside. Whoever reports these renders must say so from this.
+            /// </summary>
+            public AuditionLiveState? Live { get; }
+
+            /// <summary>Whether the setup's limiter is on.</summary>
+            public bool LimiterOn => _setup.Limiter?.Enabled == true;
+
+            /// <summary>The limiter's ceiling, dBFS, when it is on: the ceiling the peak guard tests the limiter's input against. Null with the limiter off.</summary>
+            public double? LimiterCeilingDbfs => LimiterOn ? _setup.Limiter!.ToSettings().CeilingDb : null;
+
+            /// <summary>How many samples late what is SENT runs behind the take: noise reduction, the expander, the limiter's look-ahead.</summary>
+            public int SentLatencySamples =>
+                _up.NoiseDelay + ExpanderDelay + (LimiterOn ? TxLimiter.LookAheadFramesFor(_setup.Limiter!.LookAheadMs, (uint)TxNoiseChain.SampleRate) : 0);
+
+            private int ExpanderDelay => !_gate.Enabled ? 0
+                : _up.WdspMode ? _up.ExpanderDelay : TxNoiseGate.LookAheadFramesFor(_gate.LookAheadMs, (uint)TxNoiseChain.SampleRate);
+
+            /// <summary>What the chain would SEND with JJ Clarity set this way: every in-process stage, the limiter included. For listening.</summary>
+            public float[] Sent(bool clarityOn, ClaritySettings settings) => Run(clarityOn, settings, limiter: true);
+
+            /// <summary>
+            /// The audio at the LIMITER'S INPUT with JJ Clarity set this way: the
+            /// same chain with the limiter out, the compressor included. What
+            /// the peak guard judges (item 6): at the chain's output a limiter
+            /// that is on holds every sample to its ceiling, so the energy
+            /// Clarity adds would show as nothing there and become limiting.
+            /// </summary>
+            public float[] AtLimiterInput(bool clarityOn, ClaritySettings settings) => Run(clarityOn, settings, limiter: false);
+
+            private float[] Run(bool clarityOn, ClaritySettings settings, bool limiter)
+            {
+                var record = TxAudioConditioning.ToConditioner(_setup);
+                if (_up.WdspMode) record.Enabled = false;
+                record.ClarityEnabled = clarityOn;
+                record.Clarity = settings ?? ClaritySettings.Default;
+                if (!limiter) record.Limiter = TxLimiterSettings.Default;
+                var output = new float[_length];
+                InProcessPass(record, _gate, _up.Threshold, _passband, _up.ExpanderInput, output, _up.Buffers, new float[BufferFrames * 2], _cancel, null);
+                return output;
+            }
+        }
+
+        /// <summary>
+        /// Prepare a take for JJ Clarity's suggest pass: everything upstream of
+        /// the in-process stages, once. Null renders with the verdict in
+        /// <paramref name="refusal"/> when an engine the setup asks for cannot
+        /// run or the take is at the wrong rate. With nothing on in the chain
+        /// it still prepares: the proposal is itself a chain to render.
+        /// </summary>
+        internal ClarityRenders? PrepareClarity(float[] rawMono, int sampleRate, CancellationToken cancel, Action<double>? progress,
+            out ChainProcessing? refusal)
+        {
+            if (rawMono == null) throw new ArgumentNullException(nameof(rawMono));
+            refusal = null;
+            if (sampleRate != TxNoiseChain.SampleRate)
+            {
+                refusal = ChainProcessing.Unavailable(WrongRateKey);
+                return null;
+            }
+            var setup = _setup() ?? new TxNoiseSetup();
+            AuditionLiveState? live;
+            try { live = _live(); }
+            catch (Exception) { live = null; }
+            var gate = setup.Gate ?? new TxNoiseGateSetup();
+            var engines = _engines();
+            try
+            {
+                var plans = PlansOf(setup, engines.Catalog);
+                int buffers = (rawMono.Length + BufferFrames - 1) / BufferFrames;
+                refusal = Upstream(rawMono, setup, live, gate, engines.Catalog, engines.ExpanderHost, plans, cancel,
+                    progress == null ? null : b => progress(Math.Min(1.0, (double)b / Math.Max(1, buffers))), out var up);
+                if (refusal != null) return null;
+                return new ClarityRenders(setup, gate, up, PassbandSource(), rawMono.Length, cancel, live);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Trace.WriteLine("ChainAuditionTwin: preparing a take for JJ Clarity failed: " + ex.GetType().Name + ": " + ex.Message);
+                refusal = ChainProcessing.Unavailable(RenderFailedKey);
+                return null;
+            }
             finally
             {
-                // 11. Torn down on success, failure and cancellation alike. A build
-                // still on its way when admission closes disposes itself on
-                // arrival (PcDenoiseSlot.BuildChoice), so its helper channel
-                // closes once that build returns.
-                if (chain != null)
+                if (engines.OwnedHost is { } host)
                 {
-                    foreach (var slot in new[] { chain.SpectralSlot, chain.NeuralSlot })
-                    {
-                        try { slot.CloseAdmission(); slot.DisposeOwned(); }
-                        catch (Exception ex) { Trace.WriteLine("ChainAuditionTwin: teardown: " + ex.GetType().Name); }
-                    }
+                    try { host.Dispose(); }
+                    catch (Exception ex) { Trace.WriteLine("ChainAuditionTwin: the render's helper host did not close: " + ex.GetType().Name); }
                 }
             }
         }
 
         /// <summary>
         /// One keyed pass of the in-process stages over the noise pass's output,
-        /// through a fresh conditioner with <paramref name="record"/> in force.
-        /// Returns the threshold the expander really held (its setter clamps).
+        /// through a fresh conditioner with <paramref name="record"/> in force,
+        /// inside <paramref name="passband"/>: the de-esser's edge on the
+        /// de-esser, and JJ Clarity's two edges through the conditioner's one
+        /// owner (never Clarity's own setters). Returns the threshold the
+        /// expander really held (its setter clamps).
         /// </summary>
-        internal static float InProcessPass(TxAudioConditioner.StagedGate record, TxNoiseGateSetup gate, float? threshold, float passbandEdgeHz,
+        internal static float InProcessPass(TxAudioConditioner.StagedGate record, TxNoiseGateSetup gate, float? threshold, Passband passband,
             float[] noise, float[] output, int buffers, float[] stereo, CancellationToken cancel, Action<int>? report)
         {
             var conditioner = new TxAudioConditioner { KeySource = () => true };
+            conditioner.SetClarityPassband(passband.ClarityLowEdgeHz, passband.ClarityHighEdgeHz);
             conditioner.SetGateInForce(record);
-            conditioner.DeEsser.PassbandHighEdgeHz = passbandEdgeHz;
+            conditioner.DeEsser.PassbandHighEdgeHz = passband.DeEsserHighEdgeHz;
             if (gate.Enabled && gate.AutoThreshold && threshold is float t) conditioner.Gate.ThresholdDb = t;
             for (int b = 0; b < buffers; b++)
             {

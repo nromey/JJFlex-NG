@@ -844,6 +844,12 @@ namespace Radios.Speech
         /// <summary>The transmit limiter (Sprint 49 Track CL, #1278): on or off and a lever's value. No receive twin; the newest covers an unheard older one.</summary>
         public const string TransmitLimiter = "transmit-limiter";
 
+        /// <summary>JJ Clarity, the transmit exciter (Sprint 49 Track J, #736): on or off, a band's switch, its harmonics, a preset loaded, a lever's value, and the "what it is adding now" reading. Never the radio's Enhanced Signal Clarity. No receive twin; the newest covers an unheard older one.</summary>
+        public const string TransmitClarity = "transmit-clarity";
+
+        /// <summary>JJ Clarity's suggest pass (Sprint 49 Track J, #736): what it measured and proposes, why it cannot, its progress, and what Keep did. One pass at a time; the newest covers an unheard older one, because only the newest state of the pass is true.</summary>
+        public const string ClaritySuggest = "clarity-suggest";
+
         /// <summary>The handoff between our compressor and the radio's speech processor (Sprint 49 Track CL, #1278): the processor turned off for the compressor, put back, kept off at a connect, or left alone on a radio that is not the operator's. Never silent; a later notice covers an unheard earlier one, because only the newest state is true.</summary>
         public const string ProcessorHandoff = "processor-handoff";
 

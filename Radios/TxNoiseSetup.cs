@@ -399,6 +399,125 @@ public sealed class TxLimiterSetup
 }
 
 /// <summary>
+/// One band of JJ Clarity as a setup carries it (Sprint 49 Track J, #736): a
+/// plain saved class with read-write properties, so the editor's field-by-field
+/// put-back can walk it (the immutable <see cref="JJPortaudio.ClarityBand"/>
+/// has nothing to walk). The harmonics are stored as a word, so a choice a
+/// later build adds loads here as the default and is kept on save. A value out
+/// of range in a file is clamped where it is applied, and kept as written.
+/// </summary>
+public sealed class TxClarityBandSetup
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>The band's corner, Hz: for the high band where the added brightness starts; for the low band the top of the low voice it enriches. Applied clamped inside the transmit filter; this is the choice.</summary>
+    public float TuneHz { get; set; }
+
+    /// <summary>How hard harmonics are made, dB (0 to 24).</summary>
+    public float DriveDb { get; set; }
+
+    /// <summary>How much of what is made is added back, percent (0 to 100).</summary>
+    public float MixPercent { get; set; }
+
+    /// <summary>One of <see cref="TxClarityHarmonics"/>, as a word.</summary>
+    public string Harmonics { get; set; } = TxClarityHarmonics.Even;
+
+    public TxClarityBandSetup Clone() => (TxClarityBandSetup)MemberwiseClone();
+
+    public JJPortaudio.ClarityBand ToBand() => new(Enabled, TuneHz, DriveDb, MixPercent, TxClarityHarmonics.ToChoice(Harmonics));
+
+    public static TxClarityBandSetup From(JJPortaudio.ClarityBand b) => new()
+    {
+        Enabled = b.Enabled, TuneHz = b.TuneHz, DriveDb = b.DriveDb, MixPercent = b.MixPercent, Harmonics = TxClarityHarmonics.ToWord(b.Harmonics),
+    };
+}
+
+/// <summary>The harmonics a JJ Clarity band makes, as the words a setup stores.</summary>
+public static class TxClarityHarmonics
+{
+    /// <summary>The second harmonic only: the smoother sound.</summary>
+    public const string Even = "even";
+    /// <summary>The third harmonic only: the edgier sound.</summary>
+    public const string Odd = "odd";
+    /// <summary>The second and the third, half of each.</summary>
+    public const string Both = "both";
+
+    /// <summary>Every choice, in the order a surface offers them.</summary>
+    public static IReadOnlyList<string> All { get; } = new[] { Even, Odd, Both };
+
+    /// <summary>What a stored word runs as: the choice it names, or even for a word this build does not know.</summary>
+    public static JJPortaudio.ClarityHarmonics ToChoice(string? word) => (word ?? "").Trim().ToLowerInvariant() switch
+    {
+        Odd => JJPortaudio.ClarityHarmonics.Odd,
+        Both => JJPortaudio.ClarityHarmonics.Both,
+        _ => JJPortaudio.ClarityHarmonics.Even,
+    };
+
+    public static string ToWord(JJPortaudio.ClarityHarmonics choice) => choice switch
+    {
+        JJPortaudio.ClarityHarmonics.Odd => Odd,
+        JJPortaudio.ClarityHarmonics.Both => Both,
+        _ => Even,
+    };
+}
+
+/// <summary>
+/// JJ Clarity as a setup carries it (Sprint 49 Track J, #736): the exciter's
+/// whole switch and its two bands, the high one adding brightness and the low
+/// one adding fullness. Off when absent from a file, so every setup saved
+/// before it existed loads with it off and sounds exactly as it did. The
+/// defaults are a newly switched-on Clarity's (<see cref="JJPortaudio.ClaritySettings.Default"/>):
+/// the high band on, the low band off.
+/// </summary>
+public sealed class TxClaritySetup
+{
+    /// <summary>The whole stage on or off. A band's own switch says whether that band adds anything while the stage is on.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>The preset the bands were last loaded from, by id (<see cref="JJPortaudio.ClarityPresets"/>), or empty. Informational: every field stays the operator's.</summary>
+    public string PresetId { get; set; } = "";
+
+    /// <summary>The high band: brightness.</summary>
+    public TxClarityBandSetup HighBand { get; set; } = TxClarityBandSetup.From(JJPortaudio.ClaritySettings.Default.High);
+
+    /// <summary>The low band: fullness.</summary>
+    public TxClarityBandSetup LowBand { get; set; } = TxClarityBandSetup.From(JJPortaudio.ClaritySettings.Default.Low);
+
+    /// <summary>The high band (true) or the low band. Never null.</summary>
+    public TxClarityBandSetup Band(bool high) => high ? (HighBand ??= TxClarityBandSetup.From(JJPortaudio.ClaritySettings.Default.High))
+        : (LowBand ??= TxClarityBandSetup.From(JJPortaudio.ClaritySettings.Default.Low));
+
+    public TxClaritySetup Clone()
+    {
+        var copy = (TxClaritySetup)MemberwiseClone();
+        copy.HighBand = Band(true).Clone();
+        copy.LowBand = Band(false).Clone();
+        return copy;
+    }
+
+    /// <summary>What the stage runs: both bands, each clamped to its ranges. The whole switch is separate (<see cref="Enabled"/>).</summary>
+    public JJPortaudio.ClaritySettings ToSettings() => new(Band(true).ToBand(), Band(false).ToBand());
+
+    /// <summary>Settings as a setup, with this whole switch and this preset note.</summary>
+    public static TxClaritySetup From(JJPortaudio.ClaritySettings settings, bool enabled, string presetId = "")
+    {
+        settings ??= JJPortaudio.ClaritySettings.Default;
+        return new TxClaritySetup
+        {
+            Enabled = enabled, PresetId = presetId ?? "",
+            HighBand = TxClarityBandSetup.From(settings.High), LowBand = TxClarityBandSetup.From(settings.Low),
+        };
+    }
+
+    /// <summary>A preset's bands as a setup, with this whole switch and the preset's id noted.</summary>
+    public static TxClaritySetup Load(JJPortaudio.ClarityPreset preset, bool enabled) =>
+        From((preset ?? throw new ArgumentNullException(nameof(preset))).Settings, enabled, preset.Id);
+
+    /// <summary>Whether the stage would add anything: on, with a band that is on and mixed above zero.</summary>
+    public bool AddsSomething => Enabled && !ToSettings().AddsNothing;
+}
+
+/// <summary>
 /// One named transmit noise setup: both reducer slots, spectral first then
 /// neural, and the gate. Held per radio by <see cref="TxNoiseSetupStore"/>.
 /// </summary>
@@ -500,6 +619,9 @@ public sealed class TxNoiseSetup
     /// <summary>The limiter, last in the chain (Sprint 49 Track CL, #1278). Off in every record saved before it existed.</summary>
     public TxLimiterSetup Limiter { get; set; } = new();
 
+    /// <summary>JJ Clarity, after the de-esser and before the compressor (Sprint 49 Track J, #736). Off in every record saved before it existed.</summary>
+    public TxClaritySetup Clarity { get; set; } = new();
+
     /// <summary>A deep copy, so a caller holding a setup can never change the store's copy behind its back.</summary>
     public TxNoiseSetup Clone() => new()
     {
@@ -513,6 +635,7 @@ public sealed class TxNoiseSetup
         StageOrder = (string[])(StageOrder ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder).Clone(),
         Compressor = (Compressor ?? new()).Clone(),
         Limiter = (Limiter ?? new()).Clone(),
+        Clarity = (Clarity ?? new()).Clone(),
     };
 
     /// <summary>Whether <see cref="StageOrder"/> is the order this build runs: the default, or an older build's default (the same order with the stages added since missing).</summary>

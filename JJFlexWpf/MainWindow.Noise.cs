@@ -85,4 +85,40 @@ public partial class MainWindow
             dialog.ShowDialog();
         });
     }
+
+    /// <summary>
+    /// "Edit JJ Clarity...": every parameter of JJ Clarity, in the transmit
+    /// shaping editor showing JJ Clarity's sections (Sprint 49 Track J, #736).
+    /// The Transmit menu and Home open it here; the suggest pass's Adjust
+    /// opens it with its offer loaded as the editor's own first change, so
+    /// every way out but the editor's Close takes the offer back too.
+    /// </summary>
+    public void ShowClarityEditor(JJPortaudio.ClaritySettings? proposal = null)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            const string source = "clarity editor";
+            var model = Noise.DynamicsEditor(source);
+            if (proposal != null) Noise.LoadClarityProposalIntoEditor(proposal, source);
+            var dialog = new TxDynamicsEditorDialog(model, Noise, source, TxShapingEditorSections.Clarity) { Owner = Window.GetWindow(this) };
+            dialog.ShowDialog();
+        });
+    }
+
+    /// <summary>
+    /// "Listen and suggest...": JJ Clarity's suggest pass (Sprint 49 Track J,
+    /// J7). It reads takes already made and changes nothing unless its Keep is
+    /// pressed. Its Adjust opens JJ Clarity's editor with the offer; its
+    /// "Check your audio" opens that window for a new take and Compare.
+    /// </summary>
+    public void ShowClaritySuggest()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            var dialog = new Dialogs.ClaritySuggestDialog(Noise, RigControl) { Owner = Window.GetWindow(this) };
+            dialog.ShowDialog();
+            if (dialog.AdjustRequested is { } offer) ShowClarityEditor(offer);
+            else if (dialog.CheckYourAudioRequested) Dialogs.CheckYourAudioDialog.ShowOrFocus(RigControl);
+        });
+    }
 }

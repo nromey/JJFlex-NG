@@ -50,14 +50,44 @@ public sealed record RadioProcessingFacts(string Processor, string ProcessorLeve
 /// force now, and the operator's own audio to guard the proposal against (the
 /// retained Check your audio microphone take, in phase 2), at its rate, with
 /// the limiter's ceiling where one is on and, optionally, the renderer the
-/// guard should use (phase 2: the audition twin).
+/// guard should use (phase 2: the audition twin's chain up to the limiter's
+/// input).
 /// </summary>
+/// <param name="StageEnabled">
+/// Whether JJ Clarity as a whole is on now (phase 2, item 6). The whole
+/// stage's switch is separate from <see cref="ClaritySettings"/>, which holds
+/// only the bands. With the stage off nothing is being added whatever the
+/// bands say, so the rule and the guard judge against
+/// <see cref="EffectiveCurrent"/>.
+/// </param>
 public sealed record ClaritySuggestInput(
     ClaritySettings Current,
     float[] RetainedAudio = null,
     int RetainedRate = 0,
     double? LimiterCeilingDbfs = null,
-    Func<ClaritySettings, float[]> Render = null);
+    Func<ClaritySettings, float[]> Render = null,
+    bool StageEnabled = true)
+{
+    /// <summary>
+    /// The settings as they act now: <see cref="Current"/> while the stage is
+    /// on; with the stage off, the same bands each read as off. An off band's
+    /// mix counts as zero, and its stored tune, drive, mix and harmonics are
+    /// kept exactly (phase 1's repair 2, the orchestrator's ruling, applied to
+    /// the whole switch as it is to a band's own): so a proposal made with
+    /// the stage off proposes each band on from zero, never below a stored
+    /// drive, and a band it does not propose stays off in what is offered,
+    /// which is what the operator then hears as "after".
+    /// </summary>
+    public ClaritySettings EffectiveCurrent
+    {
+        get
+        {
+            var current = Current ?? ClaritySettings.Default;
+            return StageEnabled ? current
+                : new ClaritySettings(current.High.WithEnabled(false), current.Low.WithEnabled(false));
+        }
+    }
+}
 
 /// <summary>
 /// The suggest step's result: the measurement, the proposal, the peak
@@ -141,7 +171,7 @@ public static class ClaritySuggest
         RadioProcessingFacts radio, ClaritySuggestInput input)
     {
         if (!spectrum.Available) return Refused(Map(spectrum.Refusal), source, radio, spectrum);
-        var proposal = ClarityProposalRule.Propose(spectrum, input.Current ?? ClaritySettings.Default);
+        var proposal = ClarityProposalRule.Propose(spectrum, input.EffectiveCurrent);
         ClarityGuardResult guard = null;
         if (input.RetainedAudio != null && input.RetainedAudio.Length > 0 && (input.RetainedRate > 0 || input.Render != null))
             guard = ClarityPeakGuard.Apply(proposal, input.RetainedAudio, input.RetainedRate > 0 ? input.RetainedRate : (int)ClarityDesign.DesignRate,

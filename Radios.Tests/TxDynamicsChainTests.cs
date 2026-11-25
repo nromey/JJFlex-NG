@@ -247,12 +247,19 @@ namespace Radios.Tests
         public void The_default_order_ends_compressor_then_limiter_and_an_older_default_runs_as_the_default()
         {
             var order = TxAudioConditioner.StageIds.DefaultOrder;
-            Assert.Equal(new[] { "noise", "expander", "eq", "deesser", "compressor", "limiter" }, order);
+            // Sprint 49 Track J phase 2 added JJ Clarity between the de-esser and the compressor.
+            Assert.Equal(new[] { "noise", "expander", "eq", "deesser", "clarity", "compressor", "limiter" }, order);
             Assert.Equal(TxAudioConditioner.StageIds.Limiter, order[^1]);
             Assert.True(TxAudioConditioner.StageIds.RunsAsDefault(order));
             // Track I's default, written before these stages existed.
             Assert.True(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "expander", "eq", "deesser" }));
-            Assert.Equal(new[] { new[] { "noise", "expander", "eq", "deesser" } }, TxAudioConditioner.StageIds.HistoricalDefaults);
+            // And this track's own six-stage default, which Track J's seven replaced, is now a historical one too.
+            Assert.True(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "expander", "eq", "deesser", "compressor", "limiter" }));
+            Assert.Equal(new[]
+            {
+                new[] { "noise", "expander", "eq", "deesser" },
+                new[] { "noise", "expander", "eq", "deesser", "compressor", "limiter" },
+            }, TxAudioConditioner.StageIds.HistoricalDefaults);
             // Not the default: an order with a stage left out that no build ever wrote (repair 1: the
             // first rule took any such order for an old default), another order, an unknown id, a repeat.
             Assert.False(TxAudioConditioner.StageIds.RunsAsDefault(new[] { "noise", "eq", "deesser" }));
@@ -392,8 +399,10 @@ namespace Radios.Tests
             var record = doc.Descendants("TxNoiseSetup").Single();
             record.Element("Compressor")!.Remove();
             record.Element("Limiter")!.Remove();
+            // Sprint 49 Track J phase 2: that build wrote no JJ Clarity either.
+            record.Element("Clarity")!.Remove();
             var order = record.Element("StageOrder")!;
-            order.Elements().Where(x => x.Value is "compressor" or "limiter").Remove();
+            order.Elements().Where(x => x.Value is "compressor" or "limiter" or "clarity").Remove();
             Assert.Equal(new[] { "noise", "expander", "eq", "deesser" }, order.Elements().Select(x => x.Value));
             doc.Save(path);
             Assert.DoesNotContain("Compressor", File.ReadAllText(path));

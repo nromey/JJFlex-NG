@@ -34,7 +34,7 @@ public sealed class TxGateOwnerTests
         public Context()
         {
             _saved = new[] { "_rig", "_chain", "_autoThreshold", "_thresholdMarginDb", "_gateIntent", "_eqIntent", "_deEsserIntent", "_orderIntent", "_learnBaseline",
-                    "_compIntent", "_limiterIntent", "_namedSetup", "_namedSetupAsApplied" }
+                    "_compIntent", "_limiterIntent", "_clarityIntent", "_namedSetup", "_namedSetupAsApplied" }
                 .Select(n => typeof(TxAudioConditioning).GetField(n, Flags)!).Select(f => (f, f.GetValue(null))).ToArray();
             var rig = (FlexBase)RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
             GC.SuppressFinalize(rig); // only the injected numerical fields exist; never enter radio teardown
@@ -49,6 +49,8 @@ public sealed class TxGateOwnerTests
             // starts with the limiter on; TxDynamicsSurfaceTests covers that state.)
             typeof(TxAudioConditioning).GetField("_compIntent", Flags)!.SetValue(null, new TxCompressorSetup());
             typeof(TxAudioConditioning).GetField("_limiterIntent", Flags)!.SetValue(null, new TxLimiterSetup());
+            // Sprint 49 Track J: JJ Clarity starts OFF here too, whatever an earlier test left in the static.
+            typeof(TxAudioConditioning).GetField("_clarityIntent", Flags)!.SetValue(null, new TxClaritySetup());
             Chain.KeySource = () => Volatile.Read(ref Keyed);
             Cond.KeySource = () => Volatile.Read(ref Keyed);
         }

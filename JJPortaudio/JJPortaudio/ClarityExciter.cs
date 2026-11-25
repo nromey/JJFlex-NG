@@ -511,6 +511,18 @@ namespace JJPortaudio
             }
         }
 
+        /// <summary>
+        /// AUDIO THREAD ONLY: whether <see cref="Process"/> has anything to do
+        /// on the next buffer. <see cref="IsActive"/>, or the audio thread is
+        /// still adding with the design it last adopted. The second half is
+        /// the buffer straight after a switch-off: the stage reads as off, no
+        /// fade has begun yet, and the added path must still be faded out. A
+        /// host that skips its shaping stages when none is on asks this, not
+        /// <see cref="IsActive"/>, or that fade would never run and the added
+        /// path would be cut dead (Sprint 49 Track J phase 2).
+        /// </summary>
+        public bool RunsOnThisBuffer => IsActive || _cur.Active;
+
         /// <summary>Statistics since the last take, then zeroed. Any thread.</summary>
         public ClarityOverStats TakeOverStats()
         {

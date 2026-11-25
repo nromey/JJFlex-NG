@@ -125,6 +125,12 @@ namespace JJFlexWpf
         internal TxLimiterSetup? TransmitLimiter { get; set; }
         internal TxLimiterSetup? LeftLimiter { get; set; }
         internal TxLimiterSetup? EntryTransmitLimiter { get; set; }
+        // Sprint 49 Track J (item 13): JJ Clarity, on its own, by the same
+        // rule. A setup or a preset applied from the layer writes it, so the
+        // layer's Escape must be able to put it back.
+        internal TxClaritySetup? TransmitClarity { get; set; }
+        internal TxClaritySetup? LeftClarity { get; set; }
+        internal TxClaritySetup? EntryTransmitClarity { get; set; }
         internal ParametricEqSetup? ReceiveEq { get; set; }
         internal ParametricEqSetup? LeftReceiveEq { get; set; }
         internal ParametricEqSetup? EntryReceiveEq { get; set; }
@@ -132,9 +138,12 @@ namespace JJFlexWpf
 
     /// <summary>The transmit stages after the gate as one picture: the equaliser, the de-esser and the stage order (Sprint 49 Track I).</summary>
     internal sealed record TxStagesPicture(ParametricEqSetup Eq, TxDeEsserSetup DeEsser, string[] Order,
-        TxCompressorSetup Compressor, TxLimiterSetup Limiter)
+        TxCompressorSetup Compressor, TxLimiterSetup Limiter, TxClaritySetup Clarity)
     {
-        public TxStagesPicture Copy() => new(Eq.Clone(), DeEsser.Clone(), (string[])Order.Clone(), Compressor.Clone(), Limiter.Clone());
+        public TxStagesPicture Copy() => new(Eq.Clone(), DeEsser.Clone(), (string[])Order.Clone(), Compressor.Clone(), Limiter.Clone(), Clarity.Clone());
+
+        /// <summary>JJ Clarity compared as the controller compares it everywhere (the preset's id is a note, not a setting).</summary>
+        public static bool SameClarity(TxClaritySetup? a, TxClaritySetup? b) => a != null && b != null && NoiseController.SameClarity(a, b);
 
         /// <summary>The compressor and the limiter compared as the controller compares them everywhere (the preset's id is a note, not a setting).</summary>
         public static bool SameCompressor(TxCompressorSetup? a, TxCompressorSetup? b) => a != null && b != null && NoiseController.SameCompressor(a, b);
@@ -190,6 +199,7 @@ namespace JJFlexWpf
                 snap.TransmitOrder = (string[])stages.Order.Clone(); snap.EntryTransmitOrder = (string[])stages.Order.Clone();
                 snap.TransmitCompressor = stages.Compressor.Clone(); snap.EntryTransmitCompressor = stages.Compressor.Clone();
                 snap.TransmitLimiter = stages.Limiter.Clone(); snap.EntryTransmitLimiter = stages.Limiter.Clone();
+                snap.TransmitClarity = stages.Clarity.Clone(); snap.EntryTransmitClarity = stages.Clarity.Clone();
             }
             return snap;
         }
@@ -331,7 +341,8 @@ namespace JJFlexWpf
         {
             var (eq, deEsser, order) = TransmitGate.CaptureStages();
             var (compressor, limiter) = TransmitGate.CaptureDynamics();
-            return new TxStagesPicture(eq.Clone(), deEsser.Clone(), (string[])order.Clone(), compressor.Clone(), limiter.Clone());
+            return new TxStagesPicture(eq.Clone(), deEsser.Clone(), (string[])order.Clone(), compressor.Clone(), limiter.Clone(),
+                TransmitGate.CaptureClarity().Clone());
         }
 
         private static bool SameEq(ParametricEqSetup? a, ParametricEqSetup? b) =>
@@ -392,6 +403,13 @@ namespace JJFlexWpf
                     snap.TransmitLimiter = before.Stages.Limiter.Clone();
                 snap.LeftLimiter = now.Stages.Limiter.Clone();
             }
+            // Track J (item 13): JJ Clarity, the same way.
+            if (!TxStagesPicture.SameClarity(now.Stages.Clarity, before.Stages.Clarity))
+            {
+                if (snap.TransmitClarity != null && !TxStagesPicture.SameClarity(before.Stages.Clarity, snap.LeftClarity ?? snap.TransmitClarity))
+                    snap.TransmitClarity = before.Stages.Clarity.Clone();
+                snap.LeftClarity = now.Stages.Clarity.Clone();
+            }
         }
 
         /// <summary>
@@ -419,7 +437,9 @@ namespace JJFlexWpf
                 && !TxStagesPicture.SameCompressor(owned.Compressor ? compTarget : now.Stages.Compressor, snap.EntryTransmitCompressor ?? compTarget);
             bool limiter = snap.TransmitLimiter is { } limiterTarget
                 && !TxStagesPicture.SameLimiter(owned.Limiter ? limiterTarget : now.Stages.Limiter, snap.EntryTransmitLimiter ?? limiterTarget);
-            bool stages = eq || deEsser || order || compressor || limiter;
+            bool clarity = snap.TransmitClarity is { } clarityTarget
+                && !TxStagesPicture.SameClarity(owned.Clarity ? clarityTarget : now.Stages.Clarity, snap.EntryTransmitClarity ?? clarityTarget);
+            bool stages = eq || deEsser || order || compressor || limiter || clarity;
             return Slot(owned.Spectral, snap.TransmitSpectral, snap.EntryTransmitSpectral, now.Spectral)
                 || Slot(owned.Neural, snap.TransmitNeural, snap.EntryTransmitNeural, now.Neural)
                 || gate || stages;
@@ -432,9 +452,9 @@ namespace JJFlexWpf
         /// else makes in between (held ahead of it, say) is kept.
         /// </summary>
         /// <summary>Which transmit parts Escape puts back, each on its own (repair 2 splits the stages).</summary>
-        private readonly record struct TxOwned(bool Spectral, bool Neural, bool Gate, bool Eq, bool DeEsser, bool Order, bool Compressor, bool Limiter)
+        private readonly record struct TxOwned(bool Spectral, bool Neural, bool Gate, bool Eq, bool DeEsser, bool Order, bool Compressor, bool Limiter, bool Clarity)
         {
-            public bool AnyStage => Eq || DeEsser || Order || Compressor || Limiter;
+            public bool AnyStage => Eq || DeEsser || Order || Compressor || Limiter || Clarity;
             public bool Any => Spectral || Neural || Gate || AnyStage;
         }
 
@@ -452,12 +472,25 @@ namespace JJFlexWpf
                 && TxStagesPicture.SameDeEsser(now.Stages.DeEsser, snap.LeftDeEsser) && !TxStagesPicture.SameDeEsser(now.Stages.DeEsser, snap.TransmitDeEsser);
             bool order = snap.LeftOrder != null && snap.TransmitOrder != null
                 && TxStagesPicture.SameOrder(now.Stages.Order, snap.LeftOrder) && !TxStagesPicture.SameOrder(now.Stages.Order, snap.TransmitOrder);
-            bool compressor = snap.LeftCompressor != null && snap.TransmitCompressor != null
-                && TxStagesPicture.SameCompressor(now.Stages.Compressor, snap.LeftCompressor) && !TxStagesPicture.SameCompressor(now.Stages.Compressor, snap.TransmitCompressor);
-            bool limiter = snap.LeftLimiter != null && snap.TransmitLimiter != null
-                && TxStagesPicture.SameLimiter(now.Stages.Limiter, snap.LeftLimiter) && !TxStagesPicture.SameLimiter(now.Stages.Limiter, snap.TransmitLimiter);
-            return new TxOwned(spectral, neural, gate, eq, deEsser, order, compressor, limiter);
+            var (compressor, limiter, clarity) = LayerOwnedShaping(snap, now.Stages.Compressor, now.Stages.Limiter, now.Stages.Clarity);
+            return new TxOwned(spectral, neural, gate, eq, deEsser, order, compressor, limiter, clarity);
         }
+
+        /// <summary>
+        /// Which of the compressor, the limiter and JJ Clarity are still the
+        /// layer's to put back, given how the three read: each one the layer
+        /// changed, that reads as the layer left it, and that is not already
+        /// its target. Asked of what is in place when a put-back runs, and of
+        /// what WILL be in place while one waits (Track J repair 1, B1).
+        /// </summary>
+        private static (bool Compressor, bool Limiter, bool Clarity) LayerOwnedShaping(NoiseSnapshot snap,
+            TxCompressorSetup compressor, TxLimiterSetup limiter, TxClaritySetup clarity) =>
+            (snap.LeftCompressor != null && snap.TransmitCompressor != null
+                && TxStagesPicture.SameCompressor(compressor, snap.LeftCompressor) && !TxStagesPicture.SameCompressor(compressor, snap.TransmitCompressor),
+             snap.LeftLimiter != null && snap.TransmitLimiter != null
+                && TxStagesPicture.SameLimiter(limiter, snap.LeftLimiter) && !TxStagesPicture.SameLimiter(limiter, snap.TransmitLimiter),
+             snap.LeftClarity != null && snap.TransmitClarity != null
+                && TxStagesPicture.SameClarity(clarity, snap.LeftClarity) && !TxStagesPicture.SameClarity(clarity, snap.TransmitClarity));
 
         // ── Which receive changes are the layer's (#1150) ──
 
@@ -757,7 +790,20 @@ namespace JJFlexWpf
                     var orderBack = snap.TransmitOrder == null ? null : (string[])snap.TransmitOrder.Clone();
                     var compressorBack = snap.TransmitCompressor?.Clone();
                     var limiterBack = snap.TransmitLimiter?.Clone();
-                    LastRestoreTiming = chain.RunOrDefer(() =>
+                    var clarityBack = snap.TransmitClarity?.Clone();
+                    // What the put-back does to the compressor, the limiter and JJ
+                    // Clarity: each one the layer still owns goes to its target and
+                    // the others stay as they read. ONE function, run on what is in
+                    // place when the put-back runs, and (Track J repair 1, B1) on
+                    // what will be in place while it waits, so a toggle pressed
+                    // after an Escape made while keyed steps from the value going back.
+                    void ShapingBack((bool Compressor, bool Limiter, bool Clarity) owned, TxShaping s)
+                    {
+                        if (owned.Compressor && compressorBack != null) s.Compressor = compressorBack.Clone();
+                        if (owned.Limiter && limiterBack != null) s.Limiter = limiterBack.Clone();
+                        if (owned.Clarity && clarityBack != null) s.Clarity = clarityBack.Clone();
+                    }
+                    LastRestoreTiming = TxAudioConditioning.Ask(chain, lever: false, () =>
                     {
                         var current = ReadTx(chain);
                         var still = LayerOwnedTx(snap, current);
@@ -773,10 +819,15 @@ namespace JJFlexWpf
                         // Track CL, repair 1 (B4): the compressor and the limiter the
                         // same way, held as intents just before the stages are staged,
                         // so the ONE record carries them (the road a whole setup takes).
+                        // Track J (item 13): JJ Clarity, held as an intent the same
+                        // way, so the ONE record carries it back too.
                         if (still.AnyStage)
-                            TransmitGate.StageDynamics(
-                                still.Compressor && compressorBack != null ? compressorBack : current.Stages.Compressor,
-                                still.Limiter && limiterBack != null ? limiterBack : current.Stages.Limiter);
+                        {
+                            var back = new TxShaping { Compressor = current.Stages.Compressor, Limiter = current.Stages.Limiter, Clarity = current.Stages.Clarity };
+                            ShapingBack((still.Compressor, still.Limiter, still.Clarity), back);
+                            TransmitGate.StageDynamics(back.Compressor, back.Limiter);
+                            TransmitGate.StageClarity(back.Clarity);
+                        }
                         if (still.AnyStage)
                             TransmitGate.ApplyStagesNow(
                                 still.Eq && eqBack != null ? eqBack : current.Stages.Eq,
@@ -784,7 +835,7 @@ namespace JJFlexWpf
                                 still.Order && orderBack != null ? orderBack : current.Stages.Order,
                                 still.Gate ? gateBack : null);
                         else if (still.Gate && gateBack != null) TransmitGate.ApplyNow(gateBack);
-                    }).Timing;
+                    }, s => ShapingBack(LayerOwnedShaping(snap, s.Compressor, s.Limiter, s.Clarity), s)).Timing;
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes", "put back");
                     changed = true;
                 }

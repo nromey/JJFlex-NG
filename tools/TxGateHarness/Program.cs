@@ -59,6 +59,11 @@ namespace TxGateHarness
             CheckLimiterHoldsTheCeiling();
             CheckResidualLeavesTheDynamicsOut();
 
+            // Sprint 49 Track J: JJ Clarity, between the de-esser and the compressor.
+            CheckClarityOffAndZeroMixAreExact();
+            CheckClarityAloneShapesAndLeavesTheResidualSilent();
+            CheckClarityEdgeChangeReachesTheWaitingRecord();
+
             Console.WriteLine();
             Console.WriteLine($"{checks} checks, {failures} failed.");
             return failures;
@@ -708,6 +713,75 @@ namespace TxGateHarness
             }
             Assert(residual == 0.0 && Math.Abs(10.0 * Math.Log10(sent / input)) > 1.0,
                 "the compressor and the limiter change what is sent and leave \"what was removed\" silent");
+        }
+
+        // ------------------------------------------------------------------
+        // JJ Clarity (Sprint 49 Track J)
+        // ------------------------------------------------------------------
+
+        private static readonly ClaritySettings BrightClarity = new ClaritySettings(
+            new ClarityBand(true, 2000f, 18f, 60f, ClarityHarmonics.Even),
+            new ClarityBand(false, 150f, 6f, 25f, ClarityHarmonics.Both));
+
+        /// <summary>JJ Clarity off, and on with both mixes at zero, leave the chain's audio bit-for-bit, and the chain reads as doing nothing.</summary>
+        private static void CheckClarityOffAndZeroMixAreExact()
+        {
+            bool exact = true, idle = true;
+            foreach (bool enabled in new[] { false, true })
+            {
+                var cond = new TxAudioConditioner();
+                var zero = new ClaritySettings(BrightClarity.High.WithMix(0f), BrightClarity.Low.WithMix(0f));
+                cond.SetGateInForce(new TxAudioConditioner.StagedGate { ClarityEnabled = enabled, Clarity = enabled ? zero : BrightClarity });
+                for (int k = 0; k < 20; k++)
+                {
+                    float[] buf = SineBuffer(1000.0, -12f, FrameFloats);
+                    float[] reference = (float[])buf.Clone();
+                    cond.Process(buf, buf.Length, Fs);
+                    for (int i = 0; i < buf.Length; i++)
+                        if (BitConverter.SingleToInt32Bits(buf[i]) != BitConverter.SingleToInt32Bits(reference[i])) exact = false;
+                }
+                idle &= !cond.AnyStageActive;
+            }
+            Assert(exact && idle, "JJ Clarity off, and on with both mixes at zero, leaves the audio bit-for-bit and the chain reads as doing nothing");
+        }
+
+        /// <summary>JJ Clarity alone on is a chain that is doing something: it shapes what is sent, and "what was removed" stays silent.</summary>
+        private static void CheckClarityAloneShapesAndLeavesTheResidualSilent()
+        {
+            var cond = new TxAudioConditioner { MonitorMode = TxAudioConditioner.MonitorModes.Residual };
+            double residual = 0;
+            cond.MonitorSink = (b, n, r) => residual += Energy(b, 0, n);
+            cond.SetGateInForce(new TxAudioConditioner.StagedGate { ClarityEnabled = true, Clarity = BrightClarity });
+            double difference = 0;
+            for (int k = 0; k < 50; k++)
+            {
+                float[] buf = SineBuffer(1000.0, -12f, FrameFloats);
+                float[] reference = (float[])buf.Clone();
+                cond.Process(buf, buf.Length, Fs);
+                for (int i = 0; i < buf.Length; i++) difference += (buf[i] - reference[i]) * (double)(buf[i] - reference[i]);
+            }
+            Assert(cond.AnyStageActive && difference > 1e-4 && residual == 0.0,
+                $"JJ Clarity alone makes the chain active, adds to what is sent (difference energy {difference:E2}) and leaves \"what was removed\" silent");
+        }
+
+        /// <summary>A setup staged while keyed, then a transmit filter change, then the unkey: the setup runs with the NEW edges.</summary>
+        private static void CheckClarityEdgeChangeReachesTheWaitingRecord()
+        {
+            bool keyed = true;
+            var cond = new TxAudioConditioner { KeySource = () => keyed };
+            cond.SetClarityPassband(100f, 2900f);
+            float[] buf = SineBuffer(1000.0, -12f, FrameFloats);
+            cond.Process(buf, buf.Length, Fs);
+            cond.StageGate(new TxAudioConditioner.StagedGate { ClarityEnabled = true, Clarity = BrightClarity });
+            cond.SetClarityPassband(100f, 2000f);
+            cond.Process(buf, buf.Length, Fs);
+            bool waited = !cond.Clarity.Enabled;
+            keyed = false;
+            cond.Process(buf, buf.Length, Fs);
+            var running = cond.Clarity.Wanted;
+            Assert(waited && cond.Clarity.Enabled && running != null && running.PassbandHighEdgeHz == 2000f
+                    && running.Settings.Equals(BrightClarity) && cond.Clarity.HighTuneClamped,
+                $"a JJ Clarity setup staged while keyed runs, at the unkey, with the passband edges set after it was staged (high edge {running?.PassbandHighEdgeHz:F0} Hz)");
         }
 
         private static void Assert(bool ok, string what)

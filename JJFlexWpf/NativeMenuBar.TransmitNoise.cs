@@ -181,6 +181,39 @@ public partial class NativeMenuBar
         // ── The compressor and the limiter (Sprint 49 Track CL, #1278) ──
         // The compressor here is the COMPUTER's; the radio's own speech
         // processor keeps its own items, and every label here says which it is.
+        // ── JJ Clarity (Sprint 49 Track J, #736) ──
+        // The computer's exciter, before the compressor that controls what it
+        // adds. Every row says "JJ Clarity" or names its band: the radio has
+        // an Enhanced Signal Clarity of its own, a different thing.
+        var clarity = AddSubmenu(parent, Radios.Lexicon.Get("audio.clarity_menu.clarity"));
+        AddNoiseToggle(clarity, Radios.Lexicon.Get("audio.clarity_menu.on"),
+            () => AfterMenu(n => n.ToggleClarity(TransmitMenuSource)), () => _window.Noise.ClarityOn);
+        AddWired(clarity, Radios.Lexicon.Get("audio.clarity_menu.suggest"), () => _window.ShowClaritySuggest());
+        var clarityPresets = AddSubmenu(clarity, Radios.Lexicon.Get("audio.clarity_menu.presets"));
+        foreach (var preset in NoiseController.ClarityPresetList)
+        {
+            string presetId = preset.Id;
+            AddWired(clarityPresets, NoiseController.ClarityPresetName(preset),
+                () => AfterMenu(n => n.LoadClarityPreset(presetId, TransmitMenuSource)));
+        }
+        AddNoiseToggle(clarity, Radios.Lexicon.Get("audio.clarity_menu.high_on"),
+            () => AfterMenu(n => n.ToggleClarityBand(true, TransmitMenuSource)), () => _window.Noise.ClarityBandOn(true));
+        AddNoiseToggle(clarity, Radios.Lexicon.Get("audio.clarity_menu.low_on"),
+            () => AfterMenu(n => n.ToggleClarityBand(false, TransmitMenuSource)), () => _window.Noise.ClarityBandOn(false));
+        foreach (var lever in NoiseController.ClarityLevers.Where(l => l.OnHome))
+        {
+            var l = lever;
+            string leverName = noise.DynamicsLeverName(l);
+            AddWired(clarity, Radios.Lexicon.Get("audio.noise_menu.up", ("lever", leverName)),
+                () => AfterMenu(n => n.AdjustDynamics(l, +1, TransmitMenuSource)));
+            AddWired(clarity, Radios.Lexicon.Get("audio.noise_menu.down", ("lever", leverName)),
+                () => AfterMenu(n => n.AdjustDynamics(l, -1, TransmitMenuSource)));
+        }
+        AddWired(clarity, Radios.Lexicon.Get("audio.clarity_menu.high_harmonics"), () => AfterMenu(n => n.CycleClarityHarmonics(true, TransmitMenuSource)));
+        AddWired(clarity, Radios.Lexicon.Get("audio.clarity_menu.low_harmonics"), () => AfterMenu(n => n.CycleClarityHarmonics(false, TransmitMenuSource)));
+        AddWired(clarity, Radios.Lexicon.Get("audio.clarity_menu.say_now"), () => AfterMenu(n => n.SayClarityNow()));
+        AddWired(clarity, Radios.Lexicon.Get("audio.clarity_menu.edit"), () => _window.ShowClarityEditor());
+
         var compressor = AddSubmenu(parent, Radios.Lexicon.Get("audio.dynamics_menu.compressor"));
         AddNoiseToggle(compressor, Radios.Lexicon.Get("audio.dynamics_menu.compressor_on"),
             () => AfterMenu(n => n.ToggleCompressor(TransmitMenuSource)), () => _window.Noise.CompressorOn);
