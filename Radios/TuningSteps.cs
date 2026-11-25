@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace Radios
@@ -331,13 +332,38 @@ namespace Radios
         }
 
         /// <summary>
-        /// The short written label for a step — what a list shows. Falls back
-        /// to the spoken form for a value that has no label of its own, so a
-        /// widened picker never shows a blank row.
+        /// A step size as a list WRITES it, in the starting labels' style:
+        /// "500 Hz", "2.5 kHz", "1 MHz". The largest unit the step reaches,
+        /// with as many decimals as the value needs and no more, so the
+        /// number is exact; speech keeps <see cref="FormatForSpeech"/>.
+        /// </summary>
+        /// <remarks>
+        /// #346: a step the operator added has no label key of its own, and
+        /// <see cref="LabelFor"/> used to fall back to the SPOKEN form, so the
+        /// list showed "2500 hertz" beside the starting "500 Hz".
+        /// </remarks>
+        public static string FormatForLabel(int hz)
+        {
+            if (Math.Abs((long)hz) >= 1000000)
+                return Lexicon.Get("settings.tuning.step_label_mhz", ("value", Exact(hz, 1000000m)));
+            if (Math.Abs((long)hz) >= 1000)
+                return Lexicon.Get("settings.tuning.step_label_khz", ("value", Exact(hz, 1000m)));
+            return Lexicon.Get("settings.tuning.step_label_hz", ("value", hz.ToString(CultureInfo.CurrentCulture)));
+        }
+
+        private static string Exact(int hz, decimal unit) =>
+            (hz / unit).ToString("0.######", CultureInfo.CurrentCulture);
+
+        /// <summary>
+        /// The short written label for a step — what a list shows. A value
+        /// with no label of its own (an added step, or a widened picker's
+        /// current step) is written by <see cref="FormatForLabel"/>, so a
+        /// widened picker never shows a blank row and every row reads in one
+        /// style.
         /// </summary>
         public static string LabelFor(Choice choice) =>
             string.IsNullOrEmpty(choice.LabelKey)
-                ? FormatForSpeech(choice.Hz)
+                ? FormatForLabel(choice.Hz)
                 : Lexicon.Get(choice.LabelKey);
     }
 }

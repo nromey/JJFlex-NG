@@ -937,6 +937,11 @@ namespace Radios.Tests
                 "logging.running.routine_only",
                 "logging.running.routine_clause_terse",
                 "logging.running.routine_only_terse",
+                // Junk box batch 30, #346: a step with no label of its own,
+                // written in the starting labels' style. DRAFT, for Codex.
+                "settings.tuning.step_label_hz",
+                "settings.tuning.step_label_khz",
+                "settings.tuning.step_label_mhz",
                 "settings.profile.choice_would_be_refused",
                 // SmartLink connection tiers, Track B (2026-11-20): the names of the
                 // SmartLink methods in the walk's move sentence, and the reason a

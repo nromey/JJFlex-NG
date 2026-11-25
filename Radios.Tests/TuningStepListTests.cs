@@ -141,7 +141,8 @@ namespace Radios.Tests
             var read = TuningSteps.ListOf(new[] { 5000, 250, 5000, 2000000 }, coarse: true);
             Assert.Equal(new[] { 250, 5000 }, read.Select(c => c.Hz));
             Assert.Equal("settings.tuning.coarse_step_5_khz", read[1].LabelKey);
-            Assert.Equal("250 hertz", TuningSteps.LabelFor(read[0]));
+            // Written like the starting labels since #346; this pinned the spoken "250 hertz".
+            Assert.Equal(Lexicon.Get("settings.tuning.step_label_hz", ("value", "250")), TuningSteps.LabelFor(read[0]));
             Assert.True(TuningSteps.IsStartingList(new[] { 10000, 500, 1000, 2000, 5000 }, coarse: true));
             Assert.False(TuningSteps.IsStartingList(new[] { 500 }, coarse: true));
         }
