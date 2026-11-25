@@ -27,10 +27,13 @@ namespace JJFlexWpf.Dialogs
         private string _codeChallenge = "";
         private string _state = "";
 
-        // Auth0 configuration
-        private const string Auth0Domain = "frtest.auth0.com";
-        private const string Auth0ClientId = "4Y9fEIIsVYyQo5u6jr7yBWc4lV5ugC2m";
-        private const string RedirectUri = "https://frtest.auth0.com/mobile";
+        // Auth0 configuration: today's values unless the operator's settings
+        // folder overrides them (#332, Radios.SmartLinkAuth0Settings). Read
+        // once per sign-in window, so one exchange never mixes two readings.
+        private readonly Radios.SmartLinkAuth0Settings _auth0 = Radios.SmartLinkAuth0Settings.Current;
+        private string Auth0Domain => _auth0.Domain;
+        private string Auth0ClientId => _auth0.ClientId;
+        private string RedirectUri => _auth0.RedirectUri;
 
         /// <summary>JWT identity token for SmartLink authentication.</summary>
         public string IdToken { get; private set; } = "";
@@ -176,7 +179,7 @@ namespace JJFlexWpf.Dialogs
                 var uri = new Uri(WebView.Source.ToString());
                 _trace?.Invoke("AuthDialog NavigationCompleted: " + uri.AbsoluteUri, 1);
 
-                if (uri.AbsolutePath == "/mobile")
+                if (uri.AbsolutePath == _auth0.RedirectPath)
                 {
                     var query = HttpUtility.ParseQueryString(uri.Query);
                     var code = query["code"];
