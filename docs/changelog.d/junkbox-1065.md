@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- Radio Setup and the Settings Network tab now show the UDP port your radio advertises to SmartLink for manual port forwarding, the same number the radio picker shows, instead of 4991 when the radio was found on your own network. When the UDP port is not known on a connection, they say so rather than repeating the TCP number, and opening Settings and pressing OK without touching the port fields never offers to rewrite your radio's port forwarding.

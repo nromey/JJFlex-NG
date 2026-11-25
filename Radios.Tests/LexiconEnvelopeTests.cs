@@ -924,6 +924,13 @@ namespace Radios.Tests
                 "connect.smartlink.account.tier_3",
                 "settings.network.tier_in_use",
                 "settings.network.tier_no_account",
+                // Junk box batch 30 (2026-11-25), #1065: manual forwarding on,
+                // the external TCP port known and the UDP port not. DRAFT
+                // facts for Codex to word; not approved copy.
+                "settings.network.advertises_tcp_udp_unknown",
+                "settings.network.router_rules_udp_unknown",
+                "settings.radio.way_in.ports_udp_unknown",
+                "settings.radio.way_in.set_udp_unknown",
                 "settings.profile.choice_would_be_refused",
                 // SmartLink connection tiers, Track B (2026-11-20): the names of the
                 // SmartLink methods in the walk's move sentence, and the reason a
