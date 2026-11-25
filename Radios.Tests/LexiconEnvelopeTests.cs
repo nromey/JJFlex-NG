@@ -931,6 +931,12 @@ namespace Radios.Tests
                 "settings.network.router_rules_udp_unknown",
                 "settings.radio.way_in.ports_udp_unknown",
                 "settings.radio.way_in.set_udp_unknown",
+                // Junk box batch 30, #276: the on-demand read closes with one
+                // clause for the Routine things running. DRAFT, for Codex.
+                "logging.running.routine_clause",
+                "logging.running.routine_only",
+                "logging.running.routine_clause_terse",
+                "logging.running.routine_only_terse",
                 "settings.profile.choice_would_be_refused",
                 // SmartLink connection tiers, Track B (2026-11-20): the names of the
                 // SmartLink methods in the walk's move sentence, and the reason a

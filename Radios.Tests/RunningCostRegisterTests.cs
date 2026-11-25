@@ -178,9 +178,108 @@ namespace Radios.Tests
             RunningCostRegister.Register(Cost("off", "Something switched off", () => false));
 
             string spoken = RunningCostRegister.DescribeForSpeech();
-            Assert.Contains("The diagnostic log", spoken, StringComparison.Ordinal);
-            Assert.Contains("Meter stream recording", spoken, StringComparison.Ordinal);
+            // Case-insensitive since #276: a Routine name is said inside the
+            // closing clause, so its sentence-start capital is dropped.
+            Assert.Contains("the diagnostic log", spoken, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("meter stream recording", spoken, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("Something switched off", spoken, StringComparison.Ordinal);
+        }
+
+        // ── #276: Notable named, Routine in one clause, at the operator's level ──
+
+        private void RegisterNotableAndTwoRoutine()
+        {
+            RunningCostRegister.Register(new RunningCost("stream", "Meter stream recording")
+            {
+                IsRunning = () => true,
+                DescribeCost = () => "4.7 megabytes",
+                Weight = RunningCostWeight.Notable
+            });
+            RunningCostRegister.Register(Cost("log", "The diagnostic log", () => true, "148 kilobytes"));
+            RunningCostRegister.Register(Cost("tones", "Meter tones", () => true, "2 meters sounding"));
+        }
+
+        private static int Occurrences(string text, string part)
+        {
+            int n = 0, i = 0;
+            while ((i = text.IndexOf(part, i, StringComparison.OrdinalIgnoreCase)) >= 0) { n++; i += part.Length; }
+            return n;
+        }
+
+        [Fact]
+        public void TheReadNamesNotableThingsAndClosesWithOneClauseForTheRoutineOnes()
+        {
+            RegisterNotableAndTwoRoutine();
+
+            string spoken = RunningCostRegister.DescribeForSpeech(VerbosityLevel.Chatty);
+            string clause = Lexicon.Get("logging.running.routine_clause",
+                ("list", "the diagnostic log " + Lexicon.Get("audio.takes.and") + " meter tones"));
+
+            // The Notable thing keeps its own sentence, with its size.
+            Assert.StartsWith("Meter stream recording, 4.7 megabytes.", spoken, StringComparison.Ordinal);
+            // The Routine ones are named once each, together, in the one clause,
+            // without an item-each recital of their sizes.
+            Assert.EndsWith(clause, spoken, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(spoken, "diagnostic log"));
+            Assert.Equal(1, Occurrences(spoken, "meter tones"));
+            Assert.DoesNotContain("148 kilobytes", spoken, StringComparison.Ordinal);
+            Assert.DoesNotContain("2 meters sounding", spoken, StringComparison.Ordinal);
+            // The data is not filtered: the register still knows all three.
+            Assert.Equal(3, RunningCostRegister.Snapshot().Count);
+        }
+
+        [Fact]
+        public void TheClauseDoesNotDisappearAtTerse()
+        {
+            RegisterNotableAndTwoRoutine();
+
+            string terse = RunningCostRegister.DescribeForSpeech(VerbosityLevel.Terse);
+            Assert.EndsWith(Lexicon.Get("logging.running.routine_clause_terse",
+                ("list", "the diagnostic log " + Lexicon.Get("audio.takes.and") + " meter tones")), terse,
+                StringComparison.Ordinal);
+            // Sizes are kept at terse: whether terse drops them is not ruled.
+            Assert.Contains("4.7 megabytes", terse, StringComparison.Ordinal);
+            // Terse shortens the wording, not the facts.
+            Assert.True(terse.Length < RunningCostRegister.DescribeForSpeech(VerbosityLevel.Chatty).Length);
+        }
+
+        [Fact]
+        public void TheNoArgumentReadRendersAtTheOperatorsVerbosity()
+        {
+            RegisterNotableAndTwoRoutine();
+            Assert.Equal(RunningCostRegister.DescribeForSpeech(ScreenReaderOutput.CurrentVerbosity),
+                RunningCostRegister.DescribeForSpeech());
+        }
+
+        [Fact]
+        public void WithNoRoutineThingRunningThereIsNoClause()
+        {
+            RunningCostRegister.Register(Cost("stream", "Meter stream recording", () => true,
+                weight: RunningCostWeight.Notable));
+            RunningCostRegister.Register(Cost("tones", "Meter tones", () => false));
+
+            string spoken = RunningCostRegister.DescribeForSpeech(VerbosityLevel.Chatty);
+            Assert.Equal("Meter stream recording.", spoken);
+        }
+
+        [Fact]
+        public void OnlyRoutineThingsRunningIsItsOwnShortAnswer()
+        {
+            RunningCostRegister.Register(Cost("log", "The diagnostic log", () => true, "148 kilobytes"));
+            RunningCostRegister.Register(Cost("tones", "Meter tones", () => false));
+            RunningCostRegister.Register(Cost("test-tone", "Meter test tone"));
+
+            // Built from what is running: the tones are off, the test tone is on.
+            Assert.Equal(Lexicon.Get("logging.running.routine_only",
+                    ("list", "the diagnostic log " + Lexicon.Get("audio.takes.and") + " meter test tone")),
+                RunningCostRegister.DescribeForSpeech(VerbosityLevel.Chatty));
+        }
+
+        [Fact]
+        public void AnInitialismKeepsItsCapitalInsideTheClause()
+        {
+            Assert.Equal("QSO signal capture", RunningCostRegister.InAClause("QSO signal capture"));
+            Assert.Equal("the diagnostic log", RunningCostRegister.InAClause("The diagnostic log"));
         }
 
         [Fact]

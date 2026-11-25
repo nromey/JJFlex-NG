@@ -366,22 +366,83 @@ namespace Radios
         public static bool AnyNotable => Snapshot().Any(r => r.Weight == RunningCostWeight.Notable);
 
         /// <summary>
-        /// The on-demand answer, assembled. One sentence per running thing, and
-        /// a plain statement when there is nothing to report — an empty answer
-        /// is still an answer, and silence would read as the key not working.
+        /// The on-demand answer at the operator's verbosity; see
+        /// <see cref="DescribeForSpeech(VerbosityLevel)"/>.
         /// </summary>
         public static string DescribeForSpeech()
+            => DescribeForSpeech(ScreenReaderOutput.CurrentVerbosity);
+
+        /// <summary>
+        /// The on-demand answer, assembled at <paramref name="level"/>: one
+        /// sentence per Notable thing running, then ONE short clause naming the
+        /// Routine ones, and a plain statement when there is nothing to report
+        /// (an empty answer is still an answer, and silence would read as the
+        /// key not working).
+        /// </summary>
+        /// <remarks>
+        /// <para>Ruled by Noel 2026-10-18 (#276, "agreed"): name the things the
+        /// operator could plausibly have forgotten, then close with one short
+        /// clause covering the rest rather than an item each. Nothing is
+        /// omitted (<see cref="Snapshot"/> still returns everything), so the
+        /// argument in <see cref="RunningCostWeight.Routine"/>'s remarks holds:
+        /// the Routine things are demoted from a sentence each to a clause, not
+        /// dropped. The clause is built from the Routine things actually
+        /// running, never a fixed string: a fixed "your everyday log and meter
+        /// tones" would name tones that are off and miss a test tone that is
+        /// sounding.</para>
+        /// <para>The clause does NOT disappear at terse; terse shortens its
+        /// wording, not the facts. Notable sentences keep their sizes at every
+        /// level: whether terse should drop them is not ruled.</para>
+        /// <para>Until then this took no verbosity at all, and its caller
+        /// speaks at <see cref="VerbosityLevel.Critical"/>, which is a priority
+        /// and not a length, so a terse operator heard the chatty recital.</para>
+        /// </remarks>
+        public static string DescribeForSpeech(VerbosityLevel level)
         {
             IReadOnlyList<RunningCostReading> readings = Snapshot();
             if (readings.Count == 0) return Lexicon.Get("logging.running.nothing");
 
             var sb = new StringBuilder();
+            var routine = new List<string>();
             foreach (RunningCostReading r in readings)
             {
+                if (r.Weight != RunningCostWeight.Notable)
+                {
+                    routine.Add(InAClause(r.Name));
+                    continue;
+                }
                 if (sb.Length > 0) sb.Append(' ');
                 sb.Append(r.Sentence());
             }
+            if (routine.Count > 0)
+            {
+                string list = Listenback.ListenbackResultText.JoinList(routine);
+                // A terse form for Terse and below, a fuller one above: two
+                // keys rather than a ladder, so the shipped ladder count that
+                // Sprint 49 also edits is left alone.
+                bool terse = level <= VerbosityLevel.Terse;
+                string clause = sb.Length == 0
+                    ? (terse
+                        ? Lexicon.Get("logging.running.routine_only_terse", ("list", list))
+                        : Lexicon.Get("logging.running.routine_only", ("list", list)))
+                    : (terse
+                        ? Lexicon.Get("logging.running.routine_clause_terse", ("list", list))
+                        : Lexicon.Get("logging.running.routine_clause", ("list", list)));
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(clause);
+            }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// A registration's name inside a sentence: its capital dropped when it
+        /// is only a sentence-start capital ("The diagnostic log" becomes "the
+        /// diagnostic log"), kept on an initialism ("QSO signal capture").
+        /// </summary>
+        internal static string InAClause(string name)
+        {
+            if (name.Length < 2 || !char.IsUpper(name[0]) || !char.IsLower(name[1])) return name;
+            return char.ToLower(name[0], CultureInfo.CurrentCulture) + name.Substring(1);
         }
 
         /// <summary>
