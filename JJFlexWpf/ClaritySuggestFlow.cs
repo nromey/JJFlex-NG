@@ -287,12 +287,12 @@ namespace JJFlexWpf
                     : Lexicon.Get("audio.clarity_suggest.recording_needed"));
             }
 
-            if (o.Retained != RetainedKind.None && r.Guard != null)
-                parts.Add(Lexicon.Get(o.Retained == RetainedKind.AuditionTake
-                    ? "audio.clarity_suggest.retained_audition" : "audio.clarity_suggest.retained_recording", ("file", o.RetainedName)));
-
             if (o.CanKeep)
             {
+                // Which of the operator's own recordings before and after are made from: said only when there is something to hear.
+                if (o.Retained != RetainedKind.None)
+                    parts.Add(Lexicon.Get(o.Retained == RetainedKind.AuditionTake
+                        ? "audio.clarity_suggest.retained_audition" : "audio.clarity_suggest.retained_recording", ("file", o.RetainedName)));
                 if (o.Pair is { LevelMatched: false }) parts.Add(Lexicon.Get("audio.clarity_suggest.not_level_matched"));
                 parts.Add(Lexicon.Get(o.KeepSwitchesOn ? "audio.clarity_suggest.can_keep_switches_on" : "audio.clarity_suggest.can_keep"));
             }

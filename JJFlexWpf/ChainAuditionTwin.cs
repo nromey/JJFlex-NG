@@ -282,7 +282,6 @@ namespace JJFlexWpf
             public float? Threshold;
             public AuditionThresholdSource? Source;
             public float? Floor;
-            public bool AnySlot;
         }
 
         /// <summary>
@@ -296,7 +295,7 @@ namespace JJFlexWpf
             DenoiseEngineCatalog catalog, WdspHost? expanderHost, List<SlotPlan> plans, CancellationToken cancel,
             Action<int>? reportBuffer, out UpstreamAudio upstream)
         {
-            upstream = new UpstreamAudio { AnySlot = plans.Count > 0 };
+            upstream = new UpstreamAudio();
             // 3. An engine reported unavailable is said at once, in the words
             // the rest of the app already uses for it, with its name.
             foreach (var plan in plans)
@@ -572,9 +571,6 @@ namespace JJFlexWpf
 
             private int ExpanderDelay => !_gate.Enabled ? 0
                 : _up.WdspMode ? _up.ExpanderDelay : TxNoiseGate.LookAheadFramesFor(_gate.LookAheadMs, (uint)TxNoiseChain.SampleRate);
-
-            /// <summary>The passband the renders are clamped to.</summary>
-            public Passband Edges => _passband;
 
             /// <summary>What the chain would SEND with JJ Clarity set this way: every in-process stage, the limiter included. For listening.</summary>
             public float[] Sent(bool clarityOn, ClaritySettings settings) => Run(clarityOn, settings, limiter: true);

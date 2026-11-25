@@ -973,6 +973,7 @@ public sealed class TxClaritySurfaceTests
             ("compander", "False"), ("compander_level", "30"), ("mic_gain", "42")), report[1]);
         Assert.Contains(report, s => s.StartsWith("WORDING PLACEHOLDER: DRAFT PROSE: Brightness: your voice is", StringComparison.Ordinal) && s.Contains("suggested"));
         Assert.Contains(Lexicon.Get("audio.clarity_suggest.can_keep_switches_on"), report);
+        Assert.Contains(Lexicon.Get("audio.clarity_suggest.retained_recording", ("file", "take-2026-11-24-230000")), report);
         Assert.Equal(Lexicon.Get("audio.clarity_suggest.changes_nothing"), report[^1]);
         Assert.DoesNotContain(report, s => s.Contains("clipping", StringComparison.OrdinalIgnoreCase) || s.Contains("free of", StringComparison.OrdinalIgnoreCase));
     }
@@ -1092,6 +1093,8 @@ public sealed class TxClaritySurfaceTests
         var report = ClaritySuggestFlow.Report(o);
         Assert.Contains(Lexicon.Get("audio.clarity_suggest.nothing_needed"), report);
         Assert.DoesNotContain(Lexicon.Get("audio.clarity_suggest.recording_needed"), report);
+        // Nothing to hear, so no sentence about which recording before and after were made from.
+        Assert.DoesNotContain(report, s => s.Contains("take-2026-11-24-230000", StringComparison.Ordinal));
     }
 
     [Fact]
