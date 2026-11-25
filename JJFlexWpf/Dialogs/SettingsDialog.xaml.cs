@@ -865,6 +865,17 @@ namespace JJFlexWpf.Dialogs
         internal static string ForwardingStateLine(bool enabled, int tcp, int udp, string lanIp)
         {
             if (!enabled) return Lexicon.Get("settings.network.uses_upnp_or_hole_punch");
+            // Forwarding on, the external TCP port not known (-1 when no list
+            // and no SmartLink sighting describes this radio, 0 from the
+            // connection cache): no external number is named, and the rules
+            // keep only the radio's own LAN-side ports. Until repair round 1
+            // this fell into the next branch and said "external TCP port -1".
+            if (tcp <= 0)
+                return Lexicon.Get("settings.network.forwarding_on_ports_unknown")
+                    + Lexicon.Get("settings.network.router_rules_ports_unknown",
+                        ("lanIp", lanIp),
+                        ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                        ("udpPort", FlexBase.SmartLinkRadioUdpPort));
             if (udp <= 0)
                 return Lexicon.Get("settings.network.advertises_tcp_udp_unknown", ("tcp", tcp))
                     + Lexicon.Get("settings.network.router_rules_udp_unknown",

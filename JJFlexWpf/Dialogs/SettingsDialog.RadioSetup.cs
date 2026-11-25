@@ -279,8 +279,16 @@ namespace JJFlexWpf.Dialogs
         /// </remarks>
         internal static string WayInLine(bool forwarding, int tcp, int udp, string modeText)
         {
-            if (!forwarding || tcp <= 0)
+            if (!forwarding)
                 return Lexicon.Get("settings.radio.way_in.not_set", ("modeText", modeText));
+            // Forwarding on, the external TCP port not known: until repair
+            // round 1 this shared the branch above and said forwarding was
+            // disabled. No external number is named.
+            if (tcp <= 0)
+                return Lexicon.Get("settings.radio.way_in.set_ports_unknown",
+                    ("modeText", modeText),
+                    ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                    ("udpPort", FlexBase.SmartLinkRadioUdpPort));
             // Track C wording fix: the radio advertises these external
             // ports; it listens on its LAN address at TCP 4994 / UDP 4993,
             // and the router rules must say so.

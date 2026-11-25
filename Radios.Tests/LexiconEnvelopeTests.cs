@@ -931,6 +931,11 @@ namespace Radios.Tests
                 "settings.network.router_rules_udp_unknown",
                 "settings.radio.way_in.ports_udp_unknown",
                 "settings.radio.way_in.set_udp_unknown",
+                // Junk box batch 30 repair round 1: forwarding on and neither
+                // external port known. DRAFT facts for Codex to word.
+                "settings.network.forwarding_on_ports_unknown",
+                "settings.network.router_rules_ports_unknown",
+                "settings.radio.way_in.set_ports_unknown",
                 // Junk box batch 30, #276: the on-demand read closes with one
                 // clause for the Routine things running. DRAFT, for Codex.
                 "logging.running.routine_clause",

@@ -110,6 +110,102 @@ public sealed class PortForwardShownTests
         Assert.DoesNotContain(" 0 ", SettingsDialog.ForwardingStateLine(true, 25678, 0, "192.0.2.10"));
     }
 
+    // Repair round 1: forwarding on and neither external port known (-1 when
+    // no list and no SmartLink sighting describes the radio, 0 from the
+    // connection cache). Both screens must say forwarding is on, name no
+    // external number, and keep the radio's LAN-side ports.
+
+    [Theory]
+    [InlineData(-1, -1)]
+    [InlineData(0, 0)]
+    public void The_network_tab_says_forwarding_is_on_and_names_no_port_when_neither_is_known(int tcp, int udp)
+    {
+        AssertWindowless();
+        string line = SettingsDialog.ForwardingStateLine(true, tcp, udp, "192.0.2.10");
+        Assert.Equal(Lexicon.Get("settings.network.forwarding_on_ports_unknown")
+            + Lexicon.Get("settings.network.router_rules_ports_unknown", ("lanIp", "192.0.2.10"),
+                ("tlsPort", FlexBase.SmartLinkRadioTlsPort), ("udpPort", FlexBase.SmartLinkRadioUdpPort)), line);
+        AssertNamesNoUnknownPort(line);
+        Assert.Contains(FlexBase.SmartLinkRadioTlsPort.ToString(), line);
+        Assert.Contains(FlexBase.SmartLinkRadioUdpPort.ToString(), line);
+        Assert.Contains("192.0.2.10", line);
+    }
+
+    [Theory]
+    [InlineData(-1, -1)]
+    [InlineData(0, 0)]
+    public void Radio_setup_says_forwarding_is_on_and_names_no_port_when_neither_is_known(int tcp, int udp)
+    {
+        AssertWindowless();
+        string line = SettingsDialog.WayInLine(true, tcp, udp, "MODE.");
+        Assert.Equal(Lexicon.Get("settings.radio.way_in.set_ports_unknown", ("modeText", "MODE."),
+            ("tlsPort", FlexBase.SmartLinkRadioTlsPort), ("udpPort", FlexBase.SmartLinkRadioUdpPort)), line);
+        Assert.NotEqual(Lexicon.Get("settings.radio.way_in.not_set", ("modeText", "MODE.")), line);
+        AssertNamesNoUnknownPort(line);
+        Assert.Contains("MODE.", line);
+    }
+
+    [Theory]
+    [InlineData(-1, -1)]
+    [InlineData(0, 0)]
+    [InlineData(25678, 25678)]
+    public void Forwarding_off_still_says_so_on_both_screens(int tcp, int udp)
+    {
+        AssertWindowless();
+        Assert.Equal(Lexicon.Get("settings.network.uses_upnp_or_hole_punch"),
+            SettingsDialog.ForwardingStateLine(false, tcp, udp, "192.0.2.10"));
+        Assert.Equal(Lexicon.Get("settings.radio.way_in.not_set", ("modeText", "MODE.")),
+            SettingsDialog.WayInLine(false, tcp, udp, "MODE."));
+    }
+
+    [Fact]
+    public void The_known_port_lines_are_unchanged()
+    {
+        AssertWindowless();
+        Assert.Equal(Lexicon.Get("settings.network.advertises_tcp_udp_unknown", ("tcp", 25678))
+            + Lexicon.Get("settings.network.router_rules_udp_unknown", ("tcp", 25678), ("lanIp", "192.0.2.10"),
+                ("tlsPort", FlexBase.SmartLinkRadioTlsPort), ("udpPort", FlexBase.SmartLinkRadioUdpPort)),
+            SettingsDialog.ForwardingStateLine(true, 25678, -1, "192.0.2.10"));
+        Assert.Equal(Lexicon.Get("settings.network.advertises_one_port", ("tcp", 25678))
+            + Lexicon.Get("settings.network.router_rules", ("tcp", 25678), ("udp", 25678), ("lanIp", "192.0.2.10"),
+                ("tlsPort", FlexBase.SmartLinkRadioTlsPort), ("udpPort", FlexBase.SmartLinkRadioUdpPort)),
+            SettingsDialog.ForwardingStateLine(true, 25678, 25678, "192.0.2.10"));
+        Assert.Equal(Lexicon.Get("settings.network.advertises_separate_ports", ("tcp", 25678), ("udp", 25679))
+            + Lexicon.Get("settings.network.router_rules", ("tcp", 25678), ("udp", 25679), ("lanIp", "192.0.2.10"),
+                ("tlsPort", FlexBase.SmartLinkRadioTlsPort), ("udpPort", FlexBase.SmartLinkRadioUdpPort)),
+            SettingsDialog.ForwardingStateLine(true, 25678, 25679, "192.0.2.10"));
+        Assert.Equal(Lexicon.Get("settings.radio.way_in.set",
+            ("ports", Lexicon.Get("settings.radio.way_in.ports_separate", ("tcp", 25678), ("udp", 25679))),
+            ("modeText", "MODE."), ("tcp", 25678), ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+            ("udpShown", 25679), ("udpPort", FlexBase.SmartLinkRadioUdpPort)),
+            SettingsDialog.WayInLine(true, 25678, 25679, "MODE."));
+    }
+
+    [Fact]
+    public void An_untouched_tab_filled_with_neither_port_known_does_not_offer_a_rewrite()
+    {
+        AssertWindowless();
+        // FillNetworkTab with enabled, -1, -1: the checkbox on, and both
+        // boxes fall back to 4992 (no TCP to mirror). An untouched OK parses
+        // those boxes back, and the radio still reads -1/-1.
+        var shown = new Shown(true, 4992, 4992);
+        Assert.False(SettingsDialog.PortForwardChanged(shown, wantEnabled: true, tcp: 4992, udp: 4992,
+            curEnabled: true, curTcp: -1, curUdp: -1));
+        // And the comparison still sees a real edit in this state.
+        Assert.True(SettingsDialog.PortForwardChanged(shown, true, 25678, 25678, true, -1, -1));
+    }
+
+    /// <summary>
+    /// No non-positive number stands where a port would be, and nothing says
+    /// forwarding is disabled.
+    /// </summary>
+    private static void AssertNamesNoUnknownPort(string line)
+    {
+        Assert.DoesNotContain("-1", line);
+        Assert.DoesNotMatch(@"(?<![\d.])0(?![\d.])", line);
+        Assert.DoesNotContain("disabled", line, System.StringComparison.OrdinalIgnoreCase);
+    }
+
     private static int CountOf(string text, string part)
     {
         int n = 0, i = 0;
